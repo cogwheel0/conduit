@@ -25,7 +25,6 @@ dependencies:
   # UI Components - Enhanced Markdown  
   markdown_widget: ^2.3.2+8
   flutter_highlight: ^0.7.0
-  highlight: ^0.7.0
   cached_network_image: ^3.3.1
   
   
@@ -43,15 +42,12 @@ dependencies:
   # Utilities
   path: ^1.9.0
   uuid: ^4.5.0
-  collection: ^1.18.0
   crypto: ^3.0.3
   package_info_plus: ^8.0.2
   url_launcher: ^6.3.0
   
   # Icons & Theming
-  cupertino_icons: ^1.0.8
   freezed_annotation: ^3.0.0
-  json_annotation: ^4.9.0
   google_fonts: ^6.2.1
   wakelock_plus: ^1.2.10
   share_plus: ^11.1.0

@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  analyze-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.0'
+          channel: 'stable'
+      - name: Install dependencies
+        run: flutter pub get
+      - name: Run analyzer
+        run: dart analyze
+      - name: Check unused dependencies
+        run: |
+          dart pub global activate dependency_validator
+          dependency_validator
+      - name: Run code metrics
+        run: |
+          dart pub global activate dart_code_metrics
+          dart pub global run dart_code_metrics:metrics analyze lib
+      - name: Run tests
+        run: |
+          if [ -d test ]; then
+            flutter test
+          else
+            echo "No tests found"
+          fi
