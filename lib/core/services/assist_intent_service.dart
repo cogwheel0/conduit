@@ -77,6 +77,9 @@ void _processAssistIntent(Ref ref) {
     ref.read(chatMessagesProvider.notifier).clearMessages();
     ref.read(activeConversationProvider.notifier).state = null;
 
+    // Enable TTS for AI responses in ASSIST intent sessions
+    ref.read(shouldUseTTSForResponseProvider.notifier).state = true;
+
     // Trigger input focus and voice input with staggered delays
     // Shorter delays since we know the UI is ready at this point
     Future.delayed(const Duration(milliseconds: 300), () {

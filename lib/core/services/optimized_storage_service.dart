@@ -24,6 +24,7 @@ class OptimizedStorageService {
   static const String _rememberCredentialsKey = 'remember_credentials';
   static const String _themeModeKey = 'theme_mode';
   static const String _localeCodeKey = 'locale_code_v1';
+  static const String _ttsLanguageKey = 'tts_language_v1';
   static const String _localConversationsKey = 'local_conversations';
   static const String _onboardingSeenKey = 'onboarding_seen_v1';
   static const String _reviewerModeKey = 'reviewer_mode_v1';
@@ -238,6 +239,20 @@ class OptimizedStorageService {
       await _prefs.remove(_localeCodeKey);
     } else {
       await _prefs.setString(_localeCodeKey, code);
+    }
+  }
+
+  /// TTS Language Management
+  String? getTTSLanguage() {
+    // Returns a language code like 'en-US', 'es-ES', 'de-DE', 'fr-FR', 'it-IT'. Null means system.
+    return _prefs.getString(_ttsLanguageKey);
+  }
+
+  Future<void> setTTSLanguage(String? languageCode) async {
+    if (languageCode == null || languageCode.isEmpty) {
+      await _prefs.remove(_ttsLanguageKey);
+    } else {
+      await _prefs.setString(_ttsLanguageKey, languageCode);
     }
   }
 

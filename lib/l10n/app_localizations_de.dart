@@ -553,6 +553,9 @@ class AppLocalizationsDe extends AppLocalizations {
   String get italiano => 'Italienisch';
 
   @override
+  String get espanol => 'Spanisch';
+
+  @override
   String get deleteMessagesTitle => 'Nachrichten löschen';
 
   @override
@@ -727,4 +730,16 @@ class AppLocalizationsDe extends AppLocalizations {
   String thoughtForDuration(String duration) {
     return 'Gedacht für $duration';
   }
+
+  @override
+  String get ttsLanguage => 'TTS-Sprache';
+
+  @override
+  String get ttsLanguageDescription => 'Sprache für Text-zu-Sprache wählen';
+
+  @override
+  String get listen => 'Anhören';
+
+  @override
+  String get stop => 'Stoppen';
 }

@@ -37,6 +37,7 @@ dependencies:
   # Platform Features
   record: ^6.0.0
   stts: ^1.2.5
+  flutter_tts: ^4.2.3
   image_picker: ^1.1.2
   file_picker: ^10.2.1
   path_provider: ^2.1.4

@@ -208,6 +208,7 @@
   "deutsch": "Deutsch",
   "francais": "Français",
   "italiano": "Italiano",
+  "espanol": "Spanish",
   "deleteMessagesTitle": "Delete Messages",
   "deleteMessagesMessage": "Delete {count} messages?",
   "@deleteMessagesMessage": {
@@ -282,5 +283,10 @@
   "@thoughtForDuration": {
     "description": "Shows how long the assistant thought before replying.",
     "placeholders": {"duration": {"type": "String", "example": "3s"}}
-  }
+  },
+  "ttsLanguage": "TTS Language",
+  "ttsLanguageDescription": "Choose language for text-to-speech",
+  "espanol": "Spanish",
+  "listen": "Listen",
+  "stop": "Stop"
 }

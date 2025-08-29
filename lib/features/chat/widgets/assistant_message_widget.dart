@@ -7,6 +7,7 @@ import 'dart:io' show Platform;
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/markdown/streaming_markdown_widget.dart';
 import '../../../core/utils/reasoning_parser.dart';
+import '../../../core/services/tts_service.dart';
 import 'enhanced_image_attachment.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'enhanced_attachment.dart';
@@ -231,14 +232,20 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
                             final l10n = AppLocalizations.of(context)!;
                             final rc = _reasoningContent!;
                             final hasSummary = rc.summary.isNotEmpty;
-                            final isThinkingSummary = rc.summary.trim().toLowerCase() == 'thinking…' || rc.summary.trim().toLowerCase() == 'thinking...';
+                            final isThinkingSummary =
+                                rc.summary.trim().toLowerCase() ==
+                                    'thinking…' ||
+                                rc.summary.trim().toLowerCase() ==
+                                    'thinking...';
                             if (widget.isStreaming) {
                               // During streaming, prefer showing Thinking…
                               return hasSummary ? rc.summary : l10n.thinking;
                             }
                             // After streaming ends:
                             if (rc.duration > 0) {
-                              return l10n.thoughtForDuration(rc.formattedDuration);
+                              return l10n.thoughtForDuration(
+                                rc.formattedDuration,
+                              );
                             }
                             // If summary was just the placeholder 'Thinking…', replace with a neutral title
                             if (!hasSummary || isThinkingSummary) {
@@ -566,6 +573,32 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       spacing: 8,
       runSpacing: 8,
       children: [
+        // TTS button
+        Consumer(
+          builder: (context, ref, child) {
+            final ttsController = ref.watch(
+              ttsMessageControllerProvider.notifier,
+            );
+            final isPlaying =
+                ref.watch(ttsMessageControllerProvider)[widget.message.id] ??
+                false;
+
+            return _buildActionButton(
+              icon: isPlaying
+                  ? (Platform.isIOS ? CupertinoIcons.stop_fill : Icons.stop)
+                  : (Platform.isIOS
+                        ? CupertinoIcons.speaker_2_fill
+                        : Icons.volume_up),
+              label: isPlaying
+                  ? AppLocalizations.of(context)!.stop
+                  : AppLocalizations.of(context)!.listen,
+              onTap: () => ttsController.toggleTTS(
+                widget.message.id,
+                widget.message.content,
+              ),
+            );
+          },
+        ),
         _buildActionButton(
           icon: Platform.isIOS
               ? CupertinoIcons.doc_on_clipboard

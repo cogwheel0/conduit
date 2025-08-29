@@ -232,6 +232,8 @@ class ProfilePage extends ConsumerWidget {
               Divider(color: context.conduitTheme.dividerColor, height: 1),
               _buildLanguageTile(context, ref),
               Divider(color: context.conduitTheme.dividerColor, height: 1),
+              _buildTTSLanguageTile(context, ref),
+              Divider(color: context.conduitTheme.dividerColor, height: 1),
               _buildAboutTile(context),
               Divider(color: context.conduitTheme.dividerColor, height: 1),
               _buildAccountOption(
@@ -517,6 +519,156 @@ class ProfilePage extends ConsumerWidget {
           }
         }
       },
+    );
+  }
+
+  Widget _buildTTSLanguageTile(BuildContext context, WidgetRef ref) {
+    final currentTTSLanguage = ref.watch(ttsLanguageProvider);
+
+    final label = () {
+      switch (currentTTSLanguage) {
+        case 'en-US':
+          return AppLocalizations.of(context)!.english;
+        case 'es-ES':
+          return AppLocalizations.of(context)!.espanol;
+        case 'de-DE':
+          return AppLocalizations.of(context)!.deutsch;
+        case 'fr-FR':
+          return AppLocalizations.of(context)!.francais;
+        case 'it-IT':
+          return AppLocalizations.of(context)!.italiano;
+        default:
+          return 'System';
+      }
+    }();
+
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(
+        horizontal: Spacing.listItemPadding,
+        vertical: Spacing.sm,
+      ),
+      leading: Container(
+        padding: const EdgeInsets.all(Spacing.sm),
+        decoration: BoxDecoration(
+          color: context.conduitTheme.buttonPrimary.withValues(
+            alpha: Alpha.highlight,
+          ),
+          borderRadius: BorderRadius.circular(AppBorderRadius.small),
+        ),
+        child: Icon(
+          UiUtils.platformIcon(
+            ios: CupertinoIcons.speaker_2_fill,
+            android: Icons.record_voice_over,
+          ),
+          color: context.conduitTheme.buttonPrimary,
+          size: IconSize.medium,
+        ),
+      ),
+      title: Text(
+        AppLocalizations.of(context)!.ttsLanguage,
+        style: context.conduitTheme.bodyLarge?.copyWith(
+          color: context.conduitTheme.textPrimary,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+      subtitle: Text(
+        label,
+        style: context.conduitTheme.bodySmall?.copyWith(
+          color: context.conduitTheme.textSecondary,
+        ),
+      ),
+      trailing: Icon(
+        UiUtils.platformIcon(
+          ios: CupertinoIcons.chevron_right,
+          android: Icons.chevron_right,
+        ),
+        color: context.conduitTheme.iconSecondary,
+        size: IconSize.small,
+      ),
+      onTap: () async {
+        final selected = await _showTTSLanguageSelector(
+          context,
+          currentTTSLanguage ?? 'system',
+        );
+        if (selected != null) {
+          if (selected == 'system') {
+            await ref.read(ttsLanguageProvider.notifier).setTTSLanguage(null);
+          } else {
+            await ref
+                .read(ttsLanguageProvider.notifier)
+                .setTTSLanguage(selected);
+          }
+        }
+      },
+    );
+  }
+
+  Future<String?> _showTTSLanguageSelector(
+    BuildContext context,
+    String current,
+  ) {
+    return showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => Container(
+        decoration: BoxDecoration(
+          color: context.conduitTheme.surfaceBackground,
+          borderRadius: const BorderRadius.vertical(
+            top: Radius.circular(AppBorderRadius.modal),
+          ),
+          boxShadow: ConduitShadows.modal,
+        ),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: Spacing.sm),
+              const SheetHandle(),
+              const SizedBox(height: Spacing.md),
+              Text(
+                AppLocalizations.of(context)!.ttsLanguage,
+                style: context.conduitTheme.headingSmall?.copyWith(
+                  color: context.conduitTheme.textPrimary,
+                ),
+              ),
+              const SizedBox(height: Spacing.md),
+              ListTile(
+                title: Text('System'),
+                trailing: current == 'system' ? const Icon(Icons.check) : null,
+                onTap: () => Navigator.pop(context, 'system'),
+              ),
+              ListTile(
+                title: Text(AppLocalizations.of(context)!.english),
+                trailing: current == 'en-US' ? const Icon(Icons.check) : null,
+                onTap: () => Navigator.pop(context, 'en-US'),
+              ),
+              ListTile(
+                title: Text(AppLocalizations.of(context)!.espanol),
+                trailing: current == 'es-ES' ? const Icon(Icons.check) : null,
+                onTap: () => Navigator.pop(context, 'es-ES'),
+              ),
+              ListTile(
+                title: Text(AppLocalizations.of(context)!.deutsch),
+                trailing: current == 'de-DE' ? const Icon(Icons.check) : null,
+                onTap: () => Navigator.pop(context, 'de-DE'),
+              ),
+              ListTile(
+                title: Text(AppLocalizations.of(context)!.francais),
+                trailing: current == 'fr-FR' ? const Icon(Icons.check) : null,
+                onTap: () => Navigator.pop(context, 'fr-FR'),
+              ),
+              ListTile(
+                title: Text(AppLocalizations.of(context)!.italiano),
+                trailing: current == 'it-IT' ? const Icon(Icons.check) : null,
+                onTap: () => Navigator.pop(context, 'it-IT'),
+              ),
+              const SizedBox(height: Spacing.sm),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
