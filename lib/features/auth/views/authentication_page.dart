@@ -420,6 +420,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(
                   icon,
@@ -429,13 +430,19 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
                       : context.conduitTheme.iconSecondary,
                 ),
                 const SizedBox(width: Spacing.sm),
-                Text(
-                  label,
-                  style: context.conduitTheme.bodyMedium?.copyWith(
-                    color: isSelected
-                        ? context.conduitTheme.buttonPrimaryText
-                        : context.conduitTheme.textSecondary,
-                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                Flexible(
+                  child: Text(
+                    label,
+                    style: context.conduitTheme.bodyMedium?.copyWith(
+                      color: isSelected
+                          ? context.conduitTheme.buttonPrimaryText
+                          : context.conduitTheme.textSecondary,
+                      fontWeight: isSelected
+                          ? FontWeight.w600
+                          : FontWeight.w500,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
                   ),
                 ),
               ],
