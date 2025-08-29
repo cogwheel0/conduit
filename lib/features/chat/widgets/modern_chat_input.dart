@@ -16,6 +16,7 @@ import '../../../core/providers/app_providers.dart';
 import '../../chat/services/voice_input_service.dart';
 
 import '../../../shared/utils/platform_utils.dart';
+import '../../../core/utils/debug_logger.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 
 class ModernChatInput extends ConsumerStatefulWidget {
@@ -171,6 +172,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   String _baseTextAtStart = '';
   bool _isDeactivated = false;
   int _lastHandledFocusTick = 0;
+  int _lastHandledVoiceTick = 0;
 
   @override
   void initState() {
@@ -350,8 +352,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || _isDeactivated) return;
         _controller.text = incoming;
-        _controller.selection =
-            TextSelection.collapsed(offset: incoming.length);
+        _controller.selection = TextSelection.collapsed(
+          offset: incoming.length,
+        );
         try {
           ref.read(prefilledInputTextProvider.notifier).state = null;
         } catch (_) {}
@@ -382,12 +385,25 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         if (!mounted || _isDeactivated) return;
         // Do not steal focus if another input currently has primary focus
         final currentFocus = FocusManager.instance.primaryFocus;
-        final anotherHasFocus = currentFocus != null && currentFocus != _focusNode;
+        final anotherHasFocus =
+            currentFocus != null && currentFocus != _focusNode;
         if (!anotherHasFocus) {
           _ensureFocusedIfEnabled();
           if (!_isExpanded) _setExpanded(true);
         }
         _lastHandledFocusTick = focusTick;
+      });
+    }
+
+    // React to external voice input requests (e.g., from ASSIST intent)
+    final voiceTick = ref.watch(voiceInputTriggerProvider);
+    if (voiceTick != _lastHandledVoiceTick) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _isDeactivated) return;
+        if (widget.enabled && voiceAvailable && !_isRecording) {
+          _startVoice();
+        }
+        _lastHandledVoiceTick = voiceTick;
       });
     }
 
@@ -1179,12 +1195,35 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           setState(() => _isRecording = false);
           _intensitySub?.cancel();
           _intensitySub = null;
+
+          // Auto-send message if this was triggered by ASSIST intent
+          final isAssistIntentSession = ref.read(
+            isAssistIntentVoiceSessionProvider,
+          );
+          if (isAssistIntentSession) {
+            DebugLogger.log(
+              'Voice input completed for ASSIST intent - auto-sending message',
+            );
+            // Reset the flag
+            ref.read(isAssistIntentVoiceSessionProvider.notifier).state = false;
+            // Auto-send the message after a short delay to ensure text is updated
+            Future.delayed(const Duration(milliseconds: 100), () {
+              if (!mounted) return;
+              final text = _controller.text.trim();
+              if (text.isNotEmpty) {
+                _sendMessage();
+              }
+            });
+          }
         },
         onError: (_) {
           if (!mounted) return;
           setState(() => _isRecording = false);
           _intensitySub?.cancel();
           _intensitySub = null;
+
+          // Reset ASSIST intent flag on error
+          ref.read(isAssistIntentVoiceSessionProvider.notifier).state = false;
         },
       );
       _ensureFocusedIfEnabled();
@@ -1205,6 +1244,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     if (!mounted) return;
     setState(() => _isRecording = false);
     HapticFeedback.selectionClick();
+
+    // Reset ASSIST intent flag when manually stopping voice input
+    ref.read(isAssistIntentVoiceSessionProvider.notifier).state = false;
   }
 
   // Server transcription removed; only on-device STT updates the input text

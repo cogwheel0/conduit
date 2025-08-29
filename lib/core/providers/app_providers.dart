@@ -107,6 +107,32 @@ class LocaleNotifier extends StateNotifier<Locale?> {
   }
 }
 
+// TTS Language provider
+final ttsLanguageProvider = StateNotifierProvider<TTSLanguageNotifier, String?>(
+  (ref) {
+    final storage = ref.watch(optimizedStorageServiceProvider);
+    return TTSLanguageNotifier(storage);
+  },
+);
+
+class TTSLanguageNotifier extends StateNotifier<String?> {
+  final OptimizedStorageService _storage;
+
+  TTSLanguageNotifier(this._storage) : super(null) {
+    _loadTTSLanguage();
+  }
+
+  void _loadTTSLanguage() {
+    final languageCode = _storage.getTTSLanguage();
+    state = languageCode; // null means system default
+  }
+
+  Future<void> setTTSLanguage(String? languageCode) async {
+    state = languageCode;
+    await _storage.setTTSLanguage(languageCode);
+  }
+}
+
 // Server connection providers - optimized with caching
 final serverConfigsProvider = FutureProvider<List<ServerConfig>>((ref) async {
   final storage = ref.watch(optimizedStorageServiceProvider);
@@ -334,7 +360,8 @@ final defaultModelAutoSelectionProvider = Provider<void>((ref) {
         } catch (_) {}
 
         // Fallback: keep current selection or pick first available
-        selected ??= ref.read(selectedModelProvider) ??
+        selected ??=
+            ref.read(selectedModelProvider) ??
             (models.isNotEmpty ? models.first : null);
 
         if (selected != null) {

@@ -184,6 +184,7 @@
   "deutsch": "Allemand",
   "francais": "Français",
   "italiano": "Italien",
+  "espanol": "Espagnol",
   "deleteMessagesTitle": "Supprimer les messages",
   "deleteMessagesMessage": "Supprimer {count} messages ?",
   "@deleteMessagesMessage": {
@@ -258,5 +259,10 @@
   "@thoughtForDuration": {
     "description": "Indique la durée de réflexion de l'assistant.",
     "placeholders": {"duration": {"type": "String", "example": "3 s"}}
-  }
+  },
+  "ttsLanguage": "Langue TTS",
+  "ttsLanguageDescription": "Choisir la langue pour la synthèse vocale",
+  "espanol": "Espagnol",
+  "listen": "Écouter",
+  "stop": "Arrêter"
 }

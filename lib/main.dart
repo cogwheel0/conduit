@@ -20,6 +20,8 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'features/chat/views/chat_page.dart';
 import 'features/navigation/views/splash_launcher_page.dart';
 import 'core/services/share_receiver_service.dart';
+import 'core/services/assist_intent_service.dart';
+import 'core/services/tts_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -78,6 +80,12 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
 
     // Initialize OS share receiver so users can share text/files to Conduit
     ref.read(shareReceiverInitializerProvider);
+
+    // Initialize ASSIST intent service for Android assistant integration
+    ref.read(assistIntentInitializerProvider);
+
+    // Initialize TTS language updater for reactive language changes
+    ref.read(ttsLanguageUpdaterProvider);
   }
 
   @override
@@ -131,14 +139,11 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
             return MediaQuery(
               data: MediaQuery.of(context).copyWith(
                 // Ensure proper text scaling for edge-to-edge
-                textScaler: MediaQuery.of(context).textScaler.clamp(
-                  minScaleFactor: 0.8,
-                  maxScaleFactor: 1.3,
-                ),
+                textScaler: MediaQuery.of(
+                  context,
+                ).textScaler.clamp(minScaleFactor: 0.8, maxScaleFactor: 1.3),
               ),
-              child: OfflineIndicator(
-                child: child ?? const SizedBox.shrink(),
-              ),
+              child: OfflineIndicator(child: child ?? const SizedBox.shrink()),
             );
           },
           home: _getInitialPageWithReactiveState(),

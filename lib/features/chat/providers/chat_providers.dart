@@ -10,6 +10,8 @@ import '../../../core/providers/app_providers.dart';
 import '../../../core/auth/auth_state_manager.dart';
 import '../../../core/utils/stream_chunker.dart';
 import '../../../core/services/persistent_streaming_service.dart';
+import '../../../core/services/tts_service.dart';
+import '../../../core/utils/debug_logger.dart';
 import '../services/reviewer_mode_service.dart';
 
 // Chat messages for current conversation
@@ -26,6 +28,18 @@ final prefilledInputTextProvider = StateProvider<String?>((ref) => null);
 
 // Trigger to request focus on the chat input (increment to signal)
 final inputFocusTriggerProvider = StateProvider<int>((ref) => 0);
+
+// Trigger to start voice input (increment to signal)
+final voiceInputTriggerProvider = StateProvider<int>((ref) => 0);
+
+// Track if current voice session was triggered by ASSIST intent (for auto-send)
+final isAssistIntentVoiceSessionProvider = StateProvider<bool>((ref) => false);
+
+// Track if TTS should be used for AI responses (ASSIST intent only)
+final shouldUseTTSForResponseProvider = StateProvider<bool>((ref) => false);
+
+// Track TTS playback state for individual messages (messageId -> isPlaying)
+final ttsPlaybackStateProvider = StateProvider<Map<String, bool>>((ref) => {});
 
 class ChatMessagesNotifier extends StateNotifier<List<ChatMessage>> {
   final Ref _ref;
@@ -208,10 +222,27 @@ class ChatMessagesNotifier extends StateNotifier<List<ChatMessage>> {
     final lastMessage = state.last;
     if (lastMessage.role != 'assistant' || !lastMessage.isStreaming) return;
 
-    state = [
-      ...state.sublist(0, state.length - 1),
-      lastMessage.copyWith(isStreaming: false),
-    ];
+    final updatedMessage = lastMessage.copyWith(isStreaming: false);
+    state = [...state.sublist(0, state.length - 1), updatedMessage];
+
+    // Check if TTS should be triggered for this response
+    _handleAutoTTSIfNeeded(updatedMessage);
+  }
+
+  void _handleAutoTTSIfNeeded(ChatMessage message) {
+    final shouldUseTTS = _ref.read(shouldUseTTSForResponseProvider);
+    if (!shouldUseTTS) return;
+
+    DebugLogger.log('TTS: Speaking AI response for ASSIST intent');
+
+    // Reset TTS flag after use
+    _ref.read(shouldUseTTSForResponseProvider.notifier).state = false;
+
+    // Trigger TTS in a separate microtask to avoid blocking
+    Future.microtask(() async {
+      final ttsController = _ref.read(ttsMessageControllerProvider.notifier);
+      await ttsController.playTTS(message.id, message.content);
+    });
   }
 
   @override
