@@ -64,75 +64,76 @@ class ConduitButton extends ConsumerWidget {
       label: semanticLabel,
       button: true,
       enabled: !isLoading && onPressed != null,
-      child: SizedBox(
-        width: isFullWidth ? double.infinity : width,
-        height: isCompact ? TouchTarget.medium : TouchTarget.comfortable,
-        child: ElevatedButton(
-          onPressed: isLoading
-              ? null
-              : () {
-                  if (onPressed != null) {
-                    PlatformService.hapticFeedbackWithSettings(
-                      type: isDestructive
-                          ? HapticType.warning
-                          : HapticType.light,
-                      hapticEnabled: hapticEnabled,
-                    );
-                    onPressed!();
-                  }
-                },
-          style: ElevatedButton.styleFrom(
-            backgroundColor: backgroundColor,
-            foregroundColor: textColor,
-            disabledBackgroundColor: context.conduitTheme.buttonDisabled,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(AppBorderRadius.button),
+      child: GestureDetector(
+        // Trigger haptic feedback on tap down for immediate tactile response
+        onTapDown: (onPressed != null && !isLoading)
+            ? (_) {
+                PlatformService.hapticFeedbackWithSettings(
+                  type: isDestructive ? HapticType.warning : HapticType.light,
+                  hapticEnabled: hapticEnabled,
+                );
+              }
+            : null,
+        child: SizedBox(
+          width: isFullWidth ? double.infinity : width,
+          height: isCompact ? TouchTarget.medium : TouchTarget.comfortable,
+          child: ElevatedButton(
+            onPressed: isLoading ? null : onPressed,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: backgroundColor,
+              foregroundColor: textColor,
+              disabledBackgroundColor: context.conduitTheme.buttonDisabled,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppBorderRadius.button),
+              ),
+              elevation: Elevation.none,
+              shadowColor: backgroundColor.withValues(alpha: Alpha.standard),
+              minimumSize: Size(
+                TouchTarget.minimum,
+                isCompact ? TouchTarget.medium : TouchTarget.comfortable,
+              ),
+              padding: EdgeInsets.symmetric(
+                horizontal: isCompact ? Spacing.md : Spacing.buttonPadding,
+                vertical: isCompact ? Spacing.sm : Spacing.sm,
+              ),
             ),
-            elevation: Elevation.none,
-            shadowColor: backgroundColor.withValues(alpha: Alpha.standard),
-            minimumSize: Size(
-              TouchTarget.minimum,
-              isCompact ? TouchTarget.medium : TouchTarget.comfortable,
-            ),
-            padding: EdgeInsets.symmetric(
-              horizontal: isCompact ? Spacing.md : Spacing.buttonPadding,
-              vertical: isCompact ? Spacing.sm : Spacing.sm,
-            ),
-          ),
-          child: isLoading
-              ? Semantics(
-                  label:
-                      AppLocalizations.of(context)?.loadingContent ?? 'Loading',
-                  excludeSemantics: true,
-                  child: SizedBox(
-                    width: IconSize.small,
-                    height: IconSize.small,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(textColor),
-                    ),
-                  ),
-                )
-              : Row(
-                  mainAxisSize: MainAxisSize.min,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    if (icon != null) ...[
-                      Icon(icon, size: IconSize.small),
-                      SizedBox(width: Spacing.iconSpacing),
-                    ],
-                    Flexible(
-                      child: EnhancedAccessibilityService.createAccessibleText(
-                        text,
-                        style: AppTypography.standard.copyWith(
-                          fontWeight: FontWeight.w600,
-                          color: textColor,
-                        ),
-                        maxLines: 1,
+            child: isLoading
+                ? Semantics(
+                    label:
+                        AppLocalizations.of(context)?.loadingContent ??
+                        'Loading',
+                    excludeSemantics: true,
+                    child: SizedBox(
+                      width: IconSize.small,
+                      height: IconSize.small,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(textColor),
                       ),
                     ),
-                  ],
-                ),
+                  )
+                : Row(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      if (icon != null) ...[
+                        Icon(icon, size: IconSize.small),
+                        SizedBox(width: Spacing.iconSpacing),
+                      ],
+                      Flexible(
+                        child:
+                            EnhancedAccessibilityService.createAccessibleText(
+                              text,
+                              style: AppTypography.standard.copyWith(
+                                fontWeight: FontWeight.w600,
+                                color: textColor,
+                              ),
+                              maxLines: 1,
+                            ),
+                      ),
+                    ],
+                  ),
+          ),
         ),
       ),
     );
