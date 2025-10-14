@@ -8,6 +8,16 @@ import 'package:flutter/foundation.dart';
 class DebugLogger {
   static const bool _enabled = kDebugMode;
 
+  // Minimum log level to emit. Defaults to info in debug builds
+  // to reduce console noise, while still surfacing important events.
+  static LogLevel _minLevel = kDebugMode ? LogLevel.info : LogLevel.error;
+
+  /// Configure the minimum log level at runtime.
+  /// Useful for temporarily increasing verbosity when debugging.
+  static void setMinLevel(LogLevel level) {
+    _minLevel = level;
+  }
+
   /// Log debug information.
   static void log(String message, {String? scope, Map<String, Object?>? data}) {
     _emit(_LogCategory.debug, message, scope: scope, data: data);
@@ -171,6 +181,12 @@ class DebugLogger {
       return;
     }
 
+    // Respect minimum level filter
+    final level = _categoryLevel[category] ?? LogLevel.debug;
+    if (level.index < _minLevel.index) {
+      return;
+    }
+
     final buffer = StringBuffer(_prefixes[category] ?? 'DBG');
 
     final effectiveScope = scope?.trim();
@@ -265,6 +281,23 @@ const Map<_LogCategory, String> _prefixes = <_LogCategory, String>{
   _LogCategory.stream: 'STR',
   _LogCategory.validation: 'VAL',
   _LogCategory.storage: 'STO',
+};
+
+/// Log levels for filtering verbosity.
+enum LogLevel { debug, info, warning, error }
+
+/// Map categories to their default severity level.
+const Map<_LogCategory, LogLevel> _categoryLevel = <_LogCategory, LogLevel>{
+  _LogCategory.debug: LogLevel.debug,
+  _LogCategory.info: LogLevel.info,
+  _LogCategory.warning: LogLevel.warning,
+  _LogCategory.error: LogLevel.error,
+  // Treat domain categories as debug by default to minimize noise.
+  _LogCategory.navigation: LogLevel.debug,
+  _LogCategory.auth: LogLevel.debug,
+  _LogCategory.stream: LogLevel.debug,
+  _LogCategory.validation: LogLevel.debug,
+  _LogCategory.storage: LogLevel.debug,
 };
 
 String _stripLegacyDecorations(String value) {
