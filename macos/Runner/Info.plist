@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIconFile</key>
+	<string></string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(FLUTTER_BUILD_NAME)</string>
+	<key>CFBundleVersion</key>
+	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>$(PRODUCT_COPYRIGHT)</string>
+	<key>NSMainNibFile</key>
+	<string>MainMenu</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Conduit needs access to the local network to connect to your self-hosted Open-WebUI server.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Conduit uses the camera to take photos or videos you choose to share in chats. For example, you can snap a photo of a document and attach it to a message.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Conduit uses the microphone to record voice messages and enable voice-to-text in chats. For example, when you hold the mic button in a conversation, we capture your speech to send as an audio message or transcript.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Conduit uses on-device speech recognition so you can dictate messages hands-free. Your speech is converted to text on your device when available.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Conduit needs access to your photo library so you can select existing images or videos to share in chats. For example, you can pick a screenshot to include in a conversation.</string>
+</dict>
+</plist>

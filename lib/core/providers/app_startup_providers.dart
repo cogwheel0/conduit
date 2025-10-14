@@ -110,13 +110,32 @@ void _scheduleConversationWarmup(Ref ref, {bool force = false}) {
       }
 
       final existing = ref.read(conversationsProvider);
+      // If conversations are already loaded (either from cache or previous fetch),
+      // mark warmup as complete without refetching. This prevents showing the
+      // loading indicator when cached data is available.
       if (existing.hasValue) {
         statusController.set(_ConversationWarmupStatus.complete);
         return;
       }
+      // Only refresh cache if there's an error, not when loading
       if (existing.hasError) {
         refreshConversationsCache(ref);
       }
+      // If already loading, wait for it to complete instead of triggering a new fetch
+      if (existing.isLoading) {
+        try {
+          final conversations = await ref.read(conversationsProvider.future);
+          statusController.set(_ConversationWarmupStatus.complete);
+          DebugLogger.info(
+            'Background chats warmup completed (awaited existing load): ${conversations.length} conversations',
+          );
+        } catch (_) {
+          // If the existing load fails, we'll retry on next warmup attempt
+          statusController.set(_ConversationWarmupStatus.idle);
+        }
+        return;
+      }
+      // Only trigger a fresh fetch if we have no data and aren't already loading
       final conversations = await ref.read(conversationsProvider.future);
       statusController.set(_ConversationWarmupStatus.complete);
       DebugLogger.info(
@@ -313,12 +332,19 @@ class AppStartupFlow extends _$AppStartupFlow {
     });
 
     // When conversations reload (e.g., manual refresh), ensure warmup runs again
+    // However, we should NOT reset to idle if conversations transition to loading
+    // while showing cached data - we only want to reset if explicitly invalidated
     ref.listen<AsyncValue<List<Conversation>>>(conversationsProvider, (
       previous,
       next,
     ) {
-      final wasReady = previous?.hasValue == true || previous?.hasError == true;
-      if (wasReady && next.isLoading) {
+      // Only reset warmup status if transitioning from a ready state to loading
+      // AND there's no cached data available (previous was null or error)
+      final wasReady = previous?.hasValue == true;
+      final isNowLoading = next.isLoading;
+      final hasNoCachedData = previous?.hasValue != true;
+
+      if (wasReady && isNowLoading && hasNoCachedData) {
         ref
             .read(_conversationWarmupStatusProvider.notifier)
             .set(_ConversationWarmupStatus.idle);

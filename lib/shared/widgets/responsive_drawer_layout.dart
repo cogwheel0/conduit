@@ -53,11 +53,15 @@ class ResponsiveDrawerLayout extends StatefulWidget {
 
 class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: widget.duration,
-    value: 0.0,
-  );
+  AnimationController? _controllerInstance;
+
+  AnimationController get _controller {
+    return _controllerInstance ??= AnimationController(
+      vsync: this,
+      duration: widget.duration,
+      value: 0.0,
+    );
+  }
 
   bool _isTablet(BuildContext context) {
     final size = MediaQuery.of(context).size;
@@ -321,7 +325,7 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
 
   @override
   void dispose() {
-    _controller.dispose();
+    _controllerInstance?.dispose();
     super.dispose();
   }
 }

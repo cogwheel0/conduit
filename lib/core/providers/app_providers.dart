@@ -858,6 +858,52 @@ Future<List<Conversation>> conversations(Ref ref) async {
     return [];
   }
 
+  // On initial load, check if we have cached conversations and return them immediately
+  // to avoid showing a loading indicator. Fresh data will be fetched in background.
+  final storage = ref.watch(optimizedStorageServiceProvider);
+  final cachedConversations = await storage.getLocalConversations();
+  final hasCache = cachedConversations.isNotEmpty;
+
+  if (hasCache && lastFetch == null) {
+    // First load with cache available - return cached data immediately
+    // and schedule a background fetch to update it
+    DebugLogger.log(
+      'cache-warmstart',
+      scope: 'conversations',
+      data: {'count': cachedConversations.length},
+    );
+
+    // Schedule background fetch to update cache
+    Future.microtask(() async {
+      try {
+        DebugLogger.log('bg-fetch-start', scope: 'conversations');
+        final fresh = await api.getConversations();
+        if (!ref.mounted) return;
+
+        // Update cache timestamp to prevent rapid refetches
+        ref
+            .read(_conversationsCacheTimestampProvider.notifier)
+            .set(DateTime.now());
+
+        // Save to local cache for next startup
+        await storage.saveLocalConversations(fresh);
+
+        // Invalidate provider to trigger UI update with fresh data
+        ref.invalidate(conversationsProvider);
+
+        DebugLogger.log(
+          'bg-fetch-complete',
+          scope: 'conversations',
+          data: {'count': fresh.length},
+        );
+      } catch (e) {
+        DebugLogger.error('bg-fetch-failed', scope: 'conversations', error: e);
+      }
+    });
+
+    return cachedConversations;
+  }
+
   try {
     DebugLogger.log('fetch-start', scope: 'conversations');
     final conversations = await api
@@ -1063,6 +1109,9 @@ Future<List<Conversation>> conversations(Ref ref) async {
           .read(_conversationsCacheTimestampProvider.notifier)
           .set(DateTime.now());
 
+      // Save to local cache for next startup
+      await storage.saveLocalConversations(sortedConversations);
+
       return sortedConversations;
     } catch (e) {
       DebugLogger.error(
@@ -1082,6 +1131,9 @@ Future<List<Conversation>> conversations(Ref ref) async {
       ref
           .read(_conversationsCacheTimestampProvider.notifier)
           .set(DateTime.now());
+
+      // Save to local cache for next startup
+      await storage.saveLocalConversations(conversations);
 
       return conversations; // Return original conversations if folder fetch fails
     }
