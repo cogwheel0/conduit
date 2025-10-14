@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import '../providers/app_providers.dart';
 import '../services/connectivity_service.dart';
 import '../services/navigation_service.dart';
+import '../services/persistent_streaming_service.dart';
 import '../utils/debug_logger.dart';
 import '../../features/auth/providers/unified_auth_providers.dart';
 import '../../features/auth/views/authentication_page.dart';
@@ -103,12 +104,16 @@ class RouterNotifier extends ChangeNotifier {
     // 1. Not in reviewer mode
     // 2. Connectivity is explicitly offline
     // 3. Auth is authenticated (don't interrupt auth flow)
+    // 4. App is in foreground and offline warning isn't suppressed
+    // 5. No active streaming is in progress (avoid interrupting token streams)
+    final hasActiveStreams = PersistentStreamingService().activeStreamCount > 0;
     final shouldShowConnectionIssue =
         !reviewerMode &&
         connectivity == ConnectivityStatus.offline &&
         authState == AuthNavigationState.authenticated &&
         connectivityService.isAppForeground &&
-        !connectivityService.isOfflineSuppressed;
+        !connectivityService.isOfflineSuppressed &&
+        !hasActiveStreams;
 
     if (shouldShowConnectionIssue) {
       return location == Routes.connectionIssue ? null : Routes.connectionIssue;

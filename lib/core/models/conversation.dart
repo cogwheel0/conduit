@@ -14,7 +14,7 @@ sealed class Conversation with _$Conversation {
     String? model,
     String? systemPrompt,
     @Default([]) List<ChatMessage> messages,
-    @Default({}) Map<String, dynamic> metadata,
+    @Default({}) @_MetadataConverter() Map<String, dynamic> metadata,
     @Default(false) bool pinned,
     @Default(false) bool archived,
     String? shareId,
@@ -24,4 +24,23 @@ sealed class Conversation with _$Conversation {
 
   factory Conversation.fromJson(Map<String, dynamic> json) =>
       _$ConversationFromJson(json);
+}
+
+/// Custom converter to handle Map<dynamic, dynamic> from storage
+class _MetadataConverter
+    implements JsonConverter<Map<String, dynamic>, Object?> {
+  const _MetadataConverter();
+
+  @override
+  Map<String, dynamic> fromJson(Object? json) {
+    if (json == null) return {};
+    if (json is Map<String, dynamic>) return json;
+    if (json is Map) {
+      return json.map((key, value) => MapEntry(key.toString(), value));
+    }
+    return {};
+  }
+
+  @override
+  Object? toJson(Map<String, dynamic> object) => object;
 }

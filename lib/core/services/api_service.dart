@@ -16,6 +16,7 @@ import '../auth/api_auth_interceptor.dart';
 import '../error/api_error_interceptor.dart';
 // Tool-call details are parsed in the UI layer to render collapsible blocks
 import 'persistent_streaming_service.dart';
+import 'connectivity_service.dart';
 import '../utils/debug_logger.dart';
 import '../utils/openwebui_source_parser.dart';
 
@@ -90,7 +91,26 @@ class ApiService {
       ),
     );
 
-    // 4. Custom debug interceptor to log exactly what we're sending
+    // 4. Success pings to relax offline detection.
+    // Any successful API response indicates recent connectivity; suppress
+    // offline transitions briefly to avoid UI flicker.
+    _dio.interceptors.add(
+      InterceptorsWrapper(
+        onResponse: (response, handler) {
+          try {
+            if ((response.statusCode ?? 0) >= 200 &&
+                (response.statusCode ?? 0) < 400) {
+              ConnectivityService.suppressOfflineGlobally(
+                const Duration(seconds: 4),
+              );
+            }
+          } catch (_) {}
+          handler.next(response);
+        },
+      ),
+    );
+
+    // 5. Custom debug interceptor to log exactly what we're sending
     if (kDebugMode) {
       _dio.interceptors.add(
         InterceptorsWrapper(

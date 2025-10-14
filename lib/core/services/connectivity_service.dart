@@ -46,7 +46,6 @@ class ConnectivityService with WidgetsBindingObserver {
   ConnectivityStatus _currentStatus = ConnectivityStatus.online;
   bool _hasNetworkInterface = false;
   bool _hasConfirmedNetwork = false;
-  bool _hasSuccessfulProbe = false;
   int _consecutiveFailures = 0;
   int _lastLatencyMs = -1;
 
@@ -149,16 +148,15 @@ class ConnectivityService with WidgetsBindingObserver {
 
     if (isReachable) {
       _consecutiveFailures = 0;
-      _hasSuccessfulProbe = true;
       _updateStatus(ConnectivityStatus.online);
     } else {
       _consecutiveFailures++;
-      // Only surface offline after we've confirmed the server once or we have
-      // multiple consecutive failures. This avoids startup flicker where
-      // authorization or DNS is still settling.
-      if (_hasSuccessfulProbe || _consecutiveFailures >= 2) {
+      // Require more consecutive failures to reduce false negatives.
+      // Switch to offline only after >= 3 consecutive failures.
+      if (_consecutiveFailures >= 3) {
         _updateStatus(ConnectivityStatus.offline);
       } else {
+        // Shorter retry when still below threshold.
         overrideDelay = const Duration(seconds: 3);
       }
     }
@@ -181,13 +179,13 @@ class ConnectivityService with WidgetsBindingObserver {
           .getUri(
             healthUri,
             options: Options(
-              sendTimeout: const Duration(seconds: 2),
-              receiveTimeout: const Duration(seconds: 2),
+              sendTimeout: const Duration(seconds: 5),
+              receiveTimeout: const Duration(seconds: 5),
               followRedirects: false,
               validateStatus: (status) => status != null && status < 500,
             ),
           )
-          .timeout(const Duration(seconds: 3));
+          .timeout(const Duration(seconds: 6));
 
       final isHealthy = response.statusCode == 200;
 
@@ -250,6 +248,11 @@ class ConnectivityService with WidgetsBindingObserver {
 
   bool get _isOfflineSuppressed {
     final until = _offlineSuppressedUntil;
+    // Check process-wide suppression window (set by API layer on successes)
+    final globalUntil = _globalOfflineSuppressedUntil;
+    if (globalUntil != null && DateTime.now().isBefore(globalUntil)) {
+      return true;
+    }
     if (until == null) {
       return false;
     }
@@ -266,6 +269,19 @@ class ConnectivityService with WidgetsBindingObserver {
     if (_offlineSuppressedUntil == null ||
         proposed.isAfter(_offlineSuppressedUntil!)) {
       _offlineSuppressedUntil = proposed;
+    }
+  }
+
+  // ===== Global suppression signaling (from API layer) =====
+  static DateTime? _globalOfflineSuppressedUntil;
+
+  /// Suppress offline transitions globally for a short window. Useful
+  /// to avoid flicker after known-good API responses.
+  static void suppressOfflineGlobally(Duration duration) {
+    final proposed = DateTime.now().add(duration);
+    if (_globalOfflineSuppressedUntil == null ||
+        proposed.isAfter(_globalOfflineSuppressedUntil!)) {
+      _globalOfflineSuppressedUntil = proposed;
     }
   }
 
