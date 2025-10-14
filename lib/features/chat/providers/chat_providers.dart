@@ -153,6 +153,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
         // Cancel any existing message stream when switching conversations
         _cancelMessageStream();
+        _clearStreamingFormatter(); // Explicitly clear formatter on conversation switch
         _stopRemoteTaskMonitor();
 
         if (next != null) {
@@ -268,15 +269,34 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   }
 
   void _ensureFormatterForMessage(ChatMessage message) {
+    // If we're switching to a different message, clear the old formatter first
+    if (_markdownFormatter != null && _activeStreamingMessageId != message.id) {
+      DebugLogger.log(
+        'Clearing formatter for message switch: $_activeStreamingMessageId -> ${message.id}',
+        scope: 'chat/providers',
+      );
+      _clearStreamingFormatter();
+    }
+
+    // If formatter already exists for this message, reuse it
     if (_markdownFormatter != null && _activeStreamingMessageId == message.id) {
       return;
     }
 
+    // Create new formatter
     final formatter = MarkdownStreamFormatter();
+
+    // Only seed with existing content if this is a resume scenario
+    // For new messages (empty content), start fresh to avoid duplication
     final seed = _stripStreamingPlaceholders(message.content);
-    if (seed.isNotEmpty) {
+    if (seed.isNotEmpty && message.content.isNotEmpty) {
+      DebugLogger.log(
+        'Seeding formatter with existing content (${seed.length} chars) for message ${message.id}',
+        scope: 'chat/providers',
+      );
       formatter.seed(seed);
     }
+
     _markdownFormatter = formatter;
     _activeStreamingMessageId = message.id;
   }
@@ -548,10 +568,25 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
     if (!lastMessage.isStreaming) {
       // Ignore late chunks when streaming already finished
+      DebugLogger.log(
+        'Ignoring late chunk for finished message: ${lastMessage.id}',
+        scope: 'chat/providers',
+      );
       return;
     }
 
     _ensureFormatterForMessage(lastMessage);
+
+    // Defensive check: ensure the formatter is for the correct message
+    // This prevents cross-message pollution when messages change rapidly
+    if (_activeStreamingMessageId != lastMessage.id) {
+      DebugLogger.warning(
+        'Formatter message ID mismatch: active=$_activeStreamingMessageId, last=${lastMessage.id}. Resetting formatter.',
+      );
+      _clearStreamingFormatter();
+      _ensureFormatterForMessage(lastMessage);
+    }
+
     final formatter = _markdownFormatter!;
     final preview = formatter.ingest(content);
 
@@ -572,7 +607,24 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       return;
     }
 
+    // Log content replacement for debugging
+    DebugLogger.log(
+      'Replacing message content: messageId=${lastMessage.id}, '
+      'oldLength=${lastMessage.content.length}, newLength=${content.length}',
+      scope: 'chat/providers',
+    );
+
     _ensureFormatterForMessage(lastMessage);
+
+    // Defensive check: ensure the formatter is for the correct message
+    if (_activeStreamingMessageId != lastMessage.id) {
+      DebugLogger.warning(
+        'Formatter message ID mismatch in replace: active=$_activeStreamingMessageId, last=${lastMessage.id}. Resetting formatter.',
+      );
+      _clearStreamingFormatter();
+      _ensureFormatterForMessage(lastMessage);
+    }
+
     final formatter = _markdownFormatter!;
     final sanitized = formatter.replace(_stripStreamingPlaceholders(content));
 
