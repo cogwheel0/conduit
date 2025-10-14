@@ -245,6 +245,16 @@ class BackgroundStreamingHandler {
     List<String> streamIds,
     String reason,
   ) async {
+    // Skip on desktop platforms (macOS, Windows, Linux, web)
+    if (!Platform.isIOS && !Platform.isAndroid) {
+      DebugLogger.stream(
+        'skip-desktop',
+        scope: 'background',
+        data: {'platform': Platform.operatingSystem},
+      );
+      return;
+    }
+
     DebugLogger.stream(
       'saveStreamStatesForRecovery called',
       scope: 'background',

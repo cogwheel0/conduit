@@ -860,7 +860,7 @@ Future<List<Conversation>> conversations(Ref ref) async {
 
   // On initial load, check if we have cached conversations and return them immediately
   // to avoid showing a loading indicator. Fresh data will be fetched in background.
-  final storage = ref.watch(optimizedStorageServiceProvider);
+  final storage = ref.read(optimizedStorageServiceProvider);
   final cachedConversations = await storage.getLocalConversations();
   final hasCache = cachedConversations.isNotEmpty;
 
@@ -873,23 +873,29 @@ Future<List<Conversation>> conversations(Ref ref) async {
       data: {'count': cachedConversations.length},
     );
 
-    // Schedule background fetch to update cache
+    // Schedule background fetch to update cache (don't await it, let it run async)
+    // Mark cache as being refreshed to prevent this block from running again
+    ref.read(_conversationsCacheTimestampProvider.notifier).set(DateTime.now());
+
+    // Schedule the actual fetch after returning cached data
     Future.microtask(() async {
       try {
         DebugLogger.log('bg-fetch-start', scope: 'conversations');
         final fresh = await api.getConversations();
-        if (!ref.mounted) return;
-
-        // Update cache timestamp to prevent rapid refetches
-        ref
-            .read(_conversationsCacheTimestampProvider.notifier)
-            .set(DateTime.now());
 
         // Save to local cache for next startup
-        await storage.saveLocalConversations(fresh);
+        final storageForSave = ref.read(optimizedStorageServiceProvider);
+        await storageForSave.saveLocalConversations(fresh);
 
         // Invalidate provider to trigger UI update with fresh data
-        ref.invalidate(conversationsProvider);
+        // Use try-catch in case the provider is disposed
+        try {
+          if (ref.mounted) {
+            ref.invalidate(conversationsProvider);
+          }
+        } catch (_) {
+          // Provider may have been disposed, ignore
+        }
 
         DebugLogger.log(
           'bg-fetch-complete',
