@@ -10,6 +10,7 @@ import 'app_localizations_en.dart';
 import 'app_localizations_es.dart';
 import 'app_localizations_fr.dart';
 import 'app_localizations_it.dart';
+import 'app_localizations_ko.dart';
 import 'app_localizations_nl.dart';
 import 'app_localizations_ru.dart';
 import 'app_localizations_zh.dart';
@@ -108,6 +109,7 @@ abstract class AppLocalizations {
     Locale('ru'),
     Locale('nl'),
     Locale('es'),
+    Locale('ko'),
   ];
 
   /// Application name displayed in the app and OS UI.
@@ -1310,6 +1312,12 @@ abstract class AppLocalizations {
   /// **'中文'**
   String get chinese;
 
+  /// Language name: Korean.
+  ///
+  /// In en, this message translates to:
+  /// **'한국어'**
+  String get korean;
+
   /// Dialog title asking to confirm deletion of messages.
   ///
   /// In en, this message translates to:
@@ -1867,6 +1875,7 @@ class _AppLocalizationsDelegate
     'es',
     'fr',
     'it',
+    'ko',
     'nl',
     'ru',
     'zh',
@@ -1889,6 +1898,8 @@ AppLocalizations lookupAppLocalizations(Locale locale) {
       return AppLocalizationsFr();
     case 'it':
       return AppLocalizationsIt();
+    case 'ko':
+      return AppLocalizationsKo();
     case 'nl':
       return AppLocalizationsNl();
     case 'ru':
