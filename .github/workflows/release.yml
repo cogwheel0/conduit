@@ -1,5 +1,8 @@
 name: Release
 
+# GitButler-compatible release workflow
+# Triggered automatically when you push a tag (v*) through GitButler
+# Can also be manually triggered to rebuild an existing release
 on:
   push:
     tags:

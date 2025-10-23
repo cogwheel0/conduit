@@ -1,9 +1,13 @@
 #!/bin/bash
 
-# Conduit Mobile Release Script (CI-driven)
+# Conduit Mobile Release Script (GitButler-compatible, CI-driven)
 # Usage:
 #   ./scripts/release.sh [major|minor|patch]
 #   ./scripts/release.sh rebuild [vX.Y.Z]   # Rebuild existing tag, bump build number only, update same release assets
+#
+# Note: This script is compatible with GitButler. It only updates pubspec.yaml
+# and instructs you to commit changes through GitButler. The CI workflow is
+# triggered automatically when you push the tag through GitButler.
 
 set -e
 
@@ -64,22 +68,26 @@ if [ "$ACTION" = "rebuild" ]; then
       --ref main \
       -f tag="$TAG_VERSION" \
       -f remove_old_assets=true
-    print_status "Workflow dispatched. Track progress in GitHub Actions."
+    print_status "✅ Workflow dispatched. Track progress in GitHub Actions."
+    print_status ""
+    print_status "📊 View workflow progress at:"
+    print_status "   https://github.com/$(git config --get remote.origin.url | sed -E 's#(git@|https://)([^/:]+)[:/]([^/.]+/[^.]+)(\.git)?#\2/\3#')/actions"
   else
     print_warning "GitHub CLI (gh) not found. Trigger the workflow manually:"
-    echo "- Go to: https://github.com/$(git config --get remote.origin.url | sed -E 's#(git@|https://)([^/:]+)[:/]([^/.]+/[^.]+)(\.git)?#\2/\3#')/actions/workflows/release.yml"
-    echo "- Click 'Run workflow', set tag to $TAG_VERSION, and run."
+    echo ""
+    echo "📝 Manual workflow trigger steps:"
+    echo "   1. Go to: https://github.com/$(git config --get remote.origin.url | sed -E 's#(git@|https://)([^/:]+)[:/]([^/.]+/[^.]+)(\.git)?#\2/\3#')/actions/workflows/release.yml"
+    echo "   2. Click 'Run workflow'"
+    echo "   3. Set tag to: $TAG_VERSION"
+    echo "   4. Set 'Remove existing assets' to: true"
+    echo "   5. Click 'Run workflow' button"
   fi
   exit 0
 fi
 
 # Standard release path (major/minor/patch)
 
-# Check if git is clean
-if [ -n "$(git status --porcelain)" ]; then
-    print_error "Working directory is not clean. Please commit or stash your changes first."
-    exit 1
-fi
+# Note: GitButler manages git state, so we skip the clean check
 
 # Get current version from pubspec.yaml
 CURRENT_VERSION=$(grep "^version:" pubspec.yaml | sed 's/version: //')
@@ -142,16 +150,19 @@ print_status "Updating pubspec.yaml to version: $NEW_VERSION+$NEW_BUILD"
 sed -i.bak "s/^version: .*/version: $NEW_VERSION+$NEW_BUILD/" pubspec.yaml
 rm pubspec.yaml.bak
 
-# Commit changes
-print_status "Committing changes..."
-git add pubspec.yaml
-git commit -m "chore: bump version to $NEW_VERSION"
-
-git push origin main
-
-# Create and push tag
-print_status "Creating tag $TAG_VERSION..."
-git tag -a "$TAG_VERSION" -m "Release $TAG_VERSION"
-git push origin "$TAG_VERSION"
-
-print_status "Release $TAG_VERSION created and pushed! CI will handle the build and GitHub release."
+print_status ""
+print_status "✅ Version bumped to $NEW_VERSION+$NEW_BUILD in pubspec.yaml"
+print_status ""
+print_status "📝 NEXT STEPS (via GitButler):"
+print_status "   1. Review the changes in GitButler"
+print_status "   2. Commit the pubspec.yaml change with message: 'chore: bump version to $NEW_VERSION'"
+print_status "   3. Push the commit to the main branch"
+print_status "   4. Create and push tag: $TAG_VERSION"
+print_status "      - In GitButler, you can create a tag from the commit"
+print_status "      - Or use: git tag -a '$TAG_VERSION' -m 'Release $TAG_VERSION' && git push origin '$TAG_VERSION'"
+print_status ""
+print_status "🚀 Once the tag is pushed, GitHub Actions will automatically:"
+print_status "   - Build Android APKs and AAB"
+print_status "   - Build iOS IPA"
+print_status "   - Create a GitHub release with all artifacts"
+print_status ""
