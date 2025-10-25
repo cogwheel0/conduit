@@ -218,6 +218,8 @@
   "nederlands": "Niederländisch",
   "russian": "Russisch",
   "chinese": "Chinesisch",
+  "korean": "Koreanisch",
+  "@korean": {"description": "Language name: Korean."},
   "deleteMessagesTitle": "Nachrichten löschen",
   "deleteMessagesMessage": "{count} Nachrichten löschen?",
   "@deleteMessagesMessage": {
