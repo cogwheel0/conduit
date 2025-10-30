@@ -215,6 +215,8 @@
   "nederlands": "Nederlands",
   "russian": "Русский",
   "chinese": "中文",
+  "korean": "한국어",
+  "@korean": {"description": "Language name: Korean."},
   "deleteMessagesTitle": "删除消息",
   "deleteMessagesMessage": "删除 {count} 条消息？",
   "@deleteMessagesMessage": {
