@@ -38,6 +38,13 @@ class AppLocalizationsFr extends AppLocalizations {
       'Reconnectez-vous pour continuer ou déconnectez-vous pour choisir un autre serveur.';
 
   @override
+  String get connectionTimeout => 'Délai de connexion dépassé';
+
+  @override
+  String get connectionTimeoutMessage =>
+      'L\'application met plus de temps que prévu à se connecter. Cela peut être dû à une connexion lente ou à un délai d\'attente du serveur.';
+
+  @override
   String get account => 'Compte';
 
   @override

@@ -38,6 +38,13 @@ class AppLocalizationsEn extends AppLocalizations {
       'Reconnect to continue or sign out to choose a different server.';
 
   @override
+  String get connectionTimeout => 'Connection Timeout';
+
+  @override
+  String get connectionTimeoutMessage =>
+      'The app is taking longer than expected to connect. This might be due to a slow connection or server timeout.';
+
+  @override
   String get account => 'Account';
 
   @override

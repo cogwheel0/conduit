@@ -15,6 +15,14 @@
   "@connectionIssueSubtitle": {
     "description": "Sottotitolo che spiega le azioni disponibili quando il server non è raggiungibile"
   },
+  "connectionTimeout": "Timeout di connessione",
+  "@connectionTimeout": {
+    "description": "Titolo mostrato quando l'app impiega troppo tempo per connettersi"
+  },
+  "connectionTimeoutMessage": "L'app sta impiegando più tempo del previsto per connettersi. Potrebbe essere dovuto a una connessione lenta o a un timeout del server.",
+  "@connectionTimeoutMessage": {
+    "description": "Messaggio che spiega perché la connessione sta impiegando più tempo del previsto"
+  },
   "account": "Account",
   "supportConduit": "Sostieni Conduit",
   "supportConduitSubtitle": "Mantieni Conduit indipendente finanziando lo sviluppo continuo.",

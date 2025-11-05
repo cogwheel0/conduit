@@ -33,6 +33,14 @@
   "@connectionIssueSubtitle": {
     "description": "Subtitle explaining available actions when the server cannot be reached"
   },
+  "connectionTimeout": "Connection Timeout",
+  "@connectionTimeout": {
+    "description": "Title shown when the app takes too long to connect"
+  },
+  "connectionTimeoutMessage": "The app is taking longer than expected to connect. This might be due to a slow connection or server timeout.",
+  "@connectionTimeoutMessage": {
+    "description": "Message explaining why the connection is taking longer than expected"
+  },
   "@pleaseCheckConnection": {
     "description": "Generic connectivity hint after an error."
   },

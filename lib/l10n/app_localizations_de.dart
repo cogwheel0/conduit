@@ -38,6 +38,13 @@ class AppLocalizationsDe extends AppLocalizations {
       'Verbindung wiederherstellen oder abmelden, um einen anderen Server zu wählen.';
 
   @override
+  String get connectionTimeout => 'Verbindungszeitüberschreitung';
+
+  @override
+  String get connectionTimeoutMessage =>
+      'Die App benötigt länger als erwartet zum Verbinden. Dies könnte an einer langsamen Verbindung oder einem Server-Timeout liegen.';
+
+  @override
   String get account => 'Konto';
 
   @override

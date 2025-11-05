@@ -15,6 +15,14 @@
   "@connectionIssueSubtitle": {
     "description": "当无法访问服务器时解释可用操作的副标题"
   },
+  "connectionTimeout": "连接超时",
+  "@connectionTimeout": {
+    "description": "当应用连接时间过长时显示的标题"
+  },
+  "connectionTimeoutMessage": "应用连接所需时间比预期更长。这可能是由于连接速度慢或服务器超时造成的。",
+  "@connectionTimeoutMessage": {
+    "description": "解释为什么连接时间比预期更长的消息"
+  },
   "account": "账户",
   "supportConduit": "支持 Conduit",
   "supportConduitSubtitle": "通过资助持续开发来保持 Conduit 的独立性。",

@@ -15,6 +15,14 @@
   "@connectionIssueSubtitle": {
     "description": "Sous-titre expliquant les actions possibles quand le serveur est injoignable"
   },
+  "connectionTimeout": "Délai de connexion dépassé",
+  "@connectionTimeout": {
+    "description": "Titre affiché lorsque l'application met trop de temps à se connecter"
+  },
+  "connectionTimeoutMessage": "L'application met plus de temps que prévu à se connecter. Cela peut être dû à une connexion lente ou à un délai d'attente du serveur.",
+  "@connectionTimeoutMessage": {
+    "description": "Message expliquant pourquoi la connexion prend plus de temps que prévu"
+  },
   "account": "Compte",
   "supportConduit": "Soutenir Conduit",
   "supportConduitSubtitle": "Financez le développement continu et les nouvelles fonctionnalités.",

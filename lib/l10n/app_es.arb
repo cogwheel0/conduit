@@ -15,6 +15,14 @@
   "@connectionIssueSubtitle": {
     "description": "Subtítulo que explica las acciones disponibles cuando no se puede acceder al servidor"
   },
+  "connectionTimeout": "Tiempo de conexión agotado",
+  "@connectionTimeout": {
+    "description": "Título que se muestra cuando la aplicación tarda demasiado en conectarse"
+  },
+  "connectionTimeoutMessage": "La aplicación está tardando más de lo esperado en conectarse. Esto podría deberse a una conexión lenta o un tiempo de espera del servidor.",
+  "@connectionTimeoutMessage": {
+    "description": "Mensaje que explica por qué la conexión está tardando más de lo esperado"
+  },
   "account": "Cuenta",
   "supportConduit": "Apoyar Conduit",
   "supportConduitSubtitle": "Mantén Conduit independiente financiando el desarrollo continuo.",

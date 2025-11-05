@@ -15,6 +15,14 @@
   "@connectionIssueSubtitle": {
     "description": "Ondertitel die beschikbare acties uitlegt wanneer de server niet bereikbaar is"
   },
+  "connectionTimeout": "Verbindingstime-out",
+  "@connectionTimeout": {
+    "description": "Titel die wordt weergegeven wanneer de app te lang duurt om verbinding te maken"
+  },
+  "connectionTimeoutMessage": "De app doet er langer over dan verwacht om verbinding te maken. Dit kan worden veroorzaakt door een trage verbinding of een server-time-out.",
+  "@connectionTimeoutMessage": {
+    "description": "Bericht dat uitlegt waarom de verbinding langer duurt dan verwacht"
+  },
   "account": "Account",
   "supportConduit": "Ondersteun Conduit",
   "supportConduitSubtitle": "Houd Conduit onafhankelijk door doorlopende ontwikkeling te financieren.",

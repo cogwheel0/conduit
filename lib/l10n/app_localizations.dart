@@ -166,6 +166,18 @@ abstract class AppLocalizations {
   /// **'Reconnect to continue or sign out to choose a different server.'**
   String get connectionIssueSubtitle;
 
+  /// Title shown when the app takes too long to connect
+  ///
+  /// In en, this message translates to:
+  /// **'Connection Timeout'**
+  String get connectionTimeout;
+
+  /// Message explaining why the connection is taking longer than expected
+  ///
+  /// In en, this message translates to:
+  /// **'The app is taking longer than expected to connect. This might be due to a slow connection or server timeout.'**
+  String get connectionTimeoutMessage;
+
   /// Section header for account-related options.
   ///
   /// In en, this message translates to:

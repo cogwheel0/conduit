@@ -37,6 +37,13 @@ class AppLocalizationsIt extends AppLocalizations {
       'Riconnettiti per continuare oppure esci per scegliere un server diverso.';
 
   @override
+  String get connectionTimeout => 'Timeout di connessione';
+
+  @override
+  String get connectionTimeoutMessage =>
+      'L\'app sta impiegando più tempo del previsto per connettersi. Potrebbe essere dovuto a una connessione lenta o a un timeout del server.';
+
+  @override
   String get account => 'Account';
 
   @override
