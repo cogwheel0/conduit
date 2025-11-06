@@ -1,8 +1,11 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../../../core/auth/auth_state_manager.dart';
 import '../../../core/providers/app_providers.dart';
+
+part 'splash_providers.g.dart';
 
 /// State for the splash launcher screen
 class SplashState {
@@ -30,110 +33,107 @@ class SplashState {
 }
 
 /// Manages splash screen state and timeout logic
-class SplashStateManager extends ChangeNotifier {
-  SplashStateManager(this._ref) {
-    _initialize();
-  }
-
-  final Ref _ref;
+@Riverpod(keepAlive: true)
+class SplashStateManager extends _$SplashStateManager {
   Timer? _timeoutTimer;
   Timer? _tapResetTimer;
-  SplashState _state = const SplashState();
 
-  SplashState get state => _state;
+  @override
+  SplashState build() {
+    // Check initial auth state
+    final initialAuthState = ref.read(authStateManagerProvider).asData?.value;
+    if (initialAuthState?.status == AuthStatus.error ||
+        (initialAuthState?.status == AuthStatus.unauthenticated &&
+            initialAuthState?.error != null &&
+            initialAuthState!.error!.isNotEmpty)) {
+      return const SplashState(showTimeout: true);
+    }
 
-  void _initialize() {
     // Listen to auth state for automatic error detection
-    _ref.listen<AsyncValue<AuthState>>(authStateManagerProvider, (prev, next) {
+    ref.listen<AsyncValue<AuthState>>(authStateManagerProvider, (prev, next) {
       final authState = next.asData?.value;
-      if (authState?.status == AuthStatus.error) {
-        // Show timeout UI immediately on auth error
-        _updateState(_state.copyWith(showTimeout: true));
+      
+      // Show timeout UI on auth error or unauthenticated with error
+      if (authState?.status == AuthStatus.error ||
+          (authState?.status == AuthStatus.unauthenticated &&
+              authState?.error != null &&
+              authState!.error!.isNotEmpty)) {
+        state = state.copyWith(showTimeout: true);
+        _timeoutTimer?.cancel(); // Cancel timer since we're showing recovery
       }
     });
 
     // Start timeout timer
     _startTimeoutTimer();
-  }
+    
+    // Setup cleanup
+    ref.onDispose(() {
+      _timeoutTimer?.cancel();
+      _tapResetTimer?.cancel();
+    });
 
-  void _updateState(SplashState newState) {
-    _state = newState;
-    notifyListeners();
+    return const SplashState();
   }
 
   void _startTimeoutTimer() {
     _timeoutTimer?.cancel();
     _timeoutTimer = Timer(const Duration(seconds: 45), () {
-      _updateState(_state.copyWith(showTimeout: true));
+      state = state.copyWith(showTimeout: true);
     });
   }
 
   /// Handle tap on loading indicator (for triple-tap detection)
   void onLoadingTap() {
-    final newTapCount = _state.tapCount + 1;
+    final newTapCount = state.tapCount + 1;
 
     // Reset tap timer on each tap
     _tapResetTimer?.cancel();
     _tapResetTimer = Timer(const Duration(seconds: 2), () {
-      _updateState(_state.copyWith(tapCount: 0));
+      state = state.copyWith(tapCount: 0);
     });
 
-    _updateState(_state.copyWith(tapCount: newTapCount));
+    state = state.copyWith(tapCount: newTapCount);
 
     // Trigger timeout UI on triple-tap
     if (newTapCount >= 3) {
-      _updateState(_state.copyWith(showTimeout: true, tapCount: 0));
+      // Strong haptic feedback on successful triple tap
+      HapticFeedback.mediumImpact();
+      state = state.copyWith(showTimeout: true, tapCount: 0);
       _tapResetTimer?.cancel();
     }
   }
 
   /// Handle logout recovery action
   Future<void> logout() async {
-    _updateState(_state.copyWith(isRecovering: true));
+    state = state.copyWith(isRecovering: true);
 
     try {
-      final storage = _ref.read(optimizedStorageServiceProvider);
+      final storage = ref.read(optimizedStorageServiceProvider);
       await storage.clearAuthData();
       await storage.setActiveServerId(null);
 
-      _ref.invalidate(authStateManagerProvider);
-      _ref.invalidate(activeServerProvider);
+      ref.invalidate(authStateManagerProvider);
+      ref.invalidate(activeServerProvider);
     } catch (e) {
       // Error will be handled by UI
     } finally {
-      _updateState(_state.copyWith(isRecovering: false));
+      state = state.copyWith(isRecovering: false);
     }
   }
 
   /// Handle retry recovery action
   Future<void> retry() async {
-    _updateState(_state.copyWith(isRecovering: true, showTimeout: false));
+    state = state.copyWith(isRecovering: true, showTimeout: false);
 
     try {
-      _ref.invalidate(authStateManagerProvider);
+      ref.invalidate(authStateManagerProvider);
 
       // Restart timeout timer
       _startTimeoutTimer();
 
-      _updateState(_state.copyWith(isRecovering: false));
+      state = state.copyWith(isRecovering: false);
     } catch (e) {
-      _updateState(_state.copyWith(isRecovering: false, showTimeout: true));
+      state = state.copyWith(isRecovering: false, showTimeout: true);
     }
   }
-
-  @override
-  void dispose() {
-    _timeoutTimer?.cancel();
-    _tapResetTimer?.cancel();
-    super.dispose();
-  }
 }
-
-/// Provider for splash screen state management
-final splashStateProvider = Provider<SplashStateManager>(
-  (ref) {
-    final manager = SplashStateManager(ref);
-    ref.onDispose(manager.dispose);
-    return manager;
-  },
-);

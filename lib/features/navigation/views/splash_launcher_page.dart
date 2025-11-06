@@ -2,6 +2,7 @@ import 'dart:io' show Platform;
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -18,8 +19,7 @@ class SplashLauncherPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context);
-    final manager = ref.watch(splashStateProvider);
-    final splashState = manager.state;
+    final splashState = ref.watch(splashStateManagerProvider);
 
     return Scaffold(
       backgroundColor: context.conduitTheme.surfaceBackground,
@@ -38,15 +38,45 @@ class SplashLauncherPage extends ConsumerWidget {
     WidgetRef ref,
     AppLocalizations? l10n,
   ) {
+    final manager = ref.read(splashStateManagerProvider.notifier);
+    final tapCount = ref.watch(splashStateManagerProvider).tapCount;
+
     return GestureDetector(
-      onTap: () => ref.read(splashStateProvider).onLoadingTap(),
-      child: SizedBox(
-        width: 28,
-        height: 28,
-        child: CircularProgressIndicator(
-          strokeWidth: 2.5,
-          valueColor: AlwaysStoppedAnimation<Color>(
-            context.conduitTheme.loadingIndicator,
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        // Trigger haptic feedback on each tap
+        HapticFeedback.lightImpact();
+        manager.onLoadingTap();
+      },
+      child: Container(
+        // Full screen tap target
+        width: double.infinity,
+        height: double.infinity,
+        color: Colors.transparent,
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 28,
+                height: 28,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    context.conduitTheme.loadingIndicator,
+                  ),
+                ),
+              ),
+              if (tapCount > 0) ...[
+                const SizedBox(height: 16),
+                Text(
+                  'Tap ${3 - tapCount} more time${3 - tapCount == 1 ? '' : 's'}',
+                  style: context.conduitTheme.bodySmall?.copyWith(
+                    color: context.conduitTheme.textSecondary,
+                  ),
+                ),
+              ],
+            ],
           ),
         ),
       ),
@@ -61,7 +91,7 @@ class SplashLauncherPage extends ConsumerWidget {
   ) {
     final authState = ref.watch(authStateManagerProvider).asData?.value;
     final errorMessage = authState?.error;
-    final manager = ref.read(splashStateProvider);
+    final manager = ref.read(splashStateManagerProvider.notifier);
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
