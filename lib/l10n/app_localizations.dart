@@ -106,6 +106,7 @@ abstract class AppLocalizations {
     Locale('fr'),
     Locale('it'),
     Locale('zh'),
+    Locale('zh', 'TW'),
     Locale('ru'),
     Locale('nl'),
     Locale('es'),
@@ -1312,11 +1313,17 @@ abstract class AppLocalizations {
   /// **'Русский'**
   String get russian;
 
-  /// Language name: Chinese.
+  /// Language name: Simplified Chinese.
   ///
   /// In en, this message translates to:
-  /// **'中文'**
-  String get chinese;
+  /// **'Simplified Chinese'**
+  String get simplifiedChinese;
+
+  /// Language name: Traditional Chinese.
+  ///
+  /// In en, this message translates to:
+  /// **'Traditional Chinese'**
+  String get traditionalChinese;
 
   /// Language name: Korean.
   ///
@@ -2282,6 +2289,18 @@ class _AppLocalizationsDelegate
 }
 
 AppLocalizations lookupAppLocalizations(Locale locale) {
+  // Lookup logic when language+country codes are specified.
+  switch (locale.languageCode) {
+    case 'zh':
+      {
+        switch (locale.countryCode) {
+          case 'TW':
+            return AppLocalizationsZhTw();
+        }
+        break;
+      }
+  }
+
   // Lookup logic when only language code is specified.
   switch (locale.languageCode) {
     case 'de':

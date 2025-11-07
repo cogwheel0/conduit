@@ -132,6 +132,11 @@ class AppLocale extends _$AppLocale {
     _storage = ref.watch(optimizedStorageServiceProvider);
     final code = _storage.getLocaleCode();
     if (code != null && code.isNotEmpty) {
+      // Handle full locale codes with country/region (e.g., "zh_TW", "zh_CN")
+      if (code.contains('_')) {
+        final parts = code.split('_');
+        return Locale(parts[0], parts[1]);
+      }
       return Locale(code);
     }
     return null; // system default
@@ -139,7 +144,13 @@ class AppLocale extends _$AppLocale {
 
   Future<void> setLocale(Locale? locale) async {
     state = locale;
-    await _storage.setLocaleCode(locale?.languageCode);
+    // Store full locale code including country code for proper Traditional Chinese support
+    final localeCode = locale == null 
+        ? null 
+        : locale.countryCode != null 
+            ? '${locale.languageCode}_${locale.countryCode}'
+            : locale.languageCode;
+    await _storage.setLocaleCode(localeCode);
   }
 }
 

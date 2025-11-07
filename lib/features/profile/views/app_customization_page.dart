@@ -38,7 +38,11 @@ class AppCustomizationPage extends ConsumerWidget {
       return l10n.currentlyUsingLightTheme;
     }();
     final locale = ref.watch(appLocaleProvider);
-    final currentLanguageCode = locale?.languageCode ?? 'system';
+    final currentLanguageCode = locale == null 
+        ? 'system' 
+        : locale.countryCode == 'TW' 
+            ? 'zh_TW' 
+            : locale.languageCode;
     final languageLabel = _resolveLanguageLabel(context, currentLanguageCode);
     final activeTheme = ref.watch(appThemePaletteProvider);
 
@@ -226,9 +230,16 @@ class AppCustomizationPage extends ConsumerWidget {
             if (selected == 'system') {
               await ref.read(appLocaleProvider.notifier).setLocale(null);
             } else {
-              await ref
-                  .read(appLocaleProvider.notifier)
-                  .setLocale(Locale(selected));
+              // Handle zh_TW correctly as Locale('zh', 'TW')
+              if (selected == 'zh_TW') {
+                await ref
+                    .read(appLocaleProvider.notifier)
+                    .setLocale(const Locale('zh', 'TW'));
+              } else {
+                await ref
+                    .read(appLocaleProvider.notifier)
+                    .setLocale(Locale(selected));
+              }
             }
           },
         ),
@@ -1668,7 +1679,9 @@ class AppCustomizationPage extends ConsumerWidget {
       case 'ru':
         return AppLocalizations.of(context)!.russian;
       case 'zh':
-        return AppLocalizations.of(context)!.chinese;
+        return AppLocalizations.of(context)!.simplifiedChinese;
+      case 'zh_TW':
+        return AppLocalizations.of(context)!.traditionalChinese;
       case 'kr':
         return AppLocalizations.of(context)!.korean;
       default:
@@ -1899,9 +1912,14 @@ class AppCustomizationPage extends ConsumerWidget {
                 onTap: () => Navigator.pop(context, 'ru'),
               ),
               ListTile(
-                title: Text(AppLocalizations.of(context)!.chinese),
+                title: Text(AppLocalizations.of(context)!.simplifiedChinese),
                 trailing: current == 'zh' ? const Icon(Icons.check) : null,
                 onTap: () => Navigator.pop(context, 'zh'),
+              ),
+              ListTile(
+                title: Text(AppLocalizations.of(context)!.traditionalChinese),
+                trailing: current == 'zh_TW' ? const Icon(Icons.check) : null,
+                onTap: () => Navigator.pop(context, 'zh_TW'),
               ),
               ListTile(
                 title: Text(AppLocalizations.of(context)!.korean),

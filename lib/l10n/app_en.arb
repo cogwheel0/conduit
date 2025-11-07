@@ -858,9 +858,13 @@
   "@russian": {
     "description": "Language name: Russian."
   },
-  "chinese": "中文",
-  "@chinese": {
-    "description": "Language name: Chinese."
+  "simplifiedChinese": "Simplified Chinese",
+  "@simplifiedChinese": {
+    "description": "Language name: Simplified Chinese."
+  },
+  "traditionalChinese": "Traditional Chinese",
+  "@traditionalChinese": {
+    "description": "Language name: Traditional Chinese."
   },
   "korean": "한국어",
   "@korean": {

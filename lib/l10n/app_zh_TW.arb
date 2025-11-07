@@ -1,0 +1,755 @@
+{
+  "@@locale": "zh_TW",
+  "appTitle": "Conduit",
+  "retry": "重試",
+  "back": "返回",
+  "you": "你",
+  "loadingProfile": "載入個人資料中...",
+  "unableToLoadProfile": "無法載入個人資料",
+  "pleaseCheckConnection": "請檢查您的連線並重試",
+  "connectionIssueTitle": "無法連線到您的伺服器",
+  "@connectionIssueTitle": {
+    "description": "當配置的伺服器無法訪問時顯示的標題"
+  },
+  "connectionIssueSubtitle": "重新連線以繼續或登出以選擇其他伺服器。",
+  "@connectionIssueSubtitle": {
+    "description": "當無法訪問伺服器時解釋可用操作的副標題"
+  },
+  "account": "帳戶",
+  "supportConduit": "支援 Conduit",
+  "supportConduitSubtitle": "透過資助持續開發來保持 Conduit 的獨立性。",
+  "githubSponsorsTitle": "GitHub 贊助",
+  "githubSponsorsSubtitle": "成為定期贊助者以資助路線圖項目。",
+  "buyMeACoffeeTitle": "Buy Me a Coffee",
+  "buyMeACoffeeSubtitle": "一次性捐贈以表達感謝。",
+  "signOut": "登出",
+  "endYourSession": "結束您的會話",
+  "defaultModel": "預設模型",
+  "autoSelect": "自動選擇",
+  "loadingModels": "載入模型中...",
+  "failedToLoadModels": "無法載入模型",
+  "availableModels": "可用模型",
+  "noResults": "無結果",
+  "searchModels": "搜尋模型...",
+  "errorMessage": "出了點問題。請重試。",
+  "closeButtonSemantic": "關閉",
+  "loadingContent": "載入內容中",
+  "noItems": "無項目",
+  "noItemsToDisplay": "無可顯示的項目",
+  "knowledgeBase": "知識庫",
+  "attachments": "附件",
+  "takePhoto": "拍照",
+  "document": "文件",
+  "backToServerSetup": "返回伺服器設定",
+  "connectedToServer": "已連線到伺服器",
+  "signIn": "登入",
+  "enterCredentials": "輸入您的憑證以訪問您的 AI 對話",
+  "credentials": "憑證",
+  "apiKey": "API 金鑰",
+  "usernameOrEmail": "使用者名稱或電子郵件",
+  "password": "密碼",
+  "signInWithApiKey": "使用 API 金鑰登入",
+  "connectToServer": "連線到伺服器",
+  "enterServerAddress": "輸入您的 Open-WebUI 伺服器位址以開始",
+  "serverUrl": "伺服器 URL",
+  "serverUrlHint": "https://your-server.com",
+  "enterServerUrlSemantic": "輸入您的伺服器 URL 或 IP 位址",
+  "headerName": "標頭名稱",
+  "headerValue": "標頭值",
+  "headerValueHint": "api-key-123 或 Bearer token",
+  "addHeader": "新增標頭",
+  "maximumHeadersReached": "已達到最大標頭數",
+  "removeHeader": "刪除標頭",
+  "connecting": "連線中...",
+  "connectToServerButton": "連線到伺服器",
+  "demoModeActive": "示範模式已啟用",
+  "skipServerSetupTryDemo": "跳過伺服器設定並嘗試示範",
+  "enterDemo": "進入示範",
+  "demoBadge": "示範",
+  "serverNotOpenWebUI": "這似乎不是 Open-WebUI 伺服器。",
+  "serverUrlEmpty": "伺服器 URL 不能為空",
+  "invalidUrlFormat": "無效的 URL 格式。請檢查您的輸入。",
+  "onlyHttpHttps": "僅支援 HTTP 和 HTTPS 協定。",
+  "serverAddressRequired": "需要伺服器位址（例如 192.168.1.10 或 example.com）。",
+  "portRange": "連接埠必須在 1 到 65535 之間。",
+  "invalidIpFormat": "無效的 IP 位址格式。使用如 192.168.1.10 的格式。",
+  "couldNotConnectGeneric": "無法連線。請仔細檢查位址並重試。",
+  "weCouldntReachServer": "我們無法訪問伺服器。請檢查您的連線和伺服器是否正在執行。",
+  "connectionTimedOut": "連線逾時。伺服器可能很忙或被防火牆阻止。",
+  "useHttpOrHttpsOnly": "僅使用 http:// 或 https://。",
+  "loginFailed": "登入失敗",
+  "invalidCredentials": "無效的使用者名稱或密碼。請重試。",
+  "serverRedirectingHttps": "伺服器正在重新導向請求。請檢查您的伺服器的 HTTPS 設定。",
+  "unableToConnectServer": "無法連線到伺服器。請檢查您的連線。",
+  "requestTimedOut": "請求逾時。請重試。",
+  "genericSignInFailed": "我們無法讓您登入。請檢查您的憑證和伺服器設定。",
+  "skip": "跳過",
+  "next": "下一步",
+  "done": "完成",
+  "onboardStartTitle": "你好，{username}",
+  "onboardStartSubtitle": "選擇一個模型以開始。隨時點擊新對話。",
+  "onboardStartBullet1": "點擊頂部列中的模型名稱以切換模型",
+  "onboardStartBullet2": "使用新對話重置上下文",
+  "onboardAttachTitle": "新增上下文",
+  "onboardAttachSubtitle": "使用工作區或照片中的內容來支援回覆。",
+  "onboardAttachBullet1": "工作區：PDF、文件、資料集",
+  "onboardAttachBullet2": "照片：相機或相簿",
+  "onboardSpeakTitle": "自然說話",
+  "onboardSpeakSubtitle": "點擊麥克風以即時波形回饋聽寫。",
+  "onboardSpeakBullet1": "隨時停止；部分文字會保留",
+  "onboardSpeakBullet2": "非常適合快速筆記或長提示",
+  "onboardQuickTitle": "快速操作",
+  "onboardQuickSubtitle": "開啟選單在對話、工作區和個人資料之間切換。",
+  "onboardQuickBullet1": "點擊選單存取對話、工作區、個人資料",
+  "onboardQuickBullet2": "從頂部列開始新對話或管理模型",
+  "attachmentLabel": "附件",
+  "tools": "工具",
+  "voiceInput": "語音輸入",
+  "voice": "語音",
+  "voiceStatusListening": "正在聆聽...",
+  "voiceStatusRecording": "正在錄製...",
+  "voiceHoldToTalk": "按住說話",
+  "voiceAutoSend": "自動傳送",
+  "voiceTranscript": "轉錄",
+  "voicePromptSpeakNow": "現在說話...",
+  "voicePromptTapStart": "點擊開始以開始",
+  "voiceActionStop": "停止",
+  "voiceActionStart": "開始",
+  "messageInputLabel": "訊息輸入",
+  "messageInputHint": "輸入您的訊息",
+  "messageHintText": "詢問 Conduit",
+  "stopGenerating": "停止產生",
+  "codeCopiedToClipboard": "程式碼已複製到剪貼簿。",
+  "send": "傳送",
+  "sendMessage": "傳送訊息",
+  "file": "檔案",
+  "photo": "照片",
+  "camera": "相機",
+  "apiUnavailable": "API 服務不可用",
+  "unableToLoadImage": "無法載入圖片",
+  "notAnImageFile": "不是圖片檔案：{fileName}",
+  "failedToLoadImage": "無法載入圖片：{error}",
+  "invalidDataUrl": "無效的資料 URL 格式",
+  "failedToDecodeImage": "無法解碼圖片",
+  "invalidImageFormat": "無效的圖片格式",
+  "emptyImageData": "空圖片資料",
+  "confirm": "確認",
+  "cancel": "取消",
+  "ok": "確定",
+  "inputField": "輸入欄位",
+  "checkConnection": "檢查連線",
+  "openSettings": "開啟設定",
+  "goBack": "返回",
+  "technicalDetails": "技術詳情",
+  "save": "儲存",
+  "chooseModel": "選擇模型",
+  "reviewerMode": "審核者模式",
+  "selectLanguage": "選擇語言",
+  "newFolder": "新資料夾",
+  "folderName": "資料夾名稱",
+  "newChat": "新對話",
+  "more": "更多",
+  "clear": "清除",
+  "searchConversations": "搜尋對話...",
+  "create": "建立",
+  "failedToCreateFolder": "無法建立資料夾",
+  "failedToMoveChat": "無法移動對話",
+  "failedToLoadChats": "無法載入對話",
+  "failedToUpdatePin": "無法更新釘選",
+  "failedToDeleteChat": "無法刪除對話",
+  "manage": "管理",
+  "rename": "重新命名",
+  "delete": "刪除",
+  "renameChat": "重新命名對話",
+  "enterChatName": "輸入對話名稱",
+  "failedToRenameChat": "無法重新命名對話",
+  "failedToUpdateArchive": "無法更新封存",
+  "unarchive": "取消封存",
+  "archive": "封存",
+  "pin": "釘選",
+  "unpin": "取消釘選",
+  "recent": "最近",
+  "system": "系統",
+  "english": "English",
+  "deutsch": "Deutsch",
+  "francais": "Français",
+  "italiano": "Italiano",
+  "espanol": "Español",
+  "nederlands": "Nederlands",
+  "russian": "Русский",
+  "simplifiedChinese": "中文（简体）",
+  "traditionalChinese": "中文（繁體）",
+  "korean": "한국어",
+  "deleteMessagesTitle": "刪除訊息",
+  "deleteMessagesMessage": "刪除 {count} 條訊息？",
+  "@deleteMessagesMessage": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "routeNotFound": "未找到路由：{routeName}",
+  "@routeNotFound": {
+    "placeholders": {
+      "routeName": {
+        "type": "String"
+      }
+    }
+  },
+  "deleteChatTitle": "刪除對話",
+  "deleteChatMessage": "此對話將被永久刪除。",
+  "deleteFolderTitle": "刪除資料夾",
+  "deleteFolderMessage": "此資料夾及其分配參照將被刪除。",
+  "failedToDeleteFolder": "無法刪除資料夾",
+  "aboutApp": "關於",
+  "aboutAppSubtitle": "Conduit 資訊和連結",
+  "web": "網頁",
+  "imageGen": "圖片產生",
+  "pinned": "已釘選",
+  "folders": "資料夾",
+  "archived": "已封存",
+  "appLanguage": "應用程式語言",
+  "darkMode": "深色模式",
+  "webSearch": "網頁搜尋",
+  "webSearchDescription": "搜尋網頁並在回覆中引用來源。",
+  "imageGeneration": "圖片產生",
+  "imageGenerationDescription": "從您的提示建立圖片。",
+  "copy": "複製",
+  "ttsListen": "收聽",
+  "ttsStop": "停止",
+  "edit": "編輯",
+  "regenerate": "重新產生",
+  "noConversationsYet": "尚無對話",
+  "usernameOrEmailHint": "輸入您的使用者名稱或電子郵件",
+  "passwordHint": "輸入您的密碼",
+  "enterApiKey": "輸入您的 API 金鑰",
+  "signingIn": "正在登入...",
+  "advancedSettings": "進階設定",
+  "customHeaders": "自訂標頭",
+  "customHeadersDescription": "為身分驗證、API 金鑰或特殊伺服器要求新增自訂 HTTP 標頭。",
+  "allowSelfSignedCertificates": "信任自簽名憑證",
+  "@allowSelfSignedCertificates": {
+    "description": "允許信任配置伺服器的自簽名 TLS 憑證的切換標籤。"
+  },
+  "allowSelfSignedCertificatesDescription": "接受此伺服器的 TLS 憑證，即使它是自簽名的。僅對您信任的伺服器啟用。",
+  "@allowSelfSignedCertificatesDescription": {
+    "description": "闡明啟用自簽名憑證切換風險的說明文字。"
+  },
+  "headerNameEmpty": "標頭名稱不能為空",
+  "headerNameTooLong": "標頭名稱太長（最多 64 個字元）",
+  "headerNameInvalidChars": "無效的標頭名稱。僅使用字母、數字和這些符號：!#$&-^_`|~",
+  "headerNameReserved": "無法覆寫保留的標頭「{key}」",
+  "@headerNameReserved": {
+    "placeholders": {
+      "key": {
+        "type": "String"
+      }
+    }
+  },
+  "headerValueEmpty": "標頭值不能為空",
+  "headerValueTooLong": "標頭值太長（最多 1024 個字元）",
+  "headerValueInvalidChars": "標頭值包含無效字元。僅使用可列印的 ASCII。",
+  "headerValueUnsafe": "標頭值似乎包含潛在的不安全內容",
+  "headerAlreadyExists": "標頭「{key}」已存在。首先刪除它以更新。",
+  "@headerAlreadyExists": {
+    "placeholders": {
+      "key": {
+        "type": "String"
+      }
+    }
+  },
+  "maxHeadersReachedDetail": "最多允許 10 個自訂標頭。刪除一些以新增更多。",
+  "noModelsAvailable": "無可用模型",
+  "followingSystem": "跟隨系統：{theme}",
+  "@followingSystem": {
+    "placeholders": {
+      "theme": {
+        "type": "String"
+      }
+    }
+  },
+  "themeDark": "深色",
+  "themePalette": "強調色調色板",
+  "@themePalette": {
+    "description": "選擇應用程式色彩調色板的標題。"
+  },
+  "themeLight": "淺色",
+  "currentlyUsingDarkTheme": "目前使用深色主題",
+  "currentlyUsingLightTheme": "目前使用淺色主題",
+  "aboutConduit": "關於 Conduit",
+  "versionLabel": "版本：{version}（{build}）",
+  "@versionLabel": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      },
+      "build": {
+        "type": "String"
+      }
+    }
+  },
+  "githubRepository": "GitHub 儲存庫",
+  "unableToLoadAppInfo": "無法載入應用程式資訊",
+  "thinking": "思考中...",
+  "thoughts": "思路",
+  "thoughtForDuration": "思考了 {duration}",
+  "@thoughtForDuration": {
+    "description": "顯示助手在回覆前思考了多長時間。",
+    "placeholders": {
+      "duration": {
+        "type": "String",
+        "example": "3s"
+      }
+    }
+  },
+  "appCustomization": "自訂",
+  "appCustomizationSubtitle": "主題、語言、語音和快速操作",
+  "quickActionsDescription": "聊天快捷鍵",
+  "chatSettings": "對話",
+  "sendOnEnter": "Enter 傳送",
+  "sendOnEnterDescription": "Enter 傳送（軟鍵盤）。Cmd/Ctrl+Enter 也可用",
+  "sttSettings": "語音轉文字",
+  "sttEngineLabel": "辨識引擎",
+  "sttEngineAuto": "自動",
+  "sttEngineDevice": "本機",
+  "sttEngineServer": "伺服器",
+  "sttEngineAutoDescription": "在可用時使用本機辨識，否則切換到你的伺服器。",
+  "sttEngineDeviceDescription": "音訊會保留在此裝置上。如果裝置不支援語音辨識，語音輸入將不可用。",
+  "sttEngineServerDescription": "始終將錄音傳送到你的 OpenWebUI 伺服器進行轉寫。",
+  "sttDeviceUnavailableWarning": "此裝置不支援本機語音辨識。",
+  "sttServerUnavailableWarning": "連線到啟用轉寫功能的伺服器後才能使用此選項。",
+  "sttSilenceDuration": "靜音持續時間",
+  "sttSilenceDurationDescription": "偵測到靜音後等待多久自動停止錄音",
+  "ttsSettings": "文字轉語音",
+  "ttsEngineAuto": "自動",
+  "ttsEngineAutoDescription": "在可用時使用本機合成，否則切換到你的伺服器。",
+  "ttsEngineDeviceDescription": "在此裝置上完成合成。如果裝置不支援文字轉語音，語音播放將不可用。",
+  "ttsEngineServerDescription": "始終向你的 OpenWebUI 伺服器要求音訊。",
+  "ttsDeviceUnavailableWarning": "此裝置不支援本機文字轉語音。",
+  "ttsServerUnavailableWarning": "連線到啟用文字轉語音的伺服器後才能使用此選項。",
+  "ttsVoice": "語音",
+  "ttsSpeechRate": "語速",
+  "ttsPitch": "音調",
+  "ttsVolume": "音量",
+  "ttsPreview": "預覽語音",
+  "ttsSystemDefault": "系統預設",
+  "ttsSelectVoice": "選擇語音",
+  "ttsPreviewText": "這是所選語音的預覽。",
+  "ttsNoVoicesAvailable": "沒有可用的語音",
+  "ttsVoicesForLanguage": "{language} 語音",
+  "ttsOtherVoices": "其他語言",
+  "error": "錯誤",
+  "display": "顯示",
+  "realtime": "即時",
+  "transportMode": "傳輸模式",
+  "mode": "模式",
+  "transportModePolling": "輪詢回退",
+  "transportModeWs": "僅 WebSocket",
+  "transportModePollingInfo": "當 WebSocket 被阻擋時改用 HTTP 輪詢，在條件允許時切換回 WebSocket。",
+  "transportModeWsInfo": "開銷較低，但可能在嚴格的代理/防火牆後失敗。",
+  "quickActionsSelectedCount": "{count, plural, =0{未選擇操作} other{已選擇 {count} 個操作}}",
+  "@quickActionsSelectedCount": {
+    "description": "Subtitle indicating how many quick actions are selected.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "autoSelectDescription": "讓應用程式自動選擇最佳模型",
+  "@autoSelectDescription": {
+    "description": "Explains what the auto-select model setting does."
+  },
+  "ttsEngineLabel": "引擎",
+  "@ttsEngineLabel": {
+    "description": "Label for selecting the text-to-speech engine."
+  },
+  "ttsEngineDevice": "本機",
+  "@ttsEngineDevice": {
+    "description": "Chip label for using on-device text-to-speech."
+  },
+  "ttsEngineServer": "伺服器",
+  "@ttsEngineServer": {
+    "description": "Chip label for using server-side text-to-speech."
+  },
+  "modelCapabilityMultimodal": "多模態",
+  "@modelCapabilityMultimodal": {
+    "description": "Capability chip label for models that support multimodal input."
+  },
+  "modelCapabilityReasoning": "推理",
+  "@modelCapabilityReasoning": {
+    "description": "Capability chip label for models that support reasoning features."
+  },
+  "voiceCallTitle": "語音通話",
+  "@voiceCallTitle": {
+    "description": "Title displayed on the voice call screen."
+  },
+  "voiceCallPause": "暫停",
+  "@voiceCallPause": {
+    "description": "Button label to pause a voice call."
+  },
+  "voiceCallResume": "繼續",
+  "@voiceCallResume": {
+    "description": "Button label to resume a paused voice call."
+  },
+  "voiceCallStop": "停止",
+  "@voiceCallStop": {
+    "description": "Button label to stop the active voice call."
+  },
+  "voiceCallEnd": "結束通話",
+  "@voiceCallEnd": {
+    "description": "Button label to end the voice call session."
+  },
+  "chooseDifferentFile": "選擇其他檔案",
+  "@chooseDifferentFile": {
+    "description": "Action label prompting the user to pick another file."
+  },
+  "errorWithMessage": "錯誤：{message}",
+  "@errorWithMessage": {
+    "description": "Error label with appended message text.",
+    "placeholders": {
+      "message": {
+        "type": "String",
+        "example": "Network timeout"
+      }
+    }
+  },
+  "networkTimeoutError": "連線逾時。請檢查網路後重試。",
+  "@networkTimeoutError": {
+    "description": "User-facing message when a network request times out."
+  },
+  "networkUnreachableError": "無法連線伺服器。請檢查伺服器位址和網路。",
+  "@networkUnreachableError": {
+    "description": "User-facing message when the server cannot be reached."
+  },
+  "networkServerNotResponding": "伺服器沒有回應。請確認伺服器正在執行且可存取。",
+  "@networkServerNotResponding": {
+    "description": "User-facing message when the server does not respond to a request."
+  },
+  "networkGenericError": "網路連線出現問題。請檢查網路連線。",
+  "@networkGenericError": {
+    "description": "Fallback message for generic network errors."
+  },
+  "serverError500": "伺服器出現問題，通常是暫時的。",
+  "@serverError500": {
+    "description": "Message when a 500 error is encountered."
+  },
+  "serverErrorUnavailable": "伺服器暫時不可用。請稍後再試。",
+  "@serverErrorUnavailable": {
+    "description": "Message when a 502/503 error is encountered."
+  },
+  "serverErrorTimeout": "伺服器回應逾時。請重試。",
+  "@serverErrorTimeout": {
+    "description": "Message when the server times out."
+  },
+  "serverErrorGeneric": "伺服器出現故障。請稍後再試。",
+  "@serverErrorGeneric": {
+    "description": "Fallback server error message."
+  },
+  "authSessionExpired": "會話已過期，請重新登入。",
+  "@authSessionExpired": {
+    "description": "Message when an authentication session expires."
+  },
+  "authForbidden": "您沒有執行此操作的權限。",
+  "@authForbidden": {
+    "description": "Message when the user lacks required permissions."
+  },
+  "authInvalidToken": "認證權杖無效，請重新登入。",
+  "@authInvalidToken": {
+    "description": "Message when the authentication token is invalid."
+  },
+  "authGenericError": "認證出現問題，請重新登入。",
+  "@authGenericError": {
+    "description": "Fallback authentication error message."
+  },
+  "validationInvalidEmail": "請輸入有效的電子郵件位址。",
+  "@validationInvalidEmail": {
+    "description": "Validation message for invalid email input."
+  },
+  "validationWeakPassword": "密碼不符合要求，請檢查後重試。",
+  "@validationWeakPassword": {
+    "description": "Validation message for weak passwords."
+  },
+  "validationMissingRequired": "請填寫所有必填項。",
+  "@validationMissingRequired": {
+    "description": "Validation message when required fields are missing."
+  },
+  "validationFormatError": "部分資訊格式不正確，請檢查後重試。",
+  "@validationFormatError": {
+    "description": "Validation message for generic formatting issues."
+  },
+  "validationGenericError": "請檢查輸入內容並重試。",
+  "@validationGenericError": {
+    "description": "Fallback validation message."
+  },
+  "fileNotFound": "未找到檔案，可能已移動或刪除。",
+  "@fileNotFound": {
+    "description": "Message when a file cannot be located."
+  },
+  "fileAccessDenied": "無法存取檔案，請檢查權限。",
+  "@fileAccessDenied": {
+    "description": "Message when file access is denied."
+  },
+  "fileTooLarge": "檔案過大，請選擇較小的檔案。",
+  "@fileTooLarge": {
+    "description": "Message when a file exceeds size limits."
+  },
+  "fileGenericError": "檔案出現問題，請嘗試其他檔案。",
+  "@fileGenericError": {
+    "description": "Fallback file error message."
+  },
+  "permissionCameraRequired": "需要相機權限，請在設定中開啟。",
+  "@permissionCameraRequired": {
+    "description": "Message when camera permission is missing."
+  },
+  "permissionStorageRequired": "需要儲存權限，請在設定中開啟。",
+  "@permissionStorageRequired": {
+    "description": "Message when storage permission is missing."
+  },
+  "permissionMicrophoneRequired": "需要麥克風權限，請在設定中開啟。",
+  "@permissionMicrophoneRequired": {
+    "description": "Message when microphone permission is missing."
+  },
+  "permissionGenericError": "需要權限，請在設定中檢查應用程式權限。",
+  "@permissionGenericError": {
+    "description": "Fallback permission error message."
+  },
+  "actionRetryRequest": "請再次嘗試該請求。",
+  "@actionRetryRequest": {
+    "description": "Description for retrying a failed request."
+  },
+  "actionVerifyConnection": "請檢查網路連線。",
+  "@actionVerifyConnection": {
+    "description": "Description for checking internet connectivity."
+  },
+  "actionRetryOperation": "請重試此操作。",
+  "@actionRetryOperation": {
+    "description": "Description for retrying the same operation."
+  },
+  "actionRetryAfterDelay": "稍等片刻再試一次。",
+  "@actionRetryAfterDelay": {
+    "description": "Description suggesting a short delay before retrying."
+  },
+  "actionSignInToAccount": "登入到您的帳戶。",
+  "@actionSignInToAccount": {
+    "description": "Description for signing back into the app."
+  },
+  "actionSelectAnotherFile": "請選擇其他檔案。",
+  "@actionSelectAnotherFile": {
+    "description": "Description for choosing a different file."
+  },
+  "actionOpenAppSettings": "開啟應用程式設定以授予權限。",
+  "@actionOpenAppSettings": {
+    "description": "Description for opening system or app settings."
+  },
+  "actionRetryAfterPermission": "授予權限後請重試。",
+  "@actionRetryAfterPermission": {
+    "description": "Description for retrying once permissions are granted."
+  },
+  "actionReturnToPrevious": "返回上一畫面。",
+  "@actionReturnToPrevious": {
+    "description": "Description for navigating back to the prior screen."
+  },
+  "continueAction": "繼續",
+  "@continueAction": {
+    "description": "Button label to continue an action or flow."
+  },
+  "loadingShort": "載入中",
+  "@loadingShort": {
+    "description": "Short loading label used for accessibility."
+  },
+  "loadingAnnouncement": "正在載入：{message}",
+  "@loadingAnnouncement": {
+    "description": "Screen reader announcement when loading a resource.",
+    "placeholders": {
+      "message": {
+        "type": "String",
+        "example": "Messages"
+      }
+    }
+  },
+  "errorAnnouncement": "錯誤：{error}",
+  "@errorAnnouncement": {
+    "description": "Screen reader announcement for an error.",
+    "placeholders": {
+      "error": {
+        "type": "String",
+        "example": "Network timeout"
+      }
+    }
+  },
+  "errorAnnouncementWithSuggestion": "錯誤：{error}。{suggestion}",
+  "@errorAnnouncementWithSuggestion": {
+    "description": "Screen reader announcement for an error with a follow-up suggestion.",
+    "placeholders": {
+      "error": {
+        "type": "String",
+        "example": "Network timeout"
+      },
+      "suggestion": {
+        "type": "String",
+        "example": "Please try again later."
+      }
+    }
+  },
+  "successAnnouncement": "成功：{message}",
+  "@successAnnouncement": {
+    "description": "Screen reader announcement for successful actions.",
+    "placeholders": {
+      "message": {
+        "type": "String",
+        "example": "Profile updated"
+      }
+    }
+  },
+  "requiredFieldLabel": "{label} *",
+  "@requiredFieldLabel": {
+    "description": "Label text indicating a required field.",
+    "placeholders": {
+      "label": {
+        "type": "String",
+        "example": "Email"
+      }
+    }
+  },
+  "requiredFieldHelper": "必填項",
+  "@requiredFieldHelper": {
+    "description": "Helper text indicating that the field is required."
+  },
+  "switchOnLabel": "開啟",
+  "@switchOnLabel": {
+    "description": "Semantic label when a switch is enabled."
+  },
+  "switchOffLabel": "關閉",
+  "@switchOffLabel": {
+    "description": "Semantic label when a switch is disabled."
+  },
+  "dialogSemanticLabel": "對話框：{title}",
+  "@dialogSemanticLabel": {
+    "description": "Semantic label describing the dialog title.",
+    "placeholders": {
+      "title": {
+        "type": "String",
+        "example": "Settings"
+      }
+    }
+  },
+  "previousLabel": "上一步",
+  "@previousLabel": {
+    "description": "Label for navigating to the previous item."
+  },
+  "nextLabel": "下一步",
+  "@nextLabel": {
+    "description": "Label for navigating to the next item."
+  },
+  "themePaletteConduitLabel": "Conduit",
+  "@themePaletteConduitLabel": {
+    "description": "Palette name for the default Conduit theme."
+  },
+  "themePaletteConduitDescription": "為 Conduit 設計的簡潔中性色主題。",
+  "@themePaletteConduitDescription": {
+    "description": "Description of the Conduit palette."
+  },
+  "themePaletteClaudeLabel": "Claude",
+  "@themePaletteClaudeLabel": {
+    "description": "Palette name inspired by the Claude web client."
+  },
+  "themePaletteClaudeDescription": "源自 Claude 網頁端的溫暖觸感配色。",
+  "@themePaletteClaudeDescription": {
+    "description": "Description of the Claude palette."
+  },
+  "themePaletteT3ChatLabel": "T3 Chat",
+  "@themePaletteT3ChatLabel": {
+    "description": "Palette name inspired by the T3 Stack brand."
+  },
+  "themePaletteT3ChatDescription": "靈感來自 T3 Stack 品牌的活潑漸層。",
+  "@themePaletteT3ChatDescription": {
+    "description": "Description of the T3 Chat palette."
+  },
+  "themePaletteCatppuccinLabel": "Catppuccin",
+  "@themePaletteCatppuccinLabel": {
+    "description": "Palette name for Catppuccin colors."
+  },
+  "themePaletteCatppuccinDescription": "柔和的馬卡龍色調。",
+  "@themePaletteCatppuccinDescription": {
+    "description": "Description of the Catppuccin palette."
+  },
+  "themePaletteTangerineLabel": "Tangerine",
+  "@themePaletteTangerineLabel": {
+    "description": "Palette name for Tangerine colors."
+  },
+  "themePaletteTangerineDescription": "溫暖的橙色與石板色調。",
+  "@themePaletteTangerineDescription": {
+    "description": "Description of the Tangerine palette."
+  },
+  "@onboardStartTitle": {
+    "description": "Onboarding card: start chatting title.",
+    "placeholders": {
+      "username": {
+        "type": "String",
+        "example": "Alex"
+      }
+    }
+  },
+  "@notAnImageFile": {
+    "description": "Error when a referenced file is not an image.",
+    "placeholders": {
+      "fileName": {
+        "type": "String",
+        "example": "image.txt"
+      }
+    }
+  },
+  "@failedToLoadImage": {
+    "description": "Error including the underlying reason when image loading fails.",
+    "placeholders": {
+      "error": {
+        "type": "String",
+        "example": "Network error"
+      }
+    }
+  },
+  "@ttsVoicesForLanguage": {
+    "description": "Section header for voices matching the app language",
+    "placeholders": {
+      "language": {
+        "type": "String",
+        "example": "EN"
+      }
+    }
+  },
+  "voiceCallReady": "已就緒",
+  "@voiceCallReady": {
+    "description": "Status label shown when the voice call is ready to start."
+  },
+  "voiceCallConnecting": "正在連線...",
+  "@voiceCallConnecting": {
+    "description": "Status label shown while the voice call is connecting."
+  },
+  "voiceCallListening": "正在聆聽",
+  "@voiceCallListening": {
+    "description": "Status label shown while the call is listening for input."
+  },
+  "voiceCallPaused": "已暫停",
+  "@voiceCallPaused": {
+    "description": "Status label shown when the call is paused."
+  },
+  "voiceCallProcessing": "正在思考...",
+  "@voiceCallProcessing": {
+    "description": "Status label shown while the call processes a response."
+  },
+  "voiceCallSpeaking": "正在講話",
+  "@voiceCallSpeaking": {
+    "description": "Status label shown while the assistant is speaking."
+  },
+  "voiceCallDisconnected": "已中斷",
+  "@voiceCallDisconnected": {
+    "description": "Status label shown when the voice call has ended or disconnected."
+  },
+  "voiceCallErrorHelp": "請檢查：\n• 已授予麥克風權限\n• 裝置支援語音辨識\n• 已連線到伺服器",
+  "@voiceCallErrorHelp": {
+    "description": "Guidance shown when the voice call encounters an error."
+  }
+}

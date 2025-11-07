@@ -185,13 +185,30 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         localeListResolutionCallback: (deviceLocales, supported) {
-          if (locale != null) return locale;
+          if (locale != null) {
+            return locale;
+          }
+          
           if (deviceLocales == null || deviceLocales.isEmpty) {
             return supported.first;
           }
+          
+          // First pass: try to find exact matches (language + country)
           for (final device in deviceLocales) {
             for (final loc in supported) {
-              if (loc.languageCode == device.languageCode) return loc;
+              if (loc.languageCode == device.languageCode && 
+                  loc.countryCode == device.countryCode) {
+                return loc;
+              }
+            }
+          }
+          
+          // Second pass: fallback to language-only matches
+          for (final device in deviceLocales) {
+            for (final loc in supported) {
+              if (loc.languageCode == device.languageCode) {
+                return loc;
+              }
             }
           }
           return supported.first;
