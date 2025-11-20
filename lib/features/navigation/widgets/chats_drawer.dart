@@ -940,10 +940,6 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer> {
             current[folderId] = next;
             ref.read(_expandedFoldersProvider.notifier).set(current);
           },
-          onLongPress: () {
-            HapticFeedback.selectionClick();
-            _showFolderContextMenu(context, folderId, name);
-          },
           overlayColor: WidgetStateProperty.resolveWith(overlayForStates),
           child: ConstrainedBox(
             constraints: const BoxConstraints(
@@ -994,6 +990,37 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer> {
                         style: AppTypography.standard.copyWith(
                           color: theme.textSecondary,
                         ),
+                      ),
+                      const SizedBox(width: Spacing.sm),
+                      Builder(
+                        builder: (buttonContext) {
+                          return IconButton(
+                            iconSize: IconSize.sm,
+                            visualDensity: const VisualDensity(
+                              horizontal: -2,
+                              vertical: -2,
+                            ),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(
+                              minWidth: TouchTarget.listItem,
+                              minHeight: TouchTarget.listItem,
+                            ),
+                            icon: Icon(
+                              Platform.isIOS
+                                  ? CupertinoIcons.ellipsis
+                                  : Icons.more_vert_rounded,
+                              color: theme.iconSecondary,
+                            ),
+                            onPressed: () {
+                              _showFolderContextMenu(
+                                buttonContext,
+                                folderId,
+                                name,
+                              );
+                            },
+                            tooltip: AppLocalizations.of(context)!.more,
+                          );
+                        },
                       ),
                       const SizedBox(width: Spacing.xs),
                       Icon(
