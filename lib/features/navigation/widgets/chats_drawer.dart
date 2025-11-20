@@ -756,6 +756,27 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer> {
     );
   }
 
+  void _startNewChatInFolder(String folderId, String folderName) {
+    // Set the selected folder for new conversations
+    ref.read(chat.selectedFolderForNewChatProvider.notifier).set(folderId);
+
+    // Clear the current conversation to start fresh
+    ref.read(chat.chatMessagesProvider.notifier).clearMessages();
+    ref.read(activeConversationProvider.notifier).clear();
+
+    // Close the drawer
+    ResponsiveDrawerLayout.of(context)?.close();
+
+    // Provide haptic feedback
+    HapticFeedback.lightImpact();
+
+    DebugLogger.log(
+      'new-chat-in-folder',
+      scope: 'drawer',
+      data: {'folderId': folderId, 'folderName': folderName},
+    );
+  }
+
   Future<void> _promptCreateFolder() async {
     final name = await ThemedDialogs.promptTextInput(
       context,
@@ -929,6 +950,25 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer> {
                           ),
                         ),
                         const SizedBox(width: Spacing.xs),
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                            minWidth: TouchTarget.listItem,
+                            minHeight: TouchTarget.listItem,
+                          ),
+                          tooltip: AppLocalizations.of(context)!.newChat,
+                          icon: Icon(
+                            Platform.isIOS
+                                ? CupertinoIcons.plus_circle
+                                : Icons.add_circle_outline,
+                            color: theme.iconPrimary,
+                            size: IconSize.listItem,
+                          ),
+                          onPressed: () {
+                            _startNewChatInFolder(folderId, name);
+                          },
+                        ),
                         Icon(
                           isExpanded
                               ? (Platform.isIOS

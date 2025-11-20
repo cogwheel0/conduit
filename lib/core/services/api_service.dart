@@ -598,6 +598,7 @@ class ApiService {
     required List<ChatMessage> messages,
     String? model,
     String? systemPrompt,
+    String? folderId,
   }) async {
     _traceApi('Creating new conversation on OpenWebUI server');
     _traceApi('Title: $title, Messages: ${messages.length}');
@@ -675,7 +676,7 @@ class ApiService {
         'tags': [],
         'timestamp': DateTime.now().millisecondsSinceEpoch,
       },
-      'folder_id': null,
+      'folder_id': folderId,
     };
 
     _traceApi('Sending chat data with proper parent-child structure');

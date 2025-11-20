@@ -1469,8 +1469,130 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                                           const SizedBox(height: Spacing.xs),
                                         ],
                                       )
-                                    : const SizedBox.shrink(
-                                        key: ValueKey<String>('empty-title'),
+                                    : Builder(
+                                        key: const ValueKey<String>(
+                                          'empty-title',
+                                        ),
+                                        builder: (context) {
+                                          final selectedFolderId = ref.watch(
+                                            selectedFolderForNewChatProvider,
+                                          );
+                                          if (selectedFolderId == null) {
+                                            return const SizedBox.shrink();
+                                          }
+
+                                          // Get folder name
+                                          final foldersAsync = ref.watch(
+                                            foldersProvider,
+                                          );
+                                          final folderName = foldersAsync
+                                              .maybeWhen(
+                                            data: (folders) {
+                                              final folder = folders.firstWhere(
+                                                (f) => f.id == selectedFolderId,
+                                                orElse: () => folders.first,
+                                              );
+                                              return folder.name;
+                                            },
+                                            orElse: () => null,
+                                          );
+
+                                          if (folderName == null) {
+                                            return const SizedBox.shrink();
+                                          }
+
+                                          return Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: Spacing.md,
+                                            ),
+                                            child: Container(
+                                              padding: const EdgeInsets
+                                                  .symmetric(
+                                                horizontal: Spacing.sm,
+                                                vertical: Spacing.xxs,
+                                              ),
+                                              decoration: BoxDecoration(
+                                                color: context
+                                                    .conduitTheme
+                                                    .buttonPrimary
+                                                    .withValues(alpha: 0.1),
+                                                borderRadius: BorderRadius
+                                                    .circular(
+                                                  AppBorderRadius.badge,
+                                                ),
+                                                border: Border.all(
+                                                  color: context
+                                                      .conduitTheme
+                                                      .buttonPrimary
+                                                      .withValues(alpha: 0.3),
+                                                  width: BorderWidth.thin,
+                                                ),
+                                              ),
+                                              child: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Icon(
+                                                    Platform.isIOS
+                                                        ? CupertinoIcons.folder
+                                                        : Icons.folder,
+                                                    color: context
+                                                        .conduitTheme
+                                                        .buttonPrimary,
+                                                    size: IconSize.xs,
+                                                  ),
+                                                  const SizedBox(
+                                                    width: Spacing.xs,
+                                                  ),
+                                                  Flexible(
+                                                    child: Text(
+                                                      folderName,
+                                                      style: AppTypography
+                                                          .bodySmallStyle
+                                                          .copyWith(
+                                                        color: context
+                                                            .conduitTheme
+                                                            .buttonPrimary,
+                                                        fontWeight:
+                                                            FontWeight.w500,
+                                                      ),
+                                                      maxLines: 1,
+                                                      overflow: TextOverflow
+                                                          .ellipsis,
+                                                    ),
+                                                  ),
+                                                  const SizedBox(
+                                                    width: Spacing.xs,
+                                                  ),
+                                                  GestureDetector(
+                                                    onTap: () {
+                                                      ref
+                                                          .read(
+                                                            selectedFolderForNewChatProvider
+                                                                .notifier,
+                                                          )
+                                                          .clear();
+                                                      HapticFeedback
+                                                          .lightImpact();
+                                                    },
+                                                    child: Icon(
+                                                      Platform.isIOS
+                                                          ? CupertinoIcons
+                                                              .xmark_circle_fill
+                                                          : Icons.cancel,
+                                                      color: context
+                                                          .conduitTheme
+                                                          .buttonPrimary
+                                                          .withValues(
+                                                        alpha: 0.7,
+                                                      ),
+                                                      size: IconSize.xs,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          );
+                                        },
                                       ),
                               ),
                               Transform.translate(
