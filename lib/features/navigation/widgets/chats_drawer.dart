@@ -383,6 +383,9 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer> {
                         final hasItems = convs.isNotEmpty;
                         final hasChildren = node.children.isNotEmpty;
 
+                        // Count both conversations and subfolders
+                        final totalCount = convs.length + node.children.length;
+
                         // Add folder header with proper indentation
                         out.add(
                           SliverPadding(
@@ -394,7 +397,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer> {
                               child: _buildFolderHeader(
                                 folder.id,
                                 folder.name,
-                                convs.length,
+                                totalCount,
                                 defaultExpanded: folder.isExpanded,
                                 depth: depth,
                                 hasChildren: hasChildren,
@@ -634,6 +637,9 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer> {
                     final hasItems = convs.isNotEmpty;
                     final hasChildren = node.children.isNotEmpty;
 
+                    // Count both conversations and subfolders
+                    final totalCount = convs.length + node.children.length;
+
                     out.add(
                       SliverPadding(
                         padding: EdgeInsets.only(
@@ -644,7 +650,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer> {
                           child: _buildFolderHeader(
                             folder.id,
                             folder.name,
-                            convs.length,
+                            totalCount,
                             defaultExpanded: folder.isExpanded,
                             depth: depth,
                             hasChildren: hasChildren,
