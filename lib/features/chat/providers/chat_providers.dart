@@ -86,6 +86,22 @@ class ComposerAutofocusEnabled extends _$ComposerAutofocusEnabled {
   void set(bool value) => state = value;
 }
 
+// Selected folder for new conversations
+// When set, new conversations will be created inside this folder
+final selectedFolderForNewChatProvider =
+    NotifierProvider<SelectedFolderForNewChatNotifier, String?>(
+      SelectedFolderForNewChatNotifier.new,
+    );
+
+class SelectedFolderForNewChatNotifier extends Notifier<String?> {
+  @override
+  String? build() => null;
+
+  void set(String? folderId) => state = folderId;
+
+  void clear() => state = null;
+}
+
 // Chat messages notifier class
 class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   StreamingResponseController? _messageStream;
@@ -1624,6 +1640,9 @@ Future<void> _sendMessageInternal(
   );
 
   if (activeConversation == null) {
+    // Get the selected folder for new chats (if any)
+    final selectedFolderId = ref.read(selectedFolderForNewChatProvider);
+
     // Create new conversation with the first message included
     final localConversation = Conversation(
       id: const Uuid().v4(),
@@ -1632,6 +1651,7 @@ Future<void> _sendMessageInternal(
       updatedAt: DateTime.now(),
       systemPrompt: userSystemPrompt,
       messages: [userMessage], // Include the user message
+      folderId: selectedFolderId,
     );
 
     // Set as active conversation locally
@@ -1641,11 +1661,13 @@ Future<void> _sendMessageInternal(
     if (!reviewerMode) {
       // Try to create on server with the first message included
       try {
+
         final serverConversation = await api.createConversation(
           title: 'New Chat',
           messages: [userMessage], // Include the first message in creation
           model: selectedModel.id,
           systemPrompt: userSystemPrompt,
+          folderId: selectedFolderId,
         );
         final updatedConversation = localConversation.copyWith(
           id: serverConversation.id,
@@ -1667,13 +1689,16 @@ Future<void> _sendMessageInternal(
               updatedConversation.copyWith(updatedAt: DateTime.now()),
             );
 
+        // Clear the selected folder after conversation is created
+        ref.read(selectedFolderForNewChatProvider.notifier).clear();
+
         // Invalidate conversations provider to refresh the list
         // Adding a small delay to prevent rapid invalidations that could cause duplicates
         Future.delayed(const Duration(milliseconds: 100), () {
           try {
             // Guard against using ref after widget disposal
             if (ref.mounted == true) {
-              refreshConversationsCache(ref);
+              refreshConversationsCache(ref, includeFolders: true);
             }
           } catch (_) {
             // If ref doesn't support mounted or is disposed, skip
