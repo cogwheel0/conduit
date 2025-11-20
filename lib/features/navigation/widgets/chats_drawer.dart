@@ -26,6 +26,7 @@ import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../../core/models/model.dart';
 import '../../../core/models/conversation.dart';
 import '../../../core/models/folder.dart';
+import '../../../core/utils/folder_hierarchy.dart';
 
 class ChatsDrawer extends ConsumerStatefulWidget {
   const ChatsDrawer({super.key});
@@ -359,56 +360,91 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer> {
 
                     final expandedMap = ref.watch(_expandedFoldersProvider);
 
+                    // Build folder hierarchy
+                    final hierarchy = FolderHierarchy(folders);
+
                     final out = <Widget>[];
-                    for (final folder in folders) {
-                      final existing = grouped[folder.id] ?? const <dynamic>[];
-                      final convs = _resolveFolderConversations(
-                        folder,
-                        existing,
-                      );
-                      final isExpanded =
-                          expandedMap[folder.id] ?? folder.isExpanded;
-                      final hasItems = convs.isNotEmpty;
-                      out.add(
-                        SliverPadding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: Spacing.md,
-                          ),
-                          sliver: SliverToBoxAdapter(
-                            child: _buildFolderHeader(
-                              folder.id,
-                              folder.name,
-                              convs.length,
-                              defaultExpanded: folder.isExpanded,
+
+                    // Recursively build folder widgets
+                    void buildFolderWidgets(
+                      List<FolderNode> nodes,
+                      int depth,
+                    ) {
+                      for (final node in nodes) {
+                        final folder = node.folder;
+                        final existing =
+                            grouped[folder.id] ?? const <dynamic>[];
+                        final convs = _resolveFolderConversations(
+                          folder,
+                          existing,
+                        );
+                        final isExpanded =
+                            expandedMap[folder.id] ?? folder.isExpanded;
+                        final hasItems = convs.isNotEmpty;
+                        final hasChildren = node.children.isNotEmpty;
+
+                        // Add folder header with proper indentation
+                        out.add(
+                          SliverPadding(
+                            padding: EdgeInsets.only(
+                              left: Spacing.md + (depth * Spacing.lg),
+                              right: Spacing.md,
+                            ),
+                            sliver: SliverToBoxAdapter(
+                              child: _buildFolderHeader(
+                                folder.id,
+                                folder.name,
+                                convs.length,
+                                defaultExpanded: folder.isExpanded,
+                                depth: depth,
+                                hasChildren: hasChildren,
+                              ),
                             ),
                           ),
-                        ),
-                      );
-                      if (isExpanded && hasItems) {
-                        out.add(
-                          const SliverToBoxAdapter(
-                            child: SizedBox(height: Spacing.xs),
-                          ),
                         );
-                        out.add(
-                          _conversationsSliver(
-                            convs,
-                            inFolder: true,
-                            modelsById: modelsById,
-                          ),
-                        );
+
+                        // If expanded, show conversations
+                        if (isExpanded && hasItems) {
+                          out.add(
+                            const SliverToBoxAdapter(
+                              child: SizedBox(height: Spacing.xs),
+                            ),
+                          );
+                          out.add(
+                            SliverPadding(
+                              padding: EdgeInsets.only(
+                                left: depth * Spacing.lg,
+                              ),
+                              sliver: _conversationsSliver(
+                                convs,
+                                inFolder: true,
+                                modelsById: modelsById,
+                              ),
+                            ),
+                          );
+                          out.add(
+                            const SliverToBoxAdapter(
+                              child: SizedBox(height: Spacing.xs),
+                            ),
+                          );
+                        }
+
+                        // If expanded and has children, show nested folders
+                        if (isExpanded && hasChildren) {
+                          buildFolderWidgets(node.children, depth + 1);
+                        }
+
                         out.add(
                           const SliverToBoxAdapter(
                             child: SizedBox(height: Spacing.xs),
                           ),
                         );
                       }
-                      out.add(
-                        const SliverToBoxAdapter(
-                          child: SizedBox(height: Spacing.xs),
-                        ),
-                      );
                     }
+
+                    // Start building from root nodes
+                    buildFolderWidgets(hierarchy.rootNodes, 0);
+
                     return out.isEmpty
                         ? <Widget>[
                             const SliverToBoxAdapter(child: SizedBox.shrink()),
@@ -582,49 +618,73 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer> {
                   grouped.putIfAbsent(id, () => []).add(c);
                 }
                 final expandedMap = ref.watch(_expandedFoldersProvider);
-                final out = <Widget>[];
-                for (final folder in folders) {
-                  final existing = grouped[folder.id] ?? const <dynamic>[];
-                  final convs = _resolveFolderConversations(folder, existing);
-                  final isExpanded =
-                      expandedMap[folder.id] ?? folder.isExpanded;
-                  final hasItems = convs.isNotEmpty;
 
-                  out.add(
-                    SliverPadding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: Spacing.md,
-                      ),
-                      sliver: SliverToBoxAdapter(
-                        child: _buildFolderHeader(
-                          folder.id,
-                          folder.name,
-                          convs.length,
-                          defaultExpanded: folder.isExpanded,
+                // Build folder hierarchy
+                final hierarchy = FolderHierarchy(folders);
+                final out = <Widget>[];
+
+                // Recursively build folder widgets
+                void buildFolderWidgets(List<FolderNode> nodes, int depth) {
+                  for (final node in nodes) {
+                    final folder = node.folder;
+                    final existing = grouped[folder.id] ?? const <dynamic>[];
+                    final convs = _resolveFolderConversations(folder, existing);
+                    final isExpanded =
+                        expandedMap[folder.id] ?? folder.isExpanded;
+                    final hasItems = convs.isNotEmpty;
+                    final hasChildren = node.children.isNotEmpty;
+
+                    out.add(
+                      SliverPadding(
+                        padding: EdgeInsets.only(
+                          left: Spacing.md + (depth * Spacing.lg),
+                          right: Spacing.md,
+                        ),
+                        sliver: SliverToBoxAdapter(
+                          child: _buildFolderHeader(
+                            folder.id,
+                            folder.name,
+                            convs.length,
+                            defaultExpanded: folder.isExpanded,
+                            depth: depth,
+                            hasChildren: hasChildren,
+                          ),
                         ),
                       ),
-                    ),
-                  );
-                  if (isExpanded && hasItems) {
-                    out.add(
-                      const SliverToBoxAdapter(
-                        child: SizedBox(height: Spacing.xs),
-                      ),
                     );
-                    out.add(
-                      _conversationsSliver(
-                        convs,
-                        inFolder: true,
-                        modelsById: modelsById,
-                      ),
-                    );
-                    out.add(
-                      const SliverToBoxAdapter(
-                        child: SizedBox(height: Spacing.sm),
-                      ),
-                    );
+                    if (isExpanded && hasItems) {
+                      out.add(
+                        const SliverToBoxAdapter(
+                          child: SizedBox(height: Spacing.xs),
+                        ),
+                      );
+                      out.add(
+                        SliverPadding(
+                          padding: EdgeInsets.only(left: depth * Spacing.lg),
+                          sliver: _conversationsSliver(
+                            convs,
+                            inFolder: true,
+                            modelsById: modelsById,
+                          ),
+                        ),
+                      );
+                      out.add(
+                        const SliverToBoxAdapter(
+                          child: SizedBox(height: Spacing.sm),
+                        ),
+                      );
+                    }
+
+                    // If expanded and has children, show nested folders
+                    if (isExpanded && hasChildren) {
+                      buildFolderWidgets(node.children, depth + 1);
+                    }
                   }
                 }
+
+                // Start building from root nodes
+                buildFolderWidgets(hierarchy.rootNodes, 0);
+
                 return out.isEmpty
                     ? <Widget>[
                         const SliverToBoxAdapter(child: SizedBox.shrink()),
@@ -789,22 +849,185 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer> {
     }
   }
 
+  Future<void> _promptCreateSubfolder(
+    BuildContext context,
+    String parentId,
+  ) async {
+    final name = await ThemedDialogs.promptTextInput(
+      context,
+      title: AppLocalizations.of(context)!.newSubfolder,
+      hintText: AppLocalizations.of(context)!.folderName,
+      confirmText: AppLocalizations.of(context)!.create,
+      cancelText: AppLocalizations.of(context)!.cancel,
+    );
+
+    if (name == null) return;
+    if (name.isEmpty) return;
+    try {
+      final api = ref.read(apiServiceProvider);
+      if (api == null) throw Exception('No API service');
+      final created = await api.createFolder(name: name, parentId: parentId);
+      final folder = Folder.fromJson(Map<String, dynamic>.from(created));
+      HapticFeedback.lightImpact();
+      ref.read(foldersProvider.notifier).upsertFolder(folder);
+      refreshConversationsCache(ref, includeFolders: true);
+
+      // Automatically expand the parent folder to show the new subfolder
+      final expandedMap = {...ref.read(_expandedFoldersProvider)};
+      expandedMap[parentId] = true;
+      ref.read(_expandedFoldersProvider.notifier).set(expandedMap);
+    } catch (e, stackTrace) {
+      if (!mounted) return;
+      DebugLogger.error(
+        'create-subfolder-failed',
+        scope: 'drawer',
+        error: e,
+        stackTrace: stackTrace,
+      );
+      await _showDrawerError(
+        AppLocalizations.of(context)!.failedToCreateFolder,
+      );
+    }
+  }
+
   Widget _buildFolderHeader(
     String folderId,
     String name,
     int count, {
     bool defaultExpanded = false,
+    int depth = 0,
+    bool hasChildren = false,
   }) {
     final theme = context.conduitTheme;
     final expandedMap = ref.watch(_expandedFoldersProvider);
     final isExpanded = expandedMap[folderId] ?? defaultExpanded;
     final isHover = _dragHoverFolderId == folderId;
+
+    // Build the folder header widget
+    Widget buildFolderHeaderWidget({
+      required bool isConversationHover,
+      required bool isFolderHover,
+    }) {
+      final combinedHover = isConversationHover || isFolderHover;
+      final baseColor = theme.surfaceContainer;
+      final hoverColor = theme.buttonPrimary.withValues(alpha: 0.08);
+      final borderColor = combinedHover
+          ? theme.buttonPrimary.withValues(alpha: 0.60)
+          : theme.surfaceContainerHighest.withValues(alpha: 0.40);
+
+      Color? overlayForStates(Set<WidgetState> states) {
+        if (states.contains(WidgetState.pressed)) {
+          return theme.buttonPrimary.withValues(alpha: Alpha.buttonPressed);
+        }
+        if (states.contains(WidgetState.hovered) ||
+            states.contains(WidgetState.focused)) {
+          return theme.buttonPrimary.withValues(alpha: Alpha.hover);
+        }
+        return Colors.transparent;
+      }
+
+      return Material(
+        color: combinedHover ? hoverColor : baseColor,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppBorderRadius.small),
+          side: BorderSide(color: borderColor, width: BorderWidth.thin),
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(AppBorderRadius.small),
+          onTap: () {
+            final current = {...ref.read(_expandedFoldersProvider)};
+            final next = !isExpanded;
+            current[folderId] = next;
+            ref.read(_expandedFoldersProvider.notifier).set(current);
+          },
+          onLongPress: () {
+            HapticFeedback.selectionClick();
+            _showFolderContextMenu(context, folderId, name);
+          },
+          overlayColor: WidgetStateProperty.resolveWith(overlayForStates),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(
+              minHeight: TouchTarget.listItem,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: Spacing.md,
+                vertical: Spacing.xs,
+              ),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final hasFiniteWidth = constraints.maxWidth.isFinite;
+                  final textFit =
+                      hasFiniteWidth ? FlexFit.tight : FlexFit.loose;
+
+                  return Row(
+                    mainAxisSize:
+                        hasFiniteWidth ? MainAxisSize.max : MainAxisSize.min,
+                    children: [
+                      Icon(
+                        isExpanded
+                            ? (Platform.isIOS
+                                ? CupertinoIcons.folder_open
+                                : Icons.folder_open)
+                            : (Platform.isIOS
+                                ? CupertinoIcons.folder
+                                : Icons.folder),
+                        color: theme.iconPrimary,
+                        size: IconSize.listItem,
+                      ),
+                      const SizedBox(width: Spacing.sm),
+                      Flexible(
+                        fit: textFit,
+                        child: Text(
+                          name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTypography.standard.copyWith(
+                            color: theme.textPrimary,
+                            fontWeight: FontWeight.w400,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: Spacing.sm),
+                      Text(
+                        '$count',
+                        style: AppTypography.standard.copyWith(
+                          color: theme.textSecondary,
+                        ),
+                      ),
+                      const SizedBox(width: Spacing.xs),
+                      Icon(
+                        isExpanded
+                            ? (Platform.isIOS
+                                ? CupertinoIcons.chevron_up
+                                : Icons.expand_less)
+                            : (Platform.isIOS
+                                ? CupertinoIcons.chevron_down
+                                : Icons.expand_more),
+                        color: theme.iconSecondary,
+                        size: IconSize.listItem,
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    // Wrap in drag targets for both conversations and folders
     return DragTarget<_DragConversationData>(
       onWillAcceptWithDetails: (details) {
         setState(() => _dragHoverFolderId = folderId);
         return true;
       },
-      onLeave: (_) => setState(() => _dragHoverFolderId = null),
+      onLeave: (_) {
+        if (_dragHoverFolderId == folderId) {
+          setState(() => _dragHoverFolderId = null);
+        }
+      },
       onAcceptWithDetails: (details) async {
         setState(() {
           _dragHoverFolderId = null;
@@ -815,9 +1038,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer> {
           if (api == null) throw Exception('No API service');
           await api.moveConversationToFolder(details.data.id, folderId);
           HapticFeedback.selectionClick();
-          ref
-              .read(conversationsProvider.notifier)
-              .updateConversation(
+          ref.read(conversationsProvider.notifier).updateConversation(
                 details.data.id,
                 (conversation) => conversation.copyWith(
                   folderId: folderId,
@@ -839,114 +1060,136 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer> {
           }
         }
       },
-      builder: (context, candidateData, rejectedData) {
-        final baseColor = theme.surfaceContainer;
-        final hoverColor = theme.buttonPrimary.withValues(alpha: 0.08);
-        final borderColor = isHover
-            ? theme.buttonPrimary.withValues(alpha: 0.60)
-            : theme.surfaceContainerHighest.withValues(alpha: 0.40);
+      builder: (context, candidateConvData, rejectedConvData) {
+        final isConversationHover = candidateConvData.isNotEmpty;
 
-        Color? overlayForStates(Set<WidgetState> states) {
-          if (states.contains(WidgetState.pressed)) {
-            return theme.buttonPrimary.withValues(alpha: Alpha.buttonPressed);
-          }
-          if (states.contains(WidgetState.hovered) ||
-              states.contains(WidgetState.focused)) {
-            return theme.buttonPrimary.withValues(alpha: Alpha.hover);
-          }
-          return Colors.transparent;
-        }
-
-        return Material(
-          color: isHover ? hoverColor : baseColor,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppBorderRadius.small),
-            side: BorderSide(color: borderColor, width: BorderWidth.thin),
-          ),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(AppBorderRadius.small),
-            onTap: () {
-              final current = {...ref.read(_expandedFoldersProvider)};
-              final next = !isExpanded;
-              current[folderId] = next;
-              ref.read(_expandedFoldersProvider.notifier).set(current);
-            },
-            onLongPress: () {
+        // Nest another DragTarget for folders
+        return DragTarget<_DragFolderData>(
+          onWillAcceptWithDetails: (details) {
+            // Prevent dropping a folder into itself or its descendants
+            final hierarchy = FolderHierarchy(
+              ref.read(foldersProvider).value ?? [],
+            );
+            final descendants = hierarchy.getDescendantIds(details.data.id);
+            if (details.data.id == folderId ||
+                descendants.contains(folderId)) {
+              return false;
+            }
+            setState(() => _dragHoverFolderId = folderId);
+            return true;
+          },
+          onLeave: (_) {
+            if (_dragHoverFolderId == folderId) {
+              setState(() => _dragHoverFolderId = null);
+            }
+          },
+          onAcceptWithDetails: (details) async {
+            setState(() {
+              _dragHoverFolderId = null;
+              _isDragging = false;
+            });
+            try {
+              final api = ref.read(apiServiceProvider);
+              if (api == null) throw Exception('No API service');
+              await api.updateFolder(details.data.id, parentId: folderId);
               HapticFeedback.selectionClick();
-              _showFolderContextMenu(context, folderId, name);
-            },
-            overlayColor: WidgetStateProperty.resolveWith(overlayForStates),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(
-                minHeight: TouchTarget.listItem,
-              ),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: Spacing.md,
-                  vertical: Spacing.xs,
-                ),
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final hasFiniteWidth = constraints.maxWidth.isFinite;
-                    final textFit = hasFiniteWidth
-                        ? FlexFit.tight
-                        : FlexFit.loose;
+              ref.read(foldersProvider.notifier).updateFolder(
+                    details.data.id,
+                    (folder) => folder.copyWith(
+                      parentId: folderId,
+                      updatedAt: DateTime.now(),
+                    ),
+                  );
+              refreshConversationsCache(ref, includeFolders: true);
 
-                    return Row(
-                      mainAxisSize: hasFiniteWidth
-                          ? MainAxisSize.max
-                          : MainAxisSize.min,
-                      children: [
-                        Icon(
-                          isExpanded
-                              ? (Platform.isIOS
-                                    ? CupertinoIcons.folder_open
-                                    : Icons.folder_open)
-                              : (Platform.isIOS
-                                    ? CupertinoIcons.folder
-                                    : Icons.folder),
-                          color: theme.iconPrimary,
-                          size: IconSize.listItem,
+              // Automatically expand the target folder
+              final expandedMap = {...ref.read(_expandedFoldersProvider)};
+              expandedMap[folderId] = true;
+              ref.read(_expandedFoldersProvider.notifier).set(expandedMap);
+            } catch (e, stackTrace) {
+              DebugLogger.error(
+                'move-folder-failed',
+                scope: 'drawer',
+                error: e,
+                stackTrace: stackTrace,
+              );
+              if (mounted) {
+                await _showDrawerError('Failed to move folder');
+              }
+            }
+          },
+          builder: (context, candidateFolderData, rejectedFolderData) {
+            final isFolderHover = candidateFolderData.isNotEmpty;
+
+            // Make the folder header draggable
+            return LongPressDraggable<_DragFolderData>(
+              data: _DragFolderData(id: folderId, name: name),
+              dragAnchorStrategy: pointerDragAnchorStrategy,
+              feedback: Material(
+                color: Colors.transparent,
+                elevation: Elevation.low,
+                borderRadius: BorderRadius.circular(AppBorderRadius.small),
+                child: Container(
+                  constraints:
+                      const BoxConstraints(minHeight: TouchTarget.listItem),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: Spacing.md,
+                    vertical: Spacing.xs,
+                  ),
+                  decoration: BoxDecoration(
+                    color: theme.surfaceContainer,
+                    borderRadius: BorderRadius.circular(AppBorderRadius.small),
+                    border: Border.all(
+                      color: theme.surfaceContainerHighest
+                          .withValues(alpha: 0.40),
+                      width: BorderWidth.thin,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Platform.isIOS
+                            ? CupertinoIcons.folder
+                            : Icons.folder,
+                        color: theme.iconPrimary,
+                        size: IconSize.listItem,
+                      ),
+                      const SizedBox(width: Spacing.sm),
+                      Text(
+                        name,
+                        style: AppTypography.standard.copyWith(
+                          color: theme.textPrimary,
+                          fontWeight: FontWeight.w400,
                         ),
-                        const SizedBox(width: Spacing.sm),
-                        Flexible(
-                          fit: textFit,
-                          child: Text(
-                            name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTypography.standard.copyWith(
-                              color: theme.textPrimary,
-                              fontWeight: FontWeight.w400,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: Spacing.sm),
-                        Text(
-                          '$count',
-                          style: AppTypography.standard.copyWith(
-                            color: theme.textSecondary,
-                          ),
-                        ),
-                        const SizedBox(width: Spacing.xs),
-                        Icon(
-                          isExpanded
-                              ? (Platform.isIOS
-                                    ? CupertinoIcons.chevron_up
-                                    : Icons.expand_less)
-                              : (Platform.isIOS
-                                    ? CupertinoIcons.chevron_down
-                                    : Icons.expand_more),
-                          color: theme.iconSecondary,
-                          size: IconSize.listItem,
-                        ),
-                      ],
-                    );
-                  },
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-          ),
+              childWhenDragging: Opacity(
+                opacity: 0.5,
+                child: IgnorePointer(
+                  child: buildFolderHeaderWidget(
+                    isConversationHover: false,
+                    isFolderHover: false,
+                  ),
+                ),
+              ),
+              onDragStarted: () {
+                HapticFeedback.lightImpact();
+                setState(() => _isDragging = true);
+              },
+              onDragEnd: (_) => setState(() {
+                _dragHoverFolderId = null;
+                _isDragging = false;
+              }),
+              child: buildFolderHeaderWidget(
+                isConversationHover: isConversationHover,
+                isFolderHover: isFolderHover,
+              ),
+            );
+          },
         );
       },
     );
@@ -1051,6 +1294,15 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer> {
     showConduitContextMenu(
       context: context,
       actions: [
+        ConduitContextMenuAction(
+          cupertinoIcon: CupertinoIcons.folder_badge_plus,
+          materialIcon: Icons.create_new_folder_outlined,
+          label: l10n.newSubfolder,
+          onBeforeClose: () => HapticFeedback.selectionClick(),
+          onSelected: () async {
+            await _promptCreateSubfolder(context, folderId);
+          },
+        ),
         ConduitContextMenuAction(
           cupertinoIcon: CupertinoIcons.pencil,
           materialIcon: Icons.edit_rounded,
@@ -1587,6 +1839,12 @@ class _DragConversationData {
   final String id;
   final String title;
   const _DragConversationData({required this.id, required this.title});
+}
+
+class _DragFolderData {
+  final String id;
+  final String name;
+  const _DragFolderData({required this.id, required this.name});
 }
 
 class _ConversationDragFeedback extends StatelessWidget {
