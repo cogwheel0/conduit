@@ -1331,41 +1331,39 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                           ),
                           onPressed: _clearSelection,
                         )
-                      : (isTablet
-                            ? null // Hide menu button on tablets (drawer is always visible)
-                            : Builder(
-                                builder: (ctx) => Padding(
-                                  padding: const EdgeInsets.only(
-                                    left: Spacing.inputPadding,
-                                  ),
-                                  child: IconButton(
-                                    onPressed: () {
-                                      // Suppress auto-focus and dismiss keyboard, then open drawer
-                                      try {
-                                        ref
-                                            .read(
-                                              composerAutofocusEnabledProvider
-                                                  .notifier,
-                                            )
-                                            .set(false);
-                                        FocusManager.instance.primaryFocus
-                                            ?.unfocus();
-                                        SystemChannels.textInput.invokeMethod(
-                                          'TextInput.hide',
-                                        );
-                                      } catch (_) {}
-                                      ResponsiveDrawerLayout.of(ctx)?.open();
-                                    },
-                                    icon: Icon(
-                                      Platform.isIOS
-                                          ? CupertinoIcons.line_horizontal_3
-                                          : Icons.menu,
-                                      color: context.conduitTheme.textPrimary,
-                                      size: IconSize.appBar,
-                                    ),
-                                  ),
-                                ),
-                              )),
+                      : Builder(
+                          builder: (ctx) => Padding(
+                            padding: const EdgeInsets.only(
+                              left: Spacing.inputPadding,
+                            ),
+                            child: IconButton(
+                              onPressed: () {
+                                // Suppress auto-focus and dismiss keyboard, then toggle drawer
+                                try {
+                                  ref
+                                      .read(
+                                        composerAutofocusEnabledProvider
+                                            .notifier,
+                                      )
+                                      .set(false);
+                                  FocusManager.instance.primaryFocus
+                                      ?.unfocus();
+                                  SystemChannels.textInput.invokeMethod(
+                                    'TextInput.hide',
+                                  );
+                                } catch (_) {}
+                                ResponsiveDrawerLayout.of(ctx)?.toggle();
+                              },
+                              icon: Icon(
+                                Platform.isIOS
+                                    ? CupertinoIcons.line_horizontal_3
+                                    : Icons.menu,
+                                color: context.conduitTheme.textPrimary,
+                                size: IconSize.appBar,
+                              ),
+                            ),
+                          ),
+                        ),
                   title: _isSelectionMode
                       ? Text(
                           '${_selectedMessageIds.length} selected',

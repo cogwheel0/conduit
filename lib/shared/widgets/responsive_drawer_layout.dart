@@ -99,9 +99,6 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
   }
 
   void open({double velocity = 0.0}) {
-    // Only animate on mobile; on tablet, drawer is always visible
-    if (_isTablet(context)) return;
-
     try {
       widget.onOpenStart?.call();
     } catch (_) {}
@@ -110,16 +107,10 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
   }
 
   void close({double velocity = 0.0}) {
-    // Only animate on mobile; on tablet, drawer is always visible
-    if (_isTablet(context)) return;
-
     _animateTo(0.0, velocity: velocity, easeOut: true);
   }
 
   void toggle() {
-    // Only toggle on mobile; on tablet, drawer is always visible
-    if (_isTablet(context)) return;
-
     isOpen ? close() : open();
   }
 
@@ -133,8 +124,6 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
   double _startValue = 0.0;
 
   void _onDragStart(DragStartDetails d) {
-    if (_isTablet(context)) return;
-
     if (_controller.value <= 0.001) {
       try {
         widget.onOpenStart?.call();
@@ -145,17 +134,14 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
   }
 
   void _onDragUpdate(DragUpdateDetails d) {
-    if (_isTablet(context)) return;
-
     final delta = d.primaryDelta ?? 0.0;
-    final next = (_startValue + delta / _panelWidth).clamp(0.0, 1.0);
+    final drawerWidth = _isTablet(context) ? widget.tabletDrawerWidth : _panelWidth;
+    final next = (_startValue + delta / drawerWidth).clamp(0.0, 1.0);
     _controller.value = next;
     _startValue = next;
   }
 
   void _onDragEnd(DragEndDetails d) {
-    if (_isTablet(context)) return;
-
     final vx = d.primaryVelocity ?? 0.0;
     final vMag = vx.abs();
     if (vMag > 300.0) {
@@ -189,21 +175,85 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
   }
 
   Widget _buildTabletLayout(ConduitThemeExtension theme) {
-    return Row(
+    final scrim = widget.scrimColor ?? theme.dividerColor.withValues(alpha: 0.3);
+
+    return Stack(
       children: [
-        // Persistent drawer
-        Container(
-          width: widget.tabletDrawerWidth,
-          decoration: BoxDecoration(
-            color: theme.surfaceBackground,
-            border: Border(
-              right: BorderSide(color: theme.dividerColor, width: 1),
-            ),
-          ),
-          child: widget.drawer,
+        // Content (full screen)
+        Positioned.fill(child: widget.child),
+
+        // Animated drawer overlay
+        AnimatedBuilder(
+          animation: _controller,
+          builder: (context, _) {
+            final t = _controller.value;
+            final ignoring = t == 0.0;
+            return IgnorePointer(
+              ignoring: ignoring,
+              child: Stack(
+                children: [
+                  // Scrim overlay
+                  Positioned.fill(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: close,
+                      onHorizontalDragStart: _onDragStart,
+                      onHorizontalDragUpdate: _onDragUpdate,
+                      onHorizontalDragEnd: _onDragEnd,
+                      child: ColoredBox(
+                        color: scrim.withValues(alpha: 0.5 * t),
+                      ),
+                    ),
+                  ),
+                  // Drawer panel
+                  Positioned(
+                    left: -widget.tabletDrawerWidth * (1.0 - t),
+                    top: 0,
+                    bottom: 0,
+                    width: widget.tabletDrawerWidth,
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.translucent,
+                      onHorizontalDragStart: _onDragStart,
+                      onHorizontalDragUpdate: _onDragUpdate,
+                      onHorizontalDragEnd: _onDragEnd,
+                      child: RepaintBoundary(
+                        child: Material(
+                          color: theme.surfaceBackground,
+                          elevation: 16,
+                          child: widget.drawer,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
         ),
-        // Content
-        Expanded(child: widget.child),
+
+        // Edge gesture region to open drawer (on top, only active when closed)
+        Positioned(
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: _edgeWidth,
+          child: AnimatedBuilder(
+            animation: _controller,
+            builder: (context, _) {
+              final t = _controller.value;
+              final active = t == 0.0; // Only active when drawer is closed
+              return IgnorePointer(
+                ignoring: !active,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onHorizontalDragStart: _onDragStart,
+                  onHorizontalDragUpdate: _onDragUpdate,
+                  onHorizontalDragEnd: _onDragEnd,
+                ),
+              );
+            },
+          ),
+        ),
       ],
     );
   }

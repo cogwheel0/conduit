@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../../../shared/theme/theme_extensions.dart';
 // app_theme not required here; using theme extension tokens
 import '../../../shared/widgets/sheet_handle.dart';
+import '../../../shared/widgets/responsive_drawer_layout.dart';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -136,6 +137,18 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         try {
           ref.read(composerHasFocusProvider.notifier).set(hasFocus);
         } catch (_) {}
+
+        // Auto-collapse drawer on tablets when input is focused
+        if (hasFocus) {
+          try {
+            final mediaQuery = MediaQuery.of(context);
+            final isTablet = mediaQuery.size.shortestSide >= 600;
+            if (isTablet) {
+              // Close drawer using public API
+              ResponsiveDrawerLayout.of(context)?.close();
+            }
+          } catch (_) {}
+        }
       });
     });
 
