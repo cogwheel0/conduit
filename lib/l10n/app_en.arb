@@ -734,6 +734,10 @@
   "@newFolder": {
     "description": "Action to create a new folder."
   },
+  "newSubfolder": "New Subfolder",
+  "@newSubfolder": {
+    "description": "Action to create a new subfolder inside a folder."
+  },
   "folderName": "Folder name",
   "@folderName": {
     "description": "Label for entering a folder's name."
