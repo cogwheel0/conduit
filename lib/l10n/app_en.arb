@@ -980,6 +980,14 @@
   "@imageGenerationDescription": {
     "description": "Explains creating images via model prompts."
   },
+  "extendedThinking": "Extended Thinking",
+  "@extendedThinking": {
+    "description": "Feature toggle for high reasoning effort mode."
+  },
+  "extendedThinkingDescription": "Boosts reasoning effort for more thoughtful responses.",
+  "@extendedThinkingDescription": {
+    "description": "Explains that extended thinking mode provides more detailed reasoning."
+  },
   "copy": "Copy",
   "@copy": {
     "description": "Action to copy text to clipboard."
