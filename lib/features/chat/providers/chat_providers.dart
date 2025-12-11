@@ -1025,6 +1025,19 @@ class WebSearchEnabledNotifier extends Notifier<bool> {
   void set(bool value) => state = value;
 }
 
+// Extended Thinking enabled state for high reasoning effort
+final extendedThinkingEnabledProvider =
+    NotifierProvider<ExtendedThinkingEnabledNotifier, bool>(
+      ExtendedThinkingEnabledNotifier.new,
+    );
+
+class ExtendedThinkingEnabledNotifier extends Notifier<bool> {
+  @override
+  bool build() => false;
+
+  void set(bool value) => state = value;
+}
+
 class ImageGenerationEnabledNotifier extends Notifier<bool> {
   @override
   bool build() => false;
@@ -1429,6 +1442,7 @@ Future<void> regenerateMessage(
         ref.read(webSearchEnabledProvider) &&
         ref.read(webSearchAvailableProvider);
     final imageGenerationEnabled = ref.read(imageGenerationEnabledProvider);
+    final extendedThinkingEnabled = ref.read(extendedThinkingEnabledProvider);
 
     // Model metadata for completion notifications
     final supportedParams =
@@ -1593,6 +1607,7 @@ Future<void> regenerateMessage(
       'follow_up_generation': true,
       if (webSearchEnabled) 'web_search': true,
       if (imageGenerationEnabled) 'image_generation': true,
+      if (extendedThinkingEnabled) 'reasoning_effort': 'high',
     };
 
     final bool isBackgroundToolsFlowPre =
@@ -2081,6 +2096,7 @@ Future<void> _sendMessageInternal(
       ref.read(webSearchEnabledProvider) &&
       ref.read(webSearchAvailableProvider);
   final imageGenerationEnabled = ref.read(imageGenerationEnabledProvider);
+  final extendedThinkingEnabled = ref.read(extendedThinkingEnabledProvider);
 
   // Prepare tools list - pass tool IDs directly
   final List<String>? toolIdsForApi = (toolIds != null && toolIds.isNotEmpty)
@@ -2296,6 +2312,7 @@ Future<void> _sendMessageInternal(
       if (webSearchEnabled) 'web_search': true, // enable bg web search
       if (imageGenerationEnabled)
         'image_generation': true, // enable bg image flow
+      if (extendedThinkingEnabled) 'reasoning_effort': 'high',
     };
 
     // Determine if we need background task flow (tools/tool servers or web search)

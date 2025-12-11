@@ -1036,6 +1036,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final webSearchEnabled = ref.watch(webSearchEnabledProvider);
     final imageGenEnabled = ref.watch(imageGenerationEnabledProvider);
     final imageGenAvailable = ref.watch(imageGenerationAvailableProvider);
+    final extendedThinkingEnabled = ref.watch(extendedThinkingEnabledProvider);
     final selectedQuickPills = ref.watch(
       appSettingsProvider.select((s) => s.quickPills),
     );
@@ -1254,6 +1255,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 tooltip: AppLocalizations.of(context)!.more,
                 webSearchActive: webSearchEnabled,
                 imageGenerationActive: imageGenEnabled,
+                extendedThinkingActive: extendedThinkingEnabled,
                 toolsActive: selectedToolIds.isNotEmpty,
                 filtersActive: selectedFilterIds.isNotEmpty,
               ),
@@ -1367,6 +1369,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 tooltip: AppLocalizations.of(context)!.more,
                 webSearchActive: webSearchEnabled,
                 imageGenerationActive: imageGenEnabled,
+                extendedThinkingActive: extendedThinkingEnabled,
                 toolsActive: selectedToolIds.isNotEmpty,
                 filtersActive: selectedFilterIds.isNotEmpty,
               ),
@@ -1655,6 +1658,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     required String tooltip,
     required bool webSearchActive,
     required bool imageGenerationActive,
+    required bool extendedThinkingActive,
     required bool toolsActive,
     required bool filtersActive,
   }) {
@@ -1667,6 +1671,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       activeColor = context.conduitTheme.buttonPrimary;
     } else if (imageGenerationActive) {
       icon = Platform.isIOS ? CupertinoIcons.photo : Icons.image;
+      activeColor = context.conduitTheme.buttonPrimary;
+    } else if (extendedThinkingActive) {
+      icon = Icons.psychology;
       activeColor = context.conduitTheme.buttonPrimary;
     } else if (toolsActive) {
       icon = Platform.isIOS ? CupertinoIcons.wrench : Icons.build;
@@ -2233,6 +2240,19 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               ),
             );
           }
+
+          final extendedThinkingEnabled = modalRef.watch(extendedThinkingEnabledProvider);
+          featureTiles.add(
+            _buildFeatureToggleTile(
+              icon: Icons.psychology,
+              title: l10n.extendedThinking,
+              subtitle: l10n.extendedThinkingDescription,
+              value: extendedThinkingEnabled,
+              onChanged: (next) {
+                modalRef.read(extendedThinkingEnabledProvider.notifier).set(next);
+              },
+            ),
+          );
 
           final imageGenAvailable = modalRef.watch(
             imageGenerationAvailableProvider,
