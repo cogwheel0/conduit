@@ -48,6 +48,11 @@ PODS:
   - flutter_callkit_incoming (0.0.1):
     - CryptoSwift
     - Flutter
+  - flutter_image_compress_common (1.0.0):
+    - Flutter
+    - Mantle
+    - SDWebImage
+    - SDWebImageWebPCoder
   - flutter_local_notifications (0.0.1):
     - Flutter
   - flutter_native_splash (2.4.3):
@@ -63,6 +68,21 @@ PODS:
     - Flutter
   - irondash_engine_context (0.0.1):
     - Flutter
+  - libwebp (1.5.0):
+    - libwebp/demux (= 1.5.0)
+    - libwebp/mux (= 1.5.0)
+    - libwebp/sharpyuv (= 1.5.0)
+    - libwebp/webp (= 1.5.0)
+  - libwebp/demux (1.5.0):
+    - libwebp/webp
+  - libwebp/mux (1.5.0):
+    - libwebp/demux
+  - libwebp/sharpyuv (1.5.0)
+  - libwebp/webp (1.5.0):
+    - libwebp/sharpyuv
+  - Mantle (2.2.0):
+    - Mantle/extobjc (= 2.2.0)
+  - Mantle/extobjc (2.2.0)
   - onnxruntime-c (1.22.0)
   - onnxruntime-objc (1.22.0):
     - onnxruntime-objc/Core (= 1.22.0)
@@ -82,6 +102,9 @@ PODS:
   - SDWebImage (5.21.5):
     - SDWebImage/Core (= 5.21.5)
   - SDWebImage/Core (5.21.5)
+  - SDWebImageWebPCoder (0.15.0):
+    - libwebp (~> 1.0)
+    - SDWebImage/Core (~> 5.17)
   - share_handler_ios (0.0.14):
     - Flutter
     - share_handler_ios/share_handler_ios_models (= 0.0.14)
@@ -123,6 +146,7 @@ DEPENDENCIES:
   - file_picker (from `.symlinks/plugins/file_picker/ios`)
   - Flutter (from `Flutter`)
   - flutter_callkit_incoming (from `.symlinks/plugins/flutter_callkit_incoming/ios`)
+  - flutter_image_compress_common (from `.symlinks/plugins/flutter_image_compress_common/ios`)
   - flutter_local_notifications (from `.symlinks/plugins/flutter_local_notifications/ios`)
   - flutter_native_splash (from `.symlinks/plugins/flutter_native_splash/ios`)
   - flutter_secure_storage_darwin (from `.symlinks/plugins/flutter_secure_storage_darwin/darwin`)
@@ -154,9 +178,12 @@ SPEC REPOS:
     - CwlCatchExceptionSupport
     - DKImagePickerController
     - DKPhotoGallery
+    - libwebp
+    - Mantle
     - onnxruntime-c
     - onnxruntime-objc
     - SDWebImage
+    - SDWebImageWebPCoder
     - SwiftyGif
 
 EXTERNAL SOURCES:
@@ -172,6 +199,8 @@ EXTERNAL SOURCES:
     :path: Flutter
   flutter_callkit_incoming:
     :path: ".symlinks/plugins/flutter_callkit_incoming/ios"
+  flutter_image_compress_common:
+    :path: ".symlinks/plugins/flutter_image_compress_common/ios"
   flutter_local_notifications:
     :path: ".symlinks/plugins/flutter_local_notifications/ios"
   flutter_native_splash:
@@ -231,6 +260,7 @@ SPEC CHECKSUMS:
   file_picker: a0560bc09d61de87f12d246fc47d2119e6ef37be
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
   flutter_callkit_incoming: cb8138af67cda6dd981f7101a5d709003af21502
+  flutter_image_compress_common: 1697a328fd72bfb335507c6bca1a65fa5ad87df1
   flutter_local_notifications: a5a732f069baa862e728d839dd2ebb904737effb
   flutter_native_splash: c32d145d68aeda5502d5f543ee38c192065986cf
   flutter_secure_storage_darwin: acdb3f316ed05a3e68f856e0353b133eec373a23
@@ -238,6 +268,8 @@ SPEC CHECKSUMS:
   home_widget: f169fc41fd807b4d46ab6615dc44d62adbf9f64f
   image_picker_ios: e0ece4aa2a75771a7de3fa735d26d90817041326
   irondash_engine_context: 8e58ca8e0212ee9d1c7dc6a42121849986c88486
+  libwebp: 02b23773aedb6ff1fd38cec7a77b81414c6842a8
+  Mantle: c5aa8794a29a022dfbbfc9799af95f477a69b62d
   onnxruntime-c: 7f778680e96145956c0a31945f260321eed2611a
   onnxruntime-objc: 83d28b87525bd971259a66e153ea32b5d023de19
   package_info_plus: af8e2ca6888548050f16fa2f1938db7b5a5df499
@@ -246,6 +278,7 @@ SPEC CHECKSUMS:
   quick_actions_ios: 500fcc11711d9f646739093395c4ae8eec25f779
   record_ios: f75fa1d57f840012775c0e93a38a7f3ceea1a374
   SDWebImage: e9c98383c7572d713c1a0d7dd2783b10599b9838
+  SDWebImageWebPCoder: 0e06e365080397465cc73a7a9b472d8a3bd0f377
   share_handler_ios: e2244e990f826b2c8eaa291ac3831569438ba0fb
   share_handler_ios_models: fc638c9b4330dc7f082586c92aee9dfa0b87b871
   share_plus: 50da8cb520a8f0f65671c6c6a99b3617ed10a58a

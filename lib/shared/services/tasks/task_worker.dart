@@ -74,9 +74,8 @@ class TaskWorker {
   }
 
   Future<void> _performUploadMedia(UploadMediaTask task) async {
-    const imageExts = <String>{'.jpg', '.jpeg', '.png', '.gif', '.webp'};
     final lowerName = task.fileName.toLowerCase();
-    final bool isImage = imageExts.any(lowerName.endsWith);
+    final bool isImage = allSupportedImageFormats.any(lowerName.endsWith);
 
     // For images: read as base64 locally (matching web client behavior)
     // Web client never uploads images to /api/v1/files/
