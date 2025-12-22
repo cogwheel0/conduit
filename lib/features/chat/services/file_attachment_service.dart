@@ -4,18 +4,85 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as path;
 import '../../../core/providers/app_providers.dart';
 import '../../../core/utils/debug_logger.dart';
 
+/// Standard web image formats that LLMs can process directly.
+const Set<String> _standardImageFormats = {
+  '.jpg',
+  '.jpeg',
+  '.png',
+  '.gif',
+  '.webp',
+  '.bmp',
+};
+
+/// iOS-specific formats that need conversion to JPEG before LLM submission.
+const Set<String> _iosImageFormats = {
+  '.heic',
+  '.heif',
+};
+
+/// RAW image formats that need conversion to JPEG before LLM submission.
+const Set<String> _rawImageFormats = {
+  '.dng',
+  '.raw',
+  '.cr2',
+  '.nef',
+  '.arw',
+  '.orf',
+  '.rw2',
+};
+
+/// All supported image formats (both standard and those requiring conversion).
+const Set<String> allSupportedImageFormats = {
+  ..._standardImageFormats,
+  ..._iosImageFormats,
+  ..._rawImageFormats,
+};
+
+/// Returns true if the extension requires conversion to a standard format.
+bool _needsConversion(String extension) {
+  return _iosImageFormats.contains(extension) ||
+      _rawImageFormats.contains(extension);
+}
+
 /// Converts an image file to a base64 data URL.
 /// This is a standalone utility used by both FileAttachmentService and TaskWorker.
+///
+/// Handles iOS-specific formats (HEIC, HEIF) and RAW formats (DNG, CR2, etc.)
+/// by converting them to JPEG before encoding.
+///
 /// Returns null if conversion fails.
 Future<String?> convertImageFileToDataUrl(File imageFile) async {
   try {
-    final bytes = await imageFile.readAsBytes();
     final ext = path.extension(imageFile.path).toLowerCase();
+
+    // Check if we need to convert the image format
+    if (_needsConversion(ext)) {
+      DebugLogger.log(
+        'Converting image from $ext to JPEG',
+        scope: 'attachments',
+        data: {'path': imageFile.path},
+      );
+
+      final convertedBytes = await _convertImageToJpeg(imageFile);
+      if (convertedBytes != null) {
+        return 'data:image/jpeg;base64,${base64Encode(convertedBytes)}';
+      }
+
+      // Conversion failed - return null rather than sending unusable raw data
+      DebugLogger.warning(
+        'Conversion failed for $ext format, cannot process image',
+      );
+      return null;
+    }
+
+    // Standard format - read directly
+    final bytes = await imageFile.readAsBytes();
 
     String mimeType = 'image/png';
     if (ext == '.jpg' || ext == '.jpeg') {
@@ -29,6 +96,40 @@ Future<String?> convertImageFileToDataUrl(File imageFile) async {
     return 'data:$mimeType;base64,${base64Encode(bytes)}';
   } catch (e) {
     DebugLogger.error('convert-image-failed', scope: 'attachments', error: e);
+    return null;
+  }
+}
+
+/// Converts an image file to JPEG bytes using flutter_image_compress.
+/// This handles iOS-specific formats (HEIC, HEIF) and RAW formats (DNG, etc.)
+Future<List<int>?> _convertImageToJpeg(File imageFile) async {
+  try {
+    // Use flutter_image_compress for native iOS/Android conversion
+    final result = await FlutterImageCompress.compressWithFile(
+      imageFile.absolute.path,
+      format: CompressFormat.jpeg,
+      quality: 90,
+    );
+
+    if (result != null && result.isNotEmpty) {
+      DebugLogger.log(
+        'Image converted successfully',
+        scope: 'attachments',
+        data: {
+          'originalPath': imageFile.path,
+          'resultSize': result.length,
+        },
+      );
+      return result;
+    }
+
+    return null;
+  } catch (e) {
+    DebugLogger.error(
+      'image-conversion-failed',
+      scope: 'attachments',
+      error: e,
+    );
     return null;
   }
 }
@@ -85,14 +186,7 @@ class LocalAttachment {
     return path.extension(file.path).toLowerCase();
   }
 
-  bool get isImage => <String>{
-    '.jpg',
-    '.jpeg',
-    '.png',
-    '.gif',
-    '.webp',
-    '.bmp',
-  }.contains(extension);
+  bool get isImage => allSupportedImageFormats.contains(extension);
 }
 
 class FileAttachmentService {
@@ -329,8 +423,8 @@ class FileAttachmentService {
     if (['.xls', '.xlsx'].contains(ext)) return '📊';
     if (['.ppt', '.pptx'].contains(ext)) return '📊';
 
-    // Images
-    if (['.jpg', '.jpeg', '.png', '.gif', '.webp'].contains(ext)) return '🖼️';
+    // Images (including iOS and RAW formats)
+    if (allSupportedImageFormats.contains(ext)) return '🖼️';
 
     // Code
     if (['.js', '.ts', '.py', '.dart', '.java', '.cpp'].contains(ext)) {
@@ -395,8 +489,8 @@ class FileUploadState {
     if (['.xls', '.xlsx'].contains(ext)) return '📊';
     if (['.ppt', '.pptx'].contains(ext)) return '📊';
 
-    // Images
-    if (['.jpg', '.jpeg', '.png', '.gif', '.webp'].contains(ext)) return '🖼️';
+    // Images (including iOS and RAW formats)
+    if (allSupportedImageFormats.contains(ext)) return '🖼️';
 
     // Code
     if (['.js', '.ts', '.py', '.dart', '.java', '.cpp'].contains(ext)) {
