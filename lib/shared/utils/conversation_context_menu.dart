@@ -523,6 +523,8 @@ Future<void> _confirmAndDeleteConversation(
     if (active?.id == conversationId) {
       ref.read(activeConversationProvider.notifier).clear();
       ref.read(chat.chatMessagesProvider.notifier).clearMessages();
+      // Reset to default model for new conversations (fixes #296)
+      chat.restoreDefaultModel(ref);
     }
     refreshConversationsCache(ref);
   } catch (_) {

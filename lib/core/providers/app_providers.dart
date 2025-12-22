@@ -1561,7 +1561,34 @@ Future<Model?> defaultModel(Ref ref) async {
   DebugLogger.log('api-available', scope: 'models/default');
 
   try {
-    // Warm restore from cached resolved default model
+    // Respect manual selection if present
+    if (ref.read(isManualModelSelectionProvider)) {
+      final current = ref.read(selectedModelProvider);
+      if (current != null) return current;
+    }
+
+    // 1) Priority: user's configured default from app settings
+    // This ensures new chats use the user's preference (fixes #296)
+    final settingsDefaultId = ref.read(appSettingsProvider).defaultModel;
+    final storedDefaultId = settingsDefaultId ??
+        await SettingsService.getDefaultModel().catchError((_) => null);
+
+    if (storedDefaultId != null && storedDefaultId.isNotEmpty) {
+      // Try cached models first for speed
+      final cachedMatch = await selectCachedModel(storage, storedDefaultId);
+      if (cachedMatch != null && !ref.read(isManualModelSelectionProvider)) {
+        ref.read(selectedModelProvider.notifier).set(cachedMatch);
+        unawaited(storage.saveLocalDefaultModel(cachedMatch).catchError((_) {}));
+        DebugLogger.log(
+          'settings-default',
+          scope: 'models/default',
+          data: {'name': cachedMatch.name, 'source': 'settings'},
+        );
+        return cachedMatch;
+      }
+    }
+
+    // 2) Fallback: cached resolved default model (for offline/fast startup)
     try {
       final cached = await storage.getLocalDefaultModel();
       if (cached != null && !ref.read(isManualModelSelectionProvider)) {
@@ -1575,102 +1602,7 @@ Future<Model?> defaultModel(Ref ref) async {
       }
     } catch (_) {}
 
-    // Respect manual selection if present
-    if (ref.read(isManualModelSelectionProvider)) {
-      final current = ref.read(selectedModelProvider);
-      if (current != null) return current;
-    }
-
-    // 1) Fast path: read stored default model ID directly and select optimistically
-    try {
-      final storedDefaultId = await SettingsService.getDefaultModel();
-      if (storedDefaultId != null && storedDefaultId.isNotEmpty) {
-        if (!ref.read(isManualModelSelectionProvider)) {
-          final cachedMatch = await selectCachedModel(storage, storedDefaultId);
-          if (cachedMatch != null) {
-            ref.read(selectedModelProvider.notifier).set(cachedMatch);
-            unawaited(
-              storage.saveLocalDefaultModel(cachedMatch).onError((
-                error,
-                stack,
-              ) {
-                DebugLogger.error(
-                  'Failed to save default model to cache',
-                  scope: 'models/default',
-                  error: error,
-                  stackTrace: stack,
-                );
-              }),
-            );
-            DebugLogger.log(
-              'cache-select',
-              scope: 'models/default',
-              data: {'name': cachedMatch.name, 'source': 'cache'},
-            );
-          } else {
-            DebugLogger.log(
-              'cache-skip-missing',
-              scope: 'models/default',
-              data: {'id': storedDefaultId},
-            );
-          }
-        }
-        // Reconcile against real models in background
-        Future.microtask(() async {
-          try {
-            if (!ref.mounted) return;
-            List<Model> models;
-            final modelsAsync = ref.read(modelsProvider);
-            if (modelsAsync.hasValue) {
-              models = modelsAsync.value ?? const <Model>[];
-            } else {
-              models = await ref.read(modelsProvider.future);
-            }
-            if (!ref.mounted) return;
-
-            Model? resolved;
-            try {
-              resolved = models.firstWhere((m) => m.id == storedDefaultId);
-            } catch (_) {
-              final byName = models
-                  .where((m) => m.name == storedDefaultId)
-                  .toList();
-              if (byName.length == 1) resolved = byName.first;
-            }
-            resolved ??= models.isNotEmpty ? models.first : null;
-
-            if (!ref.mounted) return;
-            if (resolved != null && !ref.read(isManualModelSelectionProvider)) {
-              ref.read(selectedModelProvider.notifier).set(resolved);
-              unawaited(
-                storage.saveLocalDefaultModel(resolved).onError((error, stack) {
-                  DebugLogger.error(
-                    'Failed to save default model to cache',
-                    scope: 'models/default',
-                    error: error,
-                    stackTrace: stack,
-                  );
-                }),
-              );
-              DebugLogger.log(
-                'reconcile',
-                scope: 'models/default',
-                data: {'name': resolved.name, 'source': 'stored'},
-              );
-            }
-          } catch (e) {
-            DebugLogger.error(
-              'reconcile-failed',
-              scope: 'models/default',
-              error: e,
-            );
-          }
-        });
-        return ref.read(selectedModelProvider);
-      }
-    } catch (_) {}
-
-    // 2) Fast server path: query server default ID without listing all models
+    // 3) Fast server path: query server default ID without listing all models
     try {
       final serverDefault = await api.getDefaultModel();
       if (serverDefault != null && serverDefault.isNotEmpty) {

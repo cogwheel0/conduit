@@ -990,8 +990,27 @@ void startNewChat(dynamic ref) {
   ref.read(pendingFolderIdProvider.notifier).clear();
 
   // Reset to default model for new conversations (fixes #296)
+  restoreDefaultModel(ref);
+}
+
+/// Restores the selected model to the user's configured default model.
+/// Call this when starting a new conversation.
+Future<void> restoreDefaultModel(dynamic ref) async {
+  // Mark that this is not a manual selection
   ref.read(isManualModelSelectionProvider.notifier).set(false);
+
+  // Invalidate and re-read to force defaultModelProvider to use settings priority
   ref.invalidate(defaultModelProvider);
+
+  try {
+    await ref.read(defaultModelProvider.future);
+  } catch (e) {
+    DebugLogger.error(
+      'restore-default-failed',
+      scope: 'chat/model',
+      error: e,
+    );
+  }
 }
 
 // Available tools provider
