@@ -16,6 +16,7 @@ import '../../../shared/widgets/sheet_handle.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/navigation_service.dart';
+import '../../chat/providers/chat_providers.dart' show restoreDefaultModel;
 import '../../auth/providers/unified_auth_providers.dart';
 import '../../../core/services/settings_service.dart';
 import '../../../core/models/model.dart';
@@ -648,6 +649,9 @@ class ProfilePage extends ConsumerWidget {
       await ref
           .read(appSettingsProvider.notifier)
           .setDefaultModel(modelIdToSave);
+
+      // Immediately apply the new default model selection
+      await restoreDefaultModel(ref);
     }
   }
 

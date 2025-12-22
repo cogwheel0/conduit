@@ -12,11 +12,11 @@ import '../../../core/models/chat_message.dart';
 import '../../../core/models/conversation.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/conversation_delta_listener.dart';
+import '../../../core/services/settings_service.dart';
 import '../../../core/services/streaming_helper.dart';
 import '../../../core/services/streaming_response_controller.dart';
 import '../../../core/services/worker_manager.dart';
 import '../../../core/utils/debug_logger.dart';
-import '../../../core/utils/markdown_stream_formatter.dart';
 import '../../../core/utils/tool_calls_parser.dart';
 import '../models/chat_context_attachment.dart';
 import '../providers/context_attachments_provider.dart';
@@ -109,9 +109,6 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   bool _taskStatusCheckInFlight = false;
   bool _observedRemoteTask = false;
 
-  MarkdownStreamFormatter? _markdownFormatter;
-  String? _activeStreamingMessageId;
-
   bool _initialized = false;
 
   @override
@@ -180,7 +177,6 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
         // Cancel any existing message stream when switching conversations
         _cancelMessageStream();
-        _clearStreamingFormatter(); // Explicitly clear formatter on conversation switch
         _stopRemoteTaskMonitor();
 
         if (next != null) {
@@ -222,14 +218,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     if (controller != null && controller.isActive) {
       unawaited(controller.cancel());
     }
-    _clearStreamingFormatter();
     cancelSocketSubscriptions();
     _stopRemoteTaskMonitor();
-  }
-
-  void _clearStreamingFormatter() {
-    _markdownFormatter = null;
-    _activeStreamingMessageId = null;
   }
 
   /// Checks if streaming cleanup is needed when adopting server messages.
@@ -397,39 +387,6 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
   }
 
-  void _ensureFormatterForMessage(ChatMessage message) {
-    // If we're switching to a different message, clear the old formatter first
-    if (_markdownFormatter != null && _activeStreamingMessageId != message.id) {
-      DebugLogger.log(
-        'Clearing formatter for message switch: $_activeStreamingMessageId -> ${message.id}',
-        scope: 'chat/providers',
-      );
-      _clearStreamingFormatter();
-    }
-
-    // If formatter already exists for this message, reuse it
-    if (_markdownFormatter != null && _activeStreamingMessageId == message.id) {
-      return;
-    }
-
-    // Create new formatter
-    final formatter = MarkdownStreamFormatter();
-
-    // Only seed with existing content if this is a resume scenario
-    // For new messages (empty content), start fresh to avoid duplication
-    final seed = _stripStreamingPlaceholders(message.content);
-    if (seed.isNotEmpty && message.content.isNotEmpty) {
-      DebugLogger.log(
-        'Seeding formatter with existing content (${seed.length} chars) for message ${message.id}',
-        scope: 'chat/providers',
-      );
-      formatter.seed(seed);
-    }
-
-    _markdownFormatter = formatter;
-    _activeStreamingMessageId = message.id;
-  }
-
   String _stripStreamingPlaceholders(String content) {
     var result = content;
     const ti = '[TYPING_INDICATOR]';
@@ -441,15 +398,6 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       result = result.substring(searchBanner.length);
     }
     return result;
-  }
-
-  String _finalizeFormatter(String messageId, String fallback) {
-    if (_markdownFormatter != null && _activeStreamingMessageId == messageId) {
-      final output = _markdownFormatter!.finalize();
-      _clearStreamingFormatter();
-      return output;
-    }
-    return fallback;
   }
 
   void _touchStreamingActivity() {
@@ -728,16 +676,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   }
 
   void appendToLastMessage(String content) {
-    if (state.isEmpty) {
-      return;
-    }
+    if (state.isEmpty) return;
 
     final lastMessage = state.last;
-    if (lastMessage.role != 'assistant') {
-      return;
-    }
+    if (lastMessage.role != 'assistant') return;
     if (!lastMessage.isStreaming) {
-      // Ignore late chunks when streaming already finished
       DebugLogger.log(
         'Ignoring late chunk for finished message: ${lastMessage.id}',
         scope: 'chat/providers',
@@ -745,52 +688,21 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       return;
     }
 
-    _ensureFormatterForMessage(lastMessage);
-
-    // Defensive check: ensure the formatter is for the correct message
-    // This prevents cross-message pollution when messages change rapidly
-    if (_activeStreamingMessageId != lastMessage.id) {
-      DebugLogger.warning(
-        'Formatter message ID mismatch: active=$_activeStreamingMessageId, last=${lastMessage.id}. Resetting formatter.',
-      );
-      _clearStreamingFormatter();
-      _ensureFormatterForMessage(lastMessage);
-    }
-
-    final formatter = _markdownFormatter!;
-    final preview = formatter.ingest(content);
-
+    // Append content directly - the widget's normalize() handles incomplete markdown
     state = [
       ...state.sublist(0, state.length - 1),
-      lastMessage.copyWith(content: preview),
+      lastMessage.copyWith(content: lastMessage.content + content),
     ];
     _touchStreamingActivity();
   }
 
   void replaceLastMessageContent(String content) {
-    if (state.isEmpty) {
-      return;
-    }
+    if (state.isEmpty) return;
 
     final lastMessage = state.last;
-    if (lastMessage.role != 'assistant') {
-      return;
-    }
+    if (lastMessage.role != 'assistant') return;
 
-    _ensureFormatterForMessage(lastMessage);
-
-    // Defensive check: ensure the formatter is for the correct message
-    if (_activeStreamingMessageId != lastMessage.id) {
-      DebugLogger.warning(
-        'Formatter message ID mismatch in replace: active=$_activeStreamingMessageId, last=${lastMessage.id}. Resetting formatter.',
-      );
-      _clearStreamingFormatter();
-      _ensureFormatterForMessage(lastMessage);
-    }
-
-    final formatter = _markdownFormatter!;
-    final sanitized = formatter.replace(_stripStreamingPlaceholders(content));
-
+    final sanitized = _stripStreamingPlaceholders(content);
     state = [
       ...state.sublist(0, state.length - 1),
       lastMessage.copyWith(content: sanitized),
@@ -804,8 +716,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     final lastMessage = state.last;
     if (lastMessage.role != 'assistant' || !lastMessage.isStreaming) return;
 
-    final finalized = _finalizeFormatter(lastMessage.id, lastMessage.content);
-    final cleaned = _stripStreamingPlaceholders(finalized);
+    final cleaned = _stripStreamingPlaceholders(lastMessage.content);
 
     var updatedLast = lastMessage.copyWith(
       isStreaming: false,
@@ -994,10 +905,19 @@ void startNewChat(dynamic ref) {
 }
 
 /// Restores the selected model to the user's configured default model.
-/// Call this when starting a new conversation.
+/// Call this when starting a new conversation or when settings change.
 Future<void> restoreDefaultModel(dynamic ref) async {
   // Mark that this is not a manual selection
   ref.read(isManualModelSelectionProvider.notifier).set(false);
+
+  // If auto-select (no explicit default), clear the cached default model
+  // so defaultModelProvider will fetch from server
+  final settingsDefault = ref.read(appSettingsProvider).defaultModel;
+  if (settingsDefault == null || settingsDefault.isEmpty) {
+    final storage = ref.read(optimizedStorageServiceProvider);
+    await storage.saveLocalDefaultModel(null);
+    DebugLogger.log('cleared-cached-default', scope: 'chat/model');
+  }
 
   // Invalidate and re-read to force defaultModelProvider to use settings priority
   ref.invalidate(defaultModelProvider);
@@ -1005,11 +925,7 @@ Future<void> restoreDefaultModel(dynamic ref) async {
   try {
     await ref.read(defaultModelProvider.future);
   } catch (e) {
-    DebugLogger.error(
-      'restore-default-failed',
-      scope: 'chat/model',
-      error: e,
-    );
+    DebugLogger.error('restore-default-failed', scope: 'chat/model', error: e);
   }
 }
 

@@ -877,17 +877,6 @@ class IsManualModelSelection extends _$IsManualModelSelection {
   void set(bool value) => state = value;
 }
 
-// Listen for settings changes and reset manual selection when default model changes
-// keepAlive to maintain listener throughout app lifecycle
-final _settingsWatcherProvider = Provider<void>((ref) {
-  ref.listen<AppSettings>(appSettingsProvider, (previous, next) {
-    if (previous?.defaultModel != next.defaultModel) {
-      // Reset manual selection when default model changes
-      ref.read(isManualModelSelectionProvider.notifier).set(false);
-    }
-  });
-});
-
 // Auto-apply model-specific tools when model changes or tools load
 final modelToolsAutoSelectionProvider = Provider<void>((ref) {
   // Prevent disposal so listeners remain active throughout app lifecycle
@@ -1039,11 +1028,29 @@ final defaultModelAutoSelectionProvider = Provider<void>((ref) {
     // Only react when default model value changes
     if (previous?.defaultModel == next.defaultModel) return;
 
-    // Do not override manual selections
-    if (ref.read(isManualModelSelectionProvider)) return;
+    // Reset manual selection flag when default model setting changes
+    ref.read(isManualModelSelectionProvider.notifier).set(false);
 
     final desired = next.defaultModel;
-    if (desired == null || desired.isEmpty) return;
+
+    // If auto-select (null), invalidate defaultModelProvider to re-fetch server default
+    if (desired == null || desired.isEmpty) {
+      DebugLogger.log('auto-select-enabled', scope: 'models/default');
+      ref.invalidate(defaultModelProvider);
+      // Trigger re-read to apply server default
+      Future(() async {
+        try {
+          await ref.read(defaultModelProvider.future);
+        } catch (e) {
+          DebugLogger.error(
+            'auto-select-failed',
+            scope: 'models/default',
+            error: e,
+          );
+        }
+      });
+      return;
+    }
 
     // Resolve the desired model against available models (by ID only)
     Future(() async {
@@ -1514,8 +1521,6 @@ Future<Conversation> loadConversation(Ref ref, String conversationId) async {
 Future<Model?> defaultModel(Ref ref) async {
   DebugLogger.log('provider-called', scope: 'models/default');
 
-  // Initialize the settings watcher (side-effect only)
-  ref.read(_settingsWatcherProvider);
   final storage = ref.read(optimizedStorageServiceProvider);
   // Read settings without subscribing to rebuilds to avoid watch/await hazards
   final reviewerMode = ref.read(reviewerModeProvider);
@@ -1570,7 +1575,8 @@ Future<Model?> defaultModel(Ref ref) async {
     // 1) Priority: user's configured default from app settings
     // This ensures new chats use the user's preference (fixes #296)
     final settingsDefaultId = ref.read(appSettingsProvider).defaultModel;
-    final storedDefaultId = settingsDefaultId ??
+    final storedDefaultId =
+        settingsDefaultId ??
         await SettingsService.getDefaultModel().catchError((_) => null);
 
     if (storedDefaultId != null && storedDefaultId.isNotEmpty) {
@@ -1578,7 +1584,9 @@ Future<Model?> defaultModel(Ref ref) async {
       final cachedMatch = await selectCachedModel(storage, storedDefaultId);
       if (cachedMatch != null && !ref.read(isManualModelSelectionProvider)) {
         ref.read(selectedModelProvider.notifier).set(cachedMatch);
-        unawaited(storage.saveLocalDefaultModel(cachedMatch).catchError((_) {}));
+        unawaited(
+          storage.saveLocalDefaultModel(cachedMatch).catchError((_) {}),
+        );
         DebugLogger.log(
           'settings-default',
           scope: 'models/default',

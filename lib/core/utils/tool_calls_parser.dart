@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import '../../shared/widgets/markdown/markdown_preprocessor.dart';
+
 /// Parsed representation of one tool call emitted as a `<details type="tool_calls" ...>` block
 class ToolCallEntry {
   final String id;
@@ -255,18 +257,8 @@ class ToolCallsParser {
   static String sanitizeForApi(String content) {
     if (content.isEmpty) return content;
 
-    // Remove blocks we never want to include in conversation context
-    final removeTypes = ['reasoning', 'code_interpreter'];
-    for (final t in removeTypes) {
-      content = content.replaceAll(
-        RegExp(
-          '<details\\s+type="$t"[^>]*>[\\s\\S]*?</details>',
-          multiLine: true,
-          dotAll: true,
-        ),
-        '',
-      );
-    }
+    // Remove annotations and reasoning blocks
+    content = ConduitMarkdownPreprocessor.sanitize(content);
 
     if (!content.contains('<details')) return content.trim();
 

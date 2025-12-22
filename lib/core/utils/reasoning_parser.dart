@@ -7,7 +7,12 @@
 /// Reference: openwebui-src/backend/open_webui/utils/middleware.py DEFAULT_REASONING_TAGS
 library;
 
-import 'html_utils.dart';
+import 'package:html_unescape/html_unescape.dart';
+
+final _htmlUnescape = HtmlUnescape();
+
+/// Unescape HTML entities in reasoning content.
+String _unescapeHtml(String s) => _htmlUnescape.convert(s);
 
 /// All reasoning tag pairs supported by Open WebUI.
 /// Reference: DEFAULT_REASONING_TAGS in middleware.py
@@ -181,9 +186,25 @@ class ReasoningParser {
       }
 
       // Check for raw tag pairs
+      // Supports tags with optional attributes like <think foo="bar">
+      // Reference: openwebui-src/backend/open_webui/utils/middleware.py
       for (final pair in tagPairs) {
         final startTag = pair.$1;
-        final idx = content.indexOf(startTag, index);
+        int idx = -1;
+
+        // For XML-like tags (e.g., <think>), match with optional attributes
+        if (startTag.startsWith('<') && startTag.endsWith('>')) {
+          final tagName = startTag.substring(1, startTag.length - 1);
+          final pattern = RegExp('<${RegExp.escape(tagName)}(\\s[^>]*)?>');
+          final match = pattern.firstMatch(content.substring(index));
+          if (match != null) {
+            idx = index + match.start;
+          }
+        } else {
+          // For non-XML tags (e.g., ◁think▷), use exact matching
+          idx = content.indexOf(startTag, index);
+        }
+
         if (idx != -1 && (nextRawIdx == -1 || idx < nextRawIdx)) {
           nextRawIdx = idx;
           matchedRawPair = pair;
@@ -336,8 +357,8 @@ class ReasoningParser {
 
       return _DetailsResult(
         entry: ReasoningEntry(
-          reasoning: HtmlUtils.unescapeHtml(summaryResult.remaining),
-          summary: HtmlUtils.unescapeHtml(summaryResult.summary),
+          reasoning: _unescapeHtml(summaryResult.remaining),
+          summary: _unescapeHtml(summaryResult.summary),
           duration: effectiveDuration,
           isDone: false,
           blockType: blockType,
@@ -368,8 +389,8 @@ class ReasoningParser {
 
     return _DetailsResult(
       entry: ReasoningEntry(
-        reasoning: HtmlUtils.unescapeHtml(summaryResult.remaining),
-        summary: HtmlUtils.unescapeHtml(summaryResult.summary),
+        reasoning: _unescapeHtml(summaryResult.remaining),
+        summary: _unescapeHtml(summaryResult.summary),
         duration: effectiveDuration,
         isDone: isDone,
         blockType: blockType,
@@ -381,20 +402,47 @@ class ReasoningParser {
   }
 
   /// Parse a raw reasoning tag pair (e.g., `<think>...</think>`).
+  /// Supports tags with optional attributes like `<think foo="bar">`.
+  ///
+  /// Reference: openwebui-src/backend/open_webui/utils/middleware.py
   static _ReasoningResult _parseRawReasoning(
     String content,
     int startIdx,
     String startTag,
     String endTag,
   ) {
-    final endIdx = content.indexOf(endTag, startIdx + startTag.length);
+    // Find the actual end of the opening tag (handles attributes)
+    int contentStartIdx;
+    if (startTag.startsWith('<') && startTag.endsWith('>')) {
+      // For XML-like tags, find the closing '>' to skip any attributes
+      final tagCloseIdx = content.indexOf('>', startIdx);
+      if (tagCloseIdx == -1) {
+        // Incomplete opening tag
+        return _ReasoningResult(
+          entry: ReasoningEntry(
+            reasoning: '',
+            summary: '',
+            duration: 0,
+            isDone: false,
+          ),
+          endIndex: content.length,
+          isComplete: false,
+        );
+      }
+      contentStartIdx = tagCloseIdx + 1;
+    } else {
+      // For non-XML tags, use exact tag length
+      contentStartIdx = startIdx + startTag.length;
+    }
+
+    final endIdx = content.indexOf(endTag, contentStartIdx);
 
     if (endIdx == -1) {
       // Incomplete block (streaming)
-      final innerContent = content.substring(startIdx + startTag.length);
+      final innerContent = content.substring(contentStartIdx);
       return _ReasoningResult(
         entry: ReasoningEntry(
-          reasoning: HtmlUtils.unescapeHtml(innerContent.trim()),
+          reasoning: _unescapeHtml(innerContent.trim()),
           summary: '',
           duration: 0,
           isDone: false,
@@ -405,10 +453,10 @@ class ReasoningParser {
     }
 
     // Complete block
-    final innerContent = content.substring(startIdx + startTag.length, endIdx);
+    final innerContent = content.substring(contentStartIdx, endIdx);
     return _ReasoningResult(
       entry: ReasoningEntry(
-        reasoning: HtmlUtils.unescapeHtml(innerContent.trim()),
+        reasoning: _unescapeHtml(innerContent.trim()),
         summary: '',
         duration: 0,
         isDone: true,
@@ -533,23 +581,33 @@ class ReasoningParser {
   }
 
   /// Formats the duration for display.
-  /// Mirrors Open WebUI's formatting:
+  /// Mirrors Open WebUI's dayjs.duration(seconds, 'seconds').humanize():
   /// - < 1: "less than a second"
   /// - < 60: "X seconds"
-  /// - >= 60: humanized (e.g., "2 minutes")
+  /// - >= 60: humanized (e.g., "a minute", "2 minutes", "about an hour")
+  ///
+  /// Reference: openwebui-src/src/lib/components/common/Collapsible.svelte
   static String formatDuration(int seconds) {
     if (seconds < 1) return 'less than a second';
     if (seconds < 60) return '$seconds second${seconds == 1 ? '' : 's'}';
 
-    final minutes = seconds ~/ 60;
-    final remainingSeconds = seconds % 60;
-
-    if (remainingSeconds == 0) {
-      return '$minutes minute${minutes == 1 ? '' : 's'}';
+    // Match dayjs.duration().humanize() behavior
+    // Reference: https://day.js.org/docs/en/durations/humanize
+    if (seconds < 90) return 'a minute';
+    if (seconds < 2700) {
+      // 45 minutes
+      final minutes = (seconds / 60).round();
+      return '$minutes minutes';
     }
-
-    // For mixed minutes and seconds, use abbreviated format
-    return '$minutes min ${remainingSeconds}s';
+    if (seconds < 5400) return 'about an hour'; // 90 minutes
+    if (seconds < 79200) {
+      // 22 hours
+      final hours = (seconds / 3600).round();
+      return '$hours hours';
+    }
+    if (seconds < 129600) return 'a day'; // 36 hours
+    final days = (seconds / 86400).round();
+    return '$days days';
   }
 }
 

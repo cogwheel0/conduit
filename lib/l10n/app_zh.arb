@@ -24,7 +24,7 @@
   "signOut": "退出登录",
   "endYourSession": "结束您的会话",
   "defaultModel": "默认模型",
-  "autoSelect": "自动选择",
+  "autoSelect": "服务器默认",
   "loadingModels": "加载模型中...",
   "failedToLoadModels": "无法加载模型",
   "availableModels": "可用模型",
@@ -364,9 +364,9 @@
       }
     }
   },
-  "autoSelectDescription": "让应用自动选择最佳模型",
+  "autoSelectDescription": "使用服务器上配置的默认模型",
   "@autoSelectDescription": {
-    "description": "Explains what the auto-select model setting does."
+    "description": "Explains what the server-provided model setting does."
   },
   "ttsEngineLabel": "引擎",
   "@ttsEngineLabel": {

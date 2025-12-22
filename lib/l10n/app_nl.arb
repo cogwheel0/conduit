@@ -24,7 +24,7 @@
   "signOut": "Uitloggen",
   "endYourSession": "Beëindig je sessie",
   "defaultModel": "Standaardmodel",
-  "autoSelect": "Automatisch selecteren",
+  "autoSelect": "Serverstandaard",
   "loadingModels": "Modellen laden...",
   "failedToLoadModels": "Kan modellen niet laden",
   "availableModels": "Beschikbare modellen",
@@ -364,9 +364,9 @@
       }
     }
   },
-  "autoSelectDescription": "Laat de app het beste model kiezen",
+  "autoSelectDescription": "Gebruik het standaardmodel dat op de server is geconfigureerd",
   "@autoSelectDescription": {
-    "description": "Explains what the auto-select model setting does."
+    "description": "Explains what the server-provided model setting does."
   },
   "ttsEngineLabel": "Engine",
   "@ttsEngineLabel": {
