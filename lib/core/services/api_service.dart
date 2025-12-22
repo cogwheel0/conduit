@@ -3292,6 +3292,11 @@ class ApiService {
       data['parent_id'] = parentMessageId;
     }
 
+    // Always include parent_message as empty object to prevent NoneType error in OWUI 0.6.42+
+    // The server code does: parent_message.get("files", []) which fails if parent_message is None
+    // See: https://github.com/cogwheel0/conduit/issues/311
+    data['parent_message'] = <String, dynamic>{};
+
     // Attach background_tasks if provided
     if (backgroundTasks != null && backgroundTasks.isNotEmpty) {
       data['background_tasks'] = backgroundTasks;
