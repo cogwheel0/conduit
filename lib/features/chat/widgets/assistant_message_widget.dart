@@ -11,7 +11,7 @@ import '../../../core/utils/reasoning_parser.dart';
 import '../../../core/utils/message_segments.dart';
 import '../../../core/utils/tool_calls_parser.dart';
 import '../../../core/models/chat_message.dart';
-import '../../../core/utils/markdown_to_text.dart';
+import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
 import '../providers/text_to_speech_provider.dart';
 import 'enhanced_image_attachment.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -166,6 +166,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       raw = raw.substring(searchBanner.length);
     }
 
+    // Note: Link reference definitions (including OpenAI annotations like
+    // [openai_responses:v2:reasoning:ID]: #) are stripped by the markdown
+    // preprocessor using the `markdown` package for proper CommonMark handling.
+
     // Do not truncate content during streaming; segmented parser skips
     // incomplete details blocks and tiles will render once complete.
     final rSegs = ReasoningParser.segments(raw);
@@ -263,12 +267,12 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   String _buildTtsPlainTextFallback(List<String> segments, String fallback) {
     if (segments.isEmpty) {
-      return MarkdownToText.convert(fallback);
+      return ConduitMarkdownPreprocessor.toPlainText(fallback);
     }
 
     final buffer = StringBuffer();
     for (final segment in segments) {
-      final sanitized = MarkdownToText.convert(segment);
+      final sanitized = ConduitMarkdownPreprocessor.toPlainText(segment);
       if (sanitized.isEmpty) {
         continue;
       }
@@ -281,7 +285,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
     final result = buffer.toString().trim();
     if (result.isEmpty) {
-      return MarkdownToText.convert(fallback);
+      return ConduitMarkdownPreprocessor.toPlainText(fallback);
     }
     return result;
   }
@@ -1738,24 +1742,32 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           summaryLower == 'thinking...' ||
           summaryLower.startsWith('thinking');
 
+      // Check if summary contains server-formatted duration (e.g., "(0s)", "for 0 secs")
+      final hasDurationInSummary = RegExp(
+        r'\(\d+s\)|\bfor \d+ secs?\b',
+        caseSensitive: false,
+      ).hasMatch(rc.summary);
+
       // - If not done (streaming): show "Thinking..."
-      // - If done with duration: show "Thought for X seconds"
-      // - If done without duration: show "Thoughts" or custom summary
+      // - If done: show humanized "Thought for X" (uses our formatDuration)
+      // - If done without duration and has custom summary: show summary
       if (!rc.isDone) {
         // Still thinking - use summary if available, else default
         return hasSummary && !isThinkingSummary ? rc.summary : l10n.thinking;
       }
 
-      // Done thinking - check duration
-      if (rc.duration > 0) {
+      // Done thinking - always use humanized duration format
+      // This ensures "less than a second" instead of "0 secs" from server
+      if (rc.duration >= 0 && (rc.duration > 0 || hasDurationInSummary || isThinkingSummary)) {
         return l10n.thoughtForDuration(rc.formattedDuration);
       }
 
-      // No duration - use custom summary if meaningful, else default
-      if (!hasSummary || isThinkingSummary) {
-        return l10n.thoughts;
+      // Has custom summary that's not a duration - show it
+      if (hasSummary && !isThinkingSummary) {
+        return rc.summary;
       }
-      return rc.summary;
+
+      return l10n.thoughts;
     }
 
     Widget buildHeader() {
@@ -1863,13 +1875,13 @@ String _buildTtsPlainTextWorker(Map<String, dynamic> payload) {
   final segments = rawSegments is List ? rawSegments.cast<dynamic>() : const [];
 
   if (segments.isEmpty) {
-    return MarkdownToText.convert(fallback);
+    return ConduitMarkdownPreprocessor.toPlainText(fallback);
   }
 
   final buffer = StringBuffer();
   for (final segment in segments) {
     if (segment is! String || segment.isEmpty) continue;
-    final sanitized = MarkdownToText.convert(segment);
+    final sanitized = ConduitMarkdownPreprocessor.toPlainText(segment);
     if (sanitized.isEmpty) continue;
     if (buffer.isNotEmpty) {
       buffer.writeln();
@@ -1880,7 +1892,7 @@ String _buildTtsPlainTextWorker(Map<String, dynamic> payload) {
 
   final result = buffer.toString().trim();
   if (result.isEmpty) {
-    return MarkdownToText.convert(fallback);
+    return ConduitMarkdownPreprocessor.toPlainText(fallback);
   }
   return result;
 }

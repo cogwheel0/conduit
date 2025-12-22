@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/services/settings_service.dart';
 import '../../../core/providers/app_providers.dart';
-import '../../../core/utils/markdown_to_text.dart';
+import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
 import '../services/text_to_speech_service.dart';
 
 enum TtsPlaybackStatus { idle, initializing, loading, speaking, paused, error }
@@ -218,7 +218,7 @@ class TextToSpeechController extends Notifier<TextToSpeechState> {
     }
 
     // Prepare sentence split for highlighting
-    final cleanText = MarkdownToText.convert(text);
+    final cleanText = ConduitMarkdownPreprocessor.toPlainText(text);
     final sentences = _service.splitTextForSpeech(cleanText);
     final offsets = _computeOffsets(cleanText, sentences);
 

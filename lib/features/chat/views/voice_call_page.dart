@@ -7,7 +7,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/providers/app_providers.dart';
-import '../../../core/utils/markdown_to_text.dart';
+import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../providers/chat_providers.dart';
@@ -335,7 +335,7 @@ class _VoiceCallPageState extends ConsumerState<VoiceCallPage>
     } else if (_currentState == VoiceCallState.speaking &&
         _currentResponse.isNotEmpty) {
       // Convert markdown to clean text for display
-      displayText = MarkdownToText.convert(_currentResponse);
+      displayText = ConduitMarkdownPreprocessor.toPlainText(_currentResponse);
     }
 
     if (displayText.isEmpty) {

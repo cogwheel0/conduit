@@ -18,6 +18,7 @@ import '../providers/chat_providers.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../core/utils/user_display_name.dart';
 import '../../../core/utils/model_icon_utils.dart';
+import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
 import '../../../core/utils/android_assistant_handler.dart';
 import '../widgets/modern_chat_input.dart';
 import '../widgets/user_message_bubble.dart';
@@ -1205,36 +1206,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 
   void _copyMessage(String content) {
-    // Strip reasoning details from the copied content
-    String cleanedContent = content;
-
-    // Remove <details type="reasoning"> blocks
-    cleanedContent = cleanedContent.replaceAll(
-      RegExp(
-        r'<details\s+type="reasoning"[^>]*>[\s\S]*?<\/details>',
-        multiLine: true,
-        dotAll: true,
-      ),
-      '',
-    );
-
-    // Remove raw reasoning tags
-    cleanedContent = cleanedContent.replaceAll(
-      RegExp(r'<think>[\s\S]*?<\/think>', multiLine: true, dotAll: true),
-      '',
-    );
-    cleanedContent = cleanedContent.replaceAll(
-      RegExp(
-        r'<reasoning>[\s\S]*?<\/reasoning>',
-        multiLine: true,
-        dotAll: true,
-      ),
-      '',
-    );
-
-    // Clean up any extra whitespace
-    cleanedContent = cleanedContent.trim();
-
+    // Strip reasoning blocks and annotations from copied content
+    final cleanedContent = ConduitMarkdownPreprocessor.sanitize(content);
     Clipboard.setData(ClipboardData(text: cleanedContent));
   }
 

@@ -12,7 +12,7 @@ import '../../../core/providers/app_providers.dart';
 import '../../../core/services/background_streaming_handler.dart';
 import '../../../core/services/callkit_service.dart';
 import '../../../core/services/socket_service.dart';
-import '../../../core/utils/markdown_to_text.dart';
+import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
 import '../providers/chat_providers.dart';
 import 'text_to_speech_service.dart';
 import '../../../core/services/settings_service.dart';
@@ -589,7 +589,7 @@ class VoiceCallService {
 
   void _processSpeakableSegments({required bool isFinalChunk}) {
     if (_isDisposed) return;
-    final cleanText = MarkdownToText.convert(_accumulatedResponse).trim();
+    final cleanText = ConduitMarkdownPreprocessor.toPlainText(_accumulatedResponse).trim();
     if (cleanText.isEmpty) {
       return;
     }
