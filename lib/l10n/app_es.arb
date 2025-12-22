@@ -24,7 +24,7 @@
   "signOut": "Cerrar sesión",
   "endYourSession": "Finalizar tu sesión",
   "defaultModel": "Modelo predeterminado",
-  "autoSelect": "Selección automática",
+  "autoSelect": "Predeterminado del servidor",
   "loadingModels": "Cargando modelos...",
   "failedToLoadModels": "No se pudieron cargar los modelos",
   "availableModels": "Modelos disponibles",
@@ -364,9 +364,9 @@
       }
     }
   },
-  "autoSelectDescription": "Deja que la aplicación elija el mejor modelo",
+  "autoSelectDescription": "Usar el modelo predeterminado configurado en el servidor",
   "@autoSelectDescription": {
-    "description": "Explains what the auto-select model setting does."
+    "description": "Explains what the server-provided model setting does."
   },
   "ttsEngineLabel": "Motor",
   "@ttsEngineLabel": {

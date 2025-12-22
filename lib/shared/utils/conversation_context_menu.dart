@@ -159,9 +159,7 @@ class _ConduitMobileMenuBuilder extends mobile.MobileMenuWidgetBuilder {
     final veilColor = theme.isDark
         ? const Color(0x4D000000) // ~30% black
         : const Color(0x4D424242); // ~30% grey
-    return SizedBox.expand(
-      child: ColoredBox(color: veilColor),
-    );
+    return SizedBox.expand(child: ColoredBox(color: veilColor));
   }
 
   @override
@@ -189,10 +187,7 @@ class _ConduitMobileMenuBuilder extends mobile.MobileMenuWidgetBuilder {
               Padding(
                 padding: const EdgeInsets.only(right: Spacing.md),
                 child: IconTheme(
-                  data: IconThemeData(
-                    color: iconColor,
-                    size: IconSize.medium,
-                  ),
+                  data: IconThemeData(color: iconColor, size: IconSize.medium),
                   child: imageWidget,
                 ),
               ),
@@ -218,10 +213,7 @@ class _ConduitMobileMenuBuilder extends mobile.MobileMenuWidgetBuilder {
       );
 
       if (state.pressed) {
-        content = ColoredBox(
-          color: theme.surfaceContainer,
-          child: content,
-        );
+        content = ColoredBox(color: theme.surfaceContainer, child: content);
       }
 
       return content;
@@ -295,9 +287,7 @@ class _ConduitMobileMenuBuilder extends mobile.MobileMenuWidgetBuilder {
     // even when the overlay is visually transparent
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      child: SizedBox.expand(
-        child: ColoredBox(color: overlayColor),
-      ),
+      child: SizedBox.expand(child: ColoredBox(color: overlayColor)),
     );
   }
 
@@ -398,10 +388,10 @@ List<ConduitContextMenuAction> buildConversationActions({
 
   return [
     ConduitContextMenuAction(
-      cupertinoIcon:
-          isPinned ? CupertinoIcons.pin_slash : CupertinoIcons.pin_fill,
-      materialIcon:
-          isPinned ? Icons.push_pin_outlined : Icons.push_pin_rounded,
+      cupertinoIcon: isPinned
+          ? CupertinoIcons.pin_slash
+          : CupertinoIcons.pin_fill,
+      materialIcon: isPinned ? Icons.push_pin_outlined : Icons.push_pin_rounded,
       label: isPinned ? l10n.unpin : l10n.pin,
       onBeforeClose: () => HapticFeedback.lightImpact(),
       onSelected: togglePin,
@@ -410,8 +400,9 @@ List<ConduitContextMenuAction> buildConversationActions({
       cupertinoIcon: isArchived
           ? CupertinoIcons.archivebox_fill
           : CupertinoIcons.archivebox,
-      materialIcon:
-          isArchived ? Icons.unarchive_rounded : Icons.archive_rounded,
+      materialIcon: isArchived
+          ? Icons.unarchive_rounded
+          : Icons.archive_rounded,
       label: isArchived ? l10n.unarchive : l10n.archive,
       onBeforeClose: () => HapticFeedback.lightImpact(),
       onSelected: toggleArchive,
@@ -477,7 +468,9 @@ Future<void> _renameConversation(
     if (api == null) throw Exception('No API service');
     await api.updateConversation(conversationId, title: newName);
     HapticFeedback.selectionClick();
-    ref.read(conversationsProvider.notifier).updateConversation(
+    ref
+        .read(conversationsProvider.notifier)
+        .updateConversation(
           conversationId,
           (conversation) =>
               conversation.copyWith(title: newName, updatedAt: DateTime.now()),

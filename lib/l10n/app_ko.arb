@@ -18,7 +18,7 @@
   "signOut": "로그아웃",
   "endYourSession": "세션 종료",
   "defaultModel": "기본 모델",
-  "autoSelect": "자동 선택",
+  "autoSelect": "서버 기본값",
   "loadingModels": "모델 로딩 중...",
   "failedToLoadModels": "모델을 불러오지 못했습니다",
   "availableModels": "사용 가능한 모델",
@@ -436,7 +436,7 @@
       }
     }
   },
-  "autoSelectDescription": "앱이 최적의 모델을 선택하도록 허용",
+  "autoSelectDescription": "서버에 구성된 기본 모델 사용",
   "chatSettings": "채팅",
   "sendOnEnter": "Enter로 전송",
   "sendOnEnterDescription": "Enter로 전송 (소프트 키보드). Cmd/Ctrl+Enter도 사용 가능",

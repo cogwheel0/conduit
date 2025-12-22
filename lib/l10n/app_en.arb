@@ -72,7 +72,7 @@
   "@defaultModel": {
     "description": "Label for choosing a default AI model."
   },
-  "autoSelect": "Auto-select",
+  "autoSelect": "Server provided",
   "@autoSelect": {
     "description": "Option to let the app pick a suitable model automatically."
   },
@@ -1297,9 +1297,9 @@
       }
     }
   },
-  "autoSelectDescription": "Let the app choose the best model",
+  "autoSelectDescription": "Use the default model configured on the server",
   "@autoSelectDescription": {
-    "description": "Explains what the auto-select model setting does."
+    "description": "Explains what the server-provided model setting does."
   },
   "chatSettings": "Chat",
   "@chatSettings": {

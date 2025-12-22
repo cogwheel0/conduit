@@ -24,7 +24,7 @@
   "signOut": "Abmelden",
   "endYourSession": "Sitzung beenden",
   "defaultModel": "Standardmodell",
-  "autoSelect": "Automatische Auswahl",
+  "autoSelect": "Serverstandard",
   "loadingModels": "Modelle werden geladen...",
   "failedToLoadModels": "Modelle konnten nicht geladen werden",
   "availableModels": "Verfügbare Modelle",
@@ -364,9 +364,9 @@
       }
     }
   },
-  "autoSelectDescription": "Lass die App das beste Modell auswählen",
+  "autoSelectDescription": "Das auf dem Server konfigurierte Standardmodell verwenden",
   "@autoSelectDescription": {
-    "description": "Explains what the auto-select model setting does."
+    "description": "Explains what the server-provided model setting does."
   },
   "ttsEngineLabel": "Engine",
   "@ttsEngineLabel": {

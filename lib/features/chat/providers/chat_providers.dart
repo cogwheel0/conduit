@@ -12,6 +12,7 @@ import '../../../core/models/chat_message.dart';
 import '../../../core/models/conversation.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/conversation_delta_listener.dart';
+import '../../../core/services/settings_service.dart';
 import '../../../core/services/streaming_helper.dart';
 import '../../../core/services/streaming_response_controller.dart';
 import '../../../core/services/worker_manager.dart';
@@ -904,10 +905,19 @@ void startNewChat(dynamic ref) {
 }
 
 /// Restores the selected model to the user's configured default model.
-/// Call this when starting a new conversation.
+/// Call this when starting a new conversation or when settings change.
 Future<void> restoreDefaultModel(dynamic ref) async {
   // Mark that this is not a manual selection
   ref.read(isManualModelSelectionProvider.notifier).set(false);
+
+  // If auto-select (no explicit default), clear the cached default model
+  // so defaultModelProvider will fetch from server
+  final settingsDefault = ref.read(appSettingsProvider).defaultModel;
+  if (settingsDefault == null || settingsDefault.isEmpty) {
+    final storage = ref.read(optimizedStorageServiceProvider);
+    await storage.saveLocalDefaultModel(null);
+    DebugLogger.log('cleared-cached-default', scope: 'chat/model');
+  }
 
   // Invalidate and re-read to force defaultModelProvider to use settings priority
   ref.invalidate(defaultModelProvider);

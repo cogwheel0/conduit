@@ -24,7 +24,7 @@
   "signOut": "Выйти",
   "endYourSession": "Завершить сеанс",
   "defaultModel": "Модель по умолчанию",
-  "autoSelect": "Автовыбор",
+  "autoSelect": "По умолчанию сервера",
   "loadingModels": "Загрузка моделей...",
   "failedToLoadModels": "Не удалось загрузить модели",
   "availableModels": "Доступные модели",
@@ -364,9 +364,9 @@
       }
     }
   },
-  "autoSelectDescription": "Позвольте приложению выбрать лучшую модель",
+  "autoSelectDescription": "Использовать модель по умолчанию, настроенную на сервере",
   "@autoSelectDescription": {
-    "description": "Explains what the auto-select model setting does."
+    "description": "Explains what the server-provided model setting does."
   },
   "ttsEngineLabel": "Движок",
   "@ttsEngineLabel": {
