@@ -1060,6 +1060,30 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
               'Follow-ups set successfully',
               scope: 'streaming/helper',
             );
+
+            // Sync to server to persist follow-ups (they arrive after done:true)
+            final chatId = activeConversationId;
+            if (chatId != null && chatId.isNotEmpty && suggestions.isNotEmpty) {
+              Future.microtask(() async {
+                try {
+                  final currentMessages = getMessages();
+                  await api.syncConversationMessages(
+                    chatId,
+                    currentMessages,
+                    model: modelId,
+                  );
+                  DebugLogger.log(
+                    'Follow-ups persisted to server',
+                    scope: 'streaming/helper',
+                  );
+                } catch (e) {
+                  DebugLogger.log(
+                    'Failed to persist follow-ups: $e',
+                    scope: 'streaming/helper',
+                  );
+                }
+              });
+            }
           } else {
             DebugLogger.log(
               'Follow-ups: targetId is null',
