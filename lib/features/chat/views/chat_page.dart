@@ -83,42 +83,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     return fileSize <= (maxSizeMB * 1024 * 1024);
   }
 
-  Future<Model?> _trySelectCachedModel() async {
-    final existing = ref.read(selectedModelProvider);
-    if (existing != null) {
-      return existing;
-    }
-
-    try {
-      final storage = ref.read(optimizedStorageServiceProvider);
-      // Prefer the stored default model ID/name if available
-      final settingsDesired = ref.read(appSettingsProvider).defaultModel;
-      final storedDesired = await SettingsService.getDefaultModel().catchError(
-        (_) => null,
-      );
-      final desiredId = settingsDesired ?? storedDesired;
-
-      final match = await selectCachedModel(storage, desiredId);
-      if (match != null) {
-        ref.read(selectedModelProvider.notifier).set(match);
-        DebugLogger.log(
-          'cache-select',
-          scope: 'chat/model',
-          data: {'name': match.name, 'source': 'cache'},
-        );
-      }
-      return match;
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'cache-select-failed',
-        scope: 'chat/model',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      return null;
-    }
-  }
-
   void startNewChat() {
     // Clear current conversation
     ref.read(chatMessagesProvider.notifier).clearMessages();
@@ -131,8 +95,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     ref.read(pendingFolderIdProvider.notifier).clear();
 
     // Reset to default model for new conversations (fixes #296)
-    ref.read(isManualModelSelectionProvider.notifier).set(false);
-    ref.invalidate(defaultModelProvider);
+    restoreDefaultModel(ref);
 
     // Scroll to top
     if (_scrollController.hasClients) {
@@ -157,65 +120,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       return;
     }
 
-    // Fast path: try cached models + stored default before waiting on providers
-    final cached = await _trySelectCachedModel();
-    if (cached != null) {
-      // Still continue to reconcile against remote models below
-      DebugLogger.log(
-        'cache-hit',
-        scope: 'chat/model',
-        data: {'name': cached.name},
-      );
-    }
-
-    DebugLogger.log('auto-select-start', scope: 'chat/model');
-
-    try {
-      // First ensure models are loaded
-      final modelsAsync = ref.read(modelsProvider);
-      List<Model> models;
-
-      if (modelsAsync.hasValue) {
-        models = modelsAsync.value!;
-      } else {
-        DebugLogger.log('models-fetch', scope: 'chat/model');
-        models = await ref.read(modelsProvider.future);
-      }
-
-      DebugLogger.log(
-        'models-count',
-        scope: 'chat/model',
-        data: {'count': models.length},
-      );
-
-      if (models.isEmpty) {
-        DebugLogger.warning('models-empty', scope: 'chat/model');
-        return;
-      }
-
-      // Try to use the default model provider
-      try {
-        final Model? model = await ref.read(defaultModelProvider.future);
-        if (model != null) {
-          DebugLogger.log(
-            'auto-select',
-            scope: 'chat/model',
-            data: {'name': model.name},
-          );
-        }
-      } catch (e) {
-        DebugLogger.warning('provider-fallback', scope: 'chat/model');
-        // Fallback: select the first available model
-        ref.read(selectedModelProvider.notifier).set(models.first);
-        DebugLogger.log(
-          'fallback',
-          scope: 'chat/model',
-          data: {'name': models.first.name},
-        );
-      }
-    } catch (e) {
-      DebugLogger.error('auto-select-failed', scope: 'chat/model', error: e);
-    }
+    // Use shared restore logic which handles settings priority and fallbacks
+    await restoreDefaultModel(ref);
   }
 
   Future<void> _checkAndShowOnboarding() async {

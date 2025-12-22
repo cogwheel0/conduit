@@ -1342,6 +1342,9 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer> {
     // Clear context attachments (web pages, YouTube, knowledge base docs)
     ref.read(contextAttachmentsProvider.notifier).clear();
 
+    // Reset to default model for new conversations (fixes #296)
+    chat.restoreDefaultModel(ref);
+
     // Close drawer using the responsive layout (same pattern as _selectConversation)
     if (mounted) {
       final mediaQuery = MediaQuery.maybeOf(context);
