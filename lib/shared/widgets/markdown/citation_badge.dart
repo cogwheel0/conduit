@@ -142,7 +142,7 @@ class CitationBadge extends StatelessWidget {
               SourceHelper.launchSourceUrl(url);
             }
           },
-          borderRadius: BorderRadius.circular(AppBorderRadius.chip),
+          borderRadius: BorderRadius.circular(20),
           child: Container(
             padding: const EdgeInsets.symmetric(
               horizontal: Spacing.sm,
@@ -150,33 +150,22 @@ class CitationBadge extends StatelessWidget {
             ),
             margin: const EdgeInsets.symmetric(horizontal: 2),
             decoration: BoxDecoration(
-              color: theme.surfaceContainer.withValues(alpha: 0.6),
-              borderRadius: BorderRadius.circular(AppBorderRadius.chip),
+              color: theme.surfaceContainer.withValues(alpha: 0.3),
+              borderRadius: BorderRadius.circular(20),
               border: Border.all(
-                color: theme.cardBorder.withValues(alpha: 0.5),
-                width: BorderWidth.thin,
+                color: theme.dividerColor.withValues(alpha: 0.5),
+                width: 1,
               ),
             ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.link_rounded,
-                  size: 10,
-                  color: theme.textSecondary.withValues(alpha: 0.7),
-                ),
-                const SizedBox(width: Spacing.xxs),
-                Text(
-                  displayTitle,
-                  style: TextStyle(
-                    fontSize: AppTypography.labelSmall,
-                    fontWeight: FontWeight.w500,
-                    color: theme.textSecondary,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
+            child: Text(
+              displayTitle,
+              style: TextStyle(
+                fontSize: AppTypography.labelSmall,
+                fontWeight: FontWeight.w500,
+                color: theme.textSecondary,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
           ),
         ),

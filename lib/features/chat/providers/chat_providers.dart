@@ -1772,41 +1772,44 @@ Future<void> _sendMessageInternal(
   final contextFiles = _contextAttachmentsToFiles(contextAttachments);
 
   // Convert attachments to files format for web client compatibility
+  // Process in parallel for better performance (fixes #310 - loading indicator)
+  // while preserving original attachment order
   final attachmentFiles = <Map<String, dynamic>>[];
   if (attachments != null && !reviewerMode && api != null) {
-    for (final attachment in attachments) {
-      // Data URLs are images - store inline
+    // Process all attachments in parallel while preserving order
+    final fileInfoFutures = attachments.map((attachment) async {
+      // Data URLs are images - return immediately (no API call needed)
       if (attachment.startsWith('data:image/')) {
-        attachmentFiles.add({'type': 'image', 'url': attachment});
-      } else {
-        // Server file ID - fetch info and create file entry
-        // Match web client format: {type, id, name, url, size, collection_name}
-        try {
-          final fileInfo = await api.getFileInfo(attachment);
-          final fileName = fileInfo['filename'] ?? fileInfo['name'] ?? 'file';
-          final fileSize = fileInfo['size'] ?? fileInfo['meta']?['size'];
-          final collectionName =
-              fileInfo['meta']?['collection_name'] ??
-              fileInfo['collection_name'];
-          attachmentFiles.add({
-            'type': 'file',
-            'id': attachment,
-            'name': fileName,
-            'url': '/api/v1/files/$attachment',
-            if (fileSize != null) 'size': fileSize,
-            if (collectionName != null) 'collection_name': collectionName,
-          });
-        } catch (_) {
-          // If we can't fetch info, store minimal file entry with placeholder name
-          attachmentFiles.add({
-            'type': 'file',
-            'id': attachment,
-            'name': 'file',
-            'url': '/api/v1/files/$attachment',
-          });
-        }
+        return <String, dynamic>{'type': 'image', 'url': attachment};
       }
-    }
+      // Server file ID - fetch info
+      try {
+        final fileInfo = await api.getFileInfo(attachment);
+        final fileName = fileInfo['filename'] ?? fileInfo['name'] ?? 'file';
+        final fileSize = fileInfo['size'] ?? fileInfo['meta']?['size'];
+        final collectionName =
+            fileInfo['meta']?['collection_name'] ?? fileInfo['collection_name'];
+        return <String, dynamic>{
+          'type': 'file',
+          'id': attachment,
+          'name': fileName,
+          'url': '/api/v1/files/$attachment',
+          if (fileSize != null) 'size': fileSize,
+          if (collectionName != null) 'collection_name': collectionName,
+        };
+      } catch (_) {
+        // If we can't fetch info, store minimal file entry
+        return <String, dynamic>{
+          'type': 'file',
+          'id': attachment,
+          'name': 'file',
+          'url': '/api/v1/files/$attachment',
+        };
+      }
+    });
+    // Future.wait preserves order - results match input order
+    final results = await Future.wait(fileInfoFutures);
+    attachmentFiles.addAll(results);
   } else if (attachments != null) {
     // Reviewer mode or no API - only handle images (server files need API)
     for (final attachment in attachments) {
@@ -1938,21 +1941,21 @@ Future<void> _sendMessageInternal(
     activeConversation = updated;
   }
 
-  // We'll add the assistant message placeholder after we get the message ID from the API (or immediately in reviewer mode)
+  // Add assistant placeholder immediately after user message to show typing
+  // indicator right away (fixes #310 - loading animation not showing)
+  final String assistantMessageId = const Uuid().v4();
+  final assistantPlaceholder = ChatMessage(
+    id: assistantMessageId,
+    role: 'assistant',
+    content: '',
+    timestamp: DateTime.now(),
+    model: selectedModel.id,
+    isStreaming: true,
+  );
+  ref.read(chatMessagesProvider.notifier).addMessage(assistantPlaceholder);
 
   // Reviewer mode: simulate a response locally and return
   if (reviewerMode) {
-    // Add assistant message placeholder
-    final assistantMessage = ChatMessage(
-      id: const Uuid().v4(),
-      role: 'assistant',
-      content: '',
-      timestamp: DateTime.now(),
-      model: selectedModel.id,
-      isStreaming: true,
-    );
-    ref.read(chatMessagesProvider.notifier).addMessage(assistantMessage);
-
     // Check if there are attachments
     String? filename;
     if (attachments != null && attachments.isNotEmpty) {
@@ -2066,21 +2069,8 @@ Future<void> _sendMessageInternal(
       : null;
 
   try {
-    // Pre-seed assistant skeleton on server to ensure correct chain
-    // Generate assistant message id now (must be consistent across client/server)
-    final String assistantMessageId = const Uuid().v4();
-
-    // Add assistant placeholder locally before sending
-    final assistantPlaceholder = ChatMessage(
-      id: assistantMessageId,
-      role: 'assistant',
-      content: '',
-      timestamp: DateTime.now(),
-      model: selectedModel.id,
-      isStreaming: true,
-    );
-    ref.read(chatMessagesProvider.notifier).addMessage(assistantPlaceholder);
-
+    // Assistant placeholder was already added above (after user message)
+    // to show typing indicator immediately. Sync conversation state to server.
     // Sync conversation state to ensure WebUI can load conversation history
     try {
       final activeConvForSeed = ref.read(activeConversationProvider);

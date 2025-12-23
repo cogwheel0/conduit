@@ -593,7 +593,6 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   Widget _buildSegmentedContent() {
     final children = <Widget>[];
     bool firstToolSpacerAdded = false;
-    bool hasNonTextSegment = false;
     int idx = 0;
     for (final seg in _segments) {
       if (seg.isTool && seg.toolCall != null) {
@@ -603,16 +602,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           firstToolSpacerAdded = true;
         }
         children.add(_buildToolCallTile(seg.toolCall!));
-        hasNonTextSegment = true;
       } else if (seg.isReasoning && seg.reasoning != null) {
         children.add(_buildReasoningTile(seg.reasoning!, idx));
-        hasNonTextSegment = true;
       } else if ((seg.text ?? '').trim().isNotEmpty) {
-        // Add spacing before text content if it follows non-text segments
-        if (hasNonTextSegment) {
-          children.add(const SizedBox(height: Spacing.sm));
-          hasNonTextSegment = false;
-        }
+        // No extra spacing needed - reasoning/tool tiles have bottom padding
         children.add(_buildEnhancedMarkdownContent(seg.text!));
       }
       idx++;
@@ -704,12 +697,19 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       return false;
     }
 
-    final hasVisibleStatus = widget.message.statusHistory
+    // Check if there's a pending (not done) visible status - those have shimmer
+    // so we don't need the typing indicator. But if all visible statuses are
+    // done (e.g., "Retrieved 1 source"), show typing indicator to indicate
+    // the model is still working on generating a response.
+    final visibleStatuses = widget.message.statusHistory
         .where((status) => status.hidden != true)
-        .isNotEmpty;
-    if (hasVisibleStatus) {
+        .toList();
+    final hasPendingStatus = visibleStatuses.any((status) => status.done != true);
+    if (hasPendingStatus) {
+      // Pending status has shimmer effect, no need for typing indicator
       return false;
     }
+    // If all statuses are done but no content yet, show typing indicator
 
     final hasFollowUps = widget.message.followUps.isNotEmpty;
     if (hasFollowUps) {
