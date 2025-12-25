@@ -1060,6 +1060,16 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final isGenerating = ref.watch(isChatStreamingProvider);
     final stopGeneration = ref.read(stopGenerationProvider);
 
+    // Check if file uploads are in progress or complete
+    final attachedFiles = ref.watch(attachedFilesProvider);
+    final hasUploadsInProgress = attachedFiles.any(
+      (f) =>
+          f.status == FileUploadStatus.uploading ||
+          f.status == FileUploadStatus.pending,
+    );
+    final allUploadsComplete = attachedFiles.isEmpty ||
+        attachedFiles.every((f) => f.status == FileUploadStatus.completed);
+
     final webSearchEnabled = ref.watch(webSearchEnabledProvider);
     final imageGenEnabled = ref.watch(imageGenerationEnabledProvider);
     final imageGenAvailable = ref.watch(imageGenerationAvailableProvider);
@@ -1349,6 +1359,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                     isGenerating,
                     stopGeneration,
                     voiceAvailable,
+                    allUploadsComplete,
+                    hasUploadsInProgress,
                   ),
                 ],
               ),
@@ -1416,6 +1428,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               isGenerating,
               stopGeneration,
               voiceAvailable,
+              allUploadsComplete,
+              hasUploadsInProgress,
             ),
           ],
         ),
@@ -1825,12 +1839,16 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     bool isGenerating,
     void Function() stopGeneration,
     bool voiceAvailable,
+    bool allUploadsComplete,
+    bool hasUploadsInProgress,
   ) {
     // Compact 44px touch target, circular radius, md icon size
     const double buttonSize = TouchTarget.minimum; // 44.0
     const double radius = AppBorderRadius.round; // big to ensure circle
 
-    final enabled = !isGenerating && hasText && widget.enabled;
+    // Don't allow sending until all uploads are complete
+    final enabled =
+        !isGenerating && hasText && widget.enabled && allUploadsComplete;
 
     // Generating -> STOP variant
     if (isGenerating) {
@@ -1947,17 +1965,26 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                         : const [],
                   ),
                   child: Center(
-                    child: Icon(
-                      Platform.isIOS
-                          ? CupertinoIcons.arrow_up
-                          : Icons.arrow_upward,
-                      size: IconSize.large,
-                      color: enabled
-                          ? context.conduitTheme.buttonPrimaryText
-                          : context.conduitTheme.textPrimary.withValues(
-                              alpha: Alpha.disabled,
+                    child: hasUploadsInProgress
+                        ? SizedBox(
+                            width: IconSize.large,
+                            height: IconSize.large,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.5,
+                              color: context.conduitTheme.textSecondary,
                             ),
-                    ),
+                          )
+                        : Icon(
+                            Platform.isIOS
+                                ? CupertinoIcons.arrow_up
+                                : Icons.arrow_upward,
+                            size: IconSize.large,
+                            color: enabled
+                                ? context.conduitTheme.buttonPrimaryText
+                                : context.conduitTheme.textPrimary.withValues(
+                                    alpha: Alpha.disabled,
+                                  ),
+                          ),
                   ),
                 ),
               ),

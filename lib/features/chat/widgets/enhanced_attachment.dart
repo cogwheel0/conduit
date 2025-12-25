@@ -47,6 +47,7 @@ class _EnhancedAttachmentState extends ConsumerState<EnhancedAttachment> {
     try {
       // Data URL for images – short-circuit to image widget
       if (widget.attachmentId.startsWith('data:image/')) {
+        if (!mounted) return;
         setState(() {
           _isLoading = false;
           _fileInfo = {'mime': 'image/inline'};
@@ -56,6 +57,7 @@ class _EnhancedAttachmentState extends ConsumerState<EnhancedAttachment> {
 
       final api = ref.read(apiServiceProvider);
       if (api is! ApiService) {
+        if (!mounted) return;
         setState(() {
           _isLoading = false;
           _error = 'Service unavailable';
@@ -64,11 +66,13 @@ class _EnhancedAttachmentState extends ConsumerState<EnhancedAttachment> {
       }
 
       final info = await api.getFileInfo(widget.attachmentId);
+      if (!mounted) return;
       setState(() {
         _fileInfo = info;
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = 'Failed to load attachment';
         _isLoading = false;

@@ -8,6 +8,7 @@ import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as path;
 import '../../../core/providers/app_providers.dart';
+import '../../../core/services/worker_manager.dart';
 import '../../../core/utils/debug_logger.dart';
 
 /// Size threshold for optimizing images to WebP (200KB).
@@ -38,17 +39,10 @@ const Set<String> _alwaysConvertFormats = {
 };
 
 /// Formats that benefit from WebP conversion when large.
-const Set<String> _optimizableFormats = {
-  '.jpg',
-  '.jpeg',
-  '.png',
-};
+const Set<String> _optimizableFormats = {'.jpg', '.jpeg', '.png'};
 
 /// Formats that should never be converted (animation, already optimal).
-const Set<String> _preserveFormats = {
-  '.gif',
-  '.webp',
-};
+const Set<String> _preserveFormats = {'.gif', '.webp'};
 
 /// All supported image formats (both standard and those requiring conversion).
 const Set<String> allSupportedImageFormats = {
@@ -71,6 +65,30 @@ bool _shouldPreserve(String extension) {
   return _preserveFormats.contains(extension);
 }
 
+/// Top-level function for base64 encoding in an isolate.
+String _encodeToDataUrlWorker(Map<String, dynamic> payload) {
+  final bytes = payload['bytes'] as List<int>;
+  final mimeType = payload['mimeType'] as String;
+  return 'data:$mimeType;base64,${base64Encode(bytes)}';
+}
+
+/// Helper to encode bytes to data URL, using isolate when worker is provided.
+Future<String> _encodeToDataUrl(
+  List<int> bytes,
+  String mimeType,
+  WorkerManager? worker,
+) async {
+  if (worker != null && bytes.length > 50 * 1024) {
+    // Use isolate for files > 50KB
+    return worker.schedule(_encodeToDataUrlWorker, {
+      'bytes': bytes,
+      'mimeType': mimeType,
+    }, debugLabel: 'base64-encode');
+  }
+  // Small files: encode on main thread
+  return 'data:$mimeType;base64,${base64Encode(bytes)}';
+}
+
 /// Converts an image file to a base64 data URL with smart optimization.
 /// This is a standalone utility used by both FileAttachmentService and TaskWorker.
 ///
@@ -81,8 +99,14 @@ bool _shouldPreserve(String extension) {
 /// - GIF → Preserve (maintains animation)
 /// - WebP → Preserve (already optimal)
 ///
+/// If [worker] is provided, base64 encoding runs in a background isolate
+/// to avoid blocking the UI thread for large images.
+///
 /// Returns null if conversion fails for formats requiring conversion.
-Future<String?> convertImageFileToDataUrl(File imageFile) async {
+Future<String?> convertImageFileToDataUrl(
+  File imageFile, {
+  WorkerManager? worker,
+}) async {
   try {
     final ext = path.extension(imageFile.path).toLowerCase();
     final fileSize = await imageFile.length();
@@ -97,7 +121,7 @@ Future<String?> convertImageFileToDataUrl(File imageFile) async {
 
       final convertedBytes = await _convertToWebP(imageFile);
       if (convertedBytes != null) {
-        return 'data:image/webp;base64,${base64Encode(convertedBytes)}';
+        return _encodeToDataUrl(convertedBytes, 'image/webp', worker);
       }
 
       DebugLogger.warning(
@@ -110,7 +134,7 @@ Future<String?> convertImageFileToDataUrl(File imageFile) async {
     if (_shouldPreserve(ext)) {
       final bytes = await imageFile.readAsBytes();
       final mimeType = ext == '.gif' ? 'image/gif' : 'image/webp';
-      return 'data:$mimeType;base64,${base64Encode(bytes)}';
+      return _encodeToDataUrl(bytes, mimeType, worker);
     }
 
     // Optimizable formats (JPEG, PNG) - convert if large
@@ -134,7 +158,7 @@ Future<String?> convertImageFileToDataUrl(File imageFile) async {
             'saved': savings,
           },
         );
-        return 'data:image/webp;base64,${base64Encode(convertedBytes)}';
+        return _encodeToDataUrl(convertedBytes, 'image/webp', worker);
       }
       // Fall through to pass-through if conversion fails
     }
@@ -146,7 +170,7 @@ Future<String?> convertImageFileToDataUrl(File imageFile) async {
       mimeType = 'image/jpeg';
     }
 
-    return 'data:$mimeType;base64,${base64Encode(bytes)}';
+    return _encodeToDataUrl(bytes, mimeType, worker);
   } catch (e) {
     DebugLogger.error('convert-image-failed', scope: 'attachments', error: e);
     return null;
@@ -167,21 +191,14 @@ Future<List<int>?> _convertToWebP(File imageFile) async {
       DebugLogger.log(
         'Image converted to WebP successfully',
         scope: 'attachments',
-        data: {
-          'originalPath': imageFile.path,
-          'resultSize': result.length,
-        },
+        data: {'originalPath': imageFile.path, 'resultSize': result.length},
       );
       return result;
     }
 
     return null;
   } catch (e) {
-    DebugLogger.error(
-      'webp-conversion-failed',
-      scope: 'attachments',
-      error: e,
-    );
+    DebugLogger.error('webp-conversion-failed', scope: 'attachments', error: e);
     return null;
   }
 }
