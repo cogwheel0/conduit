@@ -22,6 +22,7 @@ import '../../features/notes/views/notes_list_page.dart';
 import '../../features/notes/views/note_editor_page.dart';
 import '../../features/profile/views/app_customization_page.dart';
 import '../../features/profile/views/profile_page.dart';
+import '../../features/wrapped/views/wrapped_page.dart';
 import '../../l10n/app_localizations.dart';
 import '../models/server_config.dart';
 
@@ -298,6 +299,11 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         }
         return NoteEditorPage(noteId: noteId);
       },
+    ),
+    GoRoute(
+      path: Routes.wrapped,
+      name: RouteNames.wrapped,
+      builder: (context, state) => const WrappedPage(),
     ),
   ];
 
