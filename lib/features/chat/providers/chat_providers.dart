@@ -1023,49 +1023,11 @@ bool validateFileCount(int currentCount, int newFilesCount, int? maxCount) {
   return (currentCount + newFilesCount) <= maxCount;
 }
 
-// Helper function to get file content as base64
-Future<String?> _getFileAsBase64(dynamic api, String fileId) async {
-  // Check if this is already a data URL (for images)
-  if (fileId.startsWith('data:')) {
-    return fileId;
-  }
-
-  try {
-    // First, get file info to determine if it's an image
-    final fileInfo = await api.getFileInfo(fileId);
-
-    // Try different fields for filename - check all possible field names
-    final fileName =
-        fileInfo['filename'] ??
-        fileInfo['meta']?['name'] ??
-        fileInfo['name'] ??
-        fileInfo['file_name'] ??
-        fileInfo['original_name'] ??
-        fileInfo['original_filename'] ??
-        '';
-
-    final ext = fileName.toLowerCase().split('.').last;
-
-    // Only process image files (including SVG)
-    if (!['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].contains(ext)) {
-      return null;
-    }
-
-    // Get file content as base64 string
-    final fileContent = await api.getFileContent(fileId);
-
-    // The API service returns base64 string directly
-    return fileContent;
-  } catch (e) {
-    return null;
-  }
-}
-
 // Small internal helper to convert a message with attachments into the
 // OpenWebUI content payload format (text + image_url + files).
 // - Adds text first (if non-empty)
-// - Handles images as inline base64 data URLs (matching web client behavior)
-// - Includes non-image attachments in a 'files' array for server-side resolution
+// - Images (base64 or server-stored) go into content array as image_url
+// - Non-image files go into files array for RAG/server-side resolution
 Future<Map<String, dynamic>> _buildMessagePayloadWithAttachments({
   required dynamic api,
   required String role,
@@ -1078,15 +1040,14 @@ Future<Map<String, dynamic>> _buildMessagePayloadWithAttachments({
     contentArray.add({'type': 'text', 'text': cleanedText});
   }
 
-  // Collect all files in OpenWebUI format for the files array
+  // Collect non-image files for the files array
   final allFiles = <Map<String, dynamic>>[];
 
   for (final attachmentId in attachmentIds) {
     try {
-      // Check if this is an image data URL (stored locally, matching web client)
-      // Web client stores images as base64 data URLs, not server file IDs
+      // Check if this is a base64 data URL (legacy or inline)
       if (attachmentId.startsWith('data:image/')) {
-        // This is an inline image data URL - add directly to content array
+        // Inline image data URL - add directly to content array for LLM vision
         contentArray.add({
           'type': 'image_url',
           'image_url': {'url': attachmentId},
@@ -1094,46 +1055,43 @@ Future<Map<String, dynamic>> _buildMessagePayloadWithAttachments({
         continue;
       }
 
-      // For server-stored files, fetch info
+      // For server-stored files, fetch info to determine type
       final fileInfo = await api.getFileInfo(attachmentId);
       final fileName = fileInfo['filename'] ?? fileInfo['name'] ?? 'Unknown';
-      final fileSize = fileInfo['size'];
+      final fileSize = fileInfo['size'] ?? fileInfo['meta']?['size'];
+      final contentType =
+          fileInfo['meta']?['content_type'] ?? fileInfo['content_type'] ?? '';
 
-      final base64Data = await _getFileAsBase64(api, attachmentId);
-      if (base64Data != null) {
-        // This is an image file from server - add to content array only
-        if (base64Data.startsWith('data:')) {
-          contentArray.add({
-            'type': 'image_url',
-            'image_url': {'url': base64Data},
-          });
-        } else {
-          final ext = fileName.toLowerCase().split('.').last;
-          String mimeType = 'image/png';
-          if (ext == 'jpg' || ext == 'jpeg') {
-            mimeType = 'image/jpeg';
-          } else if (ext == 'gif') {
-            mimeType = 'image/gif';
-          } else if (ext == 'webp') {
-            mimeType = 'image/webp';
-          } else if (ext == 'svg') {
-            mimeType = 'image/svg+xml';
+      // Check if this is an image file
+      final isImage = contentType.toString().startsWith('image/');
+
+      if (isImage) {
+        // Images must be in content array as image_url for LLM vision
+        // Fetch the image content from server and convert to base64 data URL
+        try {
+          final fileContent = await api.getFileContent(attachmentId);
+          String dataUrl;
+          if (fileContent.startsWith('data:')) {
+            dataUrl = fileContent;
+          } else {
+            // Determine MIME type from content type or file extension
+            String mimeType = contentType.isNotEmpty
+                ? contentType.toString()
+                : _getMimeTypeFromFileName(fileName);
+            dataUrl = 'data:$mimeType;base64,$fileContent';
           }
-
-          final dataUrl = 'data:$mimeType;base64,$base64Data';
           contentArray.add({
             'type': 'image_url',
             'image_url': {'url': dataUrl},
           });
+        } catch (_) {
+          // If we can't fetch the image, skip it
         }
-
-        // Note: Images are handled in content array above, no need to duplicate in files array
-        // This prevents duplicate display in the WebUI
       } else {
-        // This is a non-image file - match web client format
+        // Non-image files go to files array for RAG/server-side processing
         allFiles.add({
           'type': 'file',
-          'id': attachmentId, // Required for RAG system to lookup file content
+          'id': attachmentId,
           'url': '/api/v1/files/$attachmentId',
           'name': fileName,
           if (fileSize != null) 'size': fileSize,
@@ -1152,6 +1110,19 @@ Future<Map<String, dynamic>> _buildMessagePayloadWithAttachments({
     messageMap['files'] = allFiles;
   }
   return messageMap;
+}
+
+String _getMimeTypeFromFileName(String fileName) {
+  final ext = fileName.toLowerCase().split('.').last;
+  return switch (ext) {
+    'jpg' || 'jpeg' => 'image/jpeg',
+    'png' => 'image/png',
+    'gif' => 'image/gif',
+    'webp' => 'image/webp',
+    'svg' => 'image/svg+xml',
+    'bmp' => 'image/bmp',
+    _ => 'image/png',
+  };
 }
 
 List<Map<String, dynamic>> _contextAttachmentsToFiles(
@@ -1751,104 +1722,138 @@ Future<void> _sendMessageInternal(
     throw Exception('No API service or model selected');
   }
 
-  Map<String, dynamic>? userSettingsData;
-  String? userSystemPrompt;
-  if (!reviewerMode && api != null) {
-    try {
-      userSettingsData = await api.getUserSettings();
-      userSystemPrompt = _extractSystemPromptFromSettings(userSettingsData);
-    } catch (_) {}
-  }
-
-  // Check if we need to create a new conversation first
-  var activeConversation = ref.read(activeConversationProvider);
-
-  // Create user message first
-  // Build the files array to match web client format for persistence:
-  // - Images stored as {type: 'image', url: 'data:...'} (matching web client)
-  // - Server files stored as {type: 'file', id: '...', name: '...', url: '...'}
-  // - Context attachments (web/youtube/knowledge)
+  // Get context attachments synchronously (no API calls)
   final contextAttachments = ref.read(contextAttachmentsProvider);
   final contextFiles = _contextAttachmentsToFiles(contextAttachments);
 
-  // Convert attachments to files format for web client compatibility
-  final attachmentFiles = <Map<String, dynamic>>[];
-  if (attachments != null && !reviewerMode && api != null) {
-    for (final attachment in attachments) {
-      // Data URLs are images - store inline
-      if (attachment.startsWith('data:image/')) {
-        attachmentFiles.add({'type': 'image', 'url': attachment});
-      } else {
-        // Server file ID - fetch info and create file entry
-        // Match web client format: {type, id, name, url, size, collection_name}
-        try {
-          final fileInfo = await api.getFileInfo(attachment);
-          final fileName = fileInfo['filename'] ?? fileInfo['name'] ?? 'file';
-          final fileSize = fileInfo['size'] ?? fileInfo['meta']?['size'];
-          final collectionName =
-              fileInfo['meta']?['collection_name'] ??
-              fileInfo['collection_name'];
-          attachmentFiles.add({
-            'type': 'file',
-            'id': attachment,
-            'name': fileName,
-            'url': '/api/v1/files/$attachment',
-            if (fileSize != null) 'size': fileSize,
-            if (collectionName != null) 'collection_name': collectionName,
-          });
-        } catch (_) {
-          // If we can't fetch info, store minimal file entry with placeholder name
-          attachmentFiles.add({
-            'type': 'file',
-            'id': attachment,
-            'name': 'file',
-            'url': '/api/v1/files/$attachment',
-          });
-        }
-      }
-    }
-  } else if (attachments != null) {
-    // Reviewer mode or no API - only handle images (server files need API)
+  // All attachments are now server file IDs (images uploaded like OpenWebUI)
+  // Legacy base64 support kept for backwards compatibility
+  final legacyBase64Images = <Map<String, dynamic>>[];
+  final serverFileIds = <String>[];
+
+  if (attachments != null) {
     for (final attachment in attachments) {
       if (attachment.startsWith('data:image/')) {
-        attachmentFiles.add({'type': 'image', 'url': attachment});
+        // Legacy base64 format - keep for backwards compatibility
+        legacyBase64Images.add({'type': 'image', 'url': attachment});
       } else {
-        DebugLogger.log(
-          'Ignoring non-image attachment in reviewer mode: $attachment',
-          scope: 'chat/providers',
-        );
+        // Server file ID (both images and documents)
+        serverFileIds.add(attachment);
       }
     }
   }
 
-  // Combine attachment files and context files
-  final List<Map<String, dynamic>>? userFiles =
-      (attachmentFiles.isNotEmpty || contextFiles.isNotEmpty)
-      ? [...attachmentFiles, ...contextFiles]
+  // Build initial user files with legacy base64 and context (server files added later)
+  final List<Map<String, dynamic>>? initialUserFiles =
+      (legacyBase64Images.isNotEmpty || contextFiles.isNotEmpty)
+      ? [...legacyBase64Images, ...contextFiles]
       : null;
 
-  final userMessage = ChatMessage(
-    id: const Uuid().v4(),
+  // Create user message - files will be updated after fetching server info
+  final userMessageId = const Uuid().v4();
+  var userMessage = ChatMessage(
+    id: userMessageId,
     role: 'user',
     content: message,
     timestamp: DateTime.now(),
     model: selectedModel.id,
     attachmentIds: attachments,
-    files: userFiles,
+    files: initialUserFiles,
   );
+
+  // Add user message to UI immediately for instant feedback
+  ref.read(chatMessagesProvider.notifier).addMessage(userMessage);
+
+  // Add assistant placeholder immediately to show typing indicator right away
+  final String assistantMessageId = const Uuid().v4();
+  final assistantPlaceholder = ChatMessage(
+    id: assistantMessageId,
+    role: 'assistant',
+    content: '',
+    timestamp: DateTime.now(),
+    model: selectedModel.id,
+    isStreaming: true,
+  );
+  ref.read(chatMessagesProvider.notifier).addMessage(assistantPlaceholder);
+
+  // Now do async work in parallel: user settings + server file info
+  String? userSystemPrompt;
+  Map<String, dynamic>? userSettingsData;
+  final serverFiles = <Map<String, dynamic>>[];
+
+  if (!reviewerMode && api != null) {
+    // Fetch user settings and server file info in parallel
+    final settingsFuture = api.getUserSettings().catchError((_) => null);
+    final fileInfoFutures = serverFileIds.map((fileId) async {
+      try {
+        final fileInfo = await api.getFileInfo(fileId);
+        final fileName = fileInfo['filename'] ?? fileInfo['name'] ?? 'file';
+        final fileSize = fileInfo['size'] ?? fileInfo['meta']?['size'];
+        final contentType =
+            fileInfo['meta']?['content_type'] ?? fileInfo['content_type'] ?? '';
+        final collectionName =
+            fileInfo['meta']?['collection_name'] ?? fileInfo['collection_name'];
+
+        // Determine type: 'image' for image content types, 'file' for others
+        // .toString() for safety against malformed API responses returning non-String
+        final isImage = contentType.toString().startsWith('image/');
+        return <String, dynamic>{
+          'type': isImage ? 'image' : 'file',
+          'id': fileId,
+          'name': fileName,
+          'url': '/api/v1/files/$fileId', // Full URL for conversation parsing compatibility
+          if (fileSize != null) 'size': fileSize,
+          if (collectionName != null) 'collection_name': collectionName,
+          if (contentType.isNotEmpty) 'content_type': contentType,
+        };
+      } catch (_) {
+        return <String, dynamic>{
+          'type': 'file',
+          'id': fileId,
+          'name': 'file',
+          'url': '/api/v1/files/$fileId',
+        };
+      }
+    });
+
+    // Wait for all async work to complete in parallel
+    final fileInfoResults = await Future.wait(fileInfoFutures);
+    userSettingsData = await settingsFuture;
+
+    if (userSettingsData != null) {
+      userSystemPrompt = _extractSystemPromptFromSettings(userSettingsData);
+    }
+    serverFiles.addAll(fileInfoResults);
+
+    // Update user message with server file info if needed
+    if (serverFiles.isNotEmpty || legacyBase64Images.isNotEmpty) {
+      final allFiles = [...legacyBase64Images, ...serverFiles, ...contextFiles];
+      userMessage = userMessage.copyWith(files: allFiles);
+      ref
+          .read(chatMessagesProvider.notifier)
+          .updateMessageById(
+            userMessageId,
+            (ChatMessage m) => m.copyWith(files: allFiles),
+          );
+    }
+  }
+
+  // Check if we need to create a new conversation first
+  var activeConversation = ref.read(activeConversationProvider);
 
   if (activeConversation == null) {
     // Check if there's a pending folder ID for this new conversation
     final pendingFolderId = ref.read(pendingFolderIdProvider);
 
-    // Create new conversation with the first message included
+    // Create new conversation with user message AND assistant placeholder
+    // so the listener doesn't remove the placeholder when setting active
     final localConversation = Conversation(
       id: const Uuid().v4(),
       title: 'New Chat',
       createdAt: DateTime.now(),
       updatedAt: DateTime.now(),
       systemPrompt: userSystemPrompt,
-      messages: [userMessage], // Include the user message
+      messages: [userMessage, assistantPlaceholder],
       folderId: pendingFolderId,
     );
 
@@ -1857,11 +1862,16 @@ Future<void> _sendMessageInternal(
     activeConversation = localConversation;
 
     if (!reviewerMode) {
-      // Try to create on server with the first message included
+      // Try to create on server - use lightweight message without large
+      // base64 image data to avoid timeout (images sent in chat request)
       try {
+        final lightweightMessage = userMessage.copyWith(
+          attachmentIds: null,
+          files: null,
+        );
         final serverConversation = await api.createConversation(
           title: 'New Chat',
-          messages: [userMessage], // Include the first message in creation
+          messages: [lightweightMessage],
           model: selectedModel.id,
           systemPrompt: userSystemPrompt,
           folderId: pendingFolderId,
@@ -1870,20 +1880,17 @@ Future<void> _sendMessageInternal(
         // Clear the pending folder ID after successful creation
         ref.read(pendingFolderIdProvider.notifier).clear();
 
+        // Keep local messages (user + assistant placeholder) instead of server
+        // messages, since we're in the middle of sending and streaming
+        final currentMessages = ref.read(chatMessagesProvider);
         final updatedConversation = localConversation.copyWith(
           id: serverConversation.id,
           systemPrompt: serverConversation.systemPrompt ?? userSystemPrompt,
-          messages: serverConversation.messages.isNotEmpty
-              ? serverConversation.messages
-              : [userMessage],
+          messages: currentMessages,
           folderId: serverConversation.folderId ?? pendingFolderId,
         );
         ref.read(activeConversationProvider.notifier).set(updatedConversation);
         activeConversation = updatedConversation;
-
-        // Set messages in the messages provider to keep UI in sync
-        ref.read(chatMessagesProvider.notifier).clearMessages();
-        ref.read(chatMessagesProvider.notifier).addMessage(userMessage);
 
         ref
             .read(conversationsProvider.notifier)
@@ -1911,22 +1918,13 @@ Future<void> _sendMessageInternal(
           }
         });
       } catch (e) {
-        // Still add the message locally
-        ref.read(chatMessagesProvider.notifier).addMessage(userMessage);
-
         // Clear the pending folder ID on failure to prevent stale state
         ref.read(pendingFolderIdProvider.notifier).clear();
       }
     } else {
-      // Add message for reviewer mode
-      ref.read(chatMessagesProvider.notifier).addMessage(userMessage);
-
       // Clear the pending folder ID even in reviewer mode
       ref.read(pendingFolderIdProvider.notifier).clear();
     }
-  } else {
-    // Add user message to existing conversation
-    ref.read(chatMessagesProvider.notifier).addMessage(userMessage);
   }
 
   if (activeConversation != null &&
@@ -1938,21 +1936,8 @@ Future<void> _sendMessageInternal(
     activeConversation = updated;
   }
 
-  // We'll add the assistant message placeholder after we get the message ID from the API (or immediately in reviewer mode)
-
   // Reviewer mode: simulate a response locally and return
   if (reviewerMode) {
-    // Add assistant message placeholder
-    final assistantMessage = ChatMessage(
-      id: const Uuid().v4(),
-      role: 'assistant',
-      content: '',
-      timestamp: DateTime.now(),
-      model: selectedModel.id,
-      isStreaming: true,
-    );
-    ref.read(chatMessagesProvider.notifier).addMessage(assistantMessage);
-
     // Check if there are attachments
     String? filename;
     if (attachments != null && attachments.isNotEmpty) {
@@ -2066,21 +2051,8 @@ Future<void> _sendMessageInternal(
       : null;
 
   try {
-    // Pre-seed assistant skeleton on server to ensure correct chain
-    // Generate assistant message id now (must be consistent across client/server)
-    final String assistantMessageId = const Uuid().v4();
-
-    // Add assistant placeholder locally before sending
-    final assistantPlaceholder = ChatMessage(
-      id: assistantMessageId,
-      role: 'assistant',
-      content: '',
-      timestamp: DateTime.now(),
-      model: selectedModel.id,
-      isStreaming: true,
-    );
-    ref.read(chatMessagesProvider.notifier).addMessage(assistantPlaceholder);
-
+    // Assistant placeholder was already added above (after user message)
+    // to show typing indicator immediately. Sync conversation state to server.
     // Sync conversation state to ensure WebUI can load conversation history
     try {
       final activeConvForSeed = ref.read(activeConversationProvider);

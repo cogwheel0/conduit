@@ -130,7 +130,8 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
 
   Widget _buildFileImageLayout(List<dynamic> imageFiles, int imageCount) {
     if (imageCount == 1) {
-      final String imageUrl = imageFiles[0]['url'] as String;
+      final file = imageFiles[0];
+      final String imageUrl = file['url'] as String;
       return Row(
         key: ValueKey('user_file_single_$imageUrl'),
         mainAxisAlignment: MainAxisAlignment.end,
@@ -154,7 +155,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
                   maxHeight: 350,
                 ),
                 disableAnimation: widget.isStreaming,
-                httpHeaders: _headersForFile(imageFiles[0]),
+                httpHeaders: _headersForFile(file),
               ),
             ),
           ),
@@ -173,7 +174,8 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
               mainAxisSize: MainAxisSize.min,
               children: imageFiles.asMap().entries.map((entry) {
                 final index = entry.key;
-                final String imageUrl = entry.value['url'] as String;
+                final file = entry.value;
+                final String imageUrl = file['url'] as String;
                 return Padding(
                   padding: EdgeInsets.only(left: index == 0 ? 0 : Spacing.xs),
                   child: Container(
@@ -196,7 +198,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
                           maxHeight: 180,
                         ),
                         disableAnimation: widget.isStreaming,
-                        httpHeaders: _headersForFile(entry.value),
+                        httpHeaders: _headersForFile(file),
                       ),
                     ),
                   ),

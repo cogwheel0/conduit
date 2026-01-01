@@ -26,6 +26,16 @@ final _globalImageBytesCache = <String, Uint8List>{};
 final _globalSvgStates = <String, bool>{};
 final _base64WhitespacePattern = RegExp(r'\s');
 
+/// Pre-cache image bytes for instant display after upload.
+/// Call this with the server file ID and image bytes after successful upload.
+void preCacheImageBytes(String fileId, Uint8List bytes) {
+  if (fileId.isEmpty || bytes.isEmpty) return;
+  _globalImageBytesCache[fileId] = bytes;
+  _globalLoadingStates[fileId] = false;
+  // Detect SVG
+  _globalSvgStates[fileId] = _isSvgBytes(bytes);
+}
+
 Uint8List _decodeImageData(String data) {
   var payload = data;
   if (payload.startsWith('data:')) {
@@ -147,6 +157,21 @@ class _EnhancedImageAttachmentState
 
   Future<void> _loadImage() async {
     final l10n = AppLocalizations.of(context)!;
+
+    // Check bytes cache first (populated during upload for instant display)
+    final preCachedBytes = _globalImageBytesCache[widget.attachmentId];
+    if (preCachedBytes != null) {
+      final cachedIsSvg = _globalSvgStates[widget.attachmentId] ?? false;
+      if (mounted) {
+        setState(() {
+          _cachedBytes = preCachedBytes;
+          _isSvg = cachedIsSvg;
+          _isLoading = false;
+        });
+      }
+      return;
+    }
+
     final cachedError = _globalErrorStates[widget.attachmentId];
     if (cachedError != null) {
       if (mounted) {
@@ -241,15 +266,25 @@ class _EnhancedImageAttachmentState
       final fileInfo = await api.getFileInfo(attachmentId);
       final fileName = _extractFileName(fileInfo);
       final ext = fileName.toLowerCase().split('.').last;
+      final contentType = (fileInfo['meta']?['content_type'] ??
+              fileInfo['content_type'] ??
+              '')
+          .toString()
+          .toLowerCase();
 
-      if (!['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].contains(ext)) {
+      // Check both extension and content_type for image detection
+      final isImageByExt =
+          ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'].contains(ext);
+      final isImageByContentType = contentType.startsWith('image/');
+
+      if (!isImageByExt && !isImageByContentType) {
         final error = l10n.notAnImageFile(fileName);
         _cacheError(error);
         return;
       }
 
-      // Track if this is an SVG file based on extension
-      final isSvgFile = ext == 'svg';
+      // Track if this is an SVG file based on extension or content type
+      final isSvgFile = ext == 'svg' || contentType.contains('svg');
 
       final fileContent = await api.getFileContent(attachmentId);
 
