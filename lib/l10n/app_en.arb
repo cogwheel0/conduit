@@ -831,6 +831,7 @@
     "description": "Option indicating the device/system default."
   },
   "english": "English",
+  "catalan": "Catalan",
   "@english": {
     "description": "Language name: English."
   },

@@ -1,0 +1,1961 @@
+{
+  "@@locale": "ca",
+  "appTitle": "Conduit",
+  "@appTitle": {
+    "description": "Nom de l'aplicació mostrat a l'aplicació i al sistema operatiu."
+  },
+  "retry": "Reintentar",
+  "@retry": {
+    "description": "Etiqueta del botó per tornar a intentar una acció."
+  },
+  "back": "Enrere",
+  "@back": {
+    "description": "Etiqueta/informació sobre eines de navegació enrere."
+  },
+  "you": "Tu",
+  "@you": {
+    "description": "Títol de la pestanya del perfil."
+  },
+  "loadingProfile": "Carregant perfil...",
+  "@loadingProfile": {
+    "description": "Missatge de progrés mentre es recuperen les dades del perfil."
+  },
+  "pleaseCheckConnection": "Comproveu la vostra connexió i torneu-ho a provar",
+  "connectionIssueTitle": "No es pot connectar amb el servidor",
+  "@connectionIssueTitle": {
+    "description": "Títol mostrat quan el servidor configurat no és accessible"
+  },
+  "connectionIssueSubtitle": "Torneu a connectar per continuar o tanqueu la sessió per triar un servidor diferent.",
+  "@connectionIssueSubtitle": {
+    "description": "Subtítol explicant les accions disponibles quan no es pot contactar amb el servidor"
+  },
+  "@pleaseCheckConnection": {
+    "description": "Suggeriment genèric de connectivitat després d'un error."
+  },
+  "account": "Compte",
+  "@account": {
+    "description": "Capçalera de secció per opcions relacionades amb el compte."
+  },
+  "supportConduit": "Donar suport a Conduit",
+  "@supportConduit": {
+    "description": "Capçalera de secció convidant l'usuari a donar suport financer al projecte."
+  },
+  "supportConduitSubtitle": "Manteniu Conduit independent finançant el desenvolupament continu.",
+  "@supportConduitSubtitle": {
+    "description": "Subtítol explicant per què les donacions són útils."
+  },
+  "githubSponsorsTitle": "GitHub Sponsors",
+  "@githubSponsorsTitle": {
+    "description": "Títol de l'enllaç a la pàgina de GitHub Sponsors."
+  },
+  "githubSponsorsSubtitle": "Feu-vos un patrocinador recurrent per finançar elements del full de ruta.",
+  "@githubSponsorsSubtitle": {
+    "description": "Subtítol explicant l'impacte del patrocini recurrent."
+  },
+  "buyMeACoffeeTitle": "Buy Me a Coffee",
+  "@buyMeACoffeeTitle": {
+    "description": "Títol de l'enllaç a la pàgina de Buy Me a Coffee."
+  },
+  "buyMeACoffeeSubtitle": "Feu una donació puntual per donar les gràcies.",
+  "@buyMeACoffeeSubtitle": {
+    "description": "Subtítol animant a fer donacions puntuals via Buy Me a Coffee."
+  },
+  "signOut": "Tancar sessió",
+  "@signOut": {
+    "description": "Botó/títol per tancar la sessió de l'aplicació."
+  },
+  "endYourSession": "Finalitzar la sessió",
+  "@endYourSession": {
+    "description": "Subtítol explicant l'acció de tancar la sessió."
+  },
+  "defaultModel": "Model per defecte",
+  "@defaultModel": {
+    "description": "Etiqueta per triar un model d'IA per defecte."
+  },
+  "autoSelect": "Proporcionat pel servidor",
+  "@autoSelect": {
+    "description": "Opció per deixar que l'aplicació triï un model adequat automàticament."
+  },
+  "loadingModels": "Carregant models...",
+  "@loadingModels": {
+    "description": "Missatge de progrés mentre es recupera la llista de models."
+  },
+  "failedToLoadModels": "No s'han pogut carregar els models",
+  "@failedToLoadModels": {
+    "description": "Missatge d'error quan la llista de models no es pot recuperar."
+  },
+  "availableModels": "Models disponibles",
+  "@availableModels": {
+    "description": "Capçalera a sobre d'una llista de models per seleccionar."
+  },
+  "modelCapabilityMultimodal": "Multimodal",
+  "@modelCapabilityMultimodal": {
+    "description": "Etiqueta de capacitat per models que suporten entrada multimodal."
+  },
+  "modelCapabilityReasoning": "Raonament",
+  "@modelCapabilityReasoning": {
+    "description": "Etiqueta de capacitat per models que suporten funcionalitats de raonament."
+  },
+  "noResults": "Sense resultats",
+  "@noResults": {
+    "description": "Mostrat quan una cerca no retorna coincidències."
+  },
+  "searchModels": "Cercar models...",
+  "@searchModels": {
+    "description": "Text de suggeriment per al camp de cerca de models."
+  },
+  "errorMessage": "Alguna cosa ha anat malament. Si us plau, torneu-ho a provar.",
+  "@errorMessage": {
+    "description": "Missatge d'error genèric per a fallades inesperades."
+  },
+  "closeButtonSemantic": "Tancar",
+  "@closeButtonSemantic": {
+    "description": "Etiqueta accessible per a un botó de Tancar genèric."
+  },
+  "loadingContent": "Carregant contingut",
+  "@loadingContent": {
+    "description": "Mostrat mentre es carrega el contingut de la pàgina."
+  },
+  "loadingShort": "Carregant",
+  "@loadingShort": {
+    "description": "Etiqueta de càrrega curta utilitzada per a accessibilitat."
+  },
+  "loadingAnnouncement": "Carregant: {message}",
+  "@loadingAnnouncement": {
+    "description": "Anunci del lector de pantalla quan es carrega un recurs.",
+    "placeholders": {
+      "message": {
+        "type": "String",
+        "example": "Missatges"
+      }
+    }
+  },
+  "errorAnnouncement": "Error: {error}",
+  "@errorAnnouncement": {
+    "description": "Anunci del lector de pantalla per a un error.",
+    "placeholders": {
+      "error": {
+        "type": "String",
+        "example": "Temps d'espera de xarxa esgotat"
+      }
+    }
+  },
+  "errorAnnouncementWithSuggestion": "Error: {error}. {suggestion}",
+  "@errorAnnouncementWithSuggestion": {
+    "description": "Anunci del lector de pantalla per a un error amb un suggeriment de seguiment.",
+    "placeholders": {
+      "error": {
+        "type": "String",
+        "example": "Temps d'espera de xarxa esgotat"
+      },
+      "suggestion": {
+        "type": "String",
+        "example": "Si us plau, torneu-ho a provar més tard."
+      }
+    }
+  },
+  "successAnnouncement": "Èxit: {message}",
+  "@successAnnouncement": {
+    "description": "Anunci del lector de pantalla per a accions exitoses.",
+    "placeholders": {
+      "message": {
+        "type": "String",
+        "example": "Perfil actualitzat"
+      }
+    }
+  },
+  "noItems": "Sense elements",
+  "@noItems": {
+    "description": "Text de marcador quan una llista està buida."
+  },
+  "noItemsToDisplay": "No hi ha elements per mostrar",
+  "@noItemsToDisplay": {
+    "description": "Descripció alternativa d'estat buit."
+  },
+  "knowledgeBase": "Base de coneixement",
+  "@knowledgeBase": {
+    "description": "Secció per al contingut de la base de coneixement."
+  },
+  "attachments": "Adjunts",
+  "@attachments": {
+    "description": "Capçalera sobre la llista de fitxers adjunts a l'àrea de redacció."
+  },
+  "takePhoto": "Fer una foto",
+  "@takePhoto": {
+    "description": "Acció per obrir la càmera i capturar una nova foto."
+  },
+  "document": "Document",
+  "@document": {
+    "description": "Etiqueta de document genèrica utilitzada a la interfície d'usuari."
+  },
+  "backToServerSetup": "Tornar a la configuració del servidor",
+  "@backToServerSetup": {
+    "description": "Botó/etiqueta enrere per tornar al flux de configuració del servidor."
+  },
+  "connectedToServer": "Connectat al servidor",
+  "@connectedToServer": {
+    "description": "Etiqueta d'estat indicant una connexió exitosa amb el servidor."
+  },
+  "signIn": "Iniciar sessió",
+  "@signIn": {
+    "description": "Botó/encapçalament per als fluxos d'inici de sessió."
+  },
+  "enterCredentials": "Introduïu les vostres credencials per accedir a les vostres converses d'IA",
+  "@enterCredentials": {
+    "description": "Text instructiu a la pantalla d'inici de sessió."
+  },
+  "credentials": "Credencials",
+  "@credentials": {
+    "description": "Capçalera per a la secció d'entrada de credencials."
+  },
+  "apiKey": "Clau API",
+  "@apiKey": {
+    "description": "Etiqueta per al camp d'entrada de la clau API."
+  },
+  "token": "Token",
+  "@token": {
+    "description": "Etiqueta per al camp d'entrada de la fitxa JWT."
+  },
+  "usernameOrEmail": "Nom d'usuari o correu electrònic",
+  "@usernameOrEmail": {
+    "description": "Etiqueta per al camp d'entrada de nom d'usuari/correu electrònic."
+  },
+  "password": "Contrasenya",
+  "@password": {
+    "description": "Etiqueta per al camp d'entrada de contrasenya."
+  },
+  "signInWithToken": "Inicieu la sessió amb Token",
+  "@signInWithToken": {
+    "description": "Mètode d'inici de sessió alternatiu utilitzant un token JWT."
+  },
+  "connectToServer": "Connectar al servidor",
+  "@connectToServer": {
+    "description": "Botó de crida a l'acció per a la connexió amb el servidor."
+  },
+  "enterServerAddress": "Introduïu la vostra adreça de servidor Open-WebUI per començar",
+  "@enterServerAddress": {
+    "description": "Instrucció dient a l'usuari que proporcioni l'URL del servidor per començar."
+  },
+  "serverUrl": "URL del servidor",
+  "@serverUrl": {
+    "description": "Etiqueta per al camp d'URL del servidor."
+  },
+  "serverUrlHint": "https://vostre-servidor.com",
+  "@serverUrlHint": {
+    "description": "Text de suggeriment mostrant el format d'exemple de l'URL del servidor."
+  },
+  "enterServerUrlSemantic": "Introduïu l'URL del vostre servidor o l'adreça IP",
+  "@enterServerUrlSemantic": {
+    "description": "Etiqueta semàntica/ARIA instruint a introduir l'URL del servidor o IP."
+  },
+  "headerName": "Nom de la capçalera",
+  "@headerName": {
+    "description": "Etiqueta per a clau de capçalera personalitzada."
+  },
+  "headerValue": "Valor de la capçalera",
+  "@headerValue": {
+    "description": "Etiqueta per a valor de capçalera personalitzada."
+  },
+  "headerValueHint": "api-key-123 o token Bearer",
+  "@headerValueHint": {
+    "description": "Text de suggeriment amb valors d'exemple de capçalera, incloent clau API o token Bearer."
+  },
+  "addHeader": "Afegir capçalera",
+  "@addHeader": {
+    "description": "Botó per afegir una nova fila de capçalera personalitzada."
+  },
+  "maximumHeadersReached": "Màxim de capçaleres assolit",
+  "@maximumHeadersReached": {
+    "description": "Advertiment quan s'assoleix el límit de capçaleres personalitzades."
+  },
+  "removeHeader": "Eliminar capçalera",
+  "@removeHeader": {
+    "description": "Acció per eliminar una fila de capçalera personalitzada."
+  },
+  "connecting": "Connectant...",
+  "@connecting": {
+    "description": "Estat mentre s'intenta connectar al servidor."
+  },
+  "connectToServerButton": "Connectar al servidor",
+  "@connectToServerButton": {
+    "description": "Botó d'acció principal per iniciar la connexió amb el servidor."
+  },
+  "demoModeActive": "Mode Demostració Actiu",
+  "@demoModeActive": {
+    "description": "Pancarta/text indicant que l'aplicació s'executa en mode demostració."
+  },
+  "skipServerSetupTryDemo": "Ometeu la configuració del servidor i proveu la demostració",
+  "@skipServerSetupTryDemo": {
+    "description": "Crida a l'acció per ometre la configuració del servidor i entrar en mode demostració."
+  },
+  "enterDemo": "Entrar a la Demostració",
+  "@enterDemo": {
+    "description": "Botó per entrar en mode demostració."
+  },
+  "demoBadge": "Demo",
+  "@demoBadge": {
+    "description": "Petita etiqueta per al contingut de demostració."
+  },
+  "serverNotOpenWebUI": "Això no sembla ser un servidor Open-WebUI.",
+  "@serverNotOpenWebUI": {
+    "description": "Error de validació quan el servidor no s'assembla a Open-WebUI."
+  },
+  "serverUrlEmpty": "L'URL del servidor no pot estar buit",
+  "@serverUrlEmpty": {
+    "description": "Missatge de validació per a URL de servidor buit."
+  },
+  "invalidUrlFormat": "Format d'URL no vàlid. Si us plau, comproveu la vostra entrada.",
+  "@invalidUrlFormat": {
+    "description": "Missatge de validació quan el format de l'URL és incorrecte."
+  },
+  "onlyHttpHttps": "Només s'admeten els protocols HTTP i HTTPS.",
+  "@onlyHttpHttps": {
+    "description": "Nota de validació restringint protocols a HTTP/HTTPS."
+  },
+  "serverAddressRequired": "L'adreça del servidor és obligatòria (ex: 192.168.1.10 o exemple.com).",
+  "@serverAddressRequired": {
+    "description": "Suggeriment de validació proporcionant exemples per a adreces de servidor."
+  },
+  "portRange": "El port ha d'estar entre 1 i 65535.",
+  "@portRange": {
+    "description": "Missatge de validació per al rang de ports permès."
+  },
+  "invalidIpFormat": "Format d'adreça IP no vàlid. Utilitzeu format com 192.168.1.10.",
+  "@invalidIpFormat": {
+    "description": "Missatge de validació per a adreces IP amb exemple."
+  },
+  "couldNotConnectGeneric": "No s'ha pogut connectar. Verifiqueu l'adreça i torneu-ho a provar.",
+  "@couldNotConnectGeneric": {
+    "description": "Fallada genèrica en connectar al servidor."
+  },
+  "weCouldntReachServer": "No hem pogut contactar amb el servidor. Comproveu la vostra connexió i que el servidor estigui funcionant.",
+  "@weCouldntReachServer": {
+    "description": "Error de connectivitat amb suggeriments per verificar l'estat del servidor."
+  },
+  "connectionTimedOut": "Temps de connexió esgotat. El servidor pot estar ocupat o bloquejat per un tallafocs.",
+  "@connectionTimedOut": {
+    "description": "Error de temps d'espera mentre es connecta al servidor."
+  },
+  "useHttpOrHttpsOnly": "Utilitzeu només http:// o https://.",
+  "@useHttpOrHttpsOnly": {
+    "description": "Nota instruint l'usuari a incloure el protocol a l'URL."
+  },
+  "loginFailed": "Inici de sessió fallit",
+  "@loginFailed": {
+    "description": "Títol per a intents d'inici de sessió fallits."
+  },
+  "invalidCredentials": "Nom d'usuari o contrasenya no vàlids. Si us plau, torneu-ho a provar.",
+  "@invalidCredentials": {
+    "description": "Missatge detallat quan l'autenticació falla."
+  },
+  "serverRedirectingHttps": "El servidor està redirigint les peticions. Comproveu la configuració HTTPS del vostre servidor.",
+  "@serverRedirectingHttps": {
+    "description": "Advertiment sobre problemes de redirecció HTTP→HTTPS."
+  },
+  "unableToConnectServer": "No es pot connectar al servidor. Si us plau, comproveu la vostra connexió.",
+  "@unableToConnectServer": {
+    "description": "Missatge d'error de connexió al servidor genèric."
+  },
+  "requestTimedOut": "La sol·licitud ha esgotat el temps d'espera. Si us plau, torneu-ho a provar.",
+  "@requestTimedOut": {
+    "description": "Temps d'espera mentre s'esperava una resposta del servidor."
+  },
+  "genericSignInFailed": "No hem pogut iniciar la vostra sessió. Comproveu les vostres credencials i la configuració del servidor.",
+  "@genericSignInFailed": {
+    "description": "Error d'inici de sessió de reserva quan no es coneix la causa específica."
+  },
+  "skip": "Ometre",
+  "@skip": {
+    "description": "Incorporació: ometre el pas actual."
+  },
+  "next": "Següent",
+  "@next": {
+    "description": "Incorporació: anar al pas següent."
+  },
+  "done": "Fet",
+  "@done": {
+    "description": "Incorporació: finalitzar el flux."
+  },
+  "onboardStartTitle": "Hola, {username}",
+  "@onboardStartTitle": {
+    "description": "Targeta d'incorporació: títol per començar a xatejar.",
+    "placeholders": {
+      "username": {
+        "type": "String",
+        "example": "Alex"
+      }
+    }
+  },
+  "onboardStartSubtitle": "Triï un model per començar. Toqui Nou Xat en qualsevol moment.",
+  "@onboardStartSubtitle": {
+    "description": "Targeta d'incorporació: guia breu per començar un xat."
+  },
+  "onboardStartBullet1": "Toqui el nom del model a la barra superior per canviar de model",
+  "@onboardStartBullet1": {
+    "description": "Punt: com canviar de model."
+  },
+  "onboardStartBullet2": "Utilitzi Nou Xat per restablir el context",
+  "@onboardStartBullet2": {
+    "description": "Punt: com restablir el context."
+  },
+  "onboardAttachTitle": "Afegir context",
+  "@onboardAttachTitle": {
+    "description": "Targeta d'incorporació: títol per adjuntar context."
+  },
+  "onboardAttachSubtitle": "Fonamenti les respostes amb contingut de l'Espai de Treball o fotos.",
+  "@onboardAttachSubtitle": {
+    "description": "Targeta d'incorporació: per què ajuda adjuntar context."
+  },
+  "onboardAttachBullet1": "Espai de Treball: PDFs, docs, conjunts de dades",
+  "@onboardAttachBullet1": {
+    "description": "Punt: tipus de fitxers de l'espai de treball."
+  },
+  "onboardAttachBullet2": "Fots: càmera o biblioteca",
+  "@onboardAttachBullet2": {
+    "description": "Punt: fonts de fotos suportades."
+  },
+  "onboardSpeakTitle": "Parli amb naturalitat",
+  "@onboardSpeakTitle": {
+    "description": "Targeta d'incorporació: títol d'entrada de veu."
+  },
+  "onboardSpeakSubtitle": "Toqui el micròfon per dictar amb retroalimentació d'ona en viu.",
+  "@onboardSpeakSubtitle": {
+    "description": "Targeta d'incorporació: com funciona l'entrada de veu."
+  },
+  "onboardSpeakBullet1": "Aturi's en qualsevol moment; el text parcial es conserva",
+  "@onboardSpeakBullet1": {
+    "description": "Punt: aturar el dictat conserva el text."
+  },
+  "onboardSpeakBullet2": "Genial per a notes ràpides o indicacions llargues",
+  "@onboardSpeakBullet2": {
+    "description": "Punt: beneficis de l'entrada de veu."
+  },
+  "onboardQuickTitle": "Accions ràpides",
+  "@onboardQuickTitle": {
+    "description": "Targeta d'incorporació: títol d'accions ràpides."
+  },
+  "onboardQuickSubtitle": "Obri el menú per canviar entre Xats, Espai de Treball i Perfil.",
+  "@onboardQuickSubtitle": {
+    "description": "Targeta d'incorporació: com utilitzar el menú de l'aplicació."
+  },
+  "onboardQuickBullet1": "Toqui el menú per accedir a Xats, Espai de Treball, Perfil",
+  "@onboardQuickBullet1": {
+    "description": "Punt: accés del menú a seccions."
+  },
+  "onboardQuickBullet2": "Comenci un Nou Xat o gestioni models des de la barra superior",
+  "@onboardQuickBullet2": {
+    "description": "Punt: accions disponibles a la barra superior."
+  },
+  "attachmentLabel": "Adjunt",
+  "@attachmentLabel": {
+    "description": "Etiqueta mostrada al costat dels xips d'adjunts als missatges."
+  },
+  "tools": "Eines",
+  "@tools": {
+    "description": "Capçalera per a una secció d'eines/accions."
+  },
+  "filters": "Filtres",
+  "@filters": {
+    "description": "Capçalera per a la secció de filtres."
+  },
+  "voiceInput": "Entrada de veu",
+  "@voiceInput": {
+    "description": "Etiqueta per a la funció d'entrada de veu."
+  },
+  "voice": "Veu",
+  "@voice": {
+    "description": "Títol per al full inferior d'entrada de veu."
+  },
+  "voiceStatusListening": "Escoltant...",
+  "@voiceStatusListening": {
+    "description": "Indica que l'aplicació està escoltant activament durant l'entrada de veu."
+  },
+  "voiceStatusRecording": "Gravant...",
+  "@voiceStatusRecording": {
+    "description": "Indica que l'aplicació està gravant àudio per al reconeixement de la parla."
+  },
+  "voiceHoldToTalk": "Mantenir per parlar",
+  "@voiceHoldToTalk": {
+    "description": "Etiqueta de commutació per al mode mantenir per parlar en l'entrada de veu."
+  },
+  "voiceAutoSend": "Enviament automàtic",
+  "@voiceAutoSend": {
+    "description": "Etiqueta de commutació per enviar automàticament la transcripció final."
+  },
+  "voiceTranscript": "Transcripció",
+  "@voiceTranscript": {
+    "description": "Etiqueta sobre el text d'entrada de veu transcrit."
+  },
+  "voicePromptSpeakNow": "Parleu ara...",
+  "@voicePromptSpeakNow": {
+    "description": "Text de marcador demanant a l'usuari que comenci a parlar."
+  },
+  "voicePromptTapStart": "Toqueu Inicia per començar",
+  "@voicePromptTapStart": {
+    "description": "Text de marcador instruint l'usuari a tocar Inicia per començar la gravació."
+  },
+  "voiceActionStop": "Aturar",
+  "@voiceActionStop": {
+    "description": "Etiqueta del botó per aturar la gravació de veu."
+  },
+  "voiceActionStart": "Inicia",
+  "@voiceActionStart": {
+    "description": "Etiqueta del botó per iniciar la gravació de veu."
+  },
+  "voiceCallTitle": "Trucada de veu",
+  "@voiceCallTitle": {
+    "description": "Títol mostrat a la pantalla de trucada de veu."
+  },
+  "voiceCallPause": "Pausa",
+  "@voiceCallPause": {
+    "description": "Etiqueta del botó per pausar una trucada de veu."
+  },
+  "voiceCallResume": "Reprengui",
+  "@voiceCallResume": {
+    "description": "Etiqueta del botó per reprendre una trucada de veu pausada."
+  },
+  "voiceCallStop": "Aturar",
+  "@voiceCallStop": {
+    "description": "Etiqueta del botó per aturar la trucada de veu activa."
+  },
+  "voiceCallEnd": "Finalitzar trucada",
+  "@voiceCallEnd": {
+    "description": "Etiqueta del botó per finalitzar la sessió de trucada de veu."
+  },
+  "voiceCallReady": "A punt",
+  "@voiceCallReady": {
+    "description": "Etiqueta d'estat mostrada quan la trucada de veu està llesta per començar."
+  },
+  "voiceCallConnecting": "Connectant...",
+  "@voiceCallConnecting": {
+    "description": "Etiqueta d'estat mostrada mentre la trucada de veu s'està connectant."
+  },
+  "voiceCallListening": "Escoltant",
+  "@voiceCallListening": {
+    "description": "Etiqueta d'estat mostrada mentre la trucada està escoltant l'entrada."
+  },
+  "voiceCallPaused": "Pausat",
+  "@voiceCallPaused": {
+    "description": "Etiqueta d'estat mostrada quan la trucada està pausada."
+  },
+  "voiceCallProcessing": "Pensant...",
+  "@voiceCallProcessing": {
+    "description": "Etiqueta d'estat mostrada mentre la trucada processa una resposta."
+  },
+  "voiceCallSpeaking": "Parlant",
+  "@voiceCallSpeaking": {
+    "description": "Etiqueta d'estat mostrada mentre l'assistent està parlant."
+  },
+  "voiceCallDisconnected": "Desconnectat",
+  "@voiceCallDisconnected": {
+    "description": "Etiqueta d'estat mostrada quan la trucada de veu ha finalitzat o s'ha desconnectat."
+  },
+  "voiceCallErrorHelp": "Si us plau, comproveu:\n• Els permisos del micròfon estan concedits\n• El reconeixement de veu està disponible al vostre dispositiu\n• Esteu connectat al servidor",
+  "@voiceCallErrorHelp": {
+    "description": "Orientació mostrada quan la trucada de veu troba un error."
+  },
+  "messageHintText": "Pregunta a Conduit",
+  "@messageHintText": {
+    "description": "Text de marcador curt a l'entrada del missatge."
+  },
+  "stopGenerating": "Aturar generació",
+  "@stopGenerating": {
+    "description": "Acció per aturar la generació de resposta de l'assistent."
+  },
+  "send": "Enviar",
+  "@send": {
+    "description": "Acció principal per enviar un missatge."
+  },
+  "codeCopiedToClipboard": "Codi copiat al porta-retalls.",
+  "@codeCopiedToClipboard": {
+    "description": "Missatge de barra d'aperitiu confirmant que el codi s'ha copiat."
+  },
+  "sendMessage": "Enviar missatge",
+  "@sendMessage": {
+    "description": "Etiqueta semàntica per enviar un missatge."
+  },
+  "file": "Fitxer",
+  "@file": {
+    "description": "Una etiqueta d'element o tipus d'adjunt de fitxer."
+  },
+  "chooseDifferentFile": "Triar un fitxer diferent",
+  "@chooseDifferentFile": {
+    "description": "Etiqueta d'acció demanant a l'usuari que triï un altre fitxer."
+  },
+  "photo": "Foto",
+  "@photo": {
+    "description": "Una etiqueta d'element o tipus d'adjunt de foto."
+  },
+  "camera": "Càmera",
+  "@camera": {
+    "description": "Etiqueta de font de càmera."
+  },
+  "pasteImage": "Enganxar imatge",
+  "@pasteImage": {
+    "description": "Acció del menú de context per enganxar una imatge del porta-retalls."
+  },
+  "apiUnavailable": "Servei API no disponible",
+  "@apiUnavailable": {
+    "description": "Mostrat quan el servei API backend no està disponible."
+  },
+  "unableToLoadImage": "No s'ha pogut carregar la imatge",
+  "@unableToLoadImage": {
+    "description": "Fallada general en carregar una imatge."
+  },
+  "notAnImageFile": "No és un fitxer d'imatge: {fileName}",
+  "@notAnImageFile": {
+    "description": "Error quan un fitxer referenciat no és una imatge.",
+    "placeholders": {
+      "fileName": {
+        "type": "String",
+        "example": "image.txt"
+      }
+    }
+  },
+  "failedToLoadImage": "No s'ha pogut carregar la imatge: {error}",
+  "@failedToLoadImage": {
+    "description": "Error incloent la raó subjacent quan falla la càrrega de la imatge.",
+    "placeholders": {
+      "error": {
+        "type": "String",
+        "example": "Error de xarxa"
+      }
+    }
+  },
+  "invalidDataUrl": "Format d'URL de dades no vàlid",
+  "@invalidDataUrl": {
+    "description": "Error per a dades mal formades: URLs."
+  },
+  "failedToDecodeImage": "No s'ha pogut descodificar la imatge",
+  "@failedToDecodeImage": {
+    "description": "Error en descodificar bytes d'imatge/base64."
+  },
+  "invalidImageFormat": "Format d'imatge no vàlid",
+  "@invalidImageFormat": {
+    "description": "Error quan el tipus/format d'imatge no és suportat."
+  },
+  "emptyImageData": "Dades d'imatge buides",
+  "@emptyImageData": {
+    "description": "Error quan el buffer de dades d'imatge està buit."
+  },
+  "confirm": "Confirmar",
+  "@confirm": {
+    "description": "Etiqueta del botó de confirmació."
+  },
+  "continueAction": "Continuar",
+  "@continueAction": {
+    "description": "Etiqueta del botó per continuar una acció o flux."
+  },
+  "cancel": "Cancel·lar",
+  "@cancel": {
+    "description": "Etiqueta del botó de cancel·lació."
+  },
+  "ok": "D'acord",
+  "@ok": {
+    "description": "Etiqueta genèrica del botó D'acord."
+  },
+  "previousLabel": "Ant",
+  "@previousLabel": {
+    "description": "Etiqueta per navegar a l'element anterior."
+  },
+  "nextLabel": "Seg",
+  "@nextLabel": {
+    "description": "Etiqueta per navegar a l'element següent."
+  },
+  "inputField": "Camp d'entrada",
+  "@inputField": {
+    "description": "Etiqueta d'accessibilitat descrivint un camp d'entrada."
+  },
+  "checkConnection": "Comprovar connexió",
+  "@checkConnection": {
+    "description": "CTA per verificar la connectivitat de xarxa."
+  },
+  "openSettings": "Obrir configuració",
+  "@openSettings": {
+    "description": "CTA per obrir la configuració del dispositiu o aplicació."
+  },
+  "goBack": "Torna enrere",
+  "@goBack": {
+    "description": "CTA per navegar enrere."
+  },
+  "technicalDetails": "Detalls tècnics",
+  "@technicalDetails": {
+    "description": "Etiqueta de secció expandible per mostrar detalls d'error o registres."
+  },
+  "requiredFieldLabel": "{label} *",
+  "@requiredFieldLabel": {
+    "description": "Text de l'etiqueta indicant un camp obligatori.",
+    "placeholders": {
+      "label": {
+        "type": "String",
+        "example": "Correu electrònic"
+      }
+    }
+  },
+  "requiredFieldHelper": "Camp obligatori",
+  "@requiredFieldHelper": {
+    "description": "Text d'ajuda indicant que el camp és obligatori."
+  },
+  "switchOnLabel": "Encès",
+  "@switchOnLabel": {
+    "description": "Etiqueta semàntica quan un interruptor està activat."
+  },
+  "switchOffLabel": "Apagat",
+  "@switchOffLabel": {
+    "description": "Etiqueta semàntica quan un interruptor està desactivat."
+  },
+  "dialogSemanticLabel": "Diàleg: {title}",
+  "@dialogSemanticLabel": {
+    "description": "Etiqueta semàntica descrivint el títol del diàleg.",
+    "placeholders": {
+      "title": {
+        "type": "String",
+        "example": "Configuració"
+      }
+    }
+  },
+  "save": "Desar",
+  "@save": {
+    "description": "Acció principal per desar canvis."
+  },
+  "chooseModel": "Triar Model",
+  "@chooseModel": {
+    "description": "Botó/etiqueta per triar un model."
+  },
+  "reviewerMode": "MODE REVISOR",
+  "@reviewerMode": {
+    "description": "Indicador de mode desenvolupador/revisor."
+  },
+  "selectLanguage": "Seleccionar idioma",
+  "@selectLanguage": {
+    "description": "Títol del diàleg per triar l'idioma de l'aplicació."
+  },
+  "newFolder": "Nova carpeta",
+  "@newFolder": {
+    "description": "Acció per crear una nova carpeta."
+  },
+  "folderName": "Nom de la carpeta",
+  "@folderName": {
+    "description": "Etiqueta per introduir el nom d'una carpeta."
+  },
+  "newChat": "Nou Xat",
+  "@newChat": {
+    "description": "Acció per començar un nou xat."
+  },
+  "more": "Més",
+  "@more": {
+    "description": "Obre accions o contingut addicional."
+  },
+  "clear": "Netejar",
+  "@clear": {
+    "description": "Acció per netejar entrada o selecció."
+  },
+  "searchConversations": "Cercar converses...",
+  "@searchConversations": {
+    "description": "Suggeriment d'entrada de cerca dins de converses."
+  },
+  "create": "Crear",
+  "@create": {
+    "description": "Acció principal per crear un recurs."
+  },
+  "failedToCreateFolder": "No s'ha pogut crear la carpeta",
+  "@failedToCreateFolder": {
+    "description": "Avís d'error quan falla la creació de la carpeta."
+  },
+  "failedToMoveChat": "No s'ha pogut moure el xat",
+  "@failedToMoveChat": {
+    "description": "Avís d'error quan falla el moviment d'un xat."
+  },
+  "failedToLoadChats": "No s'han pogut carregar els xats",
+  "@failedToLoadChats": {
+    "description": "Avís d'error quan falla la recuperació de la llista de xats."
+  },
+  "failedToUpdatePin": "No s'ha pogut actualitzar el pin",
+  "@failedToUpdatePin": {
+    "description": "Avís d'error quan falla l'actualització de l'estrella/bandera de pin."
+  },
+  "failedToDeleteChat": "No s'ha pogut suprimir el xat",
+  "@failedToDeleteChat": {
+    "description": "Avís d'error quan falla l'eliminació d'un xat."
+  },
+  "manage": "Gestionar",
+  "@manage": {
+    "description": "Acció de context per gestionar un element."
+  },
+  "rename": "Canviar nom",
+  "@rename": {
+    "description": "Acció de context per canviar el nom d'un element."
+  },
+  "delete": "Suprimir",
+  "@delete": {
+    "description": "Acció de context per suprimir un element."
+  },
+  "renameChat": "Canviar nom del Xat",
+  "@renameChat": {
+    "description": "Títol del diàleg per canviar el nom d'un xat."
+  },
+  "enterChatName": "Introduïu el nom del xat",
+  "@enterChatName": {
+    "description": "Suggeriment/etiqueta d'entrada per al nom del nou xat."
+  },
+  "failedToRenameChat": "No s'ha pogut canviar el nom del xat",
+  "@failedToRenameChat": {
+    "description": "Avís d'error quan falla el canvi de nom del xat."
+  },
+  "failedToUpdateArchive": "No s'ha pogut actualitzar l'arxiu",
+  "@failedToUpdateArchive": {
+    "description": "Avís d'error quan falla l'arxivament/desarxivament."
+  },
+  "unarchive": "Desarxivar",
+  "@unarchive": {
+    "description": "Acció per desarxivar un element."
+  },
+  "archive": "Arxivar",
+  "@archive": {
+    "description": "Acció per arxivar un element."
+  },
+  "pin": "Fixar",
+  "@pin": {
+    "description": "Acció per fixar/marcar un element."
+  },
+  "unpin": "Desfixar",
+  "@unpin": {
+    "description": "Acció per eliminar la fixació d'un element."
+  },
+  "recent": "Recent",
+  "@recent": {
+    "description": "Filtre de llista per a elements utilitzats recentment."
+  },
+  "system": "Sistema",
+  "@system": {
+    "description": "Opció indicant el valor per defecte del dispositiu/sistema."
+  },
+  "english": "Anglès",
+  "catalan": "Català",
+  "@english": {
+    "description": "Nom de l'idioma: Anglès."
+  },
+  "deutsch": "Deutsch",
+  "@deutsch": {
+    "description": "Nom de l'idioma: Alemany."
+  },
+  "francais": "Français",
+  "@francais": {
+    "description": "Nom de l'idioma: Francès."
+  },
+  "italiano": "Italiano",
+  "@italiano": {
+    "description": "Nom de l'idioma: Italià."
+  },
+  "espanol": "Español",
+  "@espanol": {
+    "description": "Nom de l'idioma: Espanyol."
+  },
+  "nederlands": "Nederlands",
+  "@nederlands": {
+    "description": "Nom de l'idioma: Neerlandès."
+  },
+  "russian": "Русский",
+  "@russian": {
+    "description": "Nom de l'idioma: Rus."
+  },
+  "chinese": "中文",
+  "@chinese": {
+    "description": "Nom de l'idioma: Xinès."
+  },
+  "chineseSimplified": "Xinès (Simplificat)",
+  "@chineseSimplified": {
+    "description": "Nom de l'idioma: Xinès (Simplificat)."
+  },
+  "chineseTraditional": "Xinès (Tradicional)",
+  "@chineseTraditional": {
+    "description": "Nom de l'idioma: Xinès (Tradicional)."
+  },
+  "korean": "한국어",
+  "@korean": {
+    "description": "Nom de l'idioma: Coreà."
+  },
+  "deleteMessagesTitle": "Suprimir missatges",
+  "@deleteMessagesTitle": {
+    "description": "Títol del diàleg demanant confirmar l'eliminació de missatges."
+  },
+  "deleteMessagesMessage": "Suprimir {count} missatges?",
+  "@deleteMessagesMessage": {
+    "description": "Pregunta de confirmació per suprimir un nombre de missatges.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "routeNotFound": "Ruta no trobada: {routeName}",
+  "@routeNotFound": {
+    "description": "Mostrat quan la navegació falla en trobar un nom de ruta.",
+    "placeholders": {
+      "routeName": {
+        "type": "String"
+      }
+    }
+  },
+  "deleteChatTitle": "Suprimir Xat",
+  "@deleteChatTitle": {
+    "description": "Títol del diàleg demanant confirmar l'eliminació d'un xat."
+  },
+  "deleteChatMessage": "Aquest xat s'eliminarà permanentment.",
+  "@deleteChatMessage": {
+    "description": "Advertiment que suprimir un xat no es pot desfer."
+  },
+  "deleteFolderTitle": "Suprimir Carpeta",
+  "@deleteFolderTitle": {
+    "description": "Títol del diàleg demanant confirmar l'eliminació d'una carpeta."
+  },
+  "deleteFolderMessage": "Aquesta carpeta i les seves referències d'assignació s'eliminaran.",
+  "@deleteFolderMessage": {
+    "description": "Advertiment que suprimir una carpeta eliminarà l'assignació i les seves referències."
+  },
+  "failedToDeleteFolder": "No s'ha pogut suprimir la carpeta",
+  "@failedToDeleteFolder": {
+    "description": "Avís d'error quan falla l'eliminació d'una carpeta."
+  },
+  "aboutApp": "Sobre",
+  "@aboutApp": {
+    "description": "Títol de la rajola de configuració per veure informació de l'aplicació."
+  },
+  "aboutAppSubtitle": "Informació i enllaços de Conduit",
+  "@aboutAppSubtitle": {
+    "description": "Subtítol/descripció per a la secció Sobre."
+  },
+  "web": "Web",
+  "@web": {
+    "description": "Etiqueta de pestanya/secció per a funcions web."
+  },
+  "imageGen": "Gen Imatge",
+  "@imageGen": {
+    "description": "Etiqueta curta per a la secció/pestanya de generació d'imatges."
+  },
+  "pinned": "Fixat",
+  "@pinned": {
+    "description": "Filtre/pestanya per a elements fixats."
+  },
+  "folders": "Carpetes",
+  "@folders": {
+    "description": "Pestanya llistant carpetes de xat."
+  },
+  "archived": "Arxivat",
+  "@archived": {
+    "description": "Filtre/pestanya per a xats arxivats."
+  },
+  "appLanguage": "Idioma de l'aplicació",
+  "@appLanguage": {
+    "description": "Etiqueta per triar l'idioma de visualització de l'aplicació."
+  },
+  "darkMode": "Mode fosc",
+  "@darkMode": {
+    "description": "Etiqueta per commutar el tema fosc."
+  },
+  "webSearch": "Cerca Web",
+  "@webSearch": {
+    "description": "Commutador/secció de funció per a la cerca web."
+  },
+  "webSearchDescription": "Cerqueu al web i citeu fonts a les respostes.",
+  "@webSearchDescription": {
+    "description": "Explica que les respostes poden incloure cites del web."
+  },
+  "imageGeneration": "Generació d'imatges",
+  "@imageGeneration": {
+    "description": "Commutador/secció de funció per a la generació d'imatges."
+  },
+  "imageGenerationDescription": "Creeu imatges a partir dels vostres prompts.",
+  "@imageGenerationDescription": {
+    "description": "Explica la creació d'imatges mitjançant prompts de model."
+  },
+  "copy": "Copiar",
+  "@copy": {
+    "description": "Acció per copiar text al porta-retalls."
+  },
+  "ttsListen": "Escoltar",
+  "@ttsListen": {
+    "description": "Acció per reproduir el missatge de l'assistent utilitzant text a veu"
+  },
+  "ttsStop": "Aturar",
+  "@ttsStop": {
+    "description": "Acció per aturar la reproducció de text a veu"
+  },
+  "usageInfo": "Info",
+  "@usageInfo": {
+    "description": "Acció per mostrar estadístiques d'ús/rendiment per a una resposta"
+  },
+  "usageInfoTitle": "Estadístiques de resposta",
+  "@usageInfoTitle": {
+    "description": "Títol per al diàleg/full d'estadístiques d'ús"
+  },
+  "usageTokenGeneration": "Generació de tokens",
+  "@usageTokenGeneration": {
+    "description": "Etiqueta per a la mètrica de velocitat de generació de tokens"
+  },
+  "usagePromptEval": "Processament del prompt",
+  "@usagePromptEval": {
+    "description": "Etiqueta per a la mètrica de velocitat d'avaluació/pre-processament del prompt"
+  },
+  "usageTotalDuration": "Durada total",
+  "@usageTotalDuration": {
+    "description": "Etiqueta per a la durada total de generació de la resposta"
+  },
+  "usageTokensPerSecond": "{speed} t/s",
+  "@usageTokensPerSecond": {
+    "description": "Format de visualització de tokens per segon",
+    "placeholders": {
+      "speed": {
+        "type": "String",
+        "example": "45.2"
+      }
+    }
+  },
+  "usageTokenCount": "{count} tokens",
+  "@usageTokenCount": {
+    "description": "Format de visualització de recompte de tokens",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "128"
+      }
+    }
+  },
+  "usageSecondsFormat": "{seconds}s",
+  "@usageSecondsFormat": {
+    "description": "Format de durada en segons",
+    "placeholders": {
+      "seconds": {
+        "type": "String",
+        "example": "2.34"
+      }
+    }
+  },
+  "usageLoadDuration": "Temps de càrrega del model",
+  "@usageLoadDuration": {
+    "description": "Etiqueta per a la mètrica de durada de càrrega del model"
+  },
+  "usageQueueTime": "Temps d'espera",
+  "@usageQueueTime": {
+    "description": "Etiqueta per a la mètrica de temps d'espera a la cua"
+  },
+  "usageReasoningTokens": "Tokens de raonament",
+  "@usageReasoningTokens": {
+    "description": "Etiqueta per al recompte de tokens de raonament/pensament"
+  },
+  "usageTotalTokens": "Total de tokens",
+  "@usageTotalTokens": {
+    "description": "Etiqueta per al recompte total de tokens"
+  },
+  "edit": "Editar",
+  "@edit": {
+    "description": "Acció per editar un element/missatge."
+  },
+  "regenerate": "Regenerar",
+  "@regenerate": {
+    "description": "Acció per sol·licitar una nova resposta de l'assistent."
+  },
+  "noConversationsYet": "Encara no hi ha converses",
+  "@noConversationsYet": {
+    "description": "Estat buit quan l'usuari no té xats."
+  },
+  "usernameOrEmailHint": "Introduïu el vostre nom d'usuari o correu electrònic",
+  "@usernameOrEmailHint": {
+    "description": "Text de suggeriment per a l'entrada de nom d'usuari/correu electrònic."
+  },
+  "passwordHint": "Introduïu la vostra contrasenya",
+  "@passwordHint": {
+    "description": "Text de suggeriment per a l'entrada de contrasenya."
+  },
+  "enterToken": "Introduïu el vostre token JWT",
+  "@enterToken": {
+    "description": "Text de suggeriment per a l'entrada de token JWT."
+  },
+  "tokenHint": "Obtingueu el token JWT de la configuració d'OpenWebUI. Les claus API (sk-...) no són compatibles amb el flux.",
+  "@tokenHint": {
+    "description": "Text d'ajuda explicant quin tipus de token utilitzar."
+  },
+  "apiKeyNotSupported": "Les claus API (sk-...) no són compatibles. Si us plau, utilitzeu un token JWT en el seu lloc.",
+  "@apiKeyNotSupported": {
+    "description": "Missatge d'error quan l'usuari intenta utilitzar una clau API en lloc d'un token JWT."
+  },
+  "apiKeyNoLongerSupported": "Heu tancat la sessió perquè les claus API ja no són compatibles. Si us plau, inicieu la sessió amb un token JWT de la configuració d'OpenWebUI.",
+  "@apiKeyNoLongerSupported": {
+    "description": "Missatge d'error mostrat quan l'usuari és forçat a tancar la sessió a causa de l'ús d'una clau API."
+  },
+  "tokenTooShort": "El token és massa curt",
+  "@tokenTooShort": {
+    "description": "Missatge d'error quan el token és massa curt."
+  },
+  "signingIn": "Iniciant sessió...",
+  "@signingIn": {
+    "description": "Missatge d'estat mostrat mentre s'inicia la sessió."
+  },
+  "advancedSettings": "Configuració avançada",
+  "@advancedSettings": {
+    "description": "Secció que conté configuració addicional/opcional."
+  },
+  "customHeaders": "Capçaleres personalitzades",
+  "@customHeaders": {
+    "description": "Títol de secció per afegir capçaleres HTTP personalitzades."
+  },
+  "customHeadersDescription": "Afegiu capçaleres HTTP personalitzades per a autenticació, claus API, o requisits especials del servidor.",
+  "@customHeadersDescription": {
+    "description": "Text d'ajuda explicant casos d'ús per a capçaleres personalitzades."
+  },
+  "allowSelfSignedCertificates": "Confiar en certificats autofirmats",
+  "@allowSelfSignedCertificates": {
+    "description": "Etiqueta de commutació que permet confiar en certificats TLS autofirmats per al servidor configurat."
+  },
+  "allowSelfSignedCertificatesDescription": "Accepteu el certificat TLS d'aquest servidor encara que estigui autofirmat. Activeu-ho només per a servidors en què confieu.",
+  "@allowSelfSignedCertificatesDescription": {
+    "description": "Text d'ajuda clarificant els riscos d'activar la commutació de certificats autofirmats."
+  },
+  "headerNameTooLong": "Nom de la capçalera massa llarg (màxim 64 caràcters)",
+  "@headerNameTooLong": {
+    "description": "Missatge de validació per a la longitud del nom de la capçalera."
+  },
+  "headerNameInvalidChars": "Nom de la capçalera no vàlid. Utilitzeu només lletres, números, i aquests símbols: !#$&-^_`|~",
+  "@headerNameInvalidChars": {
+    "description": "Missatge de validació per a caràcters no vàlids en el nom de la capçalera."
+  },
+  "headerNameReserved": "No es pot sobreescriure la capçalera reservada \"{key}\"",
+  "@headerNameReserved": {
+    "description": "Error quan s'intenta sobreescriure una capçalera HTTP reservada {key}.",
+    "placeholders": {
+      "key": {
+        "type": "String"
+      }
+    }
+  },
+  "headerValueTooLong": "Valor de la capçalera massa llarg (màxim 1024 caràcters)",
+  "@headerValueTooLong": {
+    "description": "Missatge de validació per a la longitud del valor de la capçalera."
+  },
+  "headerValueInvalidChars": "El valor de la capçalera conté caràcters no vàlids. Utilitzeu només ASCII imprimible.",
+  "@headerValueInvalidChars": {
+    "description": "Missatge de validació per a caràcters no vàlids en el valor de la capçalera."
+  },
+  "headerValueUnsafe": "El valor de la capçalera sembla contenir contingut potencialment insegur",
+  "@headerValueUnsafe": {
+    "description": "Advertiment de seguretat per a valors de capçalera sospitosos."
+  },
+  "headerAlreadyExists": "La capçalera \"{key}\" ja existeix. Elimineu-la primer per actualitzar.",
+  "@headerAlreadyExists": {
+    "description": "Error quan una capçalera personalitzada amb la clau {key} ja existeix.",
+    "placeholders": {
+      "key": {
+        "type": "String"
+      }
+    }
+  },
+  "maxHeadersReachedDetail": "S'ha assolit el màxim de 10 capçaleres personalitzades. Elimineu-ne algunes per afegir-ne més.",
+  "@maxHeadersReachedDetail": {
+    "description": "Explica el límit superior de capçaleres personalitzades."
+  },
+  "noModelsAvailable": "No hi ha models disponibles",
+  "@noModelsAvailable": {
+    "description": "Mostrat quan la llista de models està buida o no s'ha pogut carregar."
+  },
+  "followingSystem": "Seguint el sistema: {theme}",
+  "@followingSystem": {
+    "description": "Indica que l'aplicació està seguint el tema del sistema (\"Fosc\"/\"Clar\").",
+    "placeholders": {
+      "theme": {
+        "type": "String"
+      }
+    }
+  },
+  "themeDark": "Fosc",
+  "@themeDark": {
+    "description": "Etiqueta de tema per a aparença fosca."
+  },
+  "themePalette": "Paleta d'accent",
+  "@themePalette": {
+    "description": "Títol per seleccionar la paleta de colors de l'aplicació."
+  },
+  "themePaletteConduitLabel": "Conduit",
+  "@themePaletteConduitLabel": {
+    "description": "Nom de la paleta per al tema per defecte de Conduit."
+  },
+  "themePaletteConduitDescription": "Tema net neutre dissenyat per a Conduit.",
+  "@themePaletteConduitDescription": {
+    "description": "Descripció de la paleta Conduit."
+  },
+  "themePaletteClaudeLabel": "Claude",
+  "@themePaletteClaudeLabel": {
+    "description": "Nom de la paleta inspirada en el client web Claude."
+  },
+  "themePaletteClaudeDescription": "Paleta càlida i tàctil extreta del client web Claude.",
+  "@themePaletteClaudeDescription": {
+    "description": "Descripció de la paleta Claude."
+  },
+  "themePaletteT3ChatLabel": "T3 Chat",
+  "@themePaletteT3ChatLabel": {
+    "description": "Nom de la paleta inspirada en la marca T3 Stack."
+  },
+  "themePaletteT3ChatDescription": "Gradients juganers inspirats en la marca T3 Stack.",
+  "@themePaletteT3ChatDescription": {
+    "description": "Descripció de la paleta T3 Chat."
+  },
+  "themePaletteCatppuccinLabel": "Catppuccin",
+  "@themePaletteCatppuccinLabel": {
+    "description": "Nom de la paleta per colors Catppuccin."
+  },
+  "themePaletteCatppuccinDescription": "Paleta pastel suau.",
+  "@themePaletteCatppuccinDescription": {
+    "description": "Descripció de la paleta Catppuccin."
+  },
+  "themePaletteTangerineLabel": "Tangerine",
+  "@themePaletteTangerineLabel": {
+    "description": "Nom de la paleta per colors Tangerine."
+  },
+  "themePaletteTangerineDescription": "Paleta càlida taronja i pissarra.",
+  "@themePaletteTangerineDescription": {
+    "description": "Descripció de la paleta Tangerine."
+  },
+  "themeLight": "Clar",
+  "@themeLight": {
+    "description": "Etiqueta de tema per a aparença clara."
+  },
+  "currentlyUsingDarkTheme": "Utilitzant actualment el tema Fosc",
+  "@currentlyUsingDarkTheme": {
+    "description": "Text d'estat indicant que el tema fosc està actiu."
+  },
+  "currentlyUsingLightTheme": "Utilitzant actualment el tema Clar",
+  "@currentlyUsingLightTheme": {
+    "description": "Text d'estat indicant que el tema clar està actiu."
+  },
+  "aboutConduit": "Sobre Conduit",
+  "@aboutConduit": {
+    "description": "Títol del diàleg per a informació de l'aplicació."
+  },
+  "versionLabel": "Versió: {version} ({build})",
+  "@versionLabel": {
+    "description": "Mostra la versió i el número de build al diàleg Sobre.",
+    "placeholders": {
+      "version": {
+        "type": "String"
+      },
+      "build": {
+        "type": "String"
+      }
+    }
+  },
+  "githubRepository": "Repositori GitHub",
+  "@githubRepository": {
+    "description": "Etiqueta d'enllaç apuntant al repositori de l'aplicació."
+  },
+  "unableToLoadAppInfo": "No s'ha pogut carregar la informació de l'aplicació",
+  "@unableToLoadAppInfo": {
+    "description": "Text d'error quan la informació del paquet no es pot recuperar."
+  },
+  "thinking": "Pensant…",
+  "@thinking": {
+    "description": "Etiqueta mostrada mentre l'assistent està raonant."
+  },
+  "thoughts": "Pensaments",
+  "@thoughts": {
+    "description": "Títol de secció per mostrar contingut de raonament."
+  },
+  "thoughtForDuration": "Pensat durant {duration}",
+  "@thoughtForDuration": {
+    "description": "Mostra quant temps ha pensat l'assistent abans de respondre.",
+    "placeholders": {
+      "duration": {
+        "type": "String",
+        "example": "3s"
+      }
+    }
+  },
+  "analyzing": "Analitzant…",
+  "@analyzing": {
+    "description": "Etiqueta mostrada mentre l'intèrpret de codi està processant."
+  },
+  "analyzed": "Analitzat",
+  "@analyzed": {
+    "description": "Etiqueta mostrada després que l'intèrpret de codi ha finalitzat."
+  },
+  "appCustomization": "Personalització",
+  "@appCustomization": {
+    "description": "Títol de la pàgina de configuració de personalització."
+  },
+  "appCustomizationSubtitle": "Tema, idioma, veu, i pastilles ràpides",
+  "@appCustomizationSubtitle": {
+    "description": "Subtítol mostrat sota la rajola de Personalització de l'aplicació i la capçalera de la pàgina."
+  },
+  "quickActionsDescription": "Pastilles ràpides al xat",
+  "@quickActionsDescription": {
+    "description": "Text d'ajuda explicant la selecció de pastilles d'acció ràpida a personalització."
+  },
+  "quickActionsSelectedCount": "{count, plural, =0{Cap acció seleccionada} one{1 acció seleccionada} other{{count} accions seleccionades}}",
+  "@quickActionsSelectedCount": {
+    "description": "Subtítol indicant quantes accions ràpides estan seleccionades.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "autoSelectDescription": "Utilitza el model per defecte configurat al servidor",
+  "@autoSelectDescription": {
+    "description": "Explica què fa la configuració del model proporcionat pel servidor."
+  },
+  "chatSettings": "Xat",
+  "@chatSettings": {
+    "description": "Capçalera de secció per opcions de personalització relacionades amb el xat."
+  },
+  "sendOnEnter": "Enviar amb Enter",
+  "@sendOnEnter": {
+    "description": "Títol del commutador per enviar missatges en prémer Enter."
+  },
+  "sendOnEnterDescription": "Enter envia (teclat virtual). Cmd/Ctrl+Enter també disponible",
+  "@sendOnEnterDescription": {
+    "description": "Explicació de com es comporta el commutador d'Enviar amb Enter."
+  },
+  "androidAssistantTitle": "Assistent digital Android",
+  "@androidAssistantTitle": {
+    "description": "Títol de la rajola per configurar el disparador de l'assistent digital Android."
+  },
+  "androidAssistantDescription": "Trieu què passa quan activeu l'assistent digital Android.",
+  "@androidAssistantDescription": {
+    "description": "Text d'ajuda descrivint la configuració del disparador de l'assistent digital Android."
+  },
+  "androidAssistantOverlayOption": "Mostrar superposició ràpida (per defecte)",
+  "@androidAssistantOverlayOption": {
+    "description": "Etiqueta d'opció per mantenir la superposició actual de l'assistent."
+  },
+  "androidAssistantNewChatOption": "Obrir Conduit amb un nou xat",
+  "@androidAssistantNewChatOption": {
+    "description": "Etiqueta d'opció per obrir l'aplicació a un xat fresc des del disparador de l'assistent."
+  },
+  "androidAssistantVoiceCallOption": "Començar una trucada de veu",
+  "@androidAssistantVoiceCallOption": {
+    "description": "Etiqueta d'opció per saltar directament a trucada de veu des del disparador de l'assistent."
+  },
+  "sttSettings": "Veu a Text",
+  "@sttSettings": {
+    "description": "Capçalera de secció per a la configuració de veu a text."
+  },
+  "sttEngineLabel": "Motor de reconeixement",
+  "@sttEngineLabel": {
+    "description": "Etiqueta mostrada a sobre dels xips del motor de veu a text."
+  },
+  "sttEngineDevice": "Al dispositiu",
+  "@sttEngineDevice": {
+    "description": "Etiqueta de xip per reconeixement de veu al dispositiu."
+  },
+  "sttEngineServer": "Servidor",
+  "@sttEngineServer": {
+    "description": "Etiqueta de xip per reconeixement de veu al servidor."
+  },
+  "sttEngineDeviceDescription": "Mantingueu l'àudio en aquest dispositiu. L'entrada de veu deixa de funcionar si el reconeixement de veu al dispositiu no és compatible.",
+  "@sttEngineDeviceDescription": {
+    "description": "Descripció mostrada quan la preferència de veu a text al dispositiu està activa."
+  },
+  "sttEngineServerDescription": "Envieu sempre els enregistraments al vostre servidor OpenWebUI per a la transcripció.",
+  "@sttEngineServerDescription": {
+    "description": "Descripció mostrada quan la preferència de veu a text al servidor està activa."
+  },
+  "sttDeviceUnavailableWarning": "El reconeixement de veu al dispositiu no està disponible en aquest dispositiu.",
+  "@sttDeviceUnavailableWarning": {
+    "description": "Advertiment mostrat quan l'usuari selecciona reconeixement de veu al dispositiu però no està disponible."
+  },
+  "sttServerUnavailableWarning": "Connecteu-vos a un servidor amb transcripció habilitada per utilitzar aquesta opció.",
+  "@sttServerUnavailableWarning": {
+    "description": "Advertiment mostrat quan l'usuari selecciona reconeixement de veu al servidor però no hi ha servidor disponible."
+  },
+  "sttSilenceDuration": "Durada del silenci",
+  "@sttSilenceDuration": {
+    "description": "Etiqueta per a la configuració de durada del silenci en veu a text del servidor."
+  },
+  "sttSilenceDurationDescription": "Temps d'espera després del silenci abans d'aturar automàticament la gravació",
+  "@sttSilenceDurationDescription": {
+    "description": "Descripció per al control lliscant de durada del silenci en la configuració de veu a text del servidor."
+  },
+  "ttsEngineLabel": "Motor",
+  "@ttsEngineLabel": {
+    "description": "Etiqueta per seleccionar el motor de text a veu."
+  },
+  "ttsEngineDevice": "Al dispositiu",
+  "@ttsEngineDevice": {
+    "description": "Etiqueta de xip per utilitzar text a veu al dispositiu."
+  },
+  "ttsEngineServer": "Servidor",
+  "@ttsEngineServer": {
+    "description": "Etiqueta de xip per utilitzar text a veu del servidor."
+  },
+  "ttsEngineDeviceDescription": "Mantingueu la síntesi en aquest dispositiu. La reproducció de veu deixa de funcionar si TTS al dispositiu no és compatible.",
+  "@ttsEngineDeviceDescription": {
+    "description": "Descripció mostrada quan la preferència de text a veu al dispositiu està activa."
+  },
+  "ttsEngineServerDescription": "Sol·liciteu sempre àudio del vostre servidor OpenWebUI.",
+  "@ttsEngineServerDescription": {
+    "description": "Descripció mostrada quan la preferència de text a veu al servidor està activa."
+  },
+  "ttsDeviceUnavailableWarning": "El text a veu al dispositiu no està disponible en aquest dispositiu.",
+  "@ttsDeviceUnavailableWarning": {
+    "description": "Advertiment mostrat quan el text a veu al dispositiu no està disponible."
+  },
+  "ttsServerUnavailableWarning": "Connecteu-vos a un servidor amb text a veu habilitat per utilitzar aquesta opció.",
+  "@ttsServerUnavailableWarning": {
+    "description": "Advertiment mostrat quan el text a veu del servidor no està disponible."
+  },
+  "ttsSettings": "Text a Veu",
+  "@ttsSettings": {
+    "description": "Capçalera de secció per opcions de personalització relacionades amb TTS."
+  },
+  "ttsVoice": "Veu",
+  "@ttsVoice": {
+    "description": "Títol per a la rajola de selecció de veu."
+  },
+  "ttsSpeechRate": "Velocitat de parla",
+  "@ttsSpeechRate": {
+    "description": "Títol per al control lliscant de velocitat de parla."
+  },
+  "ttsPitch": "To",
+  "@ttsPitch": {
+    "description": "Títol per al control lliscant de to."
+  },
+  "ttsVolume": "Volum",
+  "@ttsVolume": {
+    "description": "Títol per al control lliscant de volum."
+  },
+  "ttsPreview": "Vista prèvia de veu",
+  "@ttsPreview": {
+    "description": "Títol per al botó de vista prèvia."
+  },
+  "ttsSystemDefault": "Per defecte del sistema",
+  "@ttsSystemDefault": {
+    "description": "Etiqueta per a l'opció de veu per defecte del sistema."
+  },
+  "ttsSelectVoice": "Seleccionar veu",
+  "@ttsSelectVoice": {
+    "description": "Títol per al full inferior del selector de veu."
+  },
+  "ttsPreviewText": "Aquesta és una vista prèvia de la veu seleccionada.",
+  "@ttsPreviewText": {
+    "description": "Text de mostra parlat durant la vista prèvia de veu."
+  },
+  "ttsNoVoicesAvailable": "No hi ha veus disponibles",
+  "@ttsNoVoicesAvailable": {
+    "description": "Missatge d'error quan no es poden trobar veus TTS."
+  },
+  "ttsVoicesForLanguage": "Veus {language}",
+  "@ttsVoicesForLanguage": {
+    "description": "Capçalera de secció per a veus que coincideixen amb l'idioma de l'aplicació",
+    "placeholders": {
+      "language": {
+        "type": "String",
+        "example": "CA"
+      }
+    }
+  },
+  "ttsOtherVoices": "Altres idiomes",
+  "@ttsOtherVoices": {
+    "description": "Capçalera de secció per a veus en altres idiomes."
+  },
+  "error": "Error",
+  "@error": {
+    "description": "Etiqueta d'error genèrica."
+  },
+  "errorWithMessage": "Error: {message}",
+  "@errorWithMessage": {
+    "description": "Etiqueta d'error amb text de missatge adjunt.",
+    "placeholders": {
+      "message": {
+        "type": "String",
+        "example": "Temps d'espera de xarxa esgotat"
+      }
+    }
+  },
+  "networkTimeoutError": "Temps de connexió esgotat. Si us plau, comproveu la vostra connexió a Internet i torneu-ho a provar.",
+  "@networkTimeoutError": {
+    "description": "Missatge per a l'usuari quan una sol·licitud de xarxa esgota el temps d'espera."
+  },
+  "networkUnreachableError": "No es pot contactar amb el servidor. Si us plau, comproveu l'URL del vostre servidor i la connexió a Internet.",
+  "@networkUnreachableError": {
+    "description": "Missatge per a l'usuari quan el servidor no és accessible."
+  },
+  "networkServerNotResponding": "El servidor no respon. Si us plau, verifiqueu que el servidor està funcionant i és accessible.",
+  "@networkServerNotResponding": {
+    "description": "Missatge per a l'usuari quan el servidor no respon a una sol·licitud."
+  },
+  "networkGenericError": "Problema de connexió de xarxa. Si us plau, comproveu la vostra connexió a Internet.",
+  "@networkGenericError": {
+    "description": "Missatge de reserva per a errors de xarxa genèrics."
+  },
+  "serverError500": "El servidor està tenint problemes. Això sol ser temporal.",
+  "@serverError500": {
+    "description": "Missatge quan es troba un error 500."
+  },
+  "serverErrorUnavailable": "El servidor no està disponible temporalment. Si us plau, torneu-ho a provar en un moment.",
+  "@serverErrorUnavailable": {
+    "description": "Missatge quan es troba un error 502/503."
+  },
+  "serverErrorTimeout": "El servidor ha trigat massa a respondre. Si us plau, torneu-ho a provar.",
+  "@serverErrorTimeout": {
+    "description": "Missatge quan el servidor esgota el temps d'espera."
+  },
+  "serverErrorGeneric": "El servidor té problemes. Si us plau, torneu-ho a provar més tard.",
+  "@serverErrorGeneric": {
+    "description": "Missatge d'error de servidor de reserva."
+  },
+  "authSessionExpired": "La vostra sessió ha caducat. Si us plau, inicieu la sessió de nou.",
+  "@authSessionExpired": {
+    "description": "Missatge quan una sessió d'autenticació caduca."
+  },
+  "authForbidden": "No teniu permís per realitzar aquesta acció.",
+  "@authForbidden": {
+    "description": "Missatge quan l'usuari no té els permisos necessaris."
+  },
+  "authInvalidToken": "El token d'autenticació no és vàlid. Si us plau, inicieu la sessió de nou.",
+  "@authInvalidToken": {
+    "description": "Missatge quan el token d'autenticació no és vàlid."
+  },
+  "authGenericError": "Problema d'autenticació. Si us plau, inicieu la sessió de nou.",
+  "@authGenericError": {
+    "description": "Missatge d'error d'autenticació de reserva."
+  },
+  "validationInvalidEmail": "Si us plau, introduïu una adreça de correu electrònic vàlida.",
+  "@validationInvalidEmail": {
+    "description": "Missatge de validació per a entrada de correu electrònic no vàlida."
+  },
+  "validationWeakPassword": "La contrasenya no compleix els requisits. Si us plau, comproveu-ho i torneu-ho a provar.",
+  "@validationWeakPassword": {
+    "description": "Missatge de validació per a contrasenyes febles."
+  },
+  "validationMissingRequired": "Si us plau, empleneu tots els camps obligatoris.",
+  "@validationMissingRequired": {
+    "description": "Missatge de validació quan falten camps obligatoris."
+  },
+  "validationFormatError": "Alguna informació està en el format incorrecte. Si us plau, comproveu-ho i torneu-ho a provar.",
+  "@validationFormatError": {
+    "description": "Missatge de validació per a problemes de format genèrics."
+  },
+  "validationGenericError": "Si us plau, comproveu la vostra entrada i torneu-ho a provar.",
+  "@validationGenericError": {
+    "description": "Missatge de validació de reserva."
+  },
+  "fileNotFound": "Fitxer no trobat. Pot haver estat mogut o suprimit.",
+  "@fileNotFound": {
+    "description": "Missatge quan no es pot localitzar un fitxer."
+  },
+  "fileAccessDenied": "No es pot accedir al fitxer. Si us plau, comproveu els permisos.",
+  "@fileAccessDenied": {
+    "description": "Missatge quan l'accés al fitxer és denegat."
+  },
+  "fileTooLarge": "El fitxer és massa gran. Si us plau, trieu un fitxer més petit.",
+  "@fileTooLarge": {
+    "description": "Missatge quan un fitxer supera els límits de mida."
+  },
+  "fileGenericError": "Problema amb el fitxer. Si us plau, proveu un fitxer diferent.",
+  "@fileGenericError": {
+    "description": "Missatge d'error de fitxer de reserva."
+  },
+  "permissionCameraRequired": "Es requereix permís de càmera. Si us plau, activeu-lo a la configuració.",
+  "@permissionCameraRequired": {
+    "description": "Missatge quan falta el permís de càmera."
+  },
+  "permissionStorageRequired": "Es requereix permís d'emmagatzematge. Si us plau, activeu-lo a la configuració.",
+  "@permissionStorageRequired": {
+    "description": "Missatge quan falta el permís d'emmagatzematge."
+  },
+  "permissionMicrophoneRequired": "Es requereix permís de micròfon. Si us plau, activeu-lo a la configuració.",
+  "@permissionMicrophoneRequired": {
+    "description": "Missatge quan falta el permís de micròfon."
+  },
+  "permissionGenericError": "Es requereix permís. Si us plau, comproveu els permisos de l'aplicació a la configuració.",
+  "@permissionGenericError": {
+    "description": "Missatge d'error de permís de reserva."
+  },
+  "actionRetryRequest": "Torneu a provar la sol·licitud.",
+  "@actionRetryRequest": {
+    "description": "Descripció per tornar a intentar una sol·licitud fallida."
+  },
+  "actionVerifyConnection": "Verifiqueu la vostra connexió a Internet.",
+  "@actionVerifyConnection": {
+    "description": "Descripció per comprovar la connectivitat a Internet."
+  },
+  "actionRetryOperation": "Torneu a intentar l'operació.",
+  "@actionRetryOperation": {
+    "description": "Descripció per tornar a intentar la mateixa operació."
+  },
+  "actionRetryAfterDelay": "Espereu un moment i torneu-ho a provar.",
+  "@actionRetryAfterDelay": {
+    "description": "Descripció suggerint un petit retard abans de tornar-ho a provar."
+  },
+  "actionSignInToAccount": "Inicieu la sessió al vostre compte.",
+  "@actionSignInToAccount": {
+    "description": "Descripció per tornar a iniciar sessió a l'aplicació."
+  },
+  "actionSelectAnotherFile": "Seleccioneu un altre fitxer.",
+  "@actionSelectAnotherFile": {
+    "description": "Descripció per triar un fitxer diferent."
+  },
+  "actionOpenAppSettings": "Obriu la configuració de l'aplicació per concedir permisos.",
+  "@actionOpenAppSettings": {
+    "description": "Descripció per obrir la configuració del sistema o de l'aplicació."
+  },
+  "actionRetryAfterPermission": "Torneu a provar després de concedir el permís.",
+  "@actionRetryAfterPermission": {
+    "description": "Descripció per tornar a intentar un cop s'han concedit els permisos."
+  },
+  "actionReturnToPrevious": "Torneu a la pantalla anterior.",
+  "@actionReturnToPrevious": {
+    "description": "Description for navigating back to the prior screen."
+  },
+  "display": "Visualització",
+  "@display": {
+    "description": "Capçalera de secció per a la configuració relacionada amb visuals i disseny."
+  },
+  "realtime": "Temps real",
+  "@realtime": {
+    "description": "Capçalera de secció per a la configuració de transport/temps real."
+  },
+  "transportMode": "Mode de transport",
+  "@transportMode": {
+    "description": "Títol per seleccionar el transport de xarxa utilitzat per a temps real."
+  },
+  "mode": "Mode",
+  "@mode": {
+    "description": "Etiqueta del camp de formulari per al desplegable de mode de transport."
+  },
+  "transportModePolling": "Reserva de sondeig",
+  "@transportModePolling": {
+    "description": "Opció desplegable per al transport de reserva de sondeig HTTP."
+  },
+  "transportModeWs": "Només WebSocket",
+  "@transportModeWs": {
+    "description": "Opció desplegable per al transport només WebSocket."
+  },
+  "transportModePollingInfo": "Recorre al sondeig HTTP quan WebSocket està bloquejat. Actualitza a WebSocket quan és possible.",
+  "@transportModePollingInfo": {
+    "description": "Text de nota al peu per al mode de transport de reserva de sondeig."
+  },
+  "transportModeWsInfo": "Menys sobrecàrrega, però pot fallar darrere de proxies/tallafocs estrictes.",
+  "@transportModeWsInfo": {
+    "description": "Text de nota al peu per al mode de transport només WebSocket."
+  },
+  "notes": "Notes",
+  "@notes": {
+    "description": "Element de navegació i títol de pàgina per a la funció de notes."
+  },
+  "searchNotes": "Cercar notes...",
+  "@searchNotes": {
+    "description": "Text de marcador de posició per al camp de cerca de notes."
+  },
+  "createNote": "Crear Nota",
+  "@createNote": {
+    "description": "Informació sobre eines/etiqueta de botó per crear una nova nota."
+  },
+  "noNotesYet": "Encara no hi ha notes",
+  "@noNotesYet": {
+    "description": "Títol de l'estat buit quan l'usuari no té notes."
+  },
+  "noNotesFound": "No s'han trobat notes",
+  "@noNotesFound": {
+    "description": "Títol de l'estat buit quan la cerca no retorna resultats."
+  },
+  "createFirstNoteHint": "Toqueu el botó + per crear la vostra primera nota.",
+  "@createFirstNoteHint": {
+    "description": "Text de suggeriment animant l'usuari a crear la seva primera nota."
+  },
+  "tryDifferentSearch": "Proveu un terme de cerca diferent.",
+  "@tryDifferentSearch": {
+    "description": "Text de suggeriment quan la cerca de notes no retorna resultats."
+  },
+  "loadingNotes": "Carregant notes...",
+  "@loadingNotes": {
+    "description": "Missatge de progrés mentre es recupera la llista de notes."
+  },
+  "loadingNote": "Carregant nota...",
+  "@loadingNote": {
+    "description": "Missatge de progrés mentre es recupera una sola nota."
+  },
+  "failedToLoadNotes": "No s'han pogut carregar les notes",
+  "@failedToLoadNotes": {
+    "description": "Missatge d'error quan no es pot recuperar la llista de notes."
+  },
+  "deleteNoteTitle": "Suprimir Nota",
+  "@deleteNoteTitle": {
+    "description": "Títol del diàleg per confirmar l'eliminació de la nota."
+  },
+  "deleteNoteMessage": "Suprimir \"{title}\"? Això no es pot desfer.",
+  "@deleteNoteMessage": {
+    "description": "Missatge de confirmació per suprimir una nota.",
+    "placeholders": {
+      "title": {
+        "type": "String",
+        "example": "La meva nota"
+      }
+    }
+  },
+  "writeNote": "Escriviu alguna cosa...",
+  "@writeNote": {
+    "description": "Text de suggeriment per al camp d'entrada de contingut de la nota."
+  },
+  "saving": "Desant...",
+  "@saving": {
+    "description": "Text d'estat mentre es desa."
+  },
+  "saved": "Desat",
+  "@saved": {
+    "description": "Text d'estat quan el contingut s'ha desat."
+  },
+  "noteCopiedToClipboard": "Nota copiada al porta-retalls",
+  "@noteCopiedToClipboard": {
+    "description": "Missatge de confirmació quan el contingut de la nota es copia al porta-retalls."
+  },
+  "generateTitle": "Generar Títol",
+  "@generateTitle": {
+    "description": "Informació sobre eines per generar un títol amb IA."
+  },
+  "generatingTitle": "Generant títol...",
+  "@generatingTitle": {
+    "description": "Marcador de posició mentre la IA genera un títol."
+  },
+  "noContentToGenerateTitle": "Afegiu contingut primer per generar un títol",
+  "@noContentToGenerateTitle": {
+    "description": "Error quan s'intenta generar títol amb contingut buit."
+  },
+  "failedToGenerateTitle": "No s'ha pogut generar el títol",
+  "@failedToGenerateTitle": {
+    "description": "Missatge d'error quan falla la generació del títol."
+  },
+  "noContentToEnhance": "Afegiu contingut primer per millorar",
+  "@noContentToEnhance": {
+    "description": "Error quan s'intenta millorar contingut buit."
+  },
+  "noteEnhanced": "Nota millorada amb IA",
+  "@noteEnhanced": {
+    "description": "Missatge d'èxit després de la millora amb IA."
+  },
+  "failedToEnhanceNote": "No s'ha pogut millorar la nota",
+  "@failedToEnhanceNote": {
+    "description": "Missatge d'error quan falla la millora."
+  },
+  "noModelSelected": "Si us plau, seleccioneu primer un model",
+  "@noModelSelected": {
+    "description": "Missatge d'error quan no hi ha cap model d'IA seleccionat."
+  },
+  "enhanceWithAI": "Millorar amb IA",
+  "@enhanceWithAI": {
+    "description": "Informació sobre eines per al botó de millora amb IA."
+  },
+  "enhanceNote": "Millorar Nota",
+  "@enhanceNote": {
+    "description": "Element de menú per millorar el contingut de la nota."
+  },
+  "startDictation": "Iniciar dictat",
+  "@startDictation": {
+    "description": "Informació sobre eines per al botó de dictat."
+  },
+  "stopRecording": "Aturar gravació",
+  "@stopRecording": {
+    "description": "Informació sobre eines per al botó d'aturar gravació."
+  },
+  "voiceInputUnavailable": "L'entrada de veu no està disponible",
+  "@voiceInputUnavailable": {
+    "description": "Error quan l'entrada de veu no està disponible."
+  },
+  "failedToStartDictation": "No s'ha pogut iniciar el dictat",
+  "@failedToStartDictation": {
+    "description": "Error quan falla l'inici del dictat."
+  },
+  "noteNotFound": "Nota no trobada",
+  "@noteNotFound": {
+    "description": "Missatge d'error quan no es pot trobar una nota."
+  },
+  "untitled": "Sense títol",
+  "@untitled": {
+    "description": "Títol per defecte per a notes sense títol."
+  },
+  "today": "Avui",
+  "@today": {
+    "description": "Etiqueta d'interval de temps per a elements d'avui."
+  },
+  "yesterday": "Ahir",
+  "@yesterday": {
+    "description": "Etiqueta d'interval de temps per a elements d'ahir."
+  },
+  "previous7Days": "Últims 7 dies",
+  "@previous7Days": {
+    "description": "Etiqueta d'interval de temps per a elements de la setmana passada."
+  },
+  "previous30Days": "Últims 30 dies",
+  "@previous30Days": {
+    "description": "Etiqueta d'interval de temps per a elements del mes passat."
+  },
+  "older": "Més antics",
+  "@older": {
+    "description": "Etiqueta d'interval de temps per a elements amb més de 30 dies."
+  },
+  "wordCount": "{count} paraules",
+  "@wordCount": {
+    "description": "Text de la barra d'estat mostrant el recompte de paraules.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "150"
+      }
+    }
+  },
+  "charCount": "{count} caràcters",
+  "@charCount": {
+    "description": "Text de la barra d'estat mostrant el recompte de caràcters.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "500"
+      }
+    }
+  },
+  "mermaidPreviewUnavailable": "La vista prèvia de Mermaid no està disponible en aquesta plataforma.",
+  "@mermaidPreviewUnavailable": {
+    "description": "Mostrat quan els diagrames Mermaid no es poden renderitzar en la plataforma actual."
+  },
+  "chartPreviewUnavailable": "La vista prèvia de gràfics no està disponible en aquesta plataforma.",
+  "@chartPreviewUnavailable": {
+    "description": "Mostrat quan els gràfics Chart.js no es poden renderitzar en la plataforma actual."
+  },
+  "promptVariablesTitle": "Omplir detalls",
+  "@promptVariablesTitle": {
+    "description": "Títol per defecte per al diàleg de variables del prompt."
+  },
+  "promptVariablesDescription": "Completeu els camps a continuació per personalitzar aquest prompt.",
+  "@promptVariablesDescription": {
+    "description": "Descripció mostrada en el diàleg de variables del prompt."
+  },
+  "promptVariableNumberMin": "El valor mínim és {min}",
+  "@promptVariableNumberMin": {
+    "description": "Missatge de validació quan un número està per sota del mínim.",
+    "placeholders": {
+      "min": {
+        "type": "double",
+        "example": "0"
+      }
+    }
+  },
+  "promptVariableNumberMax": "El valor màxim és {max}",
+  "@promptVariableNumberMax": {
+    "description": "Missatge de validació quan un número està per sobre del màxim.",
+    "placeholders": {
+      "max": {
+        "type": "double",
+        "example": "100"
+      }
+    }
+  },
+  "sso": "SSO",
+  "@sso": {
+    "description": "Etiqueta per a l'opció d'autenticació Single Sign-On."
+  },
+  "ssoDescription": "Inicieu sessió amb el proveïdor d'identitat de la vostra organització",
+  "@ssoDescription": {
+    "description": "Text de descripció explicant l'autenticació SSO."
+  },
+  "signInWithSso": "Iniciar sessió amb SSO",
+  "@signInWithSso": {
+    "description": "Text del botó per iniciar sessió amb SSO."
+  },
+  "ssoAuthenticating": "Autenticant...",
+  "@ssoAuthenticating": {
+    "description": "Missatge de càrrega durant l'autenticació SSO."
+  },
+  "ssoAuthFailed": "L'autenticació SSO ha fallat",
+  "@ssoAuthFailed": {
+    "description": "Missatge d'error quan falla l'autenticació SSO."
+  },
+  "ssoLoadingLogin": "Carregant pàgina d'inici de sessió...",
+  "@ssoLoadingLogin": {
+    "description": "Missatge de càrrega mentre es carrega la pàgina d'inici de sessió SSO."
+  },
+  "ldap": "LDAP",
+  "@ldap": {
+    "description": "Etiqueta per a l'opció d'autenticació LDAP."
+  },
+  "ldapDescription": "Inicieu sessió amb les vostres credencials de directori LDAP",
+  "@ldapDescription": {
+    "description": "Text de descripció explicant l'autenticació LDAP."
+  },
+  "signInWithLdap": "Iniciar sessió amb LDAP",
+  "@signInWithLdap": {
+    "description": "Text del botó per iniciar sessió amb LDAP."
+  },
+  "ldapUsername": "Nom d'usuari",
+  "@ldapUsername": {
+    "description": "Etiqueta per al camp de nom d'usuari LDAP."
+  },
+  "ldapUsernameHint": "Introduïu el vostre nom d'usuari LDAP",
+  "@ldapUsernameHint": {
+    "description": "Text de suggeriment per al camp de nom d'usuari LDAP."
+  },
+  "moreSignInOptions": "Més opcions d'inici de sessió",
+  "@moreSignInOptions": {
+    "description": "Capçalera de secció per a mètodes d'autenticació addicionals."
+  },
+  "ldapNotEnabled": "L'autenticació LDAP no està habilitada en aquest servidor",
+  "@ldapNotEnabled": {
+    "description": "Missatge d'error quan LDAP no està configurat al servidor."
+  },
+  "ssoPlatformNotSupported": "L'autenticació SSO no és compatible en aquesta plataforma. Si us plau, utilitzeu credencials o autenticació LDAP en el seu lloc.",
+  "@ssoPlatformNotSupported": {
+    "description": "Missatge d'error quan s'intenta SSO en una plataforma no compatible (escriptori/web)."
+  },
+  "proxyAuthentication": "Autenticació Proxy",
+  "@proxyAuthentication": {
+    "description": "Títol per a la pàgina d'autenticació proxy."
+  },
+  "proxyAuthPlatformNotSupported": "L'autenticació proxy requereix un dispositiu mòbil. Si us plau, autentiqueu-vos a través d'un navegador primer.",
+  "@proxyAuthPlatformNotSupported": {
+    "description": "Missatge d'error quan s'intenta autenticació proxy en una plataforma no compatible."
+  },
+  "proxyAuthLoading": "Carregant pàgina d'autenticació...",
+  "@proxyAuthLoading": {
+    "description": "Missatge de càrrega mentre es carrega la pàgina d'inici de sessió proxy."
+  },
+  "proxyAuthFailed": "L'autenticació proxy ha fallat",
+  "@proxyAuthFailed": {
+    "description": "Missatge d'error quan falla l'autenticació proxy."
+  },
+  "proxyAuthHelpText": "Completeu l'inici de sessió a través del proxy de la vostra organització, després inicieu sessió a Open WebUI. Sereu redirigit automàticament.",
+  "@proxyAuthHelpText": {
+    "description": "Text d'ajuda explicant com completar l'autenticació proxy."
+  },
+  "proxyAuthHelpTextSimple": "Inicieu sessió a través del vostre proxy. Un cop autenticat, toqueu Continua per procedir a iniciar sessió.",
+  "@proxyAuthHelpTextSimple": {
+    "description": "Text d'ajuda simplificat per al flux d'autenticació només proxy."
+  },
+  "continueButton": "Continua",
+  "@continueButton": {
+    "description": "Text genèric del botó de continuar."
+  },
+  "proxyAuthRequired": "Aquest servidor requereix autenticació proxy",
+  "@proxyAuthRequired": {
+    "description": "Missatge quan el servidor està darrere d'un proxy d'autenticació."
+  },
+  "proxyAuthRequiredDescription": "El vostre servidor sembla estar darrere d'un proxy d'autenticació (com oauth2-proxy). Haureu d'iniciar sessió a través del proxy primer.",
+  "@proxyAuthRequiredDescription": {
+    "description": "Explicació detallada del requisit d'autenticació proxy."
+  },
+  "authenticateThroughProxy": "Autenticar",
+  "@authenticateThroughProxy": {
+    "description": "Text del botó per iniciar l'autenticació proxy."
+  },
+  "continueWithProvider": "Continua amb {provider}",
+  "@continueWithProvider": {
+    "description": "Text del botó per iniciar sessió amb proveïdor OAuth.",
+    "placeholders": {
+      "provider": {
+        "type": "String",
+        "example": "Google"
+      }
+    }
+  },
+  "or": "o",
+  "@or": {
+    "description": "Text separador entre opcions d'autenticació."
+  }
+}
