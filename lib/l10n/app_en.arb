@@ -766,6 +766,10 @@
   "@failedToMoveChat": {
     "description": "Error notice when moving a chat fails."
   },
+  "failedToMoveFolder": "Failed to move folder",
+  "@failedToMoveFolder": {
+    "description": "Error notice when moving a folder fails."
+  },
   "failedToLoadChats": "Failed to load chats",
   "@failedToLoadChats": {
     "description": "Error notice when fetching chat list fails."
