@@ -766,6 +766,10 @@
   "@failedToMoveChat": {
     "description": "Avís d'error quan falla el moviment d'un xat."
   },
+  "failedToMoveFolder": "No s'ha pogut moure la carpeta",
+  "@failedToMoveFolder": {
+    "description": "Avís d'error quan falla el moviment d'una carpeta."
+  },
   "failedToLoadChats": "No s'han pogut carregar els xats",
   "@failedToLoadChats": {
     "description": "Avís d'error quan falla la recuperació de la llista de xats."
