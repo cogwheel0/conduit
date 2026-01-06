@@ -1782,6 +1782,8 @@ class AppCustomizationPage extends ConsumerWidget {
         return AppLocalizations.of(context)!.italiano;
       case 'es':
         return AppLocalizations.of(context)!.espanol;
+      case 'ca':
+        return AppLocalizations.of(context)!.catalan;
       case 'nl':
         return AppLocalizations.of(context)!.nederlands;
       case 'ru':
@@ -1801,6 +1803,12 @@ class AppCustomizationPage extends ConsumerWidget {
         }
         if (normalizedCode == 'ko') {
           return AppLocalizations.of(context)!.korean;
+        }
+        if (normalizedCode == 'ko') {
+          return AppLocalizations.of(context)!.korean;
+        }
+        if (normalizedCode == 'ca') {
+          return AppLocalizations.of(context)!.catalan;
         }
         return AppLocalizations.of(context)!.system;
     }
@@ -2017,6 +2025,13 @@ class AppCustomizationPage extends ConsumerWidget {
                     ? const Icon(Icons.check)
                     : null,
                 onTap: () => Navigator.pop(context, 'es'),
+              ),
+              ListTile(
+                title: Text(AppLocalizations.of(context)!.catalan),
+                trailing: normalizedCurrent == 'ca'
+                    ? const Icon(Icons.check)
+                    : null,
+                onTap: () => Navigator.pop(context, 'ca'),
               ),
               ListTile(
                 title: Text(AppLocalizations.of(context)!.francais),
