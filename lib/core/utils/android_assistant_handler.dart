@@ -11,6 +11,7 @@ import '../services/navigation_service.dart';
 import '../../shared/services/tasks/task_queue.dart';
 import '../providers/app_providers.dart';
 import '../../features/auth/providers/unified_auth_providers.dart';
+import '../services/settings_service.dart';
 import 'debug_logger.dart';
 
 final androidAssistantProvider = Provider(
@@ -78,8 +79,11 @@ class AndroidAssistantHandler {
         return;
       }
 
-      // Start a fresh chat context
-      startNewChat(_ref);
+      // Start a fresh chat context with specific model preference
+      final settings = _ref.read(appSettingsProvider);
+      final specificModelId = settings.androidAssistantModelId;
+      
+      startNewChat(_ref, specificModelId: specificModelId);
 
       // Add screenshot as attachment
       final file = File(screenshotPath);
@@ -189,11 +193,14 @@ class AndroidAssistantHandler {
       DebugLogger.log('Starting new chat from assistant', scope: 'assistant');
 
       final navState = _ref.read(authNavigationStateProvider);
-      final model = _ref.read(selectedModelProvider);
-
-      if (navState != AuthNavigationState.authenticated || model == null) {
-        DebugLogger.log('App not ready for new chat', scope: 'assistant');
-        return;
+      // final model = _ref.read(selectedModelProvider); // We verify model availability inside startNewChat or by checking if we have *any* model later, 
+      // but for "readiness" we mainly care about auth. 
+      // Actually, existing check wanted `model != null`. 
+      // If we are overriding, we might not have a selected model yet.
+      
+      if (navState != AuthNavigationState.authenticated) {
+         DebugLogger.log('App not ready for new chat (auth)', scope: 'assistant');
+         return;
       }
 
       final isOnChatRoute = NavigationService.currentRoute == Routes.chat;
@@ -201,8 +208,12 @@ class AndroidAssistantHandler {
         await NavigationService.navigateToChat();
       }
 
-      startNewChat(_ref);
-      DebugLogger.log('New chat started from assistant', scope: 'assistant');
+      // Check for specific assistant model preference
+      final settings = _ref.read(appSettingsProvider);
+      final specificModelId = settings.androidAssistantModelId;
+
+      startNewChat(_ref, specificModelId: specificModelId);
+      DebugLogger.log('New chat started from assistant (model: $specificModelId)', scope: 'assistant');
     } catch (e) {
       DebugLogger.log('Failed to start new chat: $e', scope: 'assistant');
     }

@@ -60,6 +60,7 @@ class SettingsService {
       PreferenceKeys.voiceSilenceDuration;
   static const String _androidAssistantTriggerKey =
       PreferenceKeys.androidAssistantTrigger;
+  static const String _androidAssistantModelKey = 'android_assistant_model';
   static Box<dynamic> _preferencesBox() =>
       Hive.box<dynamic>(HiveBoxNames.preferences);
 
@@ -145,6 +146,23 @@ class SettingsService {
     return box.delete(_defaultModelKey);
   }
 
+  /// Get Android Assistant Model preference
+  static Future<String?> getAndroidAssistantModelId() {
+    final value = _preferencesBox().get(_androidAssistantModelKey) as String?;
+    return Future.value(value);
+  }
+
+
+
+  /// Set Android Assistant Model preference
+  static Future<void> setAndroidAssistantModelId(String? modelId) {
+    final box = _preferencesBox();
+    if (modelId != null) {
+      return box.put(_androidAssistantModelKey, modelId);
+    }
+    return box.delete(_androidAssistantModelKey);
+  }
+
   /// Load all settings
   static Future<AppSettings> loadSettings() {
     final box = _preferencesBox();
@@ -182,6 +200,12 @@ class SettingsService {
       await box.put(_defaultModelKey, settings.defaultModel);
     } else {
       await box.delete(_defaultModelKey);
+    }
+
+    if (settings.androidAssistantModelId != null) {
+      await box.put(_androidAssistantModelKey, settings.androidAssistantModelId);
+    } else {
+      await box.delete(_androidAssistantModelKey);
     }
 
     if (settings.voiceLocaleId != null && settings.voiceLocaleId!.isNotEmpty) {
@@ -436,6 +460,7 @@ class SettingsService {
       androidAssistantTrigger: _parseAndroidAssistantTrigger(
         box.get(_androidAssistantTriggerKey) as String?,
       ),
+      androidAssistantModelId: box.get(_androidAssistantModelKey) as String?,
       voiceSilenceDuration: (box.get(_voiceSilenceDurationKey) as int? ?? 2000)
           .clamp(300, 3000),
     );
@@ -471,6 +496,7 @@ class AppSettings {
   final String? ttsServerVoiceId;
   final String? ttsServerVoiceName;
   final AndroidAssistantTrigger androidAssistantTrigger;
+  final String? androidAssistantModelId;
   final int voiceSilenceDuration;
   const AppSettings({
     this.reduceMotion = false,
@@ -495,6 +521,7 @@ class AppSettings {
     this.ttsServerVoiceId,
     this.ttsServerVoiceName,
     this.androidAssistantTrigger = AndroidAssistantTrigger.overlay,
+    this.androidAssistantModelId,
     this.voiceSilenceDuration = 2000,
   });
 
@@ -522,6 +549,7 @@ class AppSettings {
     Object? ttsServerVoiceName = const _DefaultValue(),
     int? voiceSilenceDuration,
     AndroidAssistantTrigger? androidAssistantTrigger,
+    Object? androidAssistantModelId = const _DefaultValue(),
   }) {
     return AppSettings(
       reduceMotion: reduceMotion ?? this.reduceMotion,
@@ -555,6 +583,9 @@ class AppSettings {
           : ttsServerVoiceName as String?,
       androidAssistantTrigger:
           androidAssistantTrigger ?? this.androidAssistantTrigger,
+      androidAssistantModelId: androidAssistantModelId is _DefaultValue
+          ? this.androidAssistantModelId
+          : androidAssistantModelId as String?,
       voiceSilenceDuration: voiceSilenceDuration ?? this.voiceSilenceDuration,
     );
   }
@@ -581,8 +612,10 @@ class AppSettings {
         other.ttsVolume == ttsVolume &&
         other.ttsEngine == ttsEngine &&
         other.ttsServerVoiceId == ttsServerVoiceId &&
-        other.ttsServerVoiceName == ttsServerVoiceName &&
+
+
         other.androidAssistantTrigger == androidAssistantTrigger &&
+        other.androidAssistantModelId == androidAssistantModelId &&
         other.voiceSilenceDuration == voiceSilenceDuration &&
         _listEquals(other.quickPills, quickPills);
     // socketTransportMode intentionally not included in == to avoid frequent rebuilds
@@ -611,7 +644,9 @@ class AppSettings {
       ttsEngine,
       ttsServerVoiceId,
       ttsServerVoiceName,
+
       androidAssistantTrigger,
+      androidAssistantModelId,
       voiceSilenceDuration,
       Object.hashAllUnordered(quickPills),
     ]);
@@ -794,6 +829,11 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
     }
     state = state.copyWith(androidAssistantTrigger: trigger);
     await SettingsService.setAndroidAssistantTrigger(trigger);
+  }
+
+  Future<void> setAndroidAssistantModelId(String? modelId) async {
+    state = state.copyWith(androidAssistantModelId: modelId);
+    await SettingsService.setAndroidAssistantModelId(modelId);
   }
 
   Future<void> resetToDefaults() async {

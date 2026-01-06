@@ -12,6 +12,7 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/theme/tweakcn_themes.dart';
 import '../../tools/providers/tools_providers.dart';
 import '../../../core/models/tool.dart';
+import '../../../core/models/model.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../core/providers/app_providers.dart';
@@ -488,6 +489,18 @@ class AppCustomizationPage extends ConsumerWidget {
             subtitle: assistantTriggerLabel,
             onTap: () =>
                 _showAndroidAssistantTriggerSheet(context, ref, settings),
+          ),
+          const SizedBox(height: Spacing.sm),
+          _CustomizationTile(
+            leading: _buildIconBadge(
+              context,
+              Icons.smart_toy_outlined,
+              color: theme.buttonPrimary,
+            ),
+            title: 'Assistant Model',
+            subtitle: _getAssistantModelName(ref, settings.androidAssistantModelId),
+            onTap: () =>
+                _showAndroidAssistantModelSheet(context, ref, settings),
           ),
         ],
       ],
@@ -2747,3 +2760,145 @@ class _MetricTile extends StatelessWidget {
     );
   }
 }
+
+  String _getAssistantModelName(WidgetRef ref, String? modelId) {
+    if (modelId == null) return 'Default (same as chat)';
+    final modelsAsync = ref.read(modelsProvider);
+    if (modelsAsync.hasValue) {
+      final model = modelsAsync.value!.where((m) => m.id == modelId).firstOrNull;
+      if (model != null) return model.name;
+    }
+    return 'Default (same as chat)';
+  }
+
+  Future<void> _showAndroidAssistantModelSheet(
+    BuildContext context,
+    WidgetRef ref,
+    AppSettings settings,
+  ) async {
+    final theme = context.conduitTheme;
+    // final l10n = AppLocalizations.of(context)!; // unused for now
+    
+    // Fetch models
+    final modelsAsync = ref.read(modelsProvider);
+    List<Model> models = [];
+    if (modelsAsync.hasValue) {
+      models = modelsAsync.value!;
+    } else {
+      models = await ref.read(modelsProvider.future);
+    }
+    
+    if (!context.mounted) return;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: theme.sidebarBackground,
+        shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(AppBorderRadius.modal),
+        ),
+      ),
+      builder: (sheetContext) {
+        return SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: Spacing.lg,
+                  vertical: Spacing.md,
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Assistant Model',
+                            style: theme.headingSmall?.copyWith(
+                                  color: theme.sidebarForeground,
+                                ) ??
+                                TextStyle(
+                                  color: theme.sidebarForeground,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                          ),
+                          const SizedBox(height: Spacing.xs),
+                          Text(
+                            'Select which model the Android Assistant should use.',
+                            style: theme.bodySmall?.copyWith(
+                                  color: theme.sidebarForeground.withValues(
+                                    alpha: 0.7,
+                                  ),
+                                ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: Spacing.md),
+                    IconButton(
+                      icon: Icon(
+                        Icons.close,
+                        color: theme.sidebarForeground,
+                      ),
+                      onPressed: () => Navigator.pop(sheetContext),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Flexible(
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Default Option
+                      ListTile(
+                        leading: Radio<String?>(
+                          value: null,
+                          groupValue: settings.androidAssistantModelId,
+                          onChanged: (value) {
+                             ref.read(appSettingsProvider.notifier).setAndroidAssistantModelId(null);
+                             Navigator.pop(sheetContext);
+                          },
+                        ),
+                        title: const Text('Default (same as chat)'),
+                        onTap: () {
+                           ref.read(appSettingsProvider.notifier).setAndroidAssistantModelId(null);
+                           Navigator.pop(sheetContext);
+                        },
+                      ),
+                      // Model Options
+                      ...models.map((Model model) {
+                         return ListTile(
+                          leading: Radio<String?>(
+                            value: model.id,
+                            groupValue: settings.androidAssistantModelId,
+                            onChanged: (value) {
+                               if (value != null) {
+                                 ref.read(appSettingsProvider.notifier).setAndroidAssistantModelId(value);
+                                 Navigator.pop(sheetContext);
+                               }
+                            },
+                          ),
+                          title: Text(model.name),
+                          onTap: () {
+                             ref.read(appSettingsProvider.notifier).setAndroidAssistantModelId(model.id);
+                             Navigator.pop(sheetContext);
+                          },
+                        );
+                      }),
+                      SizedBox(height: MediaQuery.paddingOf(sheetContext).bottom + Spacing.md),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
