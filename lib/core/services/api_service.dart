@@ -1897,14 +1897,59 @@ class ApiService {
     _traceApi('Fetching knowledge bases');
     final response = await _dio.get('/api/v1/knowledge/');
     final data = response.data;
+    List<dynamic> rawList = const [];
     if (data is List) {
-      final normalized = await _normalizeList(
-        data,
-        debugLabel: 'parse_knowledge_bases',
-      );
-      return normalized.map(KnowledgeBase.fromJson).toList(growable: false);
+      rawList = data;
+    } else if (data is Map && data['items'] is List) {
+      rawList = data['items'] as List;
     }
-    return const [];
+
+    if (rawList.isEmpty) return const [];
+
+    final normalized = await _normalizeList(
+      rawList,
+      debugLabel: 'parse_knowledge_bases',
+    );
+    return normalized.map(KnowledgeBase.fromJson).toList(growable: false);
+  }
+
+  /// Fetch all knowledge base files with pagination (OpenWebUI returns 30/page).
+  Future<List<Map<String, dynamic>>> getKnowledgeBaseFiles(
+    String knowledgeBaseId,
+  ) async {
+    _traceApi('Fetching knowledge base files: $knowledgeBaseId');
+    final items = <Map<String, dynamic>>[];
+    var page = 1;
+    int? total;
+
+    while (true) {
+      final response = await _dio.get(
+        '/api/v1/knowledge/$knowledgeBaseId/files',
+        queryParameters: {'page': page},
+      );
+      final data = response.data;
+      if (data is Map && data['items'] is List) {
+        final batch = (data['items'] as List)
+            .whereType<Map>()
+            .map((item) => Map<String, dynamic>.from(item))
+            .toList(growable: false);
+        items.addAll(batch);
+        final totalValue = data['total'];
+        if (totalValue is int) total ??= totalValue;
+        if (batch.isEmpty) break;
+        if (total != null && items.length >= total) break;
+        page += 1;
+        continue;
+      }
+      if (data is List) {
+        for (final item in data.whereType<Map>()) {
+          items.add(Map<String, dynamic>.from(item));
+        }
+      }
+      break;
+    }
+
+    return items;
   }
 
   Future<Map<String, dynamic>> createKnowledgeBase({
