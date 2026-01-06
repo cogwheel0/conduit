@@ -10,6 +10,7 @@ import 'package:yaml/yaml.dart' as yaml;
 import '../../../core/auth/auth_state_manager.dart';
 import '../../../core/models/chat_message.dart';
 import '../../../core/models/conversation.dart';
+import '../../../core/models/model.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/conversation_delta_listener.dart';
 import '../../../core/services/settings_service.dart';
@@ -887,7 +888,7 @@ String? _extractSystemPromptFromSettings(Map<String, dynamic>? settings) {
 }
 
 // Start a new chat (unified function for both "New Chat" button and home screen)
-void startNewChat(dynamic ref) {
+void startNewChat(dynamic ref, {String? specificModelId}) {
   // Clear active conversation
   ref.read(activeConversationProvider.notifier).clear();
 
@@ -901,14 +902,32 @@ void startNewChat(dynamic ref) {
   ref.read(pendingFolderIdProvider.notifier).clear();
 
   // Reset to default model for new conversations (fixes #296)
-  restoreDefaultModel(ref);
+  restoreDefaultModel(ref, specificModelId: specificModelId);
 }
 
-/// Restores the selected model to the user's configured default model.
+/// Restores the selected model to the user's configured default model or a specific one.
 /// Call this when starting a new conversation or when settings change.
-Future<void> restoreDefaultModel(dynamic ref) async {
+Future<void> restoreDefaultModel(dynamic ref, {String? specificModelId}) async {
   // Mark that this is not a manual selection
   ref.read(isManualModelSelectionProvider.notifier).set(false);
+
+  if (specificModelId != null) {
+    // Attempt to set specific model
+    final modelsAsync = ref.read(modelsProvider);
+    List<Model> models = [];
+    if (modelsAsync.hasValue) {
+      models = modelsAsync.value!;
+    } else {
+      models = await ref.read(modelsProvider.future);
+    }
+    
+    final specificModel = models.where((m) => m.id == specificModelId).firstOrNull;
+    if (specificModel != null) {
+      ref.read(selectedModelProvider.notifier).set(specificModel);
+      return;
+    }
+    // Fallback if specific model not found: continue to standard default logic
+  }
 
   // If auto-select (no explicit default), clear the cached default model
   // so defaultModelProvider will fetch from server
