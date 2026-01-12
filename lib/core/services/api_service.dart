@@ -33,6 +33,28 @@ void _traceApi(String message) {
   DebugLogger.log(message, scope: 'api/trace');
 }
 
+/// Get MIME type from file extension.
+String? _getMimeType(String fileName) {
+  final ext = fileName.toLowerCase().split('.').last;
+  return switch (ext) {
+    'm4a' => 'audio/mp4',
+    'mp3' => 'audio/mpeg',
+    'wav' => 'audio/wav',
+    'aac' => 'audio/aac',
+    'ogg' => 'audio/ogg',
+    'webm' => 'audio/webm',
+    'mp4' => 'video/mp4',
+    'jpg' || 'jpeg' => 'image/jpeg',
+    'png' => 'image/png',
+    'gif' => 'image/gif',
+    'webp' => 'image/webp',
+    'pdf' => 'application/pdf',
+    'txt' => 'text/plain',
+    'json' => 'application/json',
+    _ => null,
+  };
+}
+
 /// Result of a health check with proxy detection.
 ///
 /// This enum distinguishes between different failure modes:
@@ -1831,6 +1853,12 @@ class ApiService {
     return response.data as String;
   }
 
+  /// Get the URL for a file's content (for direct access/playback).
+  /// This URL can be used directly by audio/video players.
+  String getFileContentUrl(String fileId) {
+    return '$baseUrl/api/v1/files/$fileId/content';
+  }
+
   Future<void> deleteFile(String fileId) async {
     _traceApi('Deleting file: $fileId');
     await _dio.delete('/api/v1/files/$fileId');
@@ -3434,7 +3462,7 @@ class ApiService {
   }
 
   // File upload for RAG
-  Future<String> uploadFile(String filePath, String fileName) async {
+  Future<String> uploadFile(String filePath, String fileName, {String? contentType}) async {
     _traceApi('Starting file upload: $fileName from $filePath');
 
     try {
@@ -3444,8 +3472,15 @@ class ApiService {
         throw Exception('File does not exist: $filePath');
       }
 
+      // Determine content type from file extension if not provided
+      final mimeType = contentType ?? _getMimeType(fileName);
+
       final formData = FormData.fromMap({
-        'file': await MultipartFile.fromFile(filePath, filename: fileName),
+        'file': await MultipartFile.fromFile(
+          filePath,
+          filename: fileName,
+          contentType: mimeType != null ? DioMediaType.parse(mimeType) : null,
+        ),
       });
 
       _traceApi('Uploading to /api/v1/files/');
@@ -4020,12 +4055,14 @@ class ApiService {
         return (const <Map<String, dynamic>>[], true);
       }
     } on DioException catch (e) {
-      // 403 indicates notes feature is disabled server-side
-      if (e.response?.statusCode == 403) {
+      // 401/403 indicates notes feature is disabled server-side or user lacks permission
+      // OpenWebUI returns 401 when user doesn't have "features.notes" permission
+      final statusCode = e.response?.statusCode;
+      if (statusCode == 401 || statusCode == 403) {
         DebugLogger.log(
           'feature-disabled',
           scope: 'api/notes',
-          data: {'status': 403},
+          data: {'status': statusCode},
         );
         return (const <Map<String, dynamic>>[], false);
       }

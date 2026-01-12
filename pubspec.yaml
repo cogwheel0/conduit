@@ -48,7 +48,6 @@ dependencies:
   speech_to_text: ^7.3.0
   record: ^6.1.2
   flutter_tts: ^4.2.3
-  audioplayers: ^6.5.1
   image_picker: ^1.2.0
   file_picker: ^10.3.7
   flutter_image_compress: ^2.1.0
@@ -83,6 +82,7 @@ dependencies:
   pasteboard: ^0.4.0
   super_context_menu: ^0.9.1
   super_drag_and_drop: ^0.9.1
+  just_audio: ^0.10.5
   
   # Clipboard functionality is available through flutter/services (part of Flutter SDK)
 

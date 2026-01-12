@@ -5,6 +5,22 @@ import 'package:freezed_annotation/freezed_annotation.dart';
 part 'note.freezed.dart';
 part 'note.g.dart';
 
+/// Helper to extract user_id from JSON, falling back to user.id if not present.
+/// OpenWebUI's NoteItemResponse (list endpoint) doesn't include user_id directly
+/// but does include the user object with an id field.
+Object? _readUserId(Map<dynamic, dynamic> json, String key) {
+  // First try the direct user_id field
+  if (json['user_id'] != null) {
+    return json['user_id'];
+  }
+  // Fall back to extracting from user object
+  final user = json['user'];
+  if (user is Map && user['id'] != null) {
+    return user['id'];
+  }
+  return null;
+}
+
 /// Content structure for a note, supporting multiple formats.
 @freezed
 sealed class NoteContent with _$NoteContent {
@@ -80,7 +96,11 @@ sealed class Note with _$Note {
 
   const factory Note({
     required String id,
-    @JsonKey(name: 'user_id') required String userId,
+
+    /// User ID - may be null in list responses (NoteItemResponse)
+    /// Can be extracted from user.id if present
+    @JsonKey(name: 'user_id', readValue: _readUserId) String? userId,
+
     required String title,
 
     /// Note content and associated data
