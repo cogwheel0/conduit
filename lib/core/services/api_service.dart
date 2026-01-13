@@ -15,6 +15,7 @@ import '../models/conversation.dart';
 import '../models/chat_message.dart';
 import '../models/file_info.dart';
 import '../models/knowledge_base.dart';
+import '../models/knowledge_base_file.dart';
 import '../models/prompt.dart';
 import '../auth/api_auth_interceptor.dart';
 import '../error/api_error_interceptor.dart';
@@ -1897,14 +1898,24 @@ class ApiService {
     _traceApi('Fetching knowledge bases');
     final response = await _dio.get('/api/v1/knowledge/');
     final data = response.data;
-    if (data is List) {
-      final normalized = await _normalizeList(
-        data,
-        debugLabel: 'parse_knowledge_bases',
-      );
-      return normalized.map(KnowledgeBase.fromJson).toList(growable: false);
+
+    // Handle new paginated response: { "items": [...], "total": N }
+    // Also maintain backward compatibility with old array response
+    List<dynamic> items;
+    if (data is Map<String, dynamic> && data.containsKey('items')) {
+      items = data['items'] as List<dynamic>? ?? [];
+    } else if (data is List) {
+      // Backward compatibility with old API
+      items = data;
+    } else {
+      return const [];
     }
-    return const [];
+
+    final normalized = await _normalizeList(
+      items,
+      debugLabel: 'parse_knowledge_bases',
+    );
+    return normalized.map(KnowledgeBase.fromJson).toList(growable: false);
   }
 
   Future<Map<String, dynamic>> createKnowledgeBase({
@@ -1987,6 +1998,113 @@ class ApiService {
       return data.cast<Map<String, dynamic>>();
     }
     return [];
+  }
+
+  /// Fetches files for a knowledge base with pagination support.
+  ///
+  /// Returns a record with the list of files and the total count.
+  /// The new API returns paginated results (default 30 items per page).
+  Future<({List<KnowledgeBaseFile> files, int total})> getKnowledgeBaseFiles(
+    String knowledgeBaseId, {
+    int page = 1,
+  }) async {
+    _traceApi('Fetching knowledge base files: $knowledgeBaseId (page: $page)');
+    final response = await _dio.get(
+      '/api/v1/knowledge/$knowledgeBaseId/files',
+      queryParameters: {'page': page},
+    );
+    final data = response.data;
+
+    if (data is Map<String, dynamic>) {
+      final items = data['items'] as List<dynamic>? ?? [];
+      final total = data['total'] as int? ?? items.length;
+      final files = items
+          .whereType<Map<String, dynamic>>()
+          .map(KnowledgeBaseFile.fromJson)
+          .toList(growable: false);
+      return (files: files, total: total);
+    }
+
+    // Backward compatibility: if response is a plain list
+    if (data is List) {
+      final files = data
+          .whereType<Map<String, dynamic>>()
+          .map(KnowledgeBaseFile.fromJson)
+          .toList(growable: false);
+      return (files: files, total: files.length);
+    }
+
+    return (files: const <KnowledgeBaseFile>[], total: 0);
+  }
+
+  /// Fetches ALL files for a knowledge base, handling pagination internally.
+  ///
+  /// Use this when you need the complete list of files (e.g., for deduplication).
+  Future<List<KnowledgeBaseFile>> getAllKnowledgeBaseFiles(
+    String knowledgeBaseId,
+  ) async {
+    _traceApi('Fetching all knowledge base files: $knowledgeBaseId');
+    final allFiles = <KnowledgeBaseFile>[];
+    int page = 1;
+    int total = 0;
+    const maxPages = 100; // Safety limit to prevent infinite loops
+
+    do {
+      final result = await getKnowledgeBaseFiles(knowledgeBaseId, page: page);
+      // Guard against empty pages causing infinite loops
+      if (result.files.isEmpty) {
+        _traceApi('Empty page received, stopping pagination');
+        break;
+      }
+      allFiles.addAll(result.files);
+      total = result.total;
+      page++;
+    } while (allFiles.length < total && page <= maxPages);
+
+    if (page > maxPages) {
+      _traceApi('Warning: Hit max page limit ($maxPages) for $knowledgeBaseId');
+    }
+    _traceApi('Fetched ${allFiles.length} total files from $knowledgeBaseId');
+    return allFiles;
+  }
+
+  /// Adds a file to a knowledge base.
+  ///
+  /// Returns the file metadata on success, or null if the file already exists
+  /// (duplicate content detected by the server based on content hash).
+  Future<Map<String, dynamic>?> addFileToKnowledgeBase(
+    String knowledgeBaseId, {
+    required String filename,
+    required List<int> content,
+  }) async {
+    _traceApi('Adding file to knowledge base: $knowledgeBaseId ($filename)');
+    try {
+      final mimeType = _getMimeType(filename);
+      final response = await _dio.post(
+        '/api/v1/knowledge/$knowledgeBaseId/file/add',
+        data: FormData.fromMap({
+          'file': MultipartFile.fromBytes(
+            content,
+            filename: filename,
+            contentType: mimeType != null ? MediaType.parse(mimeType) : null,
+          ),
+        }),
+      );
+      return response.data as Map<String, dynamic>;
+    } on DioException catch (e) {
+      // Handle duplicate content as a no-op (file already exists)
+      if (e.response?.statusCode == 400) {
+        final responseData = e.response?.data;
+        final detail = responseData is Map<String, dynamic>
+            ? responseData['detail'] as String? ?? ''
+            : '';
+        if (detail.contains('Duplicate content')) {
+          _traceApi('Skipping duplicate file: $filename');
+          return null; // Indicates file already exists
+        }
+      }
+      rethrow;
+    }
   }
 
   Future<Map<String, dynamic>?> processWebpage({
