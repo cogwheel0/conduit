@@ -3,8 +3,8 @@ import 'dart:collection';
 import 'dart:developer' as developer;
 import 'dart:io';
 
-import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter_callkit_incoming/entities/call_event.dart';
+import 'package:just_audio/just_audio.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
@@ -12,6 +12,7 @@ import '../../../core/providers/app_providers.dart';
 import '../../../core/services/background_streaming_handler.dart';
 import '../../../core/services/callkit_service.dart';
 import '../../../core/services/socket_service.dart';
+import '../../../shared/utils/bytes_audio_source.dart';
 import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
 import '../providers/chat_providers.dart';
 import 'text_to_speech_service.dart';
@@ -64,6 +65,7 @@ class VoiceCallService {
   bool _listeningSuspendedForSpeech = false;
   final Map<int, SpeechAudioChunk> _serverAudioBuffer = {};
   final AudioPlayer _serverAudioPlayer = AudioPlayer();
+  StreamSubscription<PlayerState>? _serverAudioStateSub;
   int _serverAudioSession = 0;
   int _pendingServerAudioFetches = 0;
   bool _serverPipelineActive = false;
@@ -102,8 +104,10 @@ class VoiceCallService {
       // sentence/word callbacks are not required for call UI, but harmless
     );
 
-    _serverAudioPlayer.onPlayerComplete.listen((_) {
-      _handleServerAudioComplete();
+    _serverAudioStateSub = _serverAudioPlayer.playerStateStream.listen((state) {
+      if (state.processingState == ProcessingState.completed) {
+        _handleServerAudioComplete();
+      }
     });
 
     unawaited(_tts.preloadServerDefaults());
@@ -721,9 +725,10 @@ class VoiceCallService {
       await _prepareForSpeechPlayback();
       _isSpeaking = true;
       _updateState(VoiceCallState.speaking);
-      await _serverAudioPlayer.play(
-        BytesSource(chunk.bytes, mimeType: chunk.mimeType),
+      await _serverAudioPlayer.setAudioSource(
+        BytesAudioSource(chunk.bytes, chunk.mimeType),
       );
+      await _serverAudioPlayer.play();
     } catch (e) {
       _isSpeaking = false;
       _handleTtsError(e.toString());
@@ -1003,6 +1008,7 @@ class VoiceCallService {
 
     _voiceInput.dispose();
     await _tts.dispose();
+    await _serverAudioStateSub?.cancel();
     await _serverAudioPlayer.dispose();
 
     // Cancel notification

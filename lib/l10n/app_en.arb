@@ -1763,6 +1763,62 @@
   "@failedToStartDictation": {
     "description": "Error when starting dictation fails."
   },
+  "voiceOptions": "Voice options",
+  "@voiceOptions": {
+    "description": "Tooltip for voice/recording options button."
+  },
+  "dictation": "Dictation",
+  "@dictation": {
+    "description": "Option for real-time speech to text."
+  },
+  "dictationDescription": "Speak and convert to text in real-time",
+  "@dictationDescription": {
+    "description": "Description for dictation option."
+  },
+  "recordAudio": "Record Audio",
+  "@recordAudio": {
+    "description": "Option for recording audio files."
+  },
+  "recordAudioDescription": "Save audio for later transcription",
+  "@recordAudioDescription": {
+    "description": "Description for audio recording option."
+  },
+  "recordingAudio": "Recording...",
+  "@recordingAudio": {
+    "description": "Status text while recording audio."
+  },
+  "preparingRecording": "Preparing...",
+  "@preparingRecording": {
+    "description": "Status text while preparing to record."
+  },
+  "recordingHint": "Tap stop when finished",
+  "@recordingHint": {
+    "description": "Hint shown during audio recording."
+  },
+  "stopAndSaveRecording": "Stop & Save",
+  "@stopAndSaveRecording": {
+    "description": "Button to stop and save an audio recording."
+  },
+  "processingRecording": "Processing...",
+  "@processingRecording": {
+    "description": "Status while processing a recording."
+  },
+  "audioRecordingSaved": "Audio recording saved",
+  "@audioRecordingSaved": {
+    "description": "Success message after saving audio recording."
+  },
+  "failedToUploadAudio": "Failed to upload audio",
+  "@failedToUploadAudio": {
+    "description": "Error when audio upload fails."
+  },
+  "microphonePermissionDenied": "Microphone permission denied",
+  "@microphonePermissionDenied": {
+    "description": "Error when microphone access is denied."
+  },
+  "recordingFailed": "Recording failed",
+  "@recordingFailed": {
+    "description": "Error when audio recording fails."
+  },
   "noteNotFound": "Note not found",
   "@noteNotFound": {
     "description": "Error message when a note cannot be found."
@@ -1956,5 +2012,41 @@
   "or": "or",
   "@or": {
     "description": "Separator text between authentication options."
+  },
+  "audioAttachment": "Audio Attachment",
+  "@audioAttachment": {
+    "description": "Label for audio file attachments in notes."
+  },
+  "loadingAudio": "Loading audio...",
+  "@loadingAudio": {
+    "description": "Loading message while audio file loads."
+  },
+  "failedToLoadAudio": "Failed to load audio",
+  "@failedToLoadAudio": {
+    "description": "Error message when audio file fails to load."
+  },
+  "removeFileConfirm": "Remove this file from the note?",
+  "@removeFileConfirm": {
+    "description": "Confirmation message when removing a file attachment."
+  },
+  "fileRemoved": "File removed",
+  "@fileRemoved": {
+    "description": "Success message after removing a file attachment."
+  },
+  "playAudio": "Play audio",
+  "@playAudio": {
+    "description": "Tooltip for audio play button."
+  },
+  "removeFile": "Remove file",
+  "@removeFile": {
+    "description": "Tooltip for remove file button."
+  },
+  "audioFileType": "Audio",
+  "@audioFileType": {
+    "description": "Label for audio file type."
+  },
+  "imageFileType": "Image",
+  "@imageFileType": {
+    "description": "Label for image file type."
   }
 }

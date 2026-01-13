@@ -1,11 +1,12 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 
-import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_tts/flutter_tts.dart';
+import 'package:just_audio/just_audio.dart';
 
 import '../../../core/services/api_service.dart';
+import '../../../shared/utils/bytes_audio_source.dart';
 
 // =============================================================================
 // TTS Events
@@ -142,9 +143,15 @@ class TtsManager {
   bool _handlersSet = false;
   Completer<void>? _initCompleter;
 
-  // AudioPlayer for server TTS
+  // AudioPlayer for server TTS (using just_audio)
   final AudioPlayer _player = AudioPlayer();
   bool _playerConfigured = false;
+  StreamSubscription<PlayerState>? _playerStateSub;
+  
+  /// Flag to suppress spurious TtsPaused events during chunk transitions.
+  /// When true, the player is actively switching audio sources and pause
+  /// events should not be emitted to listeners.
+  bool _isTransitioningChunks = false;
 
   // API service for server TTS (must be set before using server TTS)
   ApiService? _apiService;
@@ -222,22 +229,27 @@ class TtsManager {
     // Initialize FlutterTts
     await _ensureTtsInitialized();
 
-    // Configure AudioPlayer for all platforms
+    // Configure AudioPlayer for all platforms (using just_audio)
     if (!_playerConfigured) {
-      _player.onPlayerComplete.listen((_) => _onServerAudioComplete());
-      _player.onPlayerStateChanged.listen((state) {
-        if (state == PlayerState.playing) {
+      _playerStateSub = _player.playerStateStream.listen((state) {
+        if (state.processingState == ProcessingState.completed) {
+          _onServerAudioComplete();
+        }
+        if (state.playing) {
+          // Clear transition flag when playback actually starts.
+          // This ensures pause events aren't emitted during the brief window
+          // between play() returning and the player entering playing state.
+          _isTransitioningChunks = false;
           _emitEvent(const TtsStarted());
-        } else if (state == PlayerState.paused) {
+        } else if (!state.playing &&
+                   state.processingState == ProcessingState.ready &&
+                   !_isTransitioningChunks) {
+          // Only emit pause when actually paused, ready, and NOT transitioning
+          // between chunks. During chunk transitions, the player briefly enters
+          // a ready-but-not-playing state which should not emit pause events.
           _emitEvent(const TtsPaused());
         }
       });
-      // Android-specific audio context configuration
-      if (!kIsWeb && Platform.isAndroid) {
-        await _player.setAudioContext(
-          AudioContext(android: const AudioContextAndroid()),
-        );
-      }
       _playerConfigured = true;
     }
 
@@ -334,7 +346,7 @@ class TtsManager {
 
     try {
       if (session.useServerTts) {
-        await _player.resume();
+        await _player.play();
         _emitEvent(const TtsResumed());
       } else {
         // Device TTS resume is handled by the native handler
@@ -367,6 +379,7 @@ class TtsManager {
   /// Disposes the manager and releases resources.
   Future<void> dispose() async {
     await stop();
+    await _playerStateSub?.cancel();
     await _player.dispose();
     await _eventController.close();
   }
@@ -690,9 +703,17 @@ class TtsManager {
     _serverCurrentIndex = 0;
 
     await _player.stop();
-    await _player.play(
-      BytesSource(firstChunk.bytes, mimeType: firstChunk.mimeType),
-    );
+    _isTransitioningChunks = true;
+    // Flag will be cleared by state listener when playing=true is received.
+    // This prevents race condition where flag is cleared before state fires.
+    try {
+      await _player.setAudioSource(BytesAudioSource(firstChunk.bytes, firstChunk.mimeType));
+      await _player.play();
+    } catch (e) {
+      // Reset flag on error to avoid suppressing future pause events
+      _isTransitioningChunks = false;
+      rethrow;
+    }
     _emitEvent(const TtsChunkStarted(0));
 
     // Prefetch remaining chunks in background
@@ -766,7 +787,16 @@ class TtsManager {
     _serverCurrentIndex = nextIndex;
     final chunk = _serverAudioBuffer[nextIndex];
 
-    await _player.play(BytesSource(chunk.bytes, mimeType: chunk.mimeType));
+    _isTransitioningChunks = true;
+    // Flag will be cleared by state listener when playing=true is received.
+    try {
+      await _player.setAudioSource(BytesAudioSource(chunk.bytes, chunk.mimeType));
+      await _player.play();
+    } catch (e) {
+      // Reset flag on error to avoid suppressing future pause events
+      _isTransitioningChunks = false;
+      rethrow;
+    }
     _emitEvent(TtsChunkStarted(nextIndex));
   }
 

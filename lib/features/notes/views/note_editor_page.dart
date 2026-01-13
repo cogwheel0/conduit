@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:io' show Platform;
+import 'dart:io' show File, Platform;
 import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/cupertino.dart';
@@ -21,6 +21,9 @@ import '../../../shared/widgets/middle_ellipsis_text.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../chat/services/voice_input_service.dart';
 import '../providers/notes_providers.dart';
+import '../widgets/audio_player_dialog.dart';
+import '../widgets/audio_recording_overlay.dart';
+import '../widgets/note_file_attachment.dart';
 
 /// Page for editing a note with OpenWebUI-style layout.
 class NoteEditorPage extends ConsumerStatefulWidget {
@@ -46,6 +49,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   bool _isGeneratingTitle = false;
   bool _isEnhancing = false;
   bool _isRecording = false;
+  bool _isUploadingAudio = false;
   Note? _note;
 
   // Voice input
@@ -447,6 +451,246 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     if (mounted) {
       setState(() => _isRecording = false);
       HapticFeedback.selectionClick();
+    }
+  }
+
+  /// Shows a bottom sheet to choose between dictation and audio recording.
+  void _showRecordingOptions() {
+    final conduitTheme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
+
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: conduitTheme.surfaceContainer,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(AppBorderRadius.modal),
+        ),
+      ),
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: Spacing.md),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Handle bar
+              Container(
+                width: 36,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: Spacing.md),
+                decoration: BoxDecoration(
+                  color: conduitTheme.textSecondary.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(AppBorderRadius.round),
+                ),
+              ),
+              // Dictation option
+              ListTile(
+                leading: Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: conduitTheme.buttonPrimary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(AppBorderRadius.md),
+                  ),
+                  child: Icon(
+                    Platform.isIOS
+                        ? CupertinoIcons.keyboard
+                        : Icons.keyboard_voice_rounded,
+                    color: conduitTheme.buttonPrimary,
+                    size: IconSize.md,
+                  ),
+                ),
+                title: Text(
+                  l10n.dictation,
+                  style: TextStyle(
+                    color: conduitTheme.textPrimary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                subtitle: Text(
+                  l10n.dictationDescription,
+                  style: TextStyle(
+                    color: conduitTheme.textSecondary,
+                    fontSize: AppTypography.bodySmall,
+                  ),
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  _toggleDictation();
+                },
+              ),
+              const SizedBox(height: Spacing.xs),
+              // Audio recording option
+              ListTile(
+                leading: Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: Colors.red.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(AppBorderRadius.md),
+                  ),
+                  child: Icon(
+                    Platform.isIOS
+                        ? CupertinoIcons.mic_fill
+                        : Icons.mic_rounded,
+                    color: Colors.red,
+                    size: IconSize.md,
+                  ),
+                ),
+                title: Text(
+                  l10n.recordAudio,
+                  style: TextStyle(
+                    color: conduitTheme.textPrimary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                subtitle: Text(
+                  l10n.recordAudioDescription,
+                  style: TextStyle(
+                    color: conduitTheme.textSecondary,
+                    fontSize: AppTypography.bodySmall,
+                  ),
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showAudioRecordingOverlay();
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Shows the full-screen audio recording overlay.
+  void _showAudioRecordingOverlay() {
+    Navigator.of(context).push(
+      PageRouteBuilder<void>(
+        opaque: false,
+        barrierDismissible: false,
+        pageBuilder: (context, animation, secondaryAnimation) {
+          return FadeTransition(
+            opacity: animation,
+            child: AudioRecordingOverlay(
+              onCancel: () => Navigator.pop(context),
+              onConfirm: (file) async {
+                Navigator.pop(context);
+                await _uploadAudioFile(file);
+              },
+            ),
+          );
+        },
+        transitionDuration: const Duration(milliseconds: 200),
+        reverseTransitionDuration: const Duration(milliseconds: 150),
+      ),
+    );
+  }
+
+  /// Uploads an audio file to the server and attaches it to the note.
+  Future<void> _uploadAudioFile(File audioFile) async {
+    final api = ref.read(apiServiceProvider);
+    final l10n = AppLocalizations.of(context)!;
+
+    if (api == null || _note == null) {
+      _showError(l10n.failedToUploadAudio);
+      return;
+    }
+
+    setState(() => _isUploadingAudio = true);
+
+    try {
+      // Get file info
+      final fileSize = await audioFile.length();
+      final fileName = 'recording_${DateTime.now().millisecondsSinceEpoch}.m4a';
+
+      // Upload file to Open WebUI with proper content type
+      final fileId = await api.uploadFile(
+        audioFile.path,
+        fileName,
+        contentType: 'audio/mp4',
+      );
+
+      // Get current note files
+      final currentFiles = _note!.data.files ?? [];
+
+      // Generate a local item ID (for OpenWebUI compatibility)
+      final itemId = DateTime.now().millisecondsSinceEpoch.toString();
+
+      // Add the new file in OpenWebUI's expected format
+      // Must match the structure in NoteEditor.svelte uploadFileHandler
+      final updatedFiles = [
+        ...currentFiles,
+        {
+          'type': 'file',
+          'file': '',
+          'id': fileId,
+          'url': fileId,
+          'name': fileName,
+          'collection_name': '',
+          'status': 'uploaded',
+          'size': fileSize,
+          'error': '',
+          'itemId': itemId,
+        },
+      ];
+
+      debugPrint('NoteEditorPage: Saving files: $updatedFiles');
+
+      // Update note with the file attachment
+      final data = <String, dynamic>{
+        'content': <String, dynamic>{
+          'json': null,
+          'html': _markdownToHtml(_contentController.text),
+          'md': _contentController.text,
+        },
+        'files': updatedFiles,
+      };
+
+      debugPrint('NoteEditorPage: Updating note with data: $data');
+
+      final json = await api.updateNote(
+        widget.noteId,
+        title: _titleController.text.isEmpty ? l10n.untitled : _titleController.text,
+        data: data,
+      );
+
+      debugPrint('NoteEditorPage: Update response: $json');
+      debugPrint('NoteEditorPage: Response files: ${json['data']?['files']}');
+
+      final updatedNote = Note.fromJson(json);
+
+      if (mounted) {
+        // Update provider state inside mounted check to avoid accessing
+        // invalid ref after widget disposal
+        ref.read(notesListProvider.notifier).updateNote(updatedNote);
+
+        setState(() {
+          _note = updatedNote;
+          _isUploadingAudio = false;
+          _hasChanges = false;
+        });
+
+        HapticFeedback.mediumImpact();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(l10n.audioRecordingSaved),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+
+      // Clean up temp file
+      try {
+        await audioFile.delete();
+      } catch (_) {
+        // Ignore cleanup errors
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isUploadingAudio = false);
+        _showError('Failed to upload audio: $e');
+      }
     }
   }
 
@@ -979,6 +1223,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     // App bar height: kToolbarHeight + metadata bar (~40)
     final appBarHeight = kToolbarHeight + 40;
 
+    // Get attached files
+    final files = _note?.data.files ?? [];
+
     return GestureDetector(
       onTap: () => _contentFocusNode.requestFocus(),
       behavior: HitTestBehavior.opaque,
@@ -990,33 +1237,148 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
           Spacing.inputPadding,
           120, // Extra padding for floating buttons
         ),
-        child: TextField(
-          controller: _contentController,
-          focusNode: _contentFocusNode,
-          style: AppTypography.bodyLargeStyle.copyWith(
-            color: theme.textPrimary,
-            height: 1.8,
-          ),
-          decoration: InputDecoration(
-            hintText: l10n.writeNote,
-            hintStyle: AppTypography.bodyLargeStyle.copyWith(
-              color: theme.textSecondary.withValues(alpha: 0.35),
-              height: 1.8,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // File attachments section (if any)
+            if (files.isNotEmpty) ...[
+              NoteFilesSection(
+                files: files,
+                onPlayFile: _playAudioFile,
+                onDeleteFile: _removeFile,
+              ),
+              const SizedBox(height: Spacing.lg),
+            ],
+            // Content editor
+            TextField(
+              controller: _contentController,
+              focusNode: _contentFocusNode,
+              style: AppTypography.bodyLargeStyle.copyWith(
+                color: theme.textPrimary,
+                height: 1.8,
+              ),
+              decoration: InputDecoration(
+                hintText: l10n.writeNote,
+                hintStyle: AppTypography.bodyLargeStyle.copyWith(
+                  color: theme.textSecondary.withValues(alpha: 0.35),
+                  height: 1.8,
+                ),
+                filled: false,
+                border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                contentPadding: EdgeInsets.zero,
+              ),
+              maxLines: null,
+              minLines: 20,
+              textAlignVertical: TextAlignVertical.top,
+              textCapitalization: TextCapitalization.sentences,
+              keyboardType: TextInputType.multiline,
             ),
-            filled: false,
-            border: InputBorder.none,
-            enabledBorder: InputBorder.none,
-            focusedBorder: InputBorder.none,
-            contentPadding: EdgeInsets.zero,
-          ),
-          maxLines: null,
-          minLines: 20,
-          textAlignVertical: TextAlignVertical.top,
-          textCapitalization: TextCapitalization.sentences,
-          keyboardType: TextInputType.multiline,
+          ],
         ),
       ),
     );
+  }
+
+  /// Play an audio file attachment.
+  Future<void> _playAudioFile(Map<String, dynamic> file) async {
+    final fileId = file['id']?.toString();
+    if (fileId == null) return;
+
+    final api = ref.read(apiServiceProvider);
+    if (api == null) return;
+
+    final fileName = file['name']?.toString() ?? 'Audio Recording';
+
+    await AudioPlayerDialog.show(
+      context,
+      fileId: fileId,
+      api: api,
+      fileName: fileName,
+    );
+  }
+
+  /// Remove a file attachment from the note.
+  Future<void> _removeFile(Map<String, dynamic> file) async {
+    final l10n = AppLocalizations.of(context)!;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(l10n.removeFile),
+        content: Text(l10n.removeFileConfirm),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(l10n.cancel),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(
+              foregroundColor: context.conduitTheme.error,
+            ),
+            child: Text(l10n.delete),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || _note == null) return;
+
+    final api = ref.read(apiServiceProvider);
+    if (api == null) return;
+
+    setState(() => _isSaving = true);
+
+    try {
+      final fileId = file['id']?.toString();
+      final currentFiles = _note!.data.files ?? [];
+      final updatedFiles = currentFiles
+          .where((f) => f['id']?.toString() != fileId)
+          .toList();
+
+      final data = <String, dynamic>{
+        'content': <String, dynamic>{
+          'json': null,
+          'html': _markdownToHtml(_contentController.text),
+          'md': _contentController.text,
+        },
+        'files': updatedFiles,
+      };
+
+      final json = await api.updateNote(
+        widget.noteId,
+        title: _titleController.text.isEmpty
+            ? l10n.untitled
+            : _titleController.text,
+        data: data,
+      );
+
+      final updatedNote = Note.fromJson(json);
+      ref.read(notesListProvider.notifier).updateNote(updatedNote);
+
+      if (mounted) {
+        setState(() {
+          _note = updatedNote;
+          _isSaving = false;
+          _hasChanges = false;
+        });
+
+        HapticFeedback.lightImpact();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(l10n.fileRemoved),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isSaving = false);
+        _showError(e.toString());
+      }
+    }
   }
 
   Widget _buildFloatingActionsRow(BuildContext context) {
@@ -1026,7 +1388,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        // Dictation button
+        // Voice/Recording button - shows menu if not recording, stops if recording
         _buildFloatingButton(
           context,
           icon: _isRecording
@@ -1035,9 +1397,11 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                     : Icons.stop_rounded)
               : (Platform.isIOS ? CupertinoIcons.mic_fill : Icons.mic_rounded),
           color: _isRecording ? theme.error : null,
-          isLoading: false,
-          tooltip: _isRecording ? l10n.stopRecording : l10n.startDictation,
-          onPressed: _toggleDictation,
+          isLoading: _isUploadingAudio,
+          tooltip: _isRecording ? l10n.stopRecording : l10n.voiceOptions,
+          onPressed: _isUploadingAudio
+              ? null
+              : (_isRecording ? _toggleDictation : _showRecordingOptions),
         ),
 
         // AI button
