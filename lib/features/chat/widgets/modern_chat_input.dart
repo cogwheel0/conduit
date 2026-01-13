@@ -1067,7 +1067,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           f.status == FileUploadStatus.uploading ||
           f.status == FileUploadStatus.pending,
     );
-    final allUploadsComplete = attachedFiles.isEmpty ||
+    final allUploadsComplete =
+        attachedFiles.isEmpty ||
         attachedFiles.every((f) => f.status == FileUploadStatus.completed);
 
     final webSearchEnabled = ref.watch(webSearchEnabledProvider);
@@ -1410,26 +1411,37 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           Spacing.screenPadding,
           bottomPadding + Spacing.md,
         ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            _buildOverflowButton(
-              tooltip: AppLocalizations.of(context)!.more,
-              webSearchActive: webSearchEnabled,
-              imageGenerationActive: imageGenEnabled,
-              toolsActive: selectedToolIds.isNotEmpty,
-              filtersActive: selectedFilterIds.isNotEmpty,
-            ),
-            const SizedBox(width: Spacing.sm),
-            Expanded(child: textFieldShell),
-            const SizedBox(width: Spacing.sm),
-            _buildPrimaryButton(
-              _hasText,
-              isGenerating,
-              stopGeneration,
-              voiceAvailable,
-              allUploadsComplete,
-              hasUploadsInProgress,
+            // Show prompt overlay above the compact input row when active
+            if (_showPromptOverlay)
+              Padding(
+                padding: const EdgeInsets.only(bottom: Spacing.xs),
+                child: _buildPromptOverlay(context),
+              ),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                _buildOverflowButton(
+                  tooltip: AppLocalizations.of(context)!.more,
+                  webSearchActive: webSearchEnabled,
+                  imageGenerationActive: imageGenEnabled,
+                  toolsActive: selectedToolIds.isNotEmpty,
+                  filtersActive: selectedFilterIds.isNotEmpty,
+                ),
+                const SizedBox(width: Spacing.sm),
+                Expanded(child: textFieldShell),
+                const SizedBox(width: Spacing.sm),
+                _buildPrimaryButton(
+                  _hasText,
+                  isGenerating,
+                  stopGeneration,
+                  voiceAvailable,
+                  allUploadsComplete,
+                  hasUploadsInProgress,
+                ),
+              ],
             ),
           ],
         ),
