@@ -13,6 +13,7 @@ import '../providers/chat_providers.dart';
 import '../../../shared/services/tasks/task_queue.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../tools/providers/tools_providers.dart';
+import '../utils/file_utils.dart';
 
 // Pre-compiled regex for extracting file IDs from URLs (performance optimization)
 // Handles both /api/v1/files/{id} and /api/v1/files/{id}/content formats
@@ -84,16 +85,21 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
     final allFiles = widget.message.files!;
 
     // Separate images and non-image files
+    // Match OpenWebUI: type === 'image' OR content_type starts with 'image/'
     final imageFiles = allFiles
         .where(
           (file) =>
-              file is Map && file['type'] == 'image' && file['url'] != null,
+              file is Map &&
+              isImageFile(file) &&
+              getFileUrl(file) != null,
         )
         .toList();
     final nonImageFiles = allFiles
         .where(
           (file) =>
-              file is Map && file['type'] != 'image' && file['url'] != null,
+              file is Map &&
+              !isImageFile(file) &&
+              getFileUrl(file) != null,
         )
         .toList();
 
@@ -131,7 +137,8 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
   Widget _buildFileImageLayout(List<dynamic> imageFiles, int imageCount) {
     if (imageCount == 1) {
       final file = imageFiles[0];
-      final String imageUrl = file['url'] as String;
+      final imageUrl = getFileUrl(file);
+      if (imageUrl == null) return const SizedBox.shrink();
       return Row(
         key: ValueKey('user_file_single_$imageUrl'),
         mainAxisAlignment: MainAxisAlignment.end,
@@ -175,7 +182,8 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
               children: imageFiles.asMap().entries.map((entry) {
                 final index = entry.key;
                 final file = entry.value;
-                final String imageUrl = file['url'] as String;
+                final imageUrl = getFileUrl(file);
+                if (imageUrl == null) return const SizedBox.shrink();
                 return Padding(
                   padding: EdgeInsets.only(left: index == 0 ? 0 : Spacing.xs),
                   child: Container(
@@ -223,7 +231,8 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
                 spacing: Spacing.xs,
                 runSpacing: Spacing.xs,
                 children: imageFiles.map((file) {
-                  final String imageUrl = file['url'] as String;
+                  final imageUrl = getFileUrl(file);
+                  if (imageUrl == null) return const SizedBox.shrink();
                   return Container(
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(AppBorderRadius.md),

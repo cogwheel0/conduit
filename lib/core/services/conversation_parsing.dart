@@ -280,6 +280,9 @@ Map<String, dynamic>? _parseSiblingAsVersion(
         };
         if (entry['name'] != null) fileMap['name'] = entry['name'];
         if (entry['size'] != null) fileMap['size'] = entry['size'];
+        if (entry['content_type'] != null) {
+          fileMap['content_type'] = entry['content_type'];
+        }
         allFiles.add(fileMap);
       }
     }
@@ -448,6 +451,9 @@ Map<String, dynamic> _parseOpenWebUIMessageToJson(
         };
         if (entry['name'] != null) fileMap['name'] = entry['name'];
         if (entry['size'] != null) fileMap['size'] = entry['size'];
+        if (entry['content_type'] != null) {
+          fileMap['content_type'] = entry['content_type'];
+        }
         final headers = _coerceStringMap(entry['headers']);
         if (headers != null && headers.isNotEmpty) {
           fileMap['headers'] = headers;
@@ -455,12 +461,22 @@ Map<String, dynamic> _parseOpenWebUIMessageToJson(
         allFiles.add(fileMap);
 
         final url = entry['url'].toString();
-        // Handle both URL formats: /api/v1/files/{id} and /api/v1/files/{id}/content
+        // Handle all URL formats:
+        // 1. /api/v1/files/{id} and /api/v1/files/{id}/content (old format)
+        // 2. Just a file ID like "abc-123-def" (new OpenWebUI format)
         final match = RegExp(
           r'/api/v1/files/([^/]+)(?:/content)?$',
         ).firstMatch(url);
         if (match != null) {
           attachments.add(match.group(1)!);
+        } else if (!url.startsWith('data:') &&
+            !url.startsWith('http') &&
+            !url.startsWith('/')) {
+          // New format: URL is just a bare file ID (UUID-like)
+          // Validate it looks like a reasonable ID (not an empty string)
+          if (url.isNotEmpty) {
+            attachments.add(url);
+          }
         }
       }
     }

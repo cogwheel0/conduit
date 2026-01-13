@@ -1092,7 +1092,8 @@ Future<Map<String, dynamic>> _buildMessagePayloadWithAttachments({
         allFiles.add({
           'type': 'file',
           'id': attachmentId,
-          'url': '/api/v1/files/$attachmentId',
+          // OpenWebUI now stores just the file ID, not the full URL path
+          'url': attachmentId,
           'name': fileName,
           if (fileSize != null) 'size': fileSize,
         });
@@ -1801,7 +1802,9 @@ Future<void> _sendMessageInternal(
           'type': isImage ? 'image' : 'file',
           'id': fileId,
           'name': fileName,
-          'url': '/api/v1/files/$fileId', // Full URL for conversation parsing compatibility
+          // OpenWebUI now stores just the file ID, not the full URL path
+          // The frontend resolves it when displaying
+          'url': fileId,
           if (fileSize != null) 'size': fileSize,
           if (collectionName != null) 'collection_name': collectionName,
           if (contentType.isNotEmpty) 'content_type': contentType,
@@ -1811,7 +1814,7 @@ Future<void> _sendMessageInternal(
           'type': 'file',
           'id': fileId,
           'name': 'file',
-          'url': '/api/v1/files/$fileId',
+          'url': fileId,
         };
       }
     });
