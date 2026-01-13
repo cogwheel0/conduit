@@ -4,9 +4,9 @@
 submit_for_review(true)
 skip_metadata(false)
 release_notes({
-  'default' => "https://github.com/cogwheel0/conduit/releases/tag/v2.4.1",
+  'default' => "https://github.com/cogwheel0/conduit/releases/tag/v2.4.2",
 })
-promotional_text({'default' => "https://github.com/cogwheel0/conduit/releases/tag/v2.4.1"})
+promotional_text({'default' => "https://github.com/cogwheel0/conduit/releases/tag/v2.4.2"})
 skip_screenshots(true)
 run_precheck_before_submit(false)
 ipa("../build/ios/ipa/conduit.ipa")
