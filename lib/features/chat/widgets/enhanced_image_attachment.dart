@@ -30,6 +30,8 @@ final _base64WhitespacePattern = RegExp(r'\s');
 /// Call this with the server file ID and image bytes after successful upload.
 void preCacheImageBytes(String fileId, Uint8List bytes) {
   if (fileId.isEmpty || bytes.isEmpty) return;
+  // Clear any previous error state for this file
+  _globalErrorStates.remove(fileId);
   _globalImageBytesCache[fileId] = bytes;
   _globalLoadingStates[fileId] = false;
   // Detect SVG
@@ -132,8 +134,8 @@ class _EnhancedImageAttachmentState
   String? _errorMessage;
   bool _isDecoding = false;
   bool _isSvg = false;
-  late final String _heroTag;
-  // Removed unused animation and state flags
+  late String _heroTag;
+  bool _hasAttemptedLoad = false;
 
   @override
   bool get wantKeepAlive => true;
@@ -151,11 +153,39 @@ class _EnhancedImageAttachmentState
   }
 
   @override
+  void didUpdateWidget(covariant EnhancedImageAttachment oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // If the attachment ID changed, reload the image
+    if (oldWidget.attachmentId != widget.attachmentId) {
+      _heroTag = 'image_${widget.attachmentId}_${identityHashCode(this)}';
+      // Reset local state with setState for immediate visual feedback
+      setState(() {
+        _cachedImageData = null;
+        _cachedBytes = null;
+        _hasAttemptedLoad = false;
+        _isLoading = true;
+        _errorMessage = null;
+        _isDecoding = false;
+        _isSvg = false;
+      });
+      // Load the new image
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _loadImage();
+      });
+    }
+  }
+
+  @override
   void dispose() {
     super.dispose();
   }
 
   Future<void> _loadImage() async {
+    // Prevent duplicate loads
+    if (_hasAttemptedLoad) return;
+    _hasAttemptedLoad = true;
+
     final l10n = AppLocalizations.of(context)!;
 
     // Check bytes cache first (populated during upload for instant display)
@@ -172,6 +202,8 @@ class _EnhancedImageAttachmentState
       return;
     }
 
+    // Check for cached errors - if image previously failed, show error immediately
+    // Note: preCacheImageBytes() clears errors when upload completes successfully
     final cachedError = _globalErrorStates[widget.attachmentId];
     if (cachedError != null) {
       if (mounted) {
@@ -407,8 +439,16 @@ class _EnhancedImageAttachmentState
       return _buildErrorState();
     }
 
-    if (_cachedImageData == null) {
-      return const SizedBox.shrink();
+    if (_cachedImageData == null && _cachedBytes == null) {
+      // No data available - this shouldn't happen in normal flow since
+      // _loadImage always sets either data, bytes, or error before completing.
+      // Show error state rather than attempting reload from build().
+      return _buildErrorState();
+    }
+
+    // If we have bytes but no cached data string, use bytes directly
+    if (_cachedImageData == null && _cachedBytes != null) {
+      return _isSvg ? _buildBase64Svg() : _buildBase64Image();
     }
 
     // Handle different image data formats
@@ -692,11 +732,15 @@ class _EnhancedImageAttachmentState
   }
 
   void _showFullScreenImage(BuildContext context) {
+    // Handle both data URL string and raw bytes cases
+    if (_cachedImageData == null && _cachedBytes == null) return;
+
     Navigator.of(context).push(
       MaterialPageRoute(
         fullscreenDialog: true,
         builder: (context) => FullScreenImageViewer(
-          imageData: _cachedImageData!,
+          imageData: _cachedImageData,
+          imageBytes: _cachedBytes,
           tag: _heroTag,
           isSvg: _isSvg,
           customHeaders: widget.httpHeaders,
@@ -707,31 +751,56 @@ class _EnhancedImageAttachmentState
 }
 
 class FullScreenImageViewer extends ConsumerWidget {
-  final String imageData;
+  /// Image data as a URL (http://) or data URL (data:image/...) or base64 string.
+  /// Either this or [imageBytes] must be provided.
+  final String? imageData;
+
+  /// Raw image bytes. Used when [imageData] is null.
+  final Uint8List? imageBytes;
+
   final String tag;
   final bool isSvg;
   final Map<String, String>? customHeaders;
 
   const FullScreenImageViewer({
     super.key,
-    required this.imageData,
+    this.imageData,
+    this.imageBytes,
     required this.tag,
     this.isSvg = false,
     this.customHeaders,
-  });
+  }) : assert(imageData != null || imageBytes != null,
+            'Either imageData or imageBytes must be provided');
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     Widget imageWidget;
 
-    if (imageData.startsWith('http')) {
+    // If we have raw bytes, use them directly
+    if (imageData == null && imageBytes != null) {
+      if (isSvg || _isSvgBytes(imageBytes!)) {
+        imageWidget = SvgPicture.memory(
+          imageBytes!,
+          fit: BoxFit.contain,
+          errorBuilder: (context, error, stackTrace) => Center(
+            child: Icon(
+              Icons.error_outline,
+              color: context.conduitTheme.error,
+              size: 48,
+            ),
+          ),
+        );
+      } else {
+        imageWidget = Image.memory(imageBytes!, fit: BoxFit.contain);
+      }
+    } else if (imageData != null && imageData!.startsWith('http')) {
       // Get authentication headers if available
       final defaultHeaders = buildImageHeadersFromWidgetRef(ref);
       final headers = _mergeHeaders(defaultHeaders, customHeaders);
 
-      if (isSvg || _isSvgUrl(imageData)) {
+      if (isSvg || _isSvgUrl(imageData!)) {
         imageWidget = SvgPicture.network(
-          imageData,
+          imageData!,
           fit: BoxFit.contain,
           headers: headers,
           placeholderBuilder: (context) => Center(
@@ -750,7 +819,7 @@ class FullScreenImageViewer extends ConsumerWidget {
       } else {
         final cacheManager = ref.watch(selfSignedImageCacheManagerProvider);
         imageWidget = CachedNetworkImage(
-          imageUrl: imageData,
+          imageUrl: imageData!,
           fit: BoxFit.contain,
           cacheManager: cacheManager,
           httpHeaders: headers,
@@ -768,24 +837,24 @@ class FullScreenImageViewer extends ConsumerWidget {
           ),
         );
       }
-    } else {
+    } else if (imageData != null) {
       try {
         String actualBase64;
-        if (imageData.startsWith('data:')) {
-          final commaIndex = imageData.indexOf(',');
+        if (imageData!.startsWith('data:')) {
+          final commaIndex = imageData!.indexOf(',');
           if (commaIndex == -1) {
             throw const FormatException('Invalid data URI');
           }
-          actualBase64 = imageData.substring(commaIndex + 1);
+          actualBase64 = imageData!.substring(commaIndex + 1);
         } else {
-          actualBase64 = imageData;
+          actualBase64 = imageData!;
         }
-        final imageBytes = base64.decode(actualBase64);
+        final decodedBytes = base64.decode(actualBase64);
 
         // Check if SVG content
-        if (isSvg || _isSvgDataUrl(imageData) || _isSvgBytes(imageBytes)) {
+        if (isSvg || _isSvgDataUrl(imageData!) || _isSvgBytes(decodedBytes)) {
           imageWidget = SvgPicture.memory(
-            imageBytes,
+            decodedBytes,
             fit: BoxFit.contain,
             errorBuilder: (context, error, stackTrace) => Center(
               child: Icon(
@@ -796,7 +865,7 @@ class FullScreenImageViewer extends ConsumerWidget {
             ),
           );
         } else {
-          imageWidget = Image.memory(imageBytes, fit: BoxFit.contain);
+          imageWidget = Image.memory(decodedBytes, fit: BoxFit.contain);
         }
       } catch (e) {
         imageWidget = Center(
@@ -807,6 +876,15 @@ class FullScreenImageViewer extends ConsumerWidget {
           ),
         );
       }
+    } else {
+      // No image data available - show error
+      imageWidget = Center(
+        child: Icon(
+          Icons.error_outline,
+          color: context.conduitTheme.error,
+          size: 48,
+        ),
+      );
     }
 
     final tokens = context.colorTokens;
@@ -860,7 +938,11 @@ class FullScreenImageViewer extends ConsumerWidget {
       Uint8List bytes;
       String? fileExtension;
 
-      if (imageData.startsWith('http')) {
+      // If we have raw bytes, use them directly
+      if (imageData == null && imageBytes != null) {
+        bytes = imageBytes!;
+        fileExtension = isSvg ? 'svg' : 'png';
+      } else if (imageData!.startsWith('http')) {
         final api = ref.read(apiServiceProvider);
         final authToken = ref.read(authTokenProvider3);
         final headers = <String, String>{};
@@ -878,7 +960,7 @@ class FullScreenImageViewer extends ConsumerWidget {
 
         final client = api?.dio ?? dio.Dio();
         final response = await client.get<List<int>>(
-          imageData,
+          imageData!,
           options: dio.Options(
             responseType: dio.ResponseType.bytes,
             headers: mergedHeaders,
@@ -895,7 +977,7 @@ class FullScreenImageViewer extends ConsumerWidget {
           fileExtension = contentType.split('/').last;
           if (fileExtension == 'jpeg') fileExtension = 'jpg';
         } else {
-          final uri = Uri.tryParse(imageData);
+          final uri = Uri.tryParse(imageData!);
           final lastSegment = uri?.pathSegments.isNotEmpty == true
               ? uri!.pathSegments.last
               : '';
@@ -907,20 +989,23 @@ class FullScreenImageViewer extends ConsumerWidget {
             }
           }
         }
-      } else {
-        String actualBase64 = imageData;
-        if (imageData.startsWith('data:')) {
-          final commaIndex = imageData.indexOf(',');
-          final meta = imageData.substring(5, commaIndex); // image/png;base64
+      } else if (imageData != null) {
+        String actualBase64 = imageData!;
+        if (imageData!.startsWith('data:')) {
+          final commaIndex = imageData!.indexOf(',');
+          final meta = imageData!.substring(5, commaIndex); // image/png;base64
           final slashIdx = meta.indexOf('/');
           final semicolonIdx = meta.indexOf(';');
           if (slashIdx != -1 && semicolonIdx != -1 && slashIdx < semicolonIdx) {
             final subtype = meta.substring(slashIdx + 1, semicolonIdx);
             fileExtension = subtype == 'jpeg' ? 'jpg' : subtype;
           }
-          actualBase64 = imageData.substring(commaIndex + 1);
+          actualBase64 = imageData!.substring(commaIndex + 1);
         }
         bytes = base64.decode(actualBase64);
+      } else {
+        // No image data available
+        return;
       }
 
       fileExtension ??= 'png';

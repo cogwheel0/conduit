@@ -27,6 +27,7 @@ import 'sources/openwebui_sources.dart';
 import '../providers/assistant_response_builder_provider.dart';
 import '../../../core/services/worker_manager.dart';
 import 'streaming_status_widget.dart';
+import '../utils/file_utils.dart';
 
 // Pre-compiled regex patterns for image processing (performance optimization)
 final _base64ImagePattern = RegExp(r'data:image/[^;]+;base64,[A-Za-z0-9+/]+=*');
@@ -1119,12 +1120,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final allFiles = filesArray;
 
     // Separate images and non-image files
-    final imageFiles = allFiles
-        .where((file) => file['type'] == 'image')
-        .toList();
-    final nonImageFiles = allFiles
-        .where((file) => file['type'] != 'image')
-        .toList();
+    // Match OpenWebUI: type === 'image' OR content_type starts with 'image/'
+    final imageFiles = allFiles.where(isImageFile).toList();
+    final nonImageFiles = allFiles.where((file) => !isImageFile(file)).toList();
 
     final widgets = <Widget>[];
 
@@ -1164,7 +1162,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
               key: ValueKey('file_single_${imageFiles[0]['url']}'),
               child: Builder(
                 builder: (context) {
-                  final imageUrl = imageFiles[0]['url'] as String?;
+                  final imageUrl = getFileUrl(imageFiles[0]);
                   if (imageUrl == null) return const SizedBox.shrink();
 
                   return EnhancedImageAttachment(
@@ -1189,7 +1187,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
               spacing: Spacing.sm,
               runSpacing: Spacing.sm,
               children: imageFiles.map<Widget>((file) {
-                final imageUrl = file['url'] as String?;
+                final imageUrl = getFileUrl(file);
                 if (imageUrl == null) return const SizedBox.shrink();
 
                 return EnhancedImageAttachment(
@@ -1232,12 +1230,13 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       spacing: Spacing.sm,
       runSpacing: Spacing.sm,
       children: nonImageFiles.map<Widget>((file) {
-        final fileUrl = file['url'] as String?;
-
+        final fileUrl = getFileUrl(file);
         if (fileUrl == null) return const SizedBox.shrink();
 
-        // Extract file ID from URL - handle both formats:
-        // /api/v1/files/{id} and /api/v1/files/{id}/content
+        // Extract file ID from URL - handle formats:
+        // - Bare file ID (new OpenWebUI format): "abc-123-def"
+        // - /api/v1/files/{id} (legacy format)
+        // - /api/v1/files/{id}/content (legacy format)
         String attachmentId = fileUrl;
         if (fileUrl.contains('/api/v1/files/')) {
           final fileIdMatch = _fileIdPattern.firstMatch(fileUrl);
