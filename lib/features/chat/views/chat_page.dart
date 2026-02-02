@@ -874,6 +874,62 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     return FloatingAppBarPill(isCircular: isCircular, child: child);
   }
 
+  Widget _buildTemporaryChatToggle(BuildContext context) {
+    final isTemporary = ref.watch(temporaryChatEnabledProvider);
+    final conduitTheme = context.conduitTheme;
+
+    return Tooltip(
+      message: isTemporary
+          ? 'Temporary chat ON - not saved'
+          : 'Temporary chat OFF - saved to history',
+      child: GestureDetector(
+        onTap: () => ref.read(temporaryChatEnabledProvider.notifier).toggle(),
+        child: _buildAppBarPill(
+          context: context,
+          isCircular: true,
+          child: Icon(
+            isTemporary
+                ? (Platform.isIOS ? CupertinoIcons.eye_slash : Icons.visibility_off)
+                : (Platform.isIOS ? CupertinoIcons.eye : Icons.visibility),
+            color: isTemporary ? conduitTheme.warning : conduitTheme.textPrimary,
+            size: IconSize.appBar,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSaveChatButton(BuildContext context) {
+    final conduitTheme = context.conduitTheme;
+
+    return Tooltip(
+      message: 'Save chat to history',
+      child: GestureDetector(
+        onTap: () async {
+          final conversation = ref.read(activeConversationProvider);
+          if (conversation != null) {
+            final messenger = ScaffoldMessenger.of(context);
+            final saved = await saveTemporaryChat(ref, conversation);
+            if (saved != null && mounted) {
+              messenger.showSnackBar(
+                const SnackBar(content: Text('Chat saved to history')),
+              );
+            }
+          }
+        },
+        child: _buildAppBarPill(
+          context: context,
+          isCircular: true,
+          child: Icon(
+            Platform.isIOS ? CupertinoIcons.floppy_disk : Icons.save,
+            color: conduitTheme.buttonPrimary,
+            size: IconSize.appBar,
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildMessagesList(ThemeData theme) {
     // Use select to watch only the messages list to reduce rebuilds
     final messages = ref.watch(
@@ -1915,6 +1971,17 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                         ),
                   actions: [
                     if (!_isSelectionMode) ...[
+                      // Temporary chat toggle
+                      Padding(
+                        padding: const EdgeInsets.only(right: Spacing.sm),
+                        child: _buildTemporaryChatToggle(context),
+                      ),
+                      // Save button (only for temporary chats)
+                      if (ref.watch(activeConversationProvider)?.id.startsWith('local:') == true)
+                        Padding(
+                          padding: const EdgeInsets.only(right: Spacing.sm),
+                          child: _buildSaveChatButton(context),
+                        ),
                       Padding(
                         padding: const EdgeInsets.only(
                           right: Spacing.inputPadding,
