@@ -476,6 +476,25 @@ class AppCustomizationPage extends ConsumerWidget {
               .read(appSettingsProvider.notifier)
               .setSendOnEnter(!settings.sendOnEnter),
         ),
+        const SizedBox(height: Spacing.sm),
+        _CustomizationTile(
+          leading: _buildIconBadge(
+            context,
+            Platform.isIOS ? CupertinoIcons.eye_slash : Icons.visibility_off,
+            color: theme.warning,
+          ),
+          title: 'Temporary chats by default',
+          subtitle: 'New chats will not be saved to history unless you tap Save',
+          trailing: Switch.adaptive(
+            value: settings.temporaryChatDefault,
+            onChanged: (value) =>
+                ref.read(appSettingsProvider.notifier).setTemporaryChatDefault(value),
+          ),
+          showChevron: false,
+          onTap: () => ref
+              .read(appSettingsProvider.notifier)
+              .setTemporaryChatDefault(!settings.temporaryChatDefault),
+        ),
         if (Platform.isAndroid) ...[
           const SizedBox(height: Spacing.sm),
           _CustomizationTile(

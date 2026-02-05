@@ -174,6 +174,7 @@ class SettingsService {
       _voiceSilenceDurationKey: settings.voiceSilenceDuration,
       _androidAssistantTriggerKey:
           settings.androidAssistantTrigger.storageValue,
+      PreferenceKeys.temporaryChatDefault: settings.temporaryChatDefault,
     };
 
     await box.putAll(updates);
@@ -336,6 +337,10 @@ class SettingsService {
     return _preferencesBox().put(_sendOnEnterKey, value);
   }
 
+  static Future<void> setTemporaryChatDefault(bool value) {
+    return _preferencesBox().put(PreferenceKeys.temporaryChatDefault, value);
+  }
+
   static Future<int> getVoiceSilenceDuration() {
     final value = _preferencesBox().get(_voiceSilenceDurationKey) as int?;
     return Future.value((value ?? 2000).clamp(300, 3000));
@@ -438,6 +443,7 @@ class SettingsService {
       ),
       voiceSilenceDuration: (box.get(_voiceSilenceDurationKey) as int? ?? 2000)
           .clamp(300, 3000),
+      temporaryChatDefault: (box.get(PreferenceKeys.temporaryChatDefault) as bool?) ?? false,
     );
   }
 }
@@ -472,6 +478,7 @@ class AppSettings {
   final String? ttsServerVoiceName;
   final AndroidAssistantTrigger androidAssistantTrigger;
   final int voiceSilenceDuration;
+  final bool temporaryChatDefault;
   const AppSettings({
     this.reduceMotion = false,
     this.animationSpeed = 1.0,
@@ -496,6 +503,7 @@ class AppSettings {
     this.ttsServerVoiceName,
     this.androidAssistantTrigger = AndroidAssistantTrigger.overlay,
     this.voiceSilenceDuration = 2000,
+    this.temporaryChatDefault = false,
   });
 
   AppSettings copyWith({
@@ -522,6 +530,7 @@ class AppSettings {
     Object? ttsServerVoiceName = const _DefaultValue(),
     int? voiceSilenceDuration,
     AndroidAssistantTrigger? androidAssistantTrigger,
+    bool? temporaryChatDefault,
   }) {
     return AppSettings(
       reduceMotion: reduceMotion ?? this.reduceMotion,
@@ -556,6 +565,7 @@ class AppSettings {
       androidAssistantTrigger:
           androidAssistantTrigger ?? this.androidAssistantTrigger,
       voiceSilenceDuration: voiceSilenceDuration ?? this.voiceSilenceDuration,
+      temporaryChatDefault: temporaryChatDefault ?? this.temporaryChatDefault,
     );
   }
 
@@ -584,6 +594,7 @@ class AppSettings {
         other.ttsServerVoiceName == ttsServerVoiceName &&
         other.androidAssistantTrigger == androidAssistantTrigger &&
         other.voiceSilenceDuration == voiceSilenceDuration &&
+        other.temporaryChatDefault == temporaryChatDefault &&
         _listEquals(other.quickPills, quickPills);
     // socketTransportMode intentionally not included in == to avoid frequent rebuilds
   }
@@ -613,6 +624,7 @@ class AppSettings {
       ttsServerVoiceName,
       androidAssistantTrigger,
       voiceSilenceDuration,
+      temporaryChatDefault,
       Object.hashAllUnordered(quickPills),
     ]);
   }
@@ -736,6 +748,11 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
   Future<void> setSendOnEnter(bool value) async {
     state = state.copyWith(sendOnEnter: value);
     await SettingsService.setSendOnEnter(value);
+  }
+
+  Future<void> setTemporaryChatDefault(bool value) async {
+    state = state.copyWith(temporaryChatDefault: value);
+    await SettingsService.setTemporaryChatDefault(value);
   }
 
   Future<void> setSttPreference(SttPreference preference) async {
