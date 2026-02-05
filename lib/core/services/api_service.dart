@@ -1520,7 +1520,12 @@ class ApiService {
   Future<Map<String, dynamic>> getUserSettings() async {
     _traceApi('Fetching user settings');
     final response = await _dio.get('/api/v1/users/user/settings');
-    return response.data as Map<String, dynamic>;
+    final data = response.data;
+    // Handle null response from server (happens for new users with no settings)
+    if (data is Map<String, dynamic>) {
+      return data;
+    }
+    return <String, dynamic>{};
   }
 
   Future<void> updateUserSettings(Map<String, dynamic> settings) async {
