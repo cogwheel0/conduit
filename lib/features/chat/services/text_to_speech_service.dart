@@ -149,6 +149,9 @@ class TextToSpeechService {
   Future<void> dispose() async {
     await _eventSubscription?.cancel();
     _eventSubscription = null;
+
+    // Reset the singleton state for next session
+    await TtsManager.instance.reset();
   }
 
   /// Updates TTS settings.

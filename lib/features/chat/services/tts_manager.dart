@@ -376,6 +376,28 @@ class TtsManager {
     }
   }
 
+  /// Resets the manager state for a new session.
+  ///
+  /// Call this between voice calls to ensure clean state. This clears
+  /// playback buffers and resets session tracking without destroying
+  /// the singleton instance.
+  Future<void> reset() async {
+    await stop();
+
+    // Reset playback state
+    _resetPlaybackState();
+    _activeSession = null;
+    _sessionCounter = 0;
+
+    // Reset server audio buffer
+    _serverAudioBuffer.clear();
+    _serverWaitingForNext = false;
+
+    // Reset cached voice defaults so they're refetched if needed
+    _serverDefaultVoice = null;
+    _serverDefaultVoiceFuture = null;
+  }
+
   /// Disposes the manager and releases resources.
   Future<void> dispose() async {
     await stop();
