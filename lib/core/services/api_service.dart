@@ -794,43 +794,65 @@ class ApiService {
       DebugLogger.log('settings-ok', scope: 'api/user-settings');
 
       final data = response.data;
-      if (data is! Map<String, dynamic>) {
-        DebugLogger.warning(
-          'settings-format',
-          scope: 'api/user-settings',
-          data: {'type': data.runtimeType},
-        );
-        return null;
-      }
-
-      // Extract default model from ui.models array
-      final ui = data['ui'];
-      if (ui is Map<String, dynamic>) {
-        final models = ui['models'];
-        if (models is List && models.isNotEmpty) {
-          // Return the first model in the user's preferred models list
-          final defaultModel = models.first.toString();
-          DebugLogger.log(
-            'default-model',
-            scope: 'api/user-settings',
-            data: {'id': defaultModel},
-          );
-          return defaultModel;
+      if (data is Map<String, dynamic>) {
+        // Extract default model from ui.models array
+        final ui = data['ui'];
+        if (ui is Map<String, dynamic>) {
+          final models = ui['models'];
+          if (models is List && models.isNotEmpty) {
+            // Return the first model in the user's preferred models list
+            final defaultModel = models.first.toString();
+            DebugLogger.log(
+              'default-model',
+              scope: 'api/user-settings',
+              data: {'id': defaultModel},
+            );
+            return defaultModel;
+          }
         }
       }
 
-      DebugLogger.warning('default-model-missing', scope: 'api/user-settings');
-      return null;
+      // Fallback: user has no default model configured, pick first available
+      // This fixes issue #353 where secondary accounts couldn't send messages
+      DebugLogger.log(
+        'default-model-fallback',
+        scope: 'api/user-settings',
+      );
+      return _getFirstAvailableModelId();
     } catch (e) {
       DebugLogger.error(
         'default-model-error',
         scope: 'api/user-settings',
         error: e,
       );
-      // Do not call admin-only configs endpoint here; let the caller
-      // handle fallback (e.g., first available model from /api/models).
-      return null;
+      // Attempt fallback even on error
+      return _getFirstAvailableModelId();
     }
+  }
+
+  /// Returns the ID of the first available model, or null if none available.
+  ///
+  /// Used as a fallback when user has no default model configured.
+  Future<String?> _getFirstAvailableModelId() async {
+    try {
+      final models = await getModels();
+      if (models.isNotEmpty) {
+        final fallbackId = models.first.id;
+        DebugLogger.log(
+          'default-model-fallback-selected',
+          scope: 'api/user-settings',
+          data: {'id': fallbackId},
+        );
+        return fallbackId;
+      }
+    } catch (e) {
+      DebugLogger.error(
+        'default-model-fallback-failed',
+        scope: 'api/user-settings',
+        error: e,
+      );
+    }
+    return null;
   }
 
   // Conversations - Updated to use correct OpenWebUI API
