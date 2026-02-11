@@ -1026,12 +1026,12 @@ class VoiceInputService {
     });
   }
 
-  void dispose() {
-    stopListening();
-    unawaited(_disposeVadHandler());
-    unawaited(_microphonePermissionProbe.dispose());
+  Future<void> dispose() async {
+    await stopListening();
+    await _disposeVadHandler();
+    await _microphonePermissionProbe.dispose();
     try {
-      _speech.stop();
+      await _speech.stop();
     } catch (_) {}
   }
 }

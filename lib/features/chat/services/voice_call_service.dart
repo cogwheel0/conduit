@@ -395,7 +395,7 @@ class VoiceCallService {
       _activeAssistantMessageId = null;
       _responseCompleted = false;
       _listeningSuspendedForSpeech = false;
-      _resetServerAudio(stopPlayback: true);
+      await _resetServerAudio(stopPlayback: true);
 
       if (_pauseReasons.isNotEmpty) {
         _listeningPaused = true;
@@ -584,7 +584,11 @@ class VoiceCallService {
     _speechQueue.clear();
     _enqueuedSentenceCount = 0;
     _responseCompleted = false;
-    _resetServerAudio(stopPlayback: true);
+    // Fire-and-forget: This is a synchronous event handler where blocking
+    // would delay socket event processing. The audio player stop is fast
+    // and race conditions are acceptable here since new playback will
+    // wait for this session to complete anyway.
+    unawaited(_resetServerAudio(stopPlayback: true));
     if (_isSpeaking) {
       _isSpeaking = false;
       unawaited(_tts.stop());
@@ -749,14 +753,14 @@ class VoiceCallService {
     _maybeResumeListeningAfterSpeech();
   }
 
-  void _resetServerAudio({bool stopPlayback = false}) {
+  Future<void> _resetServerAudio({bool stopPlayback = false}) async {
     _serverAudioBuffer.clear();
     _pendingServerAudioFetches = 0;
     _serverAudioSession++;
     _nextServerChunkId = 0;
     _nextServerPlaybackId = 0;
     if (stopPlayback) {
-      unawaited(_serverAudioPlayer.stop());
+      await _serverAudioPlayer.stop();
       _isSpeaking = false;
     }
     _serverPipelineActive = false;
@@ -819,7 +823,7 @@ class VoiceCallService {
     if (_isDisposed) return;
     _isSpeaking = false;
     _speechQueue.clear();
-    _resetServerAudio(stopPlayback: true);
+    unawaited(_resetServerAudio(stopPlayback: true));
     _listeningSuspendedForSpeech = false;
     _updateState(VoiceCallState.error);
     // Try to recover by restarting listening
@@ -865,7 +869,7 @@ class VoiceCallService {
     _listeningSuspendedForSpeech = false;
     _activeAssistantMessageId = null;
     _isSpeaking = false;
-    _resetServerAudio(stopPlayback: true);
+    await _resetServerAudio(stopPlayback: true);
     _updateState(VoiceCallState.disconnected);
   }
 
@@ -911,7 +915,7 @@ class VoiceCallService {
     _enqueuedSentenceCount = 0;
     _responseCompleted = false;
     _listeningSuspendedForSpeech = false;
-    _resetServerAudio(stopPlayback: true);
+    await _resetServerAudio(stopPlayback: true);
     await _tts.stop();
     _isSpeaking = false;
     _accumulatedResponse = '';
@@ -985,7 +989,7 @@ class VoiceCallService {
       _enqueuedSentenceCount = 0;
       _responseCompleted = false;
       _listeningSuspendedForSpeech = false;
-      _resetServerAudio(stopPlayback: true);
+      unawaited(_resetServerAudio(stopPlayback: true));
       pauseListening(reason: VoiceCallPauseReason.mute);
     } else {
       resumeListening(reason: VoiceCallPauseReason.mute);
@@ -1006,7 +1010,7 @@ class VoiceCallService {
     _callKitEventSubscription = null;
     _socketSubscription?.dispose();
 
-    _voiceInput.dispose();
+    await _voiceInput.dispose();
     await _tts.dispose();
     await _serverAudioStateSub?.cancel();
     await _serverAudioPlayer.dispose();
@@ -1029,7 +1033,7 @@ class VoiceCallService {
   }
 }
 
-@Riverpod(keepAlive: true)
+@riverpod
 VoiceCallService voiceCallService(Ref ref) {
   final voiceInput = ref.watch(voiceInputServiceProvider);
   final api = ref.watch(apiServiceProvider);
