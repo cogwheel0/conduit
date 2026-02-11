@@ -226,6 +226,73 @@ class AuthStateManager extends _$AuthStateManager {
         // Fast path: trust token format to avoid blocking startup on network
         final formatOk = _isValidTokenFormat(token);
         if (formatOk) {
+          // Network readiness gate: Wait for API to be reachable before
+          // transitioning to authenticated state. This prevents race conditions
+          // on cold starts with Cloudflare tunnels where the tunnel connection
+          // may not be established yet.
+          final apiReady = await _waitForApiReadiness();
+          if (!apiReady) {
+            DebugLogger.auth(
+              'API not reachable on cold start - keeping loading state',
+            );
+            // Keep loading state and retry via silent login if we have creds
+            final hasCreds = await storage.hasCredentials();
+            if (hasCreds) {
+              DebugLogger.auth(
+                'Has credentials - attempting silent login after API ready',
+              );
+              // Schedule a delayed retry that will wait for network.
+              // Allow time for network stack to stabilize after initial failure.
+              unawaited(
+                Future.delayed(const Duration(milliseconds: 500), () async {
+                  if (!ref.mounted) return;
+                  try {
+                    final retryReady = await _waitForApiReadiness(
+                      timeout: const Duration(seconds: 10),
+                    );
+                    if (!ref.mounted) return;
+                    if (retryReady) {
+                      await _performSilentLogin();
+                    } else {
+                      _update(
+                        (current) => current.copyWith(
+                          status: AuthStatus.error,
+                          error: 'Unable to connect to server',
+                          isLoading: false,
+                        ),
+                      );
+                    }
+                  } catch (e, stack) {
+                    if (!ref.mounted) return;
+                    DebugLogger.error(
+                      'delayed-retry-failed',
+                      scope: 'auth/state',
+                      error: e,
+                      stackTrace: stack,
+                    );
+                    _update(
+                      (current) => current.copyWith(
+                        status: AuthStatus.error,
+                        error: 'Connection retry failed',
+                        isLoading: false,
+                      ),
+                    );
+                  }
+                }),
+              );
+              return;
+            }
+            // No credentials - show error
+            _update(
+              (current) => current.copyWith(
+                status: AuthStatus.error,
+                error: 'Unable to connect to server',
+                isLoading: false,
+              ),
+            );
+            return;
+          }
+
           _update(
             (current) => current.copyWith(
               status: AuthStatus.authenticated,
@@ -650,6 +717,61 @@ class AuthStateManager extends _$AuthStateManager {
       if (api != null) return;
       await Future.delayed(const Duration(milliseconds: 50));
     }
+  }
+
+  /// Wait for the API to be reachable (network readiness gate).
+  ///
+  /// On cold starts with Cloudflare tunnels or other proxy setups, the network
+  /// connection may not be established immediately. This method performs a
+  /// health check with retries to ensure we don't show the wrong screen due to
+  /// a race condition between auth state initialization and network readiness.
+  ///
+  /// Returns true if the API is reachable within the timeout, false otherwise.
+  Future<bool> _waitForApiReadiness({
+    Duration timeout = const Duration(seconds: 3),
+    Duration retryDelay = const Duration(milliseconds: 300),
+  }) async {
+    final stopwatch = Stopwatch()..start();
+
+    // First ensure the API service provider is available
+    await _ensureApiServiceAvailable(timeout: const Duration(seconds: 1));
+
+    while (stopwatch.elapsed < timeout) {
+      if (!ref.mounted) return false;
+
+      final api = ref.read(apiServiceProvider);
+      if (api == null) {
+        await Future.delayed(retryDelay);
+        continue;
+      }
+
+      try {
+        // Use checkHealth which hits the /health endpoint
+        final healthy = await api.checkHealth();
+        if (healthy) {
+          DebugLogger.auth(
+            'API readiness confirmed in ${stopwatch.elapsedMilliseconds}ms',
+          );
+          return true;
+        }
+      } catch (e) {
+        DebugLogger.auth(
+          'API readiness check failed (${stopwatch.elapsedMilliseconds}ms): $e',
+        );
+      }
+
+      // Wait before retrying
+      if (stopwatch.elapsed + retryDelay < timeout) {
+        await Future.delayed(retryDelay);
+      } else {
+        break;
+      }
+    }
+
+    DebugLogger.auth(
+      'API readiness timed out after ${stopwatch.elapsedMilliseconds}ms',
+    );
+    return false;
   }
 
   /// Perform silent auto-login with saved credentials
