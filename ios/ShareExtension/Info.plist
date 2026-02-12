@@ -4,9 +4,8 @@
 <dict>
     <key>CFBundleDisplayName</key>
     <string>Ask Conduit</string>
-    <!-- Uncomment below lines if you want to use a custom group id rather than the default. Set it in Build Settings -> User-Defined -->
-    <!-- <key>AppGroupId</key>
-    <string>$(CUSTOM_GROUP_ID)</string> -->
+    <key>AppGroupId</key>
+    <string>group.app.cogwheel.conduit</string>
 
     <key>CFBundleVersion</key>
     <string>$(FLUTTER_BUILD_NUMBER)</string>
