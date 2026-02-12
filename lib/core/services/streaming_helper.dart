@@ -302,6 +302,9 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
       final chatId = activeConversationId;
       if (chatId == null || chatId.isEmpty) return null;
 
+      // Skip server polling for temporary chats
+      if (chatId.startsWith('local:')) return null;
+
       final resp = await api.dio.get('/api/v1/chats/$chatId');
       final data = resp.data as Map<String, dynamic>?;
       final chatObj = data?['chat'] as Map<String, dynamic>?;
@@ -581,6 +584,10 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
     if (chatId == null || chatId.isEmpty) {
       return;
     }
+    // Skip server refresh for temporary chats
+    if (chatId.startsWith('local:')) {
+      return;
+    }
     refreshingSnapshot = true;
     try {
       final conversation = await api.getConversation(chatId);
@@ -637,16 +644,19 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
               socketService?.offEvent(channel);
             } catch (_) {}
             try {
-              // Fire and forget
-              // ignore: unawaited_futures
-              api.sendChatCompleted(
-                chatId: activeConversationId ?? '',
-                messageId: assistantMessageId,
-                messages: const [],
-                model: modelId,
-                modelItem: modelItem,
-                sessionId: sessionId,
-              );
+              // Fire and forget - skip for temporary chats
+              final chatId = activeConversationId ?? '';
+              if (!chatId.startsWith('local:')) {
+                // ignore: unawaited_futures
+                api.sendChatCompleted(
+                  chatId: chatId,
+                  messageId: assistantMessageId,
+                  messages: const [],
+                  model: modelId,
+                  modelItem: modelItem,
+                  sessionId: sessionId,
+                );
+              }
             } catch (_) {}
             wrappedFinishStreaming();
             return;
@@ -658,15 +668,19 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
                 socketService?.offEvent(channel);
               } catch (_) {}
               try {
-                // ignore: unawaited_futures
-                api.sendChatCompleted(
-                  chatId: activeConversationId ?? '',
-                  messageId: assistantMessageId,
-                  messages: const [],
-                  model: modelId,
-                  modelItem: modelItem,
-                  sessionId: sessionId,
-                );
+                // Skip chat completed notification for temporary chats
+                final chatId = activeConversationId ?? '';
+                if (!chatId.startsWith('local:')) {
+                  // ignore: unawaited_futures
+                  api.sendChatCompleted(
+                    chatId: chatId,
+                    messageId: assistantMessageId,
+                    messages: const [],
+                    model: modelId,
+                    modelItem: modelItem,
+                    sessionId: sessionId,
+                  );
+                }
               } catch (_) {}
               wrappedFinishStreaming();
               return;
@@ -906,20 +920,24 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
               }).toList();
 
               // Send chatCompleted to run any filters/actions
-              // ignore: unawaited_futures
-              api.sendChatCompleted(
-                chatId: activeConversationId ?? '',
-                messageId: assistantMessageId,
-                messages: messagesForCompleted,
-                model: modelId,
-                modelItem: modelItem,
-                sessionId: sessionId,
-              );
+              // Skip for temporary chats
+              final chatIdForCompleted = activeConversationId ?? '';
+              if (!chatIdForCompleted.startsWith('local:')) {
+                // ignore: unawaited_futures
+                api.sendChatCompleted(
+                  chatId: chatIdForCompleted,
+                  messageId: assistantMessageId,
+                  messages: messagesForCompleted,
+                  model: modelId,
+                  modelItem: modelItem,
+                  sessionId: sessionId,
+                );
+              }
 
               // Sync conversation to persist usage data (issue #274)
               // chatCompleted doesn't persist - syncConversationMessages does
               final chatId = activeConversationId;
-              if (chatId != null && chatId.isNotEmpty) {
+              if (chatId != null && chatId.isNotEmpty && !chatId.startsWith('local:')) {
                 // ignore: unawaited_futures
                 api.syncConversationMessages(
                   chatId,
@@ -944,7 +962,8 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
                 Future.microtask(() async {
                   try {
                     final chatId = activeConversationId;
-                    if (chatId != null && chatId.isNotEmpty) {
+                    // Skip server fetch for temporary chats
+                    if (chatId != null && chatId.isNotEmpty && !chatId.startsWith('local:')) {
                       final resp = await api.dio.get('/api/v1/chats/$chatId');
                       final data = resp.data as Map<String, dynamic>?;
                       String content = '';
@@ -1062,8 +1081,9 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
             );
 
             // Sync to server to persist follow-ups (they arrive after done:true)
+            // Skip for temporary chats
             final chatId = activeConversationId;
-            if (chatId != null && chatId.isNotEmpty && suggestions.isNotEmpty) {
+            if (chatId != null && chatId.isNotEmpty && !chatId.startsWith('local:') && suggestions.isNotEmpty) {
               Future.microtask(() async {
                 try {
                   final currentMessages = getMessages();
