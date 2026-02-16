@@ -54,6 +54,7 @@ class VoiceInputService {
   List<LocaleName> _locales = const [];
   bool _usingFallbackLocales = false;
   Future<void>? _startingLocalStt;
+  Future<Stream<String>>? _startListeningInFlight;
   StreamController<String>? _textStreamController;
   String _currentText = '';
   bool _receivedFinalResult = false;
@@ -64,6 +65,7 @@ class VoiceInputService {
   Timer? _intensityDecayTimer;
   List<double>? _vadPendingSamples;
   bool _backgroundMicPinned = false;
+  bool _recoveringFromBusyError = false;
 
   Stream<String> get textStream =>
       _textStreamController?.stream ?? const Stream<String>.empty();
@@ -158,14 +160,16 @@ class VoiceInputService {
     debugPrint('Local STT Error: $error');
     final errorStr = error.toString().toLowerCase();
 
+    if (errorStr.contains('error_busy')) {
+      debugPrint('Local STT busy, attempting recognizer reset');
+      unawaited(_recoverFromBusyError());
+      return;
+    }
+
     // These errors are non-fatal - they just mean no speech was detected
     // or the session timed out. The status handler will close the stream
     // and voice call service will restart listening.
-    final nonFatalErrors = [
-      'error_no_match',
-      'error_speech_timeout',
-      'error_busy', // Temporary, can retry
-    ];
+    final nonFatalErrors = ['error_no_match', 'error_speech_timeout'];
 
     final isNonFatal = nonFatalErrors.any((e) => errorStr.contains(e));
     if (isNonFatal) {
@@ -177,6 +181,31 @@ class VoiceInputService {
 
     // Fatal errors - mark STT as unavailable
     _handleLocalRecognizerError(error);
+  }
+
+  Future<void> _recoverFromBusyError() async {
+    if (_recoveringFromBusyError) {
+      return;
+    }
+    if (!_isListening || _usingServerStt) {
+      return;
+    }
+
+    _recoveringFromBusyError = true;
+    try {
+      await _ensureLocalSttReset();
+      await Future.delayed(const Duration(milliseconds: 200));
+      if (!_isListening || _usingServerStt || !_localSttAvailable) {
+        return;
+      }
+      try {
+        await _startLocalRecognition(allowOnlineFallback: !prefersDeviceOnly);
+      } catch (error) {
+        _handleLocalRecognizerError(error);
+      }
+    } finally {
+      _recoveringFromBusyError = false;
+    }
   }
 
   Future<bool> checkPermissions() async {
@@ -457,6 +486,23 @@ class VoiceInputService {
   }
 
   Future<Stream<String>> startListening() async {
+    final inFlight = _startListeningInFlight;
+    if (inFlight != null) {
+      return inFlight;
+    }
+
+    final startFuture = _startListeningInternal();
+    _startListeningInFlight = startFuture;
+    try {
+      return await startFuture;
+    } finally {
+      if (identical(_startListeningInFlight, startFuture)) {
+        _startListeningInFlight = null;
+      }
+    }
+  }
+
+  Future<Stream<String>> _startListeningInternal() async {
     if (!_isInitialized) {
       throw Exception('Voice input not initialized');
     }
@@ -665,6 +711,9 @@ class VoiceInputService {
   }
 
   Future<void> _startServerRecording() async {
+    await _disposeVadHandler();
+    _vadPendingSamples = null;
+
     // Create a fresh VadHandler for this session to avoid reusing any
     // internal AudioRecorder that may be in a bad state after errors.
     final vad = VadHandler.create();
@@ -712,6 +761,9 @@ class VoiceInputService {
       // drop this handler so the next session gets a clean instance.
       if (identical(_vadHandler, vad)) {
         _vadHandler = null;
+        try {
+          await vad.dispose();
+        } catch (_) {}
       }
 
       // Known Android issue: the underlying AudioRecorder can be in a bad
@@ -791,6 +843,7 @@ class VoiceInputService {
     _vadFrameSub = null;
     await _vadErrorSub?.cancel();
     _vadErrorSub = null;
+    await _disposeVadHandler();
   }
 
   Future<void> _disposeVadHandler() async {

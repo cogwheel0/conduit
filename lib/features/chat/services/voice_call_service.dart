@@ -38,6 +38,9 @@ enum VoiceCallPauseReason { user, mute, system }
 
 class VoiceCallService {
   static const String _voiceCallStreamId = 'voice-call';
+  static const int _maxEmptyTranscriptRestarts = 4;
+  static const int _emptyTranscriptBaseDelayMs = 250;
+  static const int _emptyTranscriptMaxDelayMs = 2000;
 
   final VoiceInputService _voiceInput;
   final TextToSpeechService _tts;
@@ -74,6 +77,8 @@ class VoiceCallService {
   bool _callKitPermissionsRequested = false;
   String? _callKitCallId;
   bool _callKitConnectedReported = false;
+  Future<void>? _startListeningInFlight;
+  int _emptyTranscriptRestartAttempts = 0;
   bool get _callKitEnabled => _callKitService.isAvailable;
 
   final StreamController<VoiceCallState> _stateController =
@@ -368,6 +373,7 @@ class VoiceCallService {
       );
 
       // Start listening for user voice input
+      _emptyTranscriptRestartAttempts = 0;
       await _startListening();
       await _markCallKitConnected();
     } catch (e) {
@@ -389,6 +395,24 @@ class VoiceCallService {
   Future<void> _startListening() async {
     if (_isDisposed) return;
 
+    final inFlight = _startListeningInFlight;
+    if (inFlight != null) {
+      await inFlight;
+      return;
+    }
+
+    final startFuture = _startListeningInternal();
+    _startListeningInFlight = startFuture;
+    try {
+      await startFuture;
+    } finally {
+      if (identical(_startListeningInFlight, startFuture)) {
+        _startListeningInFlight = null;
+      }
+    }
+  }
+
+  Future<void> _startListeningInternal() async {
     try {
       _speechQueue.clear();
       _enqueuedSentenceCount = 0;
@@ -425,6 +449,7 @@ class VoiceCallService {
 
       // Only mark as listening after STT has successfully started.
       _updateState(VoiceCallState.listening);
+      _emptyTranscriptRestartAttempts = 0;
 
       _transcriptSubscription = stream.listen(
         (text) {
@@ -442,23 +467,12 @@ class VoiceCallService {
           final trimmed = _accumulatedTranscript.trim();
           // User stopped speaking, send message to assistant
           if (trimmed.isNotEmpty) {
+            _emptyTranscriptRestartAttempts = 0;
             await _sendMessageToAssistant(trimmed);
             return;
           }
 
-          // No input – avoid a tight restart loop and only restart
-          // while the call is still active and not paused.
-          await Future.delayed(const Duration(milliseconds: 250));
-          if (_isDisposed) return;
-          if (_state == VoiceCallState.disconnected ||
-              _state == VoiceCallState.error) {
-            return;
-          }
-          if (_pauseReasons.isNotEmpty) {
-            // Respect paused state; resumeListening() will restart if needed.
-            return;
-          }
-          await _startListening();
+          await _restartListeningAfterEmptyTranscript();
         },
       );
 
@@ -471,6 +485,37 @@ class VoiceCallService {
       _updateState(VoiceCallState.error);
       rethrow;
     }
+  }
+
+  Future<void> _restartListeningAfterEmptyTranscript() async {
+    _emptyTranscriptRestartAttempts++;
+    if (_emptyTranscriptRestartAttempts > _maxEmptyTranscriptRestarts) {
+      _listeningPaused = true;
+      _updateState(VoiceCallState.paused);
+      developer.log(
+        'Voice call paused after repeated empty STT sessions',
+        name: 'VoiceCallService',
+        level: 900,
+      );
+      return;
+    }
+
+    final exponent = _emptyTranscriptRestartAttempts - 1;
+    final delayMs = (_emptyTranscriptBaseDelayMs << exponent).clamp(
+      _emptyTranscriptBaseDelayMs,
+      _emptyTranscriptMaxDelayMs,
+    );
+    await Future.delayed(Duration(milliseconds: delayMs));
+
+    if (_isDisposed) return;
+    if (_state == VoiceCallState.disconnected ||
+        _state == VoiceCallState.error) {
+      return;
+    }
+    if (_pauseReasons.isNotEmpty) {
+      return;
+    }
+    await _startListening();
   }
 
   Future<void> _sendMessageToAssistant(String text) async {
@@ -597,7 +642,9 @@ class VoiceCallService {
 
   void _processSpeakableSegments({required bool isFinalChunk}) {
     if (_isDisposed) return;
-    final cleanText = ConduitMarkdownPreprocessor.toPlainText(_accumulatedResponse).trim();
+    final cleanText = ConduitMarkdownPreprocessor.toPlainText(
+      _accumulatedResponse,
+    ).trim();
     if (cleanText.isEmpty) {
       return;
     }
@@ -869,6 +916,7 @@ class VoiceCallService {
     _listeningSuspendedForSpeech = false;
     _activeAssistantMessageId = null;
     _isSpeaking = false;
+    _emptyTranscriptRestartAttempts = 0;
     await _resetServerAudio(stopPlayback: true);
     _updateState(VoiceCallState.disconnected);
   }
