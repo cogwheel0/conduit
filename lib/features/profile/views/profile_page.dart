@@ -328,6 +328,7 @@ class ProfilePage extends ConsumerWidget {
 
   Widget _buildAccountSection(BuildContext context, WidgetRef ref) {
     final items = [
+      _build2025WrappedTile(context),
       _buildDefaultModelTile(context, ref),
       _buildAccountOption(
         context,
@@ -533,6 +534,63 @@ class ProfilePage extends ConsumerWidget {
   }
 
   // Theme and language controls moved to AppCustomizationPage.
+
+  Widget _build2025WrappedTile(BuildContext context) {
+    final theme = context.conduitTheme;
+    return _ProfileSettingTile(
+      onTap: () {
+        context.pushNamed(RouteNames.wrapped);
+      },
+      leading: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              const Color(0xFF667eea),
+              const Color(0xFF764ba2),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(AppBorderRadius.small),
+          border: Border.all(
+            color: Colors.white.withValues(alpha: 0.2),
+            width: BorderWidth.thin,
+          ),
+        ),
+        alignment: Alignment.center,
+        child: const Text('✨', style: TextStyle(fontSize: 20)),
+      ),
+      title: '2025 Wrapped',
+      subtitle: 'Your year in AI conversations',
+      trailing: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              theme.buttonPrimary.withValues(alpha: 0.2),
+              theme.buttonPrimary.withValues(alpha: 0.1),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(AppBorderRadius.chip),
+          border: Border.all(
+            color: theme.buttonPrimary.withValues(alpha: 0.3),
+            width: BorderWidth.thin,
+          ),
+        ),
+        child: Text(
+          'NEW',
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.bold,
+            color: theme.buttonPrimary,
+            letterSpacing: 0.5,
+          ),
+        ),
+      ),
+    );
+  }
 
   Widget _buildAboutTile(BuildContext context) {
     return _buildAccountOption(
