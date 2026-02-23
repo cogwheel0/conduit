@@ -1,342 +1,207 @@
-/**
- * Conduit Landing Page
- * Smooth interactions and animations
- */
-
 document.addEventListener('DOMContentLoaded', () => {
-    // ============================================
-    // SMOOTH SCROLL
-    // ============================================
-    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
-        anchor.addEventListener('click', function (e) {
-            e.preventDefault();
-            const targetId = this.getAttribute('href');
-            if (targetId === '#') return;
-            
-            const target = document.querySelector(targetId);
-            if (target) {
-                const navHeight = document.querySelector('.navbar').offsetHeight;
-                const targetPosition = target.offsetTop - navHeight - 20;
-                
-                window.scrollTo({
-                    top: targetPosition,
-                    behavior: 'smooth'
-                });
-                
-                // Close mobile menu if open
-                mobileMenu.classList.remove('active');
-            }
-        });
+  const header = document.querySelector('.site-header');
+  const mobileNav = document.getElementById('mobile-nav');
+  const menuToggle = document.querySelector('.menu-toggle');
+
+  const closeMobileMenu = () => {
+    if (!menuToggle || !mobileNav) {
+      return;
+    }
+    menuToggle.setAttribute('aria-expanded', 'false');
+    mobileNav.classList.remove('active');
+  };
+
+  if (menuToggle && mobileNav) {
+    menuToggle.addEventListener('click', () => {
+      const expanded = menuToggle.getAttribute('aria-expanded') === 'true';
+      menuToggle.setAttribute('aria-expanded', String(!expanded));
+      mobileNav.classList.toggle('active');
     });
 
-    // ============================================
-    // MOBILE MENU
-    // ============================================
-    const mobileMenuBtn = document.querySelector('.mobile-menu-btn');
-    const mobileMenu = document.querySelector('.mobile-menu');
-    
-    if (mobileMenuBtn && mobileMenu) {
-        mobileMenuBtn.addEventListener('click', () => {
-            mobileMenu.classList.toggle('active');
-            mobileMenuBtn.classList.toggle('active');
-        });
-        
-        // Close menu when clicking a link
-        mobileMenu.querySelectorAll('a').forEach(link => {
-            link.addEventListener('click', () => {
-                mobileMenu.classList.remove('active');
-                mobileMenuBtn.classList.remove('active');
-            });
-        });
-    }
+    mobileNav.querySelectorAll('a').forEach((link) => {
+      link.addEventListener('click', () => {
+        closeMobileMenu();
+      });
+    });
+  }
 
-    // ============================================
-    // NAVBAR SCROLL EFFECT
-    // ============================================
-    const navbar = document.querySelector('.navbar');
-    let lastScroll = 0;
-    
-    window.addEventListener('scroll', () => {
-        const currentScroll = window.pageYOffset;
-        
-        if (currentScroll > 100) {
-            navbar.style.background = 'rgba(10, 10, 12, 0.9)';
-        } else {
-            navbar.style.background = 'rgba(10, 10, 12, 0.6)';
-        }
-        
-        lastScroll = currentScroll;
-    }, { passive: true });
+  document.querySelectorAll('a[href^="#"]').forEach((anchor) => {
+    anchor.addEventListener('click', (event) => {
+      const targetId = anchor.getAttribute('href');
+      if (!targetId || targetId === '#') {
+        return;
+      }
 
-    // ============================================
-    // INTERSECTION OBSERVER - FADE IN
-    // ============================================
-    const observerOptions = {
-        threshold: 0.1,
-        rootMargin: '0px 0px -60px 0px'
+      const target = document.querySelector(targetId);
+      if (!target) {
+        return;
+      }
+
+      event.preventDefault();
+      const offset = header ? header.offsetHeight + 12 : 0;
+      const top = target.getBoundingClientRect().top + window.scrollY - offset;
+
+      window.scrollTo({ top, behavior: 'smooth' });
+      closeMobileMenu();
+    });
+  });
+
+  if (header) {
+    const updateHeaderState = () => {
+      header.classList.toggle('scrolled', window.scrollY > 8);
     };
 
-    const observer = new IntersectionObserver((entries) => {
-        entries.forEach(entry => {
-            if (entry.isIntersecting) {
-                entry.target.classList.add('visible');
-                observer.unobserve(entry.target);
-            }
-        });
-    }, observerOptions);
+    updateHeaderState();
+    window.addEventListener('scroll', updateHeaderState, { passive: true });
+  }
 
-    // Observe feature cards
-    document.querySelectorAll('.feature-card').forEach(el => {
-        el.classList.add('fade-in');
-        observer.observe(el);
-    });
-    
-    // Observe stat cards
-    document.querySelectorAll('.stat-card').forEach((el, i) => {
-        el.classList.add('fade-in');
-        el.style.transitionDelay = `${i * 0.1}s`;
-        observer.observe(el);
-    });
-    
-    // Observe gallery items
-    document.querySelectorAll('.gallery-item').forEach((el, i) => {
-        el.classList.add('fade-in');
-        el.style.transitionDelay = `${i * 0.1}s`;
-        observer.observe(el);
-    });
-    
-    // Observe section headers
-    document.querySelectorAll('.section-header').forEach(el => {
-        el.classList.add('fade-in');
-        observer.observe(el);
-    });
-
-    // ============================================
-    // PARALLAX ORBS (subtle effect)
-    // ============================================
-    const orbs = document.querySelectorAll('.orb');
-    
-    if (window.matchMedia('(prefers-reduced-motion: no-preference)').matches) {
-        window.addEventListener('scroll', () => {
-            const scrollY = window.pageYOffset;
-            
-            orbs.forEach((orb, i) => {
-                const speed = (i + 1) * 0.03;
-                orb.style.transform = `translateY(${scrollY * speed}px)`;
-            });
-        }, { passive: true });
-    }
-
-    // ============================================
-    // DEVICE FRAME TILT ON MOUSE MOVE
-    // ============================================
-    const deviceFrame = document.querySelector('.device-frame');
-    const heroSection = document.querySelector('.hero');
-    
-    if (deviceFrame && heroSection && window.matchMedia('(prefers-reduced-motion: no-preference)').matches) {
-        heroSection.addEventListener('mousemove', (e) => {
-            const rect = heroSection.getBoundingClientRect();
-            const x = (e.clientX - rect.left) / rect.width - 0.5;
-            const y = (e.clientY - rect.top) / rect.height - 0.5;
-            
-            const tiltX = y * 10;
-            const tiltY = -x * 10;
-            
-            deviceFrame.style.transform = `perspective(1000px) rotateX(${tiltX}deg) rotateY(${tiltY}deg) scale(1.02)`;
-        });
-        
-        heroSection.addEventListener('mouseleave', () => {
-            deviceFrame.style.transform = 'perspective(1000px) rotateX(0) rotateY(0) scale(1)';
-        });
-    }
-
-    // ============================================
-    // GALLERY DRAG SCROLL
-    // ============================================
-    const galleryTrack = document.querySelector('.gallery-track');
-    
-    if (galleryTrack) {
-        let isDown = false;
-        let startX;
-        let scrollLeft;
-        
-        galleryTrack.addEventListener('mousedown', (e) => {
-            isDown = true;
-            galleryTrack.style.cursor = 'grabbing';
-            startX = e.pageX - galleryTrack.offsetLeft;
-            scrollLeft = galleryTrack.scrollLeft;
-        });
-        
-        galleryTrack.addEventListener('mouseleave', () => {
-            isDown = false;
-            galleryTrack.style.cursor = 'grab';
-        });
-        
-        galleryTrack.addEventListener('mouseup', () => {
-            isDown = false;
-            galleryTrack.style.cursor = 'grab';
-        });
-        
-        galleryTrack.addEventListener('mousemove', (e) => {
-            if (!isDown) return;
-            e.preventDefault();
-            const x = e.pageX - galleryTrack.offsetLeft;
-            const walk = (x - startX) * 1.5;
-            galleryTrack.scrollLeft = scrollLeft - walk;
-        });
-        
-        // Set initial cursor
-        galleryTrack.style.cursor = 'grab';
-    }
-
-    // ============================================
-    // CTA RING ANIMATION RESET
-    // ============================================
-    const ctaSection = document.querySelector('.cta-section');
-    const ctaRings = document.querySelectorAll('.cta-ring');
-    
-    if (ctaSection && ctaRings.length) {
-        const ctaObserver = new IntersectionObserver((entries) => {
-            entries.forEach(entry => {
-                if (entry.isIntersecting) {
-                    // Reset animation when section comes into view
-                    ctaRings.forEach(ring => {
-                        ring.style.animation = 'none';
-                        ring.offsetHeight; // Trigger reflow
-                        ring.style.animation = null;
-                    });
-                }
-            });
-        }, { threshold: 0.3 });
-        
-        ctaObserver.observe(ctaSection);
-    }
-
-    // ============================================
-    // BUTTON RIPPLE EFFECT
-    // ============================================
-    document.querySelectorAll('.btn').forEach(btn => {
-        btn.addEventListener('click', function(e) {
-            const ripple = document.createElement('span');
-            const rect = this.getBoundingClientRect();
-            
-            ripple.style.cssText = `
-                position: absolute;
-                background: rgba(255, 255, 255, 0.3);
-                border-radius: 50%;
-                pointer-events: none;
-                transform: scale(0);
-                animation: ripple 0.6s ease-out;
-                left: ${e.clientX - rect.left}px;
-                top: ${e.clientY - rect.top}px;
-                width: 0;
-                height: 0;
-            `;
-            
-            this.style.position = 'relative';
-            this.style.overflow = 'hidden';
-            this.appendChild(ripple);
-            
-            setTimeout(() => ripple.remove(), 600);
-        });
-    });
-
-    // Add ripple keyframes
-    const style = document.createElement('style');
-    style.textContent = `
-        @keyframes ripple {
-            to {
-                width: 200px;
-                height: 200px;
-                margin-left: -100px;
-                margin-top: -100px;
-                opacity: 0;
-                transform: scale(1);
-            }
+  const revealObserver = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('is-visible');
+          revealObserver.unobserve(entry.target);
         }
-    `;
-    document.head.appendChild(style);
+      });
+    },
+    {
+      threshold: 0.14,
+      rootMargin: '0px 0px -44px 0px',
+    }
+  );
 
-    // ============================================
-    // PRELOAD IMAGES
-    // ============================================
-    const preloadImages = [
-        'screenshots/1.png',
-        'screenshots/2.png',
-        'screenshots/3.png',
-        'screenshots/4.png'
-    ];
-    
-    preloadImages.forEach(src => {
-        const img = new Image();
-        img.src = src;
-    });
+  document.querySelectorAll('[data-reveal]').forEach((el) => {
+    revealObserver.observe(el);
+  });
 
-    // ============================================
-    // FETCH GITHUB STATS (via Shields.io proxy)
-    // ============================================
-    const formatNumber = (num) => {
-        if (num >= 1000000) {
-            return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
-        }
-        if (num >= 1000) {
-            return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
-        }
-        return num.toString();
-    };
+  const formatMetric = (value) => {
+    if (value >= 1_000_000) {
+      return `${(value / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+    }
+    if (value >= 1_000) {
+      return `${(value / 1_000).toFixed(1).replace(/\.0$/, '')}k`;
+    }
+    return String(value);
+  };
 
-    const parseShieldsValue = (value) => {
-        // Shields.io returns values like "1.2k", "5.3M", etc.
-        // Extract numeric value and convert to number
-        const match = value.match(/([\d.]+)([kKmM]?)/);
-        if (!match) return 0;
-        
-        const num = parseFloat(match[1]);
-        const suffix = match[2].toLowerCase();
-        
-        if (suffix === 'k') return num * 1000;
-        if (suffix === 'm') return num * 1000000;
-        return num;
-    };
-
-    const starsElement = document.getElementById('github-stars');
-    const downloadsElement = document.getElementById('github-downloads');
-    
-    // Fetch repo stats (stars) via Shields.io
-    if (starsElement) {
-        fetch('https://img.shields.io/github/stars/cogwheel0/conduit.json')
-            .then(response => response.json())
-            .then(data => {
-                if (data.value) {
-                    const numValue = parseShieldsValue(data.value);
-                    starsElement.textContent = formatNumber(numValue);
-                    starsElement.classList.add('loaded');
-                }
-            })
-            .catch(() => {
-                starsElement.textContent = '★';
-            });
+  const parseMetric = (value) => {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
     }
 
-    // Fetch downloads via Shields.io
-    if (downloadsElement) {
-        fetch('https://img.shields.io/github/downloads/cogwheel0/conduit/total.json')
-            .then(response => response.json())
-            .then(data => {
-                if (data.value) {
-                    const numValue = parseShieldsValue(data.value);
-                    if (numValue > 0) {
-                        downloadsElement.textContent = formatNumber(numValue);
-                    } else {
-                        downloadsElement.textContent = 'New';
-                    }
-                    downloadsElement.classList.add('loaded');
-                }
-            })
-            .catch(() => {
-                downloadsElement.textContent = '↓';
-            });
+    const normalized = String(value ?? '').trim().replace(/,/g, '');
+    const match = normalized.match(/^([\d.]+)([kKmM]?)$/);
+    if (!match) {
+      return 0;
     }
 
-    console.log('✨ Conduit landing page initialized');
+    const amount = parseFloat(match[1]);
+    const suffix = match[2].toLowerCase();
+
+    if (suffix === 'k') {
+      return amount * 1_000;
+    }
+    if (suffix === 'm') {
+      return amount * 1_000_000;
+    }
+    return amount;
+  };
+
+  const hydrateBadge = async (id, url, fallback = '-') => {
+    const node = document.getElementById(id);
+    if (!node) {
+      return;
+    }
+
+    try {
+      const response = await fetch(url);
+      const json = await response.json();
+      if (!json.value) {
+        node.textContent = fallback;
+        return;
+      }
+
+      const parsedValue = parseMetric(json.value);
+      node.textContent = parsedValue > 0 ? formatMetric(parsedValue) : fallback;
+    } catch {
+      node.textContent = fallback;
+    }
+  };
+
+  const hydrateMobileDownloads = async () => {
+    const node = document.getElementById('mobile-downloads');
+    if (!node) {
+      return;
+    }
+
+    try {
+      const candidates = [
+        `downloads.json?t=${Date.now()}`,
+        `/downloads.json?t=${Date.now()}`,
+        `/docs/downloads.json?t=${Date.now()}`,
+      ];
+
+      let json = null;
+      for (const url of candidates) {
+        try {
+          const response = await fetch(url, { cache: 'no-store' });
+          if (!response.ok) {
+            continue;
+          }
+
+          const payload = await response.text();
+          json = JSON.parse(payload.replace(/^\uFEFF/, ''));
+          break;
+        } catch {
+          // Try the next candidate URL.
+        }
+      }
+
+      if (!json) {
+        throw new Error('Could not load downloads.json');
+      }
+
+      const platformTotal =
+        parseMetric(json.ios) +
+        parseMetric(json.android);
+
+      let githubTotal = 0;
+      try {
+        const githubResponse = await fetch(
+          'https://img.shields.io/github/downloads/cogwheel0/conduit/total.json'
+        );
+        const githubJson = await githubResponse.json();
+        if (githubJson.value) {
+          githubTotal = parseMetric(githubJson.value);
+        }
+      } catch {
+        githubTotal = 0;
+      }
+
+      const computedTotal = platformTotal + githubTotal;
+      if (computedTotal > 0) {
+        node.textContent = formatMetric(computedTotal);
+      } else {
+        node.textContent = '—';
+      }
+    } catch {
+      hydrateBadge(
+        'mobile-downloads',
+        'https://img.shields.io/github/downloads/cogwheel0/conduit/total.json',
+        '—'
+      );
+    }
+  };
+
+  hydrateBadge(
+    'github-stars',
+    'https://img.shields.io/github/stars/cogwheel0/conduit.json',
+    '★'
+  );
+  hydrateMobileDownloads();
+
+  const year = document.getElementById('year');
+  if (year) {
+    year.textContent = String(new Date().getFullYear());
+  }
 });
