@@ -31,6 +31,10 @@ final class PreferenceKeys {
   static const String voiceSilenceDuration = 'voice_silence_duration';
   static const String androidAssistantTrigger = 'android_assistant_trigger';
 
+  // Temporary chat settings
+  static const String temporaryChat = 'temporary_chat_enabled';
+  static const String temporaryChatDefault = 'temporary_chat_default';
+
   // Drawer section collapsed states
   static const String drawerShowPinned = 'drawer_show_pinned';
   static const String drawerShowFolders = 'drawer_show_folders';

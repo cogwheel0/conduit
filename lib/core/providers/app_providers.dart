@@ -1909,6 +1909,7 @@ final filteredConversationsProvider = Provider<List<Conversation>>((ref) {
         return conversations.maybeWhen(
           data: (convs) => convs.where((conv) {
             return !conv.archived &&
+                !conv.id.startsWith('local:') &&
                 (conv.title.toLowerCase().contains(query.toLowerCase()) ||
                     conv.messages.any(
                       (msg) => msg.content.toLowerCase().contains(
@@ -1924,6 +1925,7 @@ final filteredConversationsProvider = Provider<List<Conversation>>((ref) {
         return conversations.maybeWhen(
           data: (convs) => convs.where((conv) {
             return !conv.archived &&
+                !conv.id.startsWith('local:') &&
                 (conv.title.toLowerCase().contains(query.toLowerCase()) ||
                     conv.messages.any(
                       (msg) => msg.content.toLowerCase().contains(
@@ -1944,8 +1946,8 @@ final filteredConversationsProvider = Provider<List<Conversation>>((ref) {
       if (ref.watch(reviewerModeProvider)) {
         return convs; // Already filtered above for demo
       }
-      // Filter out archived conversations (they should be in a separate view)
-      final filtered = convs.where((conv) => !conv.archived).toList();
+      // Filter out archived and temporary conversations
+      final filtered = convs.where((conv) => !conv.archived && !conv.id.startsWith('local:')).toList();
 
       // Sort: pinned conversations first, then by updated date
       filtered.sort((a, b) {
@@ -2014,6 +2016,25 @@ class ReviewerMode extends _$ReviewerMode {
   }
 
   Future<void> toggle() => setEnabled(!state);
+}
+
+// Temporary chat mode provider - when enabled, chats use local: prefix and skip server persistence
+@Riverpod(keepAlive: true)
+class TemporaryChatEnabled extends _$TemporaryChatEnabled {
+  @override
+  bool build() {
+    // Initialize from default setting preference
+    final defaultSetting = ref.watch(
+      appSettingsProvider.select((s) => s.temporaryChatDefault),
+    );
+    return defaultSetting;
+  }
+
+  void setEnabled(bool enabled) {
+    state = enabled;
+  }
+
+  void toggle() => setEnabled(!state);
 }
 
 // User Settings providers

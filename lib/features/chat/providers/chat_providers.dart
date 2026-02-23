@@ -28,6 +28,11 @@ part 'chat_providers.g.dart';
 
 const bool kSocketVerboseLogging = false;
 
+/// Returns true if the conversation ID indicates a temporary chat
+bool isTemporaryConversation(String? conversationId) {
+  return conversationId?.startsWith('local:') ?? false;
+}
+
 // Chat messages for current conversation
 final chatMessagesProvider =
     NotifierProvider<ChatMessagesNotifier, List<ChatMessage>>(
@@ -301,6 +306,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     final api = ref.read(apiServiceProvider);
     final activeConversation = ref.read(activeConversationProvider);
     if (api == null || activeConversation == null) {
+      _stopRemoteTaskMonitor();
+      return;
+    }
+
+    // Skip server sync for temporary chats
+    if (isTemporaryConversation(activeConversation.id)) {
       _stopRemoteTaskMonitor();
       return;
     }
@@ -845,7 +856,7 @@ Future<String> _preseedAssistantAndPersist(
   try {
     final api = ref.read(apiServiceProvider);
     final activeConv = ref.read(activeConversationProvider);
-    if (api != null && activeConv != null) {
+    if (api != null && activeConv != null && !isTemporaryConversation(activeConv.id)) {
       final resolvedSystemPrompt =
           (systemPrompt != null && systemPrompt.trim().isNotEmpty)
           ? systemPrompt.trim()
@@ -1651,7 +1662,7 @@ Future<void> regenerateMessage(
         refreshConversationsCache(ref);
         final active = ref.read(activeConversationProvider);
         final api = ref.read(apiServiceProvider);
-        if (active != null && api != null) {
+        if (active != null && api != null && !isTemporaryConversation(active.id)) {
           Future.microtask(() async {
             try {
               final refreshed = await api.getConversation(active.id);
@@ -1848,10 +1859,16 @@ Future<void> _sendMessageInternal(
     // Check if there's a pending folder ID for this new conversation
     final pendingFolderId = ref.read(pendingFolderIdProvider);
 
+    // Check if temporary chat mode is enabled
+    final isTemporary = ref.read(temporaryChatEnabledProvider);
+    final conversationId = isTemporary
+        ? 'local:${const Uuid().v4()}'
+        : const Uuid().v4();
+
     // Create new conversation with user message AND assistant placeholder
     // so the listener doesn't remove the placeholder when setting active
     final localConversation = Conversation(
-      id: const Uuid().v4(),
+      id: conversationId,
       title: 'New Chat',
       createdAt: DateTime.now(),
       updatedAt: DateTime.now(),
@@ -1864,8 +1881,9 @@ Future<void> _sendMessageInternal(
     ref.read(activeConversationProvider.notifier).set(localConversation);
     activeConversation = localConversation;
 
-    if (!reviewerMode) {
-      // Try to create on server - use lightweight message without large
+    if (!reviewerMode && !isTemporary) {
+      // Try to create on server - skip for temporary chats
+      // Use lightweight message without large
       // base64 image data to avoid timeout (images sent in chat request)
       try {
         final lightweightMessage = userMessage.copyWith(
@@ -2059,7 +2077,7 @@ Future<void> _sendMessageInternal(
     // Sync conversation state to ensure WebUI can load conversation history
     try {
       final activeConvForSeed = ref.read(activeConversationProvider);
-      if (activeConvForSeed != null) {
+      if (activeConvForSeed != null && !isTemporaryConversation(activeConvForSeed.id)) {
         final msgsForSeed = ref.read(chatMessagesProvider);
         await api.syncConversationMessages(
           activeConvForSeed.id,
@@ -2386,7 +2404,7 @@ Future<void> _sendMessageInternal(
         refreshConversationsCache(ref);
         final active = ref.read(activeConversationProvider);
         final api = ref.read(apiServiceProvider);
-        if (active != null && api != null) {
+        if (active != null && api != null && !isTemporaryConversation(active.id)) {
           Future.microtask(() async {
             try {
               final refreshed = await api.getConversation(active.id);
@@ -2791,7 +2809,7 @@ final stopGenerationProvider = Provider<void Function()>((ref) {
     try {
       final api = ref.read(apiServiceProvider);
       final activeConv = ref.read(activeConversationProvider);
-      if (api != null && activeConv != null) {
+      if (api != null && activeConv != null && !isTemporaryConversation(activeConv.id)) {
         unawaited(() async {
           try {
             final ids = await api.getTaskIdsByChat(activeConv.id);
@@ -3013,4 +3031,42 @@ List<Map<String, dynamic>> _convertOpenApiToToolPayload(
     });
   });
   return tools;
+}
+
+/// Saves a temporary chat to the server, converting it to permanent.
+/// Returns the new permanent conversation, or null on failure.
+Future<Conversation?> saveTemporaryChat(
+  dynamic ref,
+  Conversation temporaryConversation,
+) async {
+  if (!temporaryConversation.id.startsWith('local:')) {
+    return temporaryConversation; // Already permanent
+  }
+
+  final api = ref.read(apiServiceProvider);
+  if (api == null) return null;
+
+  try {
+    final serverConversation = await api.createConversation(
+      title: temporaryConversation.title,
+      messages: temporaryConversation.messages,
+      model: temporaryConversation.model,
+      systemPrompt: temporaryConversation.systemPrompt,
+    );
+
+    final permanentConversation = temporaryConversation.copyWith(
+      id: serverConversation.id,
+    );
+
+    ref.read(activeConversationProvider.notifier).set(permanentConversation);
+    ref.read(conversationsProvider.notifier).upsertConversation(permanentConversation);
+
+    // Disable temporary mode after saving
+    ref.read(temporaryChatEnabledProvider.notifier).setEnabled(false);
+
+    return permanentConversation;
+  } catch (e) {
+    DebugLogger.error('Failed to save temporary chat', scope: 'chat/providers', error: e);
+    return null;
+  }
 }
