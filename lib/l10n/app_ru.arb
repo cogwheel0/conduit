@@ -181,6 +181,7 @@
   "chineseSimplified": "Китайский (упрощённый)",
   "chineseTraditional": "Китайский (традиционный)",
   "korean": "한국어",
+  "portugueseBrazilian": "Португальский (бразильский)",
   "deleteMessagesTitle": "Удалить сообщения",
   "deleteMessagesMessage": "Удалить {count, plural, one{{count} сообщение} few{{count} сообщения} other{{count} сообщений}}?",
   "@deleteMessagesMessage": {

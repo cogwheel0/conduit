@@ -181,6 +181,7 @@
   "chineseSimplified": "Chino (simplificado)",
   "chineseTraditional": "Chino (tradicional)",
   "korean": "한국어",
+  "portugueseBrazilian": "Portugués (brasileño)",
   "deleteMessagesTitle": "Eliminar mensajes",
   "deleteMessagesMessage": "¿Eliminar {count} mensajes?",
   "@deleteMessagesMessage": {

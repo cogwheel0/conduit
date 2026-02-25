@@ -1792,6 +1792,8 @@ class AppCustomizationPage extends ConsumerWidget {
         return AppLocalizations.of(context)!.korean;
       case 'zh-Hant':
         return AppLocalizations.of(context)!.chineseTraditional;
+      case 'pt-BR':
+        return AppLocalizations.of(context)!.portugueseBrazilian;
       default:
         if (normalizedCode == 'zh-hant') {
           return AppLocalizations.of(context)!.chineseTraditional;
@@ -1801,6 +1803,9 @@ class AppCustomizationPage extends ConsumerWidget {
         }
         if (normalizedCode == 'ko') {
           return AppLocalizations.of(context)!.korean;
+        }
+        if (normalizedCode == 'pt-br') {
+          return AppLocalizations.of(context)!.portugueseBrazilian;
         }
         return AppLocalizations.of(context)!.system;
     }
@@ -2066,6 +2071,13 @@ class AppCustomizationPage extends ConsumerWidget {
                     ? const Icon(Icons.check)
                     : null,
                 onTap: () => Navigator.pop(context, 'ko'),
+              ),
+              ListTile(
+                title: Text(AppLocalizations.of(context)!.portugueseBrazilian),
+                trailing: normalizedCurrent == 'pt-BR'
+                    ? const Icon(Icons.check)
+                    : null,
+                onTap: () => Navigator.pop(context, 'pt-BR'),
               ),
               const SizedBox(height: Spacing.sm),
             ],
