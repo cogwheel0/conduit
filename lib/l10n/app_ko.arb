@@ -289,6 +289,7 @@
   "chineseSimplified": "중국어(간체)",
   "chineseTraditional": "중국어(번체)",
   "korean": "한국어",
+  "portugueseBrazilian": "포르투갈어(브라질)",
   "deleteMessagesTitle": "메시지 삭제",
   "deleteMessagesMessage": "{count}개의 메시지를 삭제하시겠습니까?",
   "@deleteMessagesMessage": {

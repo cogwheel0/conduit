@@ -30,6 +30,7 @@
 		<string>ru</string>
 		<string>zh-Hans</string>
 		<string>zh-Hant</string>
+		<string>pt-BR</string>
 	</array>
 	<key>CFBundleName</key>
 	<string>conduit</string>

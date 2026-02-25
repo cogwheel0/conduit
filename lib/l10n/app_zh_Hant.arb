@@ -181,6 +181,7 @@
   "chineseSimplified": "簡體中文",
   "chineseTraditional": "繁體中文",
   "korean": "한국어",
+  "portugueseBrazilian": "葡萄牙語（巴西）",
   "deleteMessagesTitle": "刪除消息",
   "deleteMessagesMessage": "刪除 {count} 條消息？",
   "@deleteMessagesMessage": {
