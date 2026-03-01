@@ -31,7 +31,6 @@ dependencies:
   
   # UI Components - Markdown Rendering
   cached_network_image: ^3.3.1
-  gpt_markdown: ^1.1.4
   flutter_math_fork: ^0.7.2
   markdown: ^7.3.0
   webview_flutter: ^4.7.0

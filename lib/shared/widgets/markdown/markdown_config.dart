@@ -9,8 +9,6 @@ import 'package:flutter_highlight/flutter_highlight.dart';
 import 'package:flutter_highlight/themes/atom-one-dark.dart';
 import 'package:flutter_highlight/themes/github.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_math_fork/flutter_math.dart';
-import 'package:gpt_markdown/gpt_markdown.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
@@ -25,75 +23,8 @@ typedef MarkdownLinkTapCallback = void Function(String url, String title);
 class ConduitMarkdown {
   const ConduitMarkdown._();
 
-  static Widget build({
-    required BuildContext context,
-    required String data,
-    MarkdownLinkTapCallback? onTapLink,
-    Widget Function(Uri uri, String? title, String? alt)? imageBuilderOverride,
-  }) {
-    final theme = context.conduitTheme;
-    final material = Theme.of(context);
-
-    final baseTextStyle = AppTypography.bodyMediumStyle.copyWith(
-      color: theme.textPrimary,
-      height: 1.45,
-    );
-
-    final gptThemeData = GptMarkdownThemeData(
-      brightness: material.brightness,
-      h1: AppTypography.headlineLargeStyle.copyWith(color: theme.textPrimary),
-      h2: AppTypography.headlineMediumStyle.copyWith(color: theme.textPrimary),
-      h3: AppTypography.headlineSmallStyle.copyWith(color: theme.textPrimary),
-      h4: AppTypography.bodyLargeStyle.copyWith(color: theme.textPrimary),
-      h5: baseTextStyle.copyWith(fontWeight: FontWeight.w600),
-      h6: AppTypography.bodySmallStyle.copyWith(color: theme.textSecondary),
-      linkColor: material.colorScheme.primary,
-      linkHoverColor: material.colorScheme.primary.withValues(alpha: 0.7),
-      hrLineColor: theme.dividerColor,
-      hrLineThickness: BorderWidth.small,
-      highlightColor: material.colorScheme.primary.withValues(alpha: 0.2),
-    );
-
-    return GptMarkdownTheme(
-      gptThemeData: gptThemeData,
-      child: GptMarkdown(
-        data,
-        style: baseTextStyle,
-        useDollarSignsForLatex: true,
-        onLinkTap: onTapLink,
-        codeBuilder: (context, language, code, closed) => buildCodeBlock(
-          context: context,
-          code: code,
-          language: language,
-          theme: theme,
-        ),
-        latexBuilder: (context, tex, textStyle, isInline) {
-          final math = Math.tex(tex, textStyle: textStyle);
-          if (isInline) return math;
-          return SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: math,
-          );
-        },
-        imageBuilder: (context, url) {
-          final uri = Uri.tryParse(url);
-          if (uri == null) {
-            return buildImageError(context, theme);
-          }
-          if (imageBuilderOverride != null) {
-            return imageBuilderOverride(uri, null, null);
-          }
-          return buildImage(context, uri, theme);
-        },
-      ),
-    );
-  }
-
   /// Builds a syntax-highlighted code block with a
   /// language header and copy button.
-  ///
-  /// Used by both the legacy [GptMarkdown] pipeline and
-  /// the new custom [BlockRenderer].
   static Widget buildCodeBlock({
     required BuildContext context,
     required String code,
@@ -669,9 +600,6 @@ class _CollapseToggle extends StatelessWidget {
 }
 
 /// Code block header with language label and copy button.
-///
-/// Shared by both the legacy [GptMarkdown] path and the
-/// new custom markdown renderer.
 class CodeBlockHeader extends StatefulWidget {
   /// Creates a code block header.
   const CodeBlockHeader({
