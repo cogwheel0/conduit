@@ -19,13 +19,17 @@ import 'markdown_style.dart';
 ///    [InlineSpan] trees, restoring LaTeX placeholders
 ///    as widget spans.
 ///
+/// The widget caches its parsed AST and only re-parses
+/// when [data] changes, avoiding unnecessary
+/// [TapGestureRecognizer] allocations during streaming.
+///
 /// ```dart
 /// ConduitMarkdownWidget(
 ///   data: '# Hello\n\nSome **bold** text.',
 ///   onLinkTap: (url, title) => launchUrl(Uri.parse(url)),
 /// )
 /// ```
-class ConduitMarkdownWidget extends StatelessWidget {
+class ConduitMarkdownWidget extends StatefulWidget {
   /// Creates a markdown rendering widget.
   ///
   /// [data] is the raw markdown string. [onLinkTap] is
@@ -48,33 +52,65 @@ class ConduitMarkdownWidget extends StatelessWidget {
   final ImageBuilder? imageBuilder;
 
   @override
-  Widget build(BuildContext context) {
-    final style = ConduitMarkdownStyle.fromTheme(context);
+  State<ConduitMarkdownWidget> createState() =>
+      _ConduitMarkdownWidgetState();
+}
 
-    final latexPreprocessor = LatexPreprocessor();
-    final preprocessed = latexPreprocessor.extract(data);
+class _ConduitMarkdownWidgetState
+    extends State<ConduitMarkdownWidget> {
+  LatexPreprocessor _latexPreprocessor = LatexPreprocessor();
+  InlineRenderer? _inlineRenderer;
+  List<md.Node> _nodes = [];
+  String _cachedData = '';
+
+  @override
+  void dispose() {
+    _inlineRenderer?.disposeRecognizers();
+    super.dispose();
+  }
+
+  /// Parses the markdown [data] into an AST, caching the
+  /// result. Only re-parses when [data] differs from the
+  /// previously cached value.
+  void _ensureParsed(String data) {
+    if (data == _cachedData && _nodes.isNotEmpty) return;
+
+    _inlineRenderer?.disposeRecognizers();
+    _cachedData = data;
+
+    _latexPreprocessor = LatexPreprocessor();
+    final preprocessed = _latexPreprocessor.extract(data);
 
     final document = md.Document(
       extensionSet: md.ExtensionSet.gitHubWeb,
       encodeHtml: false,
     );
-    final nodes = document.parse(preprocessed);
+    _nodes = document.parse(preprocessed);
+  }
 
-    final inlineRenderer = InlineRenderer(
+  @override
+  Widget build(BuildContext context) {
+    final style =
+        ConduitMarkdownStyle.fromTheme(context);
+
+    _ensureParsed(widget.data);
+
+    _inlineRenderer?.disposeRecognizers();
+    _inlineRenderer = InlineRenderer(
       style,
-      latexPreprocessor,
-      onLinkTap,
+      _latexPreprocessor,
+      widget.onLinkTap,
     );
 
     final blockRenderer = BlockRenderer(
       context,
       style,
-      inlineRenderer,
-      latexPreprocessor,
-      onLinkTap,
-      imageBuilder,
+      _inlineRenderer!,
+      _latexPreprocessor,
+      widget.onLinkTap,
+      widget.imageBuilder,
     );
 
-    return blockRenderer.renderBlocks(nodes);
+    return blockRenderer.renderBlocks(_nodes);
   }
 }

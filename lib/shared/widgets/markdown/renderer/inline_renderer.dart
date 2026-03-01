@@ -47,6 +47,15 @@ class InlineRenderer {
   List<GestureRecognizer> get recognizers =>
       List.unmodifiable(_recognizers);
 
+  /// Disposes all gesture recognizers created during
+  /// rendering and clears the internal list.
+  void disposeRecognizers() {
+    for (final recognizer in _recognizers) {
+      recognizer.dispose();
+    }
+    _recognizers.clear();
+  }
+
   /// Renders a list of inline [nodes] into an
   /// [InlineSpan].
   ///

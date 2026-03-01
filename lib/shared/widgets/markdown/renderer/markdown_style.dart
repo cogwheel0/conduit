@@ -149,7 +149,6 @@ class ConduitMarkdownStyle {
       ),
       blockquoteText: bodyStyle.copyWith(
         color: theme.textSecondary,
-        fontStyle: FontStyle.italic,
       ),
       tableHeader: TextStyle(
         fontSize: AppTypography.bodySmall,

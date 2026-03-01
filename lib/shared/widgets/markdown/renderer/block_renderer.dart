@@ -476,6 +476,11 @@ class BlockRenderer {
           ),
         );
       }
+      // Truncate extra cells if row is longer than
+      // header to avoid DataTable assertion errors.
+      if (cells.length > columnCount) {
+        cells.removeRange(columnCount, cells.length);
+      }
       // Pad with empty cells if row is shorter than
       // header.
       while (cells.length < columnCount) {
@@ -622,19 +627,29 @@ class BlockRenderer {
     };
   }
 
+  /// Known alert marker strings used in GitHub-style
+  /// blockquote alerts.
+  static const _alertMarkers = [
+    '[!NOTE]',
+    '[!TIP]',
+    '[!IMPORTANT]',
+    '[!WARNING]',
+    '[!CAUTION]',
+  ];
+
   String? _extractAlertTitle(
     md.Element paragraph,
     String type,
   ) {
-    final text = paragraph.textContent.trim();
-    final markers = [
-      '[!NOTE]',
-      '[!TIP]',
-      '[!IMPORTANT]',
-      '[!WARNING]',
-      '[!CAUTION]',
-    ];
-    for (final marker in markers) {
+    final children = paragraph.children;
+    if (children == null || children.isEmpty) return null;
+
+    final firstChild = children.first;
+    final text = firstChild is md.Text
+        ? firstChild.text.trim()
+        : paragraph.textContent.trim();
+
+    for (final marker in _alertMarkers) {
       if (text.startsWith(marker)) {
         return marker
             .replaceAll('[!', '')
@@ -644,25 +659,30 @@ class BlockRenderer {
     return null;
   }
 
+  /// Strips the alert marker from the first text node of
+  /// [paragraph] and returns the remaining content as a
+  /// new paragraph element, preserving inline formatting
+  /// (bold, italic, links) in subsequent child nodes.
   md.Element? _remainingAlertContent(
     md.Element paragraph,
   ) {
-    final text = paragraph.textContent.trim();
-    final markers = [
-      '[!NOTE]',
-      '[!TIP]',
-      '[!IMPORTANT]',
-      '[!WARNING]',
-      '[!CAUTION]',
-    ];
-    for (final marker in markers) {
+    final children = paragraph.children;
+    if (children == null || children.isEmpty) return null;
+
+    final firstChild = children.first;
+    if (firstChild is! md.Text) return paragraph;
+
+    final text = firstChild.text.trim();
+    for (final marker in _alertMarkers) {
       if (text.startsWith(marker)) {
         final remaining =
             text.substring(marker.length).trim();
-        if (remaining.isNotEmpty) {
-          return md.Element.text('p', remaining);
-        }
-        return null;
+        final newChildren = <md.Node>[
+          if (remaining.isNotEmpty) md.Text(remaining),
+          ...children.skip(1),
+        ];
+        if (newChildren.isEmpty) return null;
+        return md.Element('p', newChildren);
       }
     }
     // No marker found; return the whole paragraph.
