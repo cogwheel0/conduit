@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:markdown/markdown.dart' as md;
 
+import '../../../theme/theme_extensions.dart';
+import '../markdown_config.dart';
 import 'inline_renderer.dart';
 import 'latex_preprocessor.dart';
 import 'markdown_style.dart';
@@ -179,34 +181,22 @@ class BlockRenderer {
 
   Widget _renderCodeBlock(md.Element element) {
     final codeElement = _extractCodeChild(element);
-    // Language extracted for future syntax highlighting
-    // (Task 6).
-    _extractLanguage(codeElement);
-    final code = (codeElement ?? element).textContent;
+    final language =
+        _extractLanguage(codeElement) ?? '';
+    final code =
+        (codeElement ?? element).textContent;
 
-    // Simple styled container for now; syntax
-    // highlighting will be wired in Task 6.
+    final conduitTheme = context.conduitTheme;
+
     return Padding(
       padding: EdgeInsets.symmetric(
         vertical: style.codeBlockSpacing,
       ),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: style.codeBlockBackground,
-          border: Border.all(color: style.codeBlockBorder),
-          borderRadius: BorderRadius.circular(
-            style.codeBlockRadius,
-          ),
-        ),
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: SelectableText(
-            code,
-            style: style.codeBlock,
-          ),
-        ),
+      child: ConduitMarkdown.buildCodeBlock(
+        context: context,
+        code: code,
+        language: language,
+        theme: conduitTheme,
       ),
     );
   }
@@ -699,26 +689,18 @@ class BlockRenderer {
       return imageBuilder!(src, alt, title);
     }
 
-    return Padding(
-      padding: EdgeInsets.symmetric(
-        vertical: style.paragraphSpacing,
-      ),
-      child: Image.network(
-        src,
-        errorBuilder: (_, _, _) => Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.broken_image, size: 16),
-            const SizedBox(width: 4),
-            Text(
-              alt ?? 'Image failed to load',
-              style: style.body.copyWith(
-                color: style.textSecondary,
-              ),
-            ),
-          ],
-        ),
-      ),
+    final uri = Uri.tryParse(src);
+    if (uri == null) {
+      return ConduitMarkdown.buildImageError(
+        context,
+        context.conduitTheme,
+      );
+    }
+
+    return ConduitMarkdown.buildImage(
+      context,
+      uri,
+      context.conduitTheme,
     );
   }
 

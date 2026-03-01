@@ -61,7 +61,7 @@ class ConduitMarkdown {
         style: baseTextStyle,
         useDollarSignsForLatex: true,
         onLinkTap: onTapLink,
-        codeBuilder: (context, language, code, closed) => _buildCodeBlock(
+        codeBuilder: (context, language, code, closed) => buildCodeBlock(
           context: context,
           code: code,
           language: language,
@@ -78,18 +78,23 @@ class ConduitMarkdown {
         imageBuilder: (context, url) {
           final uri = Uri.tryParse(url);
           if (uri == null) {
-            return _buildImageError(context, theme);
+            return buildImageError(context, theme);
           }
           if (imageBuilderOverride != null) {
             return imageBuilderOverride(uri, null, null);
           }
-          return _buildImage(context, uri, theme);
+          return buildImage(context, uri, theme);
         },
       ),
     );
   }
 
-  static Widget _buildCodeBlock({
+  /// Builds a syntax-highlighted code block with a
+  /// language header and copy button.
+  ///
+  /// Used by both the legacy [GptMarkdown] pipeline and
+  /// the new custom [BlockRenderer].
+  static Widget buildCodeBlock({
     required BuildContext context,
     required String code,
     required String language,
@@ -101,7 +106,7 @@ class ConduitMarkdown {
         : language.trim();
 
     // Map common language aliases to highlight.js recognized names
-    final highlightLanguage = _mapLanguage(normalizedLanguage);
+    final highlightLanguage = mapLanguage(normalizedLanguage);
 
     // Use Atom One Dark for dark mode, GitHub for light mode
     // These colors must match the highlight themes for visual consistency
@@ -119,7 +124,7 @@ class ConduitMarkdown {
       margin: const EdgeInsets.symmetric(vertical: Spacing.sm),
       decoration: BoxDecoration(
         color: codeBackground,
-        borderRadius: BorderRadius.circular(AppBorderRadius.sm),
+        borderRadius: BorderRadius.circular(AppBorderRadius.lg),
         border: Border.all(color: borderColor, width: BorderWidth.thin),
         boxShadow: isDark
             ? null
@@ -136,7 +141,7 @@ class ConduitMarkdown {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _CodeBlockHeader(
+          CodeBlockHeader(
             language: normalizedLanguage,
             backgroundColor: codeBackground,
             borderColor: borderColor,
@@ -178,8 +183,9 @@ class ConduitMarkdown {
     );
   }
 
-  /// Maps common language names/aliases to highlight.js recognized names.
-  static String _mapLanguage(String language) {
+  /// Maps common language names/aliases to
+  /// highlight.js recognized names.
+  static String mapLanguage(String language) {
     final lower = language.toLowerCase();
 
     // Common language aliases mapping
@@ -206,7 +212,12 @@ class ConduitMarkdown {
     return languageMap[lower] ?? lower;
   }
 
-  static Widget _buildImage(
+  /// Builds an image widget from a [uri].
+  ///
+  /// Supports `data:` URIs (base64), HTTP(S) network
+  /// images, and returns an error placeholder for
+  /// unsupported schemes.
+  static Widget buildImage(
     BuildContext context,
     Uri uri,
     ConduitThemeExtension theme,
@@ -217,7 +228,7 @@ class ConduitMarkdown {
     if (uri.scheme.isEmpty || uri.scheme == 'http' || uri.scheme == 'https') {
       return _buildNetworkImage(uri.toString(), context, theme);
     }
-    return _buildImageError(context, theme);
+    return buildImageError(context, theme);
   }
 
   static Widget _buildBase64Image(
@@ -246,13 +257,13 @@ class ConduitMarkdown {
             imageBytes,
             fit: BoxFit.contain,
             errorBuilder: (context, error, stackTrace) {
-              return _buildImageError(context, theme);
+              return buildImageError(context, theme);
             },
           ),
         ),
       );
     } catch (_) {
-      return _buildImageError(context, theme);
+      return buildImageError(context, theme);
     }
   }
 
@@ -283,7 +294,7 @@ class ConduitMarkdown {
           ),
         ),
       ),
-      errorWidget: (context, url, error) => _buildImageError(context, theme),
+      errorWidget: (context, url, error) => buildImageError(context, theme),
       imageBuilder: (context, imageProvider) => Container(
         margin: const EdgeInsets.symmetric(vertical: Spacing.sm),
         decoration: BoxDecoration(
@@ -294,7 +305,8 @@ class ConduitMarkdown {
     );
   }
 
-  static Widget _buildImageError(
+  /// Builds an error placeholder for broken images.
+  static Widget buildImageError(
     BuildContext context,
     ConduitThemeExtension theme,
   ) {
@@ -505,9 +517,14 @@ class ConduitMarkdown {
   }
 }
 
-/// Internal code block header with consistent styling.
-class _CodeBlockHeader extends StatefulWidget {
-  const _CodeBlockHeader({
+/// Code block header with language label and copy button.
+///
+/// Shared by both the legacy [GptMarkdown] path and the
+/// new custom markdown renderer.
+class CodeBlockHeader extends StatefulWidget {
+  /// Creates a code block header.
+  const CodeBlockHeader({
+    super.key,
     required this.language,
     required this.backgroundColor,
     required this.borderColor,
@@ -522,10 +539,10 @@ class _CodeBlockHeader extends StatefulWidget {
   final VoidCallback onCopy;
 
   @override
-  State<_CodeBlockHeader> createState() => _CodeBlockHeaderState();
+  State<CodeBlockHeader> createState() => _CodeBlockHeaderState();
 }
 
-class _CodeBlockHeaderState extends State<_CodeBlockHeader> {
+class _CodeBlockHeaderState extends State<CodeBlockHeader> {
   bool _isHovering = false;
   bool _isCopied = false;
 

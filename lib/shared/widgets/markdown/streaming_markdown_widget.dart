@@ -6,6 +6,8 @@ import '../../theme/theme_extensions.dart';
 import 'citation_badge.dart';
 import 'markdown_config.dart';
 import 'markdown_preprocessor.dart';
+import 'renderer/block_renderer.dart';
+import 'renderer/conduit_markdown_widget.dart';
 
 // Pre-compiled regex for mermaid diagram detection (performance optimization)
 final _mermaidRegex = RegExp(r'```mermaid\s*([\s\S]*?)```', multiLine: true);
@@ -37,19 +39,34 @@ class StreamingMarkdownWidget extends StatelessWidget {
   /// Callback when a source badge is tapped.
   final void Function(int sourceIndex)? onSourceTap;
 
+  /// Adapts the legacy [imageBuilderOverride] callback
+  /// to the [ImageBuilder] signature used by the custom
+  /// renderer.
+  ImageBuilder? _adaptImageBuilder() {
+    final override = imageBuilderOverride;
+    if (override == null) return null;
+    return (String src, String? alt, String? title) {
+      final uri = Uri.tryParse(src);
+      if (uri == null) return const SizedBox.shrink();
+      return override(uri, title, alt);
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     if (content.trim().isEmpty) {
       return const SizedBox.shrink();
     }
 
-    final normalized = ConduitMarkdownPreprocessor.normalize(content);
+    final normalized =
+        ConduitMarkdownPreprocessor.normalize(content);
 
     // Collect all special blocks (Mermaid and ChartJS)
     final specialBlocks = <_SpecialBlock>[];
 
     // Find mermaid blocks
-    for (final match in _mermaidRegex.allMatches(normalized)) {
+    for (final match
+        in _mermaidRegex.allMatches(normalized)) {
       final code = match.group(1)?.trim() ?? '';
       if (code.isNotEmpty) {
         specialBlocks.add(
@@ -64,9 +81,11 @@ class StreamingMarkdownWidget extends StatelessWidget {
     }
 
     // Find HTML blocks that contain ChartJS
-    for (final match in _htmlBlockRegex.allMatches(normalized)) {
+    for (final match
+        in _htmlBlockRegex.allMatches(normalized)) {
       final html = match.group(1)?.trim() ?? '';
-      if (html.isNotEmpty && ConduitMarkdown.containsChartJs(html)) {
+      if (html.isNotEmpty &&
+          ConduitMarkdown.containsChartJs(html)) {
         specialBlocks.add(
           _SpecialBlock(
             start: match.start,
@@ -79,10 +98,15 @@ class StreamingMarkdownWidget extends StatelessWidget {
     }
 
     // Sort by position
-    specialBlocks.sort((a, b) => a.start.compareTo(b.start));
+    specialBlocks.sort(
+      (a, b) => a.start.compareTo(b.start),
+    );
 
     Widget buildMarkdown(String data) {
-      return _buildMarkdownWithCitations(context, data);
+      return _buildMarkdownWithCitations(
+        context,
+        data,
+      );
     }
 
     Widget result;
@@ -96,7 +120,10 @@ class StreamingMarkdownWidget extends StatelessWidget {
         // Skip overlapping blocks
         if (block.start < currentIndex) continue;
 
-        final before = normalized.substring(currentIndex, block.start);
+        final before = normalized.substring(
+          currentIndex,
+          block.start,
+        );
         if (before.trim().isNotEmpty) {
           children.add(buildMarkdown(before));
         }
@@ -104,11 +131,17 @@ class StreamingMarkdownWidget extends StatelessWidget {
         switch (block.type) {
           case _BlockType.mermaid:
             children.add(
-              ConduitMarkdown.buildMermaidBlock(context, block.content),
+              ConduitMarkdown.buildMermaidBlock(
+                context,
+                block.content,
+              ),
             );
           case _BlockType.chartJs:
             children.add(
-              ConduitMarkdown.buildChartJsBlock(context, block.content),
+              ConduitMarkdown.buildChartJsBlock(
+                context,
+                block.content,
+              ),
             );
         }
 
@@ -126,8 +159,9 @@ class StreamingMarkdownWidget extends StatelessWidget {
       );
     }
 
-    // Only wrap in SelectionArea when not streaming to avoid concurrent
-    // modification errors in Flutter's selection system during rapid updates
+    // Only wrap in SelectionArea when not streaming to
+    // avoid concurrent modification errors in Flutter's
+    // selection system during rapid updates.
     if (isStreaming) {
       return result;
     }
@@ -135,28 +169,29 @@ class StreamingMarkdownWidget extends StatelessWidget {
     return SelectionArea(child: result);
   }
 
-  /// Builds markdown content with inline citation badges.
+  /// Builds markdown with inline citation badges.
   ///
-  /// Citations like [1], [2] are rendered as clickable badges inline
-  /// within the text, matching OpenWebUI's behavior.
-  Widget _buildMarkdownWithCitations(BuildContext context, String data) {
-    // If no sources provided, render plain markdown
+  /// Citations like [1], [2] are rendered as clickable
+  /// badges inline with the text.
+  Widget _buildMarkdownWithCitations(
+    BuildContext context,
+    String data,
+  ) {
+    // If no sources, render plain markdown
     if (sources == null || sources!.isEmpty) {
-      return ConduitMarkdown.build(
-        context: context,
+      return ConduitMarkdownWidget(
         data: data,
-        onTapLink: onTapLink,
-        imageBuilderOverride: imageBuilderOverride,
+        onLinkTap: onTapLink,
+        imageBuilder: _adaptImageBuilder(),
       );
     }
 
-    // Check if content has citations
+    // No citations present, render plain markdown
     if (!CitationParser.hasCitations(data)) {
-      return ConduitMarkdown.build(
-        context: context,
+      return ConduitMarkdownWidget(
         data: data,
-        onTapLink: onTapLink,
-        imageBuilderOverride: imageBuilderOverride,
+        onLinkTap: onTapLink,
+        imageBuilder: _adaptImageBuilder(),
       );
     }
 
@@ -171,10 +206,10 @@ class StreamingMarkdownWidget extends StatelessWidget {
   }
 }
 
-/// Widget that renders markdown with inline citation badges.
+/// Renders markdown with inline citation badges.
 ///
-/// Parses the markdown content, identifies citation patterns, and renders
-/// them as clickable badges inline with the text.
+/// Parses the markdown content, identifies citation
+/// patterns, and renders them as clickable badges inline.
 class _InlineCitationMarkdown extends StatelessWidget {
   const _InlineCitationMarkdown({
     required this.data,
@@ -188,20 +223,35 @@ class _InlineCitationMarkdown extends StatelessWidget {
   final List<ChatSourceReference> sources;
   final MarkdownLinkTapCallback? onTapLink;
   final void Function(int sourceIndex)? onSourceTap;
-  final Widget Function(Uri uri, String? title, String? alt)?
-  imageBuilderOverride;
+  final Widget Function(
+    Uri uri,
+    String? title,
+    String? alt,
+  )? imageBuilderOverride;
+
+  /// Adapts [imageBuilderOverride] to [ImageBuilder].
+  ImageBuilder? _adaptImageBuilder() {
+    final override = imageBuilderOverride;
+    if (override == null) return null;
+    return (String src, String? alt, String? title) {
+      final uri = Uri.tryParse(src);
+      if (uri == null) {
+        return const SizedBox.shrink();
+      }
+      return override(uri, title, alt);
+    };
+  }
 
   @override
   Widget build(BuildContext context) {
-    // Split content into lines/paragraphs for processing
-    final segments = _parseContentWithCitations(data);
+    final segments =
+        _parseContentWithCitations(data);
 
     if (segments.isEmpty) {
-      return ConduitMarkdown.build(
-        context: context,
+      return ConduitMarkdownWidget(
         data: data,
-        onTapLink: onTapLink,
-        imageBuilderOverride: imageBuilderOverride,
+        onLinkTap: onTapLink,
+        imageBuilder: _adaptImageBuilder(),
       );
     }
 
@@ -211,21 +261,25 @@ class _InlineCitationMarkdown extends StatelessWidget {
 
     for (final segment in segments) {
       if (segment.hasCitations) {
-        // Flush any accumulated non-citation content
+        // Flush accumulated non-citation content
         if (buffer.isNotEmpty) {
           children.add(
-            ConduitMarkdown.build(
-              context: context,
+            ConduitMarkdownWidget(
               data: buffer.toString(),
-              onTapLink: onTapLink,
-              imageBuilderOverride: imageBuilderOverride,
+              onLinkTap: onTapLink,
+              imageBuilder: _adaptImageBuilder(),
             ),
           );
           buffer.clear();
         }
 
-        // Render this segment with inline citations
-        children.add(_buildParagraphWithCitations(context, segment.text));
+        // Render segment with inline citations
+        children.add(
+          _buildParagraphWithCitations(
+            context,
+            segment.text,
+          ),
+        );
       } else {
         // Accumulate non-citation content
         if (buffer.isNotEmpty) {
@@ -238,11 +292,10 @@ class _InlineCitationMarkdown extends StatelessWidget {
     // Flush remaining content
     if (buffer.isNotEmpty) {
       children.add(
-        ConduitMarkdown.build(
-          context: context,
+        ConduitMarkdownWidget(
           data: buffer.toString(),
-          onTapLink: onTapLink,
-          imageBuilderOverride: imageBuilderOverride,
+          onLinkTap: onTapLink,
+          imageBuilder: _adaptImageBuilder(),
         ),
       );
     }
