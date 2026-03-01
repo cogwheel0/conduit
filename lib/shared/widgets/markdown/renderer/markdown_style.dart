@@ -175,16 +175,12 @@ class ConduitMarkdownStyle {
 
       // -- Colors --
       codeSpanTextColor: codeSpanText,
-      codeSpanBackgroundColor: dark
-          ? tokens.codeBackground
-          : tokens.codeBackground,
+      codeSpanBackgroundColor: tokens.codeBackground,
       codeBlockBackground: theme.codeBackground,
       codeBlockBorder: theme.codeBorder,
       blockquoteBorderColor: theme.dividerColor,
       tableBorderColor: theme.dividerColor,
-      tableHeaderBackground: dark
-          ? tokens.codeBackground
-          : tokens.codeBackground,
+      tableHeaderBackground: tokens.codeBackground,
       linkColor: theme.variant.primary,
       dividerColor: theme.dividerColor,
       textPrimary: theme.textPrimary,
