@@ -160,23 +160,16 @@ class ConduitMarkdown {
               );
             },
           ),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(
-              horizontal: Spacing.md,
-              vertical: Spacing.sm + 4,
+          _CodeBlockBody(
+            code: code,
+            highlightLanguage: highlightLanguage,
+            highlightTheme: highlightTheme,
+            codeStyle: AppTypography.codeStyle.copyWith(
+              fontFamily: AppTypography.monospaceFontFamily,
+              fontSize: 13,
+              height: 1.55,
             ),
-            child: HighlightView(
-              code,
-              language: highlightLanguage,
-              theme: highlightTheme,
-              padding: EdgeInsets.zero,
-              textStyle: AppTypography.codeStyle.copyWith(
-                fontFamily: AppTypography.monospaceFontFamily,
-                fontSize: 13,
-                height: 1.55,
-              ),
-            ),
+            isDark: isDark,
           ),
         ],
       ),
@@ -512,6 +505,164 @@ class ConduitMarkdown {
         l10n?.chartPreviewUnavailable ??
             'Chart preview is not available on this platform.',
         style: textStyle,
+      ),
+    );
+  }
+}
+
+/// Collapsible code block body with syntax highlighting.
+///
+/// When the code exceeds [collapseThreshold] lines, only the
+/// first [previewLines] are shown with a toggle to reveal the
+/// rest. Short code blocks render normally.
+class _CodeBlockBody extends StatefulWidget {
+  const _CodeBlockBody({
+    required this.code,
+    required this.highlightLanguage,
+    required this.highlightTheme,
+    required this.codeStyle,
+    required this.isDark,
+  });
+
+  final String code;
+  final String highlightLanguage;
+  final Map<String, TextStyle> highlightTheme;
+  final TextStyle codeStyle;
+  final bool isDark;
+
+  /// Lines above this count trigger collapse behavior.
+  static const collapseThreshold = 15;
+
+  /// Number of lines visible when collapsed.
+  static const previewLines = 10;
+
+  @override
+  State<_CodeBlockBody> createState() => _CodeBlockBodyState();
+}
+
+class _CodeBlockBodyState extends State<_CodeBlockBody> {
+  bool _isCollapsed = true;
+
+  @override
+  Widget build(BuildContext context) {
+    final lines = widget.code.split('\n');
+    final isCollapsible =
+        lines.length > _CodeBlockBody.collapseThreshold;
+    final displayCode = (isCollapsible && _isCollapsed)
+        ? lines
+            .take(_CodeBlockBody.previewLines)
+            .join('\n')
+        : widget.code;
+    final hiddenCount =
+        lines.length - _CodeBlockBody.previewLines;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(
+            horizontal: Spacing.md,
+            vertical: Spacing.sm + 4,
+          ),
+          child: HighlightView(
+            displayCode,
+            language: widget.highlightLanguage,
+            theme: widget.highlightTheme,
+            padding: EdgeInsets.zero,
+            textStyle: widget.codeStyle,
+          ),
+        ),
+        if (isCollapsible)
+          _CollapseToggle(
+            isCollapsed: _isCollapsed,
+            hiddenLineCount: hiddenCount,
+            isDark: widget.isDark,
+            onToggle: () {
+              setState(() => _isCollapsed = !_isCollapsed);
+            },
+          ),
+      ],
+    );
+  }
+}
+
+/// Toggle row for expanding or collapsing a code block.
+///
+/// Displays a chevron icon and descriptive text such as
+/// "Show N more lines" or "Show less", separated from the
+/// code by a subtle top border.
+class _CollapseToggle extends StatelessWidget {
+  const _CollapseToggle({
+    required this.isCollapsed,
+    required this.hiddenLineCount,
+    required this.isDark,
+    required this.onToggle,
+  });
+
+  final bool isCollapsed;
+  final int hiddenLineCount;
+  final bool isDark;
+  final VoidCallback onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    final labelColor = isDark
+        ? const Color(0xFF9DA5B4)
+        : const Color(0xFF57606A);
+    final borderColor = isDark
+        ? Colors.white.withValues(alpha: 0.08)
+        : Colors.black.withValues(alpha: 0.1);
+
+    return GestureDetector(
+      onTap: onToggle,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: Spacing.md,
+          vertical: Spacing.xs + 2,
+        ),
+        decoration: BoxDecoration(
+          border: Border(
+            top: BorderSide(
+              color: borderColor,
+              width: BorderWidth.thin,
+            ),
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AnimatedSwitcher(
+              duration: AnimationDuration.fast,
+              child: Icon(
+                isCollapsed
+                    ? Icons.expand_more_rounded
+                    : Icons.expand_less_rounded,
+                key: ValueKey(isCollapsed),
+                size: 16,
+                color: labelColor,
+              ),
+            ),
+            const SizedBox(width: Spacing.xs),
+            AnimatedSwitcher(
+              duration: AnimationDuration.fast,
+              child: Text(
+                isCollapsed
+                    ? 'Show $hiddenLineCount more lines'
+                    : 'Show less',
+                key: ValueKey(isCollapsed),
+                style: AppTypography.codeStyle.copyWith(
+                  color: labelColor,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
