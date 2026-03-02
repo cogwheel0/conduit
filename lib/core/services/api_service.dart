@@ -3522,6 +3522,7 @@ class ApiService {
         final StringBuffer reasoningBuffer = StringBuffer();
         String? pendingUsageHtml;
         bool firstContentEmitted = false;
+        bool sawEventContent = false;
         await for (final chunk in stream) {
           if (cancelToken.isCancelled) break;
           final decoded = utf8.decode(chunk);
@@ -3604,6 +3605,9 @@ class ApiService {
                       }
                     } else {
                       content = eventData['content']?.toString();
+                      if (content != null && content.isNotEmpty) {
+                        sawEventContent = true;
+                      }
                       final done = eventData['done'] == true;
                       if (done) {
                         // Emit any pending usage before closing
@@ -3618,7 +3622,7 @@ class ApiService {
                       }
                     }
                   }
-                } else {
+                } else if (!sawEventContent) {
                   // OpenAI format - check for reasoning_content first
                   final reasoningContent =
                       json['choices']?[0]?['delta']?['reasoning_content']
