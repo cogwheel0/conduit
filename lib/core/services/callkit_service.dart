@@ -203,10 +203,12 @@ class CallKitService {
         missedCallNotificationChannelName: 'Missed Call',
       ),
       ios: const IOSParams(
+        iconName: '',
         handleType: 'generic',
         supportsVideo: false,
         audioSessionMode: 'voiceChat',
-        audioSessionActive: true,
+        audioSessionActive: false,
+        configureAudioSession: false,
         audioSessionPreferredSampleRate: 44100.0,
         audioSessionPreferredIOBufferDuration: 0.005,
         supportsDTMF: true,

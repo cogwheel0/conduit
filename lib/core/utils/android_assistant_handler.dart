@@ -1,12 +1,11 @@
 import 'dart:async';
 import 'dart:io';
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as path;
 import '../../features/chat/providers/chat_providers.dart';
 import '../../features/chat/services/file_attachment_service.dart';
-import '../../features/chat/views/voice_call_page.dart';
+import '../../features/chat/voice_call/presentation/voice_call_launcher.dart';
 import '../services/navigation_service.dart';
 import '../../shared/services/tasks/task_queue.dart';
 import '../providers/app_providers.dart';
@@ -139,44 +138,9 @@ class AndroidAssistantHandler {
         DebugLogger.log('App not ready for voice call', scope: 'assistant');
         return;
       }
-
-      // Pre-warm socket connection before navigating to voice call.
-      // This reduces the chance of "websocket not connected" errors when
-      // opening voice call right after app start or from Android assistant.
-      final socketService = _ref.read(socketServiceProvider);
-      if (socketService != null && !socketService.isConnected) {
-        // Start connection attempt in parallel, don't wait for full connection
-        // The VoiceCallService.startCall() will wait with extended timeout
-        unawaited(socketService.connect());
-      }
-
-      // Navigate to chat if not already there
-      final isOnChatRoute = NavigationService.currentRoute == Routes.chat;
-      if (!isOnChatRoute) {
-        // Navigation will happen via auth state
-        return;
-      }
-
-      // Get the current BuildContext from the navigation service
-      final context = NavigationService.navigatorKey.currentContext;
-      if (context == null) {
-        DebugLogger.log(
-          'No context available for voice call navigation',
-          scope: 'assistant',
-        );
-        return;
-      }
-
-      // Dismiss keyboard before navigating
-      FocusScope.of(context).unfocus();
-
-      // Navigate to voice call page with new conversation flag
-      await Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (context) => const VoiceCallPage(startNewConversation: true),
-          fullscreenDialog: true,
-        ),
-      );
+      await _ref
+          .read(voiceCallLauncherProvider)
+          .launch(startNewConversation: true);
 
       DebugLogger.log('Voice call page launched', scope: 'assistant');
     } catch (e) {

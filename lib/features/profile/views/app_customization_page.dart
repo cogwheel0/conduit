@@ -1131,25 +1131,27 @@ class AppCustomizationPage extends ConsumerWidget {
                 subtitle: _ttsVoiceSubtitle(l10n, settings),
                 onTap: () => _showVoicePickerSheet(context, ref, settings),
               ),
-              const SizedBox(height: Spacing.md),
-              // Speech Rate Slider
-              _buildSliderTile(
-                context,
-                ref,
-                icon: UiUtils.platformIcon(
-                  ios: CupertinoIcons.speedometer,
-                  android: Icons.speed,
+              if (settings.ttsEngine == TtsEngine.device) ...[
+                const SizedBox(height: Spacing.md),
+                // Speech rate is device-only. Server TTS uses backend defaults.
+                _buildSliderTile(
+                  context,
+                  ref,
+                  icon: UiUtils.platformIcon(
+                    ios: CupertinoIcons.speedometer,
+                    android: Icons.speed,
+                  ),
+                  title: l10n.ttsSpeechRate,
+                  value: settings.ttsSpeechRate,
+                  min: 0.25,
+                  max: 2.0,
+                  divisions: 35,
+                  label: '${(settings.ttsSpeechRate * 100).round()}%',
+                  onChanged: (value) => ref
+                      .read(appSettingsProvider.notifier)
+                      .setTtsSpeechRate(value),
                 ),
-                title: l10n.ttsSpeechRate,
-                value: settings.ttsSpeechRate,
-                min: 0.25,
-                max: 2.0,
-                divisions: 35,
-                label: '${(settings.ttsSpeechRate * 100).round()}%',
-                onChanged: (value) => ref
-                    .read(appSettingsProvider.notifier)
-                    .setTtsSpeechRate(value),
-              ),
+              ],
               const SizedBox(height: Spacing.md),
               // Preview Button
               _CustomizationTile(

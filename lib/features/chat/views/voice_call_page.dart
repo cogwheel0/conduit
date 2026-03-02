@@ -2,16 +2,16 @@ import 'dart:async';
 import 'dart:io' show Platform;
 import 'dart:math' as math;
 
-import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/providers/app_providers.dart';
-import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
 import '../../../l10n/app_localizations.dart';
+import '../../../core/providers/app_providers.dart';
 import '../../../shared/widgets/conduit_components.dart';
-import '../providers/chat_providers.dart';
-import '../services/voice_call_service.dart';
+import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
+import '../voice_call/application/voice_call_controller.dart';
+import '../voice_call/domain/voice_call_models.dart';
 
 class VoiceCallPage extends ConsumerStatefulWidget {
   const VoiceCallPage({super.key, this.startNewConversation = false});
@@ -24,23 +24,14 @@ class VoiceCallPage extends ConsumerStatefulWidget {
 
 class _VoiceCallPageState extends ConsumerState<VoiceCallPage>
     with TickerProviderStateMixin {
-  VoiceCallService? _service;
-  StreamSubscription<VoiceCallState>? _stateSubscription;
-  StreamSubscription<String>? _transcriptSubscription;
-  StreamSubscription<String>? _responseSubscription;
-  StreamSubscription<int>? _intensitySubscription;
-
-  VoiceCallState _currentState = VoiceCallState.idle;
-  String _currentTranscript = '';
-  String _currentResponse = '';
-  int _currentIntensity = 0;
-
-  late AnimationController _pulseController;
-  late AnimationController _waveController;
+  late final AnimationController _pulseController;
+  late final AnimationController _waveController;
+  late final VoiceCallController _controller;
 
   @override
   void initState() {
     super.initState();
+    _controller = ref.read(voiceCallControllerProvider.notifier);
 
     _pulseController = AnimationController(
       vsync: this,
@@ -53,95 +44,15 @@ class _VoiceCallPageState extends ConsumerState<VoiceCallPage>
     )..repeat();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _initializeCall();
+      unawaited(
+        _controller.start(startNewConversation: widget.startNewConversation),
+      );
     });
-  }
-
-  Future<void> _initializeCall() async {
-    try {
-      // Start a new conversation if requested
-      if (widget.startNewConversation) {
-        startNewChat(ref);
-      }
-
-      _service = ref.read(voiceCallServiceProvider);
-
-      // Subscribe to service streams
-      _stateSubscription = _service!.stateStream.listen((state) {
-        if (mounted) {
-          setState(() {
-            _currentState = state;
-          });
-        }
-      });
-
-      _transcriptSubscription = _service!.transcriptStream.listen((text) {
-        if (mounted) {
-          setState(() {
-            _currentTranscript = text;
-          });
-        }
-      });
-
-      _responseSubscription = _service!.responseStream.listen((text) {
-        if (mounted) {
-          setState(() {
-            _currentResponse = text;
-          });
-        }
-      });
-
-      _intensitySubscription = _service!.intensityStream.listen((intensity) {
-        if (mounted) {
-          setState(() {
-            _currentIntensity = intensity;
-          });
-        }
-      });
-
-      // Initialize and start the call
-      await _service!.initialize();
-      final activeConversation = ref.read(activeConversationProvider);
-      await _service!.startCall(activeConversation?.id);
-    } catch (e) {
-      if (mounted) {
-        _showErrorDialog(e.toString());
-      }
-    }
-  }
-
-  void _showErrorDialog(String message) {
-    showDialog(
-      context: context,
-      builder: (ctx) {
-        final dialogL10n = AppLocalizations.of(ctx)!;
-        return AlertDialog(
-          title: Text(dialogL10n.error),
-          content: Text(message),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(ctx).pop();
-                if (mounted) {
-                  Navigator.of(context).pop();
-                }
-              },
-              child: Text(dialogL10n.ok),
-            ),
-          ],
-        );
-      },
-    );
   }
 
   @override
   void dispose() {
-    // Cancel subscriptions (fire and forget)
-    _stateSubscription?.cancel();
-    _transcriptSubscription?.cancel();
-    _responseSubscription?.cancel();
-    _intensitySubscription?.cancel();
-    _service?.stopCall();
+    unawaited(_controller.stop());
     _pulseController.dispose();
     _waveController.dispose();
     super.dispose();
@@ -149,22 +60,22 @@ class _VoiceCallPageState extends ConsumerState<VoiceCallPage>
 
   @override
   Widget build(BuildContext context) {
+    final snapshot = ref.watch(voiceCallControllerProvider);
     final selectedModel = ref.watch(selectedModelProvider);
-    final primaryColor = Theme.of(context).colorScheme.primary;
-    final backgroundColor = Theme.of(context).scaffoldBackgroundColor;
-    final textColor = Theme.of(context).colorScheme.onSurface;
     final l10n = AppLocalizations.of(context)!;
+    final primaryColor = Theme.of(context).colorScheme.primary;
+    final textColor = Theme.of(context).colorScheme.onSurface;
 
     return Scaffold(
-      backgroundColor: backgroundColor,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       extendBodyBehindAppBar: true,
       appBar: FloatingAppBar(
         leading: FloatingAppBarIconButton(
           icon: Platform.isIOS ? CupertinoIcons.xmark : Icons.close,
           onTap: () async {
-            await _service?.stopCall();
-            if (!context.mounted) return;
-            Navigator.of(context).pop();
+            await _controller.stop();
+            if (!mounted) return;
+            Navigator.of(this.context).pop();
           },
         ),
         title: FloatingAppBarTitle(text: l10n.voiceCallTitle),
@@ -172,65 +83,62 @@ class _VoiceCallPageState extends ConsumerState<VoiceCallPage>
       body: SafeArea(
         child: Column(
           children: [
+            if (snapshot.failure != null)
+              _buildBanner(context, snapshot.failure!.message),
             Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  // Model name
-                  Text(
-                    selectedModel?.name ?? '',
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: textColor.withValues(alpha: 0.7),
-                    ),
-                  ),
-                  const SizedBox(height: 48),
-
-                  // Animated waveform/status indicator
-                  _buildStatusIndicator(primaryColor, textColor),
-
-                  const SizedBox(height: 48),
-
-                  // State label
-                  Text(
-                    _getStateLabel(),
-                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-
-                  const SizedBox(height: 32),
-
-                  // Transcript or response text
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 32),
-                    child: _buildTextDisplay(textColor),
-                  ),
-
-                  // Error state help text
-                  if (_currentState == VoiceCallState.error)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 32,
-                        vertical: 16,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  return SingleChildScrollView(
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        minHeight: constraints.maxHeight,
+                        minWidth: constraints.maxWidth,
                       ),
-                      child: Text(
-                        l10n.voiceCallErrorHelp,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Theme.of(context).colorScheme.error,
-                          height: 1.5,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              selectedModel?.name ?? '',
+                              style: Theme.of(context).textTheme.bodyLarge
+                                  ?.copyWith(
+                                    color: textColor.withValues(alpha: 0.7),
+                                  ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              _formatElapsed(snapshot.elapsed),
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(
+                                    color: textColor.withValues(alpha: 0.6),
+                                  ),
+                            ),
+                            const SizedBox(height: 40),
+                            _buildStatusIndicator(
+                              snapshot,
+                              primaryColor,
+                              textColor,
+                            ),
+                            const SizedBox(height: 40),
+                            Text(
+                              _phaseLabel(snapshot.phase, l10n),
+                              style: Theme.of(context).textTheme.headlineMedium
+                                  ?.copyWith(fontWeight: FontWeight.w600),
+                            ),
+                            const SizedBox(height: 24),
+                            _buildTextDisplay(snapshot, textColor),
+                          ],
                         ),
                       ),
                     ),
-                ],
+                  );
+                },
               ),
             ),
-
-            // Control buttons
             Padding(
-              padding: const EdgeInsets.all(32),
-              child: _buildControlButtons(primaryColor, l10n),
+              padding: const EdgeInsets.all(24),
+              child: _buildControlButtons(context, snapshot, l10n),
             ),
           ],
         ),
@@ -238,9 +146,28 @@ class _VoiceCallPageState extends ConsumerState<VoiceCallPage>
     );
   }
 
-  Widget _buildStatusIndicator(Color primaryColor, Color textColor) {
-    if (_currentState == VoiceCallState.listening) {
-      // Animated waveform bars
+  Widget _buildBanner(BuildContext context, String text) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.errorContainer,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(color: Theme.of(context).colorScheme.onErrorContainer),
+      ),
+    );
+  }
+
+  Widget _buildStatusIndicator(
+    VoiceCallSnapshot snapshot,
+    Color primaryColor,
+    Color textColor,
+  ) {
+    if (snapshot.phase == CallPhase.listening) {
       return SizedBox(
         height: 120,
         child: Row(
@@ -255,7 +182,7 @@ class _VoiceCallPageState extends ConsumerState<VoiceCallPage>
                 final height =
                     20.0 +
                     (math.sin(animation * math.pi * 2) * 30.0).abs() +
-                    (_currentIntensity * 4.0);
+                    (snapshot.intensity * 4.0);
 
                 return Container(
                   margin: const EdgeInsets.symmetric(horizontal: 4),
@@ -271,8 +198,9 @@ class _VoiceCallPageState extends ConsumerState<VoiceCallPage>
           }),
         ),
       );
-    } else if (_currentState == VoiceCallState.speaking) {
-      // Pulsing circle for speaking
+    }
+
+    if (snapshot.phase == CallPhase.speaking) {
       return AnimatedBuilder(
         animation: _pulseController,
         builder: (context, child) {
@@ -298,145 +226,196 @@ class _VoiceCallPageState extends ConsumerState<VoiceCallPage>
           );
         },
       );
-    } else if (_currentState == VoiceCallState.processing) {
-      // Spinning loader for processing
+    }
+
+    if (snapshot.phase == CallPhase.connecting ||
+        snapshot.phase == CallPhase.starting) {
       return SizedBox(
-        width: 120,
-        height: 120,
-        child: CircularProgressIndicator(
-          strokeWidth: 3,
-          valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
-        ),
-      );
-    } else {
-      // Default microphone icon
-      return Container(
-        width: 120,
-        height: 120,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: textColor.withValues(alpha: 0.1),
-        ),
-        child: Icon(
-          CupertinoIcons.mic_fill,
-          size: 48,
-          color: textColor.withValues(alpha: 0.5),
+        width: 96,
+        height: 96,
+        child: Center(
+          child: SizedBox(
+            width: 34,
+            height: 34,
+            child: CircularProgressIndicator(
+              strokeWidth: 2.5,
+              valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+            ),
+          ),
         ),
       );
     }
-  }
 
-  Widget _buildTextDisplay(Color textColor) {
-    String displayText = '';
-
-    if (_currentState == VoiceCallState.listening &&
-        _currentTranscript.isNotEmpty) {
-      displayText = _currentTranscript;
-    } else if (_currentState == VoiceCallState.speaking &&
-        _currentResponse.isNotEmpty) {
-      // Convert markdown to clean text for display
-      displayText = ConduitMarkdownPreprocessor.toPlainText(_currentResponse);
-    }
-
-    if (displayText.isEmpty) {
-      return const SizedBox.shrink();
+    if (snapshot.phase == CallPhase.thinking) {
+      return AnimatedBuilder(
+        animation: _pulseController,
+        builder: (context, child) {
+          final alpha = 0.1 + (_pulseController.value * 0.14);
+          return Container(
+            width: 96,
+            height: 96,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: primaryColor.withValues(alpha: alpha),
+              border: Border.all(
+                color: primaryColor.withValues(alpha: 0.38),
+                width: 1.5,
+              ),
+            ),
+            child: Center(child: _buildThinkingDots(primaryColor)),
+          );
+        },
+      );
     }
 
     return Container(
-      constraints: const BoxConstraints(maxHeight: 200),
+      width: 120,
+      height: 120,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: textColor.withValues(alpha: 0.1),
+      ),
+      child: Icon(
+        snapshot.isMuted
+            ? CupertinoIcons.mic_slash_fill
+            : CupertinoIcons.mic_fill,
+        size: 48,
+        color: textColor.withValues(alpha: 0.5),
+      ),
+    );
+  }
+
+  Widget _buildThinkingDots(Color color) {
+    return AnimatedBuilder(
+      animation: _waveController,
+      builder: (context, child) {
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: List.generate(3, (index) {
+            final phase = (_waveController.value + (index * 0.18)) % 1.0;
+            final scale = 0.7 + (math.sin(phase * math.pi) * 0.5);
+            final opacity = 0.45 + (math.sin(phase * math.pi) * 0.55);
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 3),
+              child: Transform.scale(
+                scale: scale,
+                child: Container(
+                  width: 7,
+                  height: 7,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: color.withValues(alpha: opacity.clamp(0.2, 1.0)),
+                  ),
+                ),
+              ),
+            );
+          }),
+        );
+      },
+    );
+  }
+
+  Widget _buildTextDisplay(VoiceCallSnapshot snapshot, Color textColor) {
+    final showTranscript = snapshot.phase == CallPhase.listening;
+    final text = showTranscript
+        ? snapshot.transcript
+        : ConduitMarkdownPreprocessor.toPlainText(snapshot.response);
+    if (text.trim().isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxHeight: 220),
       child: SingleChildScrollView(
         child: Text(
-          displayText,
+          text,
           textAlign: TextAlign.center,
           style: TextStyle(
             fontSize: 16,
-            color: textColor.withValues(alpha: 0.8),
-            height: 1.5,
+            color: textColor.withValues(alpha: 0.82),
+            height: 1.45,
           ),
         ),
       ),
     );
   }
 
-  Widget _buildControlButtons(Color primaryColor, AppLocalizations l10n) {
+  Widget _buildControlButtons(
+    BuildContext context,
+    VoiceCallSnapshot snapshot,
+    AppLocalizations l10n,
+  ) {
     final errorColor = Theme.of(context).colorScheme.error;
     final warningColor = Colors.orange;
     final successColor = Theme.of(context).colorScheme.secondary;
 
-    final buttons = <Widget>[];
+    final buttons = <Widget>[
+      _buildActionButton(
+        icon: snapshot.isMuted
+            ? CupertinoIcons.mic_fill
+            : CupertinoIcons.mic_slash_fill,
+        label: snapshot.isMuted ? 'Unmute' : 'Mute',
+        color: snapshot.isMuted ? successColor : warningColor,
+        onPressed: () async {
+          await _controller.toggleMute();
+        },
+      ),
+    ];
 
-    // Retry button (only show in error state)
-    if (_currentState == VoiceCallState.error) {
-      buttons.add(
-        _buildActionButton(
-          icon: CupertinoIcons.arrow_clockwise,
-          label: l10n.retry,
-          color: primaryColor,
-          onPressed: () async {
-            await _initializeCall();
-          },
-        ),
-      );
-    }
-
-    final canPause = _currentState == VoiceCallState.listening;
-    final canResume = _currentState == VoiceCallState.paused;
-
-    if (canPause) {
+    if (snapshot.canPause) {
       buttons.add(
         _buildActionButton(
           icon: CupertinoIcons.pause_fill,
           label: l10n.voiceCallPause,
           color: warningColor,
           onPressed: () async {
-            await _service?.pauseListening();
+            await _controller.pause();
           },
         ),
       );
-    } else if (canResume) {
+    } else if (snapshot.canResume) {
       buttons.add(
         _buildActionButton(
           icon: CupertinoIcons.play_fill,
           label: l10n.voiceCallResume,
           color: successColor,
           onPressed: () async {
-            await _service?.resumeListening();
+            await _controller.resume();
           },
         ),
       );
     }
 
-    // Cancel speaking button (only show when speaking)
-    if (_currentState == VoiceCallState.speaking) {
+    if (snapshot.phase == CallPhase.speaking) {
       buttons.add(
         _buildActionButton(
           icon: CupertinoIcons.stop_fill,
           label: l10n.voiceCallStop,
           color: warningColor,
           onPressed: () async {
-            await _service?.cancelSpeaking();
+            await _controller.cancelAssistantSpeech();
           },
         ),
       );
     }
 
-    // End call button
     buttons.add(
       _buildActionButton(
         icon: CupertinoIcons.phone_down_fill,
         label: l10n.voiceCallEnd,
         color: errorColor,
         onPressed: () async {
-          await _service?.stopCall();
-          if (mounted) {
-            Navigator.of(context).pop();
-          }
+          await _controller.stop();
+          if (!mounted) return;
+          Navigator.of(this.context).pop();
         },
       ),
     );
 
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+    return Wrap(
+      alignment: WrapAlignment.center,
+      spacing: 20,
+      runSpacing: 14,
       children: buttons,
     );
   }
@@ -453,10 +432,10 @@ class _VoiceCallPageState extends ConsumerState<VoiceCallPage>
         GestureDetector(
           onTap: onPressed,
           child: Container(
-            width: 64,
-            height: 64,
+            width: 62,
+            height: 62,
             decoration: BoxDecoration(shape: BoxShape.circle, color: color),
-            child: Icon(icon, color: Colors.white, size: 32),
+            child: Icon(icon, color: Colors.white, size: 30),
           ),
         ),
         const SizedBox(height: 8),
@@ -465,25 +444,33 @@ class _VoiceCallPageState extends ConsumerState<VoiceCallPage>
     );
   }
 
-  String _getStateLabel() {
-    final l10n = AppLocalizations.of(context)!;
-    switch (_currentState) {
-      case VoiceCallState.idle:
+  String _phaseLabel(CallPhase phase, AppLocalizations l10n) {
+    switch (phase) {
+      case CallPhase.idle:
+      case CallPhase.starting:
         return l10n.voiceCallReady;
-      case VoiceCallState.connecting:
+      case CallPhase.connecting:
         return l10n.voiceCallConnecting;
-      case VoiceCallState.listening:
+      case CallPhase.listening:
         return l10n.voiceCallListening;
-      case VoiceCallState.paused:
+      case CallPhase.paused:
+      case CallPhase.muted:
         return l10n.voiceCallPaused;
-      case VoiceCallState.processing:
+      case CallPhase.thinking:
         return l10n.voiceCallProcessing;
-      case VoiceCallState.speaking:
+      case CallPhase.speaking:
         return l10n.voiceCallSpeaking;
-      case VoiceCallState.error:
-        return l10n.error;
-      case VoiceCallState.disconnected:
+      case CallPhase.ending:
+      case CallPhase.ended:
         return l10n.voiceCallDisconnected;
+      case CallPhase.failed:
+        return l10n.error;
     }
+  }
+
+  String _formatElapsed(Duration duration) {
+    final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
   }
 }

@@ -28,7 +28,7 @@ import '../widgets/file_attachment_widget.dart';
 import '../widgets/context_attachment_widget.dart';
 import '../services/voice_input_service.dart';
 import '../services/file_attachment_service.dart';
-import 'voice_call_page.dart';
+import '../voice_call/presentation/voice_call_launcher.dart';
 import '../../../shared/services/tasks/task_queue.dart';
 import '../../tools/providers/tools_providers.dart';
 import '../../../core/models/chat_message.dart';
@@ -718,15 +718,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 
   void _handleVoiceCall() {
-    // Dismiss keyboard before navigating
-    FocusScope.of(context).unfocus();
-
-    // Navigate to voice call page
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => const VoiceCallPage(),
-        fullscreenDialog: true,
-      ),
+    unawaited(
+      ref.read(voiceCallLauncherProvider).launch(startNewConversation: false),
     );
   }
 

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:just_audio/just_audio.dart';
@@ -134,6 +135,16 @@ class TtsConfig {
 /// only one playback session is active at a time. Events are emitted via
 /// a stream that consumers can listen to.
 class TtsManager {
+  static const int _serverPrefetchParallelism = 3;
+  static const Duration _serverInitialLookaheadTimeout = Duration(
+    milliseconds: 220,
+  );
+  static const int _deviceMergeMinWords = 4;
+  static const int _deviceMergeMinChars = 50;
+  static const int _serverMergeMinWords = 9;
+  static const int _serverMergeMinChars = 130;
+  static const double _serverPlaybackRate = 1.0;
+
   TtsManager._();
   static final instance = TtsManager._();
 
@@ -147,7 +158,8 @@ class TtsManager {
   final AudioPlayer _player = AudioPlayer();
   bool _playerConfigured = false;
   StreamSubscription<PlayerState>? _playerStateSub;
-  
+  StreamSubscription<int?>? _playerIndexSub;
+
   /// Flag to suppress spurious TtsPaused events during chunk transitions.
   /// When true, the player is actively switching audio sources and pause
   /// events should not be emitted to listeners.
@@ -169,9 +181,13 @@ class TtsManager {
   int _currentChunkIndex = -1;
 
   // Server TTS state
-  final List<_AudioChunk> _serverAudioBuffer = [];
+  final List<_AudioChunk?> _serverAudioBuffer = [];
   int _serverCurrentIndex = -1;
+  int _serverLastEnqueuedIndex = -1;
   bool _serverWaitingForNext = false;
+  bool _serverRecoveringMissingChunk = false;
+  String? _serverPlaybackVoice;
+  Future<void> _serverPlaylistSerial = Future<void>.value();
 
   // Event stream
   final _eventController = StreamController<TtsEvent>.broadcast();
@@ -216,6 +232,10 @@ class TtsManager {
         await _setVoiceByName(config.voice);
       }
     }
+
+    if (_playerConfigured) {
+      await _player.setSpeed(_serverPlaybackRate);
+    }
   }
 
   /// Initializes the TTS engine.
@@ -242,14 +262,29 @@ class TtsManager {
           _isTransitioningChunks = false;
           _emitEvent(const TtsStarted());
         } else if (!state.playing &&
-                   state.processingState == ProcessingState.ready &&
-                   !_isTransitioningChunks) {
+            state.processingState == ProcessingState.ready &&
+            !_isTransitioningChunks) {
           // Only emit pause when actually paused, ready, and NOT transitioning
           // between chunks. During chunk transitions, the player briefly enters
           // a ready-but-not-playing state which should not emit pause events.
           _emitEvent(const TtsPaused());
         }
       });
+      _playerIndexSub = _player.currentIndexStream.listen((index) {
+        final session = _activeSession;
+        if (session == null || !session.useServerTts || index == null) {
+          return;
+        }
+        if (index < 0 || index >= session.chunks.length) {
+          return;
+        }
+        if (_serverCurrentIndex == index) {
+          return;
+        }
+        _serverCurrentIndex = index;
+        _emitEvent(TtsChunkStarted(index));
+      });
+      await _player.setSpeed(_serverPlaybackRate);
       _playerConfigured = true;
     }
 
@@ -402,6 +437,7 @@ class TtsManager {
   Future<void> dispose() async {
     await stop();
     await _playerStateSub?.cancel();
+    await _playerIndexSub?.cancel();
     await _player.dispose();
     await _eventController.close();
   }
@@ -410,7 +446,7 @@ class TtsManager {
   ///
   /// This mirrors OpenWebUI's extractSentencesForAudio implementation.
   List<String> splitTextForSpeech(String text) {
-    // 1. Preserve code blocks (replace with placeholders)
+    // Mirrors OpenWebUI's extractSentencesForAudio behavior.
     final codeBlocks = <String>[];
     var processed = text;
     var codeBlockIndex = 0;
@@ -423,14 +459,14 @@ class TtsManager {
       return placeholder;
     });
 
-    // 2. Split on sentence-ending punctuation: .!?
+    // Split on punctuation boundaries or newlines.
     final sentences = processed
-        .split(RegExp(r'(?<=[.!?])\s+'))
-        .map((s) => s.trim())
+        .split(RegExp(r'(?<=[.!?])\s+|\n+'))
+        .map(_cleanSpeechText)
         .where((s) => s.isNotEmpty)
         .toList();
 
-    // 3. Restore code blocks from placeholders
+    // Restore code blocks.
     final restoredSentences = sentences
         .map((sentence) {
           return sentence.replaceAllMapped(RegExp(r'\u0000(\d+)\u0000'), (m) {
@@ -438,10 +474,18 @@ class TtsManager {
             return idx < codeBlocks.length ? codeBlocks[idx] : '';
           });
         })
+        .map(_cleanSpeechText)
         .where((s) => s.isNotEmpty)
         .toList();
 
-    // 4. Merge short sentences (< 4 words OR < 50 chars)
+    // Merge short fragments into previous chunk.
+    final useServerSizedChunks = _config.preferServer;
+    final mergeMinWords = useServerSizedChunks
+        ? _serverMergeMinWords
+        : _deviceMergeMinWords;
+    final mergeMinChars = useServerSizedChunks
+        ? _serverMergeMinChars
+        : _deviceMergeMinChars;
     final mergedChunks = <String>[];
     for (final sentence in restoredSentences) {
       if (mergedChunks.isEmpty) {
@@ -452,7 +496,7 @@ class TtsManager {
         final wordCount = previousText.split(RegExp(r'\s+')).length;
         final charCount = previousText.length;
 
-        if (wordCount < 4 || charCount < 50) {
+        if (wordCount < mergeMinWords || charCount < mergeMinChars) {
           mergedChunks[lastIndex] = '$previousText $sentence';
         } else {
           mergedChunks.add(sentence);
@@ -460,7 +504,19 @@ class TtsManager {
       }
     }
 
-    return mergedChunks.isEmpty ? [text.trim()] : mergedChunks;
+    if (mergedChunks.isEmpty) {
+      final cleaned = _cleanSpeechText(text);
+      return cleaned.isEmpty ? const [] : [cleaned];
+    }
+    return mergedChunks;
+  }
+
+  String _cleanSpeechText(String input) {
+    final trimmed = input.trim();
+    if (trimmed.isEmpty) {
+      return '';
+    }
+    return trimmed.replaceAll(RegExp(r'\s+'), ' ');
   }
 
   /// Gets available voices from the device TTS engine.
@@ -527,11 +583,7 @@ class TtsManager {
     }
 
     final voice = await _resolveServerVoice();
-    final result = await _apiService!.generateSpeech(
-      text: text,
-      voice: voice,
-      speed: _config.speechRate,
-    );
+    final result = await _apiService!.generateSpeech(text: text, voice: voice);
     return (bytes: result.bytes, mimeType: result.mimeType);
   }
 
@@ -712,34 +764,70 @@ class TtsManager {
     }
 
     _serverCurrentIndex = -1;
+    _serverLastEnqueuedIndex = -1;
     _serverAudioBuffer.clear();
     _serverWaitingForNext = false;
 
     final voice = await _resolveServerVoice();
+    _serverPlaybackVoice = voice;
 
     // Fetch and play first chunk
-    final firstChunk = await _fetchServerAudio(session.chunks.first, voice);
+    final firstChunk = await _fetchServerAudioWithRetry(
+      session.chunks.first,
+      voice,
+    );
     if (_activeSession?.id != session.id) return; // Cancelled
 
-    _serverAudioBuffer.add(firstChunk);
-    _serverCurrentIndex = 0;
+    _setBufferedServerChunk(0, firstChunk);
+    _serverLastEnqueuedIndex = 0;
+    final initialSources = <AudioSource>[
+      BytesAudioSource(firstChunk.bytes, firstChunk.mimeType),
+    ];
+
+    // Opportunistically prebuffer the second chunk before first play.
+    // This reduces the most noticeable early boundary gap without changing
+    // controller sequencing behavior.
+    var prefetchStartIndex = 1;
+    if (session.chunks.length > 1) {
+      try {
+        final secondChunk = await _fetchServerAudioWithRetry(
+          session.chunks[1],
+          voice,
+        ).timeout(_serverInitialLookaheadTimeout);
+        if (_activeSession?.id == session.id) {
+          _setBufferedServerChunk(1, secondChunk);
+          _serverLastEnqueuedIndex = 1;
+          initialSources.add(
+            BytesAudioSource(secondChunk.bytes, secondChunk.mimeType),
+          );
+          prefetchStartIndex = 2;
+        }
+      } on TimeoutException {
+        // Continue immediately; the background prefetch will append it.
+      } catch (_) {
+        // Non-fatal here; regular prefetch/recovery path will handle it.
+      }
+    }
 
     await _player.stop();
     _isTransitioningChunks = true;
     // Flag will be cleared by state listener when playing=true is received.
     // This prevents race condition where flag is cleared before state fires.
     try {
-      await _player.setAudioSource(BytesAudioSource(firstChunk.bytes, firstChunk.mimeType));
+      await _player.setAudioSources(
+        initialSources,
+        initialIndex: 0,
+        initialPosition: Duration.zero,
+      );
       await _player.play();
     } catch (e) {
       // Reset flag on error to avoid suppressing future pause events
       _isTransitioningChunks = false;
       rethrow;
     }
-    _emitEvent(const TtsChunkStarted(0));
 
     // Prefetch remaining chunks in background
-    unawaited(_prefetchServerChunks(session, voice, 1));
+    unawaited(_prefetchServerChunks(session, voice, prefetchStartIndex));
   }
 
   Future<void> _prefetchServerChunks(
@@ -747,79 +835,221 @@ class TtsManager {
     String? voice,
     int startIndex,
   ) async {
-    for (var i = startIndex; i < session.chunks.length; i++) {
-      if (_activeSession?.id != session.id) return; // Cancelled
+    var nextToFetch = startIndex;
 
-      try {
-        final chunk = await _fetchServerAudio(session.chunks[i], voice);
-        if (_activeSession?.id != session.id) return;
-
-        _serverAudioBuffer.add(chunk);
-
-        // If player was waiting for this chunk, play it now
-        if (_serverWaitingForNext &&
-            _serverCurrentIndex + 1 < _serverAudioBuffer.length) {
-          _serverWaitingForNext = false;
-          await _playNextServerChunk();
+    Future<void> worker() async {
+      while (true) {
+        if (_activeSession?.id != session.id) {
+          return;
         }
-      } catch (e) {
-        _emitEvent(TtsError(e.toString()));
+        if (nextToFetch >= session.chunks.length) {
+          return;
+        }
+
+        final i = nextToFetch;
+        nextToFetch += 1;
+
+        try {
+          final chunk = await _fetchServerAudioWithRetry(
+            session.chunks[i],
+            voice,
+          );
+          if (_activeSession?.id != session.id) {
+            return;
+          }
+
+          _setBufferedServerChunk(i, chunk);
+          await _enqueueBufferedServerChunks(session);
+        } catch (e) {
+          _emitEvent(TtsError(e.toString()));
+        }
       }
     }
+
+    final workerCount = _serverPrefetchParallelism < 1
+        ? 1
+        : _serverPrefetchParallelism;
+    await Future.wait(List.generate(workerCount, (_) => worker()));
   }
 
-  Future<_AudioChunk> _fetchServerAudio(String text, String? voice) async {
+  Future<_AudioChunk> _fetchServerAudio(
+    String text,
+    String? voice, {
+    double? speed,
+  }) async {
     final result = await _apiService!.generateSpeech(
       text: text,
       voice: voice,
-      speed: _config.speechRate,
+      speed: speed,
     );
     return _AudioChunk(bytes: result.bytes, mimeType: result.mimeType);
+  }
+
+  Future<_AudioChunk> _fetchServerAudioWithRetry(
+    String text,
+    String? voice,
+  ) async {
+    const maxAttempts = 4;
+    Object? lastError;
+    var requestText = text.trim();
+    var requestVoice = voice?.trim();
+    if (requestVoice == null || requestVoice.isEmpty) {
+      requestVoice = 'alloy';
+    }
+
+    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await _fetchServerAudio(requestText, requestVoice);
+      } catch (error) {
+        lastError = error;
+
+        // Keep text exact: do not normalize/rewrite payload between attempts.
+        // Only retry transient failures.
+        if (error is DioException) {
+          final statusCode = error.response?.statusCode;
+          final isClientValidationError =
+              statusCode != null &&
+              statusCode >= 400 &&
+              statusCode < 500 &&
+              statusCode != 429;
+          if (isClientValidationError) {
+            break;
+          }
+        }
+
+        if (attempt == maxAttempts) {
+          break;
+        }
+        await Future<void>.delayed(Duration(milliseconds: 150 * attempt));
+      }
+    }
+
+    throw StateError(
+      'Server TTS synthesis failed after $maxAttempts attempts: $lastError',
+    );
   }
 
   void _onServerAudioComplete() {
     final session = _activeSession;
     if (session == null || !session.useServerTts) return;
 
-    final nextIndex = _serverCurrentIndex + 1;
+    final currentIndex = _player.currentIndex ?? _serverCurrentIndex;
+    final lastChunkIndex = session.chunks.length - 1;
 
-    // Check if all chunks are done
-    if (nextIndex >= session.chunks.length) {
+    // Complete only when the final session chunk has been enqueued and played.
+    if (currentIndex >= lastChunkIndex &&
+        _serverLastEnqueuedIndex >= lastChunkIndex) {
       _activeSession = null;
       _resetPlaybackState();
       _emitEvent(const TtsCompleted());
       return;
     }
 
-    // Check if next chunk is buffered
-    if (nextIndex < _serverAudioBuffer.length) {
-      unawaited(_playNextServerChunk());
+    if (_serverLastEnqueuedIndex > currentIndex) {
+      _serverWaitingForNext = false;
+      unawaited(_resumeServerQueueFromCompleted(currentIndex));
+      return;
+    }
+
+    final nextIndex = currentIndex + 1;
+    if (nextIndex >= session.chunks.length) {
+      return;
+    }
+
+    if (_hasBufferedServerChunk(nextIndex)) {
+      _serverWaitingForNext = false;
+      unawaited(_enqueueBufferedServerChunks(session));
     } else {
       _serverWaitingForNext = true;
+      final voice =
+          _serverPlaybackVoice ?? _config.serverVoice ?? _config.voice;
+      unawaited(_recoverMissingServerChunk(session, voice, nextIndex));
     }
   }
 
-  Future<void> _playNextServerChunk() async {
-    final session = _activeSession;
-    if (session == null) return;
-
-    final nextIndex = _serverCurrentIndex + 1;
-    if (nextIndex >= _serverAudioBuffer.length) return;
-
-    _serverCurrentIndex = nextIndex;
-    final chunk = _serverAudioBuffer[nextIndex];
-
-    _isTransitioningChunks = true;
-    // Flag will be cleared by state listener when playing=true is received.
-    try {
-      await _player.setAudioSource(BytesAudioSource(chunk.bytes, chunk.mimeType));
-      await _player.play();
-    } catch (e) {
-      // Reset flag on error to avoid suppressing future pause events
-      _isTransitioningChunks = false;
-      rethrow;
+  Future<void> _recoverMissingServerChunk(
+    TtsPlaybackSession session,
+    String? voice,
+    int index,
+  ) async {
+    if (_serverRecoveringMissingChunk ||
+        _activeSession?.id != session.id ||
+        index >= session.chunks.length) {
+      return;
     }
-    _emitEvent(TtsChunkStarted(nextIndex));
+
+    _serverRecoveringMissingChunk = true;
+    try {
+      if (_hasBufferedServerChunk(index)) {
+        await _enqueueBufferedServerChunks(session);
+        return;
+      }
+
+      final recovered = await _fetchServerAudioWithRetry(
+        session.chunks[index],
+        voice,
+      );
+      if (_activeSession?.id != session.id) {
+        return;
+      }
+
+      _setBufferedServerChunk(index, recovered);
+      await _enqueueBufferedServerChunks(session);
+    } catch (error) {
+      _emitEvent(TtsError(error.toString()));
+      if (_activeSession?.id == session.id) {
+        _activeSession = null;
+        _resetPlaybackState();
+      }
+    } finally {
+      _serverRecoveringMissingChunk = false;
+    }
+  }
+
+  Future<void> _enqueueBufferedServerChunks(TtsPlaybackSession session) async {
+    _serverPlaylistSerial = _serverPlaylistSerial
+        .then((_) async {
+          if (_activeSession?.id != session.id) {
+            return;
+          }
+
+          while (true) {
+            final nextIndex = _serverLastEnqueuedIndex + 1;
+            if (nextIndex >= session.chunks.length) {
+              break;
+            }
+            final chunk = _chunkAt(nextIndex);
+            if (chunk == null) {
+              break;
+            }
+            await _player.addAudioSource(
+              BytesAudioSource(chunk.bytes, chunk.mimeType),
+            );
+            _serverLastEnqueuedIndex = nextIndex;
+          }
+
+          if (_serverWaitingForNext) {
+            final currentIndex = _player.currentIndex ?? _serverCurrentIndex;
+            if (_serverLastEnqueuedIndex > currentIndex) {
+              _serverWaitingForNext = false;
+              await _resumeServerQueueFromCompleted(currentIndex);
+            }
+          }
+        })
+        .catchError((_) {});
+    await _serverPlaylistSerial;
+  }
+
+  Future<void> _resumeServerQueueFromCompleted(int currentIndex) async {
+    if (_player.processingState != ProcessingState.completed) {
+      return;
+    }
+    final nextIndex = currentIndex + 1;
+    if (nextIndex < 0 || nextIndex > _serverLastEnqueuedIndex) {
+      return;
+    }
+    await _player.seek(Duration.zero, index: nextIndex);
+    await _player.play();
   }
 
   Future<String?> _resolveServerVoice() async {
@@ -831,7 +1061,11 @@ class TtsManager {
     if (selected != null && selected.isNotEmpty) {
       return selected;
     }
-    return await _getServerDefaultVoice();
+    final serverDefault = await _getServerDefaultVoice();
+    if (serverDefault != null && serverDefault.isNotEmpty) {
+      return serverDefault;
+    }
+    return 'alloy';
   }
 
   Future<String?> _getServerDefaultVoice() async {
@@ -872,8 +1106,33 @@ class TtsManager {
   void _resetPlaybackState() {
     _currentChunkIndex = -1;
     _serverCurrentIndex = -1;
+    _serverLastEnqueuedIndex = -1;
     _serverAudioBuffer.clear();
     _serverWaitingForNext = false;
+    _serverRecoveringMissingChunk = false;
+    _serverPlaybackVoice = null;
+    _serverPlaylistSerial = Future<void>.value();
+  }
+
+  void _setBufferedServerChunk(int index, _AudioChunk chunk) {
+    while (_serverAudioBuffer.length <= index) {
+      _serverAudioBuffer.add(null);
+    }
+    _serverAudioBuffer[index] = chunk;
+  }
+
+  bool _hasBufferedServerChunk(int index) {
+    if (index < 0 || index >= _serverAudioBuffer.length) {
+      return false;
+    }
+    return _serverAudioBuffer[index] != null;
+  }
+
+  _AudioChunk? _chunkAt(int index) {
+    if (index < 0 || index >= _serverAudioBuffer.length) {
+      return null;
+    }
+    return _serverAudioBuffer[index];
   }
 
   void _emitEvent(TtsEvent event) {

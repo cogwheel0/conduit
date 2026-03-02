@@ -97,9 +97,11 @@ PODS:
   - path_provider_foundation (0.0.1):
     - Flutter
     - FlutterMacOS
+  - permission_handler_apple (9.3.0):
+    - Flutter
   - quick_actions_ios (0.0.1):
     - Flutter
-  - record_ios (1.1.0):
+  - record_ios (1.2.0):
     - Flutter
   - SDWebImage (5.21.5):
     - SDWebImage/Core (= 5.21.5)
@@ -160,6 +162,7 @@ DEPENDENCIES:
   - package_info_plus (from `.symlinks/plugins/package_info_plus/ios`)
   - pasteboard (from `.symlinks/plugins/pasteboard/ios`)
   - path_provider_foundation (from `.symlinks/plugins/path_provider_foundation/darwin`)
+  - permission_handler_apple (from `.symlinks/plugins/permission_handler_apple/ios`)
   - quick_actions_ios (from `.symlinks/plugins/quick_actions_ios/ios`)
   - record_ios (from `.symlinks/plugins/record_ios/ios`)
   - share_handler_ios (from `.symlinks/plugins/share_handler_ios/ios`)
@@ -226,6 +229,8 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/pasteboard/ios"
   path_provider_foundation:
     :path: ".symlinks/plugins/path_provider_foundation/darwin"
+  permission_handler_apple:
+    :path: ".symlinks/plugins/permission_handler_apple/ios"
   quick_actions_ios:
     :path: ".symlinks/plugins/quick_actions_ios/ios"
   record_ios:
@@ -269,7 +274,7 @@ SPEC CHECKSUMS:
   flutter_local_notifications: a5a732f069baa862e728d839dd2ebb904737effb
   flutter_native_splash: c32d145d68aeda5502d5f543ee38c192065986cf
   flutter_secure_storage_darwin: acdb3f316ed05a3e68f856e0353b133eec373a23
-  flutter_tts: b88dbc8655d3dc961bc4a796e4e16a4cc1795833
+  flutter_tts: 35ac3c7d42412733e795ea96ad2d7e05d0a75113
   home_widget: f169fc41fd807b4d46ab6615dc44d62adbf9f64f
   image_picker_ios: e0ece4aa2a75771a7de3fa735d26d90817041326
   irondash_engine_context: 8e58ca8e0212ee9d1c7dc6a42121849986c88486
@@ -281,8 +286,9 @@ SPEC CHECKSUMS:
   package_info_plus: af8e2ca6888548050f16fa2f1938db7b5a5df499
   pasteboard: 49088aeb6119d51f976a421db60d8e1ab079b63c
   path_provider_foundation: bb55f6dbba17d0dccd6737fe6f7f34fbd0376880
+  permission_handler_apple: 4ed2196e43d0651e8ff7ca3483a069d469701f2d
   quick_actions_ios: 500fcc11711d9f646739093395c4ae8eec25f779
-  record_ios: f75fa1d57f840012775c0e93a38a7f3ceea1a374
+  record_ios: 412daca2350b228e698fffcd08f1f94ceb1e3844
   SDWebImage: e9c98383c7572d713c1a0d7dd2783b10599b9838
   SDWebImageWebPCoder: 0e06e365080397465cc73a7a9b472d8a3bd0f377
   share_handler_ios: e2244e990f826b2c8eaa291ac3831569438ba0fb
@@ -298,6 +304,6 @@ SPEC CHECKSUMS:
   wakelock_plus: e29112ab3ef0b318e58cfa5c32326458be66b556
   webview_flutter_wkwebview: 8ebf4fded22593026f7dbff1fbff31ea98573c8d
 
-PODFILE CHECKSUM: a4b9cb970b890868c435231d99c6457dc39d3746
+PODFILE CHECKSUM: 3097fde9d4e947cb7a742b309c30168c61d3e4dc
 
 COCOAPODS: 1.16.2

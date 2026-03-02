@@ -1,13 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show File, Platform;
+import 'dart:io' show Platform;
 import 'dart:typed_data';
-
-import 'package:path_provider/path_provider.dart';
 
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
@@ -38,6 +37,7 @@ class VoiceInputService {
   static const double _vadNegativeSpeechThreshold = 0.35;
   static const Duration _localeFetchTimeout = Duration(seconds: 2);
   static const String _backgroundSttStreamId = 'voice-input-stt';
+  static const Duration _vadDisposeCooldown = Duration(milliseconds: 140);
 
   VadHandler? _vadHandler;
   final SpeechToText _speech = SpeechToText();
@@ -66,6 +66,7 @@ class VoiceInputService {
   List<double>? _vadPendingSamples;
   bool _backgroundMicPinned = false;
   bool _recoveringFromBusyError = false;
+  bool _recoveringFromListenFailedError = false;
 
   Stream<String> get textStream =>
       _textStreamController?.stream ?? const Stream<String>.empty();
@@ -166,6 +167,12 @@ class VoiceInputService {
       return;
     }
 
+    if (errorStr.contains('error_listen_failed')) {
+      debugPrint('Local STT listen failed, attempting recognizer recovery');
+      unawaited(_recoverFromListenFailedErrorFlow());
+      return;
+    }
+
     // These errors are non-fatal - they just mean no speech was detected
     // or the session timed out. The status handler will close the stream
     // and voice call service will restart listening.
@@ -205,6 +212,33 @@ class VoiceInputService {
       }
     } finally {
       _recoveringFromBusyError = false;
+    }
+  }
+
+  Future<void> _recoverFromListenFailedErrorFlow() async {
+    if (_recoveringFromListenFailedError) {
+      return;
+    }
+    if (!_isListening || _usingServerStt) {
+      return;
+    }
+
+    _recoveringFromListenFailedError = true;
+    try {
+      await _ensureLocalSttReset();
+      await Future.delayed(const Duration(milliseconds: 250));
+      if (!_isListening || _usingServerStt || !_localSttAvailable) {
+        return;
+      }
+      try {
+        await _startLocalRecognition(allowOnlineFallback: !prefersDeviceOnly);
+      } catch (_) {
+        if (_isListening) {
+          await _stopListening();
+        }
+      }
+    } finally {
+      _recoveringFromListenFailedError = false;
     }
   }
 
@@ -368,7 +402,8 @@ class VoiceInputService {
 
   Future<bool> _ensureMicrophonePermission() async {
     try {
-      return await _microphonePermissionProbe.hasPermission();
+      final status = await Permission.microphone.status;
+      return status.isGranted;
     } catch (_) {
       return false;
     }
@@ -378,42 +413,8 @@ class VoiceInputService {
   /// Returns true if permission is granted, false otherwise.
   Future<bool> requestMicrophonePermission() async {
     try {
-      // First check if we already have permission
-      var hasPermission = await _microphonePermissionProbe.hasPermission();
-      if (hasPermission) return true;
-
-      // The record package's start() method will trigger the system permission
-      // dialog if permission hasn't been granted yet. We start a brief recording
-      // and immediately stop it to trigger the permission request.
-      try {
-        // Create a temporary file path for the recording probe.
-        // An empty path only works on web; mobile platforms need a real path.
-        final tempDir = await getTemporaryDirectory();
-        final tempPath =
-            '${tempDir.path}/mic_permission_probe_${DateTime.now().millisecondsSinceEpoch}.wav';
-
-        await _microphonePermissionProbe.start(
-          const RecordConfig(encoder: AudioEncoder.wav),
-          path: tempPath,
-        );
-        await _microphonePermissionProbe.stop();
-
-        // Clean up the temporary file
-        try {
-          final tempFile = File(tempPath);
-          if (await tempFile.exists()) {
-            await tempFile.delete();
-          }
-        } catch (_) {
-          // Ignore cleanup errors
-        }
-      } catch (_) {
-        // Starting may fail if permission is denied, which is expected
-      }
-
-      // Check again after the permission request attempt
-      hasPermission = await _microphonePermissionProbe.hasPermission();
-      return hasPermission;
+      final status = await Permission.microphone.request();
+      return status.isGranted;
     } catch (_) {
       return false;
     }
@@ -647,7 +648,8 @@ class VoiceInputService {
       await _stopVadRecording();
       final samples = _vadPendingSamples;
       _vadPendingSamples = null;
-      if (samples != null && samples.isNotEmpty) {
+      final hasActiveTextConsumer = _textStreamController?.hasListener ?? false;
+      if (samples != null && samples.isNotEmpty && hasActiveTextConsumer) {
         await _processVadSamples(samples);
       }
     } else {
@@ -711,6 +713,10 @@ class VoiceInputService {
   }
 
   Future<void> _startServerRecording() async {
+    // Make sure any previous recorder session is fully stopped before we
+    // dispose/create handlers. This avoids Android VAD races where internal
+    // frame callbacks outlive immediate dispose().
+    await _stopVadRecording();
     await _disposeVadHandler();
     _vadPendingSamples = null;
 
@@ -843,7 +849,6 @@ class VoiceInputService {
     _vadFrameSub = null;
     await _vadErrorSub?.cancel();
     _vadErrorSub = null;
-    await _disposeVadHandler();
   }
 
   Future<void> _disposeVadHandler() async {
@@ -851,6 +856,9 @@ class VoiceInputService {
     _vadHandler = null;
     if (vad != null) {
       try {
+        // Give the recorder callback loop a brief window to quiesce before
+        // disposing internal stream controllers.
+        await Future<void>.delayed(_vadDisposeCooldown);
         await vad.dispose();
       } catch (_) {}
     }

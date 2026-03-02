@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'api_error.dart';
 import '../utils/debug_logger.dart';
 
@@ -11,6 +14,11 @@ class ErrorParser {
     }
 
     try {
+      final decoded = _decodeBinaryPayload(responseData);
+      if (decoded != null) {
+        return parseErrorResponse(decoded);
+      }
+
       if (responseData is Map<String, dynamic>) {
         return _parseErrorMap(responseData);
       } else if (responseData is String) {
@@ -35,6 +43,42 @@ class ErrorParser {
           'rawData': responseData.toString(),
         },
       );
+    }
+  }
+
+  dynamic _decodeBinaryPayload(dynamic responseData) {
+    Uint8List? bytes;
+    if (responseData is Uint8List) {
+      bytes = responseData;
+    } else if (responseData is List<int>) {
+      bytes = Uint8List.fromList(responseData);
+    } else if (responseData is List &&
+        responseData.every((item) => item is int)) {
+      bytes = Uint8List.fromList(responseData.cast<int>());
+    }
+
+    if (bytes == null || bytes.isEmpty) {
+      return null;
+    }
+
+    try {
+      final text = utf8.decode(bytes).trim();
+      if (text.isEmpty) {
+        return null;
+      }
+
+      if (text.startsWith('{') || text.startsWith('[')) {
+        final decoded = json.decode(text);
+        if (decoded is Map<String, dynamic> ||
+            decoded is List ||
+            decoded is String) {
+          return decoded;
+        }
+      }
+
+      return text;
+    } catch (_) {
+      return null;
     }
   }
 

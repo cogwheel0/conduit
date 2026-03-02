@@ -52,6 +52,18 @@ end
 post_install do |installer|
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
+    target.build_configurations.each do |config|
+      defs = config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] || ['$(inherited)']
+      defs = [defs] if defs.is_a?(String)
+      %w[
+        PERMISSION_MICROPHONE=1
+        PERMISSION_SPEECH_RECOGNIZER=1
+        PERMISSION_NOTIFICATIONS=1
+      ].each do |flag|
+        defs << flag unless defs.include?(flag)
+      end
+      config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = defs
+    end
   end
 
   # Add -ObjC linker flag for objective_c native assets (required for Release builds)

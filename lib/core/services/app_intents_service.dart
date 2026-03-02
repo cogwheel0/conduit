@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -15,7 +14,7 @@ import 'navigation_service.dart';
 import '../../features/chat/providers/chat_providers.dart';
 import '../../features/chat/providers/context_attachments_provider.dart';
 import '../../features/auth/providers/unified_auth_providers.dart';
-import '../../features/chat/views/voice_call_page.dart';
+import '../../features/chat/voice_call/presentation/voice_call_launcher.dart';
 import '../../features/chat/services/file_attachment_service.dart';
 import '../../shared/services/tasks/task_queue.dart';
 
@@ -337,54 +336,9 @@ class AppIntentCoordinator extends _$AppIntentCoordinator {
 
   Future<void> _startVoiceCall() async {
     if (!ref.mounted) return;
-
-    // Validate authentication state
-    final navState = ref.read(authNavigationStateProvider);
-    if (navState != AuthNavigationState.authenticated) {
-      throw StateError('Sign in to start a voice call.');
-    }
-
-    // Validate model selection
-    final model = ref.read(selectedModelProvider);
-    if (model == null) {
-      throw StateError('Choose a model before starting a voice call.');
-    }
-
-    // Pre-warm socket connection before navigating to voice call.
-    // This reduces the chance of "websocket not connected" errors when
-    // opening voice call right after app start or from Siri/Shortcuts.
-    final socketService = ref.read(socketServiceProvider);
-    if (socketService != null && !socketService.isConnected) {
-      // Start connection attempt in parallel, don't wait for full connection
-      // The VoiceCallService.startCall() will wait with extended timeout
-      unawaited(socketService.connect());
-    }
-
-    // Navigate to chat first if not already there
-    final isOnChatRoute = NavigationService.currentRoute == Routes.chat;
-    if (!isOnChatRoute) {
-      await NavigationService.navigateToChat();
-    }
-
-    // Wait a tick for navigation to settle so navigator/context are present.
-    await Future<void>.delayed(const Duration(milliseconds: 50));
-
-    final context = NavigationService.navigatorKey.currentContext;
-    if (context == null || !context.mounted) {
-      throw StateError('Navigation context not available.');
-    }
-
-    // Dismiss keyboard before navigating
-    FocusScope.of(context).unfocus();
-
-    // Navigate to voice call page with new conversation flag
-    if (!context.mounted) return;
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => const VoiceCallPage(startNewConversation: true),
-        fullscreenDialog: true,
-      ),
-    );
+    await ref
+        .read(voiceCallLauncherProvider)
+        .launch(startNewConversation: true);
   }
 
   Future<File> _materializeTempFile(
