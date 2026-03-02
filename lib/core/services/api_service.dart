@@ -3337,14 +3337,6 @@ class ApiService {
       'messages': processedMessages,
     };
 
-    // DEBUG: Log the full request for debugging issue #378
-    debugPrint(
-      'DEBUG[#378] sendMessage request: model=$model, data=${jsonEncode(data)}',
-    );
-
-    // DEBUG: Log when the actual HTTP request is made
-    debugPrint('DEBUG[#378] Sending API request now...');
-
     // Add only essential parameters
     if (conversationId != null) {
       data['chat_id'] = conversationId;
@@ -3500,9 +3492,6 @@ class ApiService {
     _streamCancelTokens[messageId] = cancelToken;
 
     // DEBUG: Log when the HTTP request is actually made
-    debugPrint(
-      'DEBUG[#378] About to make HTTP request to /api/chat/completions',
-    );
     final startTime = DateTime.now().millisecondsSinceEpoch;
 
     // Send HTTP request to initiate chat task
@@ -3521,11 +3510,6 @@ class ApiService {
           cancelToken: cancelToken,
         );
 
-        final elapsed = DateTime.now().millisecondsSinceEpoch - startTime;
-        debugPrint(
-          'DEBUG[#378] HTTP request completed in ${elapsed}ms, status=${resp.statusCode}',
-        );
-
         final stream = resp.data?.stream;
         if (stream == null) {
           _traceApi('No stream in response');
@@ -3534,6 +3518,10 @@ class ApiService {
         }
 
         String buffer = '';
+        bool reasoningStarted = false;
+        final StringBuffer reasoningBuffer = StringBuffer();
+        String? pendingUsageHtml;
+        bool firstContentEmitted = false;
         await for (final chunk in stream) {
           if (cancelToken.isCancelled) break;
           final decoded = utf8.decode(chunk);
@@ -3549,6 +3537,11 @@ class ApiService {
             if (trimmed.startsWith('data: ')) {
               final jsonStr = trimmed.substring(6);
               if (jsonStr == '[DONE]') {
+                // Emit any pending usage before closing
+                final pendingUsage = pendingUsageHtml;
+                if (pendingUsage != null && !streamController.isClosed) {
+                  streamController.add(pendingUsage);
+                }
                 if (!streamController.isClosed) streamController.close();
                 return;
               }
@@ -3556,32 +3549,145 @@ class ApiService {
                 final json = jsonDecode(jsonStr) as Map<String, dynamic>;
                 String? content;
 
+                // Check for top-level usage key (OpenRouter pipe format)
+                // Store usage for later - will be emitted as special marker for streaming_helper
+                final topLevelUsage = json['usage'] as Map<String, dynamic>?;
+                if (topLevelUsage != null) {
+                  // Emit usage as a special marker that streaming_helper can capture
+                  // Format: __USAGE__<json>__USAGE_END__
+                  final usageMarker =
+                      '__USAGE__${jsonEncode(topLevelUsage)}__USAGE_END__';
+                  pendingUsageHtml = usageMarker;
+                }
+
+                // Also check for usage inside chat:completion events (OpenWebUI format)
+                if (json.containsKey('type') &&
+                    json['type'] == 'chat:completion') {
+                  final completionData = json['data'] as Map<String, dynamic>?;
+                  if (completionData != null) {
+                    final eventUsage =
+                        completionData['usage'] as Map<String, dynamic>?;
+                    if (eventUsage != null) {
+                      final usageMarker =
+                          '__USAGE__${jsonEncode(eventUsage)}__USAGE_END__';
+                      pendingUsageHtml = usageMarker;
+                    }
+                  }
+                }
+
                 // Check for OpenWebUI event format first - use ONLY this if present
                 final event = json['event'] as Map<String, dynamic>?;
                 if (event != null) {
                   final eventData = event['data'] as Map<String, dynamic>?;
                   if (eventData != null) {
-                    content = eventData['content']?.toString();
-                    final done = eventData['done'] == true;
-                    if (done) {
-                      if (!streamController.isClosed) streamController.close();
-                      return;
+                    // Handle status events (timing, tokens, cost)
+                    final eventType = event['type']?.toString();
+                    if (eventType == 'status') {
+                      final usage = eventData['usage'] as Map<String, dynamic>?;
+                      if (usage != null) {
+                        // Emit usage as a special marker that streaming_helper can capture
+                        final usageMarker =
+                            '__USAGE__${jsonEncode(usage)}__USAGE_END__';
+                        pendingUsageHtml = usageMarker;
+                      }
+                      final done = eventData['done'] == true;
+                      if (done) {
+                        // Emit any pending usage before closing
+                        final pendingUsage = pendingUsageHtml;
+                        if (pendingUsage != null &&
+                            !streamController.isClosed) {
+                          streamController.add(pendingUsage);
+                        }
+                        if (!streamController.isClosed)
+                          streamController.close();
+                        return;
+                      }
+                    } else {
+                      content = eventData['content']?.toString();
+                      final done = eventData['done'] == true;
+                      if (done) {
+                        // Emit any pending usage before closing
+                        final pendingUsage = pendingUsageHtml;
+                        if (pendingUsage != null &&
+                            !streamController.isClosed) {
+                          streamController.add(pendingUsage);
+                        }
+                        if (!streamController.isClosed)
+                          streamController.close();
+                        return;
+                      }
                     }
                   }
                 } else {
-                  // OpenAI format only if no OpenWebUI event
-                  content = json['choices']?[0]?['delta']?['content']
+                  // OpenAI format - check for reasoning_content first
+                  final reasoningContent =
+                      json['choices']?[0]?['delta']?['reasoning_content']
+                          ?.toString();
+                  final contentDelta = json['choices']?[0]?['delta']?['content']
                       ?.toString();
+                  final finishReason = json['choices']?[0]?['finish_reason'];
+
+                  if (reasoningContent != null && reasoningContent.isNotEmpty) {
+                    // Accumulate reasoning content
+                    if (!reasoningStarted) {
+                      // First reasoning chunk - start the details block
+                      reasoningStarted = true;
+                      reasoningBuffer.write(reasoningContent);
+                      // Send opening details tag
+                      final reasoningHtml =
+                          '<details type="reasoning" done="false"><summary>Thinking...</summary>$reasoningContent';
+                      if (!streamController.isClosed) {
+                        streamController.add(reasoningHtml);
+                      }
+                    } else {
+                      // Continue accumulating
+                      reasoningBuffer.write(reasoningContent);
+                      if (!streamController.isClosed) {
+                        streamController.add(reasoningContent);
+                      }
+                    }
+                  }
+
+                  // Check if reasoning is done (content started coming or response finished)
+                  if (reasoningStarted &&
+                      (contentDelta != null && contentDelta.isNotEmpty ||
+                          finishReason == 'stop')) {
+                    // Close the reasoning block
+                    final reasoningHtml = '</details>';
+                    if (!streamController.isClosed) {
+                      streamController.add(reasoningHtml);
+                    }
+                    reasoningStarted = false;
+                    reasoningBuffer.clear();
+                  }
+
+                  // Then check for regular content
+                  if (contentDelta != null && contentDelta.isNotEmpty) {
+                    content = contentDelta;
+                  }
                 }
 
                 if (content != null && content.isNotEmpty) {
                   if (!streamController.isClosed) {
+                    // Emit pending usage first (at the top) before first content
+                    final usageToEmit = pendingUsageHtml;
+                    if (usageToEmit != null && !firstContentEmitted) {
+                      streamController.add(usageToEmit);
+                      pendingUsageHtml = null;
+                      firstContentEmitted = true;
+                    }
                     streamController.add(content);
                   }
                 }
               } catch (_) {}
             }
           }
+        }
+
+        // Emit any pending usage at the end if no content came after it
+        final pendingUsage = pendingUsageHtml;
+        if (pendingUsage != null && !streamController.isClosed) {
+          streamController.add(pendingUsage);
         }
 
         if (!streamController.isClosed) streamController.close();
