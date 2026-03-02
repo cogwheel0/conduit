@@ -3522,49 +3522,26 @@ class ApiService {
         final StringBuffer reasoningBuffer = StringBuffer();
         String? pendingUsageHtml;
         bool firstContentEmitted = false;
-        bool sawEventContent = false;
-        bool eventContentModeDecided = false;
-        bool eventContentIsFull = false;
-        String lastEventFull = '';
+        final StringBuffer emittedContent = StringBuffer();
 
-        String? emitEventContentDelta(String content) {
+        String? normalizeContentDelta(String content) {
           if (content.isEmpty) return null;
-
-          if (!eventContentModeDecided) {
-            if (lastEventFull.isEmpty) {
-              lastEventFull = content;
-              return content;
-            }
-            if (content.startsWith(lastEventFull)) {
-              eventContentModeDecided = true;
-              eventContentIsFull = true;
-              final delta = content.substring(lastEventFull.length);
-              lastEventFull = content;
-              return delta;
-            }
-            if (lastEventFull.startsWith(content)) {
-              eventContentModeDecided = true;
-              eventContentIsFull = true;
-              return null;
-            }
-            eventContentModeDecided = true;
-            eventContentIsFull = false;
+          final existing = emittedContent.toString();
+          if (existing.isEmpty) {
+            emittedContent.write(content);
             return content;
           }
-
-          if (!eventContentIsFull) {
-            return content;
-          }
-
-          if (lastEventFull.isNotEmpty && content.startsWith(lastEventFull)) {
-            final delta = content.substring(lastEventFull.length);
-            lastEventFull = content;
+          if (content.startsWith(existing)) {
+            final delta = content.substring(existing.length);
+            if (delta.isEmpty) return null;
+            emittedContent.clear();
+            emittedContent.write(content);
             return delta;
           }
-          if (lastEventFull.isNotEmpty && lastEventFull.startsWith(content)) {
+          if (existing.startsWith(content)) {
             return null;
           }
-          lastEventFull = content;
+          emittedContent.write(content);
           return content;
         }
 
@@ -3651,8 +3628,7 @@ class ApiService {
                     } else {
                       final eventContent = eventData['content']?.toString();
                       if (eventContent != null && eventContent.isNotEmpty) {
-                        sawEventContent = true;
-                        content = emitEventContentDelta(eventContent);
+                        content = normalizeContentDelta(eventContent);
                       }
                       final done = eventData['done'] == true;
                       if (done) {
@@ -3668,7 +3644,9 @@ class ApiService {
                       }
                     }
                   }
-                } else if (!sawEventContent) {
+                }
+
+                if (content == null) {
                   // OpenAI format - check for reasoning_content first
                   final reasoningContent =
                       json['choices']?[0]?['delta']?['reasoning_content']
@@ -3713,7 +3691,7 @@ class ApiService {
 
                   // Then check for regular content
                   if (contentDelta != null && contentDelta.isNotEmpty) {
-                    content = contentDelta;
+                    content = normalizeContentDelta(contentDelta);
                   }
                 }
 
