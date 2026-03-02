@@ -1576,6 +1576,16 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
       }
 
       if (effectiveChunk.isNotEmpty) {
+        if (httpStreamOnly) {
+          final msgs = getMessages();
+          if (msgs.isNotEmpty && msgs.last.role == 'assistant') {
+            final currentContent = msgs.last.content;
+            if (currentContent.isNotEmpty &&
+                currentContent.endsWith(effectiveChunk)) {
+              return;
+            }
+          }
+        }
         appendToLastMessage(effectiveChunk);
         updateImagesFromCurrentContent();
       }
