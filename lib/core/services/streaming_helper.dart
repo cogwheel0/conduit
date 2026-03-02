@@ -1495,7 +1495,6 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
   }
 
   String usageMarkerBuffer = '';
-  int? replayOffset;
 
   final controller = StreamingResponseController(
     stream: persistentController.stream,
@@ -1577,42 +1576,6 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
       }
 
       if (effectiveChunk.isNotEmpty) {
-        if (httpStreamOnly) {
-          if (effectiveChunk.trim().isEmpty) {
-            appendToLastMessage(effectiveChunk);
-            updateImagesFromCurrentContent();
-            return;
-          }
-          final msgs = getMessages();
-          if (msgs.isNotEmpty && msgs.last.role == 'assistant') {
-            final currentContent = msgs.last.content;
-            if (replayOffset != null && currentContent.isNotEmpty) {
-              final start = replayOffset!;
-              final end = start + effectiveChunk.length;
-              if (end <= currentContent.length &&
-                  currentContent.substring(start, end) == effectiveChunk) {
-                replayOffset = end;
-                if (replayOffset == currentContent.length) {
-                  replayOffset = null;
-                }
-                return;
-              }
-              replayOffset = null;
-            }
-
-            if (currentContent.isNotEmpty &&
-                currentContent.endsWith(effectiveChunk)) {
-              return;
-            }
-
-            if (currentContent.isNotEmpty &&
-                currentContent.startsWith(effectiveChunk) &&
-                currentContent.length > effectiveChunk.length) {
-              replayOffset = effectiveChunk.length;
-              return;
-            }
-          }
-        }
         appendToLastMessage(effectiveChunk);
         updateImagesFromCurrentContent();
       }

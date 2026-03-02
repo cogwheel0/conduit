@@ -3523,7 +3523,51 @@ class ApiService {
         String? pendingUsageHtml;
         bool firstContentEmitted = false;
         bool sawEventContent = false;
-        String lastEventContent = '';
+        bool eventContentModeDecided = false;
+        bool eventContentIsFull = false;
+        String lastEventFull = '';
+
+        String? emitEventContentDelta(String content) {
+          if (content.isEmpty) return null;
+
+          if (!eventContentModeDecided) {
+            if (lastEventFull.isEmpty) {
+              lastEventFull = content;
+              return content;
+            }
+            if (content.startsWith(lastEventFull)) {
+              eventContentModeDecided = true;
+              eventContentIsFull = true;
+              final delta = content.substring(lastEventFull.length);
+              lastEventFull = content;
+              return delta;
+            }
+            if (lastEventFull.startsWith(content)) {
+              eventContentModeDecided = true;
+              eventContentIsFull = true;
+              return null;
+            }
+            eventContentModeDecided = true;
+            eventContentIsFull = false;
+            return content;
+          }
+
+          if (!eventContentIsFull) {
+            return content;
+          }
+
+          if (lastEventFull.isNotEmpty && content.startsWith(lastEventFull)) {
+            final delta = content.substring(lastEventFull.length);
+            lastEventFull = content;
+            return delta;
+          }
+          if (lastEventFull.isNotEmpty && lastEventFull.startsWith(content)) {
+            return null;
+          }
+          lastEventFull = content;
+          return content;
+        }
+
         await for (final chunk in stream) {
           if (cancelToken.isCancelled) break;
           final decoded = utf8.decode(chunk);
@@ -3605,18 +3649,10 @@ class ApiService {
                         return;
                       }
                     } else {
-                      content = eventData['content']?.toString();
-                      if (content != null && content.isNotEmpty) {
-                        if (lastEventContent.isNotEmpty &&
-                            content.startsWith(lastEventContent)) {
-                          final delta = content.substring(
-                            lastEventContent.length,
-                          );
-                          content = delta;
-                        }
-                        lastEventContent =
-                            eventData['content']?.toString() ?? '';
+                      final eventContent = eventData['content']?.toString();
+                      if (eventContent != null && eventContent.isNotEmpty) {
                         sawEventContent = true;
+                        content = emitEventContentDelta(eventContent);
                       }
                       final done = eventData['done'] == true;
                       if (done) {
