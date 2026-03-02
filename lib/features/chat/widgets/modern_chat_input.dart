@@ -1111,10 +1111,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
     final Brightness brightness = Theme.of(context).brightness;
     final bool isActive = _focusNode.hasFocus || _hasText;
-    // Use high-contrast background for floating input
-    final Color composerBackground = brightness == Brightness.dark
-        ? Color.lerp(context.conduitTheme.cardBackground, Colors.white, 0.08)!
-        : Color.lerp(context.conduitTheme.inputBackground, Colors.black, 0.06)!;
+    final Color composerBackground = context.conduitTheme.cardBackground;
     final Color placeholderBase = context.conduitTheme.inputText.withValues(
       alpha: 0.64,
     );
@@ -1122,10 +1119,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       alpha: 0.64,
     );
     final Color outlineColor = Color.lerp(
-      context.conduitTheme.inputBorder,
+      context.conduitTheme.cardBorder,
       context.conduitTheme.inputBorderFocused,
       isActive ? 1.0 : 0.0,
-    )!.withValues(alpha: brightness == Brightness.dark ? 0.65 : 0.55);
+    )!;
     final Color shellShadowColor = context.conduitTheme.cardShadow.withValues(
       alpha: brightness == Brightness.dark
           ? 0.22 + (isActive ? 0.08 : 0.0)
@@ -1731,11 +1728,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         : (activeColor ??
               context.conduitTheme.textPrimary.withValues(alpha: Alpha.strong));
 
-    // Use high-contrast background for floating button
-    final Brightness brightness = Theme.of(context).brightness;
-    final Color baseBackground = brightness == Brightness.dark
-        ? Color.lerp(context.conduitTheme.cardBackground, Colors.white, 0.08)!
-        : Color.lerp(context.conduitTheme.inputBackground, Colors.black, 0.06)!;
+    final Color baseBackground = context.conduitTheme.cardBackground;
     final Color backgroundColor = !enabled
         ? baseBackground.withValues(alpha: Alpha.disabled)
         : isActive
@@ -1743,7 +1736,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         : baseBackground;
     final Color borderColor = isActive
         ? context.conduitTheme.buttonPrimary.withValues(alpha: 0.6)
-        : context.conduitTheme.cardBorder.withValues(alpha: 0.45);
+        : context.conduitTheme.cardBorder;
 
     return Tooltip(
       message: tooltip,
@@ -2091,38 +2084,23 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final Brightness brightness = Theme.of(context).brightness;
     final theme = context.conduitTheme;
 
-    // Enhanced color scheme for active state
-    final Color activeBackground = isActive
+    final Color background = isActive
         ? theme.buttonPrimary.withValues(
             alpha: brightness == Brightness.dark ? 0.22 : 0.14,
           )
         : Colors.transparent;
 
-    final Color inactiveBackground = brightness == Brightness.dark
-        ? theme.cardBackground.withValues(alpha: 0.25)
-        : theme.cardBackground.withValues(alpha: 0.08);
+    final Color borderColor = isActive
+        ? theme.buttonPrimary.withValues(
+            alpha: brightness == Brightness.dark ? 0.85 : 0.75,
+          )
+        : theme.cardBorder;
 
-    final Color background = isActive ? activeBackground : inactiveBackground;
+    final Color textColor = isActive
+        ? theme.buttonPrimary
+        : theme.textSecondary.withValues(alpha: enabled ? 1.0 : Alpha.disabled);
 
-    // Enhanced border styling
-    final Color activeBorder = theme.buttonPrimary.withValues(
-      alpha: brightness == Brightness.dark ? 0.85 : 0.75,
-    );
-    final Color inactiveBorder = theme.cardBorder.withValues(
-      alpha: brightness == Brightness.dark ? 0.4 : 0.25,
-    );
-    final Color borderColor = isActive ? activeBorder : inactiveBorder;
-
-    // Enhanced content colors
-    final Color activeTextColor = theme.buttonPrimary;
-    final Color inactiveTextColor = theme.textPrimary.withValues(
-      alpha: enabled
-          ? (brightness == Brightness.dark ? 0.85 : 0.75)
-          : Alpha.disabled,
-    );
-    final Color textColor = isActive ? activeTextColor : inactiveTextColor;
-
-    final Color iconColor = isActive ? activeTextColor : inactiveTextColor;
+    final Color iconColor = textColor;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),

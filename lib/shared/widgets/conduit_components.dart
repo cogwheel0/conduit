@@ -30,17 +30,11 @@ class FloatingAppBarPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final conduitTheme = context.conduitTheme;
-    final isDark = theme.brightness == Brightness.dark;
 
-    final backgroundColor = isDark
-        ? Color.lerp(conduitTheme.cardBackground, Colors.white, 0.08)!
-        : Color.lerp(conduitTheme.inputBackground, Colors.black, 0.06)!;
+    final backgroundColor = conduitTheme.cardBackground;
 
-    final borderColor = conduitTheme.cardBorder.withValues(
-      alpha: isDark ? 0.65 : 0.55,
-    );
+    final borderColor = conduitTheme.cardBorder;
 
     final borderRadius = isCircular
         ? BorderRadius.circular(100)
@@ -154,21 +148,18 @@ class FloatingAppBar extends StatelessWidget implements PreferredSizeWidget {
                   // Leading
                   if (leading != null)
                     Padding(
-                      padding: const EdgeInsets.only(left: Spacing.inputPadding),
+                      padding: const EdgeInsets.only(
+                        left: Spacing.inputPadding,
+                      ),
                       child: Center(child: leading),
                     )
                   else
                     const SizedBox(width: Spacing.inputPadding),
                   // Title centered
-                  Expanded(
-                    child: Center(child: title),
-                  ),
+                  Expanded(child: Center(child: title)),
                   // Actions or trailing spacer
                   if (actions != null && actions!.isNotEmpty)
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: actions!,
-                    )
+                    Row(mainAxisSize: MainAxisSize.min, children: actions!)
                   else if (leading != null && balanceLeading)
                     const SizedBox(width: 44 + Spacing.inputPadding)
                   else
@@ -189,11 +180,7 @@ class FloatingAppBarTitle extends StatelessWidget {
   final String text;
   final IconData? icon;
 
-  const FloatingAppBarTitle({
-    super.key,
-    required this.text,
-    this.icon,
-  });
+  const FloatingAppBarTitle({super.key, required this.text, this.icon});
 
   @override
   Widget build(BuildContext context) {
@@ -235,11 +222,7 @@ class FloatingAppBarBackButton extends StatelessWidget {
   final VoidCallback? onTap;
   final IconData? icon;
 
-  const FloatingAppBarBackButton({
-    super.key,
-    this.onTap,
-    this.icon,
-  });
+  const FloatingAppBarBackButton({super.key, this.onTap, this.icon});
 
   @override
   Widget build(BuildContext context) {
@@ -295,10 +278,7 @@ class FloatingAppBarIconButton extends StatelessWidget {
 class FloatingAppBarAction extends StatelessWidget {
   final Widget child;
 
-  const FloatingAppBarAction({
-    super.key,
-    required this.child,
-  });
+  const FloatingAppBarAction({super.key, required this.child});
 
   @override
   Widget build(BuildContext context) {

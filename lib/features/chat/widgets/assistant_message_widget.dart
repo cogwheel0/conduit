@@ -705,7 +705,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final visibleStatuses = widget.message.statusHistory
         .where((status) => status.hidden != true)
         .toList();
-    final hasPendingStatus = visibleStatuses.any((status) => status.done != true);
+    final hasPendingStatus = visibleStatuses.any(
+      (status) => status.done != true,
+    );
     if (hasPendingStatus) {
       // Pending status has shimmer effect, no need for typing indicator
       return false;
@@ -941,8 +943,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final msg = widget.message as ChatMessage;
 
     // If viewing a version, return the version's error
-    if (_activeVersionIndex >= 0 &&
-        _activeVersionIndex < msg.versions.length) {
+    if (_activeVersionIndex >= 0 && _activeVersionIndex < msg.versions.length) {
       return msg.versions[_activeVersionIndex].error;
     }
 
@@ -972,18 +973,12 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            Icons.info_outline,
-            size: 20,
-            color: errorColor,
-          ),
+          Icon(Icons.info_outline, size: 20, color: errorColor),
           const SizedBox(width: Spacing.sm),
           Expanded(
             child: Text(
               displayText,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: errorColor,
-              ),
+              style: theme.textTheme.bodyMedium?.copyWith(color: errorColor),
             ),
           ),
         ],
@@ -1321,7 +1316,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     // Also check the active version's error if viewing a version
     final activeError = _getActiveError();
     final hasErrorField = activeError != null;
-    final isErrorMessage = hasErrorField ||
+    final isErrorMessage =
+        hasErrorField ||
         widget.message.content.contains('⚠️') ||
         widget.message.content.contains('Error') ||
         widget.message.content.contains('timeout') ||
@@ -1548,8 +1544,12 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       stats.add(
         _UsageStatRow(
           label: l10n.usageTokenGeneration,
-          value: l10n.usageTokensPerSecond(predictedPerSecond.toStringAsFixed(1)),
-          detail: predictedN != null ? l10n.usageTokenCount(predictedN.toInt()) : null,
+          value: l10n.usageTokensPerSecond(
+            predictedPerSecond.toStringAsFixed(1),
+          ),
+          detail: predictedN != null
+              ? l10n.usageTokenCount(predictedN.toInt())
+              : null,
           theme: theme,
         ),
       );
@@ -1596,7 +1596,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         _UsageStatRow(
           label: l10n.usagePromptEval,
           value: l10n.usageTokensPerSecond(promptPerSecond.toStringAsFixed(1)),
-          detail: promptN != null ? l10n.usageTokenCount(promptN.toInt()) : null,
+          detail: promptN != null
+              ? l10n.usageTokenCount(promptN.toInt())
+              : null,
           theme: theme,
         ),
       );
@@ -1714,9 +1716,113 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     return null;
   }
 
+  /// Opens a bottom sheet modal displaying the full reasoning/thinking
+  /// content with markdown rendering.
+  void _showReasoningBottomSheet(
+    ReasoningEntry rc,
+    String title, {
+    int? index,
+  }) {
+    final theme = context.conduitTheme;
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: theme.surfaceBackground,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(AppBorderRadius.dialog),
+        ),
+      ),
+      builder: (ctx) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.6,
+          minChildSize: 0.3,
+          maxChildSize: 0.95,
+          expand: false,
+          builder: (_, controller) {
+            return Column(
+              children: [
+                // Drag handle
+                Padding(
+                  padding: const EdgeInsets.only(top: Spacing.sm),
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: theme.dividerColor.withValues(alpha: 0.4),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                // Header row
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: Spacing.lg,
+                    vertical: Spacing.sm,
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.psychology_outlined,
+                        size: IconSize.md,
+                        color: theme.textPrimary,
+                      ),
+                      const SizedBox(width: Spacing.sm),
+                      Expanded(
+                        child: Text(
+                          title,
+                          style: TextStyle(
+                            fontSize: AppTypography.bodyLarge,
+                            fontWeight: FontWeight.w600,
+                            color: theme.textPrimary,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close, size: 20),
+                        onPressed: () => Navigator.of(ctx).pop(),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        color: theme.textSecondary,
+                      ),
+                    ],
+                  ),
+                ),
+                Divider(
+                  height: 1,
+                  color: theme.dividerColor.withValues(alpha: 0.3),
+                ),
+                // Scrollable markdown body
+                Expanded(
+                  child: ListView(
+                    controller: controller,
+                    padding: const EdgeInsets.all(Spacing.lg),
+                    children: [
+                      StreamingMarkdownWidget(
+                        content: rc.cleanedReasoning,
+                        isStreaming: !rc.isDone,
+                        onTapLink: (url, _) => _launchUri(url),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    ).whenComplete(() {
+      if (!mounted) return;
+      if (index != null) {
+        setState(() => _expandedReasoning.remove(index));
+      }
+    });
+  }
+
   // Reasoning tile rendered inline - minimal design inspired by OpenWebUI
   Widget _buildReasoningTile(ReasoningEntry rc, int index) {
-    final isExpanded = _expandedReasoning.contains(index);
     final theme = context.conduitTheme;
     // Show shimmer when reasoning is not done (mirrors OpenWebUI's done !== 'true')
     final showShimmer = !rc.isDone;
@@ -1757,7 +1863,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
       // Done thinking - always use humanized duration format
       // This ensures "less than a second" instead of "0 secs" from server
-      if (rc.duration >= 0 && (rc.duration > 0 || hasDurationInSummary || isThinkingSummary)) {
+      if (rc.duration >= 0 &&
+          (rc.duration > 0 || hasDurationInSummary || isThinkingSummary)) {
         return l10n.thoughtForDuration(rc.formattedDuration);
       }
 
@@ -1775,9 +1882,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Icon(
-            isExpanded
-                ? Icons.keyboard_arrow_up_rounded
-                : Icons.keyboard_arrow_down_rounded,
+            Icons.keyboard_arrow_down_rounded,
             size: 14,
             color: theme.textPrimary.withValues(alpha: 0.8),
           ),
@@ -1807,62 +1912,18 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       return headerWidget;
     }
 
+    final title = headerText();
+
     return Padding(
       padding: const EdgeInsets.only(bottom: Spacing.xs),
       child: GestureDetector(
         onTap: () {
-          setState(() {
-            if (isExpanded) {
-              _expandedReasoning.remove(index);
-            } else {
-              _expandedReasoning.add(index);
-            }
-          });
+          if (rc.cleanedReasoning.trim().isEmpty) return;
+          setState(() => _expandedReasoning.add(index));
+          _showReasoningBottomSheet(rc, title, index: index);
         },
         behavior: HitTestBehavior.opaque,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Minimal header - just text with chevron
-            buildHeader(),
-
-            // Expanded content - subtle background only when shown
-            AnimatedCrossFade(
-              firstChild: const SizedBox.shrink(),
-              secondChild: Container(
-                margin: const EdgeInsets.only(top: Spacing.xs, left: 16),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: Spacing.sm,
-                  vertical: Spacing.xs,
-                ),
-                decoration: BoxDecoration(
-                  color: theme.surfaceContainer.withValues(alpha: 0.3),
-                  borderRadius: BorderRadius.circular(4),
-                  border: Border(
-                    left: BorderSide(
-                      color: theme.dividerColor.withValues(alpha: 0.4),
-                      width: 2,
-                    ),
-                  ),
-                ),
-                child: SelectableText(
-                  rc.cleanedReasoning,
-                  style: TextStyle(
-                    fontSize: AppTypography.bodySmall,
-                    color: theme.textSecondary,
-                    fontFamily: AppTypography.monospaceFontFamily,
-                    height: 1.4,
-                  ),
-                ),
-              ),
-              crossFadeState: isExpanded
-                  ? CrossFadeState.showSecond
-                  : CrossFadeState.showFirst,
-              duration: const Duration(milliseconds: 200),
-            ),
-          ],
-        ),
+        child: buildHeader(),
       ),
     );
   }

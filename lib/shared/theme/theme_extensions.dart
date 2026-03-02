@@ -46,12 +46,14 @@ class ConduitThemeExtension extends ThemeExtension<ConduitThemeExtension> {
   final ShadowThemeExtension shadows;
   final ShapeThemeExtension shapes;
 
-  Color get chatBubbleUser => variant.primary;
+  Color get chatBubbleUser =>
+      isDark ? tokens.neutralTone40 : tokens.neutralTone20;
   Color get chatBubbleAssistant =>
       isDark ? tokens.neutralTone20 : tokens.neutralTone00;
-  Color get chatBubbleUserText => _onSurfaceColor(variant.primary);
+  Color get chatBubbleUserText => tokens.neutralOnSurface;
   Color get chatBubbleAssistantText => tokens.neutralOnSurface;
-  Color get chatBubbleUserBorder => variant.secondary;
+  Color get chatBubbleUserBorder =>
+      isDark ? tokens.neutralTone40 : tokens.neutralTone20;
   Color get chatBubbleAssistantBorder =>
       isDark ? tokens.neutralTone40 : tokens.neutralTone20;
 
