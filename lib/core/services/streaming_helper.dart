@@ -217,6 +217,9 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
 
   /// Whether tools are enabled (needs longer watchdog window).
   bool toolsEnabled = false,
+
+  /// Whether to skip WebSocket handling and use HTTP stream only (SSE mode).
+  bool httpStreamOnly = false,
 }) {
   // Track if streaming has been finished to avoid duplicate cleanup
   bool hasFinished = false;
@@ -1423,7 +1426,14 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
     } catch (_) {}
   }
 
-  if (registerDeltaListener != null) {
+  // Skip socket subscriptions when using HTTP-only SSE streaming
+  // This prevents duplicate content from both HTTP and WebSocket
+  if (httpStreamOnly) {
+    DebugLogger.log(
+      'HTTP stream only mode - skipping socket subscriptions',
+      scope: 'streaming/helper',
+    );
+  } else if (registerDeltaListener != null) {
     final chatDisposer = registerDeltaListener(
       request: ConversationDeltaRequest.chat(
         conversationId: activeConversationId,
@@ -1531,6 +1541,8 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
 
       // Only finish streaming if no socket subscriptions are active.
       // If sockets are active, they will handle the completion via done:true event.
+      // Note: With OpenWebUI via SSE (no session_id), HTTP delivers all content
+      // so we should still finish on HTTP complete even with socket subscriptions.
       if (socketSubscriptions.isEmpty) {
         DebugLogger.log(
           'No socket subscriptions - finishing streaming on HTTP complete',
@@ -1540,9 +1552,13 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
         Future.microtask(refreshConversationSnapshot);
       } else {
         DebugLogger.log(
-          'Socket subscriptions active - waiting for socket done signal',
+          'Socket subscriptions active - checking if HTTP has content',
           scope: 'streaming/helper',
         );
+        // Even with socket subscriptions, if HTTP delivered content, finish streaming
+        // This handles the case where SSE is used without session_id
+        wrappedFinishStreaming();
+        Future.microtask(refreshConversationSnapshot);
       }
     },
     onError: (error, stackTrace) async {

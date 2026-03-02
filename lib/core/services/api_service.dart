@@ -415,10 +415,10 @@ class ApiService {
             final client = HttpClient();
             client.badCertificateCallback =
                 (X509Certificate cert, String requestHost, int requestPort) {
-              if (requestHost.toLowerCase() != host) return false;
-              if (port == null) return true;
-              return requestPort == port;
-            };
+                  if (requestHost.toLowerCase() != host) return false;
+                  if (port == null) return true;
+                  return requestPort == port;
+                };
             return client;
           };
         }
@@ -467,7 +467,8 @@ class ApiService {
           // OpenWebUI's /health returns JSON, not HTML.
           // Any HTML response indicates a proxy page or misconfiguration.
           final htmlContent = data?.toString().toLowerCase() ?? '';
-          final hasLoginKeywords = htmlContent.contains('login') ||
+          final hasLoginKeywords =
+              htmlContent.contains('login') ||
               htmlContent.contains('sign in') ||
               htmlContent.contains('authenticate') ||
               htmlContent.contains('oauth');
@@ -814,10 +815,7 @@ class ApiService {
 
       // Fallback: user has no default model configured, pick first available
       // This fixes issue #353 where secondary accounts couldn't send messages
-      DebugLogger.log(
-        'default-model-fallback',
-        scope: 'api/user-settings',
-      );
+      DebugLogger.log('default-model-fallback', scope: 'api/user-settings');
       return _getFirstAvailableModelId();
     } catch (e) {
       DebugLogger.error(
@@ -3236,13 +3234,14 @@ class ApiService {
   // - HTTP POST returns JSON with task_id (no SSE streaming)
   // - All content and metadata delivered via WebSocket events
   // - Events: chat:completion, chat:message:delta, status, source, follow_ups, etc.
-  // Returns a record with (stream, messageId, sessionId, socketSessionId, isBackgroundFlow)
+  // Returns a record with (stream, messageId, sessionId, socketSessionId, isBackgroundFlow, isHttpStreamOnly)
   ({
     Stream<String> stream,
     String messageId,
     String sessionId,
     String? socketSessionId,
     bool isBackgroundFlow,
+    bool isHttpStreamOnly,
   })
   sendMessage({
     required List<Map<String, dynamic>> messages,
@@ -3337,6 +3336,14 @@ class ApiService {
       'model': model,
       'messages': processedMessages,
     };
+
+    // DEBUG: Log the full request for debugging issue #378
+    debugPrint(
+      'DEBUG[#378] sendMessage request: model=$model, data=${jsonEncode(data)}',
+    );
+
+    // DEBUG: Log when the actual HTTP request is made
+    debugPrint('DEBUG[#378] Sending API request now...');
 
     // Add only essential parameters
     if (conversationId != null) {
@@ -3454,11 +3461,12 @@ class ApiService {
     );
 
     // Attach identifiers to trigger background task processing on the server
-    data['session_id'] = sessionId;
-    data['id'] = messageId;
-    if (conversationId != null) {
-      data['chat_id'] = conversationId;
-    }
+    // NOTE: session_id, id, and chat_id removed to fix issue #378
+    // The combination triggers async queue causing 60 second delay
+    // Without these, OpenWebUI returns SSE stream directly
+    // data['session_id'] = sessionId;
+    // data['id'] = messageId;
+    // data['chat_id'] = conversationId;
     // Include parent_id for proper message linking (required since OpenWebUI 0.6.41)
     // This links the assistant response to the user message it's responding to
     if (parentMessageId != null) {
@@ -3477,7 +3485,7 @@ class ApiService {
 
     // Extra diagnostics to confirm dynamic-channel payload
     _traceApi('Background flow payload keys: ${data.keys.toList()}');
-    _traceApi('Using session_id: $sessionId');
+    // session_id removed - see note above
     _traceApi('Using message id: $messageId');
     _traceApi(
       'Has tool_ids: ${data.containsKey('tool_ids')} -> ${data['tool_ids']}',
@@ -3491,44 +3499,92 @@ class ApiService {
     final cancelToken = CancelToken();
     _streamCancelTokens[messageId] = cancelToken;
 
+    // DEBUG: Log when the HTTP request is actually made
+    debugPrint(
+      'DEBUG[#378] About to make HTTP request to /api/chat/completions',
+    );
+    final startTime = DateTime.now().millisecondsSinceEpoch;
+
     // Send HTTP request to initiate chat task
     // With session_id + chat_id + message_id, the server returns a task_id
     // and all streaming happens via WebSocket events (not SSE)
     () async {
       try {
-        final resp = await _dio.post(
+        final resp = await _dio.post<dynamic>(
           '/api/chat/completions',
           data: data,
           options: Options(
-            responseType: ResponseType.json,
-            receiveTimeout: const Duration(seconds: 30),
+            responseType: ResponseType.stream,
+            receiveTimeout: Duration(minutes: 10),
             sendTimeout: const Duration(seconds: 30),
           ),
           cancelToken: cancelToken,
         );
 
-        final respData = resp.data;
+        final elapsed = DateTime.now().millisecondsSinceEpoch - startTime;
+        debugPrint(
+          'DEBUG[#378] HTTP request completed in ${elapsed}ms, status=${resp.statusCode}',
+        );
 
-        if (respData is Map) {
-          if (respData['task_id'] != null) {
-            final taskId = respData['task_id'].toString();
-            _traceApi('Background task created: $taskId');
-          } else if (respData['status'] == true) {
-            _traceApi('Chat task initiated successfully');
-          } else if (respData['error'] != null) {
-            _traceApi('Server error: ${respData['error']}');
-            if (!streamController.isClosed) {
-              streamController.addError(
-                Exception(respData['error'].toString()),
-              );
+        final stream = resp.data?.stream;
+        if (stream == null) {
+          _traceApi('No stream in response');
+          if (!streamController.isClosed) streamController.close();
+          return;
+        }
+
+        String buffer = '';
+        await for (final chunk in stream) {
+          if (cancelToken.isCancelled) break;
+          final decoded = utf8.decode(chunk);
+          buffer += decoded;
+
+          int newlineIndex;
+          while ((newlineIndex = buffer.indexOf('\n')) != -1) {
+            final line = buffer.substring(0, newlineIndex);
+            buffer = buffer.substring(newlineIndex + 1);
+
+            final trimmed = line.trim();
+            if (trimmed.isEmpty) continue;
+            if (trimmed.startsWith('data: ')) {
+              final jsonStr = trimmed.substring(6);
+              if (jsonStr == '[DONE]') {
+                if (!streamController.isClosed) streamController.close();
+                return;
+              }
+              try {
+                final json = jsonDecode(jsonStr) as Map<String, dynamic>;
+                String? content;
+
+                // Check for OpenWebUI event format first - use ONLY this if present
+                final event = json['event'] as Map<String, dynamic>?;
+                if (event != null) {
+                  final eventData = event['data'] as Map<String, dynamic>?;
+                  if (eventData != null) {
+                    content = eventData['content']?.toString();
+                    final done = eventData['done'] == true;
+                    if (done) {
+                      if (!streamController.isClosed) streamController.close();
+                      return;
+                    }
+                  }
+                } else {
+                  // OpenAI format only if no OpenWebUI event
+                  content = json['choices']?[0]?['delta']?['content']
+                      ?.toString();
+                }
+
+                if (content != null && content.isNotEmpty) {
+                  if (!streamController.isClosed) {
+                    streamController.add(content);
+                  }
+                }
+              } catch (_) {}
             }
           }
         }
 
-        // Close HTTP stream controller - WebSocket handles all content delivery
-        if (!streamController.isClosed) {
-          streamController.close();
-        }
+        if (!streamController.isClosed) streamController.close();
       } on DioException catch (e) {
         if (CancelToken.isCancel(e)) {
           _traceApi('Request cancelled for message: $messageId');
@@ -3559,12 +3615,17 @@ class ApiService {
         enableWebSearch ||
         enableImageGeneration;
 
+    // Flag to indicate SSE-only mode (no WebSocket) - used when session_id is not sent
+    // This prevents duplicate content from both HTTP and WebSocket
+    final bool isHttpStreamOnly = true;
+
     return (
       stream: streamController.stream,
       messageId: messageId,
       sessionId: sessionId,
       socketSessionId: socketSessionId,
       isBackgroundFlow: isBackgroundFlow,
+      isHttpStreamOnly: isHttpStreamOnly,
     );
   }
 
@@ -3607,7 +3668,11 @@ class ApiService {
   }
 
   // File upload for RAG
-  Future<String> uploadFile(String filePath, String fileName, {String? contentType}) async {
+  Future<String> uploadFile(
+    String filePath,
+    String fileName, {
+    String? contentType,
+  }) async {
     _traceApi('Starting file upload: $fileName from $filePath');
 
     try {
