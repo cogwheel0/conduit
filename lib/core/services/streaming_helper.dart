@@ -1558,7 +1558,9 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
         // Even with socket subscriptions, if HTTP delivered content, finish streaming
         // This handles the case where SSE is used without session_id
         wrappedFinishStreaming();
-        Future.microtask(refreshConversationSnapshot);
+        if (!httpStreamOnly) {
+          Future.microtask(refreshConversationSnapshot);
+        }
       }
     },
     onError: (error, stackTrace) async {
@@ -1605,7 +1607,9 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
 
       disposeSocketSubscriptions();
       wrappedFinishStreaming();
-      Future.microtask(refreshConversationSnapshot);
+      if (!httpStreamOnly) {
+        Future.microtask(refreshConversationSnapshot);
+      }
     },
   );
 
