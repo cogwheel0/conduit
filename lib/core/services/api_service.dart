@@ -3523,6 +3523,7 @@ class ApiService {
         String? pendingUsageHtml;
         bool firstContentEmitted = false;
         bool sawEventContent = false;
+        String lastEventContent = '';
         await for (final chunk in stream) {
           if (cancelToken.isCancelled) break;
           final decoded = utf8.decode(chunk);
@@ -3606,6 +3607,15 @@ class ApiService {
                     } else {
                       content = eventData['content']?.toString();
                       if (content != null && content.isNotEmpty) {
+                        if (lastEventContent.isNotEmpty &&
+                            content.startsWith(lastEventContent)) {
+                          final delta = content.substring(
+                            lastEventContent.length,
+                          );
+                          content = delta;
+                        }
+                        lastEventContent =
+                            eventData['content']?.toString() ?? '';
                         sawEventContent = true;
                       }
                       final done = eventData['done'] == true;
