@@ -1462,44 +1462,96 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
     );
     socketSubscriptions.add(chatSub.dispose);
   }
-  if (registerDeltaListener != null) {
-    final channelDisposer = registerDeltaListener(
-      request: ConversationDeltaRequest.channel(
+  if (!httpStreamOnly) {
+    if (registerDeltaListener != null) {
+      final channelDisposer = registerDeltaListener(
+        request: ConversationDeltaRequest.channel(
+          conversationId: activeConversationId,
+          sessionId: sessionId,
+          requireFocus: false,
+        ),
+        onDelta: (event) {
+          channelEventsHandler(event.raw, event.ack);
+        },
+        onError: (error, stackTrace) {
+          DebugLogger.error(
+            'Channel delta listener error',
+            scope: 'streaming/helper',
+            error: error,
+            stackTrace: stackTrace,
+          );
+        },
+      );
+      socketSubscriptions.add(channelDisposer);
+    } else if (socketService != null) {
+      final channelSub = socketService.addChannelEventHandler(
         conversationId: activeConversationId,
         sessionId: sessionId,
         requireFocus: false,
-      ),
-      onDelta: (event) {
-        channelEventsHandler(event.raw, event.ack);
-      },
-      onError: (error, stackTrace) {
-        DebugLogger.error(
-          'Channel delta listener error',
-          scope: 'streaming/helper',
-          error: error,
-          stackTrace: stackTrace,
-        );
-      },
-    );
-    socketSubscriptions.add(channelDisposer);
-  } else if (socketService != null) {
-    final channelSub = socketService.addChannelEventHandler(
-      conversationId: activeConversationId,
-      sessionId: sessionId,
-      requireFocus: false,
-      handler: channelEventsHandler,
-    );
-    socketSubscriptions.add(channelSub.dispose);
+        handler: channelEventsHandler,
+      );
+      socketSubscriptions.add(channelSub.dispose);
+    }
   }
+
+  String usageMarkerBuffer = '';
 
   final controller = StreamingResponseController(
     stream: persistentController.stream,
     onChunk: (chunk) {
-      var effectiveChunk = chunk;
+      const usageStartMarker = '__USAGE__';
+      const usageEndMarker = '__USAGE_END__';
+
+      var effectiveChunk = usageMarkerBuffer + chunk;
+      usageMarkerBuffer = '';
+
+      void applyUsagePayload(String payload) {
+        try {
+          final decoded = jsonDecode(payload);
+          if (decoded is Map<String, dynamic> && decoded.isNotEmpty) {
+            DebugLogger.log(
+              'Usage payload captured: ${decoded.keys.toList()} '
+              '(tokens=${decoded['total_tokens'] ?? decoded['completion_tokens'] ?? decoded['output_tokens'] ?? 'n/a'})',
+              scope: 'streaming/helper',
+            );
+            updateLastMessageWith((m) => m.copyWith(usage: decoded));
+          }
+        } catch (_) {}
+      }
+
+      String stripUsageMarkers(String input) {
+        var working = input;
+        while (true) {
+          final start = working.indexOf(usageStartMarker);
+          if (start == -1) break;
+          final end = working.indexOf(
+            usageEndMarker,
+            start + usageStartMarker.length,
+          );
+          if (end == -1) {
+            usageMarkerBuffer = working.substring(start);
+            working = working.substring(0, start);
+            break;
+          }
+          final payload = working.substring(
+            start + usageStartMarker.length,
+            end,
+          );
+          applyUsagePayload(payload);
+          working = working.replaceRange(
+            start,
+            end + usageEndMarker.length,
+            '',
+          );
+        }
+        return working;
+      }
+
+      effectiveChunk = stripUsageMarkers(effectiveChunk);
       if (webSearchEnabled && !isSearching) {
-        if (chunk.contains('[SEARCHING]') ||
-            chunk.contains('Searching the web') ||
-            chunk.contains('web search')) {
+        if (effectiveChunk.contains('[SEARCHING]') ||
+            effectiveChunk.contains('Searching the web') ||
+            effectiveChunk.contains('web search')) {
           isSearching = true;
           updateLastMessageWith(
             (message) => message.copyWith(
@@ -1512,8 +1564,8 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
       }
 
       if (isSearching &&
-          (chunk.contains('[/SEARCHING]') ||
-              chunk.contains('Search complete'))) {
+          (effectiveChunk.contains('[/SEARCHING]') ||
+              effectiveChunk.contains('Search complete'))) {
         isSearching = false;
         updateLastMessageWith(
           (message) => message.copyWith(metadata: {'webSearchActive': false}),
@@ -1523,7 +1575,7 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
             .replaceAll('[/SEARCHING]', '');
       }
 
-      if (effectiveChunk.trim().isNotEmpty) {
+      if (effectiveChunk.isNotEmpty) {
         appendToLastMessage(effectiveChunk);
         updateImagesFromCurrentContent();
       }
