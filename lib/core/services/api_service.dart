@@ -3523,14 +3523,7 @@ class ApiService {
         String? pendingUsageHtml;
         bool firstContentEmitted = false;
         final StringBuffer emittedContent = StringBuffer();
-
-        bool isAlphaNumeric(String value) {
-          final code = value.codeUnitAt(0);
-          final isNumber = code >= 48 && code <= 57;
-          final isUpper = code >= 65 && code <= 90;
-          final isLower = code >= 97 && code <= 122;
-          return isNumber || isUpper || isLower;
-        }
+        bool eventContentSeen = false;
 
         String? normalizeContentDelta(String content) {
           if (content.isEmpty) return null;
@@ -3544,24 +3537,10 @@ class ApiService {
             if (delta.isEmpty) return null;
             emittedContent.clear();
             emittedContent.write(content);
-            if (existing.isNotEmpty &&
-                isAlphaNumeric(existing[existing.length - 1]) &&
-                isAlphaNumeric(delta[0]) &&
-                !existing.endsWith(' ')) {
-              return ' $delta';
-            }
             return delta;
           }
           if (existing.startsWith(content)) {
             return null;
-          }
-          if (existing.isNotEmpty &&
-              isAlphaNumeric(existing[existing.length - 1]) &&
-              isAlphaNumeric(content[0]) &&
-              !existing.endsWith(' ')) {
-            final spaced = ' $content';
-            emittedContent.write(spaced);
-            return spaced;
           }
           emittedContent.write(content);
           return content;
@@ -3650,6 +3629,7 @@ class ApiService {
                     } else {
                       final eventContent = eventData['content']?.toString();
                       if (eventContent != null && eventContent.isNotEmpty) {
+                        eventContentSeen = true;
                         content = normalizeContentDelta(eventContent);
                       }
                       final done = eventData['done'] == true;
@@ -3668,7 +3648,7 @@ class ApiService {
                   }
                 }
 
-                if (content == null) {
+                if (content == null && !eventContentSeen) {
                   // OpenAI format - check for reasoning_content first
                   final reasoningContent =
                       json['choices']?[0]?['delta']?['reasoning_content']
