@@ -1582,9 +1582,21 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
             final currentContent = msgs.last.content;
             if (currentContent.isNotEmpty &&
                 currentContent.endsWith(effectiveChunk)) {
+              DebugLogger.log(
+                'Skipping duplicate SSE chunk '
+                '(len=${effectiveChunk.length}, total=${currentContent.length})',
+                scope: 'streaming/helper',
+              );
               return;
             }
           }
+        }
+        if (httpStreamOnly) {
+          DebugLogger.log(
+            'Appending SSE chunk '
+            '(len=${effectiveChunk.length})',
+            scope: 'streaming/helper',
+          );
         }
         appendToLastMessage(effectiveChunk);
         updateImagesFromCurrentContent();
