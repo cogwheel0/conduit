@@ -3524,6 +3524,14 @@ class ApiService {
         bool firstContentEmitted = false;
         final StringBuffer emittedContent = StringBuffer();
 
+        bool isAlphaNumeric(String value) {
+          final code = value.codeUnitAt(0);
+          final isNumber = code >= 48 && code <= 57;
+          final isUpper = code >= 65 && code <= 90;
+          final isLower = code >= 97 && code <= 122;
+          return isNumber || isUpper || isLower;
+        }
+
         String? normalizeContentDelta(String content) {
           if (content.isEmpty) return null;
           final existing = emittedContent.toString();
@@ -3536,10 +3544,24 @@ class ApiService {
             if (delta.isEmpty) return null;
             emittedContent.clear();
             emittedContent.write(content);
+            if (existing.isNotEmpty &&
+                isAlphaNumeric(existing[existing.length - 1]) &&
+                isAlphaNumeric(delta[0]) &&
+                !existing.endsWith(' ')) {
+              return ' $delta';
+            }
             return delta;
           }
           if (existing.startsWith(content)) {
             return null;
+          }
+          if (existing.isNotEmpty &&
+              isAlphaNumeric(existing[existing.length - 1]) &&
+              isAlphaNumeric(content[0]) &&
+              !existing.endsWith(' ')) {
+            final spaced = ' $content';
+            emittedContent.write(spaced);
+            return spaced;
           }
           emittedContent.write(content);
           return content;
