@@ -1592,11 +1592,6 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
               if (end <= currentContent.length &&
                   currentContent.substring(start, end) == effectiveChunk) {
                 replayOffset = end;
-                DebugLogger.log(
-                  'Skipping replayed SSE chunk '
-                  '(len=${effectiveChunk.length}, offset=$start)',
-                  scope: 'streaming/helper',
-                );
                 if (replayOffset == currentContent.length) {
                   replayOffset = null;
                 }
@@ -1607,11 +1602,6 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
 
             if (currentContent.isNotEmpty &&
                 currentContent.endsWith(effectiveChunk)) {
-              DebugLogger.log(
-                'Skipping duplicate SSE chunk '
-                '(len=${effectiveChunk.length}, total=${currentContent.length})',
-                scope: 'streaming/helper',
-              );
               return;
             }
 
@@ -1619,21 +1609,9 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
                 currentContent.startsWith(effectiveChunk) &&
                 currentContent.length > effectiveChunk.length) {
               replayOffset = effectiveChunk.length;
-              DebugLogger.log(
-                'Detected SSE replay start '
-                '(len=${effectiveChunk.length}, total=${currentContent.length})',
-                scope: 'streaming/helper',
-              );
               return;
             }
           }
-        }
-        if (httpStreamOnly) {
-          DebugLogger.log(
-            'Appending SSE chunk '
-            '(len=${effectiveChunk.length})',
-            scope: 'streaming/helper',
-          );
         }
         appendToLastMessage(effectiveChunk);
         updateImagesFromCurrentContent();
