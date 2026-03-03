@@ -1322,27 +1322,42 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
             Spacing.md,
             Spacing.sm,
           ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
+          child: Stack(
+            clipBehavior: Clip.none,
             children: [
-              Expanded(
-                child: _buildComposerTextField(
-                  brightness: brightness,
-                  sendOnEnter: sendOnEnter,
-                  voiceAvailable: voiceAvailable,
-                  isGenerating: isGenerating,
-                  allUploadsComplete: allUploadsComplete,
-                  placeholderBase: placeholderBase,
-                  placeholderFocused: placeholderFocused,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: Spacing.sm,
-                    vertical: Spacing.xs,
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(
+                    child: _buildComposerTextField(
+                      brightness: brightness,
+                      sendOnEnter: sendOnEnter,
+                      voiceAvailable: voiceAvailable,
+                      isGenerating: isGenerating,
+                      allUploadsComplete: allUploadsComplete,
+                      placeholderBase: placeholderBase,
+                      placeholderFocused: placeholderFocused,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: Spacing.sm,
+                        vertical: Spacing.xs,
+                      ),
+                      isActive: isActive,
+                      nativeMinHeight: 32,
+                      nativeMaxHeight: 140,
+                    ),
                   ),
-                  isActive: isActive,
-                  nativeMinHeight: 32,
-                  nativeMaxHeight: 140,
-                ),
+                ],
               ),
+              if (_showExpandButton)
+                Positioned(
+                  top: Spacing.xs,
+                  right: Spacing.xs,
+                  child: AnimatedOpacity(
+                    opacity: _showExpandButton ? 1.0 : 0.0,
+                    duration: const Duration(milliseconds: 160),
+                    child: _buildExpandButton(_showExpandTextModal),
+                  ),
+                ),
             ],
           ),
         ),
@@ -1409,42 +1424,57 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Row(
-              crossAxisAlignment: _isMultiline
-                  ? CrossAxisAlignment.end
-                  : CrossAxisAlignment.center,
+            Stack(
+              clipBehavior: Clip.none,
               children: [
-                Expanded(
-                  child: _buildComposerTextField(
-                    brightness: brightness,
-                    sendOnEnter: sendOnEnter,
-                    voiceAvailable: voiceAvailable,
-                    isGenerating: isGenerating,
-                    allUploadsComplete: allUploadsComplete,
-                    placeholderBase: placeholderBase,
-                    placeholderFocused: placeholderFocused,
-                    contentPadding: const EdgeInsets.symmetric(
-                      vertical: Spacing.xs,
+                Row(
+                  crossAxisAlignment: _isMultiline
+                      ? CrossAxisAlignment.end
+                      : CrossAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: _buildComposerTextField(
+                        brightness: brightness,
+                        sendOnEnter: sendOnEnter,
+                        voiceAvailable: voiceAvailable,
+                        isGenerating: isGenerating,
+                        allUploadsComplete: allUploadsComplete,
+                        placeholderBase: placeholderBase,
+                        placeholderFocused: placeholderFocused,
+                        contentPadding: const EdgeInsets.symmetric(
+                          vertical: Spacing.xs,
+                        ),
+                        isActive: isActive,
+                        nativeMinHeight: TouchTarget.input,
+                        nativeMaxHeight: compactMaxHeight,
+                      ),
                     ),
-                    isActive: isActive,
-                    nativeMinHeight: TouchTarget.input,
-                    nativeMaxHeight: compactMaxHeight,
+                    if (!_hasText && voiceAvailable && !isGenerating) ...[
+                      const SizedBox(width: Spacing.xs),
+                      _buildInlineMicAction(voiceAvailable),
+                    ],
+                    const SizedBox(width: Spacing.xs),
+                    _buildPrimaryButton(
+                      _hasText,
+                      isGenerating,
+                      stopGeneration,
+                      voiceAvailable,
+                      allUploadsComplete,
+                      hasUploadsInProgress,
+                      dense: true,
+                    ),
+                  ],
+                ),
+                if (_showExpandButton)
+                  Positioned(
+                    top: Spacing.xs,
+                    right: 36.0 + Spacing.xs * 2,
+                    child: AnimatedOpacity(
+                      opacity: _showExpandButton ? 1.0 : 0.0,
+                      duration: const Duration(milliseconds: 160),
+                      child: _buildExpandButton(_showExpandTextModal),
+                    ),
                   ),
-                ),
-                if (!_hasText && voiceAvailable && !isGenerating) ...[
-                  const SizedBox(width: Spacing.xs),
-                  _buildInlineMicAction(voiceAvailable),
-                ],
-                const SizedBox(width: Spacing.xs),
-                _buildPrimaryButton(
-                  _hasText,
-                  isGenerating,
-                  stopGeneration,
-                  voiceAvailable,
-                  allUploadsComplete,
-                  hasUploadsInProgress,
-                  dense: true,
-                ),
               ],
             ),
           ],
