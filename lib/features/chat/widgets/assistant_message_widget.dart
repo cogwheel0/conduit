@@ -8,11 +8,12 @@ import 'dart:async';
 import 'dart:io' show Platform;
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/markdown/streaming_markdown_widget.dart';
+import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
+import '../../../shared/widgets/markdown/renderer/conduit_markdown_widget.dart';
 import '../../../core/utils/reasoning_parser.dart';
 import '../../../core/utils/message_segments.dart';
 import '../../../core/utils/tool_calls_parser.dart';
 import '../../../core/models/chat_message.dart';
-import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
 import '../providers/text_to_speech_provider.dart';
 import 'enhanced_image_attachment.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -1534,9 +1535,20 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final evalDuration = _parseNum(usage['eval_duration']);
     final promptEvalCount = _parseNum(usage['prompt_eval_count']);
     final promptEvalDuration = _parseNum(usage['prompt_eval_duration']);
-    final completionTokens = _parseNum(usage['completion_tokens']);
-    final promptTokens = _parseNum(usage['prompt_tokens']);
+
+    // Support both OpenAI format (completion_tokens/prompt_tokens)
+    // and OpenRouter format (output_tokens/input_tokens)
+    final completionTokens = _parseNum(
+      usage['completion_tokens'] ?? usage['output_tokens'],
+    );
+    final promptTokens = _parseNum(
+      usage['prompt_tokens'] ?? usage['input_tokens'],
+    );
     final totalTokens = _parseNum(usage['total_tokens']);
+
+    // Cost from OpenRouter pipe
+    final cost = _parseNum(usage['cost']);
+
     // Time fields in seconds (Groq/OpenAI extended format)
     final completionTime = _parseNum(usage['completion_time']);
     final promptTime = _parseNum(usage['prompt_time']);
@@ -1545,11 +1557,14 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     // Time fields in nanoseconds (Ollama/llama.cpp format)
     final totalDuration = _parseNum(usage['total_duration']);
     final loadDuration = _parseNum(usage['load_duration']);
-    // Reasoning tokens (OpenAI o1/o3 models, Groq)
+    // Reasoning tokens - support both OpenAI and OpenRouter formats
     final completionDetails = usage['completion_tokens_details'];
+    final outputDetails = usage['output_tokens_details'];
     final reasoningTokens = completionDetails is Map
         ? _parseNum(completionDetails['reasoning_tokens'])
-        : null;
+        : (outputDetails is Map
+              ? _parseNum(outputDetails['reasoning_tokens'])
+              : null);
 
     // llama.cpp server format: pre-calculated tokens/second values
     final predictedPerSecond = _parseNum(usage['predicted_per_second']);
@@ -1675,6 +1690,17 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         _UsageStatRow(
           label: l10n.usageTotalTokens,
           value: l10n.usageTokenCount(totalTokens.toInt()),
+          theme: theme,
+        ),
+      );
+    }
+
+    // --- Cost (OpenRouter pipe format) ---
+    if (cost != null && cost > 0) {
+      stats.add(
+        _UsageStatRow(
+          label: 'Cost',
+          value: '\$${cost.toStringAsFixed(6)}',
           theme: theme,
         ),
       );
@@ -1844,6 +1870,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   // Reasoning tile rendered inline - minimal design inspired by OpenWebUI
   Widget _buildReasoningTile(ReasoningEntry rc, int index) {
     final theme = context.conduitTheme;
+    final isExpanded = _expandedReasoning.contains(index);
     // Show shimmer when reasoning is not done (mirrors OpenWebUI's done !== 'true')
     final showShimmer = !rc.isDone;
 
@@ -1902,7 +1929,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Icon(
-            Icons.keyboard_arrow_down_rounded,
+            isExpanded
+                ? Icons.keyboard_arrow_up_rounded
+                : Icons.keyboard_arrow_down_rounded,
             size: 14,
             color: theme.textPrimary.withValues(alpha: 0.8),
           ),
@@ -1943,7 +1972,41 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           _showReasoningBottomSheet(rc, title, index: index);
         },
         behavior: HitTestBehavior.opaque,
-        child: buildHeader(),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Minimal header - just text with chevron
+            buildHeader(),
+
+            // Expanded content - subtle background only when shown
+            AnimatedCrossFade(
+              firstChild: const SizedBox.shrink(),
+              secondChild: Container(
+                margin: const EdgeInsets.only(top: Spacing.xs, left: 16),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: Spacing.sm,
+                  vertical: Spacing.xs,
+                ),
+                decoration: BoxDecoration(
+                  color: theme.surfaceContainer.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border(
+                    left: BorderSide(
+                      color: theme.dividerColor.withValues(alpha: 0.4),
+                      width: 2,
+                    ),
+                  ),
+                ),
+                child: ConduitMarkdownWidget(data: rc.cleanedReasoning),
+              ),
+              crossFadeState: isExpanded
+                  ? CrossFadeState.showSecond
+                  : CrossFadeState.showFirst,
+              duration: const Duration(milliseconds: 200),
+            ),
+          ],
+        ),
       ),
     );
   }

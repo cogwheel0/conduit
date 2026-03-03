@@ -218,6 +218,9 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
 
   /// Whether tools are enabled (needs longer watchdog window).
   bool toolsEnabled = false,
+
+  /// Whether to skip WebSocket handling and use HTTP stream only (SSE mode).
+  bool httpStreamOnly = false,
 }) {
   // Track if streaming has been finished to avoid duplicate cleanup
   bool hasFinished = false;
@@ -1466,7 +1469,14 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
     } catch (_) {}
   }
 
-  if (registerDeltaListener != null) {
+  // Skip socket subscriptions when using HTTP-only SSE streaming
+  // This prevents duplicate content from both HTTP and WebSocket
+  if (httpStreamOnly) {
+    DebugLogger.log(
+      'HTTP stream only mode - skipping socket subscriptions',
+      scope: 'streaming/helper',
+    );
+  } else if (registerDeltaListener != null) {
     final chatDisposer = registerDeltaListener(
       request: ConversationDeltaRequest.chat(
         conversationId: activeConversationId,
@@ -1495,44 +1505,96 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
     );
     socketSubscriptions.add(chatSub.dispose);
   }
-  if (registerDeltaListener != null) {
-    final channelDisposer = registerDeltaListener(
-      request: ConversationDeltaRequest.channel(
+  if (!httpStreamOnly) {
+    if (registerDeltaListener != null) {
+      final channelDisposer = registerDeltaListener(
+        request: ConversationDeltaRequest.channel(
+          conversationId: activeConversationId,
+          sessionId: sessionId,
+          requireFocus: false,
+        ),
+        onDelta: (event) {
+          channelEventsHandler(event.raw, event.ack);
+        },
+        onError: (error, stackTrace) {
+          DebugLogger.error(
+            'Channel delta listener error',
+            scope: 'streaming/helper',
+            error: error,
+            stackTrace: stackTrace,
+          );
+        },
+      );
+      socketSubscriptions.add(channelDisposer);
+    } else if (socketService != null) {
+      final channelSub = socketService.addChannelEventHandler(
         conversationId: activeConversationId,
         sessionId: sessionId,
         requireFocus: false,
-      ),
-      onDelta: (event) {
-        channelEventsHandler(event.raw, event.ack);
-      },
-      onError: (error, stackTrace) {
-        DebugLogger.error(
-          'Channel delta listener error',
-          scope: 'streaming/helper',
-          error: error,
-          stackTrace: stackTrace,
-        );
-      },
-    );
-    socketSubscriptions.add(channelDisposer);
-  } else if (socketService != null) {
-    final channelSub = socketService.addChannelEventHandler(
-      conversationId: activeConversationId,
-      sessionId: sessionId,
-      requireFocus: false,
-      handler: channelEventsHandler,
-    );
-    socketSubscriptions.add(channelSub.dispose);
+        handler: channelEventsHandler,
+      );
+      socketSubscriptions.add(channelSub.dispose);
+    }
   }
+
+  String usageMarkerBuffer = '';
 
   final controller = StreamingResponseController(
     stream: persistentController.stream,
     onChunk: (chunk) {
-      var effectiveChunk = chunk;
+      const usageStartMarker = '__USAGE__';
+      const usageEndMarker = '__USAGE_END__';
+
+      var effectiveChunk = usageMarkerBuffer + chunk;
+      usageMarkerBuffer = '';
+
+      void applyUsagePayload(String payload) {
+        try {
+          final decoded = jsonDecode(payload);
+          if (decoded is Map<String, dynamic> && decoded.isNotEmpty) {
+            DebugLogger.log(
+              'Usage payload captured: ${decoded.keys.toList()} '
+              '(tokens=${decoded['total_tokens'] ?? decoded['completion_tokens'] ?? decoded['output_tokens'] ?? 'n/a'})',
+              scope: 'streaming/helper',
+            );
+            updateLastMessageWith((m) => m.copyWith(usage: decoded));
+          }
+        } catch (_) {}
+      }
+
+      String stripUsageMarkers(String input) {
+        var working = input;
+        while (true) {
+          final start = working.indexOf(usageStartMarker);
+          if (start == -1) break;
+          final end = working.indexOf(
+            usageEndMarker,
+            start + usageStartMarker.length,
+          );
+          if (end == -1) {
+            usageMarkerBuffer = working.substring(start);
+            working = working.substring(0, start);
+            break;
+          }
+          final payload = working.substring(
+            start + usageStartMarker.length,
+            end,
+          );
+          applyUsagePayload(payload);
+          working = working.replaceRange(
+            start,
+            end + usageEndMarker.length,
+            '',
+          );
+        }
+        return working;
+      }
+
+      effectiveChunk = stripUsageMarkers(effectiveChunk);
       if (webSearchEnabled && !isSearching) {
-        if (chunk.contains('[SEARCHING]') ||
-            chunk.contains('Searching the web') ||
-            chunk.contains('web search')) {
+        if (effectiveChunk.contains('[SEARCHING]') ||
+            effectiveChunk.contains('Searching the web') ||
+            effectiveChunk.contains('web search')) {
           isSearching = true;
           updateLastMessageWith(
             (message) => message.copyWith(
@@ -1545,8 +1607,8 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
       }
 
       if (isSearching &&
-          (chunk.contains('[/SEARCHING]') ||
-              chunk.contains('Search complete'))) {
+          (effectiveChunk.contains('[/SEARCHING]') ||
+              effectiveChunk.contains('Search complete'))) {
         isSearching = false;
         updateLastMessageWith(
           (message) => message.copyWith(metadata: {'webSearchActive': false}),
@@ -1556,7 +1618,7 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
             .replaceAll('[/SEARCHING]', '');
       }
 
-      if (effectiveChunk.trim().isNotEmpty) {
+      if (effectiveChunk.isNotEmpty) {
         appendToLastMessage(effectiveChunk);
         updateImagesFromCurrentContent();
       }
@@ -1574,6 +1636,8 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
 
       // Only finish streaming if no socket subscriptions are active.
       // If sockets are active, they will handle the completion via done:true event.
+      // Note: With OpenWebUI via SSE (no session_id), HTTP delivers all content
+      // so we should still finish on HTTP complete even with socket subscriptions.
       if (socketSubscriptions.isEmpty) {
         DebugLogger.log(
           'No socket subscriptions - finishing streaming on HTTP complete',
@@ -1583,9 +1647,15 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
         Future.microtask(refreshConversationSnapshot);
       } else {
         DebugLogger.log(
-          'Socket subscriptions active - waiting for socket done signal',
+          'Socket subscriptions active - checking if HTTP has content',
           scope: 'streaming/helper',
         );
+        // Even with socket subscriptions, if HTTP delivered content, finish streaming
+        // This handles the case where SSE is used without session_id
+        wrappedFinishStreaming();
+        if (!httpStreamOnly) {
+          Future.microtask(refreshConversationSnapshot);
+        }
       }
     },
     onError: (error, stackTrace) async {
@@ -1632,7 +1702,9 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
 
       disposeSocketSubscriptions();
       wrappedFinishStreaming();
-      Future.microtask(refreshConversationSnapshot);
+      if (!httpStreamOnly) {
+        Future.microtask(refreshConversationSnapshot);
+      }
     },
   );
 

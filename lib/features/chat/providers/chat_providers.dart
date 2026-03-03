@@ -1549,7 +1549,7 @@ Future<void> regenerateMessage(
       filterIds: selectedFilterIds.isNotEmpty ? selectedFilterIds : null,
       enableWebSearch: webSearchEnabled,
       enableImageGeneration: imageGenerationEnabled,
-      modelItem: modelItem,
+      modelItem: null,
       sessionIdOverride: passSocketSession ? socketSessionId : null,
       socketSessionId: socketSessionId,
       toolServers: toolServers,
@@ -2280,7 +2280,7 @@ Future<void> _sendMessageInternal(
       enableWebSearch: webSearchEnabled,
       // Enable image generation on the server when requested
       enableImageGeneration: imageGenerationEnabled,
-      modelItem: modelItem,
+      modelItem: null,
       // Bind to Socket session whenever available so the server can push
       // streaming updates to this client (improves first-turn streaming).
       sessionIdOverride: shouldBindSession ? socketSessionId : null,
@@ -2299,6 +2299,7 @@ Future<void> _sendMessageInternal(
 
     // Use unified streaming helper for WebSocket handling
     final bool isBackgroundFlow = response.isBackgroundFlow;
+    final bool httpStreamOnly = response.isHttpStreamOnly;
 
     try {
       ref.read(chatMessagesProvider.notifier).updateLastMessageWithFunction((
@@ -2364,6 +2365,7 @@ Future<void> _sendMessageInternal(
           (toolIdsForApi != null && toolIdsForApi.isNotEmpty) ||
           (toolServers != null && toolServers.isNotEmpty) ||
           imageGenerationEnabled,
+      httpStreamOnly: httpStreamOnly,
       onChatTitleUpdated: (newTitle) {
         final active = ref.read(activeConversationProvider);
         if (active != null) {
