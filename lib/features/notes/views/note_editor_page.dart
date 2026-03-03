@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io' show File, Platform;
-import 'dart:ui' show ImageFilter;
 
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -14,7 +14,9 @@ import '../../../core/models/note.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/widgets/error_boundary.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/utils/glass_colors.dart';
 import '../../../shared/utils/ui_utils.dart';
+import '../../../shared/widgets/native_glass_container.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/improved_loading_states.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
@@ -246,11 +248,10 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
   void _showError(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: context.conduitTheme.error,
-      ),
+    AdaptiveSnackBar.show(
+      context,
+      message: message,
+      type: AdaptiveSnackBarType.error,
     );
   }
 
@@ -368,11 +369,11 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       if (mounted && enhancedContent != null && enhancedContent.isNotEmpty) {
         _contentController.text = enhancedContent;
         HapticFeedback.mediumImpact();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(AppLocalizations.of(context)!.noteEnhanced),
-            duration: const Duration(seconds: 2),
-          ),
+        AdaptiveSnackBar.show(
+          context,
+          message: AppLocalizations.of(context)!.noteEnhanced,
+          type: AdaptiveSnackBarType.success,
+          duration: const Duration(seconds: 2),
         );
       }
     } catch (e) {
@@ -484,7 +485,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                 ),
               ),
               // Dictation option
-              ListTile(
+              AdaptiveListTile(
                 leading: Container(
                   width: 44,
                   height: 44,
@@ -521,7 +522,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
               ),
               const SizedBox(height: Spacing.xs),
               // Audio recording option
-              ListTile(
+              AdaptiveListTile(
                 leading: Container(
                   width: 44,
                   height: 44,
@@ -651,7 +652,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
       final json = await api.updateNote(
         widget.noteId,
-        title: _titleController.text.isEmpty ? l10n.untitled : _titleController.text,
+        title: _titleController.text.isEmpty
+            ? l10n.untitled
+            : _titleController.text,
         data: data,
       );
 
@@ -672,11 +675,11 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         });
 
         HapticFeedback.mediumImpact();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(l10n.audioRecordingSaved),
-            duration: const Duration(seconds: 2),
-          ),
+        AdaptiveSnackBar.show(
+          context,
+          message: l10n.audioRecordingSaved,
+          type: AdaptiveSnackBarType.success,
+          duration: const Duration(seconds: 2),
         );
       }
 
@@ -699,18 +702,16 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     final content = _contentController.text;
     Clipboard.setData(ClipboardData(text: content));
     HapticFeedback.selectionClick();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(l10n.noteCopiedToClipboard),
-        duration: const Duration(seconds: 2),
-      ),
+    AdaptiveSnackBar.show(
+      context,
+      message: l10n.noteCopiedToClipboard,
+      type: AdaptiveSnackBarType.success,
+      duration: const Duration(seconds: 2),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final sidebarTheme = context.sidebarTheme;
-
     // Check if notes feature is enabled - redirect to chat if disabled
     final notesEnabled = ref.watch(notesFeatureEnabledProvider);
     if (!notesEnabled) {
@@ -721,7 +722,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         }
       });
       // Show empty scaffold while redirecting
-      return Scaffold(backgroundColor: sidebarTheme.background);
+      return const AdaptiveScaffold();
     }
 
     return PopScope(
@@ -745,9 +746,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
           body: Stack(
             children: [
               // Main content - scrolls behind floating elements
-              Positioned.fill(
-                child: _buildMainContent(context),
-              ),
+              Positioned.fill(child: _buildMainContent(context)),
               // Floating action buttons
               if (!_isLoading && _note != null)
                 Positioned(
@@ -795,7 +794,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                   children: [
                     // Leading (back button)
                     Padding(
-                      padding: const EdgeInsets.only(left: Spacing.inputPadding),
+                      padding: const EdgeInsets.only(
+                        left: Spacing.inputPadding,
+                      ),
                       child: Center(
                         child: GestureDetector(
                           onTap: () async {
@@ -823,143 +824,218 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                     Expanded(
                       child: Center(
                         child: _buildAppBarPill(
-        context,
-        Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: Spacing.sm,
-            vertical: Spacing.xs,
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Flexible(
-                child: _isGeneratingTitle
-                    ? Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          SizedBox(
-                            width: IconSize.sm,
-                            height: IconSize.sm,
-                            child: CircularProgressIndicator(
-                              strokeWidth: BorderWidth.medium,
-                              valueColor: AlwaysStoppedAnimation(
-                                conduitTheme.loadingIndicator,
-                              ),
+                          context,
+                          Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: Spacing.sm,
+                              vertical: Spacing.xs,
                             ),
-                          ),
-                          const SizedBox(width: Spacing.sm),
-                          Text(
-                            l10n.generatingTitle,
-                            style: AppTypography.bodyMediumStyle.copyWith(
-                              color: conduitTheme.textSecondary,
-                            ),
-                          ),
-                        ],
-                      )
-                    : ConstrainedBox(
-                        constraints: BoxConstraints(
-                          maxWidth: MediaQuery.of(context).size.width * 0.5,
-                        ),
-                        child: Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            // Hidden TextField always in tree for focus
-                            Opacity(
-                              opacity: _titleFocusNode.hasFocus ? 1.0 : 0.0,
-                              child: IntrinsicWidth(
-                                child: TextField(
-                                  controller: _titleController,
-                                  focusNode: _titleFocusNode,
-                                  enabled: !_isGeneratingTitle,
-                                  style: AppTypography.headlineSmallStyle
-                                      .copyWith(
-                                        color: conduitTheme.textPrimary,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                  decoration: InputDecoration(
-                                    hintText: l10n.untitled,
-                                    hintStyle: AppTypography.headlineSmallStyle
-                                        .copyWith(
-                                          color: conduitTheme.textSecondary
-                                              .withValues(alpha: 0.6),
-                                          fontWeight: FontWeight.w600,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Flexible(
+                                  child: _isGeneratingTitle
+                                      ? Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            SizedBox(
+                                              width: IconSize.sm,
+                                              height: IconSize.sm,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: BorderWidth.medium,
+                                                valueColor:
+                                                    AlwaysStoppedAnimation(
+                                                      conduitTheme
+                                                          .loadingIndicator,
+                                                    ),
+                                              ),
+                                            ),
+                                            const SizedBox(width: Spacing.sm),
+                                            Text(
+                                              l10n.generatingTitle,
+                                              style: AppTypography
+                                                  .bodyMediumStyle
+                                                  .copyWith(
+                                                    color: conduitTheme
+                                                        .textSecondary,
+                                                  ),
+                                            ),
+                                          ],
+                                        )
+                                      : ConstrainedBox(
+                                          constraints: BoxConstraints(
+                                            maxWidth:
+                                                MediaQuery.of(
+                                                  context,
+                                                ).size.width *
+                                                0.5,
+                                          ),
+                                          child: Stack(
+                                            alignment: Alignment.center,
+                                            children: [
+                                              // Hidden TextField always in tree for focus
+                                              Opacity(
+                                                opacity:
+                                                    _titleFocusNode.hasFocus
+                                                    ? 1.0
+                                                    : 0.0,
+                                                child: IntrinsicWidth(
+                                                  child: AdaptiveTextField(
+                                                    controller:
+                                                        _titleController,
+                                                    focusNode: _titleFocusNode,
+                                                    enabled:
+                                                        !_isGeneratingTitle,
+                                                    style: AppTypography
+                                                        .headlineSmallStyle
+                                                        .copyWith(
+                                                          color: conduitTheme
+                                                              .textPrimary,
+                                                          fontWeight:
+                                                              FontWeight.w600,
+                                                        ),
+                                                    placeholder: l10n.untitled,
+                                                    textAlign: TextAlign.center,
+                                                    textCapitalization:
+                                                        TextCapitalization
+                                                            .sentences,
+                                                    textInputAction:
+                                                        TextInputAction.done,
+                                                    onSubmitted: (_) =>
+                                                        _contentFocusNode
+                                                            .requestFocus(),
+                                                    padding: EdgeInsets.zero,
+                                                    cupertinoDecoration:
+                                                        const BoxDecoration(),
+                                                    decoration: InputDecoration(
+                                                      hintText: l10n.untitled,
+                                                      hintStyle: AppTypography
+                                                          .headlineSmallStyle
+                                                          .copyWith(
+                                                            color: conduitTheme
+                                                                .textSecondary
+                                                                .withValues(
+                                                                  alpha: 0.6,
+                                                                ),
+                                                            fontWeight:
+                                                                FontWeight.w600,
+                                                          ),
+                                                      border: InputBorder.none,
+                                                      enabledBorder:
+                                                          InputBorder.none,
+                                                      focusedBorder:
+                                                          InputBorder.none,
+                                                      contentPadding:
+                                                          EdgeInsets.zero,
+                                                      isDense: true,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                              // Visible text when not focused
+                                              if (!_titleFocusNode.hasFocus)
+                                                GestureDetector(
+                                                  onTap: () => _titleFocusNode
+                                                      .requestFocus(),
+                                                  child: MiddleEllipsisText(
+                                                    _titleController
+                                                            .text
+                                                            .isEmpty
+                                                        ? l10n.untitled
+                                                        : _titleController.text,
+                                                    style: AppTypography
+                                                        .headlineSmallStyle
+                                                        .copyWith(
+                                                          color:
+                                                              _titleController
+                                                                  .text
+                                                                  .isEmpty
+                                                              ? conduitTheme
+                                                                    .textSecondary
+                                                                    .withValues(
+                                                                      alpha:
+                                                                          0.6,
+                                                                    )
+                                                              : conduitTheme
+                                                                    .textPrimary,
+                                                          fontWeight:
+                                                              FontWeight.w600,
+                                                        ),
+                                                  ),
+                                                ),
+                                            ],
+                                          ),
                                         ),
-                                    border: InputBorder.none,
-                                    enabledBorder: InputBorder.none,
-                                    focusedBorder: InputBorder.none,
-                                    contentPadding: EdgeInsets.zero,
-                                    isDense: true,
-                                  ),
-                                  textAlign: TextAlign.center,
-                                  textCapitalization:
-                                      TextCapitalization.sentences,
-                                  textInputAction: TextInputAction.done,
-                                  onSubmitted: (_) =>
-                                      _contentFocusNode.requestFocus(),
                                 ),
-                              ),
-                            ),
-                            // Visible text when not focused
-                            if (!_titleFocusNode.hasFocus)
-                              GestureDetector(
-                                onTap: () => _titleFocusNode.requestFocus(),
-                                child: MiddleEllipsisText(
-                                  _titleController.text.isEmpty
-                                      ? l10n.untitled
-                                      : _titleController.text,
-                                  style: AppTypography.headlineSmallStyle
-                                      .copyWith(
-                                        color: _titleController.text.isEmpty
-                                            ? conduitTheme.textSecondary
-                                                .withValues(alpha: 0.6)
-                                            : conduitTheme.textPrimary,
-                                        fontWeight: FontWeight.w600,
+                                if (_hasChanges && !_isSaving)
+                                  Padding(
+                                    padding: const EdgeInsets.only(
+                                      left: Spacing.sm,
+                                    ),
+                                    child: Container(
+                                      width: 8,
+                                      height: 8,
+                                      decoration: BoxDecoration(
+                                        color: conduitTheme.warning,
+                                        shape: BoxShape.circle,
                                       ),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-              ),
-              if (_hasChanges && !_isSaving)
-                Padding(
-                  padding: const EdgeInsets.only(left: Spacing.sm),
-                  child: Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: conduitTheme.warning,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                ),
-              if (_isSaving)
-                Padding(
-                  padding: const EdgeInsets.only(left: Spacing.sm),
-                  child: SizedBox(
-                    width: IconSize.sm,
-                    height: IconSize.sm,
-                    child: CircularProgressIndicator(
-                      strokeWidth: BorderWidth.medium,
-                      valueColor: AlwaysStoppedAnimation(
-                        conduitTheme.loadingIndicator,
-                      ),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
+                                    ),
+                                  ),
+                                if (_isSaving)
+                                  Padding(
+                                    padding: const EdgeInsets.only(
+                                      left: Spacing.sm,
+                                    ),
+                                    child: SizedBox(
+                                      width: IconSize.sm,
+                                      height: IconSize.sm,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: BorderWidth.medium,
+                                        valueColor: AlwaysStoppedAnimation(
+                                          conduitTheme.loadingIndicator,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
                         ),
                       ),
                     ),
                     // Actions (more menu) - uses PopupMenuButton for tap interaction
                     Padding(
-                      padding: const EdgeInsets.only(right: Spacing.inputPadding),
+                      padding: const EdgeInsets.only(
+                        right: Spacing.inputPadding,
+                      ),
                       child: Center(
-                        child: PopupMenuButton<String>(
-                          onSelected: (value) {
-                            switch (value) {
+                        child: AdaptivePopupMenuButton.widget<String>(
+                          items: [
+                            AdaptivePopupMenuItem<String>(
+                              label: l10n.generateTitle,
+                              value: 'generate',
+                              icon: Platform.isIOS
+                                  ? 'sparkles'
+                                  : Icons.auto_awesome_rounded,
+                            ),
+                            AdaptivePopupMenuItem<String>(
+                              label: l10n.copy,
+                              value: 'copy',
+                              icon: Platform.isIOS
+                                  ? 'doc.on.clipboard'
+                                  : Icons.copy_rounded,
+                            ),
+                            const AdaptivePopupMenuDivider(),
+                            AdaptivePopupMenuItem<String>(
+                              label: l10n.delete,
+                              value: 'delete',
+                              icon: Platform.isIOS
+                                  ? 'trash'
+                                  : Icons.delete_rounded,
+                            ),
+                          ],
+                          onSelected: (_, entry) {
+                            switch (entry.value) {
                               case 'generate':
                                 HapticFeedback.selectionClick();
                                 _generateTitle();
@@ -971,78 +1047,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                                 _deleteNote();
                             }
                           },
-                          offset: const Offset(0, 44),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(
-                              AppBorderRadius.card,
-                            ),
-                          ),
-                          color: conduitTheme.surfaceContainer,
-                          itemBuilder: (context) => [
-                            PopupMenuItem(
-                              value: 'generate',
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    Platform.isIOS
-                                        ? CupertinoIcons.sparkles
-                                        : Icons.auto_awesome_rounded,
-                                    size: IconSize.small,
-                                    color: conduitTheme.textPrimary,
-                                  ),
-                                  const SizedBox(width: Spacing.sm),
-                                  Text(
-                                    l10n.generateTitle,
-                                    style: TextStyle(
-                                      color: conduitTheme.textPrimary,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            PopupMenuItem(
-                              value: 'copy',
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    Platform.isIOS
-                                        ? CupertinoIcons.doc_on_clipboard
-                                        : Icons.copy_rounded,
-                                    size: IconSize.small,
-                                    color: conduitTheme.textPrimary,
-                                  ),
-                                  const SizedBox(width: Spacing.sm),
-                                  Text(
-                                    l10n.copy,
-                                    style: TextStyle(
-                                      color: conduitTheme.textPrimary,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            PopupMenuItem(
-                              value: 'delete',
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    Platform.isIOS
-                                        ? CupertinoIcons.delete
-                                        : Icons.delete_rounded,
-                                    size: IconSize.small,
-                                    color: conduitTheme.error,
-                                  ),
-                                  const SizedBox(width: Spacing.sm),
-                                  Text(
-                                    l10n.delete,
-                                    style: TextStyle(
-                                      color: conduitTheme.error,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
+                          buttonStyle: PopupButtonStyle.glass,
                           child: _buildAppBarPill(
                             context,
                             Icon(
@@ -1078,21 +1083,11 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     Widget child, {
     bool isCircular = false,
   }) {
-    return FloatingAppBarPill(
-      isCircular: isCircular,
-      child: child,
-    );
+    return FloatingAppBarPill(isCircular: isCircular, child: child);
   }
 
   Widget _buildFloatingMetadataBar(BuildContext context) {
-    final conduitTheme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
-
-    // Use consistent colors with the floating app bar pills
-    final backgroundColor = conduitTheme.surfaceContainer.withValues(alpha: 0.9);
-    final borderColor = conduitTheme.surfaceContainerHighest.withValues(
-      alpha: 0.4,
-    );
 
     final dateFormat = DateFormat.MMMd();
     final timeFormat = DateFormat.jm();
@@ -1100,63 +1095,53 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         ? '${dateFormat.format(_note!.createdDateTime)} ${timeFormat.format(_note!.createdDateTime)}'
         : '';
 
-    return ClipRRect(
+    return NativeGlassContainer(
+      blurStyle: BlurStyle.systemUltraThinMaterial,
       borderRadius: BorderRadius.circular(AppBorderRadius.pill),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-        child: Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: Spacing.md,
-            vertical: Spacing.xs,
-          ),
-          decoration: BoxDecoration(
-            color: backgroundColor.withValues(alpha: 0.85),
-            borderRadius: BorderRadius.circular(AppBorderRadius.pill),
-            border: Border.all(color: borderColor, width: BorderWidth.thin),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Created date
-              _buildMetadataChip(
-                context,
-                icon: Platform.isIOS
-                    ? CupertinoIcons.calendar
-                    : Icons.calendar_today_rounded,
-                label: createdDate,
-              ),
-              _buildMetadataSeparator(conduitTheme),
-              // Word count
-              _buildMetadataChip(
-                context,
-                icon: Platform.isIOS
-                    ? CupertinoIcons.doc_text
-                    : Icons.article_rounded,
-                label: l10n.wordCount(_wordCount),
-              ),
-              _buildMetadataSeparator(conduitTheme),
-              // Character count
-              _buildMetadataChip(
-                context,
-                icon: Platform.isIOS
-                    ? CupertinoIcons.textformat_abc
-                    : Icons.text_fields_rounded,
-                label: l10n.charCount(_charCount),
-              ),
-            ],
-          ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: Spacing.md,
+          vertical: Spacing.xs,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildMetadataChip(
+              context,
+              icon: Platform.isIOS
+                  ? CupertinoIcons.calendar
+                  : Icons.calendar_today_rounded,
+              label: createdDate,
+            ),
+            _buildMetadataSeparator(context),
+            _buildMetadataChip(
+              context,
+              icon: Platform.isIOS
+                  ? CupertinoIcons.doc_text
+                  : Icons.article_rounded,
+              label: l10n.wordCount(_wordCount),
+            ),
+            _buildMetadataSeparator(context),
+            _buildMetadataChip(
+              context,
+              icon: Platform.isIOS
+                  ? CupertinoIcons.textformat_abc
+                  : Icons.text_fields_rounded,
+              label: l10n.charCount(_charCount),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildMetadataSeparator(ConduitThemeExtension theme) {
+  Widget _buildMetadataSeparator(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: Spacing.xxs),
       child: Text(
         '·',
         style: AppTypography.tiny.copyWith(
-          color: theme.textSecondary.withValues(alpha: 0.5),
+          color: GlassColors.secondaryLabel(context).withValues(alpha: 0.5),
         ),
       ),
     );
@@ -1167,7 +1152,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     required IconData icon,
     required String label,
   }) {
-    final theme = context.conduitTheme;
+    final secondaryColor = GlassColors.secondaryLabel(context);
 
     return Padding(
       padding: const EdgeInsets.symmetric(
@@ -1177,16 +1162,12 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            icon,
-            color: theme.textSecondary,
-            size: IconSize.xs,
-          ),
+          Icon(icon, color: secondaryColor, size: IconSize.xs),
           const SizedBox(width: Spacing.xxs),
           Text(
             label,
             style: AppTypography.tiny.copyWith(
-              color: theme.textSecondary,
+              color: secondaryColor,
               fontWeight: FontWeight.w500,
             ),
           ),
@@ -1250,13 +1231,20 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
               const SizedBox(height: Spacing.lg),
             ],
             // Content editor
-            TextField(
+            AdaptiveTextField(
               controller: _contentController,
               focusNode: _contentFocusNode,
               style: AppTypography.bodyLargeStyle.copyWith(
                 color: theme.textPrimary,
                 height: 1.8,
               ),
+              placeholder: l10n.writeNote,
+              maxLines: null,
+              minLines: 20,
+              textCapitalization: TextCapitalization.sentences,
+              keyboardType: TextInputType.multiline,
+              padding: EdgeInsets.zero,
+              cupertinoDecoration: const BoxDecoration(),
               decoration: InputDecoration(
                 hintText: l10n.writeNote,
                 hintStyle: AppTypography.bodyLargeStyle.copyWith(
@@ -1269,11 +1257,6 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                 focusedBorder: InputBorder.none,
                 contentPadding: EdgeInsets.zero,
               ),
-              maxLines: null,
-              minLines: 20,
-              textAlignVertical: TextAlignVertical.top,
-              textCapitalization: TextCapitalization.sentences,
-              keyboardType: TextInputType.multiline,
             ),
           ],
         ),
@@ -1309,16 +1292,16 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         title: Text(l10n.removeFile),
         content: Text(l10n.removeFileConfirm),
         actions: [
-          TextButton(
+          AdaptiveButton(
             onPressed: () => Navigator.pop(context, false),
-            child: Text(l10n.cancel),
+            label: l10n.cancel,
+            style: AdaptiveButtonStyle.plain,
           ),
-          TextButton(
+          AdaptiveButton(
             onPressed: () => Navigator.pop(context, true),
-            style: TextButton.styleFrom(
-              foregroundColor: context.conduitTheme.error,
-            ),
-            child: Text(l10n.delete),
+            textColor: context.conduitTheme.error,
+            label: l10n.delete,
+            style: AdaptiveButtonStyle.plain,
           ),
         ],
       ),
@@ -1366,11 +1349,11 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         });
 
         HapticFeedback.lightImpact();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(l10n.fileRemoved),
-            duration: const Duration(seconds: 2),
-          ),
+        AdaptiveSnackBar.show(
+          context,
+          message: l10n.fileRemoved,
+          type: AdaptiveSnackBarType.success,
+          duration: const Duration(seconds: 2),
         );
       }
     } catch (e) {
@@ -1392,9 +1375,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         _buildFloatingButton(
           context,
           icon: _isRecording
-              ? (Platform.isIOS
-                    ? CupertinoIcons.stop_fill
-                    : Icons.stop_rounded)
+              ? (Platform.isIOS ? CupertinoIcons.stop_fill : Icons.stop_rounded)
               : (Platform.isIOS ? CupertinoIcons.mic_fill : Icons.mic_rounded),
           color: _isRecording ? theme.error : null,
           isLoading: _isUploadingAudio,
@@ -1428,108 +1409,60 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     Color? color,
     bool showMenu = false,
   }) {
-    final theme = Theme.of(context);
-    final conduitTheme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
-    final isDark = theme.brightness == Brightness.dark;
+    final glassLabel = GlassColors.label(context);
 
-    final backgroundColor = isDark
-        ? Color.lerp(conduitTheme.cardBackground, Colors.white, 0.08)!
-            .withValues(alpha: 0.85)
-        : Color.lerp(conduitTheme.inputBackground, Colors.black, 0.06)!
-            .withValues(alpha: 0.85);
-
-    final borderColor = conduitTheme.cardBorder.withValues(alpha: 0.55);
-
-    final buttonChild = ClipRRect(
+    final buttonChild = NativeGlassContainer(
+      blurStyle: BlurStyle.systemUltraThinMaterial,
       borderRadius: BorderRadius.circular(AppBorderRadius.floatingButton),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-        child: Container(
-          width: TouchTarget.button,
-          height: TouchTarget.button,
-          decoration: BoxDecoration(
-            color: backgroundColor,
-            borderRadius: BorderRadius.circular(AppBorderRadius.floatingButton),
-            border: Border.all(color: borderColor, width: BorderWidth.thin),
-            boxShadow: ConduitShadows.button(context),
-          ),
-          child: isLoading
-              ? Center(
-                  child: SizedBox(
-                    width: IconSize.md,
-                    height: IconSize.md,
-                    child: CircularProgressIndicator(
-                      strokeWidth: BorderWidth.medium,
-                      valueColor:
-                          AlwaysStoppedAnimation(conduitTheme.loadingIndicator),
-                    ),
+      child: SizedBox(
+        width: TouchTarget.button,
+        height: TouchTarget.button,
+        child: isLoading
+            ? Center(
+                child: SizedBox(
+                  width: IconSize.md,
+                  height: IconSize.md,
+                  child: CircularProgressIndicator(
+                    strokeWidth: BorderWidth.medium,
+                    valueColor: AlwaysStoppedAnimation(glassLabel),
                   ),
-                )
-              : Icon(
-                  icon,
-                  color: color ??
-                      conduitTheme.iconPrimary.withValues(alpha: 0.9),
-                  size: IconSize.lg,
                 ),
-        ),
+              )
+            : Icon(icon, color: color ?? glassLabel, size: IconSize.lg),
       ),
     );
 
     if (showMenu) {
-      return PopupMenuButton<String>(
-        tooltip: tooltip,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppBorderRadius.md),
-        ),
-        offset: const Offset(0, -120),
-        onSelected: (value) {
-          switch (value) {
+      return AdaptivePopupMenuButton.widget<String>(
+        items: [
+          AdaptivePopupMenuItem<String>(
+            label: l10n.enhanceNote,
+            value: 'enhance',
+            icon: Platform.isIOS
+                ? 'wand.and.stars'
+                : Icons.auto_fix_high_rounded,
+          ),
+          AdaptivePopupMenuItem<String>(
+            label: l10n.generateTitle,
+            value: 'title',
+            icon: Platform.isIOS ? 'textformat' : Icons.title_rounded,
+          ),
+        ],
+        onSelected: (_, entry) {
+          switch (entry.value) {
             case 'enhance':
               _enhanceContent();
             case 'title':
               _generateTitle();
           }
         },
-        itemBuilder: (context) => [
-          PopupMenuItem(
-            value: 'enhance',
-            child: Row(
-              children: [
-                Icon(
-                  Platform.isIOS
-                      ? CupertinoIcons.sparkles
-                      : Icons.auto_fix_high_rounded,
-                  color: conduitTheme.buttonPrimary,
-                  size: IconSize.md,
-                ),
-                const SizedBox(width: Spacing.sm),
-                Text(l10n.enhanceNote),
-              ],
-            ),
-          ),
-          PopupMenuItem(
-            value: 'title',
-            child: Row(
-              children: [
-                Icon(
-                  Platform.isIOS
-                      ? CupertinoIcons.textformat
-                      : Icons.title_rounded,
-                  color: conduitTheme.buttonPrimary,
-                  size: IconSize.md,
-                ),
-                const SizedBox(width: Spacing.sm),
-                Text(l10n.generateTitle),
-              ],
-            ),
-          ),
-        ],
+        buttonStyle: PopupButtonStyle.glass,
         child: buttonChild,
       );
     }
 
-    return Tooltip(
+    return AdaptiveTooltip(
       message: tooltip,
       child: Material(
         color: Colors.transparent,
@@ -1580,20 +1513,22 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: Spacing.lg),
-            OutlinedButton.icon(
+            AdaptiveButton.child(
               onPressed: () => Navigator.of(context).pop(),
-              icon: Icon(
-                Platform.isIOS ? CupertinoIcons.back : Icons.arrow_back_rounded,
-              ),
-              label: Text(l10n.goBack),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: sidebarTheme.primary,
-                side: BorderSide(
-                  color: sidebarTheme.primary.withValues(alpha: 0.5),
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppBorderRadius.button),
-                ),
+              color: sidebarTheme.primary,
+              style: AdaptiveButtonStyle.bordered,
+              borderRadius: BorderRadius.circular(AppBorderRadius.button),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Platform.isIOS
+                        ? CupertinoIcons.back
+                        : Icons.arrow_back_rounded,
+                  ),
+                  const SizedBox(width: Spacing.sm),
+                  Text(l10n.goBack),
+                ],
               ),
             ),
           ],

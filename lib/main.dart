@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:developer' as developer;
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
@@ -175,51 +176,105 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
 
   @override
   Widget build(BuildContext context) {
-    final themeMode = ref.watch(appThemeModeProvider.select((mode) => mode));
+    final themeMode = ref.watch(
+      appThemeModeProvider.select((mode) => mode),
+    );
     final router = ref.watch(goRouterProvider);
     final locale = ref.watch(appLocaleProvider);
     final lightTheme = ref.watch(appLightThemeProvider);
     final darkTheme = ref.watch(appDarkThemeProvider);
+    final cupertinoLight = ref.watch(
+      appCupertinoLightThemeProvider,
+    );
+    final cupertinoDark = ref.watch(
+      appCupertinoDarkThemeProvider,
+    );
 
     return ErrorBoundary(
-      child: MaterialApp.router(
+      child: AdaptiveApp.router(
         routerConfig: router,
-        onGenerateTitle: (context) => AppLocalizations.of(context)!.appTitle,
-        theme: lightTheme,
-        darkTheme: darkTheme,
+        onGenerateTitle: (context) =>
+            AppLocalizations.of(context)!.appTitle,
+        materialLightTheme: lightTheme,
+        materialDarkTheme: darkTheme,
+        cupertinoLightTheme: cupertinoLight,
+        cupertinoDarkTheme: cupertinoDark,
         themeMode: themeMode,
-        debugShowCheckedModeBanner: false,
         locale: locale,
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        localizationsDelegates:
+            AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
-        localeListResolutionCallback: (deviceLocales, supported) {
+        localeListResolutionCallback: (
+          deviceLocales,
+          supported,
+        ) {
           if (locale != null) return locale;
-          if (deviceLocales == null || deviceLocales.isEmpty) {
+          if (deviceLocales == null ||
+              deviceLocales.isEmpty) {
             return supported.first;
           }
-          final resolved = _resolveSupportedLocale(deviceLocales, supported);
+          final resolved = _resolveSupportedLocale(
+            deviceLocales,
+            supported,
+          );
           return resolved ?? supported.first;
         },
+        material: (_, _) => const MaterialAppData(
+          debugShowCheckedModeBanner: false,
+        ),
+        cupertino: (_, _) => const CupertinoAppData(
+          debugShowCheckedModeBanner: false,
+        ),
         builder: (context, child) {
-          final brightness = Theme.of(context).brightness;
+          // Resolve brightness from themeMode rather than
+          // Theme.of(context) — on iOS, CupertinoApp's
+          // auto-generated Theme may not reflect themeMode.
+          final Brightness brightness;
+          switch (themeMode) {
+            case ThemeMode.dark:
+              brightness = Brightness.dark;
+            case ThemeMode.light:
+              brightness = Brightness.light;
+            case ThemeMode.system:
+              brightness =
+                  MediaQuery.platformBrightnessOf(context);
+          }
           if (_lastAppliedOverlayBrightness != brightness) {
             _lastAppliedOverlayBrightness = brightness;
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (!mounted) return;
-              applySystemUiOverlayStyleOnce(brightness: brightness);
+              applySystemUiOverlayStyleOnce(
+                brightness: brightness,
+              );
             });
           }
           final mediaQuery = MediaQuery.of(context);
-          final safeChild = child ?? const SizedBox.shrink();
+          final safeChild =
+              child ?? const SizedBox.shrink();
 
-          return MediaQuery(
-            data: mediaQuery.copyWith(
-              textScaler: mediaQuery.textScaler.clamp(
-                minScaleFactor: 1.0,
-                maxScaleFactor: 3.0,
+          // On iOS, AdaptiveApp creates CupertinoApp which
+          // doesn't propagate Material ThemeExtensions.
+          // Wrap with Theme to ensure all custom extensions
+          // (ConduitThemeExtension, AppColorTokens, etc.)
+          // are available via Theme.of(context) on every
+          // platform.
+          final materialTheme = brightness == Brightness.dark
+              ? darkTheme
+              : lightTheme;
+
+          return Theme(
+            data: materialTheme,
+            child: MediaQuery(
+              data: mediaQuery.copyWith(
+                textScaler: mediaQuery.textScaler.clamp(
+                  minScaleFactor: 1.0,
+                  maxScaleFactor: 3.0,
+                ),
+              ),
+              child: _KeyboardDismissOnScroll(
+                child: safeChild,
               ),
             ),
-            child: _KeyboardDismissOnScroll(child: safeChild),
           );
         },
       ),

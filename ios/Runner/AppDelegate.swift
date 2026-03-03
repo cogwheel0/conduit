@@ -6,6 +6,523 @@ import UIKit
 import UniformTypeIdentifiers
 import WebKit
 
+final class NativeGlassContainerViewFactory: NSObject, FlutterPlatformViewFactory {
+    func create(
+        withFrame frame: CGRect,
+        viewIdentifier viewId: Int64,
+        arguments args: Any?
+    ) -> FlutterPlatformView {
+        NativeGlassContainerPlatformView(frame: frame, arguments: args)
+    }
+
+    func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol {
+        FlutterStandardMessageCodec.sharedInstance()
+    }
+}
+
+final class NativeGlassContainerPlatformView: NSObject, FlutterPlatformView {
+    private let shadowView: UIView
+    private let containerView: UIView
+    private let glassButton: UIButton
+    private let blurView: UIVisualEffectView
+    private let tintOverlay = UIView()
+
+    init(frame: CGRect, arguments args: Any?) {
+        shadowView = UIView(frame: frame)
+        containerView = UIView(frame: frame)
+        glassButton = UIButton(type: .system)
+        blurView = UIVisualEffectView(effect: nil)
+        super.init()
+
+        let params = args as? [String: Any] ?? [:]
+        let styleName = params["blurStyle"] as? String ?? "systemUltraThinMaterial"
+        let cornerRadius = CGFloat(params["cornerRadius"] as? Double ?? 24)
+        let isDark = UIScreen.main.traitCollection.userInterfaceStyle == .dark
+
+        shadowView.backgroundColor = .clear
+        shadowView.layer.cornerRadius = cornerRadius
+        shadowView.layer.masksToBounds = false
+        shadowView.layer.shadowColor = UIColor.black.cgColor
+
+        containerView.backgroundColor = .clear
+        containerView.layer.cornerRadius = cornerRadius
+        containerView.layer.masksToBounds = true
+        containerView.frame = shadowView.bounds
+        containerView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        shadowView.addSubview(containerView)
+
+        if #available(iOS 26.0, *) {
+            shadowView.layer.shadowOpacity = 0
+            shadowView.layer.shadowRadius = 0
+            shadowView.layer.shadowOffset = .zero
+
+            glassButton.translatesAutoresizingMaskIntoConstraints = false
+            glassButton.isUserInteractionEnabled = false
+            var config = UIButton.Configuration.glass()
+            config.cornerStyle = .dynamic
+            config.contentInsets = .zero
+            config.title = " "
+            config.image = nil
+            config.baseForegroundColor = .clear
+            glassButton.configuration = config
+            containerView.addSubview(glassButton)
+            NSLayoutConstraint.activate([
+                glassButton.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+                glassButton.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+                glassButton.topAnchor.constraint(equalTo: containerView.topAnchor),
+                glassButton.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
+            ])
+
+            containerView.layer.borderWidth = 0
+            containerView.layer.borderColor = UIColor.clear.cgColor
+        } else {
+            shadowView.layer.shadowOpacity = isDark ? 0.10 : 0.22
+            shadowView.layer.shadowRadius = isDark ? 10 : 14
+            shadowView.layer.shadowOffset = CGSize(width: 0, height: 4)
+
+            blurView.frame = containerView.bounds
+            blurView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            blurView.effect = UIBlurEffect(style: mapBlurStyle(styleName))
+            containerView.addSubview(blurView)
+
+            tintOverlay.frame = containerView.bounds
+            tintOverlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            tintOverlay.backgroundColor = UIColor { traits in
+                traits.userInterfaceStyle == .dark
+                    ? UIColor.white.withAlphaComponent(0.04)
+                    : UIColor.white.withAlphaComponent(0.10)
+            }
+            containerView.addSubview(tintOverlay)
+
+            containerView.layer.borderWidth = 0.5
+            containerView.layer.borderColor = UIColor { traits in
+                traits.userInterfaceStyle == .dark
+                    ? UIColor.white.withAlphaComponent(0.28)
+                    : UIColor.white.withAlphaComponent(0.30)
+            }.cgColor
+        }
+    }
+
+    func view() -> UIView {
+        shadowView
+    }
+
+    private func mapBlurStyle(_ name: String) -> UIBlurEffect.Style {
+        switch name {
+        case "systemThinMaterial":
+            return .systemThinMaterial
+        case "systemMaterial":
+            return .systemMaterial
+        case "systemThickMaterial":
+            return .systemThickMaterial
+        case "systemChromeMaterial":
+            return .systemChromeMaterial
+        default:
+            return .systemUltraThinMaterial
+        }
+    }
+}
+
+final class NativeChatInputViewFactory: NSObject, FlutterPlatformViewFactory {
+    private let messenger: FlutterBinaryMessenger
+
+    init(messenger: FlutterBinaryMessenger) {
+        self.messenger = messenger
+        super.init()
+    }
+
+    func create(
+        withFrame frame: CGRect,
+        viewIdentifier viewId: Int64,
+        arguments args: Any?
+    ) -> FlutterPlatformView {
+        NativeChatInputPlatformView(
+            frame: frame,
+            viewIdentifier: viewId,
+            arguments: args,
+            messenger: messenger
+        )
+    }
+
+    func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol {
+        FlutterStandardMessageCodec.sharedInstance()
+    }
+}
+
+final class NativeChatInputPlatformView: NSObject, FlutterPlatformView, UITextViewDelegate {
+    private let containerView: UIView
+    private let textView: UITextView
+    private let placeholderLabel: UILabel
+    private let channel: FlutterMethodChannel
+
+    private var minHeight: CGFloat = 44
+    private var maxHeight: CGFloat = 120
+    private var lastReportedHeight: CGFloat = -1
+    private var sendOnEnter = false
+
+    private var accessoryToolbar: UIToolbar?
+    private var plusButton: UIBarButtonItem?
+    private var micButton: UIBarButtonItem?
+    private var sendButton: UIBarButtonItem?
+
+    init(
+        frame: CGRect,
+        viewIdentifier viewId: Int64,
+        arguments args: Any?,
+        messenger: FlutterBinaryMessenger
+    ) {
+        containerView = UIView(frame: frame)
+        textView = UITextView(frame: .zero)
+        placeholderLabel = UILabel(frame: .zero)
+        channel = FlutterMethodChannel(
+            name: "conduit/native_chat_input_\(viewId)",
+            binaryMessenger: messenger
+        )
+
+        super.init()
+
+        configureView(args: args)
+
+        channel.setMethodCallHandler { [weak self] call, result in
+            self?.handle(call: call, result: result)
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            self?.reportHeightIfNeeded()
+        }
+    }
+
+    func view() -> UIView {
+        containerView
+    }
+
+    private func configureView(args: Any?) {
+        let params = args as? [String: Any] ?? [:]
+
+        minHeight = CGFloat(params["minHeight"] as? Double ?? 44)
+        maxHeight = CGFloat(params["maxHeight"] as? Double ?? 120)
+        let text = params["text"] as? String ?? ""
+        let placeholder = params["placeholder"] as? String ?? ""
+        let enabled = params["enabled"] as? Bool ?? true
+        sendOnEnter = params["sendOnEnter"] as? Bool ?? false
+        let fontSize = CGFloat(params["fontSize"] as? Double ?? 17)
+        let textColorArgb = (params["textColor"] as? NSNumber)?.uint32Value
+        let placeholderColorArgb = (params["placeholderColor"] as? NSNumber)?.uint32Value
+        let textLength = (text as NSString).length
+        let selectionBase = params["selectionBaseOffset"] as? Int ?? textLength
+        let selectionExtent = params["selectionExtentOffset"] as? Int ?? textLength
+
+        let showAccessoryBar = params["showInputAccessoryBar"] as? Bool ?? false
+        let accessoryCanSend = params["accessoryCanSend"] as? Bool ?? false
+        let accessoryCanUseMic = params["accessoryCanUseMic"] as? Bool ?? false
+        let accessoryIsRecording = params["accessoryIsRecording"] as? Bool ?? false
+
+        containerView.backgroundColor = .clear
+
+        textView.translatesAutoresizingMaskIntoConstraints = false
+        textView.backgroundColor = .clear
+        textView.delegate = self
+        textView.isScrollEnabled = false
+        textView.isEditable = enabled
+        textView.isSelectable = enabled
+        textView.keyboardDismissMode = .interactive
+        textView.autocorrectionType = .yes
+        textView.smartDashesType = .yes
+        textView.smartQuotesType = .yes
+        textView.smartInsertDeleteType = .yes
+        // Add vertical inset so single-line placeholder/text is visually
+        // centered in the 44pt composer shell, while still allowing multiline
+        // growth naturally.
+        textView.textContainerInset = UIEdgeInsets(
+            top: 12,
+            left: 0,
+            bottom: 8,
+            right: 0
+        )
+        textView.textContainer.lineFragmentPadding = 0
+        textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        textView.font = UIFont.systemFont(ofSize: fontSize)
+        textView.text = text
+        textView.textColor = color(fromARGB: textColorArgb) ?? .label
+        textView.returnKeyType = sendOnEnter ? .send : .default
+
+        placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
+        placeholderLabel.text = placeholder
+        placeholderLabel.numberOfLines = 1
+        placeholderLabel.font = textView.font
+        placeholderLabel.textColor = color(fromARGB: placeholderColorArgb)
+            ?? UIColor.secondaryLabel.withAlphaComponent(0.85)
+
+        containerView.addSubview(textView)
+        containerView.addSubview(placeholderLabel)
+
+        NSLayoutConstraint.activate([
+            textView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+            textView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+            textView.topAnchor.constraint(equalTo: containerView.topAnchor),
+            textView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
+
+            placeholderLabel.leadingAnchor.constraint(equalTo: textView.leadingAnchor),
+            placeholderLabel.trailingAnchor.constraint(lessThanOrEqualTo: textView.trailingAnchor),
+            placeholderLabel.topAnchor.constraint(
+                equalTo: textView.topAnchor,
+                constant: textView.textContainerInset.top
+            ),
+        ])
+
+        if let start = textView.position(from: textView.beginningOfDocument, offset: selectionBase),
+           let end = textView.position(from: textView.beginningOfDocument, offset: selectionExtent) {
+            textView.selectedTextRange = textView.textRange(from: start, to: end)
+        }
+
+        configureAccessoryBar(
+            show: showAccessoryBar,
+            canSend: accessoryCanSend,
+            canUseMic: accessoryCanUseMic,
+            isRecording: accessoryIsRecording
+        )
+
+        updatePlaceholderVisibility()
+    }
+
+    private func handle(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        let args = call.arguments as? [String: Any]
+
+        switch call.method {
+        case "setText":
+            let text = args?["text"] as? String ?? ""
+            if textView.text != text {
+                textView.text = text
+                updatePlaceholderVisibility()
+                reportHeightIfNeeded()
+            }
+            result(nil)
+        case "setSelection":
+            let base = args?["baseOffset"] as? Int ?? -1
+            let extent = args?["extentOffset"] as? Int ?? -1
+            setSelection(baseOffset: base, extentOffset: extent)
+            result(nil)
+        case "focus":
+            textView.becomeFirstResponder()
+            result(nil)
+        case "unfocus":
+            textView.resignFirstResponder()
+            result(nil)
+        case "setEnabled":
+            let enabled = args?["enabled"] as? Bool ?? true
+            textView.isEditable = enabled
+            textView.isSelectable = enabled
+            result(nil)
+        case "setPlaceholder":
+            let placeholder = args?["placeholder"] as? String ?? ""
+            placeholderLabel.text = placeholder
+            result(nil)
+        case "setSendOnEnter":
+            sendOnEnter = args?["sendOnEnter"] as? Bool ?? false
+            textView.returnKeyType = sendOnEnter ? .send : .default
+            textView.reloadInputViews()
+            result(nil)
+        case "setAccessoryConfig":
+            let show = args?["showInputAccessoryBar"] as? Bool ?? false
+            let canSend = args?["accessoryCanSend"] as? Bool ?? false
+            let canUseMic = args?["accessoryCanUseMic"] as? Bool ?? false
+            let isRecording = args?["accessoryIsRecording"] as? Bool ?? false
+            configureAccessoryBar(
+                show: show,
+                canSend: canSend,
+                canUseMic: canUseMic,
+                isRecording: isRecording
+            )
+            result(nil)
+        case "setTextColor":
+            let value = (args?["color"] as? NSNumber)?.uint32Value
+            textView.textColor = color(fromARGB: value) ?? .label
+            result(nil)
+        case "setPlaceholderColor":
+            let value = (args?["color"] as? NSNumber)?.uint32Value
+            placeholderLabel.textColor = color(fromARGB: value)
+                ?? UIColor.secondaryLabel.withAlphaComponent(0.85)
+            result(nil)
+        case "setFontSize":
+            let fontSize = CGFloat(args?["fontSize"] as? Double ?? 17)
+            textView.font = UIFont.systemFont(ofSize: fontSize)
+            placeholderLabel.font = textView.font
+            reportHeightIfNeeded()
+            result(nil)
+        default:
+            result(FlutterMethodNotImplemented)
+        }
+    }
+
+    func textViewDidChange(_ textView: UITextView) {
+        updatePlaceholderVisibility()
+        channel.invokeMethod("onTextChanged", arguments: [
+            "text": textView.text ?? "",
+        ])
+        reportHeightIfNeeded()
+    }
+
+    func textViewDidBeginEditing(_ textView: UITextView) {
+        channel.invokeMethod("onFocusChanged", arguments: ["hasFocus": true])
+    }
+
+    func textViewDidEndEditing(_ textView: UITextView) {
+        channel.invokeMethod("onFocusChanged", arguments: ["hasFocus": false])
+    }
+
+    func textViewDidChangeSelection(_ textView: UITextView) {
+        let range = textView.selectedRange
+        channel.invokeMethod("onSelectionChanged", arguments: [
+            "baseOffset": range.location,
+            "extentOffset": range.location + range.length,
+        ])
+        reportHeightIfNeeded()
+    }
+
+    func textView(
+        _ textView: UITextView,
+        shouldChangeTextIn range: NSRange,
+        replacementText text: String
+    ) -> Bool {
+        if sendOnEnter && text == "\n" {
+            channel.invokeMethod("onSubmitted", arguments: [
+                "text": textView.text ?? "",
+            ])
+            return false
+        }
+        return true
+    }
+
+    private func updatePlaceholderVisibility() {
+        placeholderLabel.isHidden = !(textView.text ?? "").isEmpty
+    }
+
+    private func reportHeightIfNeeded() {
+        let width = max(textView.bounds.width, 1)
+        let fitting = textView.sizeThatFits(
+            CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)
+        )
+        let clamped = min(max(fitting.height, minHeight), maxHeight)
+        textView.isScrollEnabled = fitting.height > maxHeight
+
+        guard abs(clamped - lastReportedHeight) > 0.5 else { return }
+        lastReportedHeight = clamped
+        channel.invokeMethod("onHeightChanged", arguments: [
+            "height": Double(clamped),
+        ])
+    }
+
+    private func setSelection(baseOffset: Int, extentOffset: Int) {
+        let textLength = (textView.text as NSString?)?.length ?? 0
+        let clampedBase = min(max(baseOffset, 0), textLength)
+        let clampedExtent = min(max(extentOffset, 0), textLength)
+        let startOffset = min(clampedBase, clampedExtent)
+        let endOffset = max(clampedBase, clampedExtent)
+
+        guard let start = textView.position(from: textView.beginningOfDocument, offset: startOffset),
+              let end = textView.position(from: textView.beginningOfDocument, offset: endOffset),
+              let range = textView.textRange(from: start, to: end) else {
+            return
+        }
+
+        textView.selectedTextRange = range
+    }
+
+    private func configureAccessoryBar(
+        show: Bool,
+        canSend: Bool,
+        canUseMic: Bool,
+        isRecording: Bool
+    ) {
+        guard show else {
+            if textView.inputAccessoryView != nil {
+                textView.inputAccessoryView = nil
+                textView.reloadInputViews()
+            }
+            return
+        }
+
+        if accessoryToolbar == nil {
+            let toolbar = UIToolbar()
+            toolbar.translatesAutoresizingMaskIntoConstraints = false
+            toolbar.sizeToFit()
+
+            let plusItem = UIBarButtonItem(
+                image: UIImage(systemName: "plus"),
+                style: .plain,
+                target: self,
+                action: #selector(accessoryPlusTapped)
+            )
+            let micItem = UIBarButtonItem(
+                image: UIImage(systemName: "mic"),
+                style: .plain,
+                target: self,
+                action: #selector(accessoryMicTapped)
+            )
+            let sendItem = UIBarButtonItem(
+                image: UIImage(systemName: "arrow.up.circle.fill"),
+                style: .done,
+                target: self,
+                action: #selector(accessorySendTapped)
+            )
+
+            plusButton = plusItem
+            micButton = micItem
+            sendButton = sendItem
+
+            toolbar.items = [
+                plusItem,
+                UIBarButtonItem(
+                    barButtonSystemItem: .flexibleSpace,
+                    target: nil,
+                    action: nil
+                ),
+                micItem,
+                UIBarButtonItem(
+                    barButtonSystemItem: .flexibleSpace,
+                    target: nil,
+                    action: nil
+                ),
+                sendItem,
+            ]
+            accessoryToolbar = toolbar
+            textView.inputAccessoryView = toolbar
+        }
+
+        micButton?.image = UIImage(systemName: isRecording ? "mic.fill" : "mic")
+        plusButton?.isEnabled = true
+        micButton?.isEnabled = canUseMic
+        sendButton?.isEnabled = canSend
+        textView.reloadInputViews()
+    }
+
+    @objc
+    private func accessoryPlusTapped() {
+        channel.invokeMethod("onAccessoryAction", arguments: ["action": "plus"])
+    }
+
+    @objc
+    private func accessoryMicTapped() {
+        channel.invokeMethod("onAccessoryAction", arguments: ["action": "mic"])
+    }
+
+    @objc
+    private func accessorySendTapped() {
+        channel.invokeMethod("onAccessoryAction", arguments: ["action": "send"])
+    }
+
+    private func color(fromARGB argb: UInt32?) -> UIColor? {
+        guard let argb else { return nil }
+
+        let alpha = CGFloat((argb >> 24) & 0xFF) / 255.0
+        let red = CGFloat((argb >> 16) & 0xFF) / 255.0
+        let green = CGFloat((argb >> 8) & 0xFF) / 255.0
+        let blue = CGFloat(argb & 0xFF) / 255.0
+
+        return UIColor(red: red, green: green, blue: blue, alpha: alpha)
+    }
+}
+
 /// Manages AVAudioSession for voice calls in the background.
 ///
 /// IMPORTANT: This manager is ONLY used for server-side STT (speech-to-text).
@@ -757,6 +1274,18 @@ struct AppShortcuts: AppShortcutsProvider {
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     GeneratedPluginRegistrant.register(with: self)
+
+    // Register native chat input platform view.
+    if let registrar = self.registrar(forPlugin: "ConduitNativeChatInput") {
+      let factory = NativeChatInputViewFactory(messenger: registrar.messenger())
+      registrar.register(factory, withId: "conduit/native_chat_input")
+    }
+
+    // Register native iOS glass container platform view.
+    if let registrar = self.registrar(forPlugin: "ConduitNativeGlassContainer") {
+      let factory = NativeGlassContainerViewFactory()
+      registrar.register(factory, withId: "conduit/native_glass_container")
+    }
 
     // Setup App Intents method channel for native -> Flutter communication
     if let registrar = self.registrar(forPlugin: "AppIntentMethodChannel") {

@@ -1,3 +1,4 @@
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -129,7 +130,7 @@ class CitationBadge extends StatelessWidget {
     final title = SourceHelper.getSourceTitle(source, sourceIndex);
     final displayTitle = SourceHelper.formatDisplayTitle(title);
 
-    return Tooltip(
+    return AdaptiveTooltip(
       message: title,
       preferBelow: false,
       child: Material(
@@ -226,67 +227,38 @@ class CitationBadgeGroup extends StatelessWidget {
     final displayTitle = SourceHelper.formatDisplayTitle(firstTitle);
     final additionalCount = sourceIndices.length - 1;
 
-    return PopupMenuButton<int>(
-      tooltip: 'View sources',
-      padding: EdgeInsets.zero,
-      constraints: const BoxConstraints(),
-      position: PopupMenuPosition.under,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppBorderRadius.md),
-      ),
-      color: theme.surfaceBackground,
-      surfaceTintColor: Colors.transparent,
-      elevation: Elevation.medium,
-      itemBuilder: (context) {
-        return sourceIndices
-            .map((index) {
-              final isValid = index >= 0 && index < sources.length;
-              if (!isValid) return null;
+    final menuItems = sourceIndices
+        .where((index) => index >= 0 && index < sources.length)
+        .map((index) {
+          final source = sources[index];
+          final title = SourceHelper.getSourceTitle(source, index);
+          return AdaptivePopupMenuItem<int>(
+            value: index,
+            label: SourceHelper.formatDisplayTitle(title),
+            icon: PlatformInfo.isIOS ? 'link' : Icons.link_rounded,
+          );
+        })
+        .toList();
 
-              final source = sources[index];
-              final title = SourceHelper.getSourceTitle(source, index);
+    return AdaptivePopupMenuButton.widget<int>(
+      items: menuItems,
+      onSelected: (_, entry) {
+        final index = entry.value;
+        if (index == null) return;
 
-              return PopupMenuItem<int>(
-                value: index,
-                height: 40,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.link_rounded,
-                      size: 14,
-                      color: theme.textSecondary.withValues(alpha: 0.7),
-                    ),
-                    const SizedBox(width: Spacing.sm),
-                    Flexible(
-                      child: Text(
-                        SourceHelper.formatDisplayTitle(title),
-                        style: TextStyle(
-                          fontSize: AppTypography.bodySmall,
-                          fontWeight: FontWeight.w500,
-                          color: theme.textPrimary,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            })
-            .whereType<PopupMenuItem<int>>()
-            .toList();
-      },
-      onSelected: (index) {
         if (onSourceTap != null) {
           onSourceTap!(index);
-        } else if (index >= 0 && index < sources.length) {
+          return;
+        }
+
+        if (index >= 0 && index < sources.length) {
           final url = SourceHelper.getSourceUrl(sources[index]);
           if (url != null) {
             SourceHelper.launchSourceUrl(url);
           }
         }
       },
+      buttonStyle: PopupButtonStyle.glass,
       child: Container(
         padding: const EdgeInsets.symmetric(
           horizontal: Spacing.sm,

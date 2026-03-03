@@ -466,6 +466,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final bool hasText = text.trim().isNotEmpty;
     // Consider multiline if text contains newlines or exceeds ~50 chars
     final bool isMultiline = text.contains('\n') || text.length > 50;
+    // On the Flutter TextField path show the expand button when content is
+    // tall enough (~4 lines: 3+ explicit newlines or ~160 wrapped chars).
+    final bool showExpand =
+        !_useNativePlatformChatInput &&
+        isMultiline &&
+        (text.split('\n').length >= 4 || text.length > 160);
     final _PromptCommandMatch? match = _resolvePromptCommand(
       text,
       selection,
@@ -478,7 +484,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     bool needsUpdate =
         hasText != _hasText ||
         isMultiline != _isMultiline ||
-        shouldShow != _showPromptOverlay;
+        shouldShow != _showPromptOverlay ||
+        (!_useNativePlatformChatInput && showExpand != _showExpandButton);
 
     if (!needsUpdate) {
       if (match != null) {
@@ -499,7 +506,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     setState(() {
       _hasText = hasText;
       _isMultiline = isMultiline;
-      if (!isMultiline) _showExpandButton = false;
+      if (!isMultiline) {
+        _showExpandButton = false;
+      } else if (!_useNativePlatformChatInput) {
+        _showExpandButton = showExpand;
+      }
       if (match != null) {
         if (previousCommand != match.command) {
           _promptSelectionIndex = 0;

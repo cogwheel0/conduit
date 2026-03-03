@@ -29,7 +29,7 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        
+
         // Initialize background streaming handler
         backgroundStreamingHandler = BackgroundStreamingHandler(this)
         backgroundStreamingHandler.setup(flutterEngine)

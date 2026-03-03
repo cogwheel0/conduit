@@ -1,3 +1,4 @@
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 import '../../../shared/theme/theme_extensions.dart';
 
@@ -6,8 +7,7 @@ class SplashLauncherPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: context.conduitTheme.surfaceBackground,
+    return AdaptiveScaffold(
       body: Center(
         child: SizedBox(
           width: 28,

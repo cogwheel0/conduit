@@ -1,8 +1,12 @@
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:markdown/markdown.dart' as md;
 
+import '../../../../core/models/chat_message.dart';
+import '../../../../core/utils/citation_parser.dart';
+import '../citation_badge.dart';
 import 'latex_preprocessor.dart';
 import 'markdown_style.dart';
 
@@ -26,6 +30,8 @@ class InlineRenderer {
     this.style,
     this.latexPreprocessor, [
     this.onLinkTap,
+    this.sources,
+    this.onSourceTap,
   ]);
 
   /// The style configuration for rendering.
@@ -37,6 +43,12 @@ class InlineRenderer {
   /// Optional callback for link taps.
   final LinkTapCallback? onLinkTap;
 
+  /// Optional source references for citation badges.
+  final List<ChatSourceReference>? sources;
+
+  /// Callback when a citation badge is tapped.
+  final void Function(int sourceIndex)? onSourceTap;
+
   /// Gesture recognizers created during rendering.
   ///
   /// Callers should dispose these when the widget is
@@ -44,8 +56,7 @@ class InlineRenderer {
   final List<GestureRecognizer> _recognizers = [];
 
   /// All gesture recognizers created by this renderer.
-  List<GestureRecognizer> get recognizers =>
-      List.unmodifiable(_recognizers);
+  List<GestureRecognizer> get recognizers => List.unmodifiable(_recognizers);
 
   /// Disposes all gesture recognizers created during
   /// rendering and clears the internal list.
@@ -61,10 +72,7 @@ class InlineRenderer {
   ///
   /// If [parentStyle] is provided it is used as the base
   /// style; otherwise [style.body] is used.
-  InlineSpan render(
-    List<md.Node> nodes, {
-    TextStyle? parentStyle,
-  }) {
+  InlineSpan render(List<md.Node> nodes, {TextStyle? parentStyle}) {
     final base = parentStyle ?? style.body;
     final spans = <InlineSpan>[];
     for (final node in nodes) {
@@ -74,10 +82,7 @@ class InlineRenderer {
     return TextSpan(children: spans);
   }
 
-  List<InlineSpan> _renderNode(
-    md.Node node,
-    TextStyle currentStyle,
-  ) {
+  List<InlineSpan> _renderNode(md.Node node, TextStyle currentStyle) {
     if (node is md.Text) {
       return _renderText(node.text, currentStyle);
     }
@@ -87,27 +92,18 @@ class InlineRenderer {
     return [TextSpan(text: node.textContent)];
   }
 
-  List<InlineSpan> _renderText(
-    String text,
-    TextStyle currentStyle,
-  ) {
+  List<InlineSpan> _renderText(String text, TextStyle currentStyle) {
     if (!latexPreprocessor.containsPlaceholder(text)) {
-      return [TextSpan(text: text, style: currentStyle)];
+      return _renderTextWithCitations(text, currentStyle);
     }
 
-    final segments =
-        latexPreprocessor.splitOnPlaceholders(text);
+    final segments = latexPreprocessor.splitOnPlaceholders(text);
     final spans = <InlineSpan>[];
 
     for (final segment in segments) {
       if (!segment.isLatex) {
         if (segment.content.isNotEmpty) {
-          spans.add(
-            TextSpan(
-              text: segment.content,
-              style: currentStyle,
-            ),
-          );
+          spans.addAll(_renderTextWithCitations(segment.content, currentStyle));
         }
         continue;
       }
@@ -125,29 +121,82 @@ class InlineRenderer {
     return spans;
   }
 
-  List<InlineSpan> _renderElement(
-    md.Element element,
+  List<InlineSpan> _renderTextWithCitations(
+    String text,
     TextStyle currentStyle,
   ) {
+    if (sources == null || sources!.isEmpty) {
+      return [TextSpan(text: text, style: currentStyle)];
+    }
+    return _renderCitations(text, currentStyle) ??
+        [TextSpan(text: text, style: currentStyle)];
+  }
+
+  List<InlineSpan>? _renderCitations(String text, TextStyle currentStyle) {
+    final segments = CitationParser.parse(text);
+    if (segments == null || segments.isEmpty) {
+      return null;
+    }
+
+    final spans = <InlineSpan>[];
+    for (final segment in segments) {
+      if (segment.isText && segment.text != null) {
+        spans.add(TextSpan(text: segment.text, style: currentStyle));
+      } else if (segment.isCitation && segment.citation != null) {
+        spans.add(
+          WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: _buildCitationBadge(segment.citation!.sourceIds),
+          ),
+        );
+      }
+    }
+
+    return spans;
+  }
+
+  Widget _buildCitationBadge(List<int> sourceIds) {
+    final sourceList = sources;
+    if (sourceList == null || sourceIds.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final indices = sourceIds
+        .map((id) => id - 1)
+        .where((index) => index >= 0)
+        .toList(growable: false);
+    if (indices.isEmpty) return const SizedBox.shrink();
+
+    if (indices.length == 1) {
+      final index = indices.first;
+      return CitationBadge(
+        sourceIndex: index,
+        sources: sourceList,
+        onTap: onSourceTap != null ? () => onSourceTap!(index) : null,
+      );
+    }
+
+    return CitationBadgeGroup(
+      sourceIndices: indices,
+      sources: sourceList,
+      onSourceTap: onSourceTap,
+    );
+  }
+
+  List<InlineSpan> _renderElement(md.Element element, TextStyle currentStyle) {
     return switch (element.tag) {
       'strong' => _renderStyled(
-          element,
-          currentStyle.copyWith(
-            fontWeight: FontWeight.bold,
-          ),
-        ),
+        element,
+        currentStyle.copyWith(fontWeight: FontWeight.bold),
+      ),
       'em' => _renderStyled(
-          element,
-          currentStyle.copyWith(
-            fontStyle: FontStyle.italic,
-          ),
-        ),
+        element,
+        currentStyle.copyWith(fontStyle: FontStyle.italic),
+      ),
       'del' => _renderStyled(
-          element,
-          currentStyle.copyWith(
-            decoration: TextDecoration.lineThrough,
-          ),
-        ),
+        element,
+        currentStyle.copyWith(decoration: TextDecoration.lineThrough),
+      ),
       'code' => [_buildInlineCode(element.textContent)],
       'a' => _renderLink(element, currentStyle),
       'img' => _renderImage(element, currentStyle),
@@ -156,18 +205,10 @@ class InlineRenderer {
     };
   }
 
-  List<InlineSpan> _renderStyled(
-    md.Element element,
-    TextStyle styledText,
-  ) {
+  List<InlineSpan> _renderStyled(md.Element element, TextStyle styledText) {
     final children = element.children;
     if (children == null || children.isEmpty) {
-      return [
-        TextSpan(
-          text: element.textContent,
-          style: styledText,
-        ),
-      ];
+      return [TextSpan(text: element.textContent, style: styledText)];
     }
     final spans = <InlineSpan>[];
     for (final child in children) {
@@ -179,17 +220,11 @@ class InlineRenderer {
   WidgetSpan _buildInlineCode(String code) {
     return WidgetSpan(
       alignment: PlaceholderAlignment.middle,
-      child: _InlineCodeWidget(
-        code: code,
-        style: style,
-      ),
+      child: _InlineCodeWidget(code: code, style: style),
     );
   }
 
-  List<InlineSpan> _renderLink(
-    md.Element element,
-    TextStyle currentStyle,
-  ) {
+  List<InlineSpan> _renderLink(md.Element element, TextStyle currentStyle) {
     final href = element.attributes['href'] ?? '';
     final title = element.attributes['title'] ?? '';
     final linkStyle = currentStyle.copyWith(
@@ -220,11 +255,7 @@ class InlineRenderer {
     for (final child in children) {
       if (child is md.Text) {
         spans.add(
-          TextSpan(
-            text: child.text,
-            style: linkStyle,
-            recognizer: recognizer,
-          ),
+          TextSpan(text: child.text, style: linkStyle, recognizer: recognizer),
         );
       } else {
         spans.addAll(_renderNode(child, linkStyle));
@@ -233,19 +264,13 @@ class InlineRenderer {
     return spans;
   }
 
-  List<InlineSpan> _renderImage(
-    md.Element element,
-    TextStyle currentStyle,
-  ) {
+  List<InlineSpan> _renderImage(md.Element element, TextStyle currentStyle) {
     final alt = element.attributes['alt'] ?? '';
     if (alt.isEmpty) return [];
     return [TextSpan(text: alt, style: currentStyle)];
   }
 
-  List<InlineSpan> _renderChildren(
-    md.Element element,
-    TextStyle currentStyle,
-  ) {
+  List<InlineSpan> _renderChildren(md.Element element, TextStyle currentStyle) {
     final children = element.children;
     if (children == null || children.isEmpty) {
       final text = element.textContent;
@@ -268,10 +293,7 @@ class InlineRenderer {
 /// background, styled to match common chat-UI conventions
 /// (e.g., OpenWebUI's red-on-gray inline code).
 class _InlineCodeWidget extends StatelessWidget {
-  const _InlineCodeWidget({
-    required this.code,
-    required this.style,
-  });
+  const _InlineCodeWidget({required this.code, required this.style});
 
   final String code;
   final ConduitMarkdownStyle style;
@@ -281,21 +303,14 @@ class _InlineCodeWidget extends StatelessWidget {
     return GestureDetector(
       onTap: () => _copyToClipboard(context),
       child: Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: 5,
-          vertical: 1,
-        ),
+        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
         decoration: BoxDecoration(
           color: style.codeSpanBackgroundColor,
-          borderRadius: BorderRadius.circular(
-            style.codeSpanRadius,
-          ),
+          borderRadius: BorderRadius.circular(style.codeSpanRadius),
         ),
         child: Text(
           code,
-          style: style.codeSpan.copyWith(
-            color: style.codeSpanTextColor,
-          ),
+          style: style.codeSpan.copyWith(color: style.codeSpanTextColor),
         ),
       ),
     );
@@ -304,11 +319,11 @@ class _InlineCodeWidget extends StatelessWidget {
   void _copyToClipboard(BuildContext context) {
     Clipboard.setData(ClipboardData(text: code));
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Copied to clipboard'),
-        duration: Duration(seconds: 2),
-      ),
+    AdaptiveSnackBar.show(
+      context,
+      message: 'Copied to clipboard',
+      type: AdaptiveSnackBarType.success,
+      duration: const Duration(seconds: 2),
     );
   }
 }

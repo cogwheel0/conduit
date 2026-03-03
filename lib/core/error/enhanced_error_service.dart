@@ -1,3 +1,4 @@
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -95,56 +96,28 @@ class EnhancedErrorService {
     Duration? duration,
     bool showTechnicalDetails = false,
   }) {
-    final message = getUserMessage(error);
+    final message = showTechnicalDetails
+        ? '${getUserMessage(error)}\n${getTechnicalDetails(error)}'
+        : getUserMessage(error);
     final isRetryableError = isRetryable(error);
     final retryDelay = getRetryDelay(error);
-    final theme = context.conduitTheme;
-    final inverseColor = theme.textInverse;
 
-    final snackBar = SnackBar(
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(
-                _getErrorIcon(error),
-                color: inverseColor,
-                size: IconSize.md,
-              ),
-              const SizedBox(width: Spacing.sm),
-              Expanded(
-                child: Text(message, style: TextStyle(color: inverseColor)),
-              ),
-            ],
-          ),
-          if (showTechnicalDetails) ...[
-            const SizedBox(height: Spacing.sm),
-            Text(
-              getTechnicalDetails(error),
-              style: TextStyle(
-                color: inverseColor.withValues(alpha: Alpha.strong),
-                fontSize: AppTypography.labelMedium,
-              ),
-            ),
-          ],
-        ],
-      ),
-      backgroundColor: _getErrorColor(context, error),
+    final String? actionLabel =
+        isRetryableError && onRetry != null
+            ? (retryDelay != null && retryDelay.inSeconds > 5
+                ? '${AppLocalizations.of(context)!.retry}'
+                    ' (${retryDelay.inSeconds}s)'
+                : AppLocalizations.of(context)!.retry)
+            : null;
+
+    AdaptiveSnackBar.show(
+      context,
+      message: message,
+      type: AdaptiveSnackBarType.error,
       duration: duration ?? _getSnackbarDuration(error),
-      action: isRetryableError && onRetry != null
-          ? SnackBarAction(
-              label: retryDelay != null && retryDelay.inSeconds > 5
-                  ? "${AppLocalizations.of(context)!.retry} (${retryDelay.inSeconds}s)"
-                  : AppLocalizations.of(context)!.retry,
-              textColor: inverseColor,
-              onPressed: onRetry,
-            )
-          : null,
+      action: actionLabel,
+      onActionPressed: onRetry,
     );
-
-    ScaffoldMessenger.of(context).showSnackBar(snackBar);
   }
 
   /// Show error dialog with detailed information and recovery options
@@ -208,19 +181,21 @@ class EnhancedErrorService {
           ),
           actions: [
             if (isRetryableError && onRetry != null)
-              TextButton(
+              AdaptiveButton(
                 onPressed: () {
                   Navigator.of(context).pop();
                   onRetry();
                 },
-                child: Text(AppLocalizations.of(context)!.retry),
+                label: AppLocalizations.of(context)!.retry,
+                style: AdaptiveButtonStyle.plain,
               ),
-            TextButton(
+            AdaptiveButton(
               onPressed: () {
                 Navigator.of(context).pop();
                 onDismiss?.call();
               },
-              child: Text(AppLocalizations.of(context)!.ok),
+              label: AppLocalizations.of(context)!.ok,
+              style: AdaptiveButtonStyle.plain,
             ),
           ],
         );
@@ -286,10 +261,17 @@ class EnhancedErrorService {
           ],
           if (isRetryableError && onRetry != null) ...[
             const SizedBox(height: Spacing.md),
-            ElevatedButton.icon(
+            AdaptiveButton.child(
               onPressed: onRetry,
-              icon: const Icon(Icons.refresh),
-              label: Text(AppLocalizations.of(context)!.retry),
+              style: AdaptiveButtonStyle.filled,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.refresh),
+                  const SizedBox(width: Spacing.sm),
+                  Text(AppLocalizations.of(context)!.retry),
+                ],
+              ),
             ),
           ],
         ],

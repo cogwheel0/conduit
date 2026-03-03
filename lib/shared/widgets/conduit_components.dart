@@ -1,7 +1,8 @@
-import 'dart:ui' show ImageFilter;
-
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'native_glass_container.dart';
 import '../theme/theme_extensions.dart';
 import '../services/brand_service.dart';
 import '../../core/services/enhanced_accessibility_service.dart';
@@ -30,50 +31,51 @@ class FloatingAppBarPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final conduitTheme = context.conduitTheme;
-
-    final backgroundColor = conduitTheme.cardBackground;
-
-    final borderColor = conduitTheme.cardBorder;
-
     final borderRadius = isCircular
         ? BorderRadius.circular(100)
         : BorderRadius.circular(AppBorderRadius.pill);
 
-    if (isCircular) {
-      return SizedBox(
-        width: 44,
-        height: 44,
-        child: ClipRRect(
-          borderRadius: borderRadius,
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-            child: Container(
-              decoration: BoxDecoration(
-                color: backgroundColor.withValues(alpha: 0.85),
-                borderRadius: borderRadius,
-                border: Border.all(color: borderColor, width: BorderWidth.thin),
+    final blurChild = isCircular
+        ? SizedBox(width: 44, height: 44, child: Center(child: child))
+        : child;
+
+    if (PlatformInfo.isIOS26OrHigher()) {
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          final hasBoundedWidth = constraints.maxWidth.isFinite;
+          final minSize = hasBoundedWidth
+              ? Size(
+                  constraints.maxWidth,
+                  isCircular ? TouchTarget.minimum : TouchTarget.input,
+                )
+              : null;
+
+          return Stack(
+            alignment: Alignment.center,
+            children: [
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: IOS26Button.child(
+                    onPressed: () {},
+                    style: IOS26ButtonStyle.glass,
+                    size: IOS26ButtonSize.large,
+                    minSize: minSize,
+                    useSmoothRectangleBorder: false,
+                    child: const SizedBox.shrink(),
+                  ),
+                ),
               ),
-              child: Center(child: child),
-            ),
-          ),
-        ),
+              ClipRRect(borderRadius: borderRadius, child: blurChild),
+            ],
+          );
+        },
       );
     }
 
-    return ClipRRect(
+    return NativeGlassContainer(
+      blurStyle: BlurStyle.systemUltraThinMaterial,
       borderRadius: borderRadius,
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-        child: Container(
-          decoration: BoxDecoration(
-            color: backgroundColor.withValues(alpha: 0.85),
-            borderRadius: borderRadius,
-            border: Border.all(color: borderColor, width: BorderWidth.thin),
-          ),
-          child: child,
-        ),
-      ),
+      child: blurChild,
     );
   }
 }
@@ -289,6 +291,112 @@ class FloatingAppBarAction extends StatelessWidget {
   }
 }
 
+class ConduitGlassSearchField extends StatelessWidget {
+  const ConduitGlassSearchField({
+    super.key,
+    required this.controller,
+    required this.hintText,
+    required this.onChanged,
+    required this.query,
+    required this.onClear,
+    this.focusNode,
+  });
+
+  final TextEditingController controller;
+  final FocusNode? focusNode;
+  final String hintText;
+  final ValueChanged<String> onChanged;
+  final String query;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final textColor = context.conduitTheme.textPrimary;
+    final hintColor = context.conduitTheme.iconSecondary;
+
+    final Widget searchField;
+
+    if (PlatformInfo.isIOS) {
+      // CupertinoSearchTextField wrapped in CupertinoTheme so the cursor uses
+      // the iOS system-tint blue instead of inheriting a dark Material color.
+      searchField = CupertinoTheme(
+        data: const CupertinoThemeData(
+          primaryColor: CupertinoColors.activeBlue,
+        ),
+        child: CupertinoSearchTextField(
+          controller: controller,
+          focusNode: focusNode,
+          onChanged: onChanged,
+          placeholder: hintText,
+          style: AppTypography.standard.copyWith(color: textColor),
+          placeholderStyle: AppTypography.standard.copyWith(
+            color: hintColor.withValues(alpha: 0.5),
+          ),
+          prefixIcon: Icon(
+            CupertinoIcons.search,
+            color: hintColor,
+            size: 16,
+          ),
+          // Equal left/right insets so icon and clear button are balanced.
+          prefixInsets: const EdgeInsetsDirectional.fromSTEB(14, 0, 9, 0),
+          suffixInsets: const EdgeInsetsDirectional.fromSTEB(0, 0, 10, 0),
+          suffixIcon: const Icon(CupertinoIcons.xmark_circle_fill),
+          suffixMode: OverlayVisibilityMode.editing,
+          itemColor: hintColor,
+          // Small bottom offset nudges text up to align with the prefix icon.
+          padding: const EdgeInsetsDirectional.fromSTEB(0, 0, 5, 2),
+          decoration: const BoxDecoration(color: Colors.transparent),
+        ),
+      );
+    } else {
+      final placeholderColor = context.conduitTheme.inputPlaceholder;
+      final clearIcon = Icon(Icons.clear, color: hintColor, size: 18);
+      searchField = Material(
+        color: Colors.transparent,
+        child: TextField(
+          controller: controller,
+          focusNode: focusNode,
+          onChanged: onChanged,
+          textAlignVertical: TextAlignVertical.center,
+          style: AppTypography.standard.copyWith(color: textColor),
+          decoration: InputDecoration(
+            isDense: true,
+            hintText: hintText,
+            hintStyle: AppTypography.standard.copyWith(
+              color: placeholderColor,
+            ),
+            prefixIcon: Icon(Icons.search, color: hintColor, size: 18),
+            prefixIconConstraints: const BoxConstraints(
+              minWidth: TouchTarget.minimum,
+              minHeight: TouchTarget.minimum,
+            ),
+            suffixIcon: query.isNotEmpty
+                ? IconButton(onPressed: onClear, icon: clearIcon)
+                : null,
+            suffixIconConstraints: const BoxConstraints(
+              minWidth: TouchTarget.minimum,
+              minHeight: TouchTarget.minimum,
+            ),
+            filled: false,
+            border: InputBorder.none,
+            enabledBorder: InputBorder.none,
+            focusedBorder: InputBorder.none,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: Spacing.sm,
+              vertical: Spacing.sm,
+            ),
+          ),
+        ),
+      );
+    }
+
+    return SizedBox(
+      height: TouchTarget.minimum,
+      child: FloatingAppBarPill(child: searchField),
+    );
+  }
+}
+
 // =============================================================================
 // EXISTING COMPONENTS
 // =============================================================================
@@ -360,25 +468,24 @@ class ConduitButton extends ConsumerWidget {
         child: SizedBox(
           width: isFullWidth ? double.infinity : width,
           height: isCompact ? TouchTarget.medium : TouchTarget.comfortable,
-          child: ElevatedButton(
-            onPressed: isLoading ? null : onPressed,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: backgroundColor,
-              foregroundColor: textColor,
-              disabledBackgroundColor: context.conduitTheme.buttonDisabled,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(AppBorderRadius.button),
-              ),
-              elevation: Elevation.none,
-              shadowColor: backgroundColor.withValues(alpha: Alpha.standard),
-              minimumSize: Size(
-                TouchTarget.minimum,
-                isCompact ? TouchTarget.medium : TouchTarget.comfortable,
-              ),
-              padding: EdgeInsets.symmetric(
-                horizontal: isCompact ? Spacing.md : Spacing.buttonPadding,
-                vertical: isCompact ? Spacing.sm : Spacing.sm,
-              ),
+          child: AdaptiveButton.child(
+            onPressed: onPressed,
+            enabled: !isLoading && onPressed != null,
+            color: backgroundColor,
+            style: isSecondary
+                ? AdaptiveButtonStyle.bordered
+                : AdaptiveButtonStyle.filled,
+            size: isCompact
+                ? AdaptiveButtonSize.small
+                : AdaptiveButtonSize.medium,
+            padding: EdgeInsets.symmetric(
+              horizontal: isCompact ? Spacing.md : Spacing.buttonPadding,
+              vertical: Spacing.sm,
+            ),
+            borderRadius: BorderRadius.circular(AppBorderRadius.button),
+            minSize: Size(
+              TouchTarget.minimum,
+              isCompact ? TouchTarget.medium : TouchTarget.comfortable,
             ),
             child: isLoading
                 ? Semantics(
@@ -400,7 +507,7 @@ class ConduitButton extends ConsumerWidget {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       if (icon != null) ...[
-                        Icon(icon, size: IconSize.small),
+                        Icon(icon, size: IconSize.small, color: textColor),
                         SizedBox(width: Spacing.iconSpacing),
                       ],
                       Flexible(
@@ -496,7 +603,7 @@ class ConduitInput extends StatelessWidget {
               label ??
               (AppLocalizations.of(context)?.inputField ?? 'Input field'),
           textField: true,
-          child: TextField(
+          child: AdaptiveTextField(
             controller: controller,
             onChanged: onChanged,
             onTap: onTap,
@@ -509,6 +616,9 @@ class ConduitInput extends StatelessWidget {
             style: AppTypography.standard.copyWith(
               color: context.conduitTheme.textPrimary,
             ),
+            placeholder: hint,
+            suffixIcon: suffixIcon,
+            prefixIcon: prefixIcon,
             decoration: InputDecoration(
               hintText: hint,
               hintStyle: AppTypography.standard.copyWith(
@@ -670,7 +780,7 @@ class ConduitIconButton extends ConsumerWidget {
       label: semanticLabel,
       button: true,
       enabled: onPressed != null,
-      child: Tooltip(
+      child: AdaptiveTooltip(
         message: tooltip ?? '',
         child: GestureDetector(
           onTap: () {

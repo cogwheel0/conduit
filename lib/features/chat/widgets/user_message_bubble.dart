@@ -1,3 +1,4 @@
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import 'enhanced_image_attachment.dart';
@@ -531,8 +532,8 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
                       child: Container(
                         key: _bubbleKey,
                         padding: const EdgeInsets.symmetric(
-                          horizontal: Spacing.chatBubblePadding,
-                          vertical: Spacing.sm,
+                          horizontal: Spacing.md,
+                          vertical: Spacing.md,
                         ),
                         decoration: BoxDecoration(
                           color: context.conduitTheme.chatBubbleUser,
@@ -561,44 +562,27 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
                                       horizontal: Spacing.xs,
                                       vertical: Spacing.xxs,
                                     ),
-                                    child: Platform.isIOS
-                                        ? CupertinoTextField(
-                                            controller: _editController,
-                                            maxLines: null,
-                                            padding: EdgeInsets.zero,
-                                            autofillHints: const <String>[],
-                                            style: AppTypography
-                                                .chatMessageStyle
-                                                .copyWith(
-                                                  color: inlineEditTextColor,
-                                                ),
-                                            decoration: const BoxDecoration(),
-                                            cursorColor: context
-                                                .conduitTheme
-                                                .buttonPrimary,
-                                            onSubmitted: (_) =>
-                                                _saveInlineEdit(),
-                                          )
-                                        : TextField(
-                                            controller: _editController,
-                                            maxLines: null,
-                                            autofillHints: const <String>[],
-                                            style: AppTypography
-                                                .chatMessageStyle
-                                                .copyWith(
-                                                  color: inlineEditTextColor,
-                                                ),
-                                            decoration: const InputDecoration(
-                                              isCollapsed: true,
-                                              border: InputBorder.none,
-                                              contentPadding: EdgeInsets.zero,
-                                            ),
-                                            cursorColor: context
-                                                .conduitTheme
-                                                .buttonPrimary,
-                                            onSubmitted: (_) =>
-                                                _saveInlineEdit(),
+                                    child: AdaptiveTextField(
+                                      controller: _editController,
+                                      maxLines: null,
+                                      style: AppTypography
+                                          .chatMessageStyle
+                                          .copyWith(
+                                            color: inlineEditTextColor,
                                           ),
+                                      onSubmitted: (_) =>
+                                          _saveInlineEdit(),
+                                      padding: EdgeInsets.zero,
+                                      cupertinoDecoration:
+                                          const BoxDecoration(),
+                                      decoration:
+                                          const InputDecoration(
+                                        isCollapsed: true,
+                                        border: InputBorder.none,
+                                        contentPadding:
+                                            EdgeInsets.zero,
+                                      ),
+                                    ),
                                   ),
                                 ),
                               )

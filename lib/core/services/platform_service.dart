@@ -1,3 +1,4 @@
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/cupertino.dart';
@@ -175,7 +176,7 @@ class PlatformService {
               child: Text(title, style: Theme.of(context).textTheme.titleLarge),
             ),
             ...actions?.map(
-                  (action) => ListTile(
+                  (action) => AdaptiveListTile(
                     title: Text(
                       action.title,
                       style: TextStyle(
@@ -189,7 +190,7 @@ class PlatformService {
                 ) ??
                 [],
             if (cancelAction != null)
-              ListTile(
+              AdaptiveListTile(
                 title: Text(cancelAction.title),
                 onTap: cancelAction.onPressed,
               ),
@@ -246,21 +247,19 @@ class PlatformService {
           ),
           actions: [
             if (cancelText != null)
-              TextButton(
-                child: Text(
-                  cancelText,
-                  style: TextStyle(color: context.conduitTheme.textSecondary),
-                ),
+              AdaptiveButton(
                 onPressed: () => Navigator.of(context).pop(false),
+                label: cancelText,
+                textColor: context.conduitTheme.textSecondary,
+                style: AdaptiveButtonStyle.plain,
               ),
-            TextButton(
-              style: TextButton.styleFrom(
-                foregroundColor: isDestructive
-                    ? context.conduitTheme.error
-                    : context.conduitTheme.buttonPrimary,
-              ),
-              child: Text(confirmText),
+            AdaptiveButton(
               onPressed: () => Navigator.of(context).pop(true),
+              label: confirmText,
+              textColor: isDestructive
+                  ? context.conduitTheme.error
+                  : context.conduitTheme.buttonPrimary,
+              style: AdaptiveButtonStyle.plain,
             ),
           ],
         ),
@@ -286,27 +285,6 @@ class PlatformService {
               ? AlwaysStoppedAnimation<Color>(color)
               : null,
         ),
-      );
-    }
-  }
-
-  /// Get platform-appropriate switch widget
-  static Widget getPlatformSwitch({
-    required bool value,
-    required ValueChanged<bool>? onChanged,
-    Color? activeColor,
-  }) {
-    if (isIOS) {
-      return CupertinoSwitch(
-        value: value,
-        onChanged: onChanged,
-        activeTrackColor: activeColor,
-      );
-    } else {
-      return Switch(
-        value: value,
-        onChanged: onChanged,
-        activeThumbColor: activeColor,
       );
     }
   }

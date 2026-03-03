@@ -1,5 +1,5 @@
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -147,33 +147,26 @@ class _OnboardingSheetState extends ConsumerState<OnboardingSheet> {
               const SizedBox(height: Spacing.lg),
               Row(
                 children: [
-                  TextButton(
+                  AdaptiveButton(
                     onPressed: () => Navigator.pop(context),
-                    child: Text(
-                      l10n.skip,
-                      style: TextStyle(
-                        color: context.conduitTheme.textSecondary,
-                      ),
-                    ),
+                    label: l10n.skip,
+                    textColor: context.conduitTheme.textSecondary,
+                    style: AdaptiveButtonStyle.plain,
                   ),
                   const Spacer(),
-                  FilledButton(
+                  AdaptiveButton(
                     onPressed: () => _next(pageCount),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: context.conduitTheme.buttonPrimary,
-                      foregroundColor: context.conduitTheme.buttonPrimaryText,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: Spacing.lg,
-                        vertical: Spacing.sm,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(
-                          AppBorderRadius.button,
-                        ),
-                      ),
+                    label: _index == pageCount - 1
+                        ? l10n.done
+                        : l10n.next,
+                    color: context.conduitTheme.buttonPrimary,
+                    style: AdaptiveButtonStyle.filled,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: Spacing.lg,
+                      vertical: Spacing.sm,
                     ),
-                    child: Text(
-                      _index == pageCount - 1 ? l10n.done : l10n.next,
+                    borderRadius: BorderRadius.circular(
+                      AppBorderRadius.button,
                     ),
                   ),
                 ],

@@ -314,6 +314,8 @@
   "chatSettings": "Чат",
   "sendOnEnter": "Отправка по Enter",
   "sendOnEnterDescription": "Enter отправляет (программная клавиатура). Также доступно Cmd/Ctrl+Enter",
+  "showChatHeaderTitle": "Показывать заголовок чата",
+  "showChatHeaderTitleDescription": "Отображать заголовок беседы в шапке чата",
   "androidAssistantTitle": "Android digital assistant",
   "androidAssistantDescription": "Choose what happens when you trigger the Android digital assistant.",
   "androidAssistantOverlayOption": "Show quick overlay (default)",

@@ -1,3 +1,4 @@
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 import '../theme/theme_extensions.dart';
 import 'package:flutter/cupertino.dart';
@@ -225,28 +226,30 @@ class BrandService {
     return SizedBox(
       width: width,
       height: 48,
-      child: ElevatedButton.icon(
+      child: AdaptiveButton.child(
         onPressed: isLoading ? null : onPressed,
-        icon: isLoading
-            ? createBrandLoadingIndicator(size: IconSize.sm, context: context)
-            : createBrandIcon(
-                size: IconSize.md,
-                icon: icon ?? primaryIcon,
-                color: theme?.textInverse ?? tokens.neutralTone00,
-                context: context,
-              ),
-        label: Text(text),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: isSecondary
-              ? (theme?.buttonSecondary ?? tokens.neutralTone20)
-              : (theme?.buttonPrimary ?? primaryBrandColor(context: context)),
-          foregroundColor: theme?.buttonPrimaryText ?? tokens.brandOn60,
-          disabledBackgroundColor:
-              theme?.buttonDisabled ?? tokens.neutralTone40,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppBorderRadius.md),
-          ),
-          elevation: Elevation.none,
+        color: isSecondary
+            ? (theme?.buttonSecondary ?? tokens.neutralTone20)
+            : (theme?.buttonPrimary ?? primaryBrandColor(context: context)),
+        style: AdaptiveButtonStyle.filled,
+        borderRadius: BorderRadius.circular(AppBorderRadius.md),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            isLoading
+                ? createBrandLoadingIndicator(
+                    size: IconSize.sm,
+                    context: context,
+                  )
+                : createBrandIcon(
+                    size: IconSize.md,
+                    icon: icon ?? primaryIcon,
+                    color: theme?.textInverse ?? tokens.neutralTone00,
+                    context: context,
+                  ),
+            const SizedBox(width: Spacing.sm),
+            Text(text),
+          ],
         ),
       ),
     );

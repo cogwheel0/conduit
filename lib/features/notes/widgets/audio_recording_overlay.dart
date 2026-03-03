@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show FontFeature, ImageFilter;
 
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -94,11 +95,10 @@ class _AudioRecordingOverlayState extends State<AudioRecordingOverlay>
       if (!mounted) return;
       setState(() => _hasError = true);
       final l10n = AppLocalizations.of(context)!;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(l10n.microphonePermissionDenied),
-          backgroundColor: Theme.of(context).colorScheme.error,
-        ),
+      AdaptiveSnackBar.show(
+        context,
+        message: l10n.microphonePermissionDenied,
+        type: AdaptiveSnackBarType.error,
       );
       // Delay briefly to show the error message
       await Future.delayed(const Duration(seconds: 1));
@@ -119,22 +119,20 @@ class _AudioRecordingOverlayState extends State<AudioRecordingOverlay>
         widget.onConfirm(file);
       } else if (mounted) {
         final l10n = AppLocalizations.of(context)!;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(l10n.recordingFailed),
-            backgroundColor: Theme.of(context).colorScheme.error,
-          ),
+        AdaptiveSnackBar.show(
+          context,
+          message: l10n.recordingFailed,
+          type: AdaptiveSnackBarType.error,
         );
         widget.onCancel();
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.toString()),
-            backgroundColor: Theme.of(context).colorScheme.error,
-            duration: const Duration(seconds: 4),
-          ),
+        AdaptiveSnackBar.show(
+          context,
+          message: e.toString(),
+          type: AdaptiveSnackBarType.error,
+          duration: const Duration(seconds: 4),
         );
         widget.onCancel();
       }
@@ -189,21 +187,28 @@ class _AudioRecordingOverlayState extends State<AudioRecordingOverlay>
                   padding: const EdgeInsets.all(Spacing.md),
                   child: Row(
                     children: [
-                      TextButton.icon(
+                      AdaptiveButton.child(
                         onPressed: _cancelRecording,
-                        icon: Icon(
-                          Platform.isIOS
-                              ? CupertinoIcons.xmark
-                              : Icons.close_rounded,
-                          color: Colors.white70,
-                          size: IconSize.md,
-                        ),
-                        label: Text(
-                          l10n.cancel,
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: AppTypography.bodyMedium,
-                          ),
+                        style: AdaptiveButtonStyle.plain,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Platform.isIOS
+                                  ? CupertinoIcons.xmark
+                                  : Icons.close_rounded,
+                              color: Colors.white70,
+                              size: IconSize.md,
+                            ),
+                            const SizedBox(width: Spacing.xs),
+                            Text(
+                              l10n.cancel,
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: AppTypography.bodyMedium,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
@@ -331,48 +336,48 @@ class _AudioRecordingOverlayState extends State<AudioRecordingOverlay>
                   child: SizedBox(
                     width: double.infinity,
                     height: 56,
-                    child: ElevatedButton.icon(
+                    child: AdaptiveButton.child(
                       onPressed:
                           _isProcessing || !_isRecording || _hasError
                               ? null
                               : _confirmRecording,
-                      icon: _isProcessing
-                          ? SizedBox(
-                              width: IconSize.md,
-                              height: IconSize.md,
-                              child: const CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : Icon(
-                              Platform.isIOS
-                                  ? CupertinoIcons.stop_fill
-                                  : Icons.stop_rounded,
-                              size: IconSize.lg,
-                            ),
-                      label: Text(
-                        _isProcessing
-                            ? l10n.processingRecording
-                            : l10n.stopAndSaveRecording,
-                        style: const TextStyle(
-                          fontSize: AppTypography.bodyLarge,
-                          fontWeight: FontWeight.w600,
-                        ),
+                      color: Colors.red,
+                      style: AdaptiveButtonStyle.filled,
+                      borderRadius: BorderRadius.circular(
+                        AppBorderRadius.button,
                       ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.red,
-                        foregroundColor: Colors.white,
-                        disabledBackgroundColor: Colors.red.withValues(
-                          alpha: 0.5,
-                        ),
-                        disabledForegroundColor: Colors.white54,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(
-                            AppBorderRadius.button,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _isProcessing
+                              ? SizedBox(
+                                  width: IconSize.md,
+                                  height: IconSize.md,
+                                  child:
+                                      const CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : Icon(
+                                  Platform.isIOS
+                                      ? CupertinoIcons.stop_fill
+                                      : Icons.stop_rounded,
+                                  size: IconSize.lg,
+                                  color: Colors.white,
+                                ),
+                          const SizedBox(width: Spacing.sm),
+                          Text(
+                            _isProcessing
+                                ? l10n.processingRecording
+                                : l10n.stopAndSaveRecording,
+                            style: const TextStyle(
+                              fontSize: AppTypography.bodyLarge,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
                           ),
-                        ),
-                        elevation: 4,
+                        ],
                       ),
                     ),
                   ),

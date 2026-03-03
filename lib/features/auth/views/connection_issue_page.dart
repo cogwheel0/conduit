@@ -1,5 +1,6 @@
 import 'dart:io' show Platform;
 
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -36,8 +37,7 @@ class _ConnectionIssuePageState extends ConsumerState<ConnectionIssuePage> {
     final activeServer = activeServerAsync.asData?.value;
 
     return ErrorBoundary(
-      child: Scaffold(
-        backgroundColor: context.conduitTheme.surfaceBackground,
+      child: AdaptiveScaffold(
         body: SafeArea(
           child: Padding(
             padding: const EdgeInsets.symmetric(

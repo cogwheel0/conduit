@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:markdown/markdown.dart' as md;
 
+import '../../../../core/models/chat_message.dart';
 import 'block_renderer.dart';
 import 'inline_renderer.dart';
 import 'latex_preprocessor.dart';
@@ -39,6 +40,8 @@ class ConduitMarkdownWidget extends StatefulWidget {
     required this.data,
     this.onLinkTap,
     this.imageBuilder,
+    this.sources,
+    this.onSourceTap,
     super.key,
   });
 
@@ -51,13 +54,17 @@ class ConduitMarkdownWidget extends StatefulWidget {
   /// Optional builder for block-level images.
   final ImageBuilder? imageBuilder;
 
+  /// Optional source references for inline citation badges.
+  final List<ChatSourceReference>? sources;
+
+  /// Callback when an inline citation badge is tapped.
+  final void Function(int sourceIndex)? onSourceTap;
+
   @override
-  State<ConduitMarkdownWidget> createState() =>
-      _ConduitMarkdownWidgetState();
+  State<ConduitMarkdownWidget> createState() => _ConduitMarkdownWidgetState();
 }
 
-class _ConduitMarkdownWidgetState
-    extends State<ConduitMarkdownWidget> {
+class _ConduitMarkdownWidgetState extends State<ConduitMarkdownWidget> {
   LatexPreprocessor _latexPreprocessor = LatexPreprocessor();
   InlineRenderer? _inlineRenderer;
   List<md.Node> _nodes = [];
@@ -90,8 +97,7 @@ class _ConduitMarkdownWidgetState
 
   @override
   Widget build(BuildContext context) {
-    final style =
-        ConduitMarkdownStyle.fromTheme(context);
+    final style = ConduitMarkdownStyle.fromTheme(context);
 
     _ensureParsed(widget.data);
 
@@ -100,6 +106,8 @@ class _ConduitMarkdownWidgetState
       style,
       _latexPreprocessor,
       widget.onLinkTap,
+      widget.sources,
+      widget.onSourceTap,
     );
 
     final blockRenderer = BlockRenderer(

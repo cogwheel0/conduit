@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -466,7 +467,7 @@ class AppCustomizationPage extends ConsumerWidget {
           ),
           title: l10n.sendOnEnter,
           subtitle: l10n.sendOnEnterDescription,
-          trailing: Switch.adaptive(
+          trailing: AdaptiveSwitch(
             value: settings.sendOnEnter,
             onChanged: (value) =>
                 ref.read(appSettingsProvider.notifier).setSendOnEnter(value),
@@ -475,6 +476,26 @@ class AppCustomizationPage extends ConsumerWidget {
           onTap: () => ref
               .read(appSettingsProvider.notifier)
               .setSendOnEnter(!settings.sendOnEnter),
+        ),
+        const SizedBox(height: Spacing.sm),
+        _CustomizationTile(
+          leading: _buildIconBadge(
+            context,
+            Platform.isIOS ? CupertinoIcons.textformat : Icons.title,
+            color: theme.buttonPrimary,
+          ),
+          title: l10n.showChatHeaderTitle,
+          subtitle: l10n.showChatHeaderTitleDescription,
+          trailing: AdaptiveSwitch(
+            value: settings.showChatHeaderTitle,
+            onChanged: (value) => ref
+                .read(appSettingsProvider.notifier)
+                .setShowChatHeaderTitle(value),
+          ),
+          showChevron: false,
+          onTap: () => ref
+              .read(appSettingsProvider.notifier)
+              .setShowChatHeaderTitle(!settings.showChatHeaderTitle),
         ),
         if (Platform.isAndroid) ...[
           const SizedBox(height: Spacing.sm),
@@ -609,7 +630,10 @@ class AppCustomizationPage extends ConsumerWidget {
                       ),
                     ),
                     IconButton(
-                      icon: Icon(Icons.close, color: theme.iconPrimary),
+                      icon: Icon(
+                        Platform.isIOS ? CupertinoIcons.xmark : Icons.close,
+                        color: theme.iconPrimary,
+                      ),
                       onPressed: () => Navigator.of(sheetContext).pop(),
                     ),
                   ],
@@ -621,9 +645,15 @@ class AppCustomizationPage extends ConsumerWidget {
                   final option = options[i];
                   final selected =
                       settings.androidAssistantTrigger == option.value;
-                  return ListTile(
+                  return AdaptiveListTile(
                     leading: Icon(
-                      selected ? Icons.check_circle : Icons.circle_outlined,
+                      selected
+                      ? (Platform.isIOS
+                            ? CupertinoIcons.checkmark_circle_fill
+                            : Icons.check_circle)
+                      : (Platform.isIOS
+                            ? CupertinoIcons.circle
+                            : Icons.circle_outlined),
                       color: selected
                           ? theme.buttonPrimary
                           : theme.iconSecondary,
@@ -901,13 +931,12 @@ class AppCustomizationPage extends ConsumerWidget {
                   ],
                 ),
                 const SizedBox(height: Spacing.sm),
-                Slider(
+                AdaptiveSlider(
                   value: settings.voiceSilenceDuration.toDouble(),
                   min: 300,
                   max: 3000,
                   divisions: 27,
                   activeColor: theme.buttonPrimary,
-                  inactiveColor: theme.cardBorder.withValues(alpha: 0.4),
                   onChanged: (value) {
                     notifier.setVoiceSilenceDuration(value.round());
                   },
@@ -1262,7 +1291,7 @@ class AppCustomizationPage extends ConsumerWidget {
               ),
             ],
           ),
-          Slider(
+          AdaptiveSlider(
             value: value,
             min: min,
             max: max,
@@ -1293,11 +1322,10 @@ class AppCustomizationPage extends ConsumerWidget {
 
     if (allVoices.isEmpty) {
       // Show error if no voices available
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(l10n.ttsNoVoicesAvailable),
-          backgroundColor: theme.error,
-        ),
+      AdaptiveSnackBar.show(
+        context,
+        message: l10n.ttsNoVoicesAvailable,
+        type: AdaptiveSnackBarType.error,
       );
       return;
     }
@@ -1378,7 +1406,10 @@ class AppCustomizationPage extends ConsumerWidget {
                       ),
                       const Spacer(),
                       IconButton(
-                        icon: Icon(Icons.close, color: theme.iconPrimary),
+                        icon: Icon(
+                        Platform.isIOS ? CupertinoIcons.xmark : Icons.close,
+                        color: theme.iconPrimary,
+                      ),
                         onPressed: () => Navigator.of(sheetContext).pop(),
                       ),
                     ],
@@ -1386,7 +1417,7 @@ class AppCustomizationPage extends ConsumerWidget {
                 ),
                 const Divider(height: 1),
                 // System Default Option
-                ListTile(
+                AdaptiveListTile(
                   leading: Icon(
                     UiUtils.platformIcon(
                       ios: CupertinoIcons.speaker_3,
@@ -1412,7 +1443,12 @@ class AppCustomizationPage extends ConsumerWidget {
                       (settings.ttsEngine == TtsEngine.server
                           ? settings.ttsServerVoiceId == null
                           : settings.ttsVoice == null)
-                      ? Icon(Icons.check, color: theme.buttonPrimary)
+                      ? Icon(
+                        Platform.isIOS
+                            ? CupertinoIcons.check_mark
+                            : Icons.check,
+                        color: theme.buttonPrimary,
+                      )
                       : null,
                   onTap: () {
                     final notifier = ref.read(appSettingsProvider.notifier);
@@ -1509,7 +1545,7 @@ class AppCustomizationPage extends ConsumerWidget {
                           ? settings.ttsServerVoiceId == voiceId
                           : settings.ttsVoice == voiceId;
 
-                      return ListTile(
+                      return AdaptiveListTile(
                         leading: Icon(
                           UiUtils.platformIcon(
                             ios: CupertinoIcons.person_fill,
@@ -1546,7 +1582,12 @@ class AppCustomizationPage extends ConsumerWidget {
                               )
                             : null,
                         trailing: isSelected
-                            ? Icon(Icons.check, color: theme.buttonPrimary)
+                            ? Icon(
+                        Platform.isIOS
+                            ? CupertinoIcons.check_mark
+                            : Icons.check,
+                        color: theme.buttonPrimary,
+                      )
                             : null,
                         onTap: () {
                           final notifier = ref.read(
@@ -1574,7 +1615,6 @@ class AppCustomizationPage extends ConsumerWidget {
 
   Future<void> _previewTtsVoice(BuildContext context, WidgetRef ref) async {
     final l10n = AppLocalizations.of(context)!;
-    final theme = context.conduitTheme;
 
     try {
       final ttsController = ref.read(textToSpeechControllerProvider.notifier);
@@ -1601,11 +1641,10 @@ class AppCustomizationPage extends ConsumerWidget {
       );
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(l10n.errorWithMessage(e.toString())),
-          backgroundColor: theme.error,
-        ),
+      AdaptiveSnackBar.show(
+        context,
+        message: l10n.errorWithMessage(e.toString()),
+        type: AdaptiveSnackBarType.error,
       );
     }
   }
@@ -1879,7 +1918,10 @@ class AppCustomizationPage extends ConsumerWidget {
                       ),
                     ),
                     IconButton(
-                      icon: Icon(Icons.close, color: theme.iconPrimary),
+                      icon: Icon(
+                        Platform.isIOS ? CupertinoIcons.xmark : Icons.close,
+                        color: theme.iconPrimary,
+                      ),
                       onPressed: () => Navigator.of(sheetContext).pop(),
                     ),
                   ],
@@ -1890,9 +1932,15 @@ class AppCustomizationPage extends ConsumerWidget {
                 () {
                   final option = options[i];
                   final selected = current == option.value;
-                  return ListTile(
+                  return AdaptiveListTile(
                     leading: Icon(
-                      selected ? Icons.check_circle : Icons.circle_outlined,
+                      selected
+                      ? (Platform.isIOS
+                            ? CupertinoIcons.checkmark_circle_fill
+                            : Icons.check_circle)
+                      : (Platform.isIOS
+                            ? CupertinoIcons.circle
+                            : Icons.circle_outlined),
                       color: selected
                           ? theme.buttonPrimary
                           : theme.iconSecondary,
@@ -1992,80 +2040,80 @@ class AppCustomizationPage extends ConsumerWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               const SizedBox(height: Spacing.sm),
-              ListTile(
+              AdaptiveListTile(
                 title: Text(AppLocalizations.of(context)!.system),
                 trailing: normalizedCurrent == 'system'
-                    ? const Icon(Icons.check)
+                    ? Icon(Platform.isIOS ? CupertinoIcons.check_mark : Icons.check)
                     : null,
                 onTap: () => Navigator.pop(context, 'system'),
               ),
-              ListTile(
+              AdaptiveListTile(
                 title: Text(AppLocalizations.of(context)!.english),
                 trailing: normalizedCurrent == 'en'
-                    ? const Icon(Icons.check)
+                    ? Icon(Platform.isIOS ? CupertinoIcons.check_mark : Icons.check)
                     : null,
                 onTap: () => Navigator.pop(context, 'en'),
               ),
-              ListTile(
+              AdaptiveListTile(
                 title: Text(AppLocalizations.of(context)!.deutsch),
                 trailing: normalizedCurrent == 'de'
-                    ? const Icon(Icons.check)
+                    ? Icon(Platform.isIOS ? CupertinoIcons.check_mark : Icons.check)
                     : null,
                 onTap: () => Navigator.pop(context, 'de'),
               ),
-              ListTile(
+              AdaptiveListTile(
                 title: Text(AppLocalizations.of(context)!.espanol),
                 trailing: normalizedCurrent == 'es'
-                    ? const Icon(Icons.check)
+                    ? Icon(Platform.isIOS ? CupertinoIcons.check_mark : Icons.check)
                     : null,
                 onTap: () => Navigator.pop(context, 'es'),
               ),
-              ListTile(
+              AdaptiveListTile(
                 title: Text(AppLocalizations.of(context)!.francais),
                 trailing: normalizedCurrent == 'fr'
-                    ? const Icon(Icons.check)
+                    ? Icon(Platform.isIOS ? CupertinoIcons.check_mark : Icons.check)
                     : null,
                 onTap: () => Navigator.pop(context, 'fr'),
               ),
-              ListTile(
+              AdaptiveListTile(
                 title: Text(AppLocalizations.of(context)!.italiano),
                 trailing: normalizedCurrent == 'it'
-                    ? const Icon(Icons.check)
+                    ? Icon(Platform.isIOS ? CupertinoIcons.check_mark : Icons.check)
                     : null,
                 onTap: () => Navigator.pop(context, 'it'),
               ),
-              ListTile(
+              AdaptiveListTile(
                 title: Text(AppLocalizations.of(context)!.nederlands),
                 trailing: normalizedCurrent == 'nl'
-                    ? const Icon(Icons.check)
+                    ? Icon(Platform.isIOS ? CupertinoIcons.check_mark : Icons.check)
                     : null,
                 onTap: () => Navigator.pop(context, 'nl'),
               ),
-              ListTile(
+              AdaptiveListTile(
                 title: Text(AppLocalizations.of(context)!.russian),
                 trailing: normalizedCurrent == 'ru'
-                    ? const Icon(Icons.check)
+                    ? Icon(Platform.isIOS ? CupertinoIcons.check_mark : Icons.check)
                     : null,
                 onTap: () => Navigator.pop(context, 'ru'),
               ),
-              ListTile(
+              AdaptiveListTile(
                 title: Text(AppLocalizations.of(context)!.chineseSimplified),
                 trailing: normalizedCurrent == 'zh'
-                    ? const Icon(Icons.check)
+                    ? Icon(Platform.isIOS ? CupertinoIcons.check_mark : Icons.check)
                     : null,
                 onTap: () => Navigator.pop(context, 'zh'),
               ),
-              ListTile(
+              AdaptiveListTile(
                 title: Text(AppLocalizations.of(context)!.chineseTraditional),
                 trailing: normalizedCurrent == 'zh-Hant'
-                    ? const Icon(Icons.check)
+                    ? Icon(Platform.isIOS ? CupertinoIcons.check_mark : Icons.check)
                     : null,
                 onTap: () => Navigator.pop(context, 'zh-Hant'),
               ),
-              ListTile(
+              AdaptiveListTile(
                 title: Text(AppLocalizations.of(context)!.korean),
                 trailing: normalizedCurrent == 'ko'
-                    ? const Icon(Icons.check)
+                    ? Icon(Platform.isIOS ? CupertinoIcons.check_mark : Icons.check)
                     : null,
                 onTap: () => Navigator.pop(context, 'ko'),
               ),
@@ -2131,7 +2179,13 @@ class _PaletteOption extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Icon(
-              isSelected ? Icons.radio_button_checked : Icons.radio_button_off,
+              isSelected
+                  ? (Platform.isIOS
+                        ? CupertinoIcons.checkmark_circle_fill
+                        : Icons.radio_button_checked)
+                  : (Platform.isIOS
+                        ? CupertinoIcons.circle
+                        : Icons.radio_button_off),
               color: isSelected ? theme.buttonPrimary : theme.iconSecondary,
               size: IconSize.small,
             ),
@@ -2159,7 +2213,9 @@ class _PaletteOption extends StatelessWidget {
                         Padding(
                           padding: const EdgeInsets.only(left: Spacing.xs),
                           child: Icon(
-                            Icons.check_circle,
+                            Platform.isIOS
+                                ? CupertinoIcons.checkmark_circle_fill
+                                : Icons.check_circle,
                             color: theme.buttonPrimary,
                             size: IconSize.small,
                           ),

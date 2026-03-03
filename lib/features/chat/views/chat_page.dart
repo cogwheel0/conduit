@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import '../../../core/widgets/error_boundary.dart';
 import '../../../shared/widgets/optimized_list.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/utils/glass_colors.dart';
+import '../../../shared/widgets/native_glass_container.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'dart:io' show Platform;
-import 'dart:ui' show ImageFilter;
+
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../navigation/widgets/chats_drawer.dart';
 import 'dart:async';
@@ -23,6 +26,7 @@ import '../../../core/utils/android_assistant_handler.dart';
 import '../widgets/modern_chat_input.dart';
 import '../widgets/user_message_bubble.dart';
 import '../widgets/assistant_message_widget.dart' as assistant;
+import '../widgets/streaming_title_text.dart';
 import '../widgets/file_attachment_widget.dart';
 import '../widgets/context_attachment_widget.dart';
 import '../services/voice_input_service.dart';
@@ -44,6 +48,7 @@ import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
 import '../../../shared/widgets/modal_safe_area.dart';
 import '../../../core/services/settings_service.dart';
+import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/widgets/model_avatar.dart';
 import '../../../core/services/platform_service.dart' as ps;
 import 'package:flutter/gestures.dart' show DragStartBehavior;
@@ -584,7 +589,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                       style: Theme.of(innerContext).textTheme.bodySmall,
                     ),
                     const SizedBox(height: 12),
-                    TextField(
+                    AdaptiveTextField(
+                      placeholder: 'https://example.com/article',
                       decoration: InputDecoration(
                         labelText: 'Webpage URL',
                         hintText: 'https://example.com/article',
@@ -602,15 +608,17 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 ),
               ),
               actions: [
-                TextButton(
+                AdaptiveButton(
                   onPressed: submitting
                       ? null
                       : () {
                           Navigator.of(dialogContext).pop();
                         },
-                  child: Text(l10n.cancel),
+                  label: l10n.cancel,
+                  style: AdaptiveButtonStyle.plain,
                 ),
-                ElevatedButton(
+                AdaptiveButton.child(
+                  style: AdaptiveButtonStyle.filled,
                   onPressed: submitting
                       ? null
                       : () async {
@@ -865,6 +873,34 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     return FloatingAppBarPill(isCircular: isCircular, child: child);
   }
 
+  Widget _buildAppBarIconButton({
+    required BuildContext context,
+    required VoidCallback onPressed,
+    required IconData fallbackIcon,
+    required String sfSymbol,
+    required Color color,
+  }) {
+    if (PlatformInfo.isIOS26OrHigher()) {
+      return IOS26Button.sfSymbol(
+        onPressed: onPressed,
+        sfSymbol: SFSymbol(sfSymbol, size: 18, color: color),
+        style: IOS26ButtonStyle.glass,
+        size: IOS26ButtonSize.large,
+        minSize: const Size(TouchTarget.minimum, TouchTarget.minimum),
+        useSmoothRectangleBorder: false,
+      );
+    }
+
+    return GestureDetector(
+      onTap: onPressed,
+      child: _buildAppBarPill(
+        context: context,
+        isCircular: true,
+        child: Icon(fallbackIcon, color: color, size: IconSize.appBar),
+      ),
+    );
+  }
+
   Widget _buildMessagesList(ThemeData theme) {
     // Use select to watch only the messages list to reduce rebuilds
     final messages = ref.watch(
@@ -1045,6 +1081,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         // Detect user-initiated scroll (drag gesture)
         if (notification is ScrollStartNotification &&
             notification.dragDetails != null) {
+          // Dismiss native platform keyboard on drag (mirrors
+          // keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag
+          // which only affects Flutter's text input system).
+          try {
+            ref
+                .read(composerAutofocusEnabledProvider.notifier)
+                .set(false);
+          } catch (_) {}
           // User started dragging - pause auto-scroll during generation
           if (isStreaming && !_userPausedAutoScroll) {
             setState(() {
@@ -1414,14 +1458,32 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         _shouldAutoScrollToBottom = false;
       }
     }
+    final showChatHeaderTitle = ref.watch(
+      appSettingsProvider.select((s) => s.showChatHeaderTitle),
+    );
+    final conversationTitle = ref.watch(
+      activeConversationProvider.select((conv) => conv?.title),
+    );
+    final trimmedConversationTitle = conversationTitle?.trim();
+    final displayConversationTitle =
+        (trimmedConversationTitle != null &&
+            trimmedConversationTitle.isNotEmpty &&
+            showChatHeaderTitle)
+        ? trimmedConversationTitle
+        : null;
     // Watch loading state for app bar skeleton
     final isLoadingConversation = ref.watch(isLoadingConversationProvider);
     final formattedModelName = selectedModel != null
         ? _formatModelDisplayName(selectedModel.name)
         : null;
     final modelLabel = formattedModelName ?? l10n.chooseModel;
+    final hasConversationTitle =
+        (displayConversationTitle != null || isLoadingConversation) &&
+        showChatHeaderTitle;
     final TextStyle modelTextStyle = AppTypography.standard.copyWith(
-      color: context.conduitTheme.textPrimary,
+      color: hasConversationTitle
+          ? context.conduitTheme.textSecondary
+          : context.conduitTheme.textPrimary,
       fontWeight: FontWeight.w600,
     );
 
@@ -1469,10 +1531,18 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         onPopInvokedWithResult: (bool didPop, Object? result) async {
           if (didPop) return;
 
-          // First, if any input has focus, clear focus and consume back press
+          // First, if any input has focus, clear focus and consume back press.
+          // Also covers native platform inputs which don't participate in
+          // Flutter's focus tree (composerHasFocusProvider tracks them).
+          final hasNativeFocus = ref.read(composerHasFocusProvider);
           final currentFocus = FocusManager.instance.primaryFocus;
-          if (currentFocus != null && currentFocus.hasFocus) {
-            currentFocus.unfocus();
+          if (hasNativeFocus || (currentFocus != null && currentFocus.hasFocus)) {
+            try {
+              ref
+                  .read(composerAutofocusEnabledProvider.notifier)
+                  .set(false);
+            } catch (_) {}
+            currentFocus?.unfocus();
             return;
           }
 
@@ -1566,19 +1636,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                             left: Spacing.inputPadding,
                           ),
                           child: Center(
-                            child: GestureDetector(
-                              onTap: _clearSelection,
-                              child: _buildAppBarPill(
-                                context: context,
-                                isCircular: true,
-                                child: Icon(
-                                  Platform.isIOS
-                                      ? CupertinoIcons.xmark
-                                      : Icons.close,
-                                  color: context.conduitTheme.textPrimary,
-                                  size: IconSize.appBar,
-                                ),
-                              ),
+                            child: _buildAppBarIconButton(
+                              context: context,
+                              onPressed: _clearSelection,
+                              fallbackIcon: Platform.isIOS
+                                  ? CupertinoIcons.xmark
+                                  : Icons.close,
+                              sfSymbol: 'xmark',
+                              color: context.conduitTheme.textPrimary,
                             ),
                           ),
                         )
@@ -1588,8 +1653,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                               left: Spacing.inputPadding,
                             ),
                             child: Center(
-                              child: GestureDetector(
-                                onTap: () {
+                              child: _buildAppBarIconButton(
+                                context: ctx,
+                                onPressed: () {
                                   final layout = ResponsiveDrawerLayout.of(ctx);
                                   if (layout == null) return;
 
@@ -1611,17 +1677,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                                   }
                                   layout.toggle();
                                 },
-                                child: _buildAppBarPill(
-                                  context: ctx,
-                                  isCircular: true,
-                                  child: Icon(
-                                    Platform.isIOS
-                                        ? CupertinoIcons.line_horizontal_3
-                                        : Icons.menu,
-                                    color: context.conduitTheme.textPrimary,
-                                    size: IconSize.appBar,
-                                  ),
-                                ),
+                                fallbackIcon: Platform.isIOS
+                                    ? CupertinoIcons.line_horizontal_3
+                                    : Icons.menu,
+                                sfSymbol: 'line.3.horizontal',
+                                color: context.conduitTheme.textPrimary,
                               ),
                             ),
                           ),
@@ -1645,6 +1705,71 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                         )
                       : LayoutBuilder(
                           builder: (context, constraints) {
+                            // Build title pill (tappable for context menu)
+                            // Show skeleton when loading, actual title otherwise
+                            Widget? titlePill;
+                            if (isLoadingConversation && showChatHeaderTitle) {
+                              // Show skeleton pill while loading conversation
+                              titlePill = _buildAppBarPill(
+                                context: context,
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: Spacing.md,
+                                    vertical: Spacing.xs,
+                                  ),
+                                  child: ConduitLoading.skeleton(
+                                    width: 120,
+                                    height: 18,
+                                    borderRadius: BorderRadius.circular(
+                                      AppBorderRadius.sm,
+                                    ),
+                                  ),
+                                ),
+                              );
+                            } else if (displayConversationTitle != null) {
+                              final conversation = ref.read(
+                                activeConversationProvider,
+                              );
+                              titlePill = ConduitContextMenu(
+                                actions: buildConversationActions(
+                                  context: context,
+                                  ref: ref,
+                                  conversation: conversation,
+                                ),
+                                child: _buildAppBarPill(
+                                  context: context,
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: Spacing.md,
+                                      vertical: Spacing.xs,
+                                    ),
+                                    child: ConstrainedBox(
+                                      constraints: BoxConstraints(
+                                        maxWidth:
+                                            constraints.maxWidth - Spacing.xxxl,
+                                      ),
+                                      child: StreamingTitleText(
+                                        title: displayConversationTitle,
+                                        style: AppTypography.headlineSmallStyle
+                                            .copyWith(
+                                              color: context
+                                                  .conduitTheme
+                                                  .textPrimary,
+                                              fontWeight: FontWeight.w600,
+                                              fontSize: 16,
+                                              height: 1.3,
+                                            ),
+                                        cursorColor: context
+                                            .conduitTheme
+                                            .textPrimary
+                                            .withValues(alpha: 0.8),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }
+
                             // Build model selector pill
                             // Show skeleton when loading, actual model selector otherwise
                             final Widget modelPill;
@@ -1674,97 +1799,179 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                                 ),
                               );
                             } else {
-                              modelPill = GestureDetector(
-                                onTap: () async {
-                                  final modelsAsync = ref.read(modelsProvider);
+                              Future<void> openModelSelector() async {
+                                final modelsAsync = ref.read(modelsProvider);
 
-                                  if (modelsAsync.isLoading) {
-                                    try {
-                                      final models = await ref.read(
-                                        modelsProvider.future,
-                                      );
-                                      if (!mounted) return;
-                                      // ignore: use_build_context_synchronously
-                                      _showModelDropdown(context, ref, models);
-                                    } catch (e) {
-                                      DebugLogger.error(
-                                        'model-load-failed',
-                                        scope: 'chat/model-selector',
-                                        error: e,
-                                      );
-                                    }
-                                  } else if (modelsAsync.hasValue) {
-                                    _showModelDropdown(
-                                      context,
-                                      ref,
-                                      modelsAsync.value!,
+                                if (modelsAsync.isLoading) {
+                                  try {
+                                    final models = await ref.read(
+                                      modelsProvider.future,
                                     );
-                                  } else if (modelsAsync.hasError) {
-                                    try {
-                                      ref.invalidate(modelsProvider);
-                                      final models = await ref.read(
-                                        modelsProvider.future,
-                                      );
-                                      if (!mounted) return;
-                                      // ignore: use_build_context_synchronously
-                                      _showModelDropdown(context, ref, models);
-                                    } catch (e) {
-                                      DebugLogger.error(
-                                        'model-refresh-failed',
-                                        scope: 'chat/model-selector',
-                                        error: e,
-                                      );
-                                    }
+                                    if (!mounted) return;
+                                    // ignore: use_build_context_synchronously
+                                    _showModelDropdown(context, ref, models);
+                                  } catch (e) {
+                                    DebugLogger.error(
+                                      'model-load-failed',
+                                      scope: 'chat/model-selector',
+                                      error: e,
+                                    );
                                   }
-                                },
-                                child: _buildAppBarPill(
-                                  context: context,
-                                  child: ConstrainedBox(
-                                    constraints: const BoxConstraints(
-                                      minHeight: 44,
+                                } else if (modelsAsync.hasValue) {
+                                  _showModelDropdown(
+                                    context,
+                                    ref,
+                                    modelsAsync.value!,
+                                  );
+                                } else if (modelsAsync.hasError) {
+                                  try {
+                                    ref.invalidate(modelsProvider);
+                                    final models = await ref.read(
+                                      modelsProvider.future,
+                                    );
+                                    if (!mounted) return;
+                                    // ignore: use_build_context_synchronously
+                                    _showModelDropdown(context, ref, models);
+                                  } catch (e) {
+                                    DebugLogger.error(
+                                      'model-refresh-failed',
+                                      scope: 'chat/model-selector',
+                                      error: e,
+                                    );
+                                  }
+                                }
+                              }
+
+                              final maxPillWidth =
+                                  (constraints.maxWidth - Spacing.xxl)
+                                      .clamp(140.0, 300.0)
+                                      .toDouble();
+
+                              if (PlatformInfo.isIOS26OrHigher()) {
+                                final textPainter = TextPainter(
+                                  text: TextSpan(
+                                    text: modelLabel,
+                                    style: modelTextStyle,
+                                  ),
+                                  maxLines: 1,
+                                  textScaler: MediaQuery.textScalerOf(context),
+                                  textDirection: Directionality.of(context),
+                                )..layout(maxWidth: maxPillWidth);
+
+                                final targetPillWidth =
+                                    (textPainter.width +
+                                            10 +
+                                            Spacing.xs +
+                                            IconSize.xs +
+                                            Spacing.xs +
+                                            12)
+                                        .clamp(132.0, maxPillWidth)
+                                        .toDouble();
+
+                                modelPill = IOS26Button.child(
+                                  onPressed: () {
+                                    openModelSelector();
+                                  },
+                                  style: IOS26ButtonStyle.glass,
+                                  size: IOS26ButtonSize.large,
+                                  minSize: Size(targetPillWidth, 44),
+                                  useSmoothRectangleBorder: false,
+                                  child: Padding(
+                                    padding: const EdgeInsets.only(
+                                      left: 10,
+                                      right: Spacing.xs,
                                     ),
-                                    child: Padding(
-                                      padding: const EdgeInsets.only(
-                                        left: 12.0,
-                                        right: Spacing.sm,
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Flexible(
+                                          child: MiddleEllipsisText(
+                                            modelLabel,
+                                            style: modelTextStyle,
+                                            textAlign: TextAlign.center,
+                                            semanticsLabel: modelLabel,
+                                          ),
+                                        ),
+                                        const SizedBox(width: Spacing.xs),
+                                        Icon(
+                                          CupertinoIcons.chevron_down,
+                                          color: context
+                                              .conduitTheme
+                                              .iconSecondary,
+                                          size: IconSize.xs,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              } else {
+                                modelPill = GestureDetector(
+                                  onTap: openModelSelector,
+                                  child: _buildAppBarPill(
+                                    context: context,
+                                    child: ConstrainedBox(
+                                      constraints: const BoxConstraints(
+                                        minHeight: 44,
                                       ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          ConstrainedBox(
-                                            constraints: BoxConstraints(
-                                              maxWidth:
-                                                  constraints.maxWidth -
-                                                  Spacing.xxl,
+                                      child: Padding(
+                                        padding: const EdgeInsets.only(
+                                          left: 12.0,
+                                          right: Spacing.sm,
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            ConstrainedBox(
+                                              constraints: BoxConstraints(
+                                                maxWidth:
+                                                    constraints.maxWidth -
+                                                    Spacing.xxl,
+                                              ),
+                                              child: MiddleEllipsisText(
+                                                modelLabel,
+                                                style: modelTextStyle,
+                                                textAlign: TextAlign.center,
+                                                semanticsLabel: modelLabel,
+                                              ),
                                             ),
-                                            child: MiddleEllipsisText(
-                                              modelLabel,
-                                              style: modelTextStyle,
-                                              textAlign: TextAlign.center,
-                                              semanticsLabel: modelLabel,
+                                            const SizedBox(width: Spacing.xs),
+                                            Icon(
+                                              Platform.isIOS
+                                                  ? CupertinoIcons.chevron_down
+                                                  : Icons.keyboard_arrow_down,
+                                              color: context
+                                                  .conduitTheme
+                                                  .iconSecondary,
+                                              size: IconSize.small,
                                             ),
-                                          ),
-                                          const SizedBox(width: Spacing.xs),
-                                          Icon(
-                                            Platform.isIOS
-                                                ? CupertinoIcons.chevron_down
-                                                : Icons.keyboard_arrow_down,
-                                            color: context
-                                                .conduitTheme
-                                                .iconSecondary,
-                                            size: IconSize.small,
-                                          ),
-                                        ],
+                                          ],
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
-                              );
+                                );
+                              }
                             }
 
                             return Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
+                                if (titlePill != null) ...[
+                                  AnimatedSwitcher(
+                                    duration: const Duration(milliseconds: 200),
+                                    switchInCurve: Curves.easeOut,
+                                    switchOutCurve: Curves.easeIn,
+                                    child: KeyedSubtree(
+                                      key: ValueKey(
+                                        isLoadingConversation
+                                            ? 'loading'
+                                            : 'title-$displayConversationTitle',
+                                      ),
+                                      child: titlePill,
+                                    ),
+                                  ),
+                                  const SizedBox(height: Spacing.xs),
+                                ],
                                 AnimatedSwitcher(
                                   duration: const Duration(milliseconds: 200),
                                   switchInCurve: Curves.easeOut,
@@ -1822,21 +2029,16 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                         padding: const EdgeInsets.only(
                           right: Spacing.inputPadding,
                         ),
-                        child: Tooltip(
+                        child: AdaptiveTooltip(
                           message: AppLocalizations.of(context)!.newChat,
-                          child: GestureDetector(
-                            onTap: _handleNewChat,
-                            child: _buildAppBarPill(
-                              context: context,
-                              isCircular: true,
-                              child: Icon(
-                                Platform.isIOS
-                                    ? CupertinoIcons.create
-                                    : Icons.add_comment,
-                                color: context.conduitTheme.textPrimary,
-                                size: IconSize.appBar,
-                              ),
-                            ),
+                          child: _buildAppBarIconButton(
+                            context: context,
+                            onPressed: _handleNewChat,
+                            fallbackIcon: Platform.isIOS
+                                ? CupertinoIcons.create
+                                : Icons.add_comment,
+                            sfSymbol: 'square.and.pencil',
+                            color: context.conduitTheme.textPrimary,
                           ),
                         ),
                       ),
@@ -1845,19 +2047,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                         padding: const EdgeInsets.only(
                           right: Spacing.inputPadding,
                         ),
-                        child: GestureDetector(
-                          onTap: _deleteSelectedMessages,
-                          child: _buildAppBarPill(
-                            context: context,
-                            isCircular: true,
-                            child: Icon(
-                              Platform.isIOS
-                                  ? CupertinoIcons.delete
-                                  : Icons.delete,
-                              color: context.conduitTheme.error,
-                              size: IconSize.appBar,
-                            ),
-                          ),
+                        child: _buildAppBarIconButton(
+                          context: context,
+                          onPressed: _deleteSelectedMessages,
+                          fallbackIcon: Platform.isIOS
+                              ? CupertinoIcons.delete
+                              : Icons.delete,
+                          sfSymbol: 'trash',
+                          color: context.conduitTheme.error,
                         ),
                       ),
                     ],
@@ -1866,6 +2063,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 body: GestureDetector(
                   behavior: HitTestBehavior.translucent,
                   onTap: () {
+                    try {
+                      ref
+                          .read(composerAutofocusEnabledProvider.notifier)
+                          .set(false);
+                    } catch (_) {}
                     FocusManager.instance.primaryFocus?.unfocus();
                     try {
                       SystemChannels.textInput.invokeMethod('TextInput.hide');
@@ -1916,6 +2118,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                           child: GestureDetector(
                             behavior: HitTestBehavior.opaque,
                             onTap: () {
+                              try {
+                                ref
+                                    .read(
+                                      composerAutofocusEnabledProvider.notifier,
+                                    )
+                                    .set(false);
+                              } catch (_) {}
                               FocusManager.instance.primaryFocus?.unfocus();
                               try {
                                 SystemChannels.textInput.invokeMethod(
@@ -2057,84 +2266,60 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                                   key: const ValueKey(
                                     'scroll_to_bottom_visible',
                                   ),
-                                  child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(
-                                      AppBorderRadius.floatingButton,
-                                    ),
-                                    child: BackdropFilter(
-                                      filter: ImageFilter.blur(
-                                        sigmaX: 16,
-                                        sigmaY: 16,
-                                      ),
-                                      child: Container(
-                                        decoration: BoxDecoration(
-                                          // Use same high-contrast colors as floating input
-                                          color:
-                                              theme.brightness ==
-                                                  Brightness.dark
-                                              ? Color.lerp(
-                                                  context
-                                                      .conduitTheme
-                                                      .cardBackground,
-                                                  Colors.white,
-                                                  0.08,
-                                                )!.withValues(alpha: 0.85)
-                                              : Color.lerp(
-                                                  context
-                                                      .conduitTheme
-                                                      .inputBackground,
-                                                  Colors.black,
-                                                  0.06,
-                                                )!.withValues(alpha: 0.85),
-                                          border: Border.all(
-                                            color: context
-                                                .conduitTheme
-                                                .cardBorder
-                                                .withValues(alpha: 0.55),
-                                            width: BorderWidth.thin,
-                                          ),
-                                          borderRadius: BorderRadius.circular(
-                                            AppBorderRadius.floatingButton,
-                                          ),
-                                          boxShadow: ConduitShadows.button(
-                                            context,
-                                          ),
-                                        ),
-                                        child: SizedBox(
-                                          width: TouchTarget.button,
-                                          height: TouchTarget.button,
-                                          child: IconButton(
+                                  child: AdaptiveTooltip(
+                                    message:
+                                        _userPausedAutoScroll &&
+                                            isStreamingAnyMessage
+                                        ? 'Resume auto-scroll'
+                                        : 'Scroll to bottom',
+                                    child: PlatformInfo.isIOS26OrHigher()
+                                        ? IOS26Button.sfSymbol(
                                             onPressed: _scrollToBottom,
-                                            splashRadius: 24,
-                                            tooltip:
-                                                _userPausedAutoScroll &&
-                                                    isStreamingAnyMessage
-                                                ? 'Resume auto-scroll'
-                                                : 'Scroll to bottom',
-                                            icon: Icon(
-                                              // Show play icon when auto-scroll
-                                              // is paused during streaming
+                                            sfSymbol: SFSymbol(
                                               _userPausedAutoScroll &&
                                                       isStreamingAnyMessage
-                                                  ? (Platform.isIOS
-                                                        ? CupertinoIcons
-                                                              .play_arrow_solid
-                                                        : Icons.play_arrow)
-                                                  : (Platform.isIOS
-                                                        ? CupertinoIcons
-                                                              .arrow_down
-                                                        : Icons
-                                                              .keyboard_arrow_down),
-                                              size: IconSize.lg,
-                                              color: context
-                                                  .conduitTheme
-                                                  .iconPrimary
-                                                  .withValues(alpha: 0.9),
+                                                  ? 'play.fill'
+                                                  : 'chevron.down',
+                                              size: IconSize.medium,
+                                              color: GlassColors.label(
+                                                context,
+                                              ),
+                                            ),
+                                            style: IOS26ButtonStyle.glass,
+                                            size: IOS26ButtonSize.large,
+                                            minSize: const Size(
+                                              TouchTarget.minimum,
+                                              TouchTarget.minimum,
+                                            ),
+                                            useSmoothRectangleBorder: false,
+                                          )
+                                        : NativeGlassContainer(
+                                            blurStyle:
+                                                BlurStyle
+                                                    .systemUltraThinMaterial,
+                                            borderRadius: BorderRadius.circular(
+                                              AppBorderRadius.floatingButton,
+                                            ),
+                                            child: SizedBox(
+                                              width: TouchTarget.button,
+                                              height: TouchTarget.button,
+                                              child: IconButton(
+                                                onPressed: _scrollToBottom,
+                                                splashRadius: 24,
+                                                icon: Icon(
+                                                  _userPausedAutoScroll &&
+                                                          isStreamingAnyMessage
+                                                      ? Icons.play_arrow
+                                                      : Icons
+                                                            .keyboard_arrow_down,
+                                                  size: IconSize.lg,
+                                                  color: GlassColors.label(
+                                                    context,
+                                                  ),
+                                                ),
+                                              ),
                                             ),
                                           ),
-                                        ),
-                                      ),
-                                    ),
                                   ),
                                 )
                               : const SizedBox.shrink(
@@ -2164,6 +2349,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     // Ensure keyboard is closed before presenting modal
     final hadFocus = ref.read(composerHasFocusProvider);
     try {
+      ref.read(composerAutofocusEnabledProvider.notifier).set(false);
       FocusManager.instance.primaryFocus?.unfocus();
       SystemChannels.textInput.invokeMethod('TextInput.hide');
     } catch (_) {}
@@ -2175,7 +2361,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     ).whenComplete(() {
       if (!mounted) return;
       if (hadFocus) {
-        // Bump focus trigger to restore composer focus + IME
+        // Re-enable autofocus and bump trigger to restore composer focus + IME
+        try {
+          ref.read(composerAutofocusEnabledProvider.notifier).set(true);
+        } catch (_) {}
         final cur = ref.read(inputFocusTriggerProvider);
         ref.read(inputFocusTriggerProvider.notifier).set(cur + 1);
       }
@@ -2326,145 +2515,119 @@ class _ModelSelectorSheetState extends ConsumerState<_ModelSelectorSheet> {
                 ),
                 child: Column(
                   children: [
-                    // Handle bar (standardized)
+                    // Handle bar stays pinned above scrollable content
                     const SheetHandle(),
 
-                    // Search field
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: Spacing.md),
-                      child: TextField(
-                        controller: _searchController,
-                        style: AppTypography.standard.copyWith(
-                          color: context.conduitTheme.textPrimary,
-                        ),
-                        onChanged: _filterModels,
-                        decoration: InputDecoration(
-                          isDense: true,
-                          hintText: AppLocalizations.of(context)!.searchModels,
-                          hintStyle: AppTypography.standard.copyWith(
-                            color: context.conduitTheme.inputPlaceholder,
-                          ),
-                          prefixIcon: Icon(
-                            Platform.isIOS
-                                ? CupertinoIcons.search
-                                : Icons.search,
-                            color: context.conduitTheme.iconSecondary,
-                            size: IconSize.input,
-                          ),
-                          prefixIconConstraints: const BoxConstraints(
-                            minWidth: TouchTarget.minimum,
-                            minHeight: TouchTarget.minimum,
-                          ),
-                          suffixIcon: _searchQuery.isNotEmpty
-                              ? IconButton(
-                                  onPressed: () {
-                                    _searchController.clear();
-                                    _filterModels('');
-                                  },
-                                  icon: Icon(
-                                    Platform.isIOS
-                                        ? CupertinoIcons.clear_circled_solid
-                                        : Icons.clear,
-                                    color: context.conduitTheme.iconSecondary,
-                                    size: IconSize.input,
-                                  ),
-                                )
-                              : null,
-                          suffixIconConstraints: const BoxConstraints(
-                            minWidth: TouchTarget.minimum,
-                            minHeight: TouchTarget.minimum,
-                          ),
-                          filled: true,
-                          fillColor: context.conduitTheme.inputBackground,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(
-                              AppBorderRadius.md,
-                            ),
-                            borderSide: BorderSide.none,
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(
-                              AppBorderRadius.md,
-                            ),
-                            borderSide: BorderSide(
-                              color: context.conduitTheme.inputBorder,
-                              width: 1,
-                            ),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(
-                              AppBorderRadius.md,
-                            ),
-                            borderSide: BorderSide(
-                              color: context.conduitTheme.buttonPrimary,
-                              width: 1,
-                            ),
-                          ),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: Spacing.md,
-                            vertical: Spacing.xs,
-                          ),
-                        ),
-                      ),
-                    ),
-
-                    // Removed capability filters
-                    const SizedBox(height: Spacing.sm),
-
-                    // Models list
+                    // Content area: list scrolls behind floating search bar
                     Expanded(
-                      child: Scrollbar(
-                        controller: scrollController,
-                        child: _filteredModels.isEmpty
-                            ? Center(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(
-                                      Platform.isIOS
-                                          ? CupertinoIcons.search_circle
-                                          : Icons.search_off,
-                                      size: 48,
-                                      color: context.conduitTheme.iconSecondary,
-                                    ),
-                                    const SizedBox(height: Spacing.md),
-                                    Text(
-                                      'No results',
-                                      style: TextStyle(
-                                        color:
-                                            context.conduitTheme.textSecondary,
-                                        fontSize: AppTypography.bodyLarge,
+                      child: Stack(
+                        children: [
+                          // Scrollable list — extends behind the floating bar
+                          Positioned.fill(
+                            child: Scrollbar(
+                              controller: scrollController,
+                              child: _filteredModels.isEmpty
+                                  ? Center(
+                                      child: Column(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          Icon(
+                                            Platform.isIOS
+                                                ? CupertinoIcons.search_circle
+                                                : Icons.search_off,
+                                            size: 48,
+                                            color: context
+                                                .conduitTheme
+                                                .iconSecondary,
+                                          ),
+                                          const SizedBox(height: Spacing.md),
+                                          Text(
+                                            'No results',
+                                            style: TextStyle(
+                                              color: context
+                                                  .conduitTheme
+                                                  .textSecondary,
+                                              fontSize: AppTypography.bodyLarge,
+                                            ),
+                                          ),
+                                        ],
                                       ),
+                                    )
+                                  : ListView.builder(
+                                      controller: scrollController,
+                                      padding: const EdgeInsets.only(top: 72),
+                                      cacheExtent: 400,
+                                      itemCount: _filteredModels.length,
+                                      itemBuilder: (context, index) {
+                                        final model = _filteredModels[index];
+                                        final isSelected =
+                                            widget.ref
+                                                .watch(selectedModelProvider)
+                                                ?.id ==
+                                            model.id;
+
+                                        return _buildModelListTile(
+                                          model: model,
+                                          isSelected: isSelected,
+                                          onTap: () {
+                                            HapticFeedback.selectionClick();
+                                            widget.ref
+                                                .read(
+                                                  selectedModelProvider
+                                                      .notifier,
+                                                )
+                                                .set(model);
+                                            Navigator.pop(context);
+                                          },
+                                        );
+                                      },
                                     ),
+                            ),
+                          ),
+
+                          // Floating search bar with gradient fade
+                          Positioned(
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  stops: const [0.0, 0.65, 1.0],
+                                  colors: [
+                                    context.conduitTheme.surfaceBackground,
+                                    context.conduitTheme.surfaceBackground
+                                        .withValues(alpha: 0.9),
+                                    context.conduitTheme.surfaceBackground
+                                        .withValues(alpha: 0.0),
                                   ],
                                 ),
-                              )
-                            : ListView.builder(
-                                controller: scrollController,
-                                padding: EdgeInsets.zero,
-                                cacheExtent: 400,
-                                itemCount: _filteredModels.length,
-                                itemBuilder: (context, index) {
-                                  final model = _filteredModels[index];
-                                  final isSelected =
-                                      widget.ref
-                                          .watch(selectedModelProvider)
-                                          ?.id ==
-                                      model.id;
-
-                                  return _buildModelListTile(
-                                    model: model,
-                                    isSelected: isSelected,
-                                    onTap: () {
-                                      HapticFeedback.selectionClick();
-                                      widget.ref
-                                          .read(selectedModelProvider.notifier)
-                                          .set(model);
-                                      Navigator.pop(context);
-                                    },
-                                  );
-                                },
                               ),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const SizedBox(height: Spacing.sm),
+                                  ConduitGlassSearchField(
+                                    controller: _searchController,
+                                    hintText: AppLocalizations.of(
+                                      context,
+                                    )!.searchModels,
+                                    onChanged: _filterModels,
+                                    query: _searchQuery,
+                                    onClear: () {
+                                      _searchController.clear();
+                                      _filterModels('');
+                                    },
+                                  ),
+                                  const SizedBox(height: Spacing.md),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
@@ -2505,12 +2668,15 @@ class _ModelSelectorSheetState extends ConsumerState<_ModelSelectorSheet> {
         margin: const EdgeInsets.only(bottom: Spacing.sm),
         decoration: BoxDecoration(
           color: isSelected
-              ? context.conduitTheme.buttonPrimary.withValues(alpha: 0.1)
+              ? Color.alphaBlend(
+                  context.conduitTheme.buttonPrimary.withValues(alpha: 0.1),
+                  context.conduitTheme.surfaceBackground,
+                )
               : context.conduitTheme.surfaceBackground.withValues(alpha: 0.05),
           borderRadius: BorderRadius.circular(AppBorderRadius.small),
           border: Border.all(
             color: isSelected
-                ? context.conduitTheme.buttonPrimary.withValues(alpha: 0.3)
+                ? Colors.transparent
                 : context.conduitTheme.dividerColor.withValues(alpha: 0.5),
             width: BorderWidth.standard,
           ),
@@ -2807,7 +2973,7 @@ class _VoiceInputSheetState extends ConsumerState<_VoiceInputSheet> {
                       final l = locales[i];
                       final isSelected =
                           l.localeId == _voiceService.selectedLocaleId;
-                      return ListTile(
+                      return AdaptiveListTile(
                         title: Text(
                           l.name,
                           style: TextStyle(
@@ -2858,7 +3024,7 @@ class _VoiceInputSheetState extends ConsumerState<_VoiceInputSheet> {
     required ValueChanged<bool> onChanged,
   }) {
     final theme = context.conduitTheme;
-    return ps.PlatformService.getPlatformSwitch(
+    return AdaptiveSwitch(
       value: value,
       onChanged: onChanged,
       activeColor: theme.buttonPrimary,

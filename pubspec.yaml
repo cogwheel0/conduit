@@ -84,6 +84,7 @@ dependencies:
   super_context_menu: ^0.9.1
   super_drag_and_drop: ^0.9.1
   just_audio: ^0.10.5
+  adaptive_platform_ui: ^0.1.103
   
   # Clipboard functionality is available through flutter/services (part of Flutter SDK)
 
@@ -96,10 +97,12 @@ dev_dependencies:
   json_serializable: ^6.11.1
   flutter_native_splash: ^2.4.6
   riverpod_generator: ^3.0.3
-  riverpod_lint: ^3.0.3
-  custom_lint: ^0.8.0
+  riverpod_lint: 3.0.3
+  custom_lint: 0.8.1
 
 dependency_overrides:
+  riverpod_lint: 3.0.3
+  custom_lint_builder: 0.8.1
 
 flutter:
   uses-material-design: true

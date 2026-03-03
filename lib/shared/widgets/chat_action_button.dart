@@ -1,3 +1,4 @@
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
@@ -11,6 +12,9 @@ class ChatActionButton extends ConsumerStatefulWidget {
   final EdgeInsetsGeometry padding;
   final BorderRadius? borderRadius;
 
+  /// SF Symbol name for iOS 26+ native rendering (e.g. 'doc.on.clipboard').
+  final String? sfSymbol;
+
   const ChatActionButton({
     super.key,
     required this.icon,
@@ -18,6 +22,7 @@ class ChatActionButton extends ConsumerStatefulWidget {
     this.onTap,
     this.padding = const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
     this.borderRadius,
+    this.sfSymbol,
   });
 
   @override
@@ -32,9 +37,41 @@ class _ChatActionButtonState extends ConsumerState<ChatActionButton> {
     final theme = context.conduitTheme;
     final hapticEnabled = ref.read(hapticEnabledProvider);
     final radius = BorderRadius.circular(AppBorderRadius.circular);
+
+    if (PlatformInfo.isIOS26OrHigher() && widget.sfSymbol != null) {
+      return AdaptiveTooltip(
+        message: widget.label,
+        waitDuration: const Duration(milliseconds: 600),
+        child: Semantics(
+          button: true,
+          label: widget.label,
+          child: IOS26Button.sfSymbol(
+            onPressed: widget.onTap == null
+                ? null
+                : () {
+                    PlatformService.hapticFeedbackWithSettings(
+                      type: HapticType.selection,
+                      hapticEnabled: hapticEnabled,
+                    );
+                    widget.onTap!();
+                  },
+            sfSymbol: SFSymbol(
+              widget.sfSymbol!,
+              size: 13,
+              color: theme.textPrimary.withValues(alpha: 0.8),
+            ),
+            style: IOS26ButtonStyle.glass,
+            size: IOS26ButtonSize.small,
+            minSize: const Size(30, 30),
+            useSmoothRectangleBorder: false,
+          ),
+        ),
+      );
+    }
+
     final overlay = theme.buttonPrimary.withValues(alpha: 0.08);
 
-    return Tooltip(
+    return AdaptiveTooltip(
       message: widget.label,
       waitDuration: const Duration(milliseconds: 600),
       child: Semantics(

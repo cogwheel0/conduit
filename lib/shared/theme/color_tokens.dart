@@ -416,7 +416,7 @@ class AppColorTokens extends ThemeExtension<AppColorTokens> {
       surfaceContainerLow: neutralTone10,
       surfaceContainerHighest: neutralTone20,
       onSurface: neutralOnSurface,
-      onSurfaceVariant: neutralTone80,
+      onSurfaceVariant: neutralTone60,
       outline: neutralTone60,
       outlineVariant: neutralTone40,
       error: statusError60,

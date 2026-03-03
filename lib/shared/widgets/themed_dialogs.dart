@@ -1,14 +1,30 @@
+import 'dart:async';
+
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
 
 import '../theme/theme_extensions.dart';
 
-/// Centralized helper for building themed dialogs consistently
+/// Centralized helper for building themed dialogs consistently.
+///
+/// Methods that need simple confirm/cancel or text-input flows
+/// delegate to [AdaptiveAlertDialog] so the dialog renders with
+/// platform-native chrome on every OS. Methods that require
+/// arbitrary widget content (`show`, `buildBase`) still fall back
+/// to [AlertDialog] because [AdaptiveAlertDialog] only accepts
+/// plain-text messages.
 class ThemedDialogs {
   ThemedDialogs._();
 
-  /// Build a base themed AlertDialog
+  /// Build a base themed [AlertDialog] widget.
+  ///
+  /// This returns a widget directly (not a Future) and is used by
+  /// callers that need to embed custom widget content or actions
+  /// inside a `showDialog` builder. Because [AdaptiveAlertDialog]
+  /// is a static utility that only accepts string messages, this
+  /// method intentionally remains as a raw [AlertDialog].
   static AlertDialog buildBase({
     required BuildContext context,
     required String title,
@@ -18,18 +34,27 @@ class ThemedDialogs {
     return AlertDialog(
       backgroundColor: context.conduitTheme.surfaceBackground,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppBorderRadius.dialog),
+        borderRadius: BorderRadius.circular(
+          AppBorderRadius.dialog,
+        ),
       ),
       title: Text(
         title,
-        style: TextStyle(color: context.conduitTheme.textPrimary),
+        style: TextStyle(
+          color: context.conduitTheme.textPrimary,
+        ),
       ),
       content: content,
       actions: actions,
     );
   }
 
-  /// Show a simple confirmation dialog with Cancel/Confirm actions
+  /// Show a simple confirmation dialog with Cancel/Confirm actions.
+  ///
+  /// Returns `true` when the user taps confirm, `false` when they
+  /// tap cancel or dismiss the dialog. Uses a [Completer] to bridge
+  /// [AdaptiveAlertDialog.show]'s callback-based API to the
+  /// expected [Future<bool>] return value.
   static Future<bool> confirm(
     BuildContext context, {
     required String title,
@@ -40,50 +65,55 @@ class ThemedDialogs {
     bool barrierDismissible = true,
   }) async {
     final l10n = AppLocalizations.of(context);
-    final effectiveConfirmText = confirmText ?? l10n?.confirm ?? 'Confirm';
-    final effectiveCancelText = cancelText ?? l10n?.cancel ?? 'Cancel';
-    final result = await showDialog<bool>(
+    final effectiveConfirmText =
+        confirmText ?? l10n?.confirm ?? 'Confirm';
+    final effectiveCancelText =
+        cancelText ?? l10n?.cancel ?? 'Cancel';
+
+    final completer = Completer<bool>();
+
+    await AdaptiveAlertDialog.show(
       context: context,
-      barrierDismissible: barrierDismissible,
-      builder: (ctx) => buildBase(
-        context: ctx,
-        title: title,
-        content: Text(
-          message,
-          style: TextStyle(color: ctx.conduitTheme.textSecondary),
+      title: title,
+      message: message,
+      actions: [
+        AlertAction(
+          title: effectiveCancelText,
+          onPressed: () {
+            if (!completer.isCompleted) {
+              completer.complete(false);
+            }
+          },
+          style: AlertActionStyle.cancel,
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: Text(
-              effectiveCancelText,
-              style: TextStyle(color: ctx.conduitTheme.textSecondary),
-            ),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            style: TextButton.styleFrom(
-              foregroundColor: isDestructive
-                  ? ctx.conduitTheme.error
-                  : ctx.conduitTheme.buttonPrimary,
-            ),
-            child: Text(
-              effectiveConfirmText,
-              style: TextStyle(
-                color: isDestructive
-                    ? ctx.conduitTheme.error
-                    : ctx.conduitTheme.buttonPrimary,
-              ),
-            ),
-          ),
-        ],
-      ),
+        AlertAction(
+          title: effectiveConfirmText,
+          onPressed: () {
+            if (!completer.isCompleted) {
+              completer.complete(true);
+            }
+          },
+          style: isDestructive
+              ? AlertActionStyle.destructive
+              : AlertActionStyle.primary,
+        ),
+      ],
     );
 
-    return result ?? false;
+    // If dismissed without pressing any action, return false.
+    if (!completer.isCompleted) {
+      completer.complete(false);
+    }
+
+    return completer.future;
   }
 
-  /// Show a generic themed dialog
+  /// Show a generic themed dialog with arbitrary widget content.
+  ///
+  /// Because [AdaptiveAlertDialog] only accepts plain-text
+  /// messages, this method intentionally remains as a raw
+  /// [showDialog] + [AlertDialog] so callers can pass rich widget
+  /// trees for [content] and [actions].
   static Future<T?> show<T>(
     BuildContext context, {
     required String title,
@@ -103,7 +133,11 @@ class ThemedDialogs {
     );
   }
 
-  /// Cohesive text input dialog used for rename/create flows
+  /// Cohesive text input dialog used for rename/create flows.
+  ///
+  /// Delegates to [AdaptiveAlertDialog.inputShow] so the dialog
+  /// renders with platform-native chrome (Liquid Glass on iOS 26+,
+  /// Cupertino on older iOS, Material on Android).
   static Future<String?> promptTextInput(
     BuildContext context, {
     required String title,
@@ -113,102 +147,50 @@ class ThemedDialogs {
     String? cancelText,
     bool barrierDismissible = true,
     TextInputType? keyboardType,
-    TextCapitalization textCapitalization = TextCapitalization.sentences,
+    TextCapitalization textCapitalization =
+        TextCapitalization.sentences,
     int? maxLength,
   }) async {
-    final theme = context.conduitTheme;
-    final controller = TextEditingController(text: initialValue ?? '');
     final l10n = AppLocalizations.of(context);
-    final effectiveConfirmText = confirmText ?? l10n?.save ?? 'Save';
-    final effectiveCancelText = cancelText ?? l10n?.cancel ?? 'Cancel';
+    final effectiveConfirmText =
+        confirmText ?? l10n?.save ?? 'Save';
+    final effectiveCancelText =
+        cancelText ?? l10n?.cancel ?? 'Cancel';
 
-    String? result = await showDialog<String>(
+    final result = await AdaptiveAlertDialog.inputShow(
       context: context,
-      barrierDismissible: barrierDismissible,
-      builder: (ctx) {
-        return buildBase(
-          context: ctx,
-          title: title,
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: controller,
-                autofocus: true,
-                keyboardType: keyboardType,
-                textCapitalization: textCapitalization,
-                maxLength: maxLength,
-                style: TextStyle(color: theme.inputText),
-                decoration: InputDecoration(
-                  hintText: hintText,
-                  hintStyle: TextStyle(color: theme.inputPlaceholder),
-                  filled: true,
-                  fillColor: theme.inputBackground,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(AppBorderRadius.md),
-                    borderSide: BorderSide.none,
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(AppBorderRadius.md),
-                    borderSide: BorderSide(color: theme.inputBorder, width: 1),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(AppBorderRadius.md),
-                    borderSide: BorderSide(
-                      color: theme.buttonPrimary,
-                      width: 1,
-                    ),
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: Spacing.md,
-                    vertical: Spacing.md,
-                  ),
-                ),
-                onSubmitted: (v) {
-                  final trimmed = v.trim();
-                  final unchanged =
-                      (initialValue != null && trimmed == initialValue.trim());
-                  if (trimmed.isEmpty || unchanged) return;
-                  Navigator.of(ctx).pop(trimmed);
-                },
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: Text(
-                effectiveCancelText,
-                style: TextStyle(color: theme.textSecondary),
-              ),
-            ),
-            ValueListenableBuilder<TextEditingValue>(
-              valueListenable: controller,
-              builder: (context, value, _) {
-                final trimmed = value.text.trim();
-                final unchanged =
-                    (initialValue != null && trimmed == initialValue.trim());
-                final enabled = trimmed.isNotEmpty && !unchanged;
-                return TextButton(
-                  onPressed: enabled
-                      ? () => Navigator.of(ctx).pop(trimmed)
-                      : null,
-                  child: Text(
-                    effectiveConfirmText,
-                    style: TextStyle(
-                      color: enabled
-                          ? theme.buttonPrimary
-                          : theme.textSecondary,
-                    ),
-                  ),
-                );
-              },
-            ),
-          ],
-        );
-      },
+      title: title,
+      actions: [
+        AlertAction(
+          title: effectiveCancelText,
+          onPressed: () {},
+          style: AlertActionStyle.cancel,
+        ),
+        AlertAction(
+          title: effectiveConfirmText,
+          onPressed: () {},
+          style: AlertActionStyle.primary,
+        ),
+      ],
+      input: AdaptiveAlertDialogInput(
+        placeholder: hintText,
+        initialValue: initialValue,
+        keyboardType: keyboardType,
+        maxLength: maxLength,
+      ),
     );
 
-    return result;
+    if (result == null) return null;
+    final trimmed = result.trim();
+    if (trimmed.isEmpty) return null;
+
+    // If the value is unchanged from the initial value, treat it
+    // as a cancellation to match the previous behaviour.
+    if (initialValue != null &&
+        trimmed == initialValue.trim()) {
+      return null;
+    }
+
+    return trimmed;
   }
 }

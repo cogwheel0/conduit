@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -268,64 +269,17 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer> {
   }
 
   Widget _buildFloatingSearchField(BuildContext context) {
-    final conduitTheme = context.conduitTheme;
-
-    return FloatingAppBarPill(
-      child: Material(
-        color: Colors.transparent,
-        child: TextField(
-          controller: _searchController,
-          focusNode: _searchFocusNode,
-          onChanged: (_) => _onSearchChanged(),
-          style: AppTypography.standard.copyWith(
-            color: conduitTheme.textPrimary,
-          ),
-          decoration: InputDecoration(
-            isDense: true,
-            hintText: AppLocalizations.of(context)!.searchConversations,
-            hintStyle: AppTypography.standard.copyWith(
-              color: conduitTheme.textSecondary.withValues(alpha: 0.6),
-            ),
-            prefixIcon: Icon(
-              Platform.isIOS ? CupertinoIcons.search : Icons.search,
-              color: conduitTheme.iconSecondary,
-              size: IconSize.input,
-            ),
-            prefixIconConstraints: const BoxConstraints(
-              minWidth: TouchTarget.minimum,
-              minHeight: TouchTarget.minimum,
-            ),
-            suffixIcon: _query.isNotEmpty
-                ? IconButton(
-                    onPressed: () {
-                      _searchController.clear();
-                      setState(() => _query = '');
-                      _searchFocusNode.unfocus();
-                    },
-                    icon: Icon(
-                      Platform.isIOS
-                          ? CupertinoIcons.clear_circled_solid
-                          : Icons.clear,
-                      color: conduitTheme.iconSecondary,
-                      size: IconSize.input,
-                    ),
-                  )
-                : null,
-            suffixIconConstraints: const BoxConstraints(
-              minWidth: TouchTarget.minimum,
-              minHeight: TouchTarget.minimum,
-            ),
-            filled: false,
-            border: InputBorder.none,
-            enabledBorder: InputBorder.none,
-            focusedBorder: InputBorder.none,
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: Spacing.md,
-              vertical: Spacing.sm,
-            ),
-          ),
-        ),
-      ),
+    return ConduitGlassSearchField(
+      controller: _searchController,
+      focusNode: _searchFocusNode,
+      hintText: AppLocalizations.of(context)!.searchConversations,
+      onChanged: (_) => _onSearchChanged(),
+      query: _query,
+      onClear: () {
+        _searchController.clear();
+        setState(() => _query = '');
+        _searchFocusNode.unfocus();
+      },
     );
   }
 
@@ -1294,9 +1248,10 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer> {
         ),
       ),
       actions: [
-        TextButton(
+        AdaptiveButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: Text(l10n.ok),
+          label: l10n.ok,
+          style: AdaptiveButtonStyle.plain,
         ),
       ],
     );
@@ -2081,7 +2036,7 @@ class _ConversationTileState extends State<_ConversationTile> {
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
     final sidebarTheme = context.sidebarTheme;
-    final borderRadius = BorderRadius.circular(AppBorderRadius.sm);
+    final borderRadius = BorderRadius.circular(AppBorderRadius.card);
 
     // Use opaque backgrounds for proper context menu snapshot rendering
     final Color baseBackground = sidebarTheme.background;
@@ -2126,9 +2081,6 @@ class _ConversationTileState extends State<_ConversationTile> {
           decoration: BoxDecoration(
             color: background,
             borderRadius: borderRadius,
-            border: widget.selected
-                ? Border.all(color: borderColor, width: BorderWidth.regular)
-                : null,
           ),
           child: Material(
             color: Colors.transparent,

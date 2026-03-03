@@ -1,3 +1,4 @@
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../shared/theme/theme_extensions.dart';
@@ -609,9 +610,10 @@ class ProfilePage extends ConsumerWidget {
               ],
             ),
             actions: [
-              TextButton(
+              AdaptiveButton(
                 onPressed: () => Navigator.of(ctx).pop(),
-                child: Text(AppLocalizations.of(ctx)!.closeButtonSemantic),
+                label: AppLocalizations.of(ctx)!.closeButtonSemantic,
+                style: AdaptiveButtonStyle.plain,
               ),
             ],
           );
@@ -874,190 +876,167 @@ class _DefaultModelBottomSheetState
                 ),
                 child: Column(
                   children: [
-                    // Handle bar (standardized)
+                    // Handle bar stays pinned above scrollable content
                     const SheetHandle(),
 
-                    // Header removed (no icon/title or save button)
-                    const SizedBox(height: Spacing.md),
-
-                    // Search field
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: Spacing.md),
-                      child: TextField(
-                        controller: _searchController,
-                        style: AppTypography.standard.copyWith(
-                          color: context.conduitTheme.textPrimary,
-                        ),
-                        onChanged: _filterModels,
-                        decoration: InputDecoration(
-                          isDense: true,
-                          hintText: AppLocalizations.of(context)!.searchModels,
-                          hintStyle: AppTypography.standard.copyWith(
-                            color: context.conduitTheme.inputPlaceholder,
-                          ),
-                          prefixIcon: Icon(
-                            Platform.isIOS
-                                ? CupertinoIcons.search
-                                : Icons.search,
-                            color: context.conduitTheme.iconSecondary,
-                            size: IconSize.input,
-                          ),
-                          prefixIconConstraints: const BoxConstraints(
-                            minWidth: TouchTarget.minimum,
-                            minHeight: TouchTarget.minimum,
-                          ),
-                          suffixIcon: _searchQuery.isNotEmpty
-                              ? IconButton(
-                                  onPressed: () {
-                                    _searchController.clear();
-                                    _filterModels('');
-                                  },
-                                  icon: Icon(
-                                    Platform.isIOS
-                                        ? CupertinoIcons.clear_circled_solid
-                                        : Icons.clear,
-                                    color: context.conduitTheme.iconSecondary,
-                                    size: IconSize.input,
-                                  ),
-                                )
-                              : null,
-                          suffixIconConstraints: const BoxConstraints(
-                            minWidth: TouchTarget.minimum,
-                            minHeight: TouchTarget.minimum,
-                          ),
-                          filled: true,
-                          fillColor: context.conduitTheme.inputBackground,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(
-                              AppBorderRadius.md,
-                            ),
-                            borderSide: BorderSide.none,
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(
-                              AppBorderRadius.md,
-                            ),
-                            borderSide: BorderSide(
-                              color: context.conduitTheme.inputBorder,
-                              width: 1,
-                            ),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(
-                              AppBorderRadius.md,
-                            ),
-                            borderSide: BorderSide(
-                              color: context.conduitTheme.buttonPrimary,
-                              width: 1,
-                            ),
-                          ),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: Spacing.md,
-                            vertical: Spacing.xs,
-                          ),
-                        ),
-                      ),
-                    ),
-
-                    // Section header (cohesive with Chats Drawer)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: Spacing.sm),
-                      child: Row(
+                    // Content area: list scrolls behind floating search + header
+                    Expanded(
+                      child: Stack(
                         children: [
-                          Text(
-                            AppLocalizations.of(context)!.availableModels,
-                            style: AppTypography.bodySmallStyle.copyWith(
-                              fontWeight: FontWeight.w600,
-                              color: context.conduitTheme.textSecondary,
-                              letterSpacing: 0.2,
+                          // Scrollable list — extends behind the floating bar
+                          Positioned.fill(
+                            child: Scrollbar(
+                              controller: scrollController,
+                              child: _filteredModels.isEmpty
+                                  ? Center(
+                                      child: Column(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          Icon(
+                                            Platform.isIOS
+                                                ? CupertinoIcons.search_circle
+                                                : Icons.search_off,
+                                            size: 48,
+                                            color: context
+                                                .conduitTheme
+                                                .iconSecondary,
+                                          ),
+                                          const SizedBox(height: Spacing.md),
+                                          Text(
+                                            AppLocalizations.of(
+                                              context,
+                                            )!.noResults,
+                                            style: TextStyle(
+                                              color: context
+                                                  .conduitTheme
+                                                  .textSecondary,
+                                              fontSize: AppTypography.bodyLarge,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    )
+                                  : ListView.builder(
+                                      controller: scrollController,
+                                      padding: const EdgeInsets.only(top: 120),
+                                      itemCount: _filteredModels.length,
+                                      itemBuilder: (context, index) {
+                                        final model = _filteredModels[index];
+                                        final isAutoSelect =
+                                            model.id == 'auto-select';
+                                        final isSelected = isAutoSelect
+                                            ? _selectedModelId == null ||
+                                                  _selectedModelId ==
+                                                      'auto-select'
+                                            : _selectedModelId == model.id;
+
+                                        return _buildModelListTile(
+                                          model: model,
+                                          isSelected: isSelected,
+                                          isAutoSelect: isAutoSelect,
+                                          onTap: () {
+                                            HapticFeedback.lightImpact();
+                                            final selectedId = isAutoSelect
+                                                ? 'auto-select'
+                                                : model.id;
+                                            Navigator.pop(context, selectedId);
+                                          },
+                                        );
+                                      },
+                                    ),
                             ),
                           ),
-                          const SizedBox(width: Spacing.xs),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: context.sidebarTheme.background.withValues(
-                                alpha: 0.6,
+
+                          // Floating search bar + section header with gradient fade
+                          Positioned(
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  stops: const [0.0, 0.65, 1.0],
+                                  colors: [
+                                    context.sidebarTheme.background,
+                                    context.sidebarTheme.background
+                                        .withValues(alpha: 0.9),
+                                    context.sidebarTheme.background
+                                        .withValues(alpha: 0.0),
+                                  ],
+                                ),
                               ),
-                              borderRadius: BorderRadius.circular(
-                                AppBorderRadius.xs,
-                              ),
-                              border: Border.all(
-                                color: context.conduitTheme.dividerColor,
-                                width: BorderWidth.thin,
-                              ),
-                            ),
-                            child: Text(
-                              '${_filteredModels.length}',
-                              style: AppTypography.bodySmallStyle.copyWith(
-                                color: context.conduitTheme.textSecondary,
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const SizedBox(height: Spacing.md),
+                                  ConduitGlassSearchField(
+                                    controller: _searchController,
+                                    hintText: AppLocalizations.of(
+                                      context,
+                                    )!.searchModels,
+                                    onChanged: _filterModels,
+                                    query: _searchQuery,
+                                    onClear: () {
+                                      _searchController.clear();
+                                      _filterModels('');
+                                    },
+                                  ),
+                                  const SizedBox(height: Spacing.md),
+                                  Row(
+                                    children: [
+                                      Text(
+                                        AppLocalizations.of(
+                                          context,
+                                        )!.availableModels,
+                                        style: AppTypography.bodySmallStyle
+                                            .copyWith(
+                                              fontWeight: FontWeight.w600,
+                                              color: context
+                                                  .conduitTheme
+                                                  .textSecondary,
+                                              letterSpacing: 0.2,
+                                            ),
+                                      ),
+                                      const SizedBox(width: Spacing.xs),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 6,
+                                          vertical: 2,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: context.sidebarTheme.background
+                                              .withValues(alpha: 0.6),
+                                          borderRadius: BorderRadius.circular(
+                                            AppBorderRadius.xs,
+                                          ),
+                                          border: Border.all(
+                                            color: context
+                                                .conduitTheme
+                                                .dividerColor,
+                                            width: BorderWidth.thin,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          '${_filteredModels.length}',
+                                          style: AppTypography.bodySmallStyle
+                                              .copyWith(
+                                                color: context
+                                                    .conduitTheme
+                                                    .textSecondary,
+                                              ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: Spacing.md),
+                                ],
                               ),
                             ),
                           ),
                         ],
-                      ),
-                    ),
-
-                    const SizedBox(height: Spacing.sm),
-
-                    // Models list
-                    Expanded(
-                      child: Scrollbar(
-                        controller: scrollController,
-                        child: _filteredModels.isEmpty
-                            ? Center(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(
-                                      Platform.isIOS
-                                          ? CupertinoIcons.search_circle
-                                          : Icons.search_off,
-                                      size: 48,
-                                      color: context.conduitTheme.iconSecondary,
-                                    ),
-                                    const SizedBox(height: Spacing.md),
-                                    Text(
-                                      AppLocalizations.of(context)!.noResults,
-                                      style: TextStyle(
-                                        color:
-                                            context.conduitTheme.textSecondary,
-                                        fontSize: AppTypography.bodyLarge,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              )
-                            : ListView.builder(
-                                controller: scrollController,
-                                padding: EdgeInsets.zero,
-                                itemCount: _filteredModels.length,
-                                itemBuilder: (context, index) {
-                                  final model = _filteredModels[index];
-                                  final isAutoSelect =
-                                      model.id == 'auto-select';
-                                  final isSelected = isAutoSelect
-                                      ? _selectedModelId == null ||
-                                            _selectedModelId == 'auto-select'
-                                      : _selectedModelId == model.id;
-
-                                  return _buildModelListTile(
-                                    model: model,
-                                    isSelected: isSelected,
-                                    isAutoSelect: isAutoSelect,
-                                    onTap: () {
-                                      HapticFeedback.lightImpact();
-                                      final selectedId = isAutoSelect
-                                          ? 'auto-select'
-                                          : model.id;
-                                      Navigator.pop(context, selectedId);
-                                    },
-                                  );
-                                },
-                              ),
                       ),
                     ),
                   ],
@@ -1110,12 +1089,15 @@ class _DefaultModelBottomSheetState
         margin: const EdgeInsets.only(bottom: Spacing.sm),
         decoration: BoxDecoration(
           color: isSelected
-              ? context.conduitTheme.buttonPrimary.withValues(alpha: 0.1)
+              ? Color.alphaBlend(
+                  context.conduitTheme.buttonPrimary.withValues(alpha: 0.1),
+                  context.sidebarTheme.background,
+                )
               : context.sidebarTheme.background.withValues(alpha: 0.05),
           borderRadius: BorderRadius.circular(AppBorderRadius.small),
           border: Border.all(
             color: isSelected
-                ? context.conduitTheme.buttonPrimary.withValues(alpha: 0.3)
+                ? Colors.transparent
                 : context.conduitTheme.dividerColor.withValues(alpha: 0.5),
             width: BorderWidth.standard,
           ),

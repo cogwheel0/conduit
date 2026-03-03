@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -313,7 +314,7 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       final message =
           l10n?.routeNotFound(state.uri.path) ??
           'Route not found: ${state.uri.path}';
-      return Scaffold(
+      return AdaptiveScaffold(
         body: Center(child: Text(message, textAlign: TextAlign.center)),
       );
     },

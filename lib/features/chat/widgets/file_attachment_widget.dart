@@ -1,3 +1,4 @@
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import 'package:flutter/cupertino.dart';
@@ -176,7 +177,7 @@ class _FileAttachmentCard extends ConsumerWidget {
     final String tooltip = MaterialLocalizations.of(
       context,
     ).deleteButtonTooltip;
-    return Tooltip(
+    return AdaptiveTooltip(
       message: tooltip,
       child: Semantics(
         button: true,

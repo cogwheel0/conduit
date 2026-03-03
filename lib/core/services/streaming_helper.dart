@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/models/chat_message.dart';
@@ -1742,38 +1743,26 @@ void _showSocketNotification(String type, String content) {
   if (content.isEmpty) return;
   final ctx = NavigationService.context;
   if (ctx == null) return;
-  final theme = Theme.of(ctx);
-  Color background;
-  Color foreground;
+
+  final AdaptiveSnackBarType snackBarType;
   switch (type) {
     case 'success':
-      background = theme.colorScheme.primary;
-      foreground = theme.colorScheme.onPrimary;
-      break;
+      snackBarType = AdaptiveSnackBarType.success;
     case 'error':
-      background = theme.colorScheme.error;
-      foreground = theme.colorScheme.onError;
-      break;
+      snackBarType = AdaptiveSnackBarType.error;
     case 'warning':
     case 'warn':
-      background = theme.colorScheme.tertiary;
-      foreground = theme.colorScheme.onTertiary;
-      break;
+      snackBarType = AdaptiveSnackBarType.warning;
     default:
-      background = theme.colorScheme.secondary;
-      foreground = theme.colorScheme.onSecondary;
+      snackBarType = AdaptiveSnackBarType.info;
   }
 
-  final snackBar = SnackBar(
-    content: Text(content, style: TextStyle(color: foreground)),
-    backgroundColor: background,
-    behavior: SnackBarBehavior.floating,
+  AdaptiveSnackBar.show(
+    ctx,
+    message: content,
+    type: snackBarType,
     duration: const Duration(seconds: 4),
   );
-
-  ScaffoldMessenger.of(ctx)
-    ..removeCurrentSnackBar()
-    ..showSnackBar(snackBar);
 }
 
 Future<bool> _showConfirmationDialog(Map<String, dynamic> data) async {
@@ -1821,14 +1810,12 @@ Future<String?> _showInputDialog(Map<String, dynamic> data) async {
               ),
               const SizedBox(height: Spacing.md),
             ],
-            TextField(
+            AdaptiveTextField(
               controller: controller,
               autofocus: true,
-              decoration: InputDecoration(
-                hintText: placeholder.isNotEmpty
-                    ? placeholder
-                    : 'Enter a value',
-              ),
+              placeholder: placeholder.isNotEmpty
+                  ? placeholder
+                  : 'Enter a value',
               onSubmitted: (value) {
                 Navigator.of(
                   dialogCtx,
@@ -1838,14 +1825,13 @@ Future<String?> _showInputDialog(Map<String, dynamic> data) async {
           ],
         ),
         actions: [
-          TextButton(
+          AdaptiveButton(
             onPressed: () => Navigator.of(dialogCtx).pop(null),
-            child: Text(
-              data['cancel_text']?.toString() ?? 'Cancel',
-              style: TextStyle(color: dialogCtx.conduitTheme.textSecondary),
-            ),
+            label: data['cancel_text']?.toString() ?? 'Cancel',
+            textColor: dialogCtx.conduitTheme.textSecondary,
+            style: AdaptiveButtonStyle.plain,
           ),
-          TextButton(
+          AdaptiveButton(
             onPressed: () {
               final trimmed = controller.text.trim();
               if (trimmed.isEmpty) {
@@ -1854,10 +1840,9 @@ Future<String?> _showInputDialog(Map<String, dynamic> data) async {
                 Navigator.of(dialogCtx).pop(trimmed);
               }
             },
-            child: Text(
-              data['confirm_text']?.toString() ?? 'Submit',
-              style: TextStyle(color: dialogCtx.conduitTheme.buttonPrimary),
-            ),
+            label: data['confirm_text']?.toString() ?? 'Submit',
+            textColor: dialogCtx.conduitTheme.buttonPrimary,
+            style: AdaptiveButtonStyle.plain,
           ),
         ],
       );

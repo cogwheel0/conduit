@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -93,6 +94,24 @@ class AppDarkTheme extends _$AppDarkTheme {
   ThemeData build() {
     final palette = ref.watch(appThemePaletteProvider);
     return AppTheme.dark(palette);
+  }
+}
+
+@Riverpod(keepAlive: true)
+class AppCupertinoLightTheme extends _$AppCupertinoLightTheme {
+  @override
+  CupertinoThemeData build() {
+    final palette = ref.watch(appThemePaletteProvider);
+    return AppTheme.cupertinoLight(palette);
+  }
+}
+
+@Riverpod(keepAlive: true)
+class AppCupertinoDarkTheme extends _$AppCupertinoDarkTheme {
+  @override
+  CupertinoThemeData build() {
+    final palette = ref.watch(appThemePaletteProvider);
+    return AppTheme.cupertinoDark(palette);
   }
 }
 

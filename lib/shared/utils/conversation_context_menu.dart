@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
@@ -538,9 +539,10 @@ Future<void> _showConversationError(
     title: l10n.errorMessage,
     content: Text(message, style: TextStyle(color: theme.textSecondary)),
     actions: [
-      TextButton(
+      AdaptiveButton(
         onPressed: () => Navigator.of(context).pop(),
-        child: Text(l10n.ok),
+        label: l10n.ok,
+        style: AdaptiveButtonStyle.plain,
       ),
     ],
   );

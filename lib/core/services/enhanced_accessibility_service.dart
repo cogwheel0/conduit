@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'dart:ui' show FlutterView;
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -119,12 +120,11 @@ class EnhancedAccessibilityService {
         hint: semanticHint,
         button: true,
         enabled: onPressed != null,
-        child: ElevatedButton(
+        child: AdaptiveButton.child(
           onPressed: onPressed,
-          style: ElevatedButton.styleFrom(
-            minimumSize: const Size(44, 44), // WCAG minimum touch target
-            backgroundColor: isDestructive ? context.conduitTheme.error : null,
-          ),
+          color: isDestructive ? context.conduitTheme.error : null,
+          style: AdaptiveButtonStyle.filled,
+          minSize: const Size(44, 44),
           child: child,
         ),
       ),
@@ -177,11 +177,20 @@ class EnhancedAccessibilityService {
       label: effectiveLabel,
       hint: hintText,
       textField: true,
-      child: TextFormField(
+      child: AdaptiveTextFormField(
         controller: controller,
         keyboardType: keyboardType,
         obscureText: obscureText,
         onChanged: onChanged,
+        placeholder: hintText,
+        prefixIcon: errorText != null
+            ? Builder(
+                builder: (context) => Icon(
+                  Icons.error_outline,
+                  color: context.conduitTheme.error,
+                ),
+              )
+            : null,
         decoration: InputDecoration(
           labelText: effectiveLabel,
           hintText: hintText,
@@ -215,7 +224,7 @@ class EnhancedAccessibilityService {
       hint: semanticHint,
       button: onTap != null,
       selected: isSelected,
-      child: Card(
+      child: AdaptiveCard(
         child: InkWell(
           onTap: onTap,
           child: Padding(
@@ -330,7 +339,7 @@ class EnhancedAccessibilityService {
       onDecrease: onChanged != null
           ? () => onChanged((value - 0.1).clamp(min, max))
           : null,
-      child: Slider(
+      child: AdaptiveSlider(
         value: value,
         min: min,
         max: max,

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -107,8 +108,6 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
 
   @override
   Widget build(BuildContext context) {
-    final sidebarTheme = context.sidebarTheme;
-
     // Check if notes feature is enabled - redirect to chat if disabled
     final notesEnabled = ref.watch(notesFeatureEnabledProvider);
     if (!notesEnabled) {
@@ -119,7 +118,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
         }
       });
       // Show empty scaffold while redirecting
-      return Scaffold(backgroundColor: sidebarTheme.background);
+      return const AdaptiveScaffold();
     }
 
     final canPop = ModalRoute.of(context)?.canPop ?? false;
@@ -155,65 +154,19 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
   }
 
   Widget _buildFloatingSearchField(BuildContext context) {
-    final conduitTheme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
 
-    return FloatingAppBarPill(
-      child: Material(
-        color: Colors.transparent,
-        child: TextField(
-          controller: _searchController,
-          focusNode: _searchFocusNode,
-          onChanged: (_) => _onSearchChanged(),
-          style: AppTypography.standard.copyWith(
-            color: conduitTheme.textPrimary,
-          ),
-          decoration: InputDecoration(
-            isDense: true,
-            hintText: l10n.searchNotes,
-            hintStyle: AppTypography.standard.copyWith(
-              color: conduitTheme.textSecondary.withValues(alpha: 0.6),
-            ),
-            prefixIcon: Icon(
-              Platform.isIOS ? CupertinoIcons.search : Icons.search,
-              color: conduitTheme.iconSecondary,
-              size: IconSize.input,
-            ),
-            prefixIconConstraints: const BoxConstraints(
-              minWidth: TouchTarget.minimum,
-              minHeight: TouchTarget.minimum,
-            ),
-            suffixIcon: _query.isNotEmpty
-                ? IconButton(
-                    onPressed: () {
-                      _searchController.clear();
-                      setState(() => _query = '');
-                      _searchFocusNode.unfocus();
-                    },
-                    icon: Icon(
-                      Platform.isIOS
-                          ? CupertinoIcons.clear_circled_solid
-                          : Icons.clear,
-                      color: conduitTheme.iconSecondary,
-                      size: IconSize.input,
-                    ),
-                  )
-                : null,
-            suffixIconConstraints: const BoxConstraints(
-              minWidth: TouchTarget.minimum,
-              minHeight: TouchTarget.minimum,
-            ),
-            filled: false,
-            border: InputBorder.none,
-            enabledBorder: InputBorder.none,
-            focusedBorder: InputBorder.none,
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: Spacing.md,
-              vertical: Spacing.sm,
-            ),
-          ),
-        ),
-      ),
+    return ConduitGlassSearchField(
+      controller: _searchController,
+      focusNode: _searchFocusNode,
+      hintText: l10n.searchNotes,
+      onChanged: (_) => _onSearchChanged(),
+      query: _query,
+      onClear: () {
+        _searchController.clear();
+        setState(() => _query = '');
+        _searchFocusNode.unfocus();
+      },
     );
   }
 
@@ -296,9 +249,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
     // App bar height: kToolbarHeight + search bar (48) + padding (xs + sm)
     final appBarHeight = kToolbarHeight + 48 + Spacing.xs + Spacing.sm;
     final paddedSlivers = <Widget>[
-      SliverToBoxAdapter(
-        child: SizedBox(height: topPadding + appBarHeight),
-      ),
+      SliverToBoxAdapter(child: SizedBox(height: topPadding + appBarHeight)),
       ...slivers,
     ];
 
@@ -448,130 +399,130 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
               ],
             ),
             child: InkWell(
-            borderRadius: BorderRadius.circular(AppBorderRadius.card),
-            overlayColor: WidgetStateProperty.resolveWith(overlayForStates),
-            onTap: () {
-              HapticFeedback.selectionClick();
-              context.pushNamed(
-                RouteNames.noteEditor,
-                pathParameters: {'id': note.id},
-              );
-            },
-            onLongPress: null, // Handled by ConduitContextMenu
-            child: Padding(
-              padding: const EdgeInsets.all(Spacing.md),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Note icon
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: sidebarTheme.accent,
-                      borderRadius: BorderRadius.circular(AppBorderRadius.sm),
-                      border: Border.all(
-                        color: sidebarTheme.border.withValues(alpha: 0.2),
-                        width: BorderWidth.thin,
+              borderRadius: BorderRadius.circular(AppBorderRadius.card),
+              overlayColor: WidgetStateProperty.resolveWith(overlayForStates),
+              onTap: () {
+                HapticFeedback.selectionClick();
+                context.pushNamed(
+                  RouteNames.noteEditor,
+                  pathParameters: {'id': note.id},
+                );
+              },
+              onLongPress: null, // Handled by ConduitContextMenu
+              child: Padding(
+                padding: const EdgeInsets.all(Spacing.md),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Note icon
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: sidebarTheme.accent,
+                        borderRadius: BorderRadius.circular(AppBorderRadius.sm),
+                        border: Border.all(
+                          color: sidebarTheme.border.withValues(alpha: 0.2),
+                          width: BorderWidth.thin,
+                        ),
+                      ),
+                      child: Icon(
+                        Platform.isIOS
+                            ? CupertinoIcons.doc_text_fill
+                            : Icons.description_rounded,
+                        color: sidebarTheme.foreground.withValues(alpha: 0.6),
+                        size: IconSize.md,
                       ),
                     ),
-                    child: Icon(
-                      Platform.isIOS
-                          ? CupertinoIcons.doc_text_fill
-                          : Icons.description_rounded,
-                      color: sidebarTheme.foreground.withValues(alpha: 0.6),
-                      size: IconSize.md,
-                    ),
-                  ),
-                  const SizedBox(width: Spacing.md),
-                  // Content
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Title
-                        MiddleEllipsisText(
-                          title,
-                          style: AppTypography.bodyMediumStyle.copyWith(
-                            color: sidebarTheme.foreground,
-                            fontWeight: FontWeight.w600,
-                            height: 1.3,
-                          ),
-                        ),
-                        if (hasContent) ...[
-                          const SizedBox(height: Spacing.xxs),
-                          Text(
-                            preview,
-                            style: AppTypography.bodySmallStyle.copyWith(
-                              color: sidebarTheme.foreground.withValues(
-                                alpha: 0.6,
-                              ),
-                              height: 1.4,
+                    const SizedBox(width: Spacing.md),
+                    // Content
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Title
+                          MiddleEllipsisText(
+                            title,
+                            style: AppTypography.bodyMediumStyle.copyWith(
+                              color: sidebarTheme.foreground,
+                              fontWeight: FontWeight.w600,
+                              height: 1.3,
                             ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
                           ),
-                        ],
-                        const SizedBox(height: Spacing.sm),
-                        // Metadata row
-                        Row(
-                          children: [
-                            Icon(
-                              Platform.isIOS
-                                  ? CupertinoIcons.clock
-                                  : Icons.schedule_rounded,
-                              color: sidebarTheme.foreground.withValues(
-                                alpha: 0.4,
-                              ),
-                              size: 12,
-                            ),
-                            const SizedBox(width: 4),
+                          if (hasContent) ...[
+                            const SizedBox(height: Spacing.xxs),
                             Text(
-                              timeText,
-                              style: AppTypography.tiny.copyWith(
+                              preview,
+                              style: AppTypography.bodySmallStyle.copyWith(
                                 color: sidebarTheme.foreground.withValues(
-                                  alpha: 0.5,
+                                  alpha: 0.6,
                                 ),
-                                fontWeight: FontWeight.w500,
+                                height: 1.4,
                               ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
                             ),
-                            if (note.user != null &&
-                                note.user!.name != null) ...[
-                              const SizedBox(width: Spacing.sm),
+                          ],
+                          const SizedBox(height: Spacing.sm),
+                          // Metadata row
+                          Row(
+                            children: [
+                              Icon(
+                                Platform.isIOS
+                                    ? CupertinoIcons.clock
+                                    : Icons.schedule_rounded,
+                                color: sidebarTheme.foreground.withValues(
+                                  alpha: 0.4,
+                                ),
+                                size: 12,
+                              ),
+                              const SizedBox(width: 4),
                               Text(
-                                '·',
+                                timeText,
                                 style: AppTypography.tiny.copyWith(
                                   color: sidebarTheme.foreground.withValues(
-                                    alpha: 0.3,
+                                    alpha: 0.5,
                                   ),
+                                  fontWeight: FontWeight.w500,
                                 ),
                               ),
-                              const SizedBox(width: Spacing.sm),
-                              Flexible(
-                                child: Text(
-                                  note.user!.name!,
+                              if (note.user != null &&
+                                  note.user!.name != null) ...[
+                                const SizedBox(width: Spacing.sm),
+                                Text(
+                                  '·',
                                   style: AppTypography.tiny.copyWith(
                                     color: sidebarTheme.foreground.withValues(
-                                      alpha: 0.5,
+                                      alpha: 0.3,
                                     ),
-                                    fontWeight: FontWeight.w500,
                                   ),
-                                  overflow: TextOverflow.ellipsis,
                                 ),
-                              ),
+                                const SizedBox(width: Spacing.sm),
+                                Flexible(
+                                  child: Text(
+                                    note.user!.name!,
+                                    style: AppTypography.tiny.copyWith(
+                                      color: sidebarTheme.foreground.withValues(
+                                        alpha: 0.5,
+                                      ),
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
                             ],
-                          ],
-                        ),
-                      ],
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
         ),
       ),
-    ),
     );
   }
 
@@ -607,14 +558,13 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
         label: l10n.copy,
         onBeforeClose: () => HapticFeedback.selectionClick(),
         onSelected: () async {
-          final messenger = ScaffoldMessenger.of(context);
           await Clipboard.setData(ClipboardData(text: note.markdownContent));
           if (!mounted) return;
-          messenger.showSnackBar(
-            SnackBar(
-              content: Text(l10n.noteCopiedToClipboard),
-              duration: const Duration(seconds: 2),
-            ),
+          AdaptiveSnackBar.show(
+            context,
+            message: l10n.noteCopiedToClipboard,
+            type: AdaptiveSnackBarType.success,
+            duration: const Duration(seconds: 2),
           );
         },
       ),
@@ -688,22 +638,24 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
             ),
             if (!isSearchActive) ...[
               const SizedBox(height: Spacing.lg),
-              FilledButton.icon(
+              AdaptiveButton.child(
                 onPressed: _createNewNote,
-                icon: Icon(
-                  Platform.isIOS ? CupertinoIcons.add : Icons.add_rounded,
+                color: theme.buttonPrimary,
+                style: AdaptiveButtonStyle.filled,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: Spacing.lg,
+                  vertical: Spacing.md,
                 ),
-                label: Text(l10n.createNote),
-                style: FilledButton.styleFrom(
-                  backgroundColor: theme.buttonPrimary,
-                  foregroundColor: theme.buttonPrimaryText,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: Spacing.lg,
-                    vertical: Spacing.md,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppBorderRadius.button),
-                  ),
+                borderRadius: BorderRadius.circular(AppBorderRadius.button),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Platform.isIOS ? CupertinoIcons.add : Icons.add_rounded,
+                    ),
+                    const SizedBox(width: Spacing.sm),
+                    Text(l10n.createNote),
+                  ],
                 ),
               ),
             ],
@@ -766,20 +718,22 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: Spacing.lg),
-            OutlinedButton.icon(
+            AdaptiveButton.child(
               onPressed: _refreshNotes,
-              icon: Icon(
-                Platform.isIOS ? CupertinoIcons.refresh : Icons.refresh_rounded,
-              ),
-              label: Text(l10n.retry),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: sidebarTheme.foreground.withValues(alpha: 0.8),
-                side: BorderSide(
-                  color: sidebarTheme.border.withValues(alpha: 0.5),
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppBorderRadius.button),
-                ),
+              color: sidebarTheme.foreground.withValues(alpha: 0.8),
+              style: AdaptiveButtonStyle.bordered,
+              borderRadius: BorderRadius.circular(AppBorderRadius.button),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Platform.isIOS
+                        ? CupertinoIcons.refresh
+                        : Icons.refresh_rounded,
+                  ),
+                  const SizedBox(width: Spacing.sm),
+                  Text(l10n.retry),
+                ],
               ),
             ),
           ],
@@ -808,12 +762,11 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
           ),
         ],
       ),
-      child: FloatingActionButton(
+      child: AdaptiveFloatingActionButton(
         onPressed: _createNewNote,
         backgroundColor: theme.buttonPrimary,
         foregroundColor: theme.buttonPrimaryText,
         elevation: 0,
-        highlightElevation: 2,
         tooltip: l10n.createNote,
         child: Icon(Platform.isIOS ? CupertinoIcons.add : Icons.add_rounded),
       ),

@@ -1,5 +1,6 @@
 import 'dart:io' show Platform;
 
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -491,8 +492,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     final reviewerMode = ref.watch(reviewerModeProvider);
 
     return ErrorBoundary(
-      child: Scaffold(
-        backgroundColor: context.conduitTheme.surfaceBackground,
+      child: AdaptiveScaffold(
         body: SafeArea(
           child: Padding(
             padding: const EdgeInsets.symmetric(
@@ -590,14 +590,12 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         await ref.read(reviewerModeProvider.notifier).toggle();
         if (!mounted) return;
         final enabled = ref.read(reviewerModeProvider);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              enabled
-                  ? 'Reviewer Mode enabled: Demo without server'
-                  : 'Reviewer Mode disabled',
-            ),
-          ),
+        AdaptiveSnackBar.show(
+          context,
+          message: enabled
+              ? 'Reviewer Mode enabled: Demo without server'
+              : 'Reviewer Mode disabled',
+          type: AdaptiveSnackBarType.info,
         );
       },
       child: Stack(
@@ -1174,12 +1172,11 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   }
 
   void _showHeaderError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: context.conduitTheme.error,
-        duration: const Duration(seconds: 3),
-      ),
+    AdaptiveSnackBar.show(
+      context,
+      message: message,
+      type: AdaptiveSnackBarType.error,
+      duration: const Duration(seconds: 3),
     );
   }
 

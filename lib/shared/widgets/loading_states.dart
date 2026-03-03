@@ -1,3 +1,4 @@
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 import '../theme/theme_extensions.dart';
 import 'package:flutter/cupertino.dart';
@@ -420,14 +421,10 @@ class LoadingButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return FilledButton(
+    return AdaptiveButton.child(
       onPressed: isLoading ? null : onPressed,
-      style: isPrimary
-          ? FilledButton.styleFrom(
-              backgroundColor: context.conduitTheme.buttonPrimary,
-              foregroundColor: context.conduitTheme.buttonPrimaryText,
-            )
-          : null,
+      color: isPrimary ? context.conduitTheme.buttonPrimary : null,
+      style: AdaptiveButtonStyle.filled,
       child: isLoading ? ConduitLoading.button(context: context) : child,
     );
   }

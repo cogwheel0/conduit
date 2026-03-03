@@ -1,3 +1,4 @@
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -672,10 +673,17 @@ class ErrorStateWidget extends StatelessWidget {
 
             if (onRetry != null) ...[
               const SizedBox(height: 24),
-              FilledButton.icon(
+              AdaptiveButton.child(
                 onPressed: onRetry,
-                icon: const Icon(Icons.refresh),
-                label: Text(AppLocalizations.of(context)!.retry),
+                style: AdaptiveButtonStyle.filled,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.refresh),
+                    const SizedBox(width: Spacing.sm),
+                    Text(AppLocalizations.of(context)!.retry),
+                  ],
+                ),
               ),
             ],
           ],

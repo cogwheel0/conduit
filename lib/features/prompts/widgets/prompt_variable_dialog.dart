@@ -1,3 +1,4 @@
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -148,21 +149,19 @@ class _PromptVariableDialogState extends State<PromptVariableDialog> {
         ),
       ),
       actions: [
-        TextButton(
+        AdaptiveButton(
           onPressed: () => Navigator.of(context).pop(null),
-          child: Text(
-            l10n.cancel,
-            style: TextStyle(color: theme.textSecondary),
-          ),
+          label: l10n.cancel,
+          textColor: theme.textSecondary,
+          style: AdaptiveButtonStyle.plain,
         ),
-        TextButton(
+        AdaptiveButton(
           onPressed: _isSubmitting ? null : _submit,
-          child: Text(
-            l10n.continueAction,
-            style: TextStyle(
-              color: _isSubmitting ? theme.textSecondary : theme.buttonPrimary,
-            ),
-          ),
+          label: l10n.continueAction,
+          textColor: _isSubmitting
+              ? theme.textSecondary
+              : theme.buttonPrimary,
+          style: AdaptiveButtonStyle.plain,
         ),
       ],
     );

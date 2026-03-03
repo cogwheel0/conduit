@@ -1,3 +1,4 @@
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../shared/theme/theme_extensions.dart';
@@ -140,8 +141,7 @@ class _ErrorBoundaryState extends ConsumerState<ErrorBoundary> {
 
       return Directionality(
         textDirection: direction,
-        child: Scaffold(
-          backgroundColor: context.conduitTheme.surfaceBackground,
+        child: AdaptiveScaffold(
           body: SafeArea(
             child: Center(
               child: SingleChildScrollView(
@@ -206,32 +206,33 @@ class _ErrorBoundaryState extends ConsumerState<ErrorBoundary> {
                         // Retry button
                         SizedBox(
                           width: double.infinity,
-                          child: FilledButton.icon(
+                          child: AdaptiveButton.child(
                             onPressed: _retry,
-                            icon: const Icon(Icons.refresh_rounded),
-                            style: FilledButton.styleFrom(
-                              backgroundColor:
-                                  context.conduitTheme.buttonPrimary,
-                              foregroundColor:
-                                  context.conduitTheme.buttonPrimaryText,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: Spacing.lg,
-                                vertical: Spacing.md,
-                              ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(
-                                  context.conduitTheme.radiusMd,
-                                ),
-                              ),
-                              elevation: 0,
+                            color: context.conduitTheme.buttonPrimary,
+                            style: AdaptiveButtonStyle.filled,
+                            borderRadius: BorderRadius.circular(
+                              context.conduitTheme.radiusMd,
                             ),
-                            label: Text(
-                              AppLocalizations.of(context)?.retry ??
-                                  'Try Again',
-                              style: context.conduitTheme.bodySmall?.copyWith(
-                                fontWeight: FontWeight.w600,
-                                color: context.conduitTheme.buttonPrimaryText,
-                              ),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: Spacing.lg,
+                              vertical: Spacing.md,
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.refresh_rounded),
+                                const SizedBox(width: Spacing.sm),
+                                Text(
+                                  AppLocalizations.of(context)?.retry ??
+                                      'Try Again',
+                                  style: context.conduitTheme.bodySmall
+                                      ?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                    color: context
+                                        .conduitTheme.buttonPrimaryText,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ),
@@ -328,14 +329,22 @@ class AsyncErrorBoundary extends ConsumerWidget {
                   ),
                   if (showRetry) ...[
                     const SizedBox(height: 16),
-                    FilledButton.icon(
+                    AdaptiveButton.child(
                       onPressed: () {
                         // Force rebuild to retry
                         (context as Element).markNeedsBuild();
                       },
-                      icon: const Icon(Icons.refresh),
-                      label: Text(
-                        AppLocalizations.of(context)?.retry ?? 'Retry',
+                      style: AdaptiveButtonStyle.filled,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.refresh),
+                          const SizedBox(width: Spacing.sm),
+                          Text(
+                            AppLocalizations.of(context)?.retry ??
+                                'Retry',
+                          ),
+                        ],
                       ),
                     ),
                   ],

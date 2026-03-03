@@ -1,7 +1,7 @@
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'dart:io' show Platform;
-import '../theme/theme_extensions.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 
 /// Utility functions for common UI patterns and helpers
@@ -96,22 +96,17 @@ class UiUtils {
     VoidCallback? onRetry,
     Duration? duration,
   }) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: isError
-            ? context.conduitTheme.error
-            : context.conduitTheme.buttonPrimary,
-        behavior: SnackBarBehavior.floating,
-        action: onRetry != null
-            ? SnackBarAction(
-                label: AppLocalizations.of(context)!.retry,
-                textColor: context.conduitTheme.textInverse,
-                onPressed: onRetry,
-              )
-            : null,
-        duration: duration ?? const Duration(seconds: 3),
-      ),
+    AdaptiveSnackBar.show(
+      context,
+      message: message,
+      type: isError
+          ? AdaptiveSnackBarType.error
+          : AdaptiveSnackBarType.info,
+      duration: duration ?? const Duration(seconds: 3),
+      action: onRetry != null
+          ? AppLocalizations.of(context)!.retry
+          : null,
+      onActionPressed: onRetry,
     );
   }
 

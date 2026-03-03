@@ -42,24 +42,25 @@ class LatexPreprocessor {
   // -- Pre-compiled regex patterns --
 
   /// Matches `$$...$$` (block LaTeX), non-greedy, multiline.
-  static final _blockPattern = RegExp(
-    r'\$\$([\s\S]+?)\$\$',
-    multiLine: true,
-  );
+  static final _blockPattern = RegExp(r'\$\$([\s\S]+?)\$\$', multiLine: true);
 
   /// Matches `$...$` (inline LaTeX).
   ///
   /// Excludes `$$`, escaped `\$`, and requires non-whitespace
   /// immediately after the opening `$` and before the closing
   /// `$`.
+  ///
+  /// Also requires a safe trailing boundary after the closing
+  /// `$` (whitespace, punctuation, or end-of-input) so plain
+  /// currency text such as `$65,539 USD ... ~$42.6` is not
+  /// treated as a math span.
   static final _inlinePattern = RegExp(
-    r'(?<!\$)(?<!\\)\$(?!\$)(\S(?:[^$]*?\S)?)\$(?!\$)',
+    r'(?<!\$)(?<!\\)\$(?!\$)(\S(?:[^\n$]*?\S)?)\$(?!\$)(?=(?:[\s\]),.;:!?]|$))',
   );
 
   /// Whether any LaTeX was found during [extract].
   bool get hasLatex =>
-      _blockExpressions.isNotEmpty ||
-      _inlineExpressions.isNotEmpty;
+      _blockExpressions.isNotEmpty || _inlineExpressions.isNotEmpty;
 
   /// Replaces LaTeX expressions with placeholder tokens.
   ///
@@ -73,28 +74,20 @@ class LatexPreprocessor {
   /// the original LaTeX content.
   String extract(String content) {
     // Extract block LaTeX first ($$...$$).
-    var result = content.replaceAllMapped(
-      _blockPattern,
-      (match) {
-        final tex = match.group(1)!.trim();
-        final key =
-            '$_blockPrefix${_counter++}$_suffix';
-        _blockExpressions[key] = tex;
-        return '\n\n$key\n\n';
-      },
-    );
+    var result = content.replaceAllMapped(_blockPattern, (match) {
+      final tex = match.group(1)!.trim();
+      final key = '$_blockPrefix${_counter++}$_suffix';
+      _blockExpressions[key] = tex;
+      return '\n\n$key\n\n';
+    });
 
     // Then extract inline LaTeX ($...$).
-    result = result.replaceAllMapped(
-      _inlinePattern,
-      (match) {
-        final tex = match.group(1)!;
-        final key =
-            '$_inlinePrefix${_counter++}$_suffix';
-        _inlineExpressions[key] = tex;
-        return key;
-      },
-    );
+    result = result.replaceAllMapped(_inlinePattern, (match) {
+      final tex = match.group(1)!;
+      final key = '$_inlinePrefix${_counter++}$_suffix';
+      _inlineExpressions[key] = tex;
+      return key;
+    });
 
     return result;
   }
@@ -104,8 +97,7 @@ class LatexPreprocessor {
   /// A quick check to decide whether [splitOnPlaceholders]
   /// needs to be called.
   bool containsPlaceholder(String text) =>
-      text.contains(_blockPrefix) ||
-      text.contains(_inlinePrefix);
+      text.contains(_blockPrefix) || text.contains(_inlinePrefix);
 
   /// Splits [text] on LaTeX placeholders into segments.
   ///
@@ -118,12 +110,10 @@ class LatexPreprocessor {
 
     final allPlaceholders = {
       ..._blockExpressions.map(
-        (key, tex) =>
-            MapEntry(key, (tex: tex, isBlock: true)),
+        (key, tex) => MapEntry(key, (tex: tex, isBlock: true)),
       ),
       ..._inlineExpressions.map(
-        (key, tex) =>
-            MapEntry(key, (tex: tex, isBlock: false)),
+        (key, tex) => MapEntry(key, (tex: tex, isBlock: false)),
       ),
     };
 
@@ -133,35 +123,22 @@ class LatexPreprocessor {
     }
 
     // Build a regex that matches any known placeholder.
-    final escapedKeys = allPlaceholders.keys
-        .map(RegExp.escape)
-        .join('|');
+    final escapedKeys = allPlaceholders.keys.map(RegExp.escape).join('|');
     final pattern = RegExp('($escapedKeys)');
 
     var lastEnd = 0;
     for (final match in pattern.allMatches(text)) {
       if (match.start > lastEnd) {
-        segments.add(
-          LatexSegment.text(
-            text.substring(lastEnd, match.start),
-          ),
-        );
+        segments.add(LatexSegment.text(text.substring(lastEnd, match.start)));
       }
       final key = match.group(0)!;
       final expr = allPlaceholders[key]!;
-      segments.add(
-        LatexSegment.latex(
-          expr.tex,
-          isBlock: expr.isBlock,
-        ),
-      );
+      segments.add(LatexSegment.latex(expr.tex, isBlock: expr.isBlock));
       lastEnd = match.end;
     }
 
     if (lastEnd < text.length) {
-      segments.add(
-        LatexSegment.text(text.substring(lastEnd)),
-      );
+      segments.add(LatexSegment.text(text.substring(lastEnd)));
     }
 
     return segments;
@@ -179,10 +156,7 @@ class LatexPreprocessor {
   }) {
     final math = Math.tex(tex, textStyle: textStyle);
     if (!isBlock) return math;
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: math,
-    );
+    return SingleChildScrollView(scrollDirection: Axis.horizontal, child: math);
   }
 }
 
@@ -205,13 +179,9 @@ class LatexSegment {
   final bool isBlock;
 
   /// Creates a plain-text segment.
-  const LatexSegment.text(this.content)
-      : isLatex = false,
-        isBlock = false;
+  const LatexSegment.text(this.content) : isLatex = false, isBlock = false;
 
   /// Creates a LaTeX expression segment.
-  const LatexSegment.latex(
-    this.content, {
-    required this.isBlock,
-  }) : isLatex = true;
+  const LatexSegment.latex(this.content, {required this.isBlock})
+    : isLatex = true;
 }

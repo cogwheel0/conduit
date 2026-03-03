@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io' show File, Platform;
 
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -327,7 +328,7 @@ class _AudioPlayerDialogState extends State<AudioPlayerDialog> {
                   thumbColor: Colors.orange,
                   overlayColor: Colors.orange.withValues(alpha: 0.2),
                 ),
-                child: Slider(
+                child: AdaptiveSlider(
                   value: progress,
                   onChanged: _seekTo,
                 ),

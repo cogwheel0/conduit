@@ -63,6 +63,11 @@ post_install do |installer|
         defs << flag unless defs.include?(flag)
       end
       config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = defs
+
+      # Flutter engine in this setup is arm64-only for simulator.
+      # Exclude x86_64 simulator architecture to avoid unresolved Flutter
+      # symbols when Xcode attempts a universal simulator link.
+      config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'x86_64'
     end
   end
 
@@ -73,7 +78,8 @@ post_install do |installer|
       if ['Runner', 'ShareExtension'].include?(native_target.name)
         native_target.build_configurations.each do |config|
           config.build_settings['ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES'] = 'NO'
-          
+          config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'x86_64'
+           
           # Add -ObjC and -lc++ flags for native extensions support
           other_ldflags = config.build_settings['OTHER_LDFLAGS'] || ['$(inherited)']
           other_ldflags = [other_ldflags] if other_ldflags.is_a?(String)

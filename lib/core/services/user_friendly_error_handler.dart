@@ -1,3 +1,4 @@
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -117,20 +118,15 @@ class UserFriendlyErrorHandler {
     final actions = getRecoveryActions(error);
     final primaryAction = actions.isNotEmpty ? actions.first : null;
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: context.conduitTheme.error,
-        action: primaryAction != null && onRetry != null
-            ? SnackBarAction(
-                label: primaryAction.label,
-                onPressed: onRetry,
-                textColor: context.conduitTheme.textInverse,
-              )
-            : null,
-        duration: const Duration(seconds: 4),
-        behavior: SnackBarBehavior.floating,
-      ),
+    AdaptiveSnackBar.show(
+      context,
+      message: message,
+      type: AdaptiveSnackBarType.error,
+      duration: const Duration(seconds: 4),
+      action: primaryAction != null && onRetry != null
+          ? primaryAction.label
+          : null,
+      onActionPressed: onRetry,
     );
   }
 
@@ -448,7 +444,7 @@ class ErrorCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
+    return AdaptiveCard(
       margin: const EdgeInsets.all(Spacing.md),
       child: Padding(
         padding: const EdgeInsets.all(Spacing.md),
@@ -477,16 +473,17 @@ class ErrorCard extends StatelessWidget {
               Wrap(
                 spacing: 8,
                 children: actions.take(2).map((action) {
-                  return ElevatedButton(
+                  return AdaptiveButton(
                     onPressed: () => _handleAction(context, action),
-                    child: Text(action.label),
+                    label: action.label,
+                    style: AdaptiveButtonStyle.filled,
                   );
                 }).toList(),
               ),
             ],
             if (showDetails && technicalDetails != null) ...[
               const SizedBox(height: Spacing.md),
-              ExpansionTile(
+              AdaptiveExpansionTile(
                 title: Text(AppLocalizations.of(context)!.technicalDetails),
                 children: [
                   Container(
@@ -576,7 +573,7 @@ class ErrorDialog extends StatelessWidget {
           Text(message),
           if (showDetails && technicalDetails != null) ...[
             const SizedBox(height: Spacing.md),
-            ExpansionTile(
+            AdaptiveExpansionTile(
               title: Text(AppLocalizations.of(context)!.technicalDetails),
               children: [
                 SelectableText(
@@ -592,19 +589,21 @@ class ErrorDialog extends StatelessWidget {
         ],
       ),
       actions: [
-        TextButton(
+        AdaptiveButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: Text(AppLocalizations.of(context)!.cancel),
+          label: AppLocalizations.of(context)!.cancel,
+          style: AdaptiveButtonStyle.plain,
         ),
         if (actions.isNotEmpty)
-          ElevatedButton(
+          AdaptiveButton(
             onPressed: () {
               Navigator.of(context).pop();
               if (actions.first.action == ErrorActionType.retry) {
                 onRetry?.call();
               }
             },
-            child: Text(actions.first.label),
+            label: actions.first.label,
+            style: AdaptiveButtonStyle.filled,
           ),
       ],
     );

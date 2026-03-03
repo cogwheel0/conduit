@@ -1,3 +1,4 @@
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -1360,25 +1361,34 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         : Icons.stop;
     final IconData ttsIcon = showStopState ? stopIcon : listenIcon;
     final String ttsLabel = showStopState ? l10n.ttsStop : l10n.ttsListen;
+    final String ttsSfSymbol =
+        showStopState ? 'stop.fill' : 'speaker.wave.2.fill';
 
     return Wrap(
       spacing: 8,
       runSpacing: 8,
       children: [
         if (shouldShowTtsButton)
-          _buildActionButton(icon: ttsIcon, label: ttsLabel, onTap: ttsOnTap),
+          _buildActionButton(
+            icon: ttsIcon,
+            label: ttsLabel,
+            onTap: ttsOnTap,
+            sfSymbol: ttsSfSymbol,
+          ),
         _buildActionButton(
           icon: Platform.isIOS
               ? CupertinoIcons.doc_on_clipboard
               : Icons.content_copy,
           label: l10n.copy,
           onTap: widget.onCopy,
+          sfSymbol: 'doc.on.clipboard',
         ),
         if (widget.message.versions.isNotEmpty && !widget.isStreaming) ...[
           // Inline version toggle: Prev [1/n] Next
           ChatActionButton(
-            icon: Icons.chevron_left,
+            icon: Platform.isIOS ? CupertinoIcons.chevron_left : Icons.chevron_left,
             label: l10n.previousLabel,
+            sfSymbol: 'chevron.left',
             onTap: () {
               setState(() {
                 if (_activeVersionIndex < 0) {
@@ -1396,8 +1406,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
             isCompact: true,
           ),
           ChatActionButton(
-            icon: Icons.chevron_right,
+            icon: Platform.isIOS ? CupertinoIcons.chevron_right : Icons.chevron_right,
             label: l10n.nextLabel,
+            sfSymbol: 'chevron.right',
             onTap: () {
               setState(() {
                 if (_activeVersionIndex < 0) return; // already live
@@ -1418,6 +1429,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
             icon: Platform.isIOS ? CupertinoIcons.info : Icons.info_outline,
             label: l10n.usageInfo,
             onTap: () => _showUsageInfoSheet(context, widget.message.usage!),
+            sfSymbol: 'info.circle',
           ),
         ],
         if (isErrorMessage) ...[
@@ -1427,12 +1439,14 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
                 : Icons.refresh,
             label: l10n.retry,
             onTap: widget.onRegenerate,
+            sfSymbol: 'arrow.clockwise',
           ),
         ] else ...[
           _buildActionButton(
             icon: Platform.isIOS ? CupertinoIcons.refresh : Icons.refresh,
             label: l10n.regenerate,
             onTap: widget.onRegenerate,
+            sfSymbol: 'arrow.clockwise',
           ),
         ],
       ],
@@ -1443,8 +1457,14 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     required IconData icon,
     required String label,
     VoidCallback? onTap,
+    String? sfSymbol,
   }) {
-    return ChatActionButton(icon: icon, label: label, onTap: onTap);
+    return ChatActionButton(
+      icon: icon,
+      label: label,
+      onTap: onTap,
+      sfSymbol: sfSymbol,
+    );
   }
 
   /// Shows a bottom sheet with usage/performance statistics for the response.
@@ -2125,9 +2145,8 @@ class CodeExecutionListView extends StatelessWidget {
                     const SizedBox(height: Spacing.xs),
                     ...result!.files.map((file) {
                       final name = file.name ?? file.url ?? 'Download';
-                      return ListTile(
-                        dense: true,
-                        contentPadding: EdgeInsets.zero,
+                      return AdaptiveListTile(
+                        padding: EdgeInsets.zero,
                         leading: const Icon(Icons.insert_drive_file_outlined),
                         title: Text(name),
                         onTap: file.url != null

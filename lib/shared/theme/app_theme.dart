@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
@@ -38,6 +39,34 @@ class AppTheme {
         : AppColorTokens.light(theme: theme);
     return CupertinoThemeData(
       brightness: brightness,
+      primaryColor: variant.primary,
+      scaffoldBackgroundColor: tokens.neutralTone10,
+      barBackgroundColor: tokens.neutralTone10,
+    );
+  }
+
+  /// Builds a [CupertinoThemeData] for light mode.
+  static CupertinoThemeData cupertinoLight(
+    TweakcnThemeDefinition theme,
+  ) {
+    final variant = theme.variantFor(Brightness.light);
+    final tokens = AppColorTokens.light(theme: theme);
+    return CupertinoThemeData(
+      brightness: Brightness.light,
+      primaryColor: variant.primary,
+      scaffoldBackgroundColor: tokens.neutralTone10,
+      barBackgroundColor: tokens.neutralTone10,
+    );
+  }
+
+  /// Builds a [CupertinoThemeData] for dark mode.
+  static CupertinoThemeData cupertinoDark(
+    TweakcnThemeDefinition theme,
+  ) {
+    final variant = theme.variantFor(Brightness.dark);
+    final tokens = AppColorTokens.dark(theme: theme);
+    return CupertinoThemeData(
+      brightness: Brightness.dark,
       primaryColor: variant.primary,
       scaffoldBackgroundColor: tokens.neutralTone10,
       barBackgroundColor: tokens.neutralTone10,
@@ -173,6 +202,7 @@ class AppTheme {
           shadows.shadowXs.first.color,
           conduitExtension.inputBackground,
         ),
+        hintStyle: TextStyle(color: conduitExtension.inputPlaceholder),
         border: baseInputBorder,
         enabledBorder: baseInputBorder,
         focusedBorder: baseInputBorder.copyWith(
@@ -266,6 +296,18 @@ class AppTheme {
         ),
       ),
       textTheme: textTheme,
+      textSelectionTheme: TextSelectionThemeData(
+        // Use the platform-native selection tint: iOS/macOS use system blue
+        // at ~15% opacity; other platforms use the theme primary at 20%.
+        selectionColor: switch (defaultTargetPlatform) {
+          TargetPlatform.iOS ||
+          TargetPlatform.macOS =>
+            const Color(0x26007AFF),
+          _ => variant.primary.withValues(alpha: 0.2),
+        },
+        cursorColor: variant.primary,
+        selectionHandleColor: variant.primary,
+      ),
       extensions: <ThemeExtension<dynamic>>[
         tokens,
         typography,
