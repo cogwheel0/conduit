@@ -177,25 +177,51 @@ class LatexPreprocessor {
   /// Builds a Flutter widget for the given TeX expression.
   ///
   /// Uses [Math2SVG] from `flutter_tex` (MathJax-powered) for
-  /// broader LaTeX coverage. A [ColorFiltered] layer applies
-  /// the current text color to the rendered SVG so it adapts
-  /// to light and dark themes. For block math, wraps in a
-  /// horizontal [SingleChildScrollView] for overflow.
+  /// broader LaTeX coverage. The [formulaWidgetBuilder] callback
+  /// parses the `ex`-unit height from the MathJax SVG output and
+  /// converts it to logical pixels so the expression scales with
+  /// the surrounding text. A [ColorFiltered] layer applies the
+  /// current text color for light/dark theme support. Block math
+  /// is wrapped in a horizontal [SingleChildScrollView].
   static Widget buildLatexWidget(
     String tex, {
     required TextStyle textStyle,
     required bool isBlock,
   }) {
     final color = textStyle.color ?? Colors.black;
-    final widget = ColorFiltered(
-      colorFilter: ColorFilter.mode(color, BlendMode.srcATop),
-      child: Math2SVG(math: tex),
+    final fontSize = textStyle.fontSize ?? 14.0;
+
+    final math = Math2SVG(
+      math: tex,
+      formulaWidgetBuilder: (context, svg) {
+        final height = _svgExToPixels(svg, fontSize);
+        return ColorFiltered(
+          colorFilter: ColorFilter.mode(color, BlendMode.srcATop),
+          child: SvgPicture.string(svg, height: height),
+        );
+      },
     );
-    if (!isBlock) return widget;
+
+    if (!isBlock) return math;
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
-      child: widget,
+      child: math,
     );
+  }
+
+  /// Converts MathJax's SVG `ex`-unit height to logical pixels.
+  ///
+  /// MathJax outputs `<svg height="N.NNex" ...>` where `ex` is
+  /// the font's x-height — roughly 0.5 × [fontSize]. Flutter's
+  /// SVG renderer ignores unknown units and falls back to the raw
+  /// viewBox, which is in thousands of internal units and renders
+  /// huge. Parsing and scaling here keeps math proportional to
+  /// the surrounding text.
+  static double _svgExToPixels(String svg, double fontSize) {
+    final match = RegExp(r'height="([\d.]+)ex"').firstMatch(svg);
+    if (match == null) return fontSize * 1.5;
+    final exValue = double.tryParse(match.group(1)!) ?? 1.5;
+    return exValue * fontSize * 0.5;
   }
 }
 
