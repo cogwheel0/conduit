@@ -1,8 +1,11 @@
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/utils/glass_colors.dart';
 // app_theme not required here; using theme extension tokens
 import '../../../shared/widgets/sheet_handle.dart';
 
@@ -27,6 +30,8 @@ import '../../chat/services/voice_input_service.dart';
 import '../../../core/models/knowledge_base.dart';
 
 import '../../../shared/utils/platform_utils.dart';
+import '../../../shared/widgets/native_glass_container.dart';
+import '../../../shared/widgets/native_chat_input.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import '../../../shared/widgets/modal_safe_area.dart';
 import '../../../core/utils/prompt_variable_parser.dart';
@@ -99,10 +104,16 @@ class ModernChatInput extends ConsumerStatefulWidget {
 
 class _ModernChatInputState extends ConsumerState<ModernChatInput>
     with TickerProviderStateMixin {
+  bool get _useIOS26NativeControls => PlatformInfo.isIOS26OrHigher();
+  bool get _useNativePlatformChatInput =>
+      !kIsWeb && (Platform.isIOS || Platform.isAndroid);
+
   static const double _composerRadius = AppBorderRadius.card;
 
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focusNode = FocusNode();
+  final NativeChatInputController _nativeInputController =
+      NativeChatInputController();
   bool _pendingFocus = false;
   bool _isRecording = false;
   bool _hasText = false; // track locally without rebuilding on each keystroke
@@ -114,6 +125,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   bool _isDeactivated = false;
   int _lastHandledFocusTick = 0;
   bool _showPromptOverlay = false;
+  bool _nativeHasFocus = false;
+  double _nativeInputHeight = TouchTarget.input;
+  bool _showExpandButton = false;
   String _currentPromptCommand = '';
   TextRange? _currentPromptRange;
   int _promptSelectionIndex = 0;
@@ -176,10 +190,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   void _ensureFocusedIfEnabled() {
     // Respect global suppression flag to avoid re-opening keyboard
     final autofocusEnabled = ref.read(composerAutofocusEnabledProvider);
-    if (!widget.enabled ||
-        _focusNode.hasFocus ||
-        _pendingFocus ||
-        !autofocusEnabled) {
+    final hasFocus = _useNativePlatformChatInput
+        ? _nativeHasFocus
+        : _focusNode.hasFocus;
+    if (!widget.enabled || hasFocus || _pendingFocus || !autofocusEnabled) {
       return;
     }
 
@@ -192,14 +206,21 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         _pendingFocus = false;
-        if (widget.enabled && !_focusNode.hasFocus) {
+        if (!widget.enabled) return;
+        if (_useNativePlatformChatInput) {
+          _nativeInputController.focus();
+        } else if (!_focusNode.hasFocus) {
           _focusNode.requestFocus();
         }
       });
     } else {
       // Safe to request focus immediately
       _pendingFocus = false;
-      _focusNode.requestFocus();
+      if (_useNativePlatformChatInput) {
+        _nativeInputController.focus();
+      } else {
+        _focusNode.requestFocus();
+      }
     }
   }
 
@@ -222,6 +243,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     if (!widget.enabled && oldWidget.enabled) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || _isDeactivated) return;
+        if (_useNativePlatformChatInput) {
+          _nativeInputController.unfocus();
+          return;
+        }
         if (_focusNode.hasFocus) {
           _focusNode.unfocus();
         }
@@ -236,13 +261,23 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     PlatformUtils.lightHaptic();
     widget.onSendMessage(text);
     _controller.clear();
+    if (_useNativePlatformChatInput) {
+      _nativeInputController.clear();
+    }
 
-    // Dismiss keyboard after sending to recover screen space
-    _focusNode.unfocus();
-    try {
-      SystemChannels.textInput.invokeMethod('TextInput.hide');
-    } catch (_) {
-      // Silently handle if keyboard dismissal fails
+    if (!_useNativePlatformChatInput) {
+      _focusNode.unfocus();
+      try {
+        SystemChannels.textInput.invokeMethod('TextInput.hide');
+      } catch (_) {
+        // Silently handle if keyboard dismissal fails
+      }
+    } else {
+      // Defer unfocus to the next frame to avoid iOS hardware-keyboard
+      // event-order assertions when focus is dropped during key processing.
+      try {
+        ref.read(composerAutofocusEnabledProvider.notifier).set(false);
+      } catch (_) {}
     }
   }
 
@@ -412,6 +447,17 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   static final RegExp _promptCommandBoundary = RegExp(r'\s');
 
+  void _handleNativeInputHeightChanged(double height) {
+    if (!mounted || _isDeactivated) return;
+    final clamped = height.clamp(28.0, 180.0).toDouble();
+    if ((clamped - _nativeInputHeight).abs() < 0.5) return;
+    final bool showExpand = clamped > 76.0 && _isMultiline;
+    setState(() {
+      _nativeInputHeight = clamped;
+      _showExpandButton = showExpand;
+    });
+  }
+
   void _handleComposerChanged() {
     if (!mounted || _isDeactivated) return;
 
@@ -453,6 +499,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     setState(() {
       _hasText = hasText;
       _isMultiline = isMultiline;
+      if (!isMultiline) _showExpandButton = false;
       if (match != null) {
         if (previousCommand != match.command) {
           _promptSelectionIndex = 0;
@@ -750,8 +797,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                               itemBuilder: (context, index) {
                                 final base = bases[index];
                                 final isSelected = selectedBaseId == base.id;
-                                return ListTile(
-                                  dense: true,
+                                return AdaptiveListTile(
                                   selected: isSelected,
                                   title: Text(base.name),
                                   onTap: () => loadItems(base),
@@ -777,7 +823,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                                               (b) => b.id == selectedBaseId,
                                               orElse: () => bases.first,
                                             );
-                                      return ListTile(
+                                      return AdaptiveListTile(
                                         title: Text(
                                           item.title ??
                                               item.metadata['name']
@@ -1030,7 +1076,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           ),
         ],
       ),
-      child: ListTile(
+      child: AdaptiveListTile(
         title: const Text('Browse knowledge base'),
         subtitle: const Text('Press Enter to pick a document'),
         leading: const Icon(Icons.folder_outlined),
@@ -1041,6 +1087,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<bool>(composerAutofocusEnabledProvider, (previous, next) {
+      if ((previous ?? true) && !next && _useNativePlatformChatInput) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || _isDeactivated) return;
+          _nativeInputController.unfocus();
+        });
+      }
+    });
+
     ref.listen<String?>(prefilledInputTextProvider, (previous, next) {
       final incoming = next?.trim();
       if (incoming == null || incoming.isEmpty) return;
@@ -1110,25 +1165,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     }
 
     final Brightness brightness = Theme.of(context).brightness;
-    final bool isActive = _focusNode.hasFocus || _hasText;
-    final Color composerBackground = context.conduitTheme.cardBackground;
-    final Color placeholderBase = context.conduitTheme.inputText.withValues(
-      alpha: 0.64,
-    );
-    final Color placeholderFocused = context.conduitTheme.inputText.withValues(
-      alpha: 0.64,
-    );
-    final Color outlineColor = Color.lerp(
-      context.conduitTheme.cardBorder,
-      context.conduitTheme.inputBorderFocused,
-      isActive ? 1.0 : 0.0,
-    )!;
-    final Color shellShadowColor = context.conduitTheme.cardShadow.withValues(
-      alpha: brightness == Brightness.dark
-          ? 0.22 + (isActive ? 0.08 : 0.0)
-          : 0.12 + (isActive ? 0.06 : 0.0),
-    );
-
+    final bool hasComposerFocus = _useNativePlatformChatInput
+        ? _nativeHasFocus
+        : _focusNode.hasFocus;
+    final bool isActive = hasComposerFocus || _hasText;
+    final Color placeholderBase = GlassColors.secondaryLabel(context);
+    final Color placeholderFocused = GlassColors.secondaryLabel(context);
     final List<Widget> quickPills = <Widget>[];
 
     for (final id in selectedQuickPills) {
@@ -1147,6 +1189,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
             icon: icon,
             label: label,
             isActive: webSearchEnabled,
+            dense: true,
             onTap: widget.enabled && !_isRecording ? handleTap : null,
           ),
         );
@@ -1165,6 +1208,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
             icon: icon,
             label: label,
             isActive: imageGenEnabled,
+            dense: true,
             onTap: widget.enabled && !_isRecording ? handleTap : null,
           ),
         );
@@ -1194,6 +1238,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               icon: icon,
               label: label,
               isActive: isSelected,
+              dense: true,
               onTap: widget.enabled && !_isRecording ? handleTap : null,
               iconUrl: filter.icon,
             ),
@@ -1230,6 +1275,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               icon: icon,
               label: label,
               isActive: isSelected,
+              dense: true,
               onTap: widget.enabled && !_isRecording ? handleTap : null,
             ),
           );
@@ -1239,28 +1285,21 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
     final bool showCompactComposer = quickPills.isEmpty;
 
-    // Use a reduced border radius when content is multiline to prevent text
-    // from overflowing outside the rounded corners (fixes #272)
-    final double compactRadius = _isMultiline
+    // Keep iOS 26 single-line composer as capsule.
+    // Switch multiline to rounded rectangle to avoid oval morphing.
+    const double multilineRadius = AppBorderRadius.large;
+    final double compactRadius = _useIOS26NativeControls
+        ? (_isMultiline ? multilineRadius : AppBorderRadius.round)
+        : (_isMultiline ? AppBorderRadius.xl : AppBorderRadius.round);
+    final double expandedRadius = _useIOS26NativeControls
         ? AppBorderRadius.xl
-        : AppBorderRadius.round;
+        : _composerRadius;
     final BorderRadius shellRadius = BorderRadius.circular(
-      showCompactComposer ? compactRadius : _composerRadius,
+      showCompactComposer ? compactRadius : expandedRadius,
     );
 
-    final BoxDecoration shellDecoration = BoxDecoration(
-      color: composerBackground,
-      borderRadius: shellRadius,
-      border: Border.all(color: outlineColor, width: BorderWidth.thin),
-      boxShadow: <BoxShadow>[
-        BoxShadow(
-          color: shellShadowColor,
-          blurRadius: 12 + (isActive ? 4 : 0),
-          spreadRadius: -2,
-          offset: const Offset(0, -2),
-        ),
-      ],
-    );
+    // No inner decoration needed — AdaptiveBlurView provides
+    // native glass tinting and border glow.
 
     final List<Widget> composerChildren = <Widget>[
       if (_showPromptOverlay)
@@ -1278,40 +1317,33 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         Padding(
           key: const ValueKey('composer-expanded-input'),
           padding: const EdgeInsets.fromLTRB(
+            Spacing.md,
             Spacing.sm,
-            Spacing.xs,
+            Spacing.md,
             Spacing.sm,
-            Spacing.xs,
           ),
-          child: Container(
-            padding: const EdgeInsets.fromLTRB(
-              Spacing.sm,
-              Spacing.xs,
-              Spacing.sm,
-              Spacing.xs,
-            ),
-            decoration: BoxDecoration(
-              color: Colors.transparent,
-              borderRadius: BorderRadius.circular(_composerRadius),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Expanded(
-                  child: _buildComposerTextField(
-                    brightness: brightness,
-                    sendOnEnter: sendOnEnter,
-                    placeholderBase: placeholderBase,
-                    placeholderFocused: placeholderFocused,
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: Spacing.sm,
-                      vertical: Spacing.xs,
-                    ),
-                    isActive: isActive,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: _buildComposerTextField(
+                  brightness: brightness,
+                  sendOnEnter: sendOnEnter,
+                  voiceAvailable: voiceAvailable,
+                  isGenerating: isGenerating,
+                  allUploadsComplete: allUploadsComplete,
+                  placeholderBase: placeholderBase,
+                  placeholderFocused: placeholderFocused,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: Spacing.sm,
+                    vertical: Spacing.xs,
                   ),
+                  isActive: isActive,
+                  nativeMinHeight: 32,
+                  nativeMaxHeight: 140,
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
         Padding(
@@ -1330,6 +1362,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 imageGenerationActive: imageGenEnabled,
                 toolsActive: selectedToolIds.isNotEmpty,
                 filtersActive: selectedFilterIds.isNotEmpty,
+                dense: true,
               ),
               const SizedBox(width: Spacing.xs),
               Expanded(
@@ -1344,23 +1377,19 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   ),
                 ),
               ),
-              const SizedBox(width: Spacing.sm),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (!_hasText && voiceAvailable && !isGenerating) ...[
-                    _buildMicButton(voiceAvailable),
-                    const SizedBox(width: Spacing.sm),
-                  ],
-                  _buildPrimaryButton(
-                    _hasText,
-                    isGenerating,
-                    stopGeneration,
-                    voiceAvailable,
-                    allUploadsComplete,
-                    hasUploadsInProgress,
-                  ),
-                ],
+              if (!_hasText && voiceAvailable && !isGenerating) ...[
+                const SizedBox(width: Spacing.xs),
+                _buildInlineMicAction(voiceAvailable),
+              ],
+              const SizedBox(width: Spacing.xs),
+              _buildPrimaryButton(
+                _hasText,
+                isGenerating,
+                stopGeneration,
+                voiceAvailable,
+                allUploadsComplete,
+                hasUploadsInProgress,
+                dense: true,
               ),
             ],
           ),
@@ -1370,35 +1399,103 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
     // For compact mode, render text field shell with floating buttons on sides
     if (showCompactComposer) {
-      // Build the text field shell
-      Widget textFieldShell = Container(
+      final compactMaxHeight = _useIOS26NativeControls
+          ? (_isMultiline ? 144.0 : TouchTarget.input)
+          : MediaQuery.of(context).size.height * 0.25;
+
+      final textFieldContent = Container(
         padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
         constraints: const BoxConstraints(minHeight: TouchTarget.input),
-        decoration: shellDecoration,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(context).size.height * 0.25,
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: _buildComposerTextField(
-                  brightness: brightness,
-                  sendOnEnter: sendOnEnter,
-                  placeholderBase: placeholderBase,
-                  placeholderFocused: placeholderFocused,
-                  contentPadding: const EdgeInsets.symmetric(
-                    vertical: Spacing.xs,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              crossAxisAlignment: _isMultiline
+                  ? CrossAxisAlignment.end
+                  : CrossAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: _buildComposerTextField(
+                    brightness: brightness,
+                    sendOnEnter: sendOnEnter,
+                    voiceAvailable: voiceAvailable,
+                    isGenerating: isGenerating,
+                    allUploadsComplete: allUploadsComplete,
+                    placeholderBase: placeholderBase,
+                    placeholderFocused: placeholderFocused,
+                    contentPadding: const EdgeInsets.symmetric(
+                      vertical: Spacing.xs,
+                    ),
+                    isActive: isActive,
+                    nativeMinHeight: TouchTarget.input,
+                    nativeMaxHeight: compactMaxHeight,
                   ),
-                  isActive: isActive,
                 ),
-              ),
-              if (!_hasText && voiceAvailable && !isGenerating)
-                _buildInlineMicIcon(voiceAvailable),
-            ],
-          ),
+                if (!_hasText && voiceAvailable && !isGenerating) ...[
+                  const SizedBox(width: Spacing.xs),
+                  _buildInlineMicAction(voiceAvailable),
+                ],
+                const SizedBox(width: Spacing.xs),
+                _buildPrimaryButton(
+                  _hasText,
+                  isGenerating,
+                  stopGeneration,
+                  voiceAvailable,
+                  allUploadsComplete,
+                  hasUploadsInProgress,
+                  dense: true,
+                ),
+              ],
+            ),
+          ],
         ),
       );
+
+      // Use true iOS26 native glass for single-line compact input.
+      // Multiline still needs dynamic-height fallback because IOS26Button
+      // has fixed native heights.
+      final bool useNativeCompactGlass =
+          _useIOS26NativeControls && !_isMultiline;
+      final Widget textFieldShell = useNativeCompactGlass
+          ? LayoutBuilder(
+              key: const ValueKey('compact-native-glass'),
+              builder: (context, constraints) {
+                final width = constraints.maxWidth.isFinite
+                    ? constraints.maxWidth
+                    : MediaQuery.of(context).size.width * 0.58;
+
+                return ClipRRect(
+                  borderRadius: shellRadius,
+                  child: SizedBox(
+                    height: TouchTarget.input,
+                    child: Stack(
+                      children: [
+                        Positioned.fill(
+                          child: IgnorePointer(
+                            child: IOS26Button.child(
+                              onPressed: () {},
+                              enabled: true,
+                              style: IOS26ButtonStyle.glass,
+                              size: IOS26ButtonSize.large,
+                              minSize: Size(width, TouchTarget.input),
+                              useSmoothRectangleBorder: false,
+                              child: const SizedBox.shrink(),
+                            ),
+                          ),
+                        ),
+                        textFieldContent,
+                      ],
+                    ),
+                  ),
+                );
+              },
+            )
+          : NativeGlassContainer(
+              key: const ValueKey('compact-native-glass-fallback'),
+              blurStyle: BlurStyle.systemUltraThinMaterial,
+              borderRadius: shellRadius,
+              child: textFieldContent,
+            );
 
       final bottomPadding = MediaQuery.of(context).viewPadding.bottom;
       return Padding(
@@ -1428,15 +1525,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   filtersActive: selectedFilterIds.isNotEmpty,
                 ),
                 const SizedBox(width: Spacing.sm),
-                Expanded(child: textFieldShell),
-                const SizedBox(width: Spacing.sm),
-                _buildPrimaryButton(
-                  _hasText,
-                  isGenerating,
-                  stopGeneration,
-                  voiceAvailable,
-                  allUploadsComplete,
-                  hasUploadsInProgress,
+                Expanded(
+                  child: _wrapIosSurfaceShadow(
+                    textFieldShell,
+                    borderRadius: shellRadius,
+                  ),
                 ),
               ],
             ),
@@ -1445,28 +1538,37 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       );
     }
 
-    // For expanded mode with quick pills, use the full shell
-    Widget shell = Container(
-      decoration: shellDecoration,
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.4,
-        ),
-        child: AnimatedSize(
-          duration: const Duration(milliseconds: 160),
-          curve: Curves.easeOutCubic,
-          alignment: Alignment.topCenter,
-          child: SingleChildScrollView(
-            physics: const ClampingScrollPhysics(),
-            child: RepaintBoundary(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: composerChildren,
-              ),
+    // For expanded mode with quick pills, use the full shell.
+    final shellContent = ConstrainedBox(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.4,
+      ),
+      child: AnimatedSize(
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOutCubic,
+        alignment: Alignment.topCenter,
+        child: SingleChildScrollView(
+          physics: const ClampingScrollPhysics(),
+          child: RepaintBoundary(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: composerChildren,
             ),
           ),
         ),
       ),
+    );
+
+    // Always use NativeGlassContainer for the expanded composer shell.
+    // IOS26Button has a fixed height and cannot adapt to dynamic
+    // content sizing needed by the expanded composer.
+    final Widget shell = _wrapIosSurfaceShadow(
+      NativeGlassContainer(
+        blurStyle: BlurStyle.systemUltraThinMaterial,
+        borderRadius: shellRadius,
+        child: shellContent,
+      ),
+      borderRadius: shellRadius,
     );
 
     // Wrap with padding for floating effect, accounting for safe area
@@ -1501,11 +1603,140 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   Widget _buildComposerTextField({
     required Brightness brightness,
     required bool sendOnEnter,
+    required bool voiceAvailable,
+    required bool isGenerating,
+    required bool allUploadsComplete,
     required Color placeholderBase,
     required Color placeholderFocused,
     required EdgeInsetsGeometry contentPadding,
     required bool isActive,
+    required double nativeMinHeight,
+    required double nativeMaxHeight,
   }) {
+    if (_useNativePlatformChatInput) {
+      final double factor = isActive ? 1.0 : 0.0;
+      final Color animatedPlaceholder = Color.lerp(
+        placeholderBase,
+        placeholderFocused,
+        factor,
+      )!;
+      final glassLabel = GlassColors.label(context);
+      final Color animatedTextColor = Color.lerp(
+        glassLabel.withValues(alpha: 0.88),
+        glassLabel,
+        factor,
+      )!;
+      final TextStyle baseChatStyle = AppTypography.chatMessageStyle;
+
+      final nativeHeight = _nativeInputHeight.clamp(
+        nativeMinHeight,
+        nativeMaxHeight,
+      );
+
+      return SizedBox(
+        height: nativeHeight,
+        child: NativeChatInput(
+          controller: _nativeInputController,
+          text: _controller.text,
+          selection: _controller.selection,
+          placeholder: AppLocalizations.of(context)!.messageHintText,
+          enabled: widget.enabled,
+          // Work around iOS native keyboard event-order assertions by avoiding
+          // native return-key submit interception. Users can still send via the
+          // send button and desktop shortcuts on non-iOS platforms.
+          sendOnEnter: Platform.isIOS ? false : sendOnEnter,
+          // Keep native accessory bar disabled for now.
+          // On iOS 26 it renders an extra floating control row that duplicates
+          // the existing Flutter composer actions.
+          showInputAccessoryBar: false,
+          accessoryCanSend:
+              widget.enabled && _hasText && !isGenerating && allUploadsComplete,
+          accessoryCanUseMic:
+              widget.enabled && voiceAvailable && !_hasText && !isGenerating,
+          accessoryIsRecording: _isRecording,
+          minHeight: nativeMinHeight,
+          maxHeight: nativeMaxHeight,
+          fontSize: baseChatStyle.fontSize ?? 17,
+          textColor: animatedTextColor,
+          placeholderColor: animatedPlaceholder,
+          onHeightChanged: _handleNativeInputHeightChanged,
+          onChanged: (text) {
+            if (_controller.text == text) return;
+            final previousSelection = _controller.selection;
+            final collapsedOffset = math.min(
+              previousSelection.extentOffset,
+              text.length,
+            );
+            _controller.value = TextEditingValue(
+              text: text,
+              selection: TextSelection.collapsed(offset: collapsedOffset),
+              composing: TextRange.empty,
+            );
+          },
+          onSelectionChanged: (selection) {
+            if (!selection.isValid) return;
+            if (_controller.selection == selection) return;
+            _controller.value = _controller.value.copyWith(
+              selection: selection,
+            );
+          },
+          onFocusChanged: (hasFocus) {
+            if (!mounted || _isDeactivated) return;
+            if (_nativeHasFocus != hasFocus) {
+              setState(() {
+                _nativeHasFocus = hasFocus;
+              });
+            }
+            if (hasFocus) {
+              try {
+                ref.read(composerAutofocusEnabledProvider.notifier).set(true);
+              } catch (_) {}
+            }
+            try {
+              ref.read(composerHasFocusProvider.notifier).set(hasFocus);
+            } catch (_) {}
+          },
+          onSubmitted: (_) {
+            if (_showPromptOverlay) {
+              _confirmPromptSelection();
+              return;
+            }
+            if (sendOnEnter) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (!mounted || _isDeactivated) return;
+                _sendMessage();
+              });
+            }
+          },
+          onAccessoryAction: (action) {
+            switch (action) {
+              case 'plus':
+                _showOverflowSheet();
+                break;
+              case 'mic':
+                if (widget.enabled &&
+                    voiceAvailable &&
+                    !_hasText &&
+                    !isGenerating) {
+                  HapticFeedback.selectionClick();
+                  _toggleVoice();
+                }
+                break;
+              case 'send':
+                if (widget.enabled &&
+                    _hasText &&
+                    !isGenerating &&
+                    allUploadsComplete) {
+                  PlatformUtils.lightHaptic();
+                  _sendMessage();
+                }
+                break;
+            }
+          },
+        ),
+      );
+    }
+
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       // Exclude from semantics so screen readers interact directly with the
@@ -1592,9 +1823,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 placeholderFocused,
                 factor,
               )!;
+              final glassLabel = GlassColors.label(context);
               final Color animatedTextColor = Color.lerp(
-                context.conduitTheme.inputText.withValues(alpha: 0.88),
-                context.conduitTheme.inputText,
+                glassLabel.withValues(alpha: 0.88),
+                glassLabel,
                 factor,
               )!;
 
@@ -1697,6 +1929,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     required bool imageGenerationActive,
     required bool toolsActive,
     required bool filtersActive,
+    bool dense = false,
   }) {
     final bool enabled = widget.enabled && !_isRecording;
 
@@ -1719,8 +1952,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       activeColor = null;
     }
 
-    const double iconSize = IconSize.large;
-    const double buttonSize = TouchTarget.minimum;
+    final double iconSize = dense ? IconSize.medium : IconSize.large;
+    // 36px matches IOS26ButtonSize.medium native height — keeps the button
+    // circular (width == height). 44px for non-dense matches large's height.
+    final double buttonSize = dense ? 36.0 : TouchTarget.minimum;
     final bool isActive = activeColor != null;
 
     final Color iconColor = !enabled
@@ -1738,7 +1973,49 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         ? context.conduitTheme.buttonPrimary.withValues(alpha: 0.6)
         : context.conduitTheme.cardBorder;
 
-    return Tooltip(
+    if (_useIOS26NativeControls) {
+      final sfSymbol = switch ((
+        webSearchActive,
+        imageGenerationActive,
+        toolsActive,
+        filtersActive,
+      )) {
+        (true, _, _, _) => 'magnifyingglass',
+        (_, true, _, _) => 'photo',
+        (_, _, true, _) => 'wrench.and.screwdriver',
+        (_, _, _, true) => 'sparkles',
+        _ => 'plus',
+      };
+
+      return AdaptiveTooltip(
+        message: tooltip,
+        child: _wrapIosControlShadow(
+          IOS26Button.sfSymbol(
+            onPressed: enabled
+                ? () {
+                    HapticFeedback.selectionClick();
+                    _showOverflowSheet();
+                  }
+                : null,
+            sfSymbol: SFSymbol(
+              sfSymbol,
+              size: IconSize.medium,
+              color: iconColor,
+            ),
+            enabled: enabled,
+            style: isActive
+                ? IOS26ButtonStyle.prominentGlass
+                : IOS26ButtonStyle.glass,
+            color: isActive ? activeColor : null,
+            size: dense ? IOS26ButtonSize.medium : IOS26ButtonSize.large,
+            minSize: Size(buttonSize, buttonSize),
+            useSmoothRectangleBorder: false,
+          ),
+        ),
+      );
+    }
+
+    return AdaptiveTooltip(
       message: tooltip,
       child: Opacity(
         opacity: enabled ? 1.0 : Alpha.disabled,
@@ -1772,68 +2049,26 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     );
   }
 
-  Widget _buildMicButton(bool voiceAvailable) {
+  Widget _buildInlineMicAction(bool voiceAvailable) {
     final bool enabledMic = widget.enabled && voiceAvailable;
-    return Tooltip(
-      message: AppLocalizations.of(context)!.voiceInput,
-      child: Opacity(
-        opacity: enabledMic ? Alpha.primary : Alpha.disabled,
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(AppBorderRadius.circular),
-            onTap: enabledMic
-                ? () {
-                    HapticFeedback.selectionClick();
-                    _toggleVoice();
-                  }
-                : null,
-            child: SizedBox(
-              width: TouchTarget.minimum,
-              height: TouchTarget.minimum,
-              child: Icon(
-                Platform.isIOS ? CupertinoIcons.mic : Icons.mic,
-                size: IconSize.large,
-                color: _isRecording
-                    ? context.conduitTheme.buttonPrimary
-                    : (enabledMic
-                          ? context.conduitTheme.textPrimary.withValues(
-                              alpha: Alpha.strong,
-                            )
-                          : context.conduitTheme.textPrimary.withValues(
-                              alpha: Alpha.disabled,
-                            )),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInlineMicIcon(bool voiceAvailable) {
-    final bool enabledMic = widget.enabled && voiceAvailable;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(AppBorderRadius.circular),
-        onTap: enabledMic
-            ? () {
-                HapticFeedback.selectionClick();
-                _toggleVoice();
-              }
-            : null,
-        child: Padding(
-          padding: const EdgeInsets.all(Spacing.xs),
-          child: Icon(
-            Platform.isIOS ? CupertinoIcons.mic : Icons.mic,
-            size: IconSize.medium,
-            color: _isRecording
-                ? context.conduitTheme.buttonPrimary
-                : context.conduitTheme.textSecondary.withValues(
-                    alpha: enabledMic ? Alpha.strong : Alpha.disabled,
-                  ),
-          ),
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: enabledMic
+          ? () {
+              HapticFeedback.selectionClick();
+              _toggleVoice();
+            }
+          : null,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
+        child: Icon(
+          Platform.isIOS ? CupertinoIcons.mic : Icons.mic,
+          size: IconSize.large,
+          color: _isRecording
+              ? context.conduitTheme.buttonPrimary
+              : context.conduitTheme.textSecondary.withValues(
+                  alpha: enabledMic ? Alpha.strong : Alpha.disabled,
+                ),
         ),
       ),
     );
@@ -1845,10 +2080,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     void Function() stopGeneration,
     bool voiceAvailable,
     bool allUploadsComplete,
-    bool hasUploadsInProgress,
-  ) {
-    // Compact 44px touch target, circular radius, md icon size
-    const double buttonSize = TouchTarget.minimum; // 44.0
+    bool hasUploadsInProgress, {
+    bool dense = false,
+  }) {
+    // Compact touch target — 36px matches IOS26ButtonSize.medium native height
+    // so minSize width equals height, producing a circle not an oval.
+    final double buttonSize = dense ? 36.0 : TouchTarget.minimum; // 44.0
     const double radius = AppBorderRadius.round; // big to ensure circle
 
     // Don't allow sending until all uploads are complete
@@ -1857,7 +2094,31 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
     // Generating -> STOP variant
     if (isGenerating) {
-      return Tooltip(
+      if (_useIOS26NativeControls) {
+        return AdaptiveTooltip(
+          message: AppLocalizations.of(context)!.stopGenerating,
+          child: _wrapIosControlShadow(
+            IOS26Button.sfSymbol(
+              onPressed: () {
+                HapticFeedback.lightImpact();
+                stopGeneration();
+              },
+              sfSymbol: SFSymbol(
+                'stop.fill',
+                size: dense ? IconSize.small + 1 : IconSize.medium,
+                color: context.conduitTheme.error,
+              ),
+              style: IOS26ButtonStyle.glass,
+              color: context.conduitTheme.error,
+              size: dense ? IOS26ButtonSize.medium : IOS26ButtonSize.large,
+              minSize: Size(buttonSize, buttonSize),
+              useSmoothRectangleBorder: false,
+            ),
+          ),
+        );
+      }
+
+      return AdaptiveTooltip(
         message: AppLocalizations.of(context)!.stopGenerating,
         child: Material(
           color: Colors.transparent,
@@ -1914,7 +2175,53 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
     // If there's text, render SEND variant; otherwise render VOICE CALL variant
     if (hasText) {
-      return Tooltip(
+      if (_useIOS26NativeControls) {
+        final onPressed = enabled
+            ? () {
+                PlatformUtils.lightHaptic();
+                _sendMessage();
+              }
+            : null;
+
+        final child = hasUploadsInProgress
+            ? SizedBox(
+                width: IconSize.large,
+                height: IconSize.large,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  color: context.conduitTheme.textSecondary,
+                ),
+              )
+            : Icon(
+                CupertinoIcons.arrow_up,
+                size: IconSize.medium,
+                color: enabled
+                    ? context.conduitTheme.buttonPrimaryText
+                    : context.conduitTheme.textPrimary.withValues(
+                        alpha: Alpha.disabled,
+                      ),
+              );
+
+        return AdaptiveTooltip(
+          message: enabled
+              ? AppLocalizations.of(context)!.sendMessage
+              : AppLocalizations.of(context)!.send,
+          child: _wrapIosControlShadow(
+            IOS26Button.child(
+              onPressed: onPressed,
+              enabled: enabled,
+              style: IOS26ButtonStyle.prominentGlass,
+              color: enabled ? context.conduitTheme.buttonPrimary : null,
+              size: dense ? IOS26ButtonSize.medium : IOS26ButtonSize.large,
+              minSize: Size(buttonSize, buttonSize),
+              useSmoothRectangleBorder: false,
+              child: child,
+            ),
+          ),
+        );
+      }
+
+      return AdaptiveTooltip(
         message: enabled
             ? AppLocalizations.of(context)!.sendMessage
             : AppLocalizations.of(context)!.send,
@@ -2001,7 +2308,40 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
     // VOICE CALL variant when no text is present
     final bool enabledVoiceCall = widget.enabled && widget.onVoiceCall != null;
-    return Tooltip(
+    if (_useIOS26NativeControls) {
+      return AdaptiveTooltip(
+        message: 'Voice Call',
+        child: _wrapIosControlShadow(
+          IOS26Button.sfSymbol(
+            onPressed: enabledVoiceCall
+                ? () {
+                    PlatformUtils.lightHaptic();
+                    widget.onVoiceCall!();
+                  }
+                : null,
+            sfSymbol: SFSymbol(
+              'waveform',
+              size: dense ? IconSize.small + 1 : IconSize.medium,
+              color: enabledVoiceCall
+                  ? context.conduitTheme.buttonPrimaryText
+                  : context.conduitTheme.textPrimary.withValues(
+                      alpha: Alpha.disabled,
+                    ),
+            ),
+            enabled: enabledVoiceCall,
+            style: IOS26ButtonStyle.prominentGlass,
+            color: enabledVoiceCall
+                ? context.conduitTheme.buttonPrimary
+                : null,
+            size: dense ? IOS26ButtonSize.medium : IOS26ButtonSize.large,
+            minSize: Size(buttonSize, buttonSize),
+            useSmoothRectangleBorder: false,
+          ),
+        ),
+      );
+    }
+
+    return AdaptiveTooltip(
       message: 'Voice Call',
       child: Opacity(
         opacity: enabledVoiceCall ? Alpha.primary : Alpha.disabled,
@@ -2079,6 +2419,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     required bool isActive,
     VoidCallback? onTap,
     String? iconUrl,
+    bool dense = false,
   }) {
     final bool enabled = onTap != null;
     final Brightness brightness = Theme.of(context).brightness;
@@ -2101,6 +2442,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         : theme.textSecondary.withValues(alpha: enabled ? 1.0 : Alpha.disabled);
 
     final Color iconColor = textColor;
+    final bool isLight = brightness == Brightness.light;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
@@ -2118,9 +2460,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 200),
             curve: Curves.easeOutCubic,
-            padding: const EdgeInsets.symmetric(
-              horizontal: Spacing.md,
-              vertical: Spacing.sm - 2,
+            padding: EdgeInsets.symmetric(
+              horizontal: dense ? Spacing.sm : Spacing.md,
+              vertical: dense ? (Spacing.xs + 1) : (Spacing.sm - 2),
             ),
             decoration: BoxDecoration(
               color: background,
@@ -2140,6 +2482,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                         offset: const Offset(0, 2),
                       ),
                     ]
+                  : isLight
+                  ? const [
+                      BoxShadow(
+                        color: Color(0x22000000),
+                        blurRadius: 8,
+                        spreadRadius: -1,
+                        offset: Offset(0, 2),
+                      ),
+                    ]
                   : [],
             ),
             child: Row(
@@ -2150,31 +2501,35 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   curve: Curves.easeOutCubic,
                   child: iconUrl != null && iconUrl.isNotEmpty
                       ? SizedBox(
-                          width: IconSize.small + 1,
-                          height: IconSize.small + 1,
+                          width: dense ? IconSize.small : IconSize.small + 1,
+                          height: dense ? IconSize.small : IconSize.small + 1,
                           child: Image.network(
                             iconUrl,
-                            width: IconSize.small + 1,
-                            height: IconSize.small + 1,
+                            width: dense ? IconSize.small : IconSize.small + 1,
+                            height: dense ? IconSize.small : IconSize.small + 1,
                             color: iconUrl.endsWith('.svg') ? iconColor : null,
                             colorBlendMode: BlendMode.srcIn,
                             errorBuilder: (_, _, _) => Icon(
                               icon,
-                              size: IconSize.small + 1,
+                              size: dense ? IconSize.small : IconSize.small + 1,
                               color: iconColor,
                             ),
                           ),
                         )
-                      : Icon(icon, size: IconSize.small + 1, color: iconColor),
+                      : Icon(
+                          icon,
+                          size: dense ? IconSize.small : IconSize.small + 1,
+                          color: iconColor,
+                        ),
                 ),
-                const SizedBox(width: Spacing.xs + 1),
+                SizedBox(width: dense ? Spacing.xs : Spacing.xs + 1),
                 AnimatedDefaultTextStyle(
                   duration: const Duration(milliseconds: 200),
                   curve: Curves.easeOutCubic,
                   style: AppTypography.labelStyle.copyWith(
                     color: textColor,
                     fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
-                    fontSize: 13,
+                    fontSize: dense ? 12 : 13,
                     letterSpacing: -0.1,
                   ),
                   child: Text(
@@ -2191,14 +2546,72 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     );
   }
 
+  Widget _wrapIosControlShadow(Widget child) {
+    if (!_useIOS26NativeControls ||
+        Theme.of(context).brightness != Brightness.light) {
+      return child;
+    }
+
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: Color(0x30000000),
+            blurRadius: 10,
+            spreadRadius: -1,
+            offset: Offset(0, 3),
+          ),
+        ],
+      ),
+      child: child,
+    );
+  }
+
+  Widget _wrapIosSurfaceShadow(
+    Widget child, {
+    BorderRadius borderRadius = const BorderRadius.all(
+      Radius.circular(AppBorderRadius.round),
+    ),
+  }) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    if (!isLight) return child;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: borderRadius,
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x18000000),
+            blurRadius: 16,
+            spreadRadius: -2,
+            offset: Offset(0, 4),
+          ),
+          BoxShadow(
+            color: Color(0x0A000000),
+            blurRadius: 4,
+            spreadRadius: 0,
+            offset: Offset(0, 1),
+          ),
+        ],
+      ),
+      child: child,
+    );
+  }
+
   void _showOverflowSheet() {
     HapticFeedback.selectionClick();
     final prevCanRequest = _focusNode.canRequestFocus;
-    final wasFocused = _focusNode.hasFocus;
+    final wasFocused = _useNativePlatformChatInput
+        ? _nativeHasFocus
+        : _focusNode.hasFocus;
     _focusNode.canRequestFocus = false;
     try {
-      FocusScope.of(context).unfocus();
-      SystemChannels.textInput.invokeMethod('TextInput.hide');
+      if (_useNativePlatformChatInput) {
+        _nativeInputController.unfocus();
+      } else {
+        FocusScope.of(context).unfocus();
+        SystemChannels.textInput.invokeMethod('TextInput.hide');
+      }
     } catch (_) {}
 
     showModalBottomSheet(
@@ -3184,12 +3597,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   void _showVoiceUnavailable(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 2),
-      ),
+    AdaptiveSnackBar.show(
+      context,
+      message: message,
+      type: AdaptiveSnackBarType.warning,
+      duration: const Duration(seconds: 2),
     );
   }
 }
