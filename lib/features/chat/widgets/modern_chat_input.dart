@@ -2970,6 +2970,109 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     return spaced;
   }
 
+  void _showExpandTextModal() {
+    final modalController = TextEditingController(text: _controller.text);
+
+    void syncToMain() {
+      if (_controller.text != modalController.text) {
+        _controller.value = TextEditingValue(
+          text: modalController.text,
+          selection: TextSelection.collapsed(
+            offset: modalController.text.length,
+          ),
+        );
+      }
+    }
+
+    modalController.addListener(syncToMain);
+
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        final sheetHeight =
+            MediaQuery.of(sheetContext).size.height * 0.75;
+        return SizedBox(
+          height: sheetHeight,
+          child: ModalSheetSafeArea(
+            padding: const EdgeInsets.fromLTRB(
+              Spacing.modalPadding,
+              Spacing.sm,
+              Spacing.modalPadding,
+              Spacing.modalPadding,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        AppLocalizations.of(context)!.messageHintText,
+                        style: Theme.of(sheetContext)
+                            .textTheme
+                            .bodySmall
+                            ?.copyWith(
+                              color: context.conduitTheme.textSecondary,
+                            ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    CupertinoButton(
+                      padding: EdgeInsets.zero,
+                      minimumSize: Size(
+                        TouchTarget.minimum,
+                        TouchTarget.minimum,
+                      ),
+                      onPressed: () => Navigator.of(sheetContext).pop(),
+                      child: Text(
+                        AppLocalizations.of(context)!.done,
+                        style: TextStyle(
+                          color: context.conduitTheme.buttonPrimary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: Spacing.sm),
+                Expanded(
+                  child: TextField(
+                    controller: modalController,
+                    autofocus: true,
+                    maxLines: null,
+                    expands: true,
+                    textAlignVertical: TextAlignVertical.top,
+                    style: Theme.of(sheetContext)
+                        .textTheme
+                        .bodyMedium
+                        ?.copyWith(
+                          color: context.conduitTheme.textPrimary,
+                        ),
+                    decoration: InputDecoration(
+                      border: InputBorder.none,
+                      hintText: AppLocalizations.of(context)!.messageHintText,
+                      hintStyle: TextStyle(
+                        color: context.conduitTheme.textSecondary
+                            .withValues(alpha: 0.5),
+                      ),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    ).whenComplete(() {
+      syncToMain();
+      modalController.removeListener(syncToMain);
+      modalController.dispose();
+    });
+  }
+
   Widget _buildSectionLabel(String text) {
     return Padding(
       padding: const EdgeInsets.only(bottom: Spacing.xxs),
