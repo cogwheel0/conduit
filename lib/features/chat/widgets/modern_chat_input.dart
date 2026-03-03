@@ -128,6 +128,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   bool _nativeHasFocus = false;
   double _nativeInputHeight = TouchTarget.input;
   bool _showExpandButton = false;
+  bool _expandModalOpen = false;
   String _currentPromptCommand = '';
   TextRange? _currentPromptRange;
   int _promptSelectionIndex = 0;
@@ -1348,7 +1349,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   ),
                 ],
               ),
-              if (_showExpandButton)
+              if (_showExpandButton && !_expandModalOpen)
                 Positioned(
                   top: Spacing.xs,
                   right: Spacing.xs,
@@ -1465,7 +1466,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                     ),
                   ],
                 ),
-                if (_showExpandButton)
+                if (_showExpandButton && !_expandModalOpen)
                   Positioned(
                     top: Spacing.xs,
                     right: 36.0 + Spacing.xs * 2,
@@ -2986,6 +2987,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
     modalController.addListener(syncToMain);
 
+    setState(() => _expandModalOpen = true);
+
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
@@ -3070,6 +3073,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       syncToMain();
       modalController.removeListener(syncToMain);
       modalController.dispose();
+      if (mounted) setState(() => _expandModalOpen = false);
     });
   }
 
