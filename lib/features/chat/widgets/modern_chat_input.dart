@@ -3049,100 +3049,16 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     String? iconUrl,
   }) {
     final theme = context.conduitTheme;
-    final brightness = Theme.of(context).brightness;
-    final description = subtitle?.trim() ?? '';
-
-    final Color background = value
-        ? theme.buttonPrimary.withValues(
-            alpha: brightness == Brightness.dark ? 0.28 : 0.16,
-          )
-        : theme.surfaceContainer.withValues(
-            alpha: brightness == Brightness.dark ? 0.32 : 0.12,
-          );
-    final Color borderColor = value
-        ? theme.buttonPrimary.withValues(alpha: 0.7)
-        : theme.cardBorder.withValues(alpha: 0.55);
-
-    return Semantics(
-      button: true,
-      toggled: value,
-      label: title,
-      hint: description.isEmpty ? null : description,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(AppBorderRadius.input),
-          onTap: () {
-            HapticFeedback.selectionClick();
-            onChanged(!value);
-          },
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            curve: Curves.easeOutCubic,
-            margin: const EdgeInsets.symmetric(vertical: Spacing.xxs),
-            padding: const EdgeInsets.all(Spacing.sm),
-            decoration: BoxDecoration(
-              color: background,
-              borderRadius: BorderRadius.circular(AppBorderRadius.input),
-              border: Border.all(color: borderColor, width: BorderWidth.thin),
-              boxShadow: value ? ConduitShadows.low(context) : const [],
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                iconUrl != null && iconUrl.isNotEmpty
-                    ? _buildFilterGlyph(
-                        iconUrl: iconUrl,
-                        selected: value,
-                        theme: theme,
-                      )
-                    : _buildToolGlyph(
-                        icon: icon,
-                        selected: value,
-                        theme: theme,
-                      ),
-                const SizedBox(width: Spacing.xs),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: AppTypography.bodySmallStyle.copyWith(
-                          color: theme.textPrimary,
-                          fontWeight: value ? FontWeight.w600 : FontWeight.w500,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      if (description.isNotEmpty) ...[
-                        const SizedBox(height: Spacing.xs),
-                        Text(
-                          description,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppTypography.captionStyle.copyWith(
-                            color: theme.textSecondary.withValues(
-                              alpha: Alpha.strong,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-                const SizedBox(width: Spacing.xs),
-                IgnorePointer(
-                  child: Switch.adaptive(
-                    value: value,
-                    onChanged: (_) {},
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
+    final glyph = iconUrl != null && iconUrl.isNotEmpty
+        ? _buildFilterGlyph(iconUrl: iconUrl, selected: value, theme: theme)
+        : _buildToolGlyph(icon: icon, selected: value, theme: theme);
+    return _ToggleTile(
+      glyph: glyph,
+      title: title,
+      subtitle: subtitle,
+      selected: value,
+      onToggle: () => onChanged(!value),
+      theme: theme,
     );
   }
 
@@ -3152,95 +3068,17 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     required VoidCallback onToggle,
   }) {
     final theme = context.conduitTheme;
-    final brightness = Theme.of(context).brightness;
-    final description = _toolDescriptionFor(tool);
-    final Color background = selected
-        ? theme.buttonPrimary.withValues(
-            alpha: brightness == Brightness.dark ? 0.28 : 0.16,
-          )
-        : theme.surfaceContainer.withValues(
-            alpha: brightness == Brightness.dark ? 0.32 : 0.12,
-          );
-    final Color borderColor = selected
-        ? theme.buttonPrimary.withValues(alpha: 0.7)
-        : theme.cardBorder.withValues(alpha: 0.55);
-
-    return Semantics(
-      button: true,
-      toggled: selected,
-      label: tool.name,
-      hint: description.isEmpty ? null : description,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(AppBorderRadius.input),
-          onTap: () {
-            HapticFeedback.selectionClick();
-            onToggle();
-          },
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            curve: Curves.easeOutCubic,
-            margin: const EdgeInsets.symmetric(vertical: Spacing.xxs),
-            padding: const EdgeInsets.all(Spacing.sm),
-            decoration: BoxDecoration(
-              color: background,
-              borderRadius: BorderRadius.circular(AppBorderRadius.input),
-              border: Border.all(color: borderColor, width: BorderWidth.thin),
-              boxShadow: selected ? ConduitShadows.low(context) : const [],
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                _buildToolGlyph(
-                  icon: _toolIconFor(tool),
-                  selected: selected,
-                  theme: theme,
-                ),
-                const SizedBox(width: Spacing.xs),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        tool.name,
-                        style: AppTypography.bodySmallStyle.copyWith(
-                          color: theme.textPrimary,
-                          fontWeight: selected
-                              ? FontWeight.w600
-                              : FontWeight.w500,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      if (description.isNotEmpty) ...[
-                        const SizedBox(height: Spacing.xs),
-                        Text(
-                          description,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppTypography.captionStyle.copyWith(
-                            color: theme.textSecondary.withValues(
-                              alpha: Alpha.strong,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-                const SizedBox(width: Spacing.xs),
-                IgnorePointer(
-                  child: Switch.adaptive(
-                    value: selected,
-                    onChanged: (_) {},
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
+    return _ToggleTile(
+      glyph: _buildToolGlyph(
+        icon: _toolIconFor(tool),
+        selected: selected,
+        theme: theme,
       ),
+      title: tool.name,
+      subtitle: _toolDescriptionFor(tool),
+      selected: selected,
+      onToggle: onToggle,
+      theme: theme,
     );
   }
 
@@ -3250,95 +3088,17 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     required VoidCallback onToggle,
   }) {
     final theme = context.conduitTheme;
-    final brightness = Theme.of(context).brightness;
-    final description = filter.description ?? '';
-    final Color background = selected
-        ? theme.buttonPrimary.withValues(
-            alpha: brightness == Brightness.dark ? 0.28 : 0.16,
-          )
-        : theme.surfaceContainer.withValues(
-            alpha: brightness == Brightness.dark ? 0.32 : 0.12,
-          );
-    final Color borderColor = selected
-        ? theme.buttonPrimary.withValues(alpha: 0.7)
-        : theme.cardBorder.withValues(alpha: 0.55);
-
-    return Semantics(
-      button: true,
-      toggled: selected,
-      label: filter.name,
-      hint: description.isEmpty ? null : description,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(AppBorderRadius.input),
-          onTap: () {
-            HapticFeedback.selectionClick();
-            onToggle();
-          },
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            curve: Curves.easeOutCubic,
-            margin: const EdgeInsets.symmetric(vertical: Spacing.xxs),
-            padding: const EdgeInsets.all(Spacing.sm),
-            decoration: BoxDecoration(
-              color: background,
-              borderRadius: BorderRadius.circular(AppBorderRadius.input),
-              border: Border.all(color: borderColor, width: BorderWidth.thin),
-              boxShadow: selected ? ConduitShadows.low(context) : const [],
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                _buildFilterGlyph(
-                  iconUrl: filter.icon,
-                  selected: selected,
-                  theme: theme,
-                ),
-                const SizedBox(width: Spacing.xs),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        filter.name,
-                        style: AppTypography.bodySmallStyle.copyWith(
-                          color: theme.textPrimary,
-                          fontWeight: selected
-                              ? FontWeight.w600
-                              : FontWeight.w500,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      if (description.isNotEmpty) ...[
-                        const SizedBox(height: Spacing.xs),
-                        Text(
-                          description,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppTypography.captionStyle.copyWith(
-                            color: theme.textSecondary.withValues(
-                              alpha: Alpha.strong,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-                const SizedBox(width: Spacing.xs),
-                IgnorePointer(
-                  child: Switch.adaptive(
-                    value: selected,
-                    onChanged: (_) {},
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
+    return _ToggleTile(
+      glyph: _buildFilterGlyph(
+        iconUrl: filter.icon,
+        selected: selected,
+        theme: theme,
       ),
+      title: filter.name,
+      subtitle: filter.description,
+      selected: selected,
+      onToggle: onToggle,
+      theme: theme,
     );
   }
 
@@ -3560,7 +3320,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: enabled
-                        ? theme.buttonPrimary.withValues(alpha: 0.12)
+                        ? theme.buttonPrimary.withValues(
+                            alpha: brightness == Brightness.dark
+                                ? 0.28
+                                : 0.16,
+                          )
                         : theme.surfaceContainer.withValues(alpha: 0.60),
                   ),
                   child: Icon(icon, color: iconColor, size: IconSize.modal),
@@ -3823,6 +3587,112 @@ class _ExpandedTextEditorSheetState
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ToggleTile extends StatelessWidget {
+  const _ToggleTile({
+    required this.glyph,
+    required this.title,
+    this.subtitle,
+    required this.selected,
+    required this.onToggle,
+    required this.theme,
+  });
+
+  final Widget glyph;
+  final String title;
+  final String? subtitle;
+  final bool selected;
+  final VoidCallback onToggle;
+  final ConduitThemeExtension theme;
+
+  @override
+  Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
+    final Color background = selected
+        ? theme.buttonPrimary.withValues(
+            alpha: brightness == Brightness.dark ? 0.28 : 0.16,
+          )
+        : theme.surfaceContainer.withValues(
+            alpha: brightness == Brightness.dark ? 0.32 : 0.12,
+          );
+    final Color borderColor = selected
+        ? theme.buttonPrimary.withValues(alpha: 0.7)
+        : theme.cardBorder.withValues(alpha: 0.55);
+
+    return Semantics(
+      button: true,
+      toggled: selected,
+      label: title,
+      hint: (subtitle?.isEmpty ?? true) ? null : subtitle,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(AppBorderRadius.input),
+          onTap: () {
+            HapticFeedback.selectionClick();
+            onToggle();
+          },
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOutCubic,
+            margin: const EdgeInsets.symmetric(vertical: Spacing.xxs),
+            padding: const EdgeInsets.all(Spacing.sm),
+            decoration: BoxDecoration(
+              color: background,
+              borderRadius: BorderRadius.circular(AppBorderRadius.input),
+              border: Border.all(color: borderColor, width: BorderWidth.thin),
+              boxShadow: selected ? ConduitShadows.low(context) : const [],
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                glyph,
+                const SizedBox(width: Spacing.xs),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: AppTypography.bodySmallStyle.copyWith(
+                          color: theme.textPrimary,
+                          fontWeight:
+                              selected ? FontWeight.w600 : FontWeight.w500,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      if (subtitle != null && subtitle!.isNotEmpty) ...[
+                        const SizedBox(height: Spacing.xs),
+                        Text(
+                          subtitle!,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTypography.captionStyle.copyWith(
+                            color: theme.textSecondary.withValues(
+                              alpha: Alpha.strong,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(width: Spacing.xs),
+                IgnorePointer(
+                  child: Switch.adaptive(
+                    value: selected,
+                    onChanged: (_) {},
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
