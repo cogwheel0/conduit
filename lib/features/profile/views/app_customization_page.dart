@@ -476,26 +476,6 @@ class AppCustomizationPage extends ConsumerWidget {
               .read(appSettingsProvider.notifier)
               .setSendOnEnter(!settings.sendOnEnter),
         ),
-        const SizedBox(height: Spacing.sm),
-        _CustomizationTile(
-          leading: _buildIconBadge(
-            context,
-            Platform.isIOS ? CupertinoIcons.textformat : Icons.title,
-            color: theme.buttonPrimary,
-          ),
-          title: l10n.showChatHeaderTitle,
-          subtitle: l10n.showChatHeaderTitleDescription,
-          trailing: Switch.adaptive(
-            value: settings.showChatHeaderTitle,
-            onChanged: (value) => ref
-                .read(appSettingsProvider.notifier)
-                .setShowChatHeaderTitle(value),
-          ),
-          showChevron: false,
-          onTap: () => ref
-              .read(appSettingsProvider.notifier)
-              .setShowChatHeaderTitle(!settings.showChatHeaderTitle),
-        ),
         if (Platform.isAndroid) ...[
           const SizedBox(height: Spacing.sm),
           _CustomizationTile(

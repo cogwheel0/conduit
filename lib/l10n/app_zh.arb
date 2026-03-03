@@ -314,8 +314,6 @@
   "chatSettings": "对话",
   "sendOnEnter": "回车发送",
   "sendOnEnterDescription": "回车发送（软键盘）。Cmd/Ctrl+Enter 也可用",
-  "showChatHeaderTitle": "显示聊天标题",
-  "showChatHeaderTitleDescription": "在聊天顶栏显示对话标题",
   "androidAssistantTitle": "Android digital assistant",
   "androidAssistantDescription": "Choose what happens when you trigger the Android digital assistant.",
   "androidAssistantOverlayOption": "Show quick overlay (default)",

@@ -1313,14 +1313,6 @@
   "@sendOnEnterDescription": {
     "description": "Explanation of how the Send on Enter toggle behaves."
   },
-  "showChatHeaderTitle": "Show chat title",
-  "@showChatHeaderTitle": {
-    "description": "Toggle title for showing or hiding the conversation title in the chat header."
-  },
-  "showChatHeaderTitleDescription": "Display conversation title pill in the chat header bar",
-  "@showChatHeaderTitleDescription": {
-    "description": "Explanation of what the show chat header title toggle does."
-  },
   "androidAssistantTitle": "Android digital assistant",
   "@androidAssistantTitle": {
     "description": "Tile title for configuring the Android digital assistant trigger."

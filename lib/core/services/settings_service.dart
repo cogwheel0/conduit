@@ -60,8 +60,7 @@ class SettingsService {
       PreferenceKeys.voiceSilenceDuration;
   static const String _androidAssistantTriggerKey =
       PreferenceKeys.androidAssistantTrigger;
-  static const String _showChatHeaderTitleKey =
-      PreferenceKeys.showChatHeaderTitle;
+
   static Box<dynamic> _preferencesBox() =>
       Hive.box<dynamic>(HiveBoxNames.preferences);
 
@@ -168,7 +167,6 @@ class SettingsService {
       _socketTransportModeKey: settings.socketTransportMode,
       _quickPillsKey: settings.quickPills.toList(),
       _sendOnEnterKey: settings.sendOnEnter,
-      _showChatHeaderTitleKey: settings.showChatHeaderTitle,
       PreferenceKeys.ttsSpeechRate: settings.ttsSpeechRate,
       PreferenceKeys.ttsPitch: settings.ttsPitch,
       PreferenceKeys.ttsVolume: settings.ttsVolume,
@@ -339,17 +337,6 @@ class SettingsService {
     return _preferencesBox().put(_sendOnEnterKey, value);
   }
 
-  /// Whether to show the conversation title pill in the chat header.
-  static Future<bool> getShowChatHeaderTitle() {
-    final value = _preferencesBox().get(_showChatHeaderTitleKey) as bool?;
-    return Future.value(value ?? true);
-  }
-
-  /// Set the show chat header title preference.
-  static Future<void> setShowChatHeaderTitle(bool value) {
-    return _preferencesBox().put(_showChatHeaderTitleKey, value);
-  }
-
   static Future<int> getVoiceSilenceDuration() {
     final value = _preferencesBox().get(_voiceSilenceDurationKey) as int?;
     return Future.value((value ?? 2000).clamp(300, 3000));
@@ -436,7 +423,6 @@ class SettingsService {
         (box.get(_quickPillsKey) as List<dynamic>?) ?? const <String>[],
       ),
       sendOnEnter: (box.get(_sendOnEnterKey) as bool?) ?? false,
-      showChatHeaderTitle: (box.get(_showChatHeaderTitleKey) as bool?) ?? true,
       ttsVoice: box.get(PreferenceKeys.ttsVoice) as String?,
       ttsSpeechRate:
           (box.get(PreferenceKeys.ttsSpeechRate) as num?)?.toDouble() ?? 0.5,
@@ -487,7 +473,6 @@ class AppSettings {
   final String? ttsServerVoiceName;
   final AndroidAssistantTrigger androidAssistantTrigger;
   final int voiceSilenceDuration;
-  final bool showChatHeaderTitle;
   const AppSettings({
     this.reduceMotion = false,
     this.animationSpeed = 1.0,
@@ -512,7 +497,6 @@ class AppSettings {
     this.ttsServerVoiceName,
     this.androidAssistantTrigger = AndroidAssistantTrigger.overlay,
     this.voiceSilenceDuration = 2000,
-    this.showChatHeaderTitle = true,
   });
 
   AppSettings copyWith({
@@ -539,7 +523,6 @@ class AppSettings {
     Object? ttsServerVoiceName = const _DefaultValue(),
     int? voiceSilenceDuration,
     AndroidAssistantTrigger? androidAssistantTrigger,
-    bool? showChatHeaderTitle,
   }) {
     return AppSettings(
       reduceMotion: reduceMotion ?? this.reduceMotion,
@@ -574,7 +557,6 @@ class AppSettings {
       androidAssistantTrigger:
           androidAssistantTrigger ?? this.androidAssistantTrigger,
       voiceSilenceDuration: voiceSilenceDuration ?? this.voiceSilenceDuration,
-      showChatHeaderTitle: showChatHeaderTitle ?? this.showChatHeaderTitle,
     );
   }
 
@@ -603,7 +585,6 @@ class AppSettings {
         other.ttsServerVoiceName == ttsServerVoiceName &&
         other.androidAssistantTrigger == androidAssistantTrigger &&
         other.voiceSilenceDuration == voiceSilenceDuration &&
-        other.showChatHeaderTitle == showChatHeaderTitle &&
         _listEquals(other.quickPills, quickPills);
     // socketTransportMode intentionally not included in == to avoid frequent rebuilds
   }
@@ -633,7 +614,6 @@ class AppSettings {
       ttsServerVoiceName,
       androidAssistantTrigger,
       voiceSilenceDuration,
-      showChatHeaderTitle,
       Object.hashAllUnordered(quickPills),
     ]);
   }
@@ -815,11 +795,6 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
     }
     state = state.copyWith(androidAssistantTrigger: trigger);
     await SettingsService.setAndroidAssistantTrigger(trigger);
-  }
-
-  Future<void> setShowChatHeaderTitle(bool value) async {
-    state = state.copyWith(showChatHeaderTitle: value);
-    await SettingsService.setShowChatHeaderTitle(value);
   }
 
   Future<void> resetToDefaults() async {
