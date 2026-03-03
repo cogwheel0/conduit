@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io' show Platform;
 import 'dart:math' as math;
 
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -350,7 +351,7 @@ class _VoiceCallPageState extends ConsumerState<VoiceCallPage>
     final successColor = Theme.of(context).colorScheme.secondary;
 
     final buttons = <Widget>[
-      _buildActionButton(
+      _CallActionButton(
         icon: snapshot.isMuted
             ? CupertinoIcons.mic_fill
             : CupertinoIcons.mic_slash_fill,
@@ -364,7 +365,7 @@ class _VoiceCallPageState extends ConsumerState<VoiceCallPage>
 
     if (snapshot.canPause) {
       buttons.add(
-        _buildActionButton(
+        _CallActionButton(
           icon: CupertinoIcons.pause_fill,
           label: l10n.voiceCallPause,
           color: warningColor,
@@ -375,7 +376,7 @@ class _VoiceCallPageState extends ConsumerState<VoiceCallPage>
       );
     } else if (snapshot.canResume) {
       buttons.add(
-        _buildActionButton(
+        _CallActionButton(
           icon: CupertinoIcons.play_fill,
           label: l10n.voiceCallResume,
           color: successColor,
@@ -388,7 +389,7 @@ class _VoiceCallPageState extends ConsumerState<VoiceCallPage>
 
     if (snapshot.phase == CallPhase.speaking) {
       buttons.add(
-        _buildActionButton(
+        _CallActionButton(
           icon: CupertinoIcons.stop_fill,
           label: l10n.voiceCallStop,
           color: warningColor,
@@ -400,7 +401,7 @@ class _VoiceCallPageState extends ConsumerState<VoiceCallPage>
     }
 
     buttons.add(
-      _buildActionButton(
+      _CallActionButton(
         icon: CupertinoIcons.phone_down_fill,
         label: l10n.voiceCallEnd,
         color: errorColor,
@@ -417,30 +418,6 @@ class _VoiceCallPageState extends ConsumerState<VoiceCallPage>
       spacing: 20,
       runSpacing: 14,
       children: buttons,
-    );
-  }
-
-  Widget _buildActionButton({
-    required IconData icon,
-    required String label,
-    required Color color,
-    required VoidCallback onPressed,
-  }) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        GestureDetector(
-          onTap: onPressed,
-          child: Container(
-            width: 62,
-            height: 62,
-            decoration: BoxDecoration(shape: BoxShape.circle, color: color),
-            child: Icon(icon, color: Colors.white, size: 30),
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(label, style: TextStyle(fontSize: 12, color: color)),
-      ],
     );
   }
 
@@ -472,5 +449,39 @@ class _VoiceCallPageState extends ConsumerState<VoiceCallPage>
     final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
     final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
     return '$minutes:$seconds';
+  }
+}
+
+class _CallActionButton extends StatelessWidget {
+  const _CallActionButton({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        AdaptiveButton.child(
+          onPressed: onPressed,
+          style: AdaptiveButtonStyle.filled,
+          color: color,
+          useSmoothRectangleBorder: true,
+          borderRadius: BorderRadius.circular(100),
+          minSize: const Size(62, 62),
+          child: Icon(icon, color: Colors.white, size: 30),
+        ),
+        const SizedBox(height: 8),
+        Text(label, style: TextStyle(fontSize: 12, color: color)),
+      ],
+    );
   }
 }
