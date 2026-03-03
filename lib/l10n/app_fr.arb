@@ -314,8 +314,6 @@
   "chatSettings": "Discussion",
   "sendOnEnter": "Envoyer avec Entrée",
   "sendOnEnterDescription": "Entrée envoie (clavier logiciel). Cmd/Ctrl+Entrée aussi disponible",
-  "showChatHeaderTitle": "Afficher le titre du chat",
-  "showChatHeaderTitleDescription": "Afficher le titre de la conversation dans la barre d'en-tête du chat",
   "androidAssistantTitle": "Android digital assistant",
   "androidAssistantDescription": "Choose what happens when you trigger the Android digital assistant.",
   "androidAssistantOverlayOption": "Show quick overlay (default)",

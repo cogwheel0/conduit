@@ -816,24 +816,30 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
             }
           }
           if (payload.containsKey('tool_calls')) {
-            final tc = payload['tool_calls'];
-            if (tc is List) {
-              for (final call in tc) {
-                if (call is Map<String, dynamic>) {
-                  final fn = call['function'];
-                  final name = (fn is Map && fn['name'] is String)
-                      ? fn['name'] as String
-                      : null;
-                  if (name is String && name.isNotEmpty) {
-                    final msgs = getMessages();
-                    // Quick string check before expensive regex
-                    final exists =
-                        (msgs.isNotEmpty) &&
-                        msgs.last.content.contains('name="$name"');
-                    if (!exists) {
-                      final status =
-                          '\n<details type="tool_calls" done="false" name="$name"><summary>Executing...</summary>\n</details>\n';
-                      appendToLastMessage(status);
+            // Validate message ID to prevent late events from previous turns
+            // from corrupting the current assistant message
+            if (messageId == null ||
+                messageId.isEmpty ||
+                messageId == assistantMessageId) {
+              final tc = payload['tool_calls'];
+              if (tc is List) {
+                for (final call in tc) {
+                  if (call is Map<String, dynamic>) {
+                    final fn = call['function'];
+                    final name = (fn is Map && fn['name'] is String)
+                        ? fn['name'] as String
+                        : null;
+                    if (name is String && name.isNotEmpty) {
+                      final msgs = getMessages();
+                      // Quick string check before expensive regex
+                      final exists =
+                          (msgs.isNotEmpty) &&
+                          msgs.last.content.contains('name="$name"');
+                      if (!exists) {
+                        final status =
+                            '\n<details type="tool_calls" done="false" name="$name"><summary>Executing...</summary>\n</details>\n';
+                        appendToLastMessage(status);
+                      }
                     }
                   }
                 }
@@ -841,52 +847,88 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
             }
           }
           if (payload.containsKey('choices')) {
-            final choices = payload['choices'];
-            if (choices is List && choices.isNotEmpty) {
-              final choice = choices.first;
-              final delta = choice is Map ? choice['delta'] : null;
-              if (delta is Map) {
-                if (delta.containsKey('tool_calls')) {
-                  final tc = delta['tool_calls'];
-                  if (tc is List) {
-                    for (final call in tc) {
-                      if (call is Map<String, dynamic>) {
-                        final fn = call['function'];
-                        final name = (fn is Map && fn['name'] is String)
-                            ? fn['name'] as String
-                            : null;
-                        if (name is String && name.isNotEmpty) {
-                          final msgs = getMessages();
-                          // Quick string check before expensive regex
-                          final exists =
-                              (msgs.isNotEmpty) &&
-                              msgs.last.content.contains('name="$name"');
-                          if (!exists) {
-                            final status =
-                                '\n<details type="tool_calls" done="false" name="$name"><summary>Executing...</summary>\n</details>\n';
-                            appendToLastMessage(status);
+            // Validate message ID to prevent late events from previous turns
+            // from corrupting the current assistant message
+            if (messageId != null &&
+                messageId.isNotEmpty &&
+                messageId != assistantMessageId) {
+              DebugLogger.log(
+                'Ignoring completion choices for wrong message: '
+                '$messageId (expected $assistantMessageId)',
+                scope: 'streaming/helper',
+              );
+            } else {
+              final choices = payload['choices'];
+              if (choices is List && choices.isNotEmpty) {
+                final choice = choices.first;
+                final delta = choice is Map ? choice['delta'] : null;
+                if (delta is Map) {
+                  if (delta.containsKey('tool_calls')) {
+                    final tc = delta['tool_calls'];
+                    if (tc is List) {
+                      for (final call in tc) {
+                        if (call is Map<String, dynamic>) {
+                          final fn = call['function'];
+                          final name = (fn is Map && fn['name'] is String)
+                              ? fn['name'] as String
+                              : null;
+                          if (name is String && name.isNotEmpty) {
+                            final msgs = getMessages();
+                            // Quick string check before expensive regex
+                            final exists =
+                                (msgs.isNotEmpty) &&
+                                msgs.last.content.contains('name="$name"');
+                            if (!exists) {
+                              final status =
+                                  '\n<details type="tool_calls" done="false" name="$name"><summary>Executing...</summary>\n</details>\n';
+                              appendToLastMessage(status);
+                            }
                           }
                         }
                       }
                     }
                   }
-                }
-                final content = delta['content']?.toString() ?? '';
-                if (content.isNotEmpty) {
-                  appendToLastMessage(content);
-                  updateImagesFromCurrentContent();
+                  final content = delta['content']?.toString() ?? '';
+                  if (content.isNotEmpty) {
+                    appendToLastMessage(content);
+                    updateImagesFromCurrentContent();
+                  }
                 }
               }
             }
           }
           if (payload.containsKey('content')) {
-            final raw = payload['content']?.toString() ?? '';
-            if (raw.isNotEmpty) {
-              replaceLastMessageContent(raw);
-              updateImagesFromCurrentContent();
+            // Validate message ID to prevent late events from previous turns
+            // from corrupting the current assistant message
+            if (messageId != null &&
+                messageId.isNotEmpty &&
+                messageId != assistantMessageId) {
+              DebugLogger.log(
+                'Ignoring completion content for wrong message: '
+                '$messageId (expected $assistantMessageId)',
+                scope: 'streaming/helper',
+              );
+            } else {
+              final raw = payload['content']?.toString() ?? '';
+              if (raw.isNotEmpty) {
+                replaceLastMessageContent(raw);
+                updateImagesFromCurrentContent();
+              }
             }
           }
           if (payload['done'] == true) {
+            // Validate message ID to prevent late done events from previous
+            // turns from prematurely terminating the current stream
+            if (messageId != null &&
+                messageId.isNotEmpty &&
+                messageId != assistantMessageId) {
+              DebugLogger.log(
+                'Ignoring completion done for wrong message: '
+                '$messageId (expected $assistantMessageId)',
+                scope: 'streaming/helper',
+              );
+              return;
+            }
             try {
               // Get current messages to send with usage data (issue #274)
               final currentMessages = getMessages();

@@ -440,8 +440,6 @@
   "chatSettings": "채팅",
   "sendOnEnter": "Enter로 전송",
   "sendOnEnterDescription": "Enter로 전송 (소프트 키보드). Cmd/Ctrl+Enter도 사용 가능",
-  "showChatHeaderTitle": "채팅 제목 표시",
-  "showChatHeaderTitleDescription": "채팅 헤더 바에 대화 제목 표시",
   "androidAssistantTitle": "Android digital assistant",
   "androidAssistantDescription": "Choose what happens when you trigger the Android digital assistant.",
   "androidAssistantOverlayOption": "Show quick overlay (default)",

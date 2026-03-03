@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_math_fork/flutter_math.dart';
+import 'package:flutter_tex/flutter_tex.dart';
 
 /// Extracts LaTeX expressions before markdown parsing and
 /// restores them during widget rendering.
@@ -41,8 +41,20 @@ class LatexPreprocessor {
 
   // -- Pre-compiled regex patterns --
 
+  /// Matches `\[...\]` (block LaTeX), non-greedy, multiline.
+  static final _bracketBlockPattern = RegExp(
+    r'\\\[([\s\S]+?)\\\]',
+    multiLine: true,
+  );
+
   /// Matches `$$...$$` (block LaTeX), non-greedy, multiline.
-  static final _blockPattern = RegExp(r'\$\$([\s\S]+?)\$\$', multiLine: true);
+  static final _dollarBlockPattern = RegExp(
+    r'\$\$([\s\S]+?)\$\$',
+    multiLine: true,
+  );
+
+  /// Matches `\(...\)` (inline LaTeX), non-greedy.
+  static final _parenInlinePattern = RegExp(r'\\\(([\s\S]+?)\\\)');
 
   /// Matches `$...$` (inline LaTeX).
   ///
@@ -54,7 +66,7 @@ class LatexPreprocessor {
   /// `$` (whitespace, punctuation, or end-of-input) so plain
   /// currency text such as `$65,539 USD ... ~$42.6` is not
   /// treated as a math span.
-  static final _inlinePattern = RegExp(
+  static final _dollarInlinePattern = RegExp(
     r'(?<!\$)(?<!\\)\$(?!\$)(\S(?:[^\n$]*?\S)?)\$(?!\$)(?=(?:[\s\]),.;:!?]|$))',
   );
 
@@ -65,24 +77,42 @@ class LatexPreprocessor {
   /// Replaces LaTeX expressions with placeholder tokens.
   ///
   /// Must be called before passing content to the markdown
-  /// parser. Block LaTeX (`$$...$$`) is extracted first and
-  /// surrounded by blank lines so the parser treats the
-  /// placeholder as its own paragraph. Inline LaTeX (`$...$`)
-  /// is extracted second.
+  /// parser. All block variants (`\[...\]` and `$$...$$`) are
+  /// extracted first, surrounded by blank lines so the parser
+  /// treats them as their own paragraphs. Then inline variants
+  /// (`\(...\)` and `$...$`) are extracted.
   ///
   /// Use [splitOnPlaceholders] during rendering to recover
   /// the original LaTeX content.
   String extract(String content) {
-    // Extract block LaTeX first ($$...$$).
-    var result = content.replaceAllMapped(_blockPattern, (match) {
+    var result = content;
+
+    // Extract \[...\] block LaTeX.
+    result = result.replaceAllMapped(_bracketBlockPattern, (match) {
       final tex = match.group(1)!.trim();
       final key = '$_blockPrefix${_counter++}$_suffix';
       _blockExpressions[key] = tex;
       return '\n\n$key\n\n';
     });
 
-    // Then extract inline LaTeX ($...$).
-    result = result.replaceAllMapped(_inlinePattern, (match) {
+    // Extract $$...$$ block LaTeX.
+    result = result.replaceAllMapped(_dollarBlockPattern, (match) {
+      final tex = match.group(1)!.trim();
+      final key = '$_blockPrefix${_counter++}$_suffix';
+      _blockExpressions[key] = tex;
+      return '\n\n$key\n\n';
+    });
+
+    // Extract \(...\) inline LaTeX.
+    result = result.replaceAllMapped(_parenInlinePattern, (match) {
+      final tex = match.group(1)!.trim();
+      final key = '$_inlinePrefix${_counter++}$_suffix';
+      _inlineExpressions[key] = tex;
+      return key;
+    });
+
+    // Extract $...$ inline LaTeX.
+    result = result.replaceAllMapped(_dollarInlinePattern, (match) {
       final tex = match.group(1)!;
       final key = '$_inlinePrefix${_counter++}$_suffix';
       _inlineExpressions[key] = tex;
@@ -146,17 +176,26 @@ class LatexPreprocessor {
 
   /// Builds a Flutter widget for the given TeX expression.
   ///
-  /// For inline math, returns a [Math.tex] widget directly.
-  /// For block math, wraps it in a horizontal
-  /// [SingleChildScrollView] so wide expressions can scroll.
+  /// Uses [Math2SVG] from `flutter_tex` (MathJax-powered) for
+  /// broader LaTeX coverage. A [ColorFiltered] layer applies
+  /// the current text color to the rendered SVG so it adapts
+  /// to light and dark themes. For block math, wraps in a
+  /// horizontal [SingleChildScrollView] for overflow.
   static Widget buildLatexWidget(
     String tex, {
     required TextStyle textStyle,
     required bool isBlock,
   }) {
-    final math = Math.tex(tex, textStyle: textStyle);
-    if (!isBlock) return math;
-    return SingleChildScrollView(scrollDirection: Axis.horizontal, child: math);
+    final color = textStyle.color ?? Colors.black;
+    final widget = ColorFiltered(
+      colorFilter: ColorFilter.mode(color, BlendMode.srcATop),
+      child: Math2SVG(math: tex),
+    );
+    if (!isBlock) return widget;
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: widget,
+    );
   }
 }
 

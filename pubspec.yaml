@@ -31,7 +31,6 @@ dependencies:
   
   # UI Components - Markdown Rendering
   cached_network_image: ^3.3.1
-  flutter_math_fork: ^0.7.2
   markdown: ^7.3.0
   webview_flutter: ^4.7.0
   socket_io_client: ^3.1.2
@@ -85,6 +84,7 @@ dependencies:
   super_drag_and_drop: ^0.9.1
   just_audio: ^0.10.5
   adaptive_platform_ui: ^0.1.103
+  flutter_tex: ^5.2.6
   
   # Clipboard functionality is available through flutter/services (part of Flutter SDK)
 

@@ -26,7 +26,6 @@ import '../../../core/utils/android_assistant_handler.dart';
 import '../widgets/modern_chat_input.dart';
 import '../widgets/user_message_bubble.dart';
 import '../widgets/assistant_message_widget.dart' as assistant;
-import '../widgets/streaming_title_text.dart';
 import '../widgets/file_attachment_widget.dart';
 import '../widgets/context_attachment_widget.dart';
 import '../services/voice_input_service.dart';
@@ -48,7 +47,6 @@ import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
 import '../../../shared/widgets/modal_safe_area.dart';
 import '../../../core/services/settings_service.dart';
-import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/widgets/model_avatar.dart';
 import '../../../core/services/platform_service.dart' as ps;
 import 'package:flutter/gestures.dart' show DragStartBehavior;
@@ -1458,32 +1456,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         _shouldAutoScrollToBottom = false;
       }
     }
-    final showChatHeaderTitle = ref.watch(
-      appSettingsProvider.select((s) => s.showChatHeaderTitle),
-    );
-    final conversationTitle = ref.watch(
-      activeConversationProvider.select((conv) => conv?.title),
-    );
-    final trimmedConversationTitle = conversationTitle?.trim();
-    final displayConversationTitle =
-        (trimmedConversationTitle != null &&
-            trimmedConversationTitle.isNotEmpty &&
-            showChatHeaderTitle)
-        ? trimmedConversationTitle
-        : null;
     // Watch loading state for app bar skeleton
     final isLoadingConversation = ref.watch(isLoadingConversationProvider);
     final formattedModelName = selectedModel != null
         ? _formatModelDisplayName(selectedModel.name)
         : null;
     final modelLabel = formattedModelName ?? l10n.chooseModel;
-    final hasConversationTitle =
-        (displayConversationTitle != null || isLoadingConversation) &&
-        showChatHeaderTitle;
     final TextStyle modelTextStyle = AppTypography.standard.copyWith(
-      color: hasConversationTitle
-          ? context.conduitTheme.textSecondary
-          : context.conduitTheme.textPrimary,
+      color: context.conduitTheme.textPrimary,
       fontWeight: FontWeight.w600,
     );
 
@@ -1705,71 +1685,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                         )
                       : LayoutBuilder(
                           builder: (context, constraints) {
-                            // Build title pill (tappable for context menu)
-                            // Show skeleton when loading, actual title otherwise
-                            Widget? titlePill;
-                            if (isLoadingConversation && showChatHeaderTitle) {
-                              // Show skeleton pill while loading conversation
-                              titlePill = _buildAppBarPill(
-                                context: context,
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: Spacing.md,
-                                    vertical: Spacing.xs,
-                                  ),
-                                  child: ConduitLoading.skeleton(
-                                    width: 120,
-                                    height: 18,
-                                    borderRadius: BorderRadius.circular(
-                                      AppBorderRadius.sm,
-                                    ),
-                                  ),
-                                ),
-                              );
-                            } else if (displayConversationTitle != null) {
-                              final conversation = ref.read(
-                                activeConversationProvider,
-                              );
-                              titlePill = ConduitContextMenu(
-                                actions: buildConversationActions(
-                                  context: context,
-                                  ref: ref,
-                                  conversation: conversation,
-                                ),
-                                child: _buildAppBarPill(
-                                  context: context,
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: Spacing.md,
-                                      vertical: Spacing.xs,
-                                    ),
-                                    child: ConstrainedBox(
-                                      constraints: BoxConstraints(
-                                        maxWidth:
-                                            constraints.maxWidth - Spacing.xxxl,
-                                      ),
-                                      child: StreamingTitleText(
-                                        title: displayConversationTitle,
-                                        style: AppTypography.headlineSmallStyle
-                                            .copyWith(
-                                              color: context
-                                                  .conduitTheme
-                                                  .textPrimary,
-                                              fontWeight: FontWeight.w600,
-                                              fontSize: 16,
-                                              height: 1.3,
-                                            ),
-                                        cursorColor: context
-                                            .conduitTheme
-                                            .textPrimary
-                                            .withValues(alpha: 0.8),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              );
-                            }
-
                             // Build model selector pill
                             // Show skeleton when loading, actual model selector otherwise
                             final Widget modelPill;
@@ -1956,22 +1871,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                             return Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                if (titlePill != null) ...[
-                                  AnimatedSwitcher(
-                                    duration: const Duration(milliseconds: 200),
-                                    switchInCurve: Curves.easeOut,
-                                    switchOutCurve: Curves.easeIn,
-                                    child: KeyedSubtree(
-                                      key: ValueKey(
-                                        isLoadingConversation
-                                            ? 'loading'
-                                            : 'title-$displayConversationTitle',
-                                      ),
-                                      child: titlePill,
-                                    ),
-                                  ),
-                                  const SizedBox(height: Spacing.xs),
-                                ],
                                 AnimatedSwitcher(
                                   duration: const Duration(milliseconds: 200),
                                   switchInCurve: Curves.easeOut,
