@@ -1890,6 +1890,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 autofocus: false,
                 minLines: 1,
                 maxLines: null,
+                textAlignVertical: TextAlignVertical.center,
                 keyboardType: TextInputType.multiline,
                 textCapitalization: TextCapitalization.sentences,
                 // Always use newline action for accessibility compatibility.
@@ -3135,7 +3136,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   ),
                 ),
                 const SizedBox(width: Spacing.xs),
-                _buildTogglePill(isOn: value, theme: theme),
+                IgnorePointer(
+                  child: Switch.adaptive(
+                    value: value,
+                    onChanged: (_) {},
+                  ),
+                ),
               ],
             ),
           ),
@@ -3228,7 +3234,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   ),
                 ),
                 const SizedBox(width: Spacing.xs),
-                _buildTogglePill(isOn: selected, theme: theme),
+                IgnorePointer(
+                  child: Switch.adaptive(
+                    value: selected,
+                    onChanged: (_) {},
+                  ),
+                ),
               ],
             ),
           ),
@@ -3321,7 +3332,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   ),
                 ),
                 const SizedBox(width: Spacing.xs),
-                _buildTogglePill(isOn: selected, theme: theme),
+                IgnorePointer(
+                  child: Switch.adaptive(
+                    value: selected,
+                    onChanged: (_) {},
+                  ),
+                ),
               ],
             ),
           ),
@@ -3445,48 +3461,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               color: iconColor,
               size: IconSize.modal,
             ),
-    );
-  }
-
-  Widget _buildTogglePill({
-    required bool isOn,
-    required ConduitThemeExtension theme,
-  }) {
-    final Color trackColor = isOn
-        ? theme.buttonPrimary.withValues(alpha: 0.9)
-        : theme.cardBorder.withValues(alpha: 0.5);
-    final Color thumbColor = isOn
-        ? theme.buttonPrimaryText
-        : theme.surfaceBackground.withValues(alpha: 0.9);
-
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 180),
-      curve: Curves.easeOutCubic,
-      width: 42,
-      height: 22,
-      padding: const EdgeInsets.symmetric(horizontal: 2),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(AppBorderRadius.round),
-        color: trackColor,
-      ),
-      alignment: isOn ? Alignment.centerRight : Alignment.centerLeft,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOutCubic,
-        width: 18,
-        height: 18,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: thumbColor,
-          boxShadow: [
-            BoxShadow(
-              color: theme.buttonPrimary.withValues(alpha: 0.25),
-              blurRadius: 6,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-      ),
     );
   }
 
