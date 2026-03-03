@@ -20,6 +20,8 @@ import '../../../l10n/app_localizations.dart';
 import '../../chat/providers/text_to_speech_provider.dart';
 import '../../chat/services/voice_input_service.dart';
 
+const _sectionGap = SizedBox(height: Spacing.lg);
+
 class AppCustomizationPage extends ConsumerWidget {
   const AppCustomizationPage({super.key});
 
@@ -74,20 +76,20 @@ class AppCustomizationPage extends ConsumerWidget {
             activeTheme,
             settings,
           ),
-          const SizedBox(height: Spacing.md),
+          _sectionGap,
           _buildLanguageSection(
             context,
             ref,
             currentLanguageCode,
             languageLabel,
           ),
-          const SizedBox(height: Spacing.xl),
+          _sectionGap,
           _buildSttSection(context, ref, settings),
-          const SizedBox(height: Spacing.xl),
+          _sectionGap,
           _buildTtsDropdownSection(context, ref, settings),
-          const SizedBox(height: Spacing.xl),
+          _sectionGap,
           _buildChatSection(context, ref, settings),
-          const SizedBox(height: Spacing.xl),
+          _sectionGap,
           _buildSocketHealthSection(context, ref),
         ],
       ),
@@ -102,17 +104,10 @@ class AppCustomizationPage extends ConsumerWidget {
     TweakcnThemeDefinition activeTheme,
     AppSettings settings,
   ) {
-    final theme = context.conduitTheme;
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          AppLocalizations.of(context)!.display,
-          style:
-              theme.headingSmall?.copyWith(color: theme.sidebarForeground) ??
-              TextStyle(color: theme.sidebarForeground, fontSize: 18),
-        ),
+        _SectionHeader(title: AppLocalizations.of(context)!.display),
         const SizedBox(height: Spacing.sm),
         _ExpandableCard(
           title: AppLocalizations.of(context)!.darkMode,
@@ -124,44 +119,11 @@ class AppCustomizationPage extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Wrap(
-                spacing: Spacing.sm,
-                runSpacing: Spacing.sm,
-                children: [
-                  _buildThemeChip(
-                    context,
-                    ref,
-                    mode: ThemeMode.system,
-                    isSelected: themeMode == ThemeMode.system,
-                    label: AppLocalizations.of(context)!.system,
-                    icon: UiUtils.platformIcon(
-                      ios: CupertinoIcons.sparkles,
-                      android: Icons.auto_mode,
-                    ),
-                  ),
-                  _buildThemeChip(
-                    context,
-                    ref,
-                    mode: ThemeMode.light,
-                    isSelected: themeMode == ThemeMode.light,
-                    label: AppLocalizations.of(context)!.themeLight,
-                    icon: UiUtils.platformIcon(
-                      ios: CupertinoIcons.sun_max,
-                      android: Icons.light_mode,
-                    ),
-                  ),
-                  _buildThemeChip(
-                    context,
-                    ref,
-                    mode: ThemeMode.dark,
-                    isSelected: themeMode == ThemeMode.dark,
-                    label: AppLocalizations.of(context)!.themeDark,
-                    icon: UiUtils.platformIcon(
-                      ios: CupertinoIcons.moon_fill,
-                      android: Icons.dark_mode,
-                    ),
-                  ),
-                ],
+              _ThemeModeSegmentedControl(
+                value: themeMode,
+                onChanged: (mode) {
+                  ref.read(appThemeModeProvider.notifier).setTheme(mode);
+                },
               ),
             ],
           ),
@@ -185,6 +147,8 @@ class AppCustomizationPage extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        _SectionHeader(title: AppLocalizations.of(context)!.appLanguage),
+        const SizedBox(height: Spacing.sm),
         _CustomizationTile(
           leading: _buildIconBadge(
             context,
@@ -222,45 +186,27 @@ class AppCustomizationPage extends ConsumerWidget {
     TweakcnThemeDefinition activeTheme,
   ) {
     final l10n = AppLocalizations.of(context)!;
-    final palettes = TweakcnThemes.all;
+    final theme = context.conduitTheme;
 
-    return _ExpandableCard(
+    return _CustomizationTile(
+      leading: _buildIconBadge(
+        context,
+        UiUtils.platformIcon(
+          ios: CupertinoIcons.square_fill_on_square_fill,
+          android: Icons.palette,
+        ),
+        color: theme.buttonPrimary,
+      ),
       title: l10n.themePalette,
       subtitle: activeTheme.label(l10n),
-      icon: UiUtils.platformIcon(
-        ios: CupertinoIcons.square_fill_on_square_fill,
-        android: Icons.palette,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          for (final palette in palettes)
-            _PaletteOption(
-              themeDefinition: palette,
-              l10n: l10n,
-              activeId: activeTheme.id,
-              onSelect: () => ref
-                  .read(appThemePaletteProvider.notifier)
-                  .setPalette(palette.id),
-            ),
+          for (final color in activeTheme.preview.take(3))
+            _PaletteColorDot(color: color),
         ],
       ),
-    );
-  }
-
-  Widget _buildThemeChip(
-    BuildContext context,
-    WidgetRef ref, {
-    required ThemeMode mode,
-    required bool isSelected,
-    required String label,
-    required IconData icon,
-  }) {
-    return ConduitChip(
-      label: label,
-      icon: icon,
-      isSelected: isSelected,
-      onTap: () => ref.read(appThemeModeProvider.notifier).setTheme(mode),
+      onTap: () => _showPaletteSelectorSheet(context, ref, activeTheme.id),
     );
   }
 
@@ -316,35 +262,28 @@ class AppCustomizationPage extends ConsumerWidget {
       await ref.read(appSettingsProvider.notifier).setQuickPills(next);
     }
 
-    List<Widget> buildToolChips() {
-      return tools.map((tool) {
-        final isSelected = selected.contains(tool.id);
-        final canSelect = selectedCount < maxPills || isSelected;
-        return ConduitChip(
-          label: tool.name,
-          icon: Icons.extension,
-          isSelected: isSelected,
-          onTap: canSelect ? () => toggle(tool.id) : null,
-        );
-      }).toList();
-    }
-
-    List<Widget> buildFilterChips() {
-      return filters.map((filter) {
-        final filterId = 'filter:${filter.id}';
-        final isSelected = selected.contains(filterId);
-        final canSelect = selectedCount < maxPills || isSelected;
-        return ConduitChip(
-          label: filter.name,
-          icon: Platform.isIOS ? CupertinoIcons.sparkles : Icons.auto_awesome,
-          isSelected: isSelected,
-          onTap: canSelect ? () => toggle(filterId) : null,
-        );
-      }).toList();
-    }
-
     final l10n = AppLocalizations.of(context)!;
     final selectedCountText = l10n.quickActionsSelectedCount(selectedCount);
+    final options = <({String id, String label, IconData icon})>[
+      (
+        id: 'web',
+        label: l10n.web,
+        icon: Platform.isIOS ? CupertinoIcons.search : Icons.search,
+      ),
+      (
+        id: 'image',
+        label: l10n.imageGen,
+        icon: Platform.isIOS ? CupertinoIcons.photo : Icons.image,
+      ),
+      for (final tool in tools)
+        (id: tool.id, label: tool.name, icon: Icons.extension),
+      for (final filter in filters)
+        (
+          id: 'filter:${filter.id}',
+          label: filter.name,
+          icon: Platform.isIOS ? CupertinoIcons.sparkles : Icons.auto_awesome,
+        ),
+    ];
 
     return _ExpandableCard(
       title: l10n.quickActionsDescription,
@@ -356,39 +295,73 @@ class AppCustomizationPage extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Wrap(
-            spacing: Spacing.sm,
-            runSpacing: Spacing.sm,
-            children: [
-              ConduitChip(
-                label: l10n.web,
-                icon: Platform.isIOS ? CupertinoIcons.search : Icons.search,
-                isSelected: selected.contains('web'),
-                onTap: (selectedCount < maxPills || selected.contains('web'))
-                    ? () => toggle('web')
-                    : null,
+          ConduitCard(
+            padding: EdgeInsets.zero,
+            child: Theme(
+              data: Theme.of(context).copyWith(
+                visualDensity: VisualDensity.compact,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
               ),
-              ConduitChip(
-                label: l10n.imageGen,
-                icon: Platform.isIOS ? CupertinoIcons.photo : Icons.image,
-                isSelected: selected.contains('image'),
-                onTap: (selectedCount < maxPills || selected.contains('image'))
-                    ? () => toggle('image')
-                    : null,
+              child: Column(
+                children: [
+                  for (var i = 0; i < options.length; i++) ...[
+                    AdaptiveListTile(
+                      leading: Icon(options[i].icon, size: IconSize.small),
+                      title: Text(
+                        options[i].label,
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                      trailing: Checkbox.adaptive(
+                        value: selected.contains(options[i].id),
+                        visualDensity: VisualDensity.compact,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        onChanged:
+                            (selectedCount < maxPills ||
+                                selected.contains(options[i].id))
+                            ? (_) => toggle(options[i].id)
+                            : null,
+                      ),
+                      onTap:
+                          (selectedCount < maxPills ||
+                              selected.contains(options[i].id))
+                          ? () => toggle(options[i].id)
+                          : null,
+                    ),
+                    if (i != options.length - 1)
+                      Divider(
+                        height: 1,
+                        color: Theme.of(
+                          context,
+                        ).dividerColor.withValues(alpha: 0.2),
+                      ),
+                  ],
+                ],
               ),
-              ...buildToolChips(),
-              ...buildFilterChips(),
-              if (selected.isNotEmpty)
-                ConduitChip(
-                  label: l10n.clear,
-                  icon: Platform.isIOS ? CupertinoIcons.xmark : Icons.close,
-                  isSelected: false,
-                  onTap: () => ref
-                      .read(appSettingsProvider.notifier)
-                      .setQuickPills(const []),
-                ),
-            ],
+            ),
           ),
+          if (selected.isNotEmpty) ...[
+            const SizedBox(height: Spacing.sm),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: AdaptiveButton.child(
+                onPressed: () => ref
+                    .read(appSettingsProvider.notifier)
+                    .setQuickPills(const []),
+                style: AdaptiveButtonStyle.plain,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Platform.isIOS ? CupertinoIcons.xmark : Icons.close,
+                      size: IconSize.small,
+                    ),
+                    const SizedBox(width: Spacing.xs),
+                    Text(l10n.clear),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -420,12 +393,7 @@ class AppCustomizationPage extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          l10n.chatSettings,
-          style:
-              theme.headingSmall?.copyWith(color: theme.sidebarForeground) ??
-              TextStyle(color: theme.sidebarForeground, fontSize: 18),
-        ),
+        _SectionHeader(title: l10n.chatSettings),
         const SizedBox(height: Spacing.sm),
         _CustomizationTile(
           leading: _buildIconBadge(
@@ -496,7 +464,6 @@ class AppCustomizationPage extends ConsumerWidget {
   }
 
   Widget _buildSocketHealthSection(BuildContext context, WidgetRef ref) {
-    final theme = context.conduitTheme;
     final socketService = ref.watch(socketServiceProvider);
 
     if (socketService == null) {
@@ -506,12 +473,7 @@ class AppCustomizationPage extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Connection Health',
-          style:
-              theme.headingSmall?.copyWith(color: theme.sidebarForeground) ??
-              TextStyle(color: theme.sidebarForeground, fontSize: 18),
-        ),
+        const _SectionHeader(title: 'Connection Health'),
         const SizedBox(height: Spacing.sm),
         _SocketHealthCard(socketService: socketService),
       ],
@@ -628,12 +590,12 @@ class AppCustomizationPage extends ConsumerWidget {
                   return AdaptiveListTile(
                     leading: Icon(
                       selected
-                      ? (Platform.isIOS
-                            ? CupertinoIcons.checkmark_circle_fill
-                            : Icons.check_circle)
-                      : (Platform.isIOS
-                            ? CupertinoIcons.circle
-                            : Icons.circle_outlined),
+                          ? (Platform.isIOS
+                                ? CupertinoIcons.checkmark_circle_fill
+                                : Icons.check_circle)
+                          : (Platform.isIOS
+                                ? CupertinoIcons.circle
+                                : Icons.circle_outlined),
                       color: selected
                           ? theme.buttonPrimary
                           : theme.iconSecondary,
@@ -703,12 +665,7 @@ class AppCustomizationPage extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          l10n.sttSettings,
-          style:
-              theme.headingSmall?.copyWith(color: theme.sidebarForeground) ??
-              TextStyle(color: theme.sidebarForeground, fontSize: 18),
-        ),
+        _SectionHeader(title: l10n.sttSettings),
         const SizedBox(height: Spacing.sm),
         ConduitCard(
           padding: const EdgeInsets.all(Spacing.md),
@@ -744,65 +701,23 @@ class AppCustomizationPage extends ConsumerWidget {
                 ],
               ),
               const SizedBox(height: Spacing.sm),
-              Wrap(
-                spacing: Spacing.sm,
-                runSpacing: Spacing.sm,
-                children: [
-                  ChoiceChip(
-                    label: Text(l10n.sttEngineDevice),
-                    selected:
-                        settings.sttPreference == SttPreference.deviceOnly,
-                    showCheckmark: false,
-                    selectedColor: theme.buttonPrimary,
-                    backgroundColor: theme.cardBackground,
-                    side: BorderSide(
-                      color: settings.sttPreference == SttPreference.deviceOnly
-                          ? theme.buttonPrimary.withValues(alpha: 0.6)
-                          : theme.textPrimary.withValues(alpha: 0.2),
-                    ),
-                    labelStyle: TextStyle(
-                      color: settings.sttPreference == SttPreference.deviceOnly
-                          ? theme.buttonPrimaryText
-                          : theme.textPrimary,
-                      fontWeight: FontWeight.w600,
-                    ),
-                    onSelected: deviceSelectable
-                        ? (value) {
-                            if (value) {
-                              notifier.setSttPreference(
-                                SttPreference.deviceOnly,
-                              );
-                            }
-                          }
-                        : null,
+              _AdaptiveSegmentedSelector<SttPreference>(
+                value: settings.sttPreference,
+                onChanged: notifier.setSttPreference,
+                options: [
+                  (
+                    value: SttPreference.deviceOnly,
+                    label: l10n.sttEngineDevice,
+                    cupertinoIcon: CupertinoIcons.device_phone_portrait,
+                    materialIcon: Icons.phone_android,
+                    enabled: deviceSelectable,
                   ),
-                  ChoiceChip(
-                    label: Text(l10n.sttEngineServer),
-                    selected:
-                        settings.sttPreference == SttPreference.serverOnly,
-                    showCheckmark: false,
-                    selectedColor: theme.buttonPrimary,
-                    backgroundColor: theme.cardBackground,
-                    side: BorderSide(
-                      color: settings.sttPreference == SttPreference.serverOnly
-                          ? theme.buttonPrimary.withValues(alpha: 0.6)
-                          : theme.textPrimary.withValues(alpha: 0.2),
-                    ),
-                    labelStyle: TextStyle(
-                      color: settings.sttPreference == SttPreference.serverOnly
-                          ? theme.buttonPrimaryText
-                          : theme.textPrimary,
-                      fontWeight: FontWeight.w600,
-                    ),
-                    onSelected: serverSelectable
-                        ? (value) {
-                            if (value) {
-                              notifier.setSttPreference(
-                                SttPreference.serverOnly,
-                              );
-                            }
-                          }
-                        : null,
+                  (
+                    value: SttPreference.serverOnly,
+                    label: l10n.sttEngineServer,
+                    cupertinoIcon: CupertinoIcons.cloud,
+                    materialIcon: Icons.cloud,
+                    enabled: serverSelectable,
                   ),
                 ],
               ),
@@ -970,12 +885,7 @@ class AppCustomizationPage extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          l10n.ttsSettings,
-          style:
-              theme.headingSmall?.copyWith(color: theme.sidebarForeground) ??
-              TextStyle(color: theme.sidebarForeground, fontSize: 18),
-        ),
+        _SectionHeader(title: l10n.ttsSettings),
         const SizedBox(height: Spacing.sm),
         ConduitCard(
           padding: const EdgeInsets.all(Spacing.md),
@@ -1005,73 +915,29 @@ class AppCustomizationPage extends ConsumerWidget {
                 ],
               ),
               const SizedBox(height: Spacing.sm),
-              Wrap(
-                spacing: Spacing.sm,
-                runSpacing: Spacing.sm,
-                children: [
-                  ChoiceChip(
-                    label: Text(l10n.ttsEngineDevice),
-                    selected: settings.ttsEngine == TtsEngine.device,
-                    showCheckmark: false,
-                    selectedColor: theme.buttonPrimary,
-                    backgroundColor: theme.cardBackground,
-                    side: BorderSide(
-                      color: settings.ttsEngine == TtsEngine.device
-                          ? theme.buttonPrimary.withValues(alpha: 0.6)
-                          : theme.textPrimary.withValues(
-                              alpha: deviceSelectable ? 0.2 : 0.12,
-                            ),
-                    ),
-                    labelStyle: TextStyle(
-                      color: settings.ttsEngine == TtsEngine.device
-                          ? theme.buttonPrimaryText
-                          : theme.textPrimary.withValues(
-                              alpha: deviceSelectable ? 1.0 : 0.45,
-                            ),
-                      fontWeight: FontWeight.w600,
-                    ),
-                    onSelected: deviceSelectable
-                        ? (value) {
-                            if (value) {
-                              ref
-                                  .read(appSettingsProvider.notifier)
-                                  .setTtsEngine(TtsEngine.device);
-                            }
-                          }
-                        : null,
+              _AdaptiveSegmentedSelector<TtsEngine>(
+                value: settings.ttsEngine,
+                onChanged: (engine) {
+                  final notifier = ref.read(appSettingsProvider.notifier);
+                  if (engine == TtsEngine.server) {
+                    notifier.setTtsVoice(null);
+                  }
+                  notifier.setTtsEngine(engine);
+                },
+                options: [
+                  (
+                    value: TtsEngine.device,
+                    label: l10n.ttsEngineDevice,
+                    cupertinoIcon: CupertinoIcons.device_phone_portrait,
+                    materialIcon: Icons.phone_android,
+                    enabled: deviceSelectable,
                   ),
-                  ChoiceChip(
-                    label: Text(l10n.ttsEngineServer),
-                    selected: settings.ttsEngine == TtsEngine.server,
-                    showCheckmark: false,
-                    selectedColor: theme.buttonPrimary,
-                    backgroundColor: theme.cardBackground,
-                    side: BorderSide(
-                      color: settings.ttsEngine == TtsEngine.server
-                          ? theme.buttonPrimary.withValues(alpha: 0.6)
-                          : theme.textPrimary.withValues(
-                              alpha: serverSelectable ? 0.2 : 0.12,
-                            ),
-                    ),
-                    labelStyle: TextStyle(
-                      color: settings.ttsEngine == TtsEngine.server
-                          ? theme.buttonPrimaryText
-                          : theme.textPrimary.withValues(
-                              alpha: serverSelectable ? 1.0 : 0.45,
-                            ),
-                      fontWeight: FontWeight.w600,
-                    ),
-                    onSelected: serverSelectable
-                        ? (value) {
-                            if (value) {
-                              final notifier = ref.read(
-                                appSettingsProvider.notifier,
-                              );
-                              notifier.setTtsVoice(null);
-                              notifier.setTtsEngine(TtsEngine.server);
-                            }
-                          }
-                        : null,
+                  (
+                    value: TtsEngine.server,
+                    label: l10n.ttsEngineServer,
+                    cupertinoIcon: CupertinoIcons.cloud,
+                    materialIcon: Icons.cloud,
+                    enabled: serverSelectable,
                   ),
                 ],
               ),
@@ -1367,33 +1233,9 @@ class AppCustomizationPage extends ConsumerWidget {
           builder: (context, scrollController) {
             return Column(
               children: [
-                // Header
-                Padding(
-                  padding: const EdgeInsets.all(Spacing.md),
-                  child: Row(
-                    children: [
-                      Text(
-                        l10n.ttsSelectVoice,
-                        style:
-                            theme.headingSmall?.copyWith(
-                              color: theme.sidebarForeground,
-                            ) ??
-                            TextStyle(
-                              color: theme.sidebarForeground,
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                            ),
-                      ),
-                      const Spacer(),
-                      IconButton(
-                        icon: Icon(
-                        Platform.isIOS ? CupertinoIcons.xmark : Icons.close,
-                        color: theme.iconPrimary,
-                      ),
-                        onPressed: () => Navigator.of(sheetContext).pop(),
-                      ),
-                    ],
-                  ),
+                _SheetHeader(
+                  title: l10n.ttsSelectVoice,
+                  onClose: () => Navigator.of(sheetContext).pop(),
                 ),
                 const Divider(height: 1),
                 // System Default Option
@@ -1424,11 +1266,11 @@ class AppCustomizationPage extends ConsumerWidget {
                           ? settings.ttsServerVoiceId == null
                           : settings.ttsVoice == null)
                       ? Icon(
-                        Platform.isIOS
-                            ? CupertinoIcons.check_mark
-                            : Icons.check,
-                        color: theme.buttonPrimary,
-                      )
+                          Platform.isIOS
+                              ? CupertinoIcons.check_mark
+                              : Icons.check,
+                          color: theme.buttonPrimary,
+                        )
                       : null,
                   onTap: () {
                     final notifier = ref.read(appSettingsProvider.notifier);
@@ -1563,11 +1405,11 @@ class AppCustomizationPage extends ConsumerWidget {
                             : null,
                         trailing: isSelected
                             ? Icon(
-                        Platform.isIOS
-                            ? CupertinoIcons.check_mark
-                            : Icons.check,
-                        color: theme.buttonPrimary,
-                      )
+                                Platform.isIOS
+                                    ? CupertinoIcons.check_mark
+                                    : Icons.check,
+                                color: theme.buttonPrimary,
+                              )
                             : null,
                         onTap: () {
                           final notifier = ref.read(
@@ -1876,36 +1718,9 @@ class AppCustomizationPage extends ConsumerWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: Spacing.lg,
-                  vertical: Spacing.md,
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        l10n.transportMode,
-                        style:
-                            theme.headingSmall?.copyWith(
-                              color: theme.sidebarForeground,
-                            ) ??
-                            TextStyle(
-                              color: theme.sidebarForeground,
-                              fontSize: 18,
-                              fontWeight: FontWeight.w600,
-                            ),
-                      ),
-                    ),
-                    IconButton(
-                      icon: Icon(
-                        Platform.isIOS ? CupertinoIcons.xmark : Icons.close,
-                        color: theme.iconPrimary,
-                      ),
-                      onPressed: () => Navigator.of(sheetContext).pop(),
-                    ),
-                  ],
-                ),
+              _SheetHeader(
+                title: l10n.transportMode,
+                onClose: () => Navigator.of(sheetContext).pop(),
               ),
               const Divider(height: 1),
               for (var i = 0; i < options.length; i++) ...[
@@ -1915,12 +1730,12 @@ class AppCustomizationPage extends ConsumerWidget {
                   return AdaptiveListTile(
                     leading: Icon(
                       selected
-                      ? (Platform.isIOS
-                            ? CupertinoIcons.checkmark_circle_fill
-                            : Icons.check_circle)
-                      : (Platform.isIOS
-                            ? CupertinoIcons.circle
-                            : Icons.circle_outlined),
+                          ? (Platform.isIOS
+                                ? CupertinoIcons.checkmark_circle_fill
+                                : Icons.check_circle)
+                          : (Platform.isIOS
+                                ? CupertinoIcons.circle
+                                : Icons.circle_outlined),
                       color: selected
                           ? theme.buttonPrimary
                           : theme.iconSecondary,
@@ -1999,6 +1814,83 @@ class AppCustomizationPage extends ConsumerWidget {
     );
   }
 
+  Future<void> _showPaletteSelectorSheet(
+    BuildContext context,
+    WidgetRef ref,
+    String activePaletteId,
+  ) async {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = context.conduitTheme;
+    final palettes = TweakcnThemes.all;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: theme.sidebarBackground,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(AppBorderRadius.modal),
+        ),
+      ),
+      builder: (sheetContext) {
+        return SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _SheetHeader(
+                title: l10n.themePalette,
+                onClose: () => Navigator.of(sheetContext).pop(),
+              ),
+              const Divider(height: 1),
+              Flexible(
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: palettes.length,
+                  separatorBuilder: (_, _) => const Divider(height: 1),
+                  itemBuilder: (context, index) {
+                    final palette = palettes[index];
+                    final isSelected = palette.id == activePaletteId;
+                    return AdaptiveListTile(
+                      leading: Icon(
+                        isSelected
+                            ? (Platform.isIOS
+                                  ? CupertinoIcons.checkmark_circle_fill
+                                  : Icons.check_circle)
+                            : (Platform.isIOS
+                                  ? CupertinoIcons.circle
+                                  : Icons.circle_outlined),
+                        color: isSelected
+                            ? theme.buttonPrimary
+                            : theme.iconSecondary,
+                      ),
+                      title: Text(palette.label(l10n)),
+                      subtitle: Text(palette.description(l10n)),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          for (final color in palette.preview.take(3))
+                            _PaletteColorDot(color: color),
+                        ],
+                      ),
+                      onTap: () async {
+                        await ref
+                            .read(appThemePaletteProvider.notifier)
+                            .setPalette(palette.id);
+                        if (!sheetContext.mounted) return;
+                        Navigator.of(sheetContext).pop();
+                      },
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: Spacing.sm),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Future<String?> _showLanguageSelector(BuildContext context, String current) {
     final normalizedCurrent = current.replaceAll('_', '-');
 
@@ -2006,96 +1898,148 @@ class AppCustomizationPage extends ConsumerWidget {
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (context) => Container(
+      builder: (sheetContext) => Container(
         decoration: BoxDecoration(
-          color: context.sidebarTheme.background,
+          color: sheetContext.sidebarTheme.background,
           borderRadius: const BorderRadius.vertical(
             top: Radius.circular(AppBorderRadius.modal),
           ),
-          boxShadow: ConduitShadows.modal(context),
+          boxShadow: ConduitShadows.modal(sheetContext),
         ),
         child: SafeArea(
           top: false,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const SizedBox(height: Spacing.sm),
+              _SheetHeader(
+                title: AppLocalizations.of(sheetContext)!.appLanguage,
+                onClose: () => Navigator.of(sheetContext).pop(),
+              ),
+              const Divider(height: 1),
               AdaptiveListTile(
-                title: Text(AppLocalizations.of(context)!.system),
+                title: Text(AppLocalizations.of(sheetContext)!.system),
                 trailing: normalizedCurrent == 'system'
-                    ? Icon(Platform.isIOS ? CupertinoIcons.check_mark : Icons.check)
+                    ? Icon(
+                        Platform.isIOS
+                            ? CupertinoIcons.check_mark
+                            : Icons.check,
+                      )
                     : null,
-                onTap: () => Navigator.pop(context, 'system'),
+                onTap: () => Navigator.pop(sheetContext, 'system'),
               ),
               AdaptiveListTile(
-                title: Text(AppLocalizations.of(context)!.english),
+                title: Text(AppLocalizations.of(sheetContext)!.english),
                 trailing: normalizedCurrent == 'en'
-                    ? Icon(Platform.isIOS ? CupertinoIcons.check_mark : Icons.check)
+                    ? Icon(
+                        Platform.isIOS
+                            ? CupertinoIcons.check_mark
+                            : Icons.check,
+                      )
                     : null,
-                onTap: () => Navigator.pop(context, 'en'),
+                onTap: () => Navigator.pop(sheetContext, 'en'),
               ),
               AdaptiveListTile(
-                title: Text(AppLocalizations.of(context)!.deutsch),
+                title: Text(AppLocalizations.of(sheetContext)!.deutsch),
                 trailing: normalizedCurrent == 'de'
-                    ? Icon(Platform.isIOS ? CupertinoIcons.check_mark : Icons.check)
+                    ? Icon(
+                        Platform.isIOS
+                            ? CupertinoIcons.check_mark
+                            : Icons.check,
+                      )
                     : null,
-                onTap: () => Navigator.pop(context, 'de'),
+                onTap: () => Navigator.pop(sheetContext, 'de'),
               ),
               AdaptiveListTile(
-                title: Text(AppLocalizations.of(context)!.espanol),
+                title: Text(AppLocalizations.of(sheetContext)!.espanol),
                 trailing: normalizedCurrent == 'es'
-                    ? Icon(Platform.isIOS ? CupertinoIcons.check_mark : Icons.check)
+                    ? Icon(
+                        Platform.isIOS
+                            ? CupertinoIcons.check_mark
+                            : Icons.check,
+                      )
                     : null,
-                onTap: () => Navigator.pop(context, 'es'),
+                onTap: () => Navigator.pop(sheetContext, 'es'),
               ),
               AdaptiveListTile(
-                title: Text(AppLocalizations.of(context)!.francais),
+                title: Text(AppLocalizations.of(sheetContext)!.francais),
                 trailing: normalizedCurrent == 'fr'
-                    ? Icon(Platform.isIOS ? CupertinoIcons.check_mark : Icons.check)
+                    ? Icon(
+                        Platform.isIOS
+                            ? CupertinoIcons.check_mark
+                            : Icons.check,
+                      )
                     : null,
-                onTap: () => Navigator.pop(context, 'fr'),
+                onTap: () => Navigator.pop(sheetContext, 'fr'),
               ),
               AdaptiveListTile(
-                title: Text(AppLocalizations.of(context)!.italiano),
+                title: Text(AppLocalizations.of(sheetContext)!.italiano),
                 trailing: normalizedCurrent == 'it'
-                    ? Icon(Platform.isIOS ? CupertinoIcons.check_mark : Icons.check)
+                    ? Icon(
+                        Platform.isIOS
+                            ? CupertinoIcons.check_mark
+                            : Icons.check,
+                      )
                     : null,
-                onTap: () => Navigator.pop(context, 'it'),
+                onTap: () => Navigator.pop(sheetContext, 'it'),
               ),
               AdaptiveListTile(
-                title: Text(AppLocalizations.of(context)!.nederlands),
+                title: Text(AppLocalizations.of(sheetContext)!.nederlands),
                 trailing: normalizedCurrent == 'nl'
-                    ? Icon(Platform.isIOS ? CupertinoIcons.check_mark : Icons.check)
+                    ? Icon(
+                        Platform.isIOS
+                            ? CupertinoIcons.check_mark
+                            : Icons.check,
+                      )
                     : null,
-                onTap: () => Navigator.pop(context, 'nl'),
+                onTap: () => Navigator.pop(sheetContext, 'nl'),
               ),
               AdaptiveListTile(
-                title: Text(AppLocalizations.of(context)!.russian),
+                title: Text(AppLocalizations.of(sheetContext)!.russian),
                 trailing: normalizedCurrent == 'ru'
-                    ? Icon(Platform.isIOS ? CupertinoIcons.check_mark : Icons.check)
+                    ? Icon(
+                        Platform.isIOS
+                            ? CupertinoIcons.check_mark
+                            : Icons.check,
+                      )
                     : null,
-                onTap: () => Navigator.pop(context, 'ru'),
+                onTap: () => Navigator.pop(sheetContext, 'ru'),
               ),
               AdaptiveListTile(
-                title: Text(AppLocalizations.of(context)!.chineseSimplified),
+                title: Text(
+                  AppLocalizations.of(sheetContext)!.chineseSimplified,
+                ),
                 trailing: normalizedCurrent == 'zh'
-                    ? Icon(Platform.isIOS ? CupertinoIcons.check_mark : Icons.check)
+                    ? Icon(
+                        Platform.isIOS
+                            ? CupertinoIcons.check_mark
+                            : Icons.check,
+                      )
                     : null,
-                onTap: () => Navigator.pop(context, 'zh'),
+                onTap: () => Navigator.pop(sheetContext, 'zh'),
               ),
               AdaptiveListTile(
-                title: Text(AppLocalizations.of(context)!.chineseTraditional),
+                title: Text(
+                  AppLocalizations.of(sheetContext)!.chineseTraditional,
+                ),
                 trailing: normalizedCurrent == 'zh-Hant'
-                    ? Icon(Platform.isIOS ? CupertinoIcons.check_mark : Icons.check)
+                    ? Icon(
+                        Platform.isIOS
+                            ? CupertinoIcons.check_mark
+                            : Icons.check,
+                      )
                     : null,
-                onTap: () => Navigator.pop(context, 'zh-Hant'),
+                onTap: () => Navigator.pop(sheetContext, 'zh-Hant'),
               ),
               AdaptiveListTile(
-                title: Text(AppLocalizations.of(context)!.korean),
+                title: Text(AppLocalizations.of(sheetContext)!.korean),
                 trailing: normalizedCurrent == 'ko'
-                    ? Icon(Platform.isIOS ? CupertinoIcons.check_mark : Icons.check)
+                    ? Icon(
+                        Platform.isIOS
+                            ? CupertinoIcons.check_mark
+                            : Icons.check,
+                      )
                     : null,
-                onTap: () => Navigator.pop(context, 'ko'),
+                onTap: () => Navigator.pop(sheetContext, 'ko'),
               ),
               const SizedBox(height: Spacing.sm),
             ],
@@ -2131,109 +2075,6 @@ Locale? _parseLocaleTag(String code) {
   );
 }
 
-class _PaletteOption extends StatelessWidget {
-  const _PaletteOption({
-    required this.themeDefinition,
-    required this.activeId,
-    required this.onSelect,
-    required this.l10n,
-  });
-
-  final TweakcnThemeDefinition themeDefinition;
-  final String activeId;
-  final VoidCallback onSelect;
-  final AppLocalizations l10n;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-    final isSelected = themeDefinition.id == activeId;
-    final previewColors = themeDefinition.preview;
-
-    return InkWell(
-      onTap: onSelect,
-      borderRadius: BorderRadius.circular(AppBorderRadius.small),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: Spacing.sm),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(
-              isSelected
-                  ? (Platform.isIOS
-                        ? CupertinoIcons.checkmark_circle_fill
-                        : Icons.radio_button_checked)
-                  : (Platform.isIOS
-                        ? CupertinoIcons.circle
-                        : Icons.radio_button_off),
-              color: isSelected ? theme.buttonPrimary : theme.iconSecondary,
-              size: IconSize.small,
-            ),
-            const SizedBox(width: Spacing.sm),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Expanded(
-                        child: Text(
-                          themeDefinition.label(l10n),
-                          style: theme.bodyMedium?.copyWith(
-                            color: theme.sidebarForeground,
-                            fontWeight: isSelected
-                                ? FontWeight.w600
-                                : FontWeight.w500,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      if (isSelected)
-                        Padding(
-                          padding: const EdgeInsets.only(left: Spacing.xs),
-                          child: Icon(
-                            Platform.isIOS
-                                ? CupertinoIcons.checkmark_circle_fill
-                                : Icons.check_circle,
-                            color: theme.buttonPrimary,
-                            size: IconSize.small,
-                          ),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: Spacing.xxs),
-                  Text(
-                    themeDefinition.description(l10n),
-                    style:
-                        theme.bodySmall?.copyWith(
-                          color: theme.sidebarForeground.withValues(
-                            alpha: 0.75,
-                          ),
-                        ) ??
-                        TextStyle(
-                          color: theme.sidebarForeground.withValues(
-                            alpha: 0.75,
-                          ),
-                        ),
-                  ),
-                  const SizedBox(height: Spacing.xs),
-                  Row(
-                    children: [
-                      for (final color in previewColors)
-                        _PaletteColorDot(color: color),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _PaletteColorDot extends StatelessWidget {
   const _PaletteColorDot({required this.color});
 
@@ -2253,6 +2094,237 @@ class _PaletteColorDot extends StatelessWidget {
           color: theme.dividerColor.withValues(alpha: 0.3),
           width: BorderWidth.thin,
         ),
+      ),
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader({required this.title});
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.conduitTheme;
+    return Text(
+      title,
+      style:
+          theme.headingSmall?.copyWith(color: theme.sidebarForeground) ??
+          TextStyle(color: theme.sidebarForeground, fontSize: 18),
+    );
+  }
+}
+
+class _SheetHeader extends StatelessWidget {
+  const _SheetHeader({required this.title, required this.onClose});
+
+  final String title;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.conduitTheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: Spacing.lg,
+        vertical: Spacing.md,
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              title,
+              style:
+                  theme.headingSmall?.copyWith(
+                    color: theme.sidebarForeground,
+                  ) ??
+                  TextStyle(
+                    color: theme.sidebarForeground,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+          ),
+          IconButton(
+            onPressed: onClose,
+            icon: Icon(
+              Platform.isIOS ? CupertinoIcons.xmark : Icons.close,
+              color: theme.iconPrimary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AdaptiveSegmentedSelector<T extends Object> extends StatelessWidget {
+  const _AdaptiveSegmentedSelector({
+    required this.value,
+    required this.onChanged,
+    required this.options,
+  });
+
+  final T value;
+  final ValueChanged<T> onChanged;
+  final List<
+    ({
+      T value,
+      String label,
+      IconData cupertinoIcon,
+      IconData materialIcon,
+      bool enabled,
+    })
+  >
+  options;
+
+  @override
+  Widget build(BuildContext context) {
+    final isCupertino =
+        Platform.isIOS || Theme.of(context).platform == TargetPlatform.macOS;
+
+    if (isCupertino) {
+      return CupertinoSlidingSegmentedControl<T>(
+        groupValue: value,
+        disabledChildren: {
+          for (final option in options)
+            if (!option.enabled) option.value,
+        },
+        onValueChanged: (next) {
+          if (next == null) return;
+          final selected = options.any(
+            (option) => option.value == next && option.enabled,
+          );
+          if (selected) {
+            onChanged(next);
+          }
+        },
+        children: {
+          for (final option in options)
+            option.value: _ThemeModeSegmentLabel(
+              icon: option.cupertinoIcon,
+              label: option.label,
+            ),
+        },
+      );
+    }
+
+    return SegmentedButton<T>(
+      selected: {value},
+      showSelectedIcon: false,
+      segments: [
+        for (final option in options)
+          ButtonSegment<T>(
+            value: option.value,
+            icon: Icon(option.materialIcon),
+            label: Text(option.label),
+            enabled: option.enabled,
+          ),
+      ],
+      onSelectionChanged: (selection) {
+        if (selection.isEmpty) return;
+        final next = selection.first;
+        final selected = options.any(
+          (option) => option.value == next && option.enabled,
+        );
+        if (selected) {
+          onChanged(next);
+        }
+      },
+    );
+  }
+}
+
+class _ThemeModeSegmentedControl extends StatelessWidget {
+  const _ThemeModeSegmentedControl({
+    required this.value,
+    required this.onChanged,
+  });
+
+  final ThemeMode value;
+  final ValueChanged<ThemeMode> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final isCupertino =
+        Platform.isIOS || Theme.of(context).platform == TargetPlatform.macOS;
+
+    if (isCupertino) {
+      return CupertinoSlidingSegmentedControl<ThemeMode>(
+        groupValue: value,
+        onValueChanged: (next) {
+          if (next != null) {
+            onChanged(next);
+          }
+        },
+        children: {
+          ThemeMode.system: _ThemeModeSegmentLabel(
+            icon: CupertinoIcons.sparkles,
+            label: l10n.system,
+          ),
+          ThemeMode.light: _ThemeModeSegmentLabel(
+            icon: CupertinoIcons.sun_max,
+            label: l10n.themeLight,
+          ),
+          ThemeMode.dark: _ThemeModeSegmentLabel(
+            icon: CupertinoIcons.moon_fill,
+            label: l10n.themeDark,
+          ),
+        },
+      );
+    }
+
+    return SegmentedButton<ThemeMode>(
+      selected: {value},
+      segments: [
+        ButtonSegment<ThemeMode>(
+          value: ThemeMode.system,
+          icon: const Icon(Icons.auto_mode),
+          label: Text(l10n.system),
+        ),
+        ButtonSegment<ThemeMode>(
+          value: ThemeMode.light,
+          icon: const Icon(Icons.light_mode),
+          label: Text(l10n.themeLight),
+        ),
+        ButtonSegment<ThemeMode>(
+          value: ThemeMode.dark,
+          icon: const Icon(Icons.dark_mode),
+          label: Text(l10n.themeDark),
+        ),
+      ],
+      showSelectedIcon: false,
+      onSelectionChanged: (selection) {
+        if (selection.isNotEmpty) {
+          onChanged(selection.first);
+        }
+      },
+    );
+  }
+}
+
+class _ThemeModeSegmentLabel extends StatelessWidget {
+  const _ThemeModeSegmentLabel({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: Spacing.sm,
+        vertical: Spacing.xs,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: IconSize.small),
+          const SizedBox(width: Spacing.xs),
+          Text(label),
+        ],
       ),
     );
   }

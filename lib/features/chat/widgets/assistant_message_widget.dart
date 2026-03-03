@@ -1901,22 +1901,22 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Icon(
-            Icons.keyboard_arrow_down_rounded,
-            size: 14,
-            color: theme.textPrimary.withValues(alpha: 0.8),
-          ),
-          const SizedBox(width: 2),
           Flexible(
             child: Text(
               headerText(),
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                fontSize: AppTypography.bodySmall,
-                color: theme.textPrimary.withValues(alpha: 0.8),
+                fontSize: AppTypography.bodyMedium,
+                color: theme.textPrimary.withValues(alpha: 0.6),
                 height: 1.3,
               ),
             ),
+          ),
+          const SizedBox(width: 4),
+          Icon(
+            Icons.chevron_right_rounded,
+            size: 16,
+            color: theme.textPrimary.withValues(alpha: 0.6),
           ),
         ],
       );

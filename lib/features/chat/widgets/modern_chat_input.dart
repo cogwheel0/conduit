@@ -2008,8 +2008,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
     final Color iconColor = !enabled
         ? context.conduitTheme.textPrimary.withValues(alpha: Alpha.disabled)
-        : (activeColor ??
-              context.conduitTheme.textPrimary.withValues(alpha: Alpha.strong));
+        : isActive
+        ? context.conduitTheme.buttonPrimaryText
+        : context.conduitTheme.textPrimary.withValues(alpha: Alpha.strong);
 
     final Color baseBackground = context.conduitTheme.cardBackground;
     final Color backgroundColor = !enabled
@@ -2054,7 +2055,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
             style: isActive
                 ? IOS26ButtonStyle.prominentGlass
                 : IOS26ButtonStyle.glass,
-            color: isActive ? activeColor : null,
+            color: context.conduitTheme.buttonPrimary,
             size: dense ? IOS26ButtonSize.medium : IOS26ButtonSize.large,
             minSize: Size(buttonSize, buttonSize),
             useSmoothRectangleBorder: false,
@@ -2162,6 +2163,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           message: AppLocalizations.of(context)!.stopGenerating,
           child: _wrapIosControlShadow(
             IOS26Button.sfSymbol(
+              key: const ValueKey('primary-btn-stop'),
               onPressed: () {
                 HapticFeedback.lightImpact();
                 stopGeneration();
@@ -2271,10 +2273,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               : AppLocalizations.of(context)!.send,
           child: _wrapIosControlShadow(
             IOS26Button.child(
+              key: const ValueKey('primary-btn-send'),
               onPressed: onPressed,
               enabled: enabled,
               style: IOS26ButtonStyle.prominentGlass,
-              color: enabled ? context.conduitTheme.buttonPrimary : null,
+              color: context.conduitTheme.buttonPrimary,
               size: dense ? IOS26ButtonSize.medium : IOS26ButtonSize.large,
               minSize: Size(buttonSize, buttonSize),
               useSmoothRectangleBorder: false,
@@ -2376,6 +2379,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         message: 'Voice Call',
         child: _wrapIosControlShadow(
           IOS26Button.sfSymbol(
+            key: const ValueKey('primary-btn-voice-call'),
             onPressed: enabledVoiceCall
                 ? () {
                     PlatformUtils.lightHaptic();
@@ -2393,9 +2397,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
             ),
             enabled: enabledVoiceCall,
             style: IOS26ButtonStyle.prominentGlass,
-            color: enabledVoiceCall
-                ? context.conduitTheme.buttonPrimary
-                : null,
+            color: context.conduitTheme.buttonPrimary,
             size: dense ? IOS26ButtonSize.medium : IOS26ButtonSize.large,
             minSize: Size(buttonSize, buttonSize),
             useSmoothRectangleBorder: false,

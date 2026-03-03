@@ -477,15 +477,11 @@ class _CodeBlockBodyState extends State<_CodeBlockBody> {
   @override
   Widget build(BuildContext context) {
     final lines = widget.code.split('\n');
-    final isCollapsible =
-        lines.length > _CodeBlockBody.collapseThreshold;
+    final isCollapsible = lines.length > _CodeBlockBody.collapseThreshold;
     final displayCode = (isCollapsible && _isCollapsed)
-        ? lines
-            .take(_CodeBlockBody.previewLines)
-            .join('\n')
+        ? lines.take(_CodeBlockBody.previewLines).join('\n')
         : widget.code;
-    final hiddenCount =
-        lines.length - _CodeBlockBody.previewLines;
+    final hiddenCount = lines.length - _CodeBlockBody.previewLines;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -556,10 +552,7 @@ class _CollapseToggle extends StatelessWidget {
         ),
         decoration: BoxDecoration(
           border: Border(
-            top: BorderSide(
-              color: borderColor,
-              width: BorderWidth.thin,
-            ),
+            top: BorderSide(color: borderColor, width: BorderWidth.thin),
           ),
         ),
         child: Row(
@@ -581,9 +574,7 @@ class _CollapseToggle extends StatelessWidget {
             AnimatedSwitcher(
               duration: AnimationDuration.fast,
               child: Text(
-                isCollapsed
-                    ? 'Show $hiddenLineCount more lines'
-                    : 'Show less',
+                isCollapsed ? 'Show $hiddenLineCount more lines' : 'Show less',
                 key: ValueKey(isCollapsed),
                 style: AppTypography.codeStyle.copyWith(
                   color: labelColor,
@@ -906,66 +897,34 @@ class _ChartJsDiagramState extends State<ChartJsDiagram> {
   Chart.defaults.color = '$textColor';
   Chart.defaults.borderColor = '$gridColor';
   Chart.defaults.backgroundColor = '$background';
-  
+
   try {
-    const htmlContent = ${jsonEncode(htmlContent)};
-    const chartMatch = htmlContent.match(/new\\s+Chart\\s*\\([^,]+,\\s*([\\s\\S]*?)\\)\\s*;?\\s*(?:<\\/script>|\$)/);
-    
-    if (chartMatch) {
-      let configStr = chartMatch[1].trim();
-      
-      if (configStr.startsWith('{')) {
-        let braceCount = 0;
-        let endIndex = 0;
-        let inString = null;
-        let escaped = false;
-        
-        for (let i = 0; i < configStr.length; i++) {
-          const char = configStr[i];
-          
-          if (escaped) {
-            escaped = false;
-            continue;
-          }
-          
-          if (char === '\\\\' && inString) {
-            escaped = true;
-            continue;
-          }
-          
-          if (!inString && (char === "'" || char === '"' || char === '`')) {
-            inString = char;
-            continue;
-          }
-          
-          if (inString && char === inString) {
-            inString = null;
-            continue;
-          }
-          
-          if (!inString) {
-            if (char === '{') braceCount++;
-            else if (char === '}') braceCount--;
-            
-            if (braceCount === 0 && i > 0) {
-              endIndex = i + 1;
-              break;
-            }
-          }
-        }
-        
-        if (endIndex > 0) {
-          configStr = configStr.substring(0, endIndex);
-        }
+    const htmlContent = ${jsonEncode(htmlContent).replaceAll('</', r'<\/')};
+
+    // Extract inline script blocks (skip external src= scripts).
+    // Uses matchAll to collect all inline <script> bodies.
+    const inlineScriptRe = /<script(?![^>]*\\bsrc\\b)[^>]*>([\\s\\S]*?)<\\/script>/gi;
+    const userScript = [...htmlContent.matchAll(inlineScriptRe)]
+      .map(m => m[1].trim())
+      .filter(s => s.length > 0)
+      .join('\\n');
+
+    if (userScript) {
+      // Redirect canvas getElementById calls to our chart-canvas so the
+      // LLM script works even though its canvas element doesn't exist here.
+      const _origGet = document.getElementById.bind(document);
+      document.getElementById = function(id) {
+        return _origGet(id) || _origGet('chart-canvas');
+      };
+      try {
+        eval(userScript); // ignore: eval
+      } finally {
+        document.getElementById = _origGet;
       }
-      
-      const config = eval('(' + configStr + ')');
-      const ctx = document.getElementById('chart-canvas').getContext('2d');
-      new Chart(ctx, config);
     }
   } catch (e) {
     console.error('Error creating chart:', e);
-    document.getElementById('chart-container').innerHTML = 
+    document.getElementById('chart-container').innerHTML =
       '<p style="color: red; padding: 16px;">Error rendering chart: ' + e.message + '</p>';
   }
 })();
@@ -1063,7 +1022,36 @@ class _MermaidDiagramState extends State<MermaidDiagram> {
     if (_controller == null || _script == null) {
       return;
     }
-    _controller!.loadHtmlString(_buildHtml(widget.code, _script!));
+    _controller!.loadHtmlString(
+      _buildHtml(_sanitizeMermaidCode(widget.code), _script!),
+    );
+  }
+
+  String _sanitizeMermaidCode(String source) {
+    final lines = source.split('\n');
+    final normalized = <String>[];
+
+    for (final line in lines) {
+      final trimmed = line.trim();
+      if (trimmed == 'end' || trimmed.startsWith('end %%')) {
+        normalized.add(line);
+        continue;
+      }
+
+      var updated = line;
+      updated = updated.replaceFirstMapped(
+        RegExp(r'^(\s*classDef\s+)end(\b)'),
+        (match) => '${match[1]}endNode${match[2]}',
+      );
+      updated = updated.replaceFirstMapped(
+        RegExp(r'^(\s*class\s+[^;\n]+\s+)end(\s*;?\s*)$'),
+        (match) => '${match[1]}endNode${match[2]}',
+      );
+
+      normalized.add(updated);
+    }
+
+    return normalized.join('\n');
   }
 
   String _buildHtml(String code, String script) {
@@ -1095,11 +1083,12 @@ class _MermaidDiagramState extends State<MermaidDiagram> {
 </head>
 <body>
 <div id="container">
-  <div class="mermaid">$code</div>
+  <div class="mermaid" id="mermaid-diagram"></div>
 </div>
 <script>$script</script>
 <script>
   mermaid.initialize({
+    startOnLoad: false,
     theme: '$theme',
     themeVariables: {
       primaryColor: '$primary',
@@ -1108,7 +1097,32 @@ class _MermaidDiagramState extends State<MermaidDiagram> {
       background: '$background'
     },
   });
-  mermaid.contentLoaded();
+
+  var diagramCode = ${jsonEncode(code)};
+
+  async function renderValidated(id, source) {
+    var parseResult = await mermaid.parse(source, { suppressErrors: false });
+    if (!parseResult) {
+      throw new Error('Mermaid parse failed');
+    }
+    var rendered = await mermaid.render(id, source);
+    if (
+      rendered &&
+      rendered.svg &&
+      rendered.svg.indexOf('Syntax error in text') !== -1
+    ) {
+      throw new Error('Mermaid render produced syntax error svg');
+    }
+    return rendered;
+  }
+
+  renderValidated('mermaid-svg', diagramCode).then(function(result) {
+    document.getElementById('mermaid-diagram').innerHTML = result.svg;
+  }).catch(function(err) {
+    var message = err.message || String(err);
+    document.getElementById('mermaid-diagram').innerHTML =
+      '<pre style="color:red;padding:16px;">' + message + '</pre>';
+  });
 </script>
 </body>
 </html>
