@@ -1423,64 +1423,60 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       final textFieldContent = Container(
         padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
         constraints: const BoxConstraints(minHeight: TouchTarget.input),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+        alignment: Alignment.center,
+        child: Stack(
+          clipBehavior: Clip.none,
           children: [
-            Stack(
-              clipBehavior: Clip.none,
+            Row(
+              crossAxisAlignment: _isMultiline
+                  ? CrossAxisAlignment.end
+                  : CrossAxisAlignment.center,
               children: [
-                Row(
-                  crossAxisAlignment: _isMultiline
-                      ? CrossAxisAlignment.end
-                      : CrossAxisAlignment.center,
-                  children: [
-                    Expanded(
-                      child: _buildComposerTextField(
-                        brightness: brightness,
-                        sendOnEnter: sendOnEnter,
-                        voiceAvailable: voiceAvailable,
-                        isGenerating: isGenerating,
-                        allUploadsComplete: allUploadsComplete,
-                        placeholderBase: placeholderBase,
-                        placeholderFocused: placeholderFocused,
-                        contentPadding: const EdgeInsets.symmetric(
-                          vertical: Spacing.xs,
-                        ),
-                        isActive: isActive,
-                        nativeMinHeight: TouchTarget.input,
-                        nativeMaxHeight: compactMaxHeight,
-                      ),
+                Expanded(
+                  child: _buildComposerTextField(
+                    brightness: brightness,
+                    sendOnEnter: sendOnEnter,
+                    voiceAvailable: voiceAvailable,
+                    isGenerating: isGenerating,
+                    allUploadsComplete: allUploadsComplete,
+                    placeholderBase: placeholderBase,
+                    placeholderFocused: placeholderFocused,
+                    contentPadding: const EdgeInsets.symmetric(
+                      vertical: Spacing.xs,
                     ),
-                    if (!_hasText && voiceAvailable && !isGenerating) ...[
-                      const SizedBox(width: Spacing.xs),
-                      _buildInlineMicAction(voiceAvailable),
-                    ],
-                    const SizedBox(width: Spacing.xs),
-                    _buildPrimaryButton(
-                      _hasText,
-                      isGenerating,
-                      stopGeneration,
-                      voiceAvailable,
-                      allUploadsComplete,
-                      hasUploadsInProgress,
-                      dense: true,
-                    ),
-                  ],
-                ),
-                Positioned(
-                  top: Spacing.xs,
-                  right: 0,
-                  child: AnimatedOpacity(
-                    opacity:
-                        (_showExpandButton && !_expandModalOpen) ? 1.0 : 0.0,
-                    duration: const Duration(milliseconds: 160),
-                    child: IgnorePointer(
-                      ignoring: !_showExpandButton || _expandModalOpen,
-                      child: _buildExpandButton(_showExpandTextModal),
-                    ),
+                    isActive: isActive,
+                    nativeMinHeight: TouchTarget.input,
+                    nativeMaxHeight: compactMaxHeight,
                   ),
                 ),
+                if (!_hasText && voiceAvailable && !isGenerating) ...[
+                  const SizedBox(width: Spacing.xs),
+                  _buildInlineMicAction(voiceAvailable),
+                ],
+                const SizedBox(width: Spacing.xs),
+                _buildPrimaryButton(
+                  _hasText,
+                  isGenerating,
+                  stopGeneration,
+                  voiceAvailable,
+                  allUploadsComplete,
+                  hasUploadsInProgress,
+                  dense: true,
+                ),
               ],
+            ),
+            Positioned(
+              top: Spacing.xs,
+              right: 0,
+              child: AnimatedOpacity(
+                opacity:
+                    (_showExpandButton && !_expandModalOpen) ? 1.0 : 0.0,
+                duration: const Duration(milliseconds: 160),
+                child: IgnorePointer(
+                  ignoring: !_showExpandButton || _expandModalOpen,
+                  child: _buildExpandButton(_showExpandTextModal),
+                ),
+              ),
             ),
           ],
         ),
@@ -3530,9 +3526,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final Color borderColor = theme.cardBorder.withValues(
       alpha: enabled ? 0.5 : 0.25,
     );
-    final Color accent = theme.buttonPrimary.withValues(
-      alpha: enabled ? Alpha.selected : Alpha.hover,
-    );
 
     return Opacity(
       opacity: enabled ? 1.0 : Alpha.disabled,
@@ -3566,16 +3559,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   height: 36,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        accent,
-                        theme.buttonPrimary.withValues(
-                          alpha: enabled ? Alpha.highlight : Alpha.hover,
-                        ),
-                      ],
-                    ),
+                    color: enabled
+                        ? theme.buttonPrimary.withValues(alpha: 0.12)
+                        : theme.surfaceContainer.withValues(alpha: 0.60),
                   ),
                   child: Icon(icon, color: iconColor, size: IconSize.modal),
                 ),
