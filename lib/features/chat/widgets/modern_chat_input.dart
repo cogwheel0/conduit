@@ -105,8 +105,7 @@ class ModernChatInput extends ConsumerStatefulWidget {
 class _ModernChatInputState extends ConsumerState<ModernChatInput>
     with TickerProviderStateMixin {
   bool get _useIOS26NativeControls => PlatformInfo.isIOS26OrHigher();
-  bool get _useNativePlatformChatInput =>
-      !kIsWeb && (Platform.isIOS || Platform.isAndroid);
+  bool get _useNativePlatformChatInput => !kIsWeb && Platform.isIOS;
 
   static const double _composerRadius = AppBorderRadius.card;
 
@@ -1470,7 +1469,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 ),
                 Positioned(
                   top: Spacing.xs,
-                  right: 36.0 + Spacing.xs * 2,
+                  right: 0,
                   child: AnimatedOpacity(
                     opacity:
                         (_showExpandButton && !_expandModalOpen) ? 1.0 : 0.0,
@@ -2086,16 +2085,28 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   }
 
   Widget _buildExpandButton(VoidCallback onTap) {
+    if (_useIOS26NativeControls) {
+      return IOS26Button.sfSymbol(
+        onPressed: onTap,
+        sfSymbol: SFSymbol(
+          'arrow.up.left.and.arrow.down.right',
+          size: IconSize.small + 1,
+          color: context.conduitTheme.textSecondary.withValues(alpha: 0.8),
+        ),
+        style: IOS26ButtonStyle.glass,
+        size: IOS26ButtonSize.medium,
+        minSize: const Size(36, 36),
+        useSmoothRectangleBorder: false,
+      );
+    }
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: Padding(
         padding: const EdgeInsets.all(Spacing.xs),
         child: Icon(
-          Platform.isIOS
-              ? CupertinoIcons.arrow_up_left_arrow_down_right
-              : Icons.open_in_full,
-          size: 14,
+          Icons.open_in_full,
+          size: IconSize.medium,
           color: context.conduitTheme.textSecondary.withValues(alpha: 0.7),
         ),
       ),
@@ -2980,6 +2991,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final modalController = TextEditingController(text: _controller.text);
 
     void syncToMain() {
+      if (!mounted) return;
       if (_controller.text != modalController.text) {
         _controller.value = TextEditingValue(
           text: modalController.text,
@@ -2991,98 +3003,32 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     }
 
     modalController.addListener(syncToMain);
-
     setState(() => _expandModalOpen = true);
 
-    showModalBottomSheet<void>(
+    showModalBottomSheet<bool>(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (sheetContext) {
-        final sheetHeight =
-            MediaQuery.of(sheetContext).size.height * 0.75;
-        return SizedBox(
-          height: sheetHeight,
-          child: ModalSheetSafeArea(
-            padding: const EdgeInsets.fromLTRB(
-              Spacing.modalPadding,
-              Spacing.sm,
-              Spacing.modalPadding,
-              Spacing.modalPadding,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        AppLocalizations.of(context)!.messageHintText,
-                        style: Theme.of(sheetContext)
-                            .textTheme
-                            .bodySmall
-                            ?.copyWith(
-                              color: context.conduitTheme.textSecondary,
-                            ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    CupertinoButton(
-                      padding: EdgeInsets.zero,
-                      minimumSize: Size(
-                        TouchTarget.minimum,
-                        TouchTarget.minimum,
-                      ),
-                      onPressed: () => Navigator.of(sheetContext).pop(),
-                      child: Text(
-                        AppLocalizations.of(context)!.done,
-                        style: TextStyle(
-                          color: context.conduitTheme.buttonPrimary,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: Spacing.sm),
-                Expanded(
-                  child: TextField(
-                    controller: modalController,
-                    autofocus: true,
-                    maxLines: null,
-                    expands: true,
-                    textAlignVertical: TextAlignVertical.top,
-                    style: Theme.of(sheetContext)
-                        .textTheme
-                        .bodyMedium
-                        ?.copyWith(
-                          color: context.conduitTheme.textPrimary,
-                        ),
-                    decoration: InputDecoration(
-                      border: InputBorder.none,
-                      hintText: AppLocalizations.of(context)!.messageHintText,
-                      hintStyle: TextStyle(
-                        color: context.conduitTheme.textSecondary
-                            .withValues(alpha: 0.5),
-                      ),
-                      contentPadding: EdgeInsets.zero,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    ).whenComplete(() {
-      syncToMain();
+      enableDrag: true,
+      useSafeArea: true,
+      builder: (modalContext) => _ExpandedTextEditorSheet(
+        controller: modalController,
+        useNativeControls: _useIOS26NativeControls,
+        onSend: () {
+          FocusScope.of(modalContext).unfocus();
+          Navigator.of(modalContext).pop(true);
+        },
+      ),
+    ).then((shouldSend) {
       modalController.removeListener(syncToMain);
       modalController.dispose();
       if (mounted) setState(() => _expandModalOpen = false);
+      if (shouldSend == true && mounted) _sendMessage();
     });
   }
 
   Widget _buildSectionLabel(String text) {
+
     return Padding(
       padding: const EdgeInsets.only(bottom: Spacing.xxs),
       child: Text(
@@ -3389,12 +3335,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     required bool selected,
     required ConduitThemeExtension theme,
   }) {
-    final Color accentStart = theme.buttonPrimary.withValues(
-      alpha: selected ? Alpha.active : Alpha.hover,
-    );
-    final Color accentEnd = theme.buttonPrimary.withValues(
-      alpha: selected ? Alpha.highlight : Alpha.focus,
-    );
+    final brightness = Theme.of(context).brightness;
     final Color iconColor = selected
         ? theme.buttonPrimaryText
         : theme.iconPrimary.withValues(alpha: Alpha.strong);
@@ -3404,11 +3345,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       height: 36,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [accentStart, accentEnd],
-        ),
+        color: selected
+            ? theme.buttonPrimary.withValues(
+                alpha: brightness == Brightness.dark ? 0.28 : 0.16,
+              )
+            : theme.surfaceContainer.withValues(alpha: 0.60),
       ),
       child: Icon(icon, color: iconColor, size: IconSize.modal),
     );
@@ -3467,12 +3408,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     required bool selected,
     required ConduitThemeExtension theme,
   }) {
-    final Color accentStart = theme.buttonPrimary.withValues(
-      alpha: selected ? Alpha.active : Alpha.hover,
-    );
-    final Color accentEnd = theme.buttonPrimary.withValues(
-      alpha: selected ? Alpha.highlight : Alpha.focus,
-    );
+    final brightness = Theme.of(context).brightness;
     final Color iconColor = selected
         ? theme.buttonPrimaryText
         : theme.iconPrimary.withValues(alpha: Alpha.strong);
@@ -3482,11 +3418,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       height: 36,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [accentStart, accentEnd],
-        ),
+        color: selected
+            ? theme.buttonPrimary.withValues(
+                alpha: brightness == Brightness.dark ? 0.28 : 0.16,
+              )
+            : theme.surfaceContainer.withValues(alpha: 0.60),
       ),
       child: iconUrl != null && iconUrl.isNotEmpty
           ? ClipOval(
@@ -3761,6 +3697,174 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       message: message,
       type: AdaptiveSnackBarType.warning,
       duration: const Duration(seconds: 2),
+    );
+  }
+}
+
+/// Full-screen bottom sheet editor shown when the chat input grows large.
+///
+/// Uses [showModalBottomSheet] so Flutter's built-in drag-to-dismiss gesture
+/// works naturally — drag the handle at the top (or anywhere outside the text
+/// field) downward to close. The send button mirrors the compact chat input.
+class _ExpandedTextEditorSheet extends StatefulWidget {
+  const _ExpandedTextEditorSheet({
+    required this.controller,
+    required this.useNativeControls,
+    required this.onSend,
+  });
+
+  final TextEditingController controller;
+  final bool useNativeControls;
+  final VoidCallback onSend;
+
+  @override
+  State<_ExpandedTextEditorSheet> createState() =>
+      _ExpandedTextEditorSheetState();
+}
+
+class _ExpandedTextEditorSheetState
+    extends State<_ExpandedTextEditorSheet> {
+  bool _hasText = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _hasText = widget.controller.text.trim().isNotEmpty;
+    widget.controller.addListener(_onTextChanged);
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onTextChanged);
+    super.dispose();
+  }
+
+  void _onTextChanged() {
+    final hasText = widget.controller.text.trim().isNotEmpty;
+    if (hasText != _hasText) setState(() => _hasText = hasText);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
+    final viewInsets = MediaQuery.of(context).viewInsets;
+    final viewPadding = MediaQuery.of(context).viewPadding;
+    // Match the dense (compact) chat input button — 36px, medium size.
+    const double buttonSize = 36.0;
+
+    final Widget sendButton = widget.useNativeControls
+        ? IOS26Button.sfSymbol(
+            onPressed: _hasText ? widget.onSend : null,
+            sfSymbol: SFSymbol(
+              'arrow.up',
+              size: IconSize.small + 1,
+              color: _hasText
+                  ? theme.buttonPrimaryText
+                  : theme.textPrimary.withValues(alpha: Alpha.disabled),
+            ),
+            enabled: _hasText,
+            style: IOS26ButtonStyle.prominentGlass,
+            color: _hasText ? theme.buttonPrimary : null,
+            size: IOS26ButtonSize.medium,
+            minSize: const Size(buttonSize, buttonSize),
+            useSmoothRectangleBorder: false,
+          )
+        : GestureDetector(
+            onTap: _hasText ? widget.onSend : null,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 160),
+              width: buttonSize,
+              height: buttonSize,
+              decoration: BoxDecoration(
+                color: _hasText
+                    ? theme.buttonPrimary
+                    : theme.surfaceContainerHighest,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.arrow_upward,
+                size: IconSize.medium,
+                color: _hasText
+                    ? theme.buttonPrimaryText
+                    : theme.textPrimary.withValues(alpha: Alpha.disabled),
+              ),
+            ),
+          );
+
+    // useSafeArea: true on the showModalBottomSheet call already constrains
+    // the sheet to the safe area — no manual height calculation needed.
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        height: double.infinity,
+        decoration: BoxDecoration(
+          color: theme.surfaceBackground,
+          borderRadius: const BorderRadius.vertical(
+            top: Radius.circular(AppBorderRadius.bottomSheet),
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Drag handle — primary dismiss affordance.
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                margin: const EdgeInsets.symmetric(vertical: Spacing.sm),
+                decoration: BoxDecoration(
+                  color: theme.dividerColor,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            // Text editor
+            Expanded(
+              child: CupertinoTextField(
+                controller: widget.controller,
+                autofocus: true,
+                maxLines: null,
+                expands: true,
+                textAlignVertical: TextAlignVertical.top,
+                style: TextStyle(
+                  color: theme.textPrimary,
+                  fontSize: 16,
+                  height: 1.5,
+                ),
+                placeholder: l10n.messageHintText,
+                placeholderStyle: TextStyle(
+                  color: theme.textSecondary.withValues(alpha: 0.5),
+                  fontSize: 16,
+                ),
+                cursorColor: CupertinoColors.activeBlue,
+                padding: const EdgeInsets.fromLTRB(
+                  Spacing.md,
+                  Spacing.xs,
+                  Spacing.md,
+                  Spacing.sm,
+                ),
+                decoration: const BoxDecoration(),
+              ),
+            ),
+            // Bottom bar — send button, keyboard-aware.
+            Padding(
+              padding: EdgeInsets.fromLTRB(
+                Spacing.screenPadding,
+                Spacing.sm,
+                Spacing.screenPadding,
+                viewInsets.bottom > 0
+                    ? Spacing.sm
+                    : Spacing.md + viewPadding.bottom,
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [sendButton],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
