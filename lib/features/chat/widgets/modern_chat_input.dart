@@ -1432,7 +1432,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           : MediaQuery.of(context).size.height * 0.25;
 
       final textFieldContent = Container(
-        padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
+        padding: EdgeInsets.fromLTRB(
+          Spacing.md,
+          0,
+          Spacing.md,
+          _isMultiline ? Spacing.sm : 0,
+        ),
         constraints: const BoxConstraints(minHeight: TouchTarget.input),
         alignment: Alignment.center,
         child: Stack(
@@ -2093,20 +2098,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   }
 
   Widget _buildExpandButton(VoidCallback onTap) {
-    if (_useIOS26NativeControls) {
-      return IOS26Button.sfSymbol(
-        onPressed: onTap,
-        sfSymbol: SFSymbol(
-          'arrow.up.left.and.arrow.down.right',
-          size: IconSize.small + 1,
-          color: context.conduitTheme.textSecondary.withValues(alpha: 0.8),
-        ),
-        style: IOS26ButtonStyle.glass,
-        size: IOS26ButtonSize.medium,
-        minSize: const Size(36, 36),
-        useSmoothRectangleBorder: false,
-      );
-    }
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
@@ -3589,7 +3580,7 @@ class _ExpandedTextEditorSheetState
                 Spacing.sm,
                 Spacing.screenPadding,
                 viewInsets.bottom > 0
-                    ? Spacing.sm
+                    ? viewInsets.bottom + Spacing.sm
                     : Spacing.md + viewPadding.bottom,
               ),
               child: Row(

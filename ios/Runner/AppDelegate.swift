@@ -23,14 +23,12 @@ final class NativeGlassContainerViewFactory: NSObject, FlutterPlatformViewFactor
 final class NativeGlassContainerPlatformView: NSObject, FlutterPlatformView {
     private let shadowView: UIView
     private let containerView: UIView
-    private let glassButton: UIButton
     private let blurView: UIVisualEffectView
     private let tintOverlay = UIView()
 
     init(frame: CGRect, arguments args: Any?) {
         shadowView = UIView(frame: frame)
         containerView = UIView(frame: frame)
-        glassButton = UIButton(type: .system)
         blurView = UIVisualEffectView(effect: nil)
         super.init()
 
@@ -56,22 +54,10 @@ final class NativeGlassContainerPlatformView: NSObject, FlutterPlatformView {
             shadowView.layer.shadowRadius = 0
             shadowView.layer.shadowOffset = .zero
 
-            glassButton.translatesAutoresizingMaskIntoConstraints = false
-            glassButton.isUserInteractionEnabled = false
-            var config = UIButton.Configuration.glass()
-            config.cornerStyle = .dynamic
-            config.contentInsets = .zero
-            config.title = " "
-            config.image = nil
-            config.baseForegroundColor = .clear
-            glassButton.configuration = config
-            containerView.addSubview(glassButton)
-            NSLayoutConstraint.activate([
-                glassButton.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
-                glassButton.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
-                glassButton.topAnchor.constraint(equalTo: containerView.topAnchor),
-                glassButton.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
-            ])
+            blurView.frame = containerView.bounds
+            blurView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            blurView.effect = UIGlassEffect()
+            containerView.addSubview(blurView)
 
             containerView.layer.borderWidth = 0
             containerView.layer.borderColor = UIColor.clear.cgColor
