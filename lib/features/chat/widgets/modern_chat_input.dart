@@ -2049,6 +2049,23 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     );
   }
 
+  Widget _buildExpandButton(VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Padding(
+        padding: const EdgeInsets.all(Spacing.xs),
+        child: Icon(
+          Platform.isIOS
+              ? CupertinoIcons.arrow_up_left_arrow_down_right
+              : Icons.open_in_full,
+          size: 14,
+          color: context.conduitTheme.textSecondary.withValues(alpha: 0.7),
+        ),
+      ),
+    );
+  }
+
   Widget _buildInlineMicAction(bool voiceAvailable) {
     final bool enabledMic = widget.enabled && voiceAvailable;
     return GestureDetector(
