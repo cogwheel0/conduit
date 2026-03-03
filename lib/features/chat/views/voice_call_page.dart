@@ -476,6 +476,7 @@ class _CallActionButton extends StatelessWidget {
           color: color,
           useSmoothRectangleBorder: true,
           borderRadius: BorderRadius.circular(100),
+          size: AdaptiveButtonSize.large,
           minSize: const Size(62, 62),
           child: Icon(icon, color: Colors.white, size: 30),
         ),
