@@ -1349,16 +1349,18 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   ),
                 ],
               ),
-              if (_showExpandButton && !_expandModalOpen)
-                Positioned(
-                  top: Spacing.xs,
-                  right: Spacing.xs,
-                  child: AnimatedOpacity(
-                    opacity: _showExpandButton ? 1.0 : 0.0,
-                    duration: const Duration(milliseconds: 160),
+              Positioned(
+                top: Spacing.xs,
+                right: Spacing.xs,
+                child: AnimatedOpacity(
+                  opacity: (_showExpandButton && !_expandModalOpen) ? 1.0 : 0.0,
+                  duration: const Duration(milliseconds: 160),
+                  child: IgnorePointer(
+                    ignoring: !_showExpandButton || _expandModalOpen,
                     child: _buildExpandButton(_showExpandTextModal),
                   ),
                 ),
+              ),
             ],
           ),
         ),
@@ -1466,16 +1468,19 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                     ),
                   ],
                 ),
-                if (_showExpandButton && !_expandModalOpen)
-                  Positioned(
-                    top: Spacing.xs,
-                    right: 36.0 + Spacing.xs * 2,
-                    child: AnimatedOpacity(
-                      opacity: _showExpandButton ? 1.0 : 0.0,
-                      duration: const Duration(milliseconds: 160),
+                Positioned(
+                  top: Spacing.xs,
+                  right: 36.0 + Spacing.xs * 2,
+                  child: AnimatedOpacity(
+                    opacity:
+                        (_showExpandButton && !_expandModalOpen) ? 1.0 : 0.0,
+                    duration: const Duration(milliseconds: 160),
+                    child: IgnorePointer(
+                      ignoring: !_showExpandButton || _expandModalOpen,
                       child: _buildExpandButton(_showExpandTextModal),
                     ),
                   ),
+                ),
               ],
             ),
           ],
