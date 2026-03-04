@@ -105,6 +105,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   final List<VoidCallback> _socketSubscriptions = [];
   VoidCallback? _socketTeardown;
   DateTime? _lastStreamingActivity;
+  StringBuffer? _streamingBuffer;
   Timer? _taskStatusTimer;
   bool _taskStatusCheckInFlight = false;
   bool _observedRemoteTask = false;
@@ -219,6 +220,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       unawaited(controller.cancel());
     }
     cancelSocketSubscriptions();
+    _streamingBuffer = null;
     _stopRemoteTaskMonitor();
   }
 
@@ -688,15 +690,20 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       return;
     }
 
-    // Append content directly - the widget's normalize() handles incomplete markdown
+    // Initialize buffer with existing content on first chunk
+    _streamingBuffer ??= StringBuffer(lastMessage.content);
+    _streamingBuffer!.write(content);
+
+    final accumulated = _streamingBuffer!.toString();
     state = [
       ...state.sublist(0, state.length - 1),
-      lastMessage.copyWith(content: lastMessage.content + content),
+      lastMessage.copyWith(content: accumulated),
     ];
     _touchStreamingActivity();
   }
 
   void replaceLastMessageContent(String content) {
+    _streamingBuffer = null;
     if (state.isEmpty) return;
 
     final lastMessage = state.last;
@@ -711,6 +718,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   }
 
   void finishStreaming() {
+    _streamingBuffer = null;
     if (state.isEmpty) return;
 
     final lastMessage = state.last;
