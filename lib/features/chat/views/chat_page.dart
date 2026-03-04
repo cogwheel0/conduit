@@ -165,7 +165,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       ref.read(temporaryChatEnabledProvider.notifier).set(false);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
           SnackBar(
             content: Text(
               AppLocalizations.of(context)!.chatSaved,
@@ -175,7 +175,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
           SnackBar(
             content: Text(
               AppLocalizations.of(context)!.chatSaveFailed,
