@@ -2049,11 +2049,18 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                                 }
                               },
                               fallbackIcon: isTemporary
-                                  ? Icons.chat_bubble
-                                  : Icons.chat_bubble_outline,
+                                  ? (Platform.isIOS
+                                      ? CupertinoIcons
+                                            .check_mark_circled
+                                      : Icons.mark_chat_read)
+                                  : (Platform.isIOS
+                                      ? CupertinoIcons
+                                            .ellipsis_circle
+                                      : Icons
+                                            .mark_chat_unread_outlined),
                               sfSymbol: isTemporary
-                                  ? 'bubble.left.fill'
-                                  : 'bubble.left',
+                                  ? 'checkmark.bubble'
+                                  : 'ellipsis.bubble',
                               color: isTemporary
                                   ? context
                                       .conduitTheme
