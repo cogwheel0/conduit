@@ -51,13 +51,8 @@ final isChatStreamingProvider = Provider<bool>((ref) {
 /// The content of the currently streaming assistant message.
 /// Only the actively streaming message widget should watch this.
 /// This avoids rebuilding all visible messages on every chunk.
-final streamingContentProvider =
-    NotifierProvider<StreamingContentNotifier, String?>(
-      StreamingContentNotifier.new,
-    );
-
-/// Notifier that holds the current streaming content text.
-class StreamingContentNotifier extends Notifier<String?> {
+@Riverpod(keepAlive: true)
+class StreamingContent extends _$StreamingContent {
   @override
   String? build() => null;
 
@@ -121,6 +116,10 @@ class ComposerAutofocusEnabled extends _$ComposerAutofocusEnabled {
 
 // Chat messages notifier class
 class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
+  /// Interval for syncing the streaming buffer into the message list state.
+  /// Per-chunk updates go through [streamingContentProvider] instead.
+  static const _streamingSyncInterval = Duration(milliseconds: 500);
+
   StreamingResponseController? _messageStream;
   ProviderSubscription? _conversationListener;
   final List<StreamSubscription> _subscriptions = [];
@@ -252,8 +251,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   void _clearStreamingContent() {
     try {
       ref.read(streamingContentProvider.notifier).set(null);
-    } catch (_) {
-      // Tolerate disposal races during conversation transitions.
+    } on StateError catch (_) {
+      // Provider may be disposed during conversation transitions.
     }
   }
 
@@ -754,7 +753,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     // This prevents rebuilding ALL visible messages on
     // every chunk.
     _streamingSyncTimer ??= Timer.periodic(
-      const Duration(milliseconds: 500),
+      _streamingSyncInterval,
       (_) => _syncStreamingBufferToState(),
     );
 

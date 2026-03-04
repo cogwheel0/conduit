@@ -88,6 +88,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   int _activeVersionIndex = -1;
   String? _lastStreamingContent;
   bool _hasAnimated = false;
+  ProviderSubscription<String?>? _streamingContentSub;
 
   /// Cache the last raw content that was fully parsed, so we can detect
   /// when only the tail has changed and skip re-parsing earlier segments.
@@ -126,6 +127,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     // Parse reasoning and tool-calls sections
     unawaited(_reparseSections());
     _updateTypingIndicatorGate();
+    _syncStreamingContentSubscription();
   }
 
   @override
@@ -145,6 +147,12 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       _hasAnimated = false;
       _fadeController.reset();
       _slideController.reset();
+    }
+
+    // Re-sync subscription when streaming state changes
+    if (oldWidget.isStreaming != widget.isStreaming ||
+        oldWidget.message.id != widget.message.id) {
+      _syncStreamingContentSubscription();
     }
 
     // Re-parse sections when message content changes
@@ -638,8 +646,30 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     );
   }
 
+  /// Subscribes to [streamingContentProvider] only while this message is
+  /// actively streaming. Uses [ref.listenManual] for explicit lifecycle
+  /// control instead of calling [ref.listen] inside [build].
+  void _syncStreamingContentSubscription() {
+    _streamingContentSub?.close();
+    _streamingContentSub = null;
+
+    if (widget.isStreaming) {
+      _streamingContentSub = ref.listenManual(
+        streamingContentProvider,
+        (prev, next) {
+          if (next != null && next != _lastStreamingContent) {
+            _lastStreamingContent = next;
+            unawaited(_reparseSections(next));
+          }
+        },
+        fireImmediately: true,
+      );
+    }
+  }
+
   @override
   void dispose() {
+    _streamingContentSub?.close();
     _typingGateTimer?.cancel();
     _ttsPlainTextDebounce?.cancel();
     _pendingTtsPlainTextPayload = null;
@@ -651,17 +681,6 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   @override
   Widget build(BuildContext context) {
-    // Listen to streaming content provider only for the actively streaming
-    // message. This avoids invoking no-op callbacks for every historical
-    // message on each chunk.
-    if (widget.message.isStreaming) {
-      ref.listen(streamingContentProvider, (prev, next) {
-        if (next != null && next != _lastStreamingContent) {
-          _lastStreamingContent = next;
-          unawaited(_reparseSections(next));
-        }
-      });
-    }
     return _buildDocumentationMessage();
   }
 
