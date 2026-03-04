@@ -37,7 +37,6 @@ import '../../../core/models/folder.dart';
 import '../../../core/models/model.dart';
 import '../providers/context_attachments_provider.dart';
 import '../../../shared/widgets/loading_states.dart';
-import 'chat_page_helpers.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../onboarding/views/onboarding_sheet.dart';
 import '../../../shared/widgets/sheet_handle.dart';
@@ -46,7 +45,7 @@ import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
 import '../../../shared/widgets/modal_safe_area.dart';
 import '../../../core/services/settings_service.dart';
-import '../../../shared/widgets/model_avatar.dart';
+import '../../../shared/widgets/model_list_tile.dart';
 import '../../../core/services/platform_service.dart' as ps;
 import 'package:flutter/gestures.dart' show DragStartBehavior;
 
@@ -2284,40 +2283,6 @@ class _ModelSelectorSheetState extends ConsumerState<_ModelSelectorSheet> {
   String _searchQuery = '';
   List<Model> _filteredModels = [];
   Timer? _searchDebounce;
-  // No capability filters
-  // Grid view removed
-
-  Widget _capabilityChip({required IconData icon, required String label}) {
-    return Container(
-      margin: const EdgeInsets.only(right: Spacing.xs),
-      padding: const EdgeInsets.symmetric(horizontal: Spacing.xs, vertical: 2),
-      decoration: BoxDecoration(
-        color: context.conduitTheme.buttonPrimary.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(AppBorderRadius.chip),
-        border: Border.all(
-          color: context.conduitTheme.buttonPrimary.withValues(alpha: 0.3),
-          width: BorderWidth.thin,
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 12, color: context.conduitTheme.buttonPrimary),
-          const SizedBox(width: 4),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: AppTypography.labelSmall,
-              color: context.conduitTheme.textSecondary,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // Removed filter toggle UI and logic
 
   @override
   void initState() {
@@ -2443,12 +2408,19 @@ class _ModelSelectorSheetState extends ConsumerState<_ModelSelectorSheet> {
                                                 .watch(selectedModelProvider)
                                                 ?.id ==
                                             model.id;
+                                        final api =
+                                            widget.ref.watch(apiServiceProvider);
+                                        final iconUrl =
+                                            resolveModelIconUrlForModel(
+                                              api,
+                                              model,
+                                            );
 
-                                        return _buildModelListTile(
+                                        return ModelListTile(
                                           model: model,
                                           isSelected: isSelected,
+                                          iconUrl: iconUrl,
                                           onTap: () {
-                                            HapticFeedback.selectionClick();
                                             widget.ref
                                                 .read(
                                                   selectedModelProvider
@@ -2517,111 +2489,6 @@ class _ModelSelectorSheetState extends ConsumerState<_ModelSelectorSheet> {
     );
   }
 
-  // Layout toggle removed
-
-  // Removed grid card renderer (grid view removed)
-
-  bool _modelSupportsReasoning(Model model) {
-    // Only rely on supported_parameters containing 'reasoning'
-    final params = model.supportedParameters ?? const [];
-    return params.any((p) => p.toLowerCase().contains('reasoning'));
-  }
-
-  // Removed: _capabilityBadge no longer used
-
-  // Removed: _capabilityPlusBadge no longer used
-
-  Widget _buildModelListTile({
-    required Model model,
-    required bool isSelected,
-    required VoidCallback onTap,
-  }) {
-    final api = ref.watch(apiServiceProvider);
-    final iconUrl = resolveModelIconUrlForModel(api, model);
-    return PressableScale(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(AppBorderRadius.small),
-      child: Container(
-        margin: const EdgeInsets.only(bottom: Spacing.sm),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? Color.alphaBlend(
-                  context.conduitTheme.buttonPrimary.withValues(alpha: 0.1),
-                  context.conduitTheme.surfaceBackground,
-                )
-              : context.conduitTheme.surfaceBackground.withValues(alpha: 0.05),
-          borderRadius: BorderRadius.circular(AppBorderRadius.small),
-          border: Border.all(
-            color: isSelected
-                ? Colors.transparent
-                : context.conduitTheme.dividerColor.withValues(alpha: 0.5),
-            width: BorderWidth.standard,
-          ),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(Spacing.sm),
-          child: Row(
-            children: [
-              ModelAvatar(size: 32, imageUrl: iconUrl, label: model.name),
-              const SizedBox(width: Spacing.sm),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      model.name,
-                      style: TextStyle(
-                        color: context.conduitTheme.textPrimary,
-                        fontWeight: FontWeight.w600,
-                        fontSize: AppTypography.bodyMedium,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    if (model.isMultimodal ||
-                        _modelSupportsReasoning(model)) ...[
-                      const SizedBox(height: Spacing.xs),
-                      Row(
-                        children: [
-                          if (model.isMultimodal)
-                            _capabilityChip(
-                              icon: Platform.isIOS
-                                  ? CupertinoIcons.photo
-                                  : Icons.image,
-                              label: AppLocalizations.of(
-                                context,
-                              )!.modelCapabilityMultimodal,
-                            ),
-                          if (_modelSupportsReasoning(model))
-                            _capabilityChip(
-                              icon: Platform.isIOS
-                                  ? CupertinoIcons.lightbulb
-                                  : Icons.psychology_alt,
-                              label: AppLocalizations.of(
-                                context,
-                              )!.modelCapabilityReasoning,
-                            ),
-                        ],
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              const SizedBox(width: Spacing.sm),
-              if (isSelected)
-                Icon(
-                  Platform.isIOS ? CupertinoIcons.check_mark : Icons.check,
-                  color: context.conduitTheme.buttonPrimary,
-                  size: IconSize.small,
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // Intentionally left blank placeholder for nested helper; moved to top-level below
 }
 
 // Removed custom edge gesture in favor of native Drawer drag behavior.

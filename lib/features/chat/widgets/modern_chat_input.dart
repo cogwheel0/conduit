@@ -30,6 +30,7 @@ import '../../../core/models/knowledge_base.dart';
 
 import '../../../shared/utils/platform_utils.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/modal_safe_area.dart';
 import '../../../core/utils/prompt_variable_parser.dart';
 import '../../prompts/widgets/prompt_variable_dialog.dart';
@@ -2534,71 +2535,61 @@ class _ToggleTile extends StatelessWidget {
       toggled: selected,
       label: title,
       hint: (subtitle?.isEmpty ?? true) ? null : subtitle,
-      child: AdaptiveCard(
-        color: theme.surfaces.card,
-        borderRadius: BorderRadius.circular(AppBorderRadius.input),
-        margin: const EdgeInsets.symmetric(vertical: Spacing.xxs),
-        child: GestureDetector(
-          onTap: () {
-            HapticFeedback.selectionClick();
-            onToggle();
-          },
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: Spacing.sm,
-              vertical: Spacing.xs,
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                glyph,
-                const SizedBox(width: Spacing.xs),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: AppTypography.bodySmallStyle.copyWith(
-                          color: theme.textPrimary,
-                          fontWeight: FontWeight.w500,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      if (subtitle != null && subtitle!.isNotEmpty) ...[
-                        const SizedBox(height: Spacing.xs),
-                        Text(
-                          subtitle!,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppTypography.captionStyle.copyWith(
-                            color: theme.textSecondary.withValues(
-                              alpha: Alpha.strong,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
+      child: ConduitCard(
+        padding: const EdgeInsets.all(Spacing.md),
+        onTap: () {
+          HapticFeedback.selectionClick();
+          onToggle();
+        },
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            glyph,
+            const SizedBox(width: Spacing.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: theme.bodyMedium?.copyWith(
+                      color: theme.sidebarForeground,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
-                const SizedBox(width: Spacing.xs),
-                IgnorePointer(
-                  child: Platform.isIOS
-                      ? CupertinoSwitch(
-                          value: selected,
-                          onChanged: (_) {},
-                          activeTrackColor: theme.buttonPrimary,
-                        )
-                      : Switch(
-                          value: selected,
-                          onChanged: (_) {},
-                          activeColor: theme.buttonPrimary,
+                  if (subtitle != null && subtitle!.isNotEmpty) ...[
+                    const SizedBox(height: Spacing.xs),
+                    Text(
+                      subtitle!,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.bodySmall?.copyWith(
+                        color: theme.sidebarForeground.withValues(
+                          alpha: 0.75,
                         ),
-                ),
-              ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
             ),
-          ),
+            const SizedBox(width: Spacing.sm),
+            IgnorePointer(
+              child: Platform.isIOS
+                  ? CupertinoSwitch(
+                      value: selected,
+                      onChanged: (_) {},
+                      activeTrackColor: theme.buttonPrimary,
+                    )
+                  : Switch(
+                      value: selected,
+                      onChanged: (_) {},
+                      activeColor: theme.buttonPrimary,
+                    ),
+            ),
+          ],
         ),
       ),
     );
@@ -2856,21 +2847,12 @@ class _ComposerOverflowSheetState
 
   Widget _buildInfoCard(String message) {
     final theme = context.conduitTheme;
-    return Container(
-      width: double.infinity,
+    return ConduitCard(
       padding: const EdgeInsets.all(Spacing.md),
-      decoration: BoxDecoration(
-        color: theme.surfaces.card,
-        borderRadius: BorderRadius.circular(AppBorderRadius.input),
-        border: Border.all(
-          color: theme.cardBorder.withValues(alpha: 0.6),
-          width: BorderWidth.thin,
-        ),
-      ),
       child: Text(
         message,
-        style: AppTypography.bodyMediumStyle.copyWith(
-          color: theme.textSecondary,
+        style: theme.bodySmall?.copyWith(
+          color: theme.sidebarForeground.withValues(alpha: 0.75),
         ),
       ),
     );
@@ -2885,53 +2867,54 @@ class _ComposerOverflowSheetState
     final bool enabled = onTap != null;
     final Color iconColor = enabled ? theme.buttonPrimary : theme.iconDisabled;
     final Color textColor = enabled
-        ? theme.textPrimary
-        : theme.textPrimary.withValues(alpha: Alpha.disabled);
+        ? theme.sidebarForeground
+        : theme.sidebarForeground.withValues(alpha: Alpha.disabled);
 
     return Opacity(
       opacity: enabled ? 1.0 : Alpha.disabled,
-      child: AdaptiveCard(
-        color: theme.surfaces.card,
-        borderRadius: BorderRadius.circular(AppBorderRadius.card),
-        clipBehavior: Clip.antiAlias,
-        child: GestureDetector(
-          onTap: onTap == null
-              ? null
-              : () {
-                  Navigator.of(context).pop();
-                  Future.microtask(onTap);
-                },
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: Spacing.xs,
-              vertical: Spacing.sm,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: enabled
-                        ? theme.buttonPrimary.withValues(alpha: 0.12)
-                        : theme.surfaceContainer.withValues(alpha: 0.60),
-                  ),
-                  child: Icon(icon, color: iconColor, size: IconSize.modal),
+      child: ConduitCard(
+        padding: const EdgeInsets.symmetric(
+          horizontal: Spacing.xs,
+          vertical: Spacing.sm,
+        ),
+        onTap: onTap == null
+            ? null
+            : () {
+                Navigator.of(context).pop();
+                Future.microtask(onTap);
+              },
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: enabled
+                    ? iconColor.withValues(alpha: 0.1)
+                    : theme.surfaceContainer.withValues(alpha: 0.60),
+                borderRadius:
+                    BorderRadius.circular(AppBorderRadius.small),
+                border: Border.all(
+                  color: enabled
+                      ? iconColor.withValues(alpha: 0.2)
+                      : Colors.transparent,
+                  width: BorderWidth.thin,
                 ),
-                const SizedBox(height: Spacing.xs),
-                Text(
-                  label,
-                  textAlign: TextAlign.center,
-                  style: AppTypography.captionStyle.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: textColor,
-                  ),
-                ),
-              ],
+              ),
+              alignment: Alignment.center,
+              child: Icon(icon, color: iconColor, size: IconSize.medium),
             ),
-          ),
+            const SizedBox(height: Spacing.xs),
+            Text(
+              label,
+              textAlign: TextAlign.center,
+              style: AppTypography.captionStyle.copyWith(
+                fontWeight: FontWeight.w600,
+                color: textColor,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -2996,20 +2979,20 @@ class _ComposerOverflowSheetState
     required bool selected,
     required ConduitThemeExtension theme,
   }) {
+    final color = selected ? theme.buttonPrimary : theme.iconPrimary;
     return Container(
-      width: 36,
-      height: 36,
+      width: 40,
+      height: 40,
       decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: selected
-            ? theme.buttonPrimary
-            : theme.surfaceContainer.withValues(alpha: 0.60),
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(AppBorderRadius.small),
+        border: Border.all(
+          color: color.withValues(alpha: 0.2),
+          width: BorderWidth.thin,
+        ),
       ),
-      child: Icon(
-        icon,
-        color: selected ? theme.buttonPrimaryText : theme.iconPrimary,
-        size: IconSize.modal,
-      ),
+      alignment: Alignment.center,
+      child: Icon(icon, color: color, size: IconSize.medium),
     );
   }
 
@@ -3018,30 +3001,33 @@ class _ComposerOverflowSheetState
     required bool selected,
     required ConduitThemeExtension theme,
   }) {
-    final Color iconColor =
-        selected ? theme.buttonPrimaryText : theme.iconPrimary;
+    final color = selected ? theme.buttonPrimary : theme.iconPrimary;
     final fallback = Icon(
       Platform.isIOS ? CupertinoIcons.sparkles : Icons.auto_awesome,
-      color: iconColor,
-      size: IconSize.modal,
+      color: color,
+      size: IconSize.medium,
     );
     return Container(
-      width: 36,
-      height: 36,
+      width: 40,
+      height: 40,
       decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: selected
-            ? theme.buttonPrimary
-            : theme.surfaceContainer.withValues(alpha: 0.60),
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(AppBorderRadius.small),
+        border: Border.all(
+          color: color.withValues(alpha: 0.2),
+          width: BorderWidth.thin,
+        ),
       ),
+      alignment: Alignment.center,
       child: iconUrl != null && iconUrl.isNotEmpty
-          ? ClipOval(
+          ? ClipRRect(
+              borderRadius: BorderRadius.circular(AppBorderRadius.small),
               child: Image.network(
                 iconUrl,
-                width: 36,
-                height: 36,
+                width: 40,
+                height: 40,
                 fit: BoxFit.cover,
-                color: iconUrl.endsWith('.svg') ? iconColor : null,
+                color: iconUrl.endsWith('.svg') ? color : null,
                 colorBlendMode: BlendMode.srcIn,
                 errorBuilder: (_, _, _) => fallback,
               ),

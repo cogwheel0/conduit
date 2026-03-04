@@ -1,4 +1,3 @@
-import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../shared/theme/theme_extensions.dart';
@@ -25,13 +24,13 @@ import '../../../core/services/api_service.dart';
 import '../../../core/models/user.dart' as models;
 import 'dart:async';
 import 'dart:io';
-import '../../chat/views/chat_page_helpers.dart';
 import '../../../shared/widgets/modal_safe_area.dart';
 import '../../../core/utils/user_display_name.dart';
 import '../../../core/utils/user_avatar_utils.dart';
 import '../../../core/utils/model_icon_utils.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../../../shared/widgets/model_avatar.dart';
+import '../../../shared/widgets/model_list_tile.dart';
 
 /// Profile page (You tab) showing user info and main actions
 /// Enhanced with production-grade design tokens for better cohesion
@@ -747,36 +746,6 @@ class _DefaultModelBottomSheetState
   Timer? _searchDebounce;
   String? _selectedModelId;
 
-  Widget _capabilityChip({required IconData icon, required String label}) {
-    return Container(
-      margin: const EdgeInsets.only(right: Spacing.xs),
-      padding: const EdgeInsets.symmetric(horizontal: Spacing.xs, vertical: 2),
-      decoration: BoxDecoration(
-        color: context.conduitTheme.buttonPrimary.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(AppBorderRadius.chip),
-        border: Border.all(
-          color: context.conduitTheme.buttonPrimary.withValues(alpha: 0.3),
-          width: BorderWidth.thin,
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 12, color: context.conduitTheme.buttonPrimary),
-          const SizedBox(width: 4),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: AppTypography.labelSmall,
-              color: context.conduitTheme.textSecondary,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   void initState() {
     super.initState();
@@ -913,13 +882,21 @@ class _DefaultModelBottomSheetState
                                                   _selectedModelId ==
                                                       'auto-select'
                                             : _selectedModelId == model.id;
+                                        final api =
+                                            ref.watch(apiServiceProvider);
+                                        final iconUrl = isAutoSelect
+                                            ? null
+                                            : resolveModelIconUrlForModel(
+                                                api,
+                                                model,
+                                              );
 
-                                        return _buildModelListTile(
+                                        return ModelListTile(
                                           model: model,
                                           isSelected: isSelected,
                                           isAutoSelect: isAutoSelect,
+                                          iconUrl: iconUrl,
                                           onTap: () {
-                                            HapticFeedback.lightImpact();
                                             final selectedId = isAutoSelect
                                                 ? 'auto-select'
                                                 : model.id;
@@ -1032,131 +1009,4 @@ class _DefaultModelBottomSheetState
     );
   }
 
-  bool _modelSupportsReasoning(Model model) {
-    final params = model.supportedParameters ?? const [];
-    return params.any((p) => p.toLowerCase().contains('reasoning'));
-  }
-
-  Widget _buildModelListTile({
-    required Model model,
-    required bool isSelected,
-    required bool isAutoSelect,
-    required VoidCallback onTap,
-  }) {
-    final api = ref.watch(apiServiceProvider);
-
-    final Widget leading;
-    if (isAutoSelect) {
-      leading = Container(
-        width: 32,
-        height: 32,
-        decoration: BoxDecoration(
-          color: context.conduitTheme.buttonPrimary.withValues(alpha: 0.15),
-          borderRadius: BorderRadius.circular(AppBorderRadius.md),
-        ),
-        child: Icon(
-          Platform.isIOS ? CupertinoIcons.wand_stars : Icons.auto_awesome,
-          color: context.conduitTheme.buttonPrimary,
-          size: 16,
-        ),
-      );
-    } else {
-      final iconUrl = resolveModelIconUrlForModel(api, model);
-      leading = ModelAvatar(size: 32, imageUrl: iconUrl, label: model.name);
-    }
-
-    return PressableScale(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(AppBorderRadius.small),
-      child: Container(
-        margin: const EdgeInsets.only(bottom: Spacing.sm),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? Color.alphaBlend(
-                  context.conduitTheme.buttonPrimary.withValues(alpha: 0.1),
-                  context.sidebarTheme.background,
-                )
-              : context.sidebarTheme.background.withValues(alpha: 0.05),
-          borderRadius: BorderRadius.circular(AppBorderRadius.small),
-          border: Border.all(
-            color: isSelected
-                ? Colors.transparent
-                : context.conduitTheme.dividerColor.withValues(alpha: 0.5),
-            width: BorderWidth.standard,
-          ),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(Spacing.sm),
-          child: Row(
-            children: [
-              leading,
-              const SizedBox(width: Spacing.sm),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      isAutoSelect
-                          ? AppLocalizations.of(context)!.autoSelect
-                          : model.name,
-                      style: TextStyle(
-                        color: context.conduitTheme.textPrimary,
-                        fontWeight: FontWeight.w600,
-                        fontSize: AppTypography.bodyMedium,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    if (isAutoSelect) ...[
-                      const SizedBox(height: Spacing.xs),
-                      Text(
-                        AppLocalizations.of(context)!.autoSelectDescription,
-                        style: TextStyle(
-                          fontSize: AppTypography.bodySmall,
-                          color: context.conduitTheme.textSecondary,
-                          fontWeight: FontWeight.w400,
-                        ),
-                      ),
-                    ] else if (model.isMultimodal ||
-                        _modelSupportsReasoning(model)) ...[
-                      const SizedBox(height: Spacing.xs),
-                      Row(
-                        children: [
-                          if (model.isMultimodal)
-                            _capabilityChip(
-                              icon: Platform.isIOS
-                                  ? CupertinoIcons.photo
-                                  : Icons.image,
-                              label: AppLocalizations.of(
-                                context,
-                              )!.modelCapabilityMultimodal,
-                            ),
-                          if (_modelSupportsReasoning(model))
-                            _capabilityChip(
-                              icon: Platform.isIOS
-                                  ? CupertinoIcons.lightbulb
-                                  : Icons.psychology_alt,
-                              label: AppLocalizations.of(
-                                context,
-                              )!.modelCapabilityReasoning,
-                            ),
-                        ],
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              const SizedBox(width: Spacing.sm),
-              if (isSelected)
-                Icon(
-                  Platform.isIOS ? CupertinoIcons.check_mark : Icons.check,
-                  color: context.conduitTheme.buttonPrimary,
-                  size: IconSize.small,
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 }
