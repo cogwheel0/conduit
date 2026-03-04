@@ -1498,6 +1498,20 @@ class Conversations extends _$Conversations {
   }
 }
 
+/// Whether the current chat session is temporary (not persisted to server).
+///
+/// When true, conversations use `local:{socketId}` IDs and skip all
+/// server persistence. Resets on app restart unless the user has
+/// `temporaryChatByDefault` enabled in settings.
+final temporaryChatEnabledProvider = StateProvider<bool>((ref) {
+  final settings = ref.watch(appSettingsProvider);
+  return settings.temporaryChatByDefault;
+});
+
+/// Returns true if the given conversation ID represents a temporary chat.
+bool isTemporaryChat(String? id) =>
+    id != null && id.startsWith('local:');
+
 final activeConversationProvider =
     NotifierProvider<ActiveConversationNotifier, Conversation?>(
       ActiveConversationNotifier.new,
