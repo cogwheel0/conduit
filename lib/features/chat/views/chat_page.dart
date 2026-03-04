@@ -573,8 +573,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
               });
             }
 
-            return AlertDialog(
-              title: const Text('Attach webpage'),
+            return ThemedDialogs.buildBase(
+              context: innerContext,
+              title: l10n.webPage,
               content: SizedBox(
                 width: 400,
                 child: Column(
@@ -878,13 +879,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required Color color,
   }) {
     if (PlatformInfo.isIOS26OrHigher()) {
-      return IOS26Button.sfSymbol(
+      return AdaptiveButton.child(
         onPressed: onPressed,
-        sfSymbol: SFSymbol(sfSymbol, size: 18, color: color),
-        style: IOS26ButtonStyle.glass,
-        size: IOS26ButtonSize.large,
+        style: AdaptiveButtonStyle.glass,
+        size: AdaptiveButtonSize.large,
         minSize: const Size(TouchTarget.minimum, TouchTarget.minimum),
         useSmoothRectangleBorder: false,
+        child: Icon(fallbackIcon, size: 18, color: color),
       );
     }
 
@@ -1782,12 +1783,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                                         .clamp(132.0, maxPillWidth)
                                         .toDouble();
 
-                                modelPill = IOS26Button.child(
+                                modelPill = AdaptiveButton.child(
                                   onPressed: () {
                                     openModelSelector();
                                   },
-                                  style: IOS26ButtonStyle.glass,
-                                  size: IOS26ButtonSize.large,
+                                  style: AdaptiveButtonStyle.glass,
+                                  size: AdaptiveButtonSize.large,
                                   minSize: Size(targetPillWidth, 44),
                                   useSmoothRectangleBorder: false,
                                   child: Padding(
@@ -2077,8 +2078,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                                   // File attachments
                                   const FileAttachmentWidget(),
                                   const ContextAttachmentWidget(),
-                                  // Modern Input
-                                  ModernChatInput(
+                                  // RepaintBoundary prevents BackdropFilter
+                                  // (AdaptiveBlurView) from going blank when
+                                  // a modal sheet scrolls over it.
+                                  RepaintBoundary(
+                                  child: ModernChatInput(
                                     onSendMessage: (text) =>
                                         _handleMessageSend(text, selectedModel),
                                     onVoiceInput: null,
@@ -2092,6 +2096,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                                     onWebAttachment: _promptAttachWebpage,
                                     onPastedAttachments:
                                         _handlePastedAttachments,
+                                  ),
                                   ),
                                 ],
                               ),
@@ -2170,54 +2175,28 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                                             isStreamingAnyMessage
                                         ? 'Resume auto-scroll'
                                         : 'Scroll to bottom',
-                                    child: PlatformInfo.isIOS26OrHigher()
-                                        ? IOS26Button.sfSymbol(
-                                            onPressed: _scrollToBottom,
-                                            sfSymbol: SFSymbol(
-                                              _userPausedAutoScroll &&
-                                                      isStreamingAnyMessage
-                                                  ? 'play.fill'
-                                                  : 'chevron.down',
-                                              size: IconSize.medium,
-                                              color: GlassColors.label(
-                                                context,
-                                              ),
-                                            ),
-                                            style: IOS26ButtonStyle.glass,
-                                            size: IOS26ButtonSize.large,
-                                            minSize: const Size(
-                                              TouchTarget.minimum,
-                                              TouchTarget.minimum,
-                                            ),
-                                            useSmoothRectangleBorder: false,
-                                          )
-                                        : AdaptiveBlurView(
-                                            blurStyle:
-                                                BlurStyle
-                                                    .systemUltraThinMaterial,
-                                            borderRadius: BorderRadius.circular(
-                                              AppBorderRadius.floatingButton,
-                                            ),
-                                            child: SizedBox(
-                                              width: TouchTarget.button,
-                                              height: TouchTarget.button,
-                                              child: IconButton(
-                                                onPressed: _scrollToBottom,
-                                                splashRadius: 24,
-                                                icon: Icon(
-                                                  _userPausedAutoScroll &&
-                                                          isStreamingAnyMessage
-                                                      ? Icons.play_arrow
-                                                      : Icons
-                                                            .keyboard_arrow_down,
-                                                  size: IconSize.lg,
-                                                  color: GlassColors.label(
-                                                    context,
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                          ),
+                                    child: AdaptiveButton.child(
+                                        onPressed: _scrollToBottom,
+                                        style: AdaptiveButtonStyle.glass,
+                                        size: AdaptiveButtonSize.large,
+                                        minSize: const Size(
+                                          TouchTarget.minimum,
+                                          TouchTarget.minimum,
+                                        ),
+                                        useSmoothRectangleBorder: false,
+                                        child: Icon(
+                                          _userPausedAutoScroll &&
+                                                  isStreamingAnyMessage
+                                              ? (Platform.isIOS
+                                                  ? CupertinoIcons.play_fill
+                                                  : Icons.play_arrow)
+                                              : (Platform.isIOS
+                                                  ? CupertinoIcons.chevron_down
+                                                  : Icons.keyboard_arrow_down),
+                                          size: IconSize.medium,
+                                          color: GlassColors.label(context),
+                                        ),
+                                      ),
                                   ),
                                 )
                               : const SizedBox.shrink(

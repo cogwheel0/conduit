@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/cupertino.dart';
 import 'dart:io' show Platform;
 import '../../shared/theme/theme_extensions.dart';
+import '../../shared/widgets/themed_dialogs.dart';
 
 /// Service for platform-specific features and polish
 class PlatformService {
@@ -209,62 +210,14 @@ class PlatformService {
     String? cancelText,
     bool isDestructive = false,
   }) {
-    if (isIOS) {
-      return showCupertinoDialog<bool>(
-        context: context,
-        builder: (context) => CupertinoAlertDialog(
-          title: Text(title),
-          content: Text(content),
-          actions: [
-            if (cancelText != null)
-              CupertinoDialogAction(
-                child: Text(cancelText),
-                onPressed: () => Navigator.of(context).pop(false),
-              ),
-            CupertinoDialogAction(
-              isDestructiveAction: isDestructive,
-              child: Text(confirmText),
-              onPressed: () => Navigator.of(context).pop(true),
-            ),
-          ],
-        ),
-      );
-    } else {
-      return showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          backgroundColor: context.conduitTheme.surfaceBackground,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppBorderRadius.dialog),
-          ),
-          title: Text(
-            title,
-            style: TextStyle(color: context.conduitTheme.textPrimary),
-          ),
-          content: Text(
-            content,
-            style: TextStyle(color: context.conduitTheme.textSecondary),
-          ),
-          actions: [
-            if (cancelText != null)
-              AdaptiveButton(
-                onPressed: () => Navigator.of(context).pop(false),
-                label: cancelText,
-                textColor: context.conduitTheme.textSecondary,
-                style: AdaptiveButtonStyle.plain,
-              ),
-            AdaptiveButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              label: confirmText,
-              textColor: isDestructive
-                  ? context.conduitTheme.error
-                  : context.conduitTheme.buttonPrimary,
-              style: AdaptiveButtonStyle.plain,
-            ),
-          ],
-        ),
-      );
-    }
+    return ThemedDialogs.confirm(
+      context,
+      title: title,
+      message: content,
+      confirmText: confirmText,
+      cancelText: cancelText,
+      isDestructive: isDestructive,
+    );
   }
 
   /// Get platform-appropriate loading indicator

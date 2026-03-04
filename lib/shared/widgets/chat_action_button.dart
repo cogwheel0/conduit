@@ -45,7 +45,7 @@ class _ChatActionButtonState extends ConsumerState<ChatActionButton> {
         child: Semantics(
           button: true,
           label: widget.label,
-          child: IOS26Button.sfSymbol(
+          child: AdaptiveButton.child(
             onPressed: widget.onTap == null
                 ? null
                 : () {
@@ -55,15 +55,15 @@ class _ChatActionButtonState extends ConsumerState<ChatActionButton> {
                     );
                     widget.onTap!();
                   },
-            sfSymbol: SFSymbol(
-              widget.sfSymbol!,
+            style: AdaptiveButtonStyle.glass,
+            size: AdaptiveButtonSize.small,
+            minSize: const Size(30, 30),
+            useSmoothRectangleBorder: false,
+            child: Icon(
+              widget.icon,
               size: 13,
               color: theme.textPrimary.withValues(alpha: 0.8),
             ),
-            style: IOS26ButtonStyle.glass,
-            size: IOS26ButtonSize.small,
-            minSize: const Size(30, 30),
-            useSmoothRectangleBorder: false,
           ),
         ),
       );

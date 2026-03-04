@@ -746,30 +746,12 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
 
-    return Container(
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        boxShadow: [
-          BoxShadow(
-            color: theme.buttonPrimary.withValues(alpha: 0.35),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-          BoxShadow(
-            color: theme.buttonPrimary.withValues(alpha: 0.2),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: AdaptiveFloatingActionButton(
-        onPressed: _createNewNote,
-        backgroundColor: theme.buttonPrimary,
-        foregroundColor: theme.buttonPrimaryText,
-        elevation: 0,
-        tooltip: l10n.createNote,
-        child: Icon(Platform.isIOS ? CupertinoIcons.add : Icons.add_rounded),
-      ),
+    return AdaptiveFloatingActionButton(
+      onPressed: _createNewNote,
+      backgroundColor: theme.buttonPrimary,
+      foregroundColor: theme.buttonPrimaryText,
+      tooltip: l10n.createNote,
+      child: Icon(Platform.isIOS ? CupertinoIcons.add : Icons.add_rounded),
     );
   }
 }

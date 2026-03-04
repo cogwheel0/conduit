@@ -54,10 +54,10 @@ class FloatingAppBarPill extends StatelessWidget {
             children: [
               Positioned.fill(
                 child: IgnorePointer(
-                  child: IOS26Button.child(
+                  child: AdaptiveButton.child(
                     onPressed: () {},
-                    style: IOS26ButtonStyle.glass,
-                    size: IOS26ButtonSize.large,
+                    style: AdaptiveButtonStyle.glass,
+                    size: AdaptiveButtonSize.large,
                     minSize: minSize,
                     useSmoothRectangleBorder: false,
                     child: const SizedBox.shrink(),

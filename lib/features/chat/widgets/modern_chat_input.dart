@@ -13,7 +13,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'dart:io' show Platform;
 import 'dart:async';
-import 'dart:math' as math;
 import '../providers/chat_providers.dart';
 import '../services/clipboard_attachment_service.dart';
 import '../services/file_attachment_service.dart';
@@ -459,6 +458,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
     if (!needsUpdate) return;
 
+    final bool hadFocus = _focusNode.hasFocus;
+
     setState(() {
       _hasText = hasText;
       _isMultiline = isMultiline;
@@ -481,6 +482,18 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         _showPromptOverlay = false;
       }
     });
+
+    // The setState above can swap the shell widget tree (e.g. on iOS 26 the
+    // compact shell changes between native glass and blur when _isMultiline
+    // flips). The different ValueKeys cause Flutter to unmount/remount the
+    // TextField, dropping focus. Restore it after the rebuild completes.
+    if (hadFocus) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !_isDeactivated && !_focusNode.hasFocus) {
+          _focusNode.requestFocus();
+        }
+      });
+    }
 
     if (!wasShowing && shouldShow) {
       // Trigger prompt fetch lazily when overlay first appears
@@ -1263,9 +1276,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       showCompactComposer ? compactRadius : expandedRadius,
     );
 
-    // No inner decoration needed — AdaptiveBlurView provides
-    // native glass tinting and border glow.
-
     final List<Widget> composerChildren = <Widget>[
       if (_showPromptOverlay)
         Padding(
@@ -1453,9 +1463,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         ),
       );
 
-      // Use true iOS26 native glass for single-line compact input.
-      // Multiline still needs dynamic-height fallback because IOS26Button
-      // has fixed native heights.
+      // Use AdaptiveButton glass for single-line compact input.
+      // Multiline uses AdaptiveBlurView for dynamic height.
       final bool useNativeCompactGlass =
           _useIOS26NativeControls && !_isMultiline;
       final Widget textFieldShell = useNativeCompactGlass
@@ -1474,11 +1483,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                       children: [
                         Positioned.fill(
                           child: IgnorePointer(
-                            child: IOS26Button.child(
+                            child: AdaptiveButton.child(
                               onPressed: () {},
                               enabled: true,
-                              style: IOS26ButtonStyle.glass,
-                              size: IOS26ButtonSize.large,
+                              style: AdaptiveButtonStyle.glass,
+                              size: AdaptiveButtonSize.large,
                               minSize: Size(width, TouchTarget.input),
                               useSmoothRectangleBorder: false,
                               child: const SizedBox.shrink(),
@@ -1822,28 +1831,14 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   }) {
     final bool enabled = widget.enabled && !_isRecording;
 
-    IconData icon;
     Color? activeColor;
-    if (webSearchActive) {
-      icon = Platform.isIOS ? CupertinoIcons.search : Icons.search;
+    if (webSearchActive ||
+        imageGenerationActive ||
+        toolsActive ||
+        filtersActive) {
       activeColor = context.conduitTheme.buttonPrimary;
-    } else if (imageGenerationActive) {
-      icon = Platform.isIOS ? CupertinoIcons.photo : Icons.image;
-      activeColor = context.conduitTheme.buttonPrimary;
-    } else if (toolsActive) {
-      icon = Platform.isIOS ? CupertinoIcons.wrench : Icons.build;
-      activeColor = context.conduitTheme.buttonPrimary;
-    } else if (filtersActive) {
-      icon = Platform.isIOS ? CupertinoIcons.sparkles : Icons.auto_awesome;
-      activeColor = context.conduitTheme.buttonPrimary;
-    } else {
-      icon = Platform.isIOS ? CupertinoIcons.add : Icons.add;
-      activeColor = null;
     }
 
-    final double iconSize = dense ? IconSize.medium : IconSize.large;
-    // 36px matches IOS26ButtonSize.medium native height — keeps the button
-    // circular (width == height). 44px for non-dense matches large's height.
     final double buttonSize = dense ? 36.0 : TouchTarget.minimum;
     final bool isActive = activeColor != null;
 
@@ -1853,88 +1848,39 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         ? context.conduitTheme.buttonPrimaryText
         : context.conduitTheme.textPrimary.withValues(alpha: Alpha.strong);
 
-    final Color baseBackground = context.conduitTheme.cardBackground;
-    final Color backgroundColor = !enabled
-        ? baseBackground.withValues(alpha: Alpha.disabled)
-        : isActive
-        ? context.conduitTheme.buttonPrimary.withValues(alpha: 0.16)
-        : baseBackground;
-    final Color borderColor = isActive
-        ? context.conduitTheme.buttonPrimary.withValues(alpha: 0.6)
-        : context.conduitTheme.cardBorder;
-
-    if (_useIOS26NativeControls) {
-      final sfSymbol = switch ((
-        webSearchActive,
-        imageGenerationActive,
-        toolsActive,
-        filtersActive,
-      )) {
-        (true, _, _, _) => 'magnifyingglass',
-        (_, true, _, _) => 'photo',
-        (_, _, true, _) => 'wrench.and.screwdriver',
-        (_, _, _, true) => 'sparkles',
-        _ => 'plus',
-      };
-
-      return AdaptiveTooltip(
-        message: tooltip,
-        child: _wrapIosControlShadow(
-          IOS26Button.sfSymbol(
-            onPressed: enabled
-                ? () {
-                    HapticFeedback.selectionClick();
-                    _showOverflowSheet();
-                  }
-                : null,
-            sfSymbol: SFSymbol(
-              sfSymbol,
-              size: IconSize.medium,
-              color: iconColor,
-            ),
-            enabled: enabled,
-            style: isActive
-                ? IOS26ButtonStyle.prominentGlass
-                : IOS26ButtonStyle.glass,
-            color: context.conduitTheme.buttonPrimary,
-            size: dense ? IOS26ButtonSize.medium : IOS26ButtonSize.large,
-            minSize: Size(buttonSize, buttonSize),
-            useSmoothRectangleBorder: false,
-          ),
-        ),
-      );
-    }
+    final IconData overflowIcon = switch ((
+      webSearchActive,
+      imageGenerationActive,
+      toolsActive,
+      filtersActive,
+    )) {
+      (true, _, _, _) => Platform.isIOS ? CupertinoIcons.search : Icons.search,
+      (_, true, _, _) => Platform.isIOS ? CupertinoIcons.photo : Icons.image,
+      (_, _, true, _) =>
+        Platform.isIOS ? CupertinoIcons.wrench : Icons.build,
+      (_, _, _, true) =>
+        Platform.isIOS ? CupertinoIcons.sparkles : Icons.auto_awesome,
+      _ => Platform.isIOS ? CupertinoIcons.add : Icons.add,
+    };
 
     return AdaptiveTooltip(
       message: tooltip,
-      child: Opacity(
-        opacity: enabled ? 1.0 : Alpha.disabled,
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(AppBorderRadius.round),
-            onTap: enabled
-                ? () {
-                    HapticFeedback.selectionClick();
-                    _showOverflowSheet();
-                  }
-                : null,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 160),
-              curve: Curves.easeOutCubic,
-              width: buttonSize,
-              height: buttonSize,
-              decoration: BoxDecoration(
-                color: backgroundColor,
-                borderRadius: BorderRadius.circular(AppBorderRadius.round),
-                border: Border.all(color: borderColor, width: BorderWidth.thin),
-              ),
-              child: Center(
-                child: Icon(icon, size: iconSize, color: iconColor),
-              ),
-            ),
-          ),
-        ),
+      child: AdaptiveButton.child(
+        onPressed: enabled
+            ? () {
+                HapticFeedback.selectionClick();
+                _showOverflowSheet();
+              }
+            : null,
+        enabled: enabled,
+        style: isActive
+            ? AdaptiveButtonStyle.prominentGlass
+            : AdaptiveButtonStyle.glass,
+        color: context.conduitTheme.buttonPrimary,
+        size: dense ? AdaptiveButtonSize.medium : AdaptiveButtonSize.large,
+        minSize: Size(buttonSize, buttonSize),
+        useSmoothRectangleBorder: false,
+        child: Icon(overflowIcon, size: IconSize.medium, color: iconColor),
       ),
     );
   }
@@ -1988,10 +1934,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     bool hasUploadsInProgress, {
     bool dense = false,
   }) {
-    // Compact touch target — 36px matches IOS26ButtonSize.medium native height
-    // so minSize width equals height, producing a circle not an oval.
-    final double buttonSize = dense ? 36.0 : TouchTarget.minimum; // 44.0
-    const double radius = AppBorderRadius.round; // big to ensure circle
+    final double buttonSize = dense ? 36.0 : TouchTarget.minimum;
 
     // Don't allow sending until all uploads are complete
     final enabled =
@@ -1999,81 +1942,23 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
     // Generating -> STOP variant
     if (isGenerating) {
-      if (_useIOS26NativeControls) {
-        return AdaptiveTooltip(
-          message: AppLocalizations.of(context)!.stopGenerating,
-          child: _wrapIosControlShadow(
-            IOS26Button.sfSymbol(
-              key: const ValueKey('primary-btn-stop'),
-              onPressed: () {
-                HapticFeedback.lightImpact();
-                stopGeneration();
-              },
-              sfSymbol: SFSymbol(
-                'stop.fill',
-                size: dense ? IconSize.small + 1 : IconSize.medium,
-                color: context.conduitTheme.error,
-              ),
-              style: IOS26ButtonStyle.glass,
-              color: context.conduitTheme.error,
-              size: dense ? IOS26ButtonSize.medium : IOS26ButtonSize.large,
-              minSize: Size(buttonSize, buttonSize),
-              useSmoothRectangleBorder: false,
-            ),
-          ),
-        );
-      }
-
       return AdaptiveTooltip(
         message: AppLocalizations.of(context)!.stopGenerating,
-        child: Material(
-          color: Colors.transparent,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(radius),
-            side: BorderSide(
-              color: context.conduitTheme.error,
-              width: BorderWidth.regular,
-            ),
-          ),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(radius),
-            overlayColor: WidgetStateProperty.resolveWith<Color>((
-              Set<WidgetState> states,
-            ) {
-              if (states.contains(WidgetState.pressed)) {
-                return context.conduitTheme.error.withValues(
-                  alpha: Alpha.buttonPressed,
-                );
-              }
-              if (states.contains(WidgetState.hovered)) {
-                return context.conduitTheme.error.withValues(
-                  alpha: Alpha.hover,
-                );
-              }
-              return Colors.transparent;
-            }),
-            onTap: () {
-              HapticFeedback.lightImpact();
-              stopGeneration();
-            },
-            child: Container(
-              width: buttonSize,
-              height: buttonSize,
-              decoration: BoxDecoration(
-                color: context.conduitTheme.error.withValues(
-                  alpha: Alpha.buttonPressed,
-                ),
-                borderRadius: BorderRadius.circular(radius),
-                boxShadow: ConduitShadows.button(context),
-              ),
-              child: Center(
-                child: Icon(
-                  Platform.isIOS ? CupertinoIcons.stop_fill : Icons.stop,
-                  size: IconSize.large,
-                  color: context.conduitTheme.buttonPrimaryText,
-                ),
-              ),
-            ),
+        child: AdaptiveButton.child(
+          key: const ValueKey('primary-btn-stop'),
+          onPressed: () {
+            HapticFeedback.lightImpact();
+            stopGeneration();
+          },
+          style: AdaptiveButtonStyle.glass,
+          color: context.conduitTheme.error,
+          size: dense ? AdaptiveButtonSize.medium : AdaptiveButtonSize.large,
+          minSize: Size(buttonSize, buttonSize),
+          useSmoothRectangleBorder: false,
+          child: Icon(
+            Platform.isIOS ? CupertinoIcons.stop_fill : Icons.stop,
+            size: dense ? IconSize.small + 1 : IconSize.medium,
+            color: context.conduitTheme.error,
           ),
         ),
       );
@@ -2081,239 +1966,74 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
     // If there's text, render SEND variant; otherwise render VOICE CALL variant
     if (hasText) {
-      if (_useIOS26NativeControls) {
-        final onPressed = enabled
-            ? () {
-                PlatformUtils.lightHaptic();
-                _sendMessage();
-              }
-            : null;
-
-        final child = hasUploadsInProgress
-            ? SizedBox(
-                width: IconSize.large,
-                height: IconSize.large,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.5,
-                  color: context.conduitTheme.textSecondary,
-                ),
-              )
-            : Icon(
-                CupertinoIcons.arrow_up,
-                size: IconSize.medium,
-                color: enabled
-                    ? context.conduitTheme.buttonPrimaryText
-                    : context.conduitTheme.textPrimary.withValues(
-                        alpha: Alpha.disabled,
-                      ),
-              );
-
-        return AdaptiveTooltip(
-          message: enabled
-              ? AppLocalizations.of(context)!.sendMessage
-              : AppLocalizations.of(context)!.send,
-          child: _wrapIosControlShadow(
-            IOS26Button.child(
-              key: const ValueKey('primary-btn-send'),
-              onPressed: onPressed,
-              enabled: enabled,
-              style: IOS26ButtonStyle.prominentGlass,
-              color: context.conduitTheme.buttonPrimary,
-              size: dense ? IOS26ButtonSize.medium : IOS26ButtonSize.large,
-              minSize: Size(buttonSize, buttonSize),
-              useSmoothRectangleBorder: false,
-              child: child,
-            ),
-          ),
-        );
-      }
-
+      final onPressed = enabled
+          ? () {
+              PlatformUtils.lightHaptic();
+              _sendMessage();
+            }
+          : null;
+      final sendChild = hasUploadsInProgress
+          ? SizedBox(
+              width: IconSize.large,
+              height: IconSize.large,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.5,
+                color: context.conduitTheme.textSecondary,
+              ),
+            )
+          : Icon(
+              CupertinoIcons.arrow_up,
+              size: IconSize.medium,
+              color: enabled
+                  ? context.conduitTheme.buttonPrimaryText
+                  : context.conduitTheme.textPrimary.withValues(
+                      alpha: Alpha.disabled,
+                    ),
+            );
       return AdaptiveTooltip(
         message: enabled
             ? AppLocalizations.of(context)!.sendMessage
             : AppLocalizations.of(context)!.send,
-        child: Opacity(
-          opacity: enabled ? Alpha.primary : Alpha.disabled,
-          child: IgnorePointer(
-            ignoring: !enabled,
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                borderRadius: BorderRadius.circular(radius),
-                onTap: enabled
-                    ? () {
-                        PlatformUtils.lightHaptic();
-                        _sendMessage();
-                      }
-                    : null,
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 160),
-                  curve: Curves.easeOutCubic,
-                  width: buttonSize,
-                  height: buttonSize,
-                  decoration: BoxDecoration(
-                    color: enabled
-                        ? context.conduitTheme.buttonPrimary
-                        : context.conduitTheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(radius),
-                    border: Border.all(
-                      color: enabled
-                          ? context.conduitTheme.buttonPrimary.withValues(
-                              alpha: 0.8,
-                            )
-                          : context.conduitTheme.cardBorder.withValues(
-                              alpha: 0.45,
-                            ),
-                      width: BorderWidth.thin,
-                    ),
-                    boxShadow: enabled
-                        ? <BoxShadow>[
-                            BoxShadow(
-                              color: context.conduitTheme.cardShadow.withValues(
-                                alpha:
-                                    Theme.of(context).brightness ==
-                                        Brightness.dark
-                                    ? 0.36
-                                    : 0.18,
-                              ),
-                              blurRadius: 18,
-                              spreadRadius: -6,
-                              offset: const Offset(0, 8),
-                            ),
-                          ]
-                        : const [],
-                  ),
-                  child: Center(
-                    child: hasUploadsInProgress
-                        ? SizedBox(
-                            width: IconSize.large,
-                            height: IconSize.large,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2.5,
-                              color: context.conduitTheme.textSecondary,
-                            ),
-                          )
-                        : Icon(
-                            Platform.isIOS
-                                ? CupertinoIcons.arrow_up
-                                : Icons.arrow_upward,
-                            size: IconSize.large,
-                            color: enabled
-                                ? context.conduitTheme.buttonPrimaryText
-                                : context.conduitTheme.textPrimary.withValues(
-                                    alpha: Alpha.disabled,
-                                  ),
-                          ),
-                  ),
-                ),
-              ),
-            ),
-          ),
+        child: AdaptiveButton.child(
+          key: const ValueKey('primary-btn-send'),
+          onPressed: onPressed,
+          enabled: enabled,
+          style: AdaptiveButtonStyle.prominentGlass,
+          color: context.conduitTheme.buttonPrimary,
+          size: dense ? AdaptiveButtonSize.medium : AdaptiveButtonSize.large,
+          minSize: Size(buttonSize, buttonSize),
+          useSmoothRectangleBorder: false,
+          child: sendChild,
         ),
       );
     }
 
     // VOICE CALL variant when no text is present
     final bool enabledVoiceCall = widget.enabled && widget.onVoiceCall != null;
-    if (_useIOS26NativeControls) {
-      return AdaptiveTooltip(
-        message: 'Voice Call',
-        child: _wrapIosControlShadow(
-          IOS26Button.sfSymbol(
-            key: const ValueKey('primary-btn-voice-call'),
-            onPressed: enabledVoiceCall
-                ? () {
-                    PlatformUtils.lightHaptic();
-                    widget.onVoiceCall!();
-                  }
-                : null,
-            sfSymbol: SFSymbol(
-              'waveform',
-              size: dense ? IconSize.small + 1 : IconSize.medium,
-              color: enabledVoiceCall
-                  ? context.conduitTheme.buttonPrimaryText
-                  : context.conduitTheme.textPrimary.withValues(
-                      alpha: Alpha.disabled,
-                    ),
-            ),
-            enabled: enabledVoiceCall,
-            style: IOS26ButtonStyle.prominentGlass,
-            color: context.conduitTheme.buttonPrimary,
-            size: dense ? IOS26ButtonSize.medium : IOS26ButtonSize.large,
-            minSize: Size(buttonSize, buttonSize),
-            useSmoothRectangleBorder: false,
-          ),
-        ),
-      );
-    }
-
     return AdaptiveTooltip(
       message: 'Voice Call',
-      child: Opacity(
-        opacity: enabledVoiceCall ? Alpha.primary : Alpha.disabled,
-        child: IgnorePointer(
-          ignoring: !enabledVoiceCall,
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(radius),
-              onTap: enabledVoiceCall
-                  ? () {
-                      PlatformUtils.lightHaptic();
-                      widget.onVoiceCall!();
-                    }
-                  : null,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 160),
-                curve: Curves.easeOutCubic,
-                width: buttonSize,
-                height: buttonSize,
-                decoration: BoxDecoration(
-                  color: enabledVoiceCall
-                      ? context.conduitTheme.buttonPrimary
-                      : context.conduitTheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(radius),
-                  border: Border.all(
-                    color: enabledVoiceCall
-                        ? context.conduitTheme.buttonPrimary.withValues(
-                            alpha: 0.8,
-                          )
-                        : context.conduitTheme.cardBorder.withValues(
-                            alpha: 0.45,
-                          ),
-                    width: BorderWidth.thin,
-                  ),
-                  boxShadow: enabledVoiceCall
-                      ? <BoxShadow>[
-                          BoxShadow(
-                            color: context.conduitTheme.cardShadow.withValues(
-                              alpha:
-                                  Theme.of(context).brightness ==
-                                      Brightness.dark
-                                  ? 0.36
-                                  : 0.18,
-                            ),
-                            blurRadius: 18,
-                            spreadRadius: -6,
-                            offset: const Offset(0, 8),
-                          ),
-                        ]
-                      : const [],
+      child: AdaptiveButton.child(
+        key: const ValueKey('primary-btn-voice-call'),
+        onPressed: enabledVoiceCall
+            ? () {
+                PlatformUtils.lightHaptic();
+                widget.onVoiceCall!();
+              }
+            : null,
+        enabled: enabledVoiceCall,
+        style: AdaptiveButtonStyle.prominentGlass,
+        color: context.conduitTheme.buttonPrimary,
+        size: dense ? AdaptiveButtonSize.medium : AdaptiveButtonSize.large,
+        minSize: Size(buttonSize, buttonSize),
+        useSmoothRectangleBorder: false,
+        child: Icon(
+          Platform.isIOS ? CupertinoIcons.waveform : Icons.graphic_eq,
+          size: dense ? IconSize.small + 1 : IconSize.medium,
+          color: enabledVoiceCall
+              ? context.conduitTheme.buttonPrimaryText
+              : context.conduitTheme.textPrimary.withValues(
+                  alpha: Alpha.disabled,
                 ),
-                child: Center(
-                  child: Icon(
-                    Platform.isIOS ? CupertinoIcons.waveform : Icons.graphic_eq,
-                    size: IconSize.large,
-                    color: enabledVoiceCall
-                        ? context.conduitTheme.buttonPrimaryText
-                        : context.conduitTheme.textPrimary.withValues(
-                            alpha: Alpha.disabled,
-                          ),
-                  ),
-                ),
-              ),
-            ),
-          ),
         ),
       ),
     );
@@ -2328,19 +2048,14 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     bool dense = false,
   }) {
     final bool enabled = onTap != null;
-    final Brightness brightness = Theme.of(context).brightness;
     final theme = context.conduitTheme;
 
     final Color background = isActive
-        ? theme.buttonPrimary.withValues(
-            alpha: brightness == Brightness.dark ? 0.22 : 0.14,
-          )
+        ? theme.buttonPrimary.withValues(alpha: 0.10)
         : Colors.transparent;
 
     final Color borderColor = isActive
-        ? theme.buttonPrimary.withValues(
-            alpha: brightness == Brightness.dark ? 0.85 : 0.75,
-          )
+        ? theme.buttonPrimary.withValues(alpha: 0.4)
         : theme.cardBorder;
 
     final Color textColor = isActive
@@ -2348,7 +2063,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         : theme.textSecondary.withValues(alpha: enabled ? 1.0 : Alpha.disabled);
 
     final Color iconColor = textColor;
-    final bool isLight = brightness == Brightness.light;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
@@ -2375,59 +2089,34 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               borderRadius: BorderRadius.circular(AppBorderRadius.round),
               border: Border.all(
                 color: borderColor,
-                width: isActive ? BorderWidth.medium : BorderWidth.thin,
+                width: BorderWidth.thin,
               ),
-              boxShadow: isActive
-                  ? [
-                      BoxShadow(
-                        color: theme.buttonPrimary.withValues(
-                          alpha: brightness == Brightness.dark ? 0.25 : 0.15,
-                        ),
-                        blurRadius: 8,
-                        spreadRadius: 0,
-                        offset: const Offset(0, 2),
-                      ),
-                    ]
-                  : isLight
-                  ? const [
-                      BoxShadow(
-                        color: Color(0x22000000),
-                        blurRadius: 8,
-                        spreadRadius: -1,
-                        offset: Offset(0, 2),
-                      ),
-                    ]
-                  : [],
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  curve: Curves.easeOutCubic,
-                  child: iconUrl != null && iconUrl.isNotEmpty
-                      ? SizedBox(
+                iconUrl != null && iconUrl.isNotEmpty
+                    ? SizedBox(
+                        width: dense ? IconSize.small : IconSize.small + 1,
+                        height: dense ? IconSize.small : IconSize.small + 1,
+                        child: Image.network(
+                          iconUrl,
                           width: dense ? IconSize.small : IconSize.small + 1,
                           height: dense ? IconSize.small : IconSize.small + 1,
-                          child: Image.network(
-                            iconUrl,
-                            width: dense ? IconSize.small : IconSize.small + 1,
-                            height: dense ? IconSize.small : IconSize.small + 1,
-                            color: iconUrl.endsWith('.svg') ? iconColor : null,
-                            colorBlendMode: BlendMode.srcIn,
-                            errorBuilder: (_, _, _) => Icon(
-                              icon,
-                              size: dense ? IconSize.small : IconSize.small + 1,
-                              color: iconColor,
-                            ),
+                          color: iconUrl.endsWith('.svg') ? iconColor : null,
+                          colorBlendMode: BlendMode.srcIn,
+                          errorBuilder: (_, _, _) => Icon(
+                            icon,
+                            size: dense ? IconSize.small : IconSize.small + 1,
+                            color: iconColor,
                           ),
-                        )
-                      : Icon(
-                          icon,
-                          size: dense ? IconSize.small : IconSize.small + 1,
-                          color: iconColor,
                         ),
-                ),
+                      )
+                    : Icon(
+                        icon,
+                        size: dense ? IconSize.small : IconSize.small + 1,
+                        color: iconColor,
+                      ),
                 SizedBox(width: dense ? Spacing.xs : Spacing.xs + 1),
                 AnimatedDefaultTextStyle(
                   duration: const Duration(milliseconds: 200),
@@ -2452,27 +2141,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     );
   }
 
-  Widget _wrapIosControlShadow(Widget child) {
-    if (!_useIOS26NativeControls ||
-        Theme.of(context).brightness != Brightness.light) {
-      return child;
-    }
-
-    return DecoratedBox(
-      decoration: const BoxDecoration(
-        shape: BoxShape.circle,
-        boxShadow: [
-          BoxShadow(
-            color: Color(0x30000000),
-            blurRadius: 10,
-            spreadRadius: -1,
-            offset: Offset(0, 3),
-          ),
-        ],
-      ),
-      child: child,
-    );
-  }
 
   Widget _wrapIosSurfaceShadow(
     Widget child, {
@@ -2518,283 +2186,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (modalContext) => Consumer(
-        builder: (innerContext, modalRef, _) {
-          final l10n = AppLocalizations.of(innerContext)!;
-          final theme = innerContext.conduitTheme;
-
-          final attachments = <Widget>[
-            _buildOverflowAction(
-              icon: Platform.isIOS ? CupertinoIcons.doc : Icons.attach_file,
-              label: l10n.file,
-              onTap: widget.onFileAttachment == null
-                  ? null
-                  : () {
-                      HapticFeedback.lightImpact();
-                      widget.onFileAttachment!.call();
-                    },
-            ),
-            _buildOverflowAction(
-              icon: Platform.isIOS ? CupertinoIcons.photo : Icons.image,
-              label: l10n.photo,
-              onTap: widget.onImageAttachment == null
-                  ? null
-                  : () {
-                      HapticFeedback.lightImpact();
-                      widget.onImageAttachment!.call();
-                    },
-            ),
-            _buildOverflowAction(
-              icon: Platform.isIOS ? CupertinoIcons.camera : Icons.camera_alt,
-              label: l10n.camera,
-              onTap: widget.onCameraCapture == null
-                  ? null
-                  : () {
-                      HapticFeedback.lightImpact();
-                      widget.onCameraCapture!.call();
-                    },
-            ),
-            _buildOverflowAction(
-              icon: Icons.public,
-              label: 'Attach webpage',
-              onTap: widget.onWebAttachment == null
-                  ? null
-                  : () {
-                      HapticFeedback.lightImpact();
-                      widget.onWebAttachment!.call();
-                    },
-            ),
-          ];
-
-          final featureTiles = <Widget>[];
-          final webSearchAvailable = modalRef.watch(webSearchAvailableProvider);
-          final webSearchEnabled = modalRef.watch(webSearchEnabledProvider);
-          if (webSearchAvailable) {
-            featureTiles.add(
-              _buildFeatureToggleTile(
-                icon: Platform.isIOS ? CupertinoIcons.search : Icons.search,
-                title: l10n.webSearch,
-                subtitle: l10n.webSearchDescription,
-                value: webSearchEnabled,
-                onChanged: (next) {
-                  modalRef.read(webSearchEnabledProvider.notifier).set(next);
-                },
-              ),
-            );
-          }
-
-          final imageGenAvailable = modalRef.watch(
-            imageGenerationAvailableProvider,
-          );
-          final imageGenEnabled = modalRef.watch(
-            imageGenerationEnabledProvider,
-          );
-          if (imageGenAvailable) {
-            featureTiles.add(
-              _buildFeatureToggleTile(
-                icon: Platform.isIOS ? CupertinoIcons.photo : Icons.image,
-                title: l10n.imageGeneration,
-                subtitle: l10n.imageGenerationDescription,
-                value: imageGenEnabled,
-                onChanged: (next) {
-                  modalRef
-                      .read(imageGenerationEnabledProvider.notifier)
-                      .set(next);
-                },
-              ),
-            );
-          }
-
-          final selectedToolIds = modalRef.watch(selectedToolIdsProvider);
-          final toolsAsync = modalRef.watch(toolsListProvider);
-          final Widget toolsSection = toolsAsync.when(
-            data: (tools) {
-              if (tools.isEmpty) {
-                return _buildInfoCard('No tools available');
-              }
-              final tiles = tools.map((tool) {
-                final isSelected = selectedToolIds.contains(tool.id);
-                return _buildToolTile(
-                  tool: tool,
-                  selected: isSelected,
-                  onToggle: () {
-                    final current = List<String>.from(
-                      modalRef.read(selectedToolIdsProvider),
-                    );
-                    if (isSelected) {
-                      current.remove(tool.id);
-                    } else {
-                      current.add(tool.id);
-                    }
-                    modalRef
-                        .read(selectedToolIdsProvider.notifier)
-                        .set(current);
-                  },
-                );
-              }).toList();
-              return Column(children: _withVerticalSpacing(tiles, Spacing.xxs));
-            },
-            loading: () => Center(
-              child: SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(strokeWidth: BorderWidth.thin),
-              ),
-            ),
-            error: (error, stack) => _buildInfoCard('Failed to load tools'),
-          );
-
-          final bodyChildren = <Widget>[
-            const SheetHandle(),
-            const SizedBox(height: Spacing.sm),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    for (var i = 0; i < attachments.length; i++) ...[
-                      if (i != 0) const SizedBox(width: Spacing.sm),
-                      Expanded(child: attachments[i]),
-                    ],
-                  ],
-                ),
-              ],
-            ),
-          ];
-
-          if (featureTiles.isNotEmpty) {
-            bodyChildren
-              ..add(const SizedBox(height: Spacing.sm))
-              ..addAll(_withVerticalSpacing(featureTiles, Spacing.xxs));
-          }
-
-          bodyChildren
-            ..add(const SizedBox(height: Spacing.sm))
-            ..add(_buildSectionLabel(l10n.tools))
-            ..add(toolsSection);
-
-          // Add filters section (like tools section)
-          final modalSelectedModel = modalRef.watch(selectedModelProvider);
-          final modalToggleFilters =
-              modalSelectedModel?.filters ?? const <ToggleFilter>[];
-
-          if (modalToggleFilters.isNotEmpty) {
-            final modalSelectedFilterIds = modalRef.watch(
-              selectedFilterIdsProvider,
-            );
-            final filterTiles = modalToggleFilters.map((filter) {
-              final isSelected = modalSelectedFilterIds.contains(filter.id);
-              return _buildFilterTile(
-                filter: filter,
-                selected: isSelected,
-                onToggle: () {
-                  modalRef
-                      .read(selectedFilterIdsProvider.notifier)
-                      .toggle(filter.id);
-                },
-              );
-            }).toList();
-
-            bodyChildren
-              ..add(const SizedBox(height: Spacing.sm))
-              ..add(_buildSectionLabel(l10n.filters))
-              ..add(
-                Column(
-                  children: _withVerticalSpacing(filterTiles, Spacing.xxs),
-                ),
-              );
-          }
-
-          // Measure content height and cap the sheet's max size to avoid extra blank space
-          final GlobalKey sheetContentKey = GlobalKey();
-          double? measuredContentHeight;
-
-          return StatefulBuilder(
-            builder: (context, setModalState) {
-              // Schedule a post-frame measurement of the content height
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                final ctx = sheetContentKey.currentContext;
-                if (ctx != null) {
-                  final renderObject = ctx.findRenderObject();
-                  if (renderObject is RenderBox) {
-                    final double h = renderObject.size.height;
-                    if (h > 0 && h != measuredContentHeight) {
-                      measuredContentHeight = h;
-                      setModalState(() {});
-                    }
-                  }
-                }
-              });
-
-              final media = MediaQuery.of(modalContext);
-              final double availableHeight =
-                  media.size.height - media.padding.top;
-
-              double computedMax = 0.9;
-              if (measuredContentHeight != null && availableHeight > 0) {
-                computedMax = (measuredContentHeight! / availableHeight).clamp(
-                  0.1,
-                  0.9,
-                );
-              }
-              final double computedMin = math.min(0.2, computedMax);
-              final double computedInitial = math.min(0.34, computedMax);
-
-              return Stack(
-                children: [
-                  Positioned.fill(
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: () => Navigator.of(modalContext).maybePop(),
-                      child: const SizedBox.shrink(),
-                    ),
-                  ),
-                  DraggableScrollableSheet(
-                    expand: false,
-                    initialChildSize: computedInitial,
-                    minChildSize: computedMin,
-                    maxChildSize: computedMax,
-                    snap: true,
-                    snapSizes: [computedMax],
-                    builder: (sheetContext, scrollController) {
-                      return Container(
-                        decoration: BoxDecoration(
-                          color: theme.surfaceBackground,
-                          borderRadius: const BorderRadius.vertical(
-                            top: Radius.circular(AppBorderRadius.bottomSheet),
-                          ),
-                          border: Border.all(
-                            color: theme.dividerColor,
-                            width: BorderWidth.thin,
-                          ),
-                          boxShadow: ConduitShadows.modal(context),
-                        ),
-                        child: ModalSheetSafeArea(
-                          padding: const EdgeInsets.fromLTRB(
-                            Spacing.md,
-                            Spacing.xs,
-                            Spacing.md,
-                            Spacing.md,
-                          ),
-                          child: SingleChildScrollView(
-                            controller: scrollController,
-                            padding: EdgeInsets.zero,
-                            child: Column(
-                              key: sheetContentKey,
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: bodyChildren,
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ],
-              );
-            },
-          );
-        },
+      builder: (_) => _ComposerOverflowSheet(
+        onFileAttachment: widget.onFileAttachment,
+        onImageAttachment: widget.onImageAttachment,
+        onCameraCapture: widget.onCameraCapture,
+        onWebAttachment: widget.onWebAttachment,
       ),
     ).whenComplete(() {
       if (mounted) {
@@ -2807,20 +2203,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         }
       }
     });
-  }
-
-  List<Widget> _withVerticalSpacing(List<Widget> children, double gap) {
-    if (children.length <= 1) {
-      return List<Widget>.from(children);
-    }
-    final spaced = <Widget>[];
-    for (var i = 0; i < children.length; i++) {
-      spaced.add(children[i]);
-      if (i != children.length - 1) {
-        spaced.add(SizedBox(height: gap));
-      }
-    }
-    return spaced;
   }
 
   void _showExpandTextModal() {
@@ -2849,7 +2231,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       useSafeArea: true,
       builder: (modalContext) => _ExpandedTextEditorSheet(
         controller: modalController,
-        useNativeControls: _useIOS26NativeControls,
         onSend: () {
           FocusScope.of(modalContext).unfocus();
           Navigator.of(modalContext).pop(true);
@@ -2861,328 +2242,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       if (mounted) setState(() => _expandModalOpen = false);
       if (shouldSend == true && mounted) _sendMessage();
     });
-  }
-
-  Widget _buildSectionLabel(String text) {
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: Spacing.xxs),
-      child: Text(
-        text,
-        style: AppTypography.labelStyle.copyWith(
-          color: context.conduitTheme.textSecondary.withValues(
-            alpha: Alpha.strong,
-          ),
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildFeatureToggleTile({
-    required IconData icon,
-    required String title,
-    String? subtitle,
-    required bool value,
-    required ValueChanged<bool> onChanged,
-    String? iconUrl,
-  }) {
-    final theme = context.conduitTheme;
-    final glyph = iconUrl != null && iconUrl.isNotEmpty
-        ? _buildFilterGlyph(iconUrl: iconUrl, selected: value, theme: theme)
-        : _buildToolGlyph(icon: icon, selected: value, theme: theme);
-    return _ToggleTile(
-      glyph: glyph,
-      title: title,
-      subtitle: subtitle,
-      selected: value,
-      onToggle: () => onChanged(!value),
-      theme: theme,
-    );
-  }
-
-  Widget _buildToolTile({
-    required Tool tool,
-    required bool selected,
-    required VoidCallback onToggle,
-  }) {
-    final theme = context.conduitTheme;
-    return _ToggleTile(
-      glyph: _buildToolGlyph(
-        icon: _toolIconFor(tool),
-        selected: selected,
-        theme: theme,
-      ),
-      title: tool.name,
-      subtitle: _toolDescriptionFor(tool),
-      selected: selected,
-      onToggle: onToggle,
-      theme: theme,
-    );
-  }
-
-  Widget _buildFilterTile({
-    required ToggleFilter filter,
-    required bool selected,
-    required VoidCallback onToggle,
-  }) {
-    final theme = context.conduitTheme;
-    return _ToggleTile(
-      glyph: _buildFilterGlyph(
-        iconUrl: filter.icon,
-        selected: selected,
-        theme: theme,
-      ),
-      title: filter.name,
-      subtitle: filter.description,
-      selected: selected,
-      onToggle: onToggle,
-      theme: theme,
-    );
-  }
-
-  Widget _buildToolGlyph({
-    required IconData icon,
-    required bool selected,
-    required ConduitThemeExtension theme,
-  }) {
-    final brightness = Theme.of(context).brightness;
-    final Color iconColor = selected
-        ? theme.buttonPrimaryText
-        : theme.iconPrimary.withValues(alpha: Alpha.strong);
-
-    return Container(
-      width: 36,
-      height: 36,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: selected
-            ? theme.buttonPrimary.withValues(
-                alpha: brightness == Brightness.dark ? 0.28 : 0.16,
-              )
-            : theme.surfaceContainer.withValues(alpha: 0.60),
-      ),
-      child: Icon(icon, color: iconColor, size: IconSize.modal),
-    );
-  }
-
-  String _toolDescriptionFor(Tool tool) {
-    final metaDescription = _extractMetaDescription(tool.meta);
-    if (metaDescription != null && metaDescription.isNotEmpty) {
-      return metaDescription;
-    }
-
-    final custom = tool.description?.trim();
-    if (custom != null && custom.isNotEmpty) {
-      return custom;
-    }
-
-    final name = tool.name.toLowerCase();
-    if (name.contains('search') || name.contains('browse')) {
-      return 'Search the web for fresh context to improve answers.';
-    }
-    if (name.contains('image') ||
-        name.contains('vision') ||
-        name.contains('media')) {
-      return 'Understand or generate imagery alongside your conversation.';
-    }
-    if (name.contains('code') ||
-        name.contains('python') ||
-        name.contains('notebook')) {
-      return 'Execute code snippets and return computed results inline.';
-    }
-    if (name.contains('calc') || name.contains('math')) {
-      return 'Perform precise math and calculations on demand.';
-    }
-    if (name.contains('file') || name.contains('document')) {
-      return 'Access and summarize your uploaded files during chat.';
-    }
-    if (name.contains('api') || name.contains('request')) {
-      return 'Trigger API requests and bring external data into the chat.';
-    }
-    return 'Enhance responses with specialized capabilities from this tool.';
-  }
-
-  String? _extractMetaDescription(Map<String, dynamic>? meta) {
-    if (meta == null || meta.isEmpty) return null;
-    final value = meta['description'];
-    if (value is String) {
-      final trimmed = value.trim();
-      if (trimmed.isNotEmpty) return trimmed;
-    }
-    return null;
-  }
-
-  /// Builds the circular glyph/avatar for a filter tile.
-  Widget _buildFilterGlyph({
-    String? iconUrl,
-    required bool selected,
-    required ConduitThemeExtension theme,
-  }) {
-    final brightness = Theme.of(context).brightness;
-    final Color iconColor = selected
-        ? theme.buttonPrimaryText
-        : theme.iconPrimary.withValues(alpha: Alpha.strong);
-
-    return Container(
-      width: 36,
-      height: 36,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: selected
-            ? theme.buttonPrimary.withValues(
-                alpha: brightness == Brightness.dark ? 0.28 : 0.16,
-              )
-            : theme.surfaceContainer.withValues(alpha: 0.60),
-      ),
-      child: iconUrl != null && iconUrl.isNotEmpty
-          ? ClipOval(
-              child: Image.network(
-                iconUrl,
-                width: 36,
-                height: 36,
-                fit: BoxFit.cover,
-                color: iconUrl.endsWith('.svg') ? iconColor : null,
-                colorBlendMode: BlendMode.srcIn,
-                errorBuilder: (_, _, _) => Icon(
-                  Platform.isIOS ? CupertinoIcons.sparkles : Icons.auto_awesome,
-                  color: iconColor,
-                  size: IconSize.modal,
-                ),
-              ),
-            )
-          : Icon(
-              Platform.isIOS ? CupertinoIcons.sparkles : Icons.auto_awesome,
-              color: iconColor,
-              size: IconSize.modal,
-            ),
-    );
-  }
-
-  IconData _toolIconFor(Tool tool) {
-    final name = tool.name.toLowerCase();
-    if (name.contains('image') || name.contains('vision')) {
-      return Platform.isIOS ? CupertinoIcons.photo : Icons.image;
-    }
-    if (name.contains('code') || name.contains('python')) {
-      return Platform.isIOS
-          ? CupertinoIcons.chevron_left_slash_chevron_right
-          : Icons.code;
-    }
-    if (name.contains('calculator') || name.contains('math')) {
-      return Icons.calculate;
-    }
-    if (name.contains('file') || name.contains('document')) {
-      return Platform.isIOS ? CupertinoIcons.doc : Icons.description;
-    }
-    if (name.contains('api') || name.contains('request')) {
-      return Icons.cloud;
-    }
-    if (name.contains('search')) {
-      return Platform.isIOS ? CupertinoIcons.search : Icons.search;
-    }
-    return Platform.isIOS ? CupertinoIcons.square_grid_2x2 : Icons.extension;
-  }
-
-  Widget _buildInfoCard(String message) {
-    final theme = context.conduitTheme;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(Spacing.md),
-      decoration: BoxDecoration(
-        color: theme.cardBackground,
-        borderRadius: BorderRadius.circular(AppBorderRadius.input),
-        border: Border.all(
-          color: theme.cardBorder.withValues(alpha: 0.6),
-          width: BorderWidth.thin,
-        ),
-      ),
-      child: Text(
-        message,
-        style: AppTypography.bodyMediumStyle.copyWith(
-          color: theme.textSecondary,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildOverflowAction({
-    required IconData icon,
-    required String label,
-    VoidCallback? onTap,
-  }) {
-    final theme = context.conduitTheme;
-    final brightness = Theme.of(context).brightness;
-    final VoidCallback? callback = onTap;
-    final bool enabled = callback != null;
-    final Color iconColor = enabled ? theme.buttonPrimary : theme.iconDisabled;
-    final Color textColor = enabled
-        ? theme.textPrimary
-        : theme.textPrimary.withValues(alpha: Alpha.disabled);
-    final Color background = theme.surfaceContainer.withValues(
-      alpha: brightness == Brightness.dark ? 0.45 : 0.92,
-    );
-    final Color borderColor = theme.cardBorder.withValues(
-      alpha: enabled ? 0.5 : 0.25,
-    );
-
-    return Opacity(
-      opacity: enabled ? 1.0 : Alpha.disabled,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(AppBorderRadius.card),
-          onTap: callback == null
-              ? null
-              : () {
-                  Navigator.of(context).pop();
-                  Future.microtask(callback);
-                },
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            curve: Curves.easeOutCubic,
-            padding: const EdgeInsets.symmetric(
-              horizontal: Spacing.xs,
-              vertical: Spacing.sm,
-            ),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(AppBorderRadius.card),
-              border: Border.all(color: borderColor, width: BorderWidth.thin),
-              color: background,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: enabled
-                        ? theme.buttonPrimary.withValues(
-                            alpha: brightness == Brightness.dark
-                                ? 0.28
-                                : 0.16,
-                          )
-                        : theme.surfaceContainer.withValues(alpha: 0.60),
-                  ),
-                  child: Icon(icon, color: iconColor, size: IconSize.modal),
-                ),
-                const SizedBox(height: Spacing.xs),
-                Text(
-                  label,
-                  textAlign: TextAlign.center,
-                  style: AppTypography.captionStyle.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: textColor,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
   }
 
   // --- Inline Voice Input ---
@@ -3272,12 +2331,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 class _ExpandedTextEditorSheet extends StatefulWidget {
   const _ExpandedTextEditorSheet({
     required this.controller,
-    required this.useNativeControls,
     required this.onSend,
   });
 
   final TextEditingController controller;
-  final bool useNativeControls;
   final VoidCallback onSend;
 
   @override
@@ -3316,44 +2373,22 @@ class _ExpandedTextEditorSheetState
     // Match the dense (compact) chat input button — 36px, medium size.
     const double buttonSize = 36.0;
 
-    final Widget sendButton = widget.useNativeControls
-        ? IOS26Button.sfSymbol(
-            onPressed: _hasText ? widget.onSend : null,
-            sfSymbol: SFSymbol(
-              'arrow.up',
-              size: IconSize.small + 1,
-              color: _hasText
-                  ? theme.buttonPrimaryText
-                  : theme.textPrimary.withValues(alpha: Alpha.disabled),
-            ),
-            enabled: _hasText,
-            style: IOS26ButtonStyle.prominentGlass,
-            color: _hasText ? theme.buttonPrimary : null,
-            size: IOS26ButtonSize.medium,
-            minSize: const Size(buttonSize, buttonSize),
-            useSmoothRectangleBorder: false,
-          )
-        : GestureDetector(
-            onTap: _hasText ? widget.onSend : null,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 160),
-              width: buttonSize,
-              height: buttonSize,
-              decoration: BoxDecoration(
-                color: _hasText
-                    ? theme.buttonPrimary
-                    : theme.surfaceContainerHighest,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.arrow_upward,
-                size: IconSize.medium,
-                color: _hasText
-                    ? theme.buttonPrimaryText
-                    : theme.textPrimary.withValues(alpha: Alpha.disabled),
-              ),
-            ),
-          );
+    final Widget sendButton = AdaptiveButton.child(
+      onPressed: _hasText ? widget.onSend : null,
+      enabled: _hasText,
+      style: AdaptiveButtonStyle.prominentGlass,
+      color: _hasText ? theme.buttonPrimary : null,
+      size: AdaptiveButtonSize.medium,
+      minSize: const Size(buttonSize, buttonSize),
+      useSmoothRectangleBorder: false,
+      child: Icon(
+        Platform.isIOS ? CupertinoIcons.arrow_up : Icons.arrow_upward,
+        size: IconSize.small + 1,
+        color: _hasText
+            ? theme.buttonPrimaryText
+            : theme.textPrimary.withValues(alpha: Alpha.disabled),
+      ),
+    );
 
     // useSafeArea: true on the showModalBottomSheet call already constrains
     // the sheet to the safe area — no manual height calculation needed.
@@ -3480,41 +2515,24 @@ class _ToggleTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final brightness = Theme.of(context).brightness;
-    final Color background = selected
-        ? theme.buttonPrimary.withValues(
-            alpha: brightness == Brightness.dark ? 0.28 : 0.16,
-          )
-        : theme.surfaceContainer.withValues(
-            alpha: brightness == Brightness.dark ? 0.32 : 0.12,
-          );
-    final Color borderColor = selected
-        ? theme.buttonPrimary.withValues(alpha: 0.7)
-        : theme.cardBorder.withValues(alpha: 0.55);
-
     return Semantics(
       button: true,
       toggled: selected,
       label: title,
       hint: (subtitle?.isEmpty ?? true) ? null : subtitle,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(AppBorderRadius.input),
+      child: AdaptiveCard(
+        color: theme.surfaces.card,
+        borderRadius: BorderRadius.circular(AppBorderRadius.input),
+        margin: const EdgeInsets.symmetric(vertical: Spacing.xxs),
+        child: GestureDetector(
           onTap: () {
             HapticFeedback.selectionClick();
             onToggle();
           },
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            curve: Curves.easeOutCubic,
-            margin: const EdgeInsets.symmetric(vertical: Spacing.xxs),
-            padding: const EdgeInsets.all(Spacing.sm),
-            decoration: BoxDecoration(
-              color: background,
-              borderRadius: BorderRadius.circular(AppBorderRadius.input),
-              border: Border.all(color: borderColor, width: BorderWidth.thin),
-              boxShadow: selected ? ConduitShadows.low(context) : const [],
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: Spacing.sm,
+              vertical: Spacing.xs,
             ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
@@ -3529,8 +2547,7 @@ class _ToggleTile extends StatelessWidget {
                         title,
                         style: AppTypography.bodySmallStyle.copyWith(
                           color: theme.textPrimary,
-                          fontWeight:
-                              selected ? FontWeight.w600 : FontWeight.w500,
+                          fontWeight: FontWeight.w500,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -3553,9 +2570,349 @@ class _ToggleTile extends StatelessWidget {
                 ),
                 const SizedBox(width: Spacing.xs),
                 IgnorePointer(
-                  child: Switch.adaptive(
-                    value: selected,
-                    onChanged: (_) {},
+                  child: Platform.isIOS
+                      ? CupertinoSwitch(
+                          value: selected,
+                          onChanged: (_) {},
+                          activeTrackColor: theme.buttonPrimary,
+                        )
+                      : Switch(
+                          value: selected,
+                          onChanged: (_) {},
+                          activeColor: theme.buttonPrimary,
+                        ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+// ---------------------------------------------------------------------------
+// Overflow sheet modal
+// ---------------------------------------------------------------------------
+
+List<Widget> _withVerticalSpacing(List<Widget> children, double gap) {
+  if (children.length <= 1) return List<Widget>.from(children);
+  final spaced = <Widget>[];
+  for (var i = 0; i < children.length; i++) {
+    spaced.add(children[i]);
+    if (i != children.length - 1) spaced.add(SizedBox(height: gap));
+  }
+  return spaced;
+}
+
+class _ComposerOverflowSheet extends ConsumerStatefulWidget {
+  const _ComposerOverflowSheet({
+    this.onFileAttachment,
+    this.onImageAttachment,
+    this.onCameraCapture,
+    this.onWebAttachment,
+  });
+
+  final VoidCallback? onFileAttachment;
+  final VoidCallback? onImageAttachment;
+  final VoidCallback? onCameraCapture;
+  final VoidCallback? onWebAttachment;
+
+  @override
+  ConsumerState<_ComposerOverflowSheet> createState() =>
+      _ComposerOverflowSheetState();
+}
+
+class _ComposerOverflowSheetState
+    extends ConsumerState<_ComposerOverflowSheet> {
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = context.conduitTheme;
+
+    final attachments = <Widget>[
+      _buildAction(
+        icon: Platform.isIOS ? CupertinoIcons.doc : Icons.attach_file,
+        label: l10n.file,
+        onTap: widget.onFileAttachment == null
+            ? null
+            : () {
+                HapticFeedback.lightImpact();
+                widget.onFileAttachment!();
+              },
+      ),
+      _buildAction(
+        icon: Platform.isIOS ? CupertinoIcons.photo : Icons.image,
+        label: l10n.photo,
+        onTap: widget.onImageAttachment == null
+            ? null
+            : () {
+                HapticFeedback.lightImpact();
+                widget.onImageAttachment!();
+              },
+      ),
+      _buildAction(
+        icon: Platform.isIOS ? CupertinoIcons.camera : Icons.camera_alt,
+        label: l10n.camera,
+        onTap: widget.onCameraCapture == null
+            ? null
+            : () {
+                HapticFeedback.lightImpact();
+                widget.onCameraCapture!();
+              },
+      ),
+      _buildAction(
+        icon: Icons.public,
+        label: l10n.webPage,
+        onTap: widget.onWebAttachment == null
+            ? null
+            : () {
+                HapticFeedback.lightImpact();
+                widget.onWebAttachment!();
+              },
+      ),
+    ];
+
+    final featureTiles = <Widget>[];
+    final webSearchAvailable = ref.watch(webSearchAvailableProvider);
+    final webSearchEnabled = ref.watch(webSearchEnabledProvider);
+    if (webSearchAvailable) {
+      featureTiles.add(
+        _buildToggleTile(
+          icon: Platform.isIOS ? CupertinoIcons.search : Icons.search,
+          title: l10n.webSearch,
+          subtitle: l10n.webSearchDescription,
+          value: webSearchEnabled,
+          onChanged: (v) =>
+              ref.read(webSearchEnabledProvider.notifier).set(v),
+        ),
+      );
+    }
+
+    final imageGenAvailable = ref.watch(imageGenerationAvailableProvider);
+    final imageGenEnabled = ref.watch(imageGenerationEnabledProvider);
+    if (imageGenAvailable) {
+      featureTiles.add(
+        _buildToggleTile(
+          icon: Platform.isIOS ? CupertinoIcons.photo : Icons.image,
+          title: l10n.imageGeneration,
+          subtitle: l10n.imageGenerationDescription,
+          value: imageGenEnabled,
+          onChanged: (v) =>
+              ref.read(imageGenerationEnabledProvider.notifier).set(v),
+        ),
+      );
+    }
+
+    final selectedToolIds = ref.watch(selectedToolIdsProvider);
+    final toolsAsync = ref.watch(toolsListProvider);
+    final toolsSection = toolsAsync.when(
+      data: (tools) {
+        if (tools.isEmpty) return _buildInfoCard('No tools available');
+        final tiles = tools.map((tool) {
+          final isSelected = selectedToolIds.contains(tool.id);
+          return _buildToolTile(
+            tool: tool,
+            selected: isSelected,
+            onToggle: () {
+              final current = List<String>.from(
+                ref.read(selectedToolIdsProvider),
+              );
+              isSelected ? current.remove(tool.id) : current.add(tool.id);
+              ref.read(selectedToolIdsProvider.notifier).set(current);
+            },
+          );
+        }).toList();
+        return Column(children: _withVerticalSpacing(tiles, Spacing.xxs));
+      },
+      loading: () => Center(
+        child: SizedBox(
+          width: 24,
+          height: 24,
+          child: CircularProgressIndicator(strokeWidth: BorderWidth.thin),
+        ),
+      ),
+      error: (_, _) => _buildInfoCard('Failed to load tools'),
+    );
+
+    final listItems = <Widget>[
+      const SheetHandle(),
+      const SizedBox(height: Spacing.sm),
+      Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (var i = 0; i < attachments.length; i++) ...[
+            if (i != 0) const SizedBox(width: Spacing.sm),
+            Expanded(child: attachments[i]),
+          ],
+        ],
+      ),
+      if (featureTiles.isNotEmpty) ...[
+        const SizedBox(height: Spacing.sm),
+        ..._withVerticalSpacing(featureTiles, Spacing.xxs),
+      ],
+      const SizedBox(height: Spacing.sm),
+      _buildSectionLabel(l10n.tools),
+      toolsSection,
+    ];
+
+    final selectedModel = ref.watch(selectedModelProvider);
+    final toggleFilters = selectedModel?.filters ?? const <ToggleFilter>[];
+    if (toggleFilters.isNotEmpty) {
+      final selectedFilterIds = ref.watch(selectedFilterIdsProvider);
+      final filterTiles = toggleFilters.map((filter) {
+        final isSelected = selectedFilterIds.contains(filter.id);
+        return _buildFilterTile(
+          filter: filter,
+          selected: isSelected,
+          onToggle: () =>
+              ref.read(selectedFilterIdsProvider.notifier).toggle(filter.id),
+        );
+      }).toList();
+      listItems
+        ..add(const SizedBox(height: Spacing.sm))
+        ..add(_buildSectionLabel(l10n.filters))
+        ..add(
+          Column(children: _withVerticalSpacing(filterTiles, Spacing.xxs)),
+        );
+    }
+
+    listItems.add(const SizedBox(height: Spacing.sm));
+
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => Navigator.of(context).maybePop(),
+            child: const SizedBox.shrink(),
+          ),
+        ),
+        DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.28,
+          minChildSize: 0.28,
+          maxChildSize: 0.92,
+          snap: true,
+          snapSizes: const [0.28, 0.92],
+          builder: (_, scrollController) => Container(
+            decoration: BoxDecoration(
+              color: theme.surfaceBackground,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(AppBorderRadius.bottomSheet),
+              ),
+              border: Border.all(
+                color: theme.dividerColor,
+                width: BorderWidth.thin,
+              ),
+              boxShadow: ConduitShadows.modal(context),
+            ),
+            child: ModalSheetSafeArea(
+              padding: const EdgeInsets.fromLTRB(
+                Spacing.md,
+                Spacing.xs,
+                Spacing.md,
+                0,
+              ),
+              child: ListView.builder(
+                controller: scrollController,
+                itemCount: listItems.length,
+                itemBuilder: (_, i) => listItems[i],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSectionLabel(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Spacing.xxs),
+      child: Text(
+        text,
+        style: AppTypography.labelStyle.copyWith(
+          color: context.conduitTheme.textSecondary.withValues(
+            alpha: Alpha.strong,
+          ),
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInfoCard(String message) {
+    final theme = context.conduitTheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(Spacing.md),
+      decoration: BoxDecoration(
+        color: theme.surfaces.card,
+        borderRadius: BorderRadius.circular(AppBorderRadius.input),
+        border: Border.all(
+          color: theme.cardBorder.withValues(alpha: 0.6),
+          width: BorderWidth.thin,
+        ),
+      ),
+      child: Text(
+        message,
+        style: AppTypography.bodyMediumStyle.copyWith(
+          color: theme.textSecondary,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAction({
+    required IconData icon,
+    required String label,
+    VoidCallback? onTap,
+  }) {
+    final theme = context.conduitTheme;
+    final bool enabled = onTap != null;
+    final Color iconColor = enabled ? theme.buttonPrimary : theme.iconDisabled;
+    final Color textColor = enabled
+        ? theme.textPrimary
+        : theme.textPrimary.withValues(alpha: Alpha.disabled);
+
+    return Opacity(
+      opacity: enabled ? 1.0 : Alpha.disabled,
+      child: AdaptiveCard(
+        color: theme.surfaces.card,
+        borderRadius: BorderRadius.circular(AppBorderRadius.card),
+        clipBehavior: Clip.antiAlias,
+        child: GestureDetector(
+          onTap: onTap == null
+              ? null
+              : () {
+                  Navigator.of(context).pop();
+                  Future.microtask(onTap);
+                },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: Spacing.xs,
+              vertical: Spacing.sm,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: enabled
+                        ? theme.buttonPrimary.withValues(alpha: 0.12)
+                        : theme.surfaceContainer.withValues(alpha: 0.60),
+                  ),
+                  child: Icon(icon, color: iconColor, size: IconSize.modal),
+                ),
+                const SizedBox(height: Spacing.xs),
+                Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  style: AppTypography.captionStyle.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: textColor,
                   ),
                 ),
               ],
@@ -3564,5 +2921,169 @@ class _ToggleTile extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Widget _buildToggleTile({
+    required IconData icon,
+    required String title,
+    String? subtitle,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+    String? iconUrl,
+  }) {
+    final theme = context.conduitTheme;
+    final glyph = iconUrl != null && iconUrl.isNotEmpty
+        ? _buildFilterGlyph(iconUrl: iconUrl, selected: value, theme: theme)
+        : _buildIconGlyph(icon: icon, selected: value, theme: theme);
+    return _ToggleTile(
+      glyph: glyph,
+      title: title,
+      subtitle: subtitle,
+      selected: value,
+      onToggle: () => onChanged(!value),
+      theme: theme,
+    );
+  }
+
+  Widget _buildToolTile({
+    required Tool tool,
+    required bool selected,
+    required VoidCallback onToggle,
+  }) {
+    final theme = context.conduitTheme;
+    return _ToggleTile(
+      glyph: _buildIconGlyph(icon: _iconFor(tool), selected: selected, theme: theme),
+      title: tool.name,
+      subtitle: _descriptionFor(tool),
+      selected: selected,
+      onToggle: onToggle,
+      theme: theme,
+    );
+  }
+
+  Widget _buildFilterTile({
+    required ToggleFilter filter,
+    required bool selected,
+    required VoidCallback onToggle,
+  }) {
+    final theme = context.conduitTheme;
+    return _ToggleTile(
+      glyph: _buildFilterGlyph(iconUrl: filter.icon, selected: selected, theme: theme),
+      title: filter.name,
+      subtitle: filter.description,
+      selected: selected,
+      onToggle: onToggle,
+      theme: theme,
+    );
+  }
+
+  Widget _buildIconGlyph({
+    required IconData icon,
+    required bool selected,
+    required ConduitThemeExtension theme,
+  }) {
+    return Container(
+      width: 36,
+      height: 36,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: selected
+            ? theme.buttonPrimary
+            : theme.surfaceContainer.withValues(alpha: 0.60),
+      ),
+      child: Icon(
+        icon,
+        color: selected ? theme.buttonPrimaryText : theme.iconPrimary,
+        size: IconSize.modal,
+      ),
+    );
+  }
+
+  Widget _buildFilterGlyph({
+    String? iconUrl,
+    required bool selected,
+    required ConduitThemeExtension theme,
+  }) {
+    final Color iconColor =
+        selected ? theme.buttonPrimaryText : theme.iconPrimary;
+    final fallback = Icon(
+      Platform.isIOS ? CupertinoIcons.sparkles : Icons.auto_awesome,
+      color: iconColor,
+      size: IconSize.modal,
+    );
+    return Container(
+      width: 36,
+      height: 36,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: selected
+            ? theme.buttonPrimary
+            : theme.surfaceContainer.withValues(alpha: 0.60),
+      ),
+      child: iconUrl != null && iconUrl.isNotEmpty
+          ? ClipOval(
+              child: Image.network(
+                iconUrl,
+                width: 36,
+                height: 36,
+                fit: BoxFit.cover,
+                color: iconUrl.endsWith('.svg') ? iconColor : null,
+                colorBlendMode: BlendMode.srcIn,
+                errorBuilder: (_, _, _) => fallback,
+              ),
+            )
+          : fallback,
+    );
+  }
+
+  IconData _iconFor(Tool tool) {
+    final name = tool.name.toLowerCase();
+    if (name.contains('image') || name.contains('vision')) {
+      return Platform.isIOS ? CupertinoIcons.photo : Icons.image;
+    }
+    if (name.contains('code') || name.contains('python')) {
+      return Platform.isIOS
+          ? CupertinoIcons.chevron_left_slash_chevron_right
+          : Icons.code;
+    }
+    if (name.contains('calculator') || name.contains('math')) return Icons.calculate;
+    if (name.contains('file') || name.contains('document')) {
+      return Platform.isIOS ? CupertinoIcons.doc : Icons.description;
+    }
+    if (name.contains('api') || name.contains('request')) return Icons.cloud;
+    if (name.contains('search')) {
+      return Platform.isIOS ? CupertinoIcons.search : Icons.search;
+    }
+    return Platform.isIOS ? CupertinoIcons.square_grid_2x2 : Icons.extension;
+  }
+
+  String _descriptionFor(Tool tool) {
+    final meta = tool.meta;
+    if (meta != null) {
+      final v = meta['description'];
+      if (v is String && v.trim().isNotEmpty) return v.trim();
+    }
+    final custom = tool.description?.trim();
+    if (custom != null && custom.isNotEmpty) return custom;
+    final name = tool.name.toLowerCase();
+    if (name.contains('search') || name.contains('browse')) {
+      return 'Search the web for fresh context to improve answers.';
+    }
+    if (name.contains('image') || name.contains('vision')) {
+      return 'Understand or generate imagery alongside your conversation.';
+    }
+    if (name.contains('code') || name.contains('python')) {
+      return 'Execute code snippets and return computed results inline.';
+    }
+    if (name.contains('calc') || name.contains('math')) {
+      return 'Perform precise math and calculations on demand.';
+    }
+    if (name.contains('file') || name.contains('document')) {
+      return 'Access and summarize your uploaded files during chat.';
+    }
+    if (name.contains('api') || name.contains('request')) {
+      return 'Trigger API requests and bring external data into the chat.';
+    }
+    return 'Enhance responses with specialized capabilities from this tool.';
   }
 }

@@ -556,68 +556,51 @@ class ProfilePage extends ConsumerWidget {
       const githubUrl = 'https://github.com/cogwheel0/conduit';
 
       if (!context.mounted) return;
-      await showDialog<void>(
-        context: context,
-        builder: (ctx) {
-          return AlertDialog(
-            backgroundColor: ctx.sidebarTheme.background,
-            title: Text(
-              AppLocalizations.of(ctx)!.aboutConduit,
-              style: ctx.conduitTheme.headingSmall?.copyWith(
-                color: ctx.sidebarTheme.foreground,
+      final l10n = AppLocalizations.of(context)!;
+      await ThemedDialogs.show(
+        context,
+        title: l10n.aboutConduit,
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(l10n.versionLabel(info.version, info.buildNumber)),
+            const SizedBox(height: Spacing.md),
+            InkWell(
+              onTap: () => launchUrlString(
+                githubUrl,
+                mode: LaunchMode.externalApplication,
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    UiUtils.platformIcon(
+                      ios: CupertinoIcons.link,
+                      android: Icons.link,
+                    ),
+                    size: IconSize.small,
+                    color: context.conduitTheme.buttonPrimary,
+                  ),
+                  const SizedBox(width: Spacing.xs),
+                  Text(
+                    l10n.githubRepository,
+                    style: TextStyle(
+                      color: context.conduitTheme.buttonPrimary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
               ),
             ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  AppLocalizations.of(
-                    ctx,
-                  )!.versionLabel(info.version, info.buildNumber),
-                  style: ctx.conduitTheme.bodyMedium?.copyWith(
-                    color: ctx.sidebarTheme.foreground.withValues(alpha: 0.75),
-                  ),
-                ),
-                const SizedBox(height: Spacing.md),
-                InkWell(
-                  onTap: () => launchUrlString(
-                    githubUrl,
-                    mode: LaunchMode.externalApplication,
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        UiUtils.platformIcon(
-                          ios: CupertinoIcons.link,
-                          android: Icons.link,
-                        ),
-                        size: IconSize.small,
-                        color: ctx.conduitTheme.buttonPrimary,
-                      ),
-                      const SizedBox(width: Spacing.xs),
-                      Text(
-                        AppLocalizations.of(ctx)!.githubRepository,
-                        style: ctx.conduitTheme.bodyMedium?.copyWith(
-                          color: ctx.conduitTheme.buttonPrimary,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              AdaptiveButton(
-                onPressed: () => Navigator.of(ctx).pop(),
-                label: AppLocalizations.of(ctx)!.closeButtonSemantic,
-                style: AdaptiveButtonStyle.plain,
-              ),
-            ],
-          );
-        },
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(l10n.closeButtonSemantic),
+          ),
+        ],
       );
     } catch (e) {
       if (!context.mounted) return;

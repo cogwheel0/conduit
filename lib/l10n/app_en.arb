@@ -590,6 +590,10 @@
   "@camera": {
     "description": "Camera source label."
   },
+  "webPage": "Web Page",
+  "@webPage": {
+    "description": "Attach a web page label."
+  },
   "pasteImage": "Paste Image",
   "@pasteImage": {
     "description": "Context menu action to paste an image from the clipboard."

@@ -1285,25 +1285,13 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   Future<void> _removeFile(Map<String, dynamic> file) async {
     final l10n = AppLocalizations.of(context)!;
 
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(l10n.removeFile),
-        content: Text(l10n.removeFileConfirm),
-        actions: [
-          AdaptiveButton(
-            onPressed: () => Navigator.pop(context, false),
-            label: l10n.cancel,
-            style: AdaptiveButtonStyle.plain,
-          ),
-          AdaptiveButton(
-            onPressed: () => Navigator.pop(context, true),
-            textColor: context.conduitTheme.error,
-            label: l10n.delete,
-            style: AdaptiveButtonStyle.plain,
-          ),
-        ],
-      ),
+    final confirmed = await ThemedDialogs.confirm(
+      context,
+      title: l10n.removeFile,
+      message: l10n.removeFileConfirm,
+      confirmText: l10n.delete,
+      cancelText: l10n.cancel,
+      isDestructive: true,
     );
 
     if (confirmed != true || _note == null) return;
