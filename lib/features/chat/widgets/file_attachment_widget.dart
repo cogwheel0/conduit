@@ -7,7 +7,7 @@ import 'dart:io' show File, Platform;
 import 'package:conduit/l10n/app_localizations.dart';
 import '../services/file_attachment_service.dart';
 import '../../../shared/services/tasks/task_queue.dart';
-import '../../../shared/widgets/loading_states.dart';
+import '../../../shared/widgets/conduit_loading.dart';
 
 const Set<String> _previewableImageExtensions = <String>{
   '.jpg',

@@ -8,7 +8,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import '../../../core/widgets/error_boundary.dart';
-import '../../../shared/widgets/improved_loading_states.dart';
+import '../../../shared/widgets/conduit_loading.dart';
 
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/themed_dialogs.dart';

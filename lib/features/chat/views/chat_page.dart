@@ -37,7 +37,7 @@ import '../../../core/models/chat_message.dart';
 import '../../../core/models/folder.dart';
 import '../../../core/models/model.dart';
 import '../providers/context_attachments_provider.dart';
-import '../../../shared/widgets/loading_states.dart';
+import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../onboarding/views/onboarding_sheet.dart';
 import '../../../shared/widgets/sheet_handle.dart';

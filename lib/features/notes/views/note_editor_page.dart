@@ -19,7 +19,7 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/glass_colors.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/conduit_components.dart';
-import '../../../shared/widgets/improved_loading_states.dart';
+import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../chat/services/voice_input_service.dart';

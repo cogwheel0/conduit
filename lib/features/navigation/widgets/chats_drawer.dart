@@ -16,7 +16,7 @@ import '../../chat/providers/chat_providers.dart' as chat;
 import '../../chat/providers/context_attachments_provider.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../core/services/navigation_service.dart';
-import '../../../shared/widgets/loading_states.dart';
+import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import '../../../core/utils/user_display_name.dart';
