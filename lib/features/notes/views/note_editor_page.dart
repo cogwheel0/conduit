@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io' show File, Platform;
 
+import 'package:flutter/foundation.dart' show kIsWeb;
+
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -1094,43 +1096,60 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         ? '${dateFormat.format(_note!.createdDateTime)} ${timeFormat.format(_note!.createdDateTime)}'
         : '';
 
-    return AdaptiveBlurView(
-      blurStyle: BlurStyle.systemUltraThinMaterial,
-      borderRadius: BorderRadius.circular(AppBorderRadius.pill),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: Spacing.md,
-          vertical: Spacing.xs,
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _buildMetadataChip(
-              context,
-              icon: Platform.isIOS
-                  ? CupertinoIcons.calendar
-                  : Icons.calendar_today_rounded,
-              label: createdDate,
-            ),
-            _buildMetadataSeparator(context),
-            _buildMetadataChip(
-              context,
-              icon: Platform.isIOS
-                  ? CupertinoIcons.doc_text
-                  : Icons.article_rounded,
-              label: l10n.wordCount(_wordCount),
-            ),
-            _buildMetadataSeparator(context),
-            _buildMetadataChip(
-              context,
-              icon: Platform.isIOS
-                  ? CupertinoIcons.textformat_abc
-                  : Icons.text_fields_rounded,
-              label: l10n.charCount(_charCount),
-            ),
-          ],
+    final borderRadius = BorderRadius.circular(AppBorderRadius.pill);
+    final content = Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: Spacing.md,
+        vertical: Spacing.xs,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _buildMetadataChip(
+            context,
+            icon: Platform.isIOS
+                ? CupertinoIcons.calendar
+                : Icons.calendar_today_rounded,
+            label: createdDate,
+          ),
+          _buildMetadataSeparator(context),
+          _buildMetadataChip(
+            context,
+            icon: Platform.isIOS
+                ? CupertinoIcons.doc_text
+                : Icons.article_rounded,
+            label: l10n.wordCount(_wordCount),
+          ),
+          _buildMetadataSeparator(context),
+          _buildMetadataChip(
+            context,
+            icon: Platform.isIOS
+                ? CupertinoIcons.textformat_abc
+                : Icons.text_fields_rounded,
+            label: l10n.charCount(_charCount),
+          ),
+        ],
+      ),
+    );
+
+    if (!kIsWeb && Platform.isIOS) {
+      return AdaptiveBlurView(
+        blurStyle: BlurStyle.systemUltraThinMaterial,
+        borderRadius: borderRadius,
+        child: content,
+      );
+    }
+    final theme = context.conduitTheme;
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.surfaceContainerHighest,
+        borderRadius: borderRadius,
+        border: Border.all(
+          color: theme.cardBorder,
+          width: BorderWidth.thin,
         ),
       ),
+      child: content,
     );
   }
 
@@ -1399,26 +1418,45 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     final l10n = AppLocalizations.of(context)!;
     final glassLabel = GlassColors.label(context);
 
-    final buttonChild = AdaptiveBlurView(
-      blurStyle: BlurStyle.systemUltraThinMaterial,
-      borderRadius: BorderRadius.circular(AppBorderRadius.floatingButton),
-      child: SizedBox(
-        width: TouchTarget.button,
-        height: TouchTarget.button,
-        child: isLoading
-            ? Center(
-                child: SizedBox(
-                  width: IconSize.md,
-                  height: IconSize.md,
-                  child: CircularProgressIndicator(
-                    strokeWidth: BorderWidth.medium,
-                    valueColor: AlwaysStoppedAnimation(glassLabel),
-                  ),
+    final borderRadius = BorderRadius.circular(AppBorderRadius.floatingButton);
+    final buttonContent = SizedBox(
+      width: TouchTarget.button,
+      height: TouchTarget.button,
+      child: isLoading
+          ? Center(
+              child: SizedBox(
+                width: IconSize.md,
+                height: IconSize.md,
+                child: CircularProgressIndicator(
+                  strokeWidth: BorderWidth.medium,
+                  valueColor: AlwaysStoppedAnimation(glassLabel),
                 ),
-              )
-            : Icon(icon, color: color ?? glassLabel, size: IconSize.lg),
-      ),
+              ),
+            )
+          : Icon(icon, color: color ?? glassLabel, size: IconSize.lg),
     );
+
+    final Widget buttonChild;
+    if (!kIsWeb && Platform.isIOS) {
+      buttonChild = AdaptiveBlurView(
+        blurStyle: BlurStyle.systemUltraThinMaterial,
+        borderRadius: borderRadius,
+        child: buttonContent,
+      );
+    } else {
+      final theme = context.conduitTheme;
+      buttonChild = Container(
+        decoration: BoxDecoration(
+          color: theme.surfaceContainerHighest,
+          borderRadius: borderRadius,
+          border: Border.all(
+            color: theme.cardBorder,
+            width: BorderWidth.thin,
+          ),
+        ),
+        child: buttonContent,
+      );
+    }
 
     if (showMenu) {
       return AdaptivePopupMenuButton.widget<String>(

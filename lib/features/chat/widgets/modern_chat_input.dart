@@ -1515,9 +1515,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 );
               },
             )
-          : AdaptiveBlurView(
+          : _buildComposerShell(
               key: const ValueKey('compact-glass-fallback'),
-              blurStyle: BlurStyle.systemUltraThinMaterial,
               borderRadius: shellRadius,
               child: textFieldContent,
             );
@@ -1585,8 +1584,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     );
 
     final Widget shell = _wrapIosSurfaceShadow(
-      AdaptiveBlurView(
-        blurStyle: BlurStyle.systemUltraThinMaterial,
+      _buildComposerShell(
         borderRadius: shellRadius,
         child: shellContent,
       ),
@@ -1880,21 +1878,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
     return AdaptiveTooltip(
       message: tooltip,
-      child: AdaptiveButton.child(
+      child: _buildComposerIconButton(
         onPressed: enabled
             ? () {
                 HapticFeedback.selectionClick();
                 _showOverflowSheet();
               }
             : null,
-        enabled: enabled,
-        style: isActive
-            ? AdaptiveButtonStyle.prominentGlass
-            : AdaptiveButtonStyle.glass,
-        color: context.conduitTheme.buttonPrimary,
-        size: dense ? AdaptiveButtonSize.medium : AdaptiveButtonSize.large,
-        minSize: Size(buttonSize, buttonSize),
-        useSmoothRectangleBorder: false,
+        size: buttonSize,
+        isProminent: isActive,
         child: Icon(overflowIcon, size: IconSize.medium, color: iconColor),
       ),
     );
@@ -1959,17 +1951,14 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     if (isGenerating) {
       return AdaptiveTooltip(
         message: AppLocalizations.of(context)!.stopGenerating,
-        child: AdaptiveButton.child(
+        child: _buildComposerIconButton(
           key: const ValueKey('primary-btn-stop'),
           onPressed: () {
             HapticFeedback.lightImpact();
             stopGeneration();
           },
-          style: AdaptiveButtonStyle.glass,
+          size: buttonSize,
           color: context.conduitTheme.error,
-          size: dense ? AdaptiveButtonSize.medium : AdaptiveButtonSize.large,
-          minSize: Size(buttonSize, buttonSize),
-          useSmoothRectangleBorder: false,
           child: Icon(
             Platform.isIOS ? CupertinoIcons.stop_fill : Icons.stop,
             size: dense ? IconSize.small + 1 : IconSize.medium,
@@ -2009,15 +1998,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         message: enabled
             ? AppLocalizations.of(context)!.sendMessage
             : AppLocalizations.of(context)!.send,
-        child: AdaptiveButton.child(
+        child: _buildComposerIconButton(
           key: const ValueKey('primary-btn-send'),
           onPressed: onPressed,
-          enabled: enabled,
-          style: AdaptiveButtonStyle.prominentGlass,
-          color: context.conduitTheme.buttonPrimary,
-          size: dense ? AdaptiveButtonSize.medium : AdaptiveButtonSize.large,
-          minSize: Size(buttonSize, buttonSize),
-          useSmoothRectangleBorder: false,
+          size: buttonSize,
+          isProminent: true,
           child: sendChild,
         ),
       );
@@ -2027,7 +2012,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final bool enabledVoiceCall = widget.enabled && widget.onVoiceCall != null;
     return AdaptiveTooltip(
       message: 'Voice Call',
-      child: AdaptiveButton.child(
+      child: _buildComposerIconButton(
         key: const ValueKey('primary-btn-voice-call'),
         onPressed: enabledVoiceCall
             ? () {
@@ -2035,12 +2020,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 widget.onVoiceCall!();
               }
             : null,
-        enabled: enabledVoiceCall,
-        style: AdaptiveButtonStyle.prominentGlass,
-        color: context.conduitTheme.buttonPrimary,
-        size: dense ? AdaptiveButtonSize.medium : AdaptiveButtonSize.large,
-        minSize: Size(buttonSize, buttonSize),
-        useSmoothRectangleBorder: false,
+        size: buttonSize,
+        isProminent: true,
         child: Icon(
           Platform.isIOS ? CupertinoIcons.waveform : Icons.graphic_eq,
           size: dense ? IconSize.small + 1 : IconSize.medium,
@@ -2156,6 +2137,104 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     );
   }
 
+
+  /// Builds a circular icon button for the composer.
+  ///
+  /// On iOS, uses [AdaptiveButton] with glass style for native appearance.
+  /// On Android/web/desktop, uses a Material-styled circular button with
+  /// theme-consistent colors matching the composer shell.
+  Widget _buildComposerIconButton({
+    Key? key,
+    required VoidCallback? onPressed,
+    required Widget child,
+    required double size,
+    bool isProminent = false,
+    Color? color,
+  }) {
+    final theme = context.conduitTheme;
+    final effectiveColor = color ?? theme.buttonPrimary;
+
+    if (!kIsWeb && Platform.isIOS) {
+      return AdaptiveButton.child(
+        key: key,
+        onPressed: onPressed,
+        enabled: onPressed != null,
+        style: isProminent
+            ? AdaptiveButtonStyle.prominentGlass
+            : AdaptiveButtonStyle.glass,
+        color: effectiveColor,
+        size: size > 40
+            ? AdaptiveButtonSize.large
+            : AdaptiveButtonSize.medium,
+        minSize: Size(size, size),
+        padding: EdgeInsets.zero,
+        borderRadius: BorderRadius.circular(size),
+        useSmoothRectangleBorder: false,
+        child: child,
+      );
+    }
+
+    final bgColor = isProminent
+        ? effectiveColor
+        : theme.surfaceContainerHighest;
+    final borderColor = isProminent
+        ? effectiveColor
+        : theme.cardBorder;
+
+    return SizedBox(
+      key: key,
+      width: size,
+      height: size,
+      child: Material(
+        color: bgColor,
+        shape: CircleBorder(
+          side: BorderSide(
+            color: borderColor,
+            width: BorderWidth.thin,
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onPressed,
+          customBorder: const CircleBorder(),
+          child: Center(child: child),
+        ),
+      ),
+    );
+  }
+
+  /// Builds the composer shell container.
+  ///
+  /// On iOS, uses [AdaptiveBlurView] for native glass/blur effects.
+  /// On Android/web/desktop, uses a Material surface container with a
+  /// subtle border for better contrast and a native look.
+  Widget _buildComposerShell({
+    Key? key,
+    required Widget child,
+    required BorderRadius borderRadius,
+  }) {
+    if (!kIsWeb && Platform.isIOS) {
+      return AdaptiveBlurView(
+        key: key,
+        blurStyle: BlurStyle.systemUltraThinMaterial,
+        borderRadius: borderRadius,
+        child: child,
+      );
+    }
+    final theme = context.conduitTheme;
+    return Container(
+      key: key,
+      decoration: BoxDecoration(
+        color: theme.surfaceContainerHighest,
+        borderRadius: borderRadius,
+        border: Border.all(
+          color: theme.cardBorder,
+          width: BorderWidth.thin,
+        ),
+      ),
+      child: child,
+    );
+  }
 
   Widget _wrapIosSurfaceShadow(
     Widget child, {

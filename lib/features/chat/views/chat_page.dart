@@ -10,6 +10,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../navigation/widgets/chats_drawer.dart';
@@ -862,6 +863,61 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   /// Builds a styled container with high-contrast background for app bar
   /// widgets, matching the floating chat input styling.
+  Widget _buildScrollToBottomButton(
+    BuildContext context, {
+    required bool isResuming,
+  }) {
+    final icon = isResuming
+        ? (Platform.isIOS ? CupertinoIcons.play_fill : Icons.play_arrow)
+        : (Platform.isIOS
+            ? CupertinoIcons.chevron_down
+            : Icons.keyboard_arrow_down);
+
+    if (!kIsWeb && Platform.isIOS) {
+      return AdaptiveButton.child(
+        onPressed: _scrollToBottom,
+        style: AdaptiveButtonStyle.glass,
+        size: AdaptiveButtonSize.large,
+        minSize: const Size(TouchTarget.minimum, TouchTarget.minimum),
+        padding: EdgeInsets.zero,
+        borderRadius: BorderRadius.circular(TouchTarget.minimum),
+        useSmoothRectangleBorder: false,
+        child: Icon(
+          icon,
+          size: IconSize.medium,
+          color: GlassColors.label(context),
+        ),
+      );
+    }
+
+    final theme = context.conduitTheme;
+    return SizedBox(
+      width: TouchTarget.minimum,
+      height: TouchTarget.minimum,
+      child: Material(
+        color: theme.surfaceContainerHighest,
+        shape: CircleBorder(
+          side: BorderSide(
+            color: theme.cardBorder,
+            width: BorderWidth.thin,
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: _scrollToBottom,
+          customBorder: const CircleBorder(),
+          child: Center(
+            child: Icon(
+              icon,
+              size: IconSize.medium,
+              color: theme.textPrimary,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildAppBarPill({
     required BuildContext context,
     required Widget child,
@@ -2174,28 +2230,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                                             isStreamingAnyMessage
                                         ? 'Resume auto-scroll'
                                         : 'Scroll to bottom',
-                                    child: AdaptiveButton.child(
-                                        onPressed: _scrollToBottom,
-                                        style: AdaptiveButtonStyle.glass,
-                                        size: AdaptiveButtonSize.large,
-                                        minSize: const Size(
-                                          TouchTarget.minimum,
-                                          TouchTarget.minimum,
-                                        ),
-                                        useSmoothRectangleBorder: false,
-                                        child: Icon(
-                                          _userPausedAutoScroll &&
-                                                  isStreamingAnyMessage
-                                              ? (Platform.isIOS
-                                                  ? CupertinoIcons.play_fill
-                                                  : Icons.play_arrow)
-                                              : (Platform.isIOS
-                                                  ? CupertinoIcons.chevron_down
-                                                  : Icons.keyboard_arrow_down),
-                                          size: IconSize.medium,
-                                          color: GlassColors.label(context),
-                                        ),
-                                      ),
+                                    child: _buildScrollToBottomButton(
+                                      context,
+                                      isResuming: _userPausedAutoScroll &&
+                                          isStreamingAnyMessage,
+                                    ),
                                   ),
                                 )
                               : const SizedBox.shrink(

@@ -1,5 +1,8 @@
+import 'dart:io' show Platform;
+
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../theme/theme_extensions.dart';
@@ -71,9 +74,24 @@ class FloatingAppBarPill extends StatelessWidget {
       );
     }
 
-    return AdaptiveBlurView(
-      blurStyle: BlurStyle.systemUltraThinMaterial,
-      borderRadius: borderRadius,
+    // On iOS, use glass blur. On Android/web/desktop, use Material surface.
+    if (!kIsWeb && Platform.isIOS) {
+      return AdaptiveBlurView(
+        blurStyle: BlurStyle.systemUltraThinMaterial,
+        borderRadius: borderRadius,
+        child: blurChild,
+      );
+    }
+    final theme = context.conduitTheme;
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.surfaceContainerHighest,
+        borderRadius: borderRadius,
+        border: Border.all(
+          color: theme.cardBorder,
+          width: BorderWidth.thin,
+        ),
+      ),
       child: blurChild,
     );
   }
