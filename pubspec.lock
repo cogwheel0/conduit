@@ -920,10 +920,11 @@ packages:
   irondash_engine_context:
     dependency: transitive
     description:
-      name: irondash_engine_context
-      sha256: "2bb0bc13dfda9f5aaef8dde06ecc5feb1379f5bb387d59716d799554f3f305d7"
-      url: "https://pub.dev"
-    source: hosted
+      path: "irondash_vendored/engine_context/dart"
+      ref: "1d413d5e333058ed90274e44ac703c9d96f4e567"
+      resolved-ref: "1d413d5e333058ed90274e44ac703c9d96f4e567"
+      url: "https://github.com/dilumdesilva/super_native_extensions"
+    source: git
     version: "0.5.5"
   irondash_message_channel:
     dependency: transitive
@@ -1795,12 +1796,13 @@ packages:
     source: hosted
     version: "0.9.1"
   super_native_extensions:
-    dependency: transitive
+    dependency: "direct overridden"
     description:
-      name: super_native_extensions
-      sha256: b9611dcb68f1047d6f3ef11af25e4e68a21b1a705bbcc3eb8cb4e9f5c3148569
-      url: "https://pub.dev"
-    source: hosted
+      path: super_native_extensions
+      ref: main
+      resolved-ref: "1d413d5e333058ed90274e44ac703c9d96f4e567"
+      url: "https://github.com/dilumdesilva/super_native_extensions"
+    source: git
     version: "0.9.1"
   synchronized:
     dependency: transitive

@@ -103,6 +103,11 @@ dev_dependencies:
 dependency_overrides:
   riverpod_lint: 3.0.3
   custom_lint_builder: 0.8.1
+  super_native_extensions:
+    git:
+      url: https://github.com/dilumdesilva/super_native_extensions
+      ref: main
+      path: super_native_extensions
 
 flutter:
   uses-material-design: true
