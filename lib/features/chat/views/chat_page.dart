@@ -1991,7 +1991,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                         ),
                   actions: [
                     if (!_isSelectionMode) ...[
-                      // Temporary chat toggle
+                      // Temporary chat toggle / Save chat button
+                      // Shows save when temporary + has messages,
+                      // otherwise shows the toggle
                       Consumer(
                         builder: (context, ref, _) {
                           final isTemporary = ref.watch(
@@ -2000,9 +2002,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                           final activeConversation = ref.watch(
                             activeConversationProvider,
                           );
+                          final hasMessages = ref
+                              .watch(chatMessagesProvider)
+                              .isNotEmpty;
 
-                          // Show toggle when: no conversation,
-                          // or current is temporary
                           final showToggle =
                               activeConversation == null ||
                               isTemporaryChat(
@@ -2013,6 +2016,32 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                             return const SizedBox.shrink();
                           }
 
+                          // Show save button when temporary
+                          // chat has messages
+                          if (isTemporary &&
+                              hasMessages &&
+                              activeConversation != null) {
+                            return AdaptiveTooltip(
+                              message: AppLocalizations.of(
+                                context,
+                              )!.saveChat,
+                              child: _buildAppBarIconButton(
+                                context: context,
+                                onPressed: _saveTemporaryChat,
+                                fallbackIcon: Platform.isIOS
+                                    ? CupertinoIcons
+                                        .arrow_down_doc
+                                    : Icons.save_alt,
+                                sfSymbol:
+                                    'square.and.arrow.down',
+                                color: context
+                                    .conduitTheme
+                                    .textPrimary,
+                              ),
+                            );
+                          }
+
+                          // Show toggle button
                           return AdaptiveTooltip(
                             message: isTemporary
                                 ? AppLocalizations.of(context)!
@@ -2033,12 +2062,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                                             .notifier,
                                       )
                                       .set(true);
-                                } else if (ref
-                                    .read(chatMessagesProvider)
-                                    .isNotEmpty) {
-                                  // Toggle OFF with messages =
-                                  // save chat
-                                  _saveTemporaryChat();
                                 } else {
                                   ref
                                       .read(
@@ -2065,46 +2088,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                                   : context
                                       .conduitTheme
                                       .textPrimary,
-                            ),
-                          );
-                        },
-                      ),
-                      // Save button for temporary chats
-                      // with messages
-                      Consumer(
-                        builder: (context, ref, _) {
-                          final isTemporary = ref.watch(
-                            temporaryChatEnabledProvider,
-                          );
-                          final hasMessages = ref
-                              .watch(chatMessagesProvider)
-                              .isNotEmpty;
-                          final activeConversation = ref.watch(
-                            activeConversationProvider,
-                          );
-
-                          if (!isTemporary ||
-                              !hasMessages ||
-                              activeConversation == null) {
-                            return const SizedBox.shrink();
-                          }
-
-                          return AdaptiveTooltip(
-                            message: AppLocalizations.of(
-                              context,
-                            )!.saveChat,
-                            child: _buildAppBarIconButton(
-                              context: context,
-                              onPressed: _saveTemporaryChat,
-                              fallbackIcon: Platform.isIOS
-                                  ? CupertinoIcons
-                                      .arrow_down_doc
-                                  : Icons.save_alt,
-                              sfSymbol:
-                                  'square.and.arrow.down',
-                              color: context
-                                  .conduitTheme
-                                  .textPrimary,
                             ),
                           );
                         },
