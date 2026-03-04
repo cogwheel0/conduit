@@ -769,6 +769,8 @@ class OptimizedStorageService {
       _cachesBox.delete(_localToolsKey),
       _cachesBox.delete(_localDefaultModelKey),
       _cachesBox.delete(_localModelsKey),
+      _cachesBox.delete(_localConversationsKey),
+      _cachesBox.delete(_localFoldersKey),
       // Note: Server configs are NOT cleared - they persist across logouts
       // so users can quickly re-login without re-entering server details
     ]);

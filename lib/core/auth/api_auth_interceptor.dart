@@ -19,6 +19,7 @@ class ApiAuthInterceptor extends Interceptor {
     '/api/v1/auths/signin',
     '/api/v1/auths/signup',
     '/api/v1/auths/signup/enabled',
+    '/api/v1/auths/ldap',
     '/api/v1/auths/trusted-header-auth',
     '/ollama/api/ps',
     '/ollama/api/version',

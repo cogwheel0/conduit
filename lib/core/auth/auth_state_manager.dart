@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 // Types are used through app_providers.dart
 import '../providers/app_providers.dart';
+import '../../features/tools/providers/tools_providers.dart';
 import '../models/user.dart';
 import '../services/optimized_storage_service.dart';
 import 'token_validator.dart';
@@ -1112,13 +1113,29 @@ class AuthStateManager extends _$AuthStateManager {
       // connection page. Users can navigate to server settings if they need to
       // change server configuration.
 
-      // Note: toolsListProvider is NOT invalidated here because:
-      // 1. clearAuthData() already deletes the tools cache from storage
-      // 2. The provider has auth checks that prevent API calls when logged out
-      // 3. When user logs back in, the provider will rebuild with fresh data
-
       // Clear auth cache manager
       _cacheManager.clearAuthCache();
+
+      // Invalidate all keepAlive providers that hold user-specific data.
+      // Without this, stale data remains in memory after sign out.
+      ref.invalidate(conversationsProvider);
+      ref.invalidate(activeConversationProvider);
+      ref.invalidate(foldersProvider);
+      ref.invalidate(modelsProvider);
+      ref.invalidate(selectedModelProvider);
+      ref.invalidate(currentUserProvider);
+      ref.invalidate(userSettingsProvider);
+      ref.invalidate(userPermissionsProvider);
+      ref.invalidate(toolsListProvider);
+      ref.invalidate(selectedToolIdsProvider);
+      ref.invalidate(selectedFilterIdsProvider);
+      ref.invalidate(knowledgeBasesProvider);
+      ref.invalidate(availableVoicesProvider);
+      ref.invalidate(imageModelsProvider);
+      ref.invalidate(defaultModelProvider);
+      ref.invalidate(backendConfigProvider);
+      ref.invalidate(socketServiceManagerProvider);
+      ref.invalidate(conversationDeltaStreamProvider);
 
       // Update state
       _update(
