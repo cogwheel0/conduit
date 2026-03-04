@@ -1674,7 +1674,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   surfaceTintColor: Colors.transparent,
                   shadowColor: Colors.transparent,
                   toolbarHeight: kToolbarHeight + 8,
-                  centerTitle: true,
+                  centerTitle: false,
                   titleSpacing: 0.0,
                   leadingWidth: 44 + Spacing.inputPadding + Spacing.xs,
                   leading: _isSelectionMode
