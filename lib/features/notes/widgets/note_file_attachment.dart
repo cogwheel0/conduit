@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/utils/file_type_utils.dart';
 
 /// A widget that displays a file attachment in a note.
 ///
@@ -38,42 +39,20 @@ class NoteFileAttachment extends StatelessWidget {
   String get _fileName => file['name']?.toString() ?? 'Unknown file';
   String get _fileType => file['type']?.toString() ?? 'file';
   int? get _fileSize => file['size'] as int?;
+  String get _extension => FileTypeUtils.extensionFromName(_fileName);
 
   bool get _isAudio =>
-      _fileType == 'audio' ||
-      _fileName.endsWith('.m4a') ||
-      _fileName.endsWith('.mp3') ||
-      _fileName.endsWith('.wav') ||
-      _fileName.endsWith('.aac');
+      _fileType == 'audio' || FileTypeUtils.isAudio(_extension);
 
   bool get _isImage => _fileType == 'image';
 
-  IconData get _icon {
-    if (_isAudio) {
-      return Platform.isIOS
-          ? CupertinoIcons.waveform
-          : Icons.audio_file_rounded;
-    }
-    if (_isImage) {
-      return Platform.isIOS ? CupertinoIcons.photo : Icons.image_rounded;
-    }
-    return Platform.isIOS
-        ? CupertinoIcons.doc_fill
-        : Icons.insert_drive_file_rounded;
-  }
+  IconData get _icon => FileTypeUtils.iconForExtension(_extension);
 
-  Color _iconColor(ConduitThemeExtension theme) {
-    if (_isAudio) return Colors.orange;
-    if (_isImage) return Colors.blue;
-    return theme.textSecondary;
-  }
-
-  String _formatFileSize(int? bytes) {
-    if (bytes == null) return '';
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-  }
+  Color _iconColor(ConduitThemeExtension theme) =>
+      FileTypeUtils.colorForExtension(
+        _extension,
+        fallback: theme.textSecondary,
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -166,7 +145,7 @@ class NoteFileAttachment extends StatelessWidget {
                             ),
                           ),
                           Text(
-                            _formatFileSize(_fileSize),
+                            FileTypeUtils.formatFileSize(_fileSize),
                             style: AppTypography.captionStyle.copyWith(
                               color: theme.textSecondary,
                             ),

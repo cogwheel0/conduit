@@ -8,6 +8,7 @@ import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as path;
 import '../../../core/providers/app_providers.dart';
+import '../../../shared/utils/file_type_utils.dart';
 import '../../../core/services/worker_manager.dart';
 import '../../../core/utils/debug_logger.dart';
 
@@ -481,42 +482,17 @@ class FileAttachmentService {
     return dataUrl;
   }
 
-  // Format file size for display
-  String formatFileSize(int bytes) {
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    if (bytes < 1024 * 1024 * 1024) {
-      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-    }
-    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
-  }
+  /// Formats a byte count into a human-readable string.
+  String formatFileSize(int bytes) =>
+      FileTypeUtils.formatFileSize(bytes);
 
-  // Get file icon based on extension
+  /// Returns an emoji icon for the given [fileName] based on its extension.
   String getFileIcon(String fileName) {
     final ext = path.extension(fileName).toLowerCase();
-
-    // Documents
-    if (['.pdf', '.doc', '.docx'].contains(ext)) return '📄';
-    if (['.xls', '.xlsx'].contains(ext)) return '📊';
-    if (['.ppt', '.pptx'].contains(ext)) return '📊';
-
-    // Images (including iOS and RAW formats)
-    if (allSupportedImageFormats.contains(ext)) return '🖼️';
-
-    // Code
-    if (['.js', '.ts', '.py', '.dart', '.java', '.cpp'].contains(ext)) {
-      return '💻';
-    }
-    if (['.html', '.css', '.json', '.xml'].contains(ext)) return '🌐';
-
-    // Archives
-    if (['.zip', '.rar', '.7z', '.tar', '.gz'].contains(ext)) return '📦';
-
-    // Media
-    if (['.mp3', '.wav', '.flac', '.m4a'].contains(ext)) return '🎵';
-    if (['.mp4', '.avi', '.mov', '.mkv'].contains(ext)) return '🎬';
-
-    return '📎';
+    return FileTypeUtils.emojiForExtension(
+      ext,
+      imageExtensions: allSupportedImageFormats,
+    );
   }
 }
 
@@ -547,42 +523,16 @@ class FileUploadState {
     this.base64DataUrl,
   });
 
-  String get formattedSize {
-    if (fileSize < 1024) return '$fileSize B';
-    if (fileSize < 1024 * 1024) {
-      return '${(fileSize / 1024).toStringAsFixed(1)} KB';
-    }
-    if (fileSize < 1024 * 1024 * 1024) {
-      return '${(fileSize / (1024 * 1024)).toStringAsFixed(1)} MB';
-    }
-    return '${(fileSize / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
-  }
+  /// Human-readable file size string.
+  String get formattedSize => FileTypeUtils.formatFileSize(fileSize);
 
+  /// Emoji icon representing the file type.
   String get fileIcon {
     final ext = path.extension(fileName).toLowerCase();
-
-    // Documents
-    if (['.pdf', '.doc', '.docx'].contains(ext)) return '📄';
-    if (['.xls', '.xlsx'].contains(ext)) return '📊';
-    if (['.ppt', '.pptx'].contains(ext)) return '📊';
-
-    // Images (including iOS and RAW formats)
-    if (allSupportedImageFormats.contains(ext)) return '🖼️';
-
-    // Code
-    if (['.js', '.ts', '.py', '.dart', '.java', '.cpp'].contains(ext)) {
-      return '💻';
-    }
-    if (['.html', '.css', '.json', '.xml'].contains(ext)) return '🌐';
-
-    // Archives
-    if (['.zip', '.rar', '.7z', '.tar', '.gz'].contains(ext)) return '📦';
-
-    // Media
-    if (['.mp3', '.wav', '.flac', '.m4a'].contains(ext)) return '🎵';
-    if (['.mp4', '.avi', '.mov', '.mkv'].contains(ext)) return '🎬';
-
-    return '📎';
+    return FileTypeUtils.emojiForExtension(
+      ext,
+      imageExtensions: allSupportedImageFormats,
+    );
   }
 }
 
