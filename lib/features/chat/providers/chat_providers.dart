@@ -36,11 +36,16 @@ final chatMessagesProvider =
 
 /// Whether chat is currently streaming a response.
 /// Used by router to avoid showing connection issues during active streaming.
+/// Uses select() to only rebuild when the streaming state actually changes,
+/// not on every content update to the message list.
 final isChatStreamingProvider = Provider<bool>((ref) {
-  final messages = ref.watch(chatMessagesProvider);
-  if (messages.isEmpty) return false;
-  final last = messages.last;
-  return last.role == 'assistant' && last.isStreaming;
+  return ref.watch(
+    chatMessagesProvider.select((messages) {
+      if (messages.isEmpty) return false;
+      final last = messages.last;
+      return last.role == 'assistant' && last.isStreaming;
+    }),
+  );
 });
 
 /// The content of the currently streaming assistant message.
