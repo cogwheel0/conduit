@@ -1507,7 +1507,7 @@ class Conversations extends _$Conversations {
 class TemporaryChatEnabled extends _$TemporaryChatEnabled {
   @override
   bool build() {
-    final settings = ref.watch(appSettingsProvider);
+    final settings = ref.read(appSettingsProvider);
     return settings.temporaryChatByDefault;
   }
 

@@ -1641,27 +1641,27 @@ Future<void> regenerateMessage(
           imageGenerationEnabled,
       onChatTitleUpdated: (newTitle) {
         final active = ref.read(activeConversationProvider);
-        if (active != null) {
-          ref
-              .read(activeConversationProvider.notifier)
-              .set(active.copyWith(title: newTitle));
-          ref
-              .read(conversationsProvider.notifier)
-              .updateConversation(
-                active.id,
-                (conversation) => conversation.copyWith(
-                  title: newTitle,
-                  updatedAt: DateTime.now(),
-                ),
-              );
-        }
+        if (active == null || isTemporaryChat(active.id)) return;
+        ref
+            .read(activeConversationProvider.notifier)
+            .set(active.copyWith(title: newTitle));
+        ref
+            .read(conversationsProvider.notifier)
+            .updateConversation(
+              active.id,
+              (conversation) => conversation.copyWith(
+                title: newTitle,
+                updatedAt: DateTime.now(),
+              ),
+            );
         refreshConversationsCache(ref);
       },
       onChatTagsUpdated: () {
-        refreshConversationsCache(ref);
         final active = ref.read(activeConversationProvider);
+        if (active == null || isTemporaryChat(active.id)) return;
+        refreshConversationsCache(ref);
         final api = ref.read(apiServiceProvider);
-        if (active != null && api != null) {
+        if (api != null) {
           Future.microtask(() async {
             try {
               final refreshed = await api.getConversation(active.id);
@@ -1863,7 +1863,7 @@ Future<void> _sendMessageInternal(
       final socketId =
           ref.read(socketServiceProvider)?.sessionId ?? 'unknown';
       final localConversation = Conversation(
-        id: 'local:$socketId',
+        id: 'local:${socketId}_${const Uuid().v4()}',
         title: 'New Chat',
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
@@ -2397,27 +2397,27 @@ Future<void> _sendMessageInternal(
           imageGenerationEnabled,
       onChatTitleUpdated: (newTitle) {
         final active = ref.read(activeConversationProvider);
-        if (active != null) {
-          ref
-              .read(activeConversationProvider.notifier)
-              .set(active.copyWith(title: newTitle));
-          ref
-              .read(conversationsProvider.notifier)
-              .updateConversation(
-                active.id,
-                (conversation) => conversation.copyWith(
-                  title: newTitle,
-                  updatedAt: DateTime.now(),
-                ),
-              );
-        }
+        if (active == null || isTemporaryChat(active.id)) return;
+        ref
+            .read(activeConversationProvider.notifier)
+            .set(active.copyWith(title: newTitle));
+        ref
+            .read(conversationsProvider.notifier)
+            .updateConversation(
+              active.id,
+              (conversation) => conversation.copyWith(
+                title: newTitle,
+                updatedAt: DateTime.now(),
+              ),
+            );
         refreshConversationsCache(ref);
       },
       onChatTagsUpdated: () {
-        refreshConversationsCache(ref);
         final active = ref.read(activeConversationProvider);
+        if (active == null || isTemporaryChat(active.id)) return;
+        refreshConversationsCache(ref);
         final api = ref.read(apiServiceProvider);
-        if (active != null && api != null) {
+        if (api != null) {
           Future.microtask(() async {
             try {
               final refreshed = await api.getConversation(active.id);

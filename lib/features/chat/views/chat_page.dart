@@ -111,29 +111,33 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         .set(settings.temporaryChatByDefault);
   }
 
+  bool _isSavingTemporary = false;
+
   /// Persists a temporary chat to the server, transitioning it
   /// into a permanent conversation.
   Future<void> _saveTemporaryChat() async {
-    final messages = ref.read(chatMessagesProvider);
-    if (messages.isEmpty) return;
-
-    final api = ref.read(apiServiceProvider);
-    if (api == null) return;
-    final activeConversation = ref.read(activeConversationProvider);
-    if (activeConversation == null) return;
-
-    // Generate title from first user message
-    final firstUserMsg = messages.firstWhere(
-      (m) => m.role == 'user',
-      orElse: () => messages.first,
-    );
-    final title = firstUserMsg.content.length > 50
-        ? '${firstUserMsg.content.substring(0, 50)}...'
-        : firstUserMsg.content.isEmpty
-            ? 'New Chat'
-            : firstUserMsg.content;
-
+    if (_isSavingTemporary) return;
+    _isSavingTemporary = true;
     try {
+      final messages = ref.read(chatMessagesProvider);
+      if (messages.isEmpty) return;
+
+      final api = ref.read(apiServiceProvider);
+      if (api == null) return;
+      final activeConversation = ref.read(activeConversationProvider);
+      if (activeConversation == null) return;
+
+      // Generate title from first user message
+      final firstUserMsg = messages.firstWhere(
+        (m) => m.role == 'user',
+        orElse: () => messages.first,
+      );
+      final title = firstUserMsg.content.length > 50
+          ? '${firstUserMsg.content.substring(0, 50)}...'
+          : firstUserMsg.content.isEmpty
+              ? 'New Chat'
+              : firstUserMsg.content;
+
       final selectedModel = ref.read(selectedModelProvider);
       final serverConversation = await api.createConversation(
         title: title,
@@ -179,6 +183,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           ),
         );
       }
+    } finally {
+      _isSavingTemporary = false;
     }
   }
 
