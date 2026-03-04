@@ -1161,8 +1161,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final Brightness brightness = Theme.of(context).brightness;
     final bool hasComposerFocus = _focusNode.hasFocus;
     final bool isActive = hasComposerFocus || _hasText;
-    final Color placeholderBase = GlassColors.secondaryLabel(context);
-    final Color placeholderFocused = GlassColors.secondaryLabel(context);
+    final bool useGlassColors = !kIsWeb && Platform.isIOS;
+    final Color placeholderColor = useGlassColors
+        ? GlassColors.secondaryLabel(context)
+        : context.conduitTheme.textSecondary.withValues(alpha: 0.5);
+    final Color placeholderBase = placeholderColor;
+    final Color placeholderFocused = placeholderColor;
     final List<Widget> quickPills = <Widget>[];
 
     for (final id in selectedQuickPills) {
@@ -1718,10 +1722,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 placeholderFocused,
                 factor,
               )!;
-              final glassLabel = GlassColors.label(context);
+              final textLabel = (!kIsWeb && Platform.isIOS)
+                  ? GlassColors.label(context)
+                  : context.conduitTheme.inputText;
               final Color animatedTextColor = Color.lerp(
-                glassLabel.withValues(alpha: 0.88),
-                glassLabel,
+                textLabel.withValues(alpha: 0.88),
+                textLabel,
                 factor,
               )!;
 
@@ -2467,22 +2473,52 @@ class _ExpandedTextEditorSheetState
     // Match the dense (compact) chat input button — 36px, medium size.
     const double buttonSize = 36.0;
 
-    final Widget sendButton = AdaptiveButton.child(
-      onPressed: _hasText ? widget.onSend : null,
-      enabled: _hasText,
-      style: AdaptiveButtonStyle.prominentGlass,
-      color: theme.buttonPrimary,
-      size: AdaptiveButtonSize.medium,
-      minSize: const Size(buttonSize, buttonSize),
-      useSmoothRectangleBorder: false,
-      child: Icon(
-        Platform.isIOS ? CupertinoIcons.arrow_up : Icons.arrow_upward,
-        size: IconSize.small + 1,
-        color: _hasText
-            ? theme.buttonPrimaryText
-            : theme.textPrimary.withValues(alpha: Alpha.disabled),
-      ),
+    final iconColor = _hasText
+        ? theme.buttonPrimaryText
+        : theme.textPrimary.withValues(alpha: Alpha.disabled);
+    final sendIcon = Icon(
+      Platform.isIOS ? CupertinoIcons.arrow_up : Icons.arrow_upward,
+      size: IconSize.small + 1,
+      color: iconColor,
     );
+
+    final Widget sendButton;
+    if (!kIsWeb && Platform.isIOS) {
+      sendButton = AdaptiveButton.child(
+        onPressed: _hasText ? widget.onSend : null,
+        enabled: _hasText,
+        style: AdaptiveButtonStyle.prominentGlass,
+        color: theme.buttonPrimary,
+        size: AdaptiveButtonSize.medium,
+        minSize: const Size(buttonSize, buttonSize),
+        padding: EdgeInsets.zero,
+        borderRadius: BorderRadius.circular(buttonSize),
+        useSmoothRectangleBorder: false,
+        child: sendIcon,
+      );
+    } else {
+      sendButton = SizedBox(
+        width: buttonSize,
+        height: buttonSize,
+        child: Material(
+          color: _hasText
+              ? theme.buttonPrimary
+              : theme.surfaceContainerHighest,
+          shape: CircleBorder(
+            side: BorderSide(
+              color: _hasText ? theme.buttonPrimary : theme.cardBorder,
+              width: BorderWidth.thin,
+            ),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: _hasText ? widget.onSend : null,
+            customBorder: const CircleBorder(),
+            child: Center(child: sendIcon),
+          ),
+        ),
+      );
+    }
 
     // useSafeArea: true on the showModalBottomSheet call already constrains
     // the sheet to the safe area — no manual height calculation needed.

@@ -206,69 +206,124 @@ class ThemedDialogs {
     }
 
     // Android — fully themed Material dialog with TextField.
-    final controller = TextEditingController(text: initialValue);
+    // The controller is owned by _TextInputDialogContent so its lifecycle
+    // is tied to the dialog widget tree (survives dismiss animation).
     final result = await showDialog<String>(
       context: context,
       barrierDismissible: barrierDismissible,
-      builder: (ctx) {
-        final theme = ctx.conduitTheme;
-        return buildBase(
-          context: ctx,
-          title: title,
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            keyboardType: keyboardType,
-            textCapitalization: textCapitalization,
-            maxLength: maxLength,
-            style: TextStyle(color: theme.textPrimary),
-            decoration: InputDecoration(
-              hintText: hintText,
-              hintStyle: TextStyle(
-                color: theme.textSecondary.withValues(alpha: 0.6),
-              ),
-              counterStyle: TextStyle(color: theme.textSecondary),
-              enabledBorder: UnderlineInputBorder(
-                borderSide: BorderSide(
-                  color: theme.cardBorder,
-                ),
-              ),
-              focusedBorder: UnderlineInputBorder(
-                borderSide: BorderSide(
-                  color: theme.buttonPrimary,
-                  width: 2,
-                ),
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(null),
-              child: Text(
-                effectiveCancelText,
-                style: TextStyle(color: theme.textSecondary),
-              ),
-            ),
-            TextButton(
-              onPressed: () =>
-                  Navigator.of(ctx).pop(controller.text),
-              child: Text(
-                effectiveConfirmText,
-                style: TextStyle(
-                  color: theme.buttonPrimary,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ],
-        );
-      },
+      builder: (ctx) => _TextInputDialogContent(
+        title: title,
+        hintText: hintText,
+        initialValue: initialValue,
+        confirmText: effectiveConfirmText,
+        cancelText: effectiveCancelText,
+        keyboardType: keyboardType,
+        textCapitalization: textCapitalization,
+        maxLength: maxLength,
+      ),
     );
-    controller.dispose();
     if (result == null) return null;
     final trimmed = result.trim();
     if (trimmed.isEmpty) return null;
     if (initialValue != null && trimmed == initialValue.trim()) return null;
     return trimmed;
+  }
+}
+
+/// Material text-input dialog that owns its own [TextEditingController].
+///
+/// This prevents the "used after being disposed" error that occurs when a
+/// controller is disposed while the dialog dismiss animation is still running.
+class _TextInputDialogContent extends StatefulWidget {
+  const _TextInputDialogContent({
+    required this.title,
+    required this.hintText,
+    required this.confirmText,
+    required this.cancelText,
+    this.initialValue,
+    this.keyboardType,
+    this.textCapitalization = TextCapitalization.sentences,
+    this.maxLength,
+  });
+
+  final String title;
+  final String hintText;
+  final String confirmText;
+  final String cancelText;
+  final String? initialValue;
+  final TextInputType? keyboardType;
+  final TextCapitalization textCapitalization;
+  final int? maxLength;
+
+  @override
+  State<_TextInputDialogContent> createState() =>
+      _TextInputDialogContentState();
+}
+
+class _TextInputDialogContentState extends State<_TextInputDialogContent> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialValue);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.conduitTheme;
+    return ThemedDialogs.buildBase(
+      context: context,
+      title: widget.title,
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        keyboardType: widget.keyboardType,
+        textCapitalization: widget.textCapitalization,
+        maxLength: widget.maxLength,
+        style: TextStyle(color: theme.textPrimary),
+        decoration: InputDecoration(
+          hintText: widget.hintText,
+          hintStyle: TextStyle(
+            color: theme.textSecondary.withValues(alpha: 0.6),
+          ),
+          counterStyle: TextStyle(color: theme.textSecondary),
+          enabledBorder: UnderlineInputBorder(
+            borderSide: BorderSide(color: theme.cardBorder),
+          ),
+          focusedBorder: UnderlineInputBorder(
+            borderSide: BorderSide(
+              color: theme.buttonPrimary,
+              width: 2,
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(null),
+          child: Text(
+            widget.cancelText,
+            style: TextStyle(color: theme.textSecondary),
+          ),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(_controller.text),
+          child: Text(
+            widget.confirmText,
+            style: TextStyle(
+              color: theme.buttonPrimary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }

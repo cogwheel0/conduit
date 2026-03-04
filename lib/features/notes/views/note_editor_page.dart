@@ -1159,7 +1159,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       child: Text(
         '·',
         style: AppTypography.tiny.copyWith(
-          color: GlassColors.secondaryLabel(context).withValues(alpha: 0.5),
+          color: (!kIsWeb && Platform.isIOS)
+              ? GlassColors.secondaryLabel(context).withValues(alpha: 0.5)
+              : context.conduitTheme.textSecondary.withValues(alpha: 0.5),
         ),
       ),
     );
@@ -1170,7 +1172,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     required IconData icon,
     required String label,
   }) {
-    final secondaryColor = GlassColors.secondaryLabel(context);
+    final secondaryColor = (!kIsWeb && Platform.isIOS)
+        ? GlassColors.secondaryLabel(context)
+        : context.conduitTheme.textSecondary;
 
     return Padding(
       padding: const EdgeInsets.symmetric(
@@ -1416,7 +1420,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     bool showMenu = false,
   }) {
     final l10n = AppLocalizations.of(context)!;
-    final glassLabel = GlassColors.label(context);
+    final glassLabel = (!kIsWeb && Platform.isIOS)
+        ? GlassColors.label(context)
+        : context.conduitTheme.textPrimary;
 
     final borderRadius = BorderRadius.circular(AppBorderRadius.floatingButton);
     final buttonContent = SizedBox(

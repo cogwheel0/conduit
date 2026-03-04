@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../../core/providers/app_providers.dart';
+import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
 import '../voice_call/application/voice_call_controller.dart';
@@ -64,8 +65,9 @@ class _VoiceCallPageState extends ConsumerState<VoiceCallPage>
     final snapshot = ref.watch(voiceCallControllerProvider);
     final selectedModel = ref.watch(selectedModelProvider);
     final l10n = AppLocalizations.of(context)!;
-    final primaryColor = Theme.of(context).colorScheme.primary;
-    final textColor = Theme.of(context).colorScheme.onSurface;
+    final conduit = context.conduitTheme;
+    final primaryColor = conduit.buttonPrimary;
+    final textColor = conduit.textPrimary;
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,

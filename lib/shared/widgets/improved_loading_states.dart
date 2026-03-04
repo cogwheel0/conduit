@@ -649,7 +649,7 @@ class ErrorStateWidget extends StatelessWidget {
             Text(
               message,
               style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                color: context.conduitTheme.textSecondary.withValues(alpha: 0.6),
               ),
               textAlign: TextAlign.center,
             ),
