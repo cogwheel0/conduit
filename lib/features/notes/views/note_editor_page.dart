@@ -16,7 +16,6 @@ import '../../../core/widgets/error_boundary.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/glass_colors.dart';
 import '../../../shared/utils/ui_utils.dart';
-import '../../../shared/widgets/native_glass_container.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/improved_loading_states.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
@@ -1095,7 +1094,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         ? '${dateFormat.format(_note!.createdDateTime)} ${timeFormat.format(_note!.createdDateTime)}'
         : '';
 
-    return NativeGlassContainer(
+    return AdaptiveBlurView(
       blurStyle: BlurStyle.systemUltraThinMaterial,
       borderRadius: BorderRadius.circular(AppBorderRadius.pill),
       child: Padding(
@@ -1412,7 +1411,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     final l10n = AppLocalizations.of(context)!;
     final glassLabel = GlassColors.label(context);
 
-    final buttonChild = NativeGlassContainer(
+    final buttonChild = AdaptiveBlurView(
       blurStyle: BlurStyle.systemUltraThinMaterial,
       borderRadius: BorderRadius.circular(AppBorderRadius.floatingButton),
       child: SizedBox(

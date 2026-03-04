@@ -5,7 +5,6 @@ import '../../../core/widgets/error_boundary.dart';
 import '../../../shared/widgets/optimized_list.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/glass_colors.dart';
-import '../../../shared/widgets/native_glass_container.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -2192,7 +2191,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                                             ),
                                             useSmoothRectangleBorder: false,
                                           )
-                                        : NativeGlassContainer(
+                                        : AdaptiveBlurView(
                                             blurStyle:
                                                 BlurStyle
                                                     .systemUltraThinMaterial,

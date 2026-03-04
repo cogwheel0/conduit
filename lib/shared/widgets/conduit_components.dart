@@ -2,7 +2,6 @@ import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'native_glass_container.dart';
 import '../theme/theme_extensions.dart';
 import '../services/brand_service.dart';
 import '../../core/services/enhanced_accessibility_service.dart';
@@ -72,7 +71,7 @@ class FloatingAppBarPill extends StatelessWidget {
       );
     }
 
-    return NativeGlassContainer(
+    return AdaptiveBlurView(
       blurStyle: BlurStyle.systemUltraThinMaterial,
       borderRadius: borderRadius,
       child: blurChild,

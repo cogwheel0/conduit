@@ -30,8 +30,6 @@ import '../../chat/services/voice_input_service.dart';
 import '../../../core/models/knowledge_base.dart';
 
 import '../../../shared/utils/platform_utils.dart';
-import '../../../shared/widgets/native_glass_container.dart';
-import '../../../shared/widgets/native_chat_input.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import '../../../shared/widgets/modal_safe_area.dart';
 import '../../../core/utils/prompt_variable_parser.dart';
@@ -105,14 +103,11 @@ class ModernChatInput extends ConsumerStatefulWidget {
 class _ModernChatInputState extends ConsumerState<ModernChatInput>
     with TickerProviderStateMixin {
   bool get _useIOS26NativeControls => PlatformInfo.isIOS26OrHigher();
-  bool get _useNativePlatformChatInput => !kIsWeb && Platform.isIOS;
 
   static const double _composerRadius = AppBorderRadius.card;
 
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focusNode = FocusNode();
-  final NativeChatInputController _nativeInputController =
-      NativeChatInputController();
   bool _pendingFocus = false;
   bool _isRecording = false;
   bool _hasText = false; // track locally without rebuilding on each keystroke
@@ -124,8 +119,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   bool _isDeactivated = false;
   int _lastHandledFocusTick = 0;
   bool _showPromptOverlay = false;
-  bool _nativeHasFocus = false;
-  double _nativeInputHeight = TouchTarget.input;
   bool _showExpandButton = false;
   bool _expandModalOpen = false;
   String _currentPromptCommand = '';
@@ -190,9 +183,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   void _ensureFocusedIfEnabled() {
     // Respect global suppression flag to avoid re-opening keyboard
     final autofocusEnabled = ref.read(composerAutofocusEnabledProvider);
-    final hasFocus = _useNativePlatformChatInput
-        ? _nativeHasFocus
-        : _focusNode.hasFocus;
+    final hasFocus = _focusNode.hasFocus;
     if (!widget.enabled || hasFocus || _pendingFocus || !autofocusEnabled) {
       return;
     }
@@ -207,20 +198,14 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         if (!mounted) return;
         _pendingFocus = false;
         if (!widget.enabled) return;
-        if (_useNativePlatformChatInput) {
-          _nativeInputController.focus();
-        } else if (!_focusNode.hasFocus) {
+        if (!_focusNode.hasFocus) {
           _focusNode.requestFocus();
         }
       });
     } else {
       // Safe to request focus immediately
       _pendingFocus = false;
-      if (_useNativePlatformChatInput) {
-        _nativeInputController.focus();
-      } else {
-        _focusNode.requestFocus();
-      }
+      _focusNode.requestFocus();
     }
   }
 
@@ -243,10 +228,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     if (!widget.enabled && oldWidget.enabled) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || _isDeactivated) return;
-        if (_useNativePlatformChatInput) {
-          _nativeInputController.unfocus();
-          return;
-        }
         if (_focusNode.hasFocus) {
           _focusNode.unfocus();
         }
@@ -261,23 +242,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     PlatformUtils.lightHaptic();
     widget.onSendMessage(text);
     _controller.clear();
-    if (_useNativePlatformChatInput) {
-      _nativeInputController.clear();
-    }
-
-    if (!_useNativePlatformChatInput) {
-      _focusNode.unfocus();
-      try {
-        SystemChannels.textInput.invokeMethod('TextInput.hide');
-      } catch (_) {
-        // Silently handle if keyboard dismissal fails
-      }
-    } else {
-      // Defer unfocus to the next frame to avoid iOS hardware-keyboard
-      // event-order assertions when focus is dropped during key processing.
-      try {
-        ref.read(composerAutofocusEnabledProvider.notifier).set(false);
-      } catch (_) {}
+    _focusNode.unfocus();
+    try {
+      SystemChannels.textInput.invokeMethod('TextInput.hide');
+    } catch (_) {
+      // Silently handle if keyboard dismissal fails
     }
   }
 
@@ -447,17 +416,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   static final RegExp _promptCommandBoundary = RegExp(r'\s');
 
-  void _handleNativeInputHeightChanged(double height) {
-    if (!mounted || _isDeactivated) return;
-    final clamped = height.clamp(28.0, 180.0).toDouble();
-    if ((clamped - _nativeInputHeight).abs() < 0.5) return;
-    final bool showExpand = clamped > 76.0 && _isMultiline;
-    setState(() {
-      _nativeInputHeight = clamped;
-      _showExpandButton = showExpand;
-    });
-  }
-
   void _handleComposerChanged() {
     if (!mounted || _isDeactivated) return;
 
@@ -466,12 +424,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final bool hasText = text.trim().isNotEmpty;
     // Consider multiline if text contains newlines or exceeds ~50 chars
     final bool isMultiline = text.contains('\n') || text.length > 50;
-    // On the Flutter TextField path show the expand button when content is
-    // tall enough (~4 lines: 3+ explicit newlines or ~160 wrapped chars).
+    // Show the expand button when content is tall enough
+    // (~4 lines: 3+ explicit newlines or ~160 wrapped chars).
     final bool showExpand =
-        !_useNativePlatformChatInput &&
-        isMultiline &&
-        (text.split('\n').length >= 4 || text.length > 160);
+        isMultiline && (text.split('\n').length >= 4 || text.length > 160);
     final _PromptCommandMatch? match = _resolvePromptCommand(
       text,
       selection,
@@ -485,7 +441,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         hasText != _hasText ||
         isMultiline != _isMultiline ||
         shouldShow != _showPromptOverlay ||
-        (!_useNativePlatformChatInput && showExpand != _showExpandButton);
+        showExpand != _showExpandButton;
 
     if (!needsUpdate) {
       if (match != null) {
@@ -508,7 +464,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       _isMultiline = isMultiline;
       if (!isMultiline) {
         _showExpandButton = false;
-      } else if (!_useNativePlatformChatInput) {
+      } else {
         _showExpandButton = showExpand;
       }
       if (match != null) {
@@ -1099,10 +1055,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   @override
   Widget build(BuildContext context) {
     ref.listen<bool>(composerAutofocusEnabledProvider, (previous, next) {
-      if ((previous ?? true) && !next && _useNativePlatformChatInput) {
+      if ((previous ?? true) && !next && _focusNode.hasFocus) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted || _isDeactivated) return;
-          _nativeInputController.unfocus();
+          _focusNode.unfocus();
         });
       }
     });
@@ -1176,9 +1132,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     }
 
     final Brightness brightness = Theme.of(context).brightness;
-    final bool hasComposerFocus = _useNativePlatformChatInput
-        ? _nativeHasFocus
-        : _focusNode.hasFocus;
+    final bool hasComposerFocus = _focusNode.hasFocus;
     final bool isActive = hasComposerFocus || _hasText;
     final Color placeholderBase = GlassColors.secondaryLabel(context);
     final Color placeholderFocused = GlassColors.secondaryLabel(context);
@@ -1353,8 +1307,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                         vertical: Spacing.xs,
                       ),
                       isActive: isActive,
-                      nativeMinHeight: 32,
-                      nativeMaxHeight: 140,
                     ),
                   ),
                 ],
@@ -1427,10 +1379,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
     // For compact mode, render text field shell with floating buttons on sides
     if (showCompactComposer) {
-      final compactMaxHeight = _useIOS26NativeControls
-          ? (_isMultiline ? 144.0 : TouchTarget.input)
-          : MediaQuery.of(context).size.height * 0.25;
-
       final textFieldContent = Container(
         padding: EdgeInsets.fromLTRB(
           Spacing.md,
@@ -1461,13 +1409,20 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                       vertical: Spacing.xs,
                     ),
                     isActive: isActive,
-                    nativeMinHeight: TouchTarget.input,
-                    nativeMaxHeight: compactMaxHeight,
                   ),
                 ),
                 if (!_hasText && voiceAvailable && !isGenerating) ...[
                   const SizedBox(width: Spacing.xs),
-                  _buildInlineMicAction(voiceAvailable),
+                  // Wrap in the same height as the dense primary button so
+                  // the mic icon's visual center aligns with the button when
+                  // bottom-aligned in the multiline (crossAxisAlignment.end)
+                  // layout.
+                  SizedBox(
+                    height: 36.0,
+                    child: Center(
+                      child: _buildInlineMicAction(voiceAvailable),
+                    ),
+                  ),
                 ],
                 const SizedBox(width: Spacing.xs),
                 _buildPrimaryButton(
@@ -1537,8 +1492,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 );
               },
             )
-          : NativeGlassContainer(
-              key: const ValueKey('compact-native-glass-fallback'),
+          : AdaptiveBlurView(
+              key: const ValueKey('compact-glass-fallback'),
               blurStyle: BlurStyle.systemUltraThinMaterial,
               borderRadius: shellRadius,
               child: textFieldContent,
@@ -1606,11 +1561,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       ),
     );
 
-    // Always use NativeGlassContainer for the expanded composer shell.
-    // IOS26Button has a fixed height and cannot adapt to dynamic
-    // content sizing needed by the expanded composer.
     final Widget shell = _wrapIosSurfaceShadow(
-      NativeGlassContainer(
+      AdaptiveBlurView(
         blurStyle: BlurStyle.systemUltraThinMaterial,
         borderRadius: shellRadius,
         child: shellContent,
@@ -1657,133 +1609,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     required Color placeholderFocused,
     required EdgeInsetsGeometry contentPadding,
     required bool isActive,
-    required double nativeMinHeight,
-    required double nativeMaxHeight,
   }) {
-    if (_useNativePlatformChatInput) {
-      final double factor = isActive ? 1.0 : 0.0;
-      final Color animatedPlaceholder = Color.lerp(
-        placeholderBase,
-        placeholderFocused,
-        factor,
-      )!;
-      final glassLabel = GlassColors.label(context);
-      final Color animatedTextColor = Color.lerp(
-        glassLabel.withValues(alpha: 0.88),
-        glassLabel,
-        factor,
-      )!;
-      final TextStyle baseChatStyle = AppTypography.chatMessageStyle;
-
-      final nativeHeight = _nativeInputHeight.clamp(
-        nativeMinHeight,
-        nativeMaxHeight,
-      );
-
-      return SizedBox(
-        height: nativeHeight,
-        child: NativeChatInput(
-          controller: _nativeInputController,
-          text: _controller.text,
-          selection: _controller.selection,
-          placeholder: AppLocalizations.of(context)!.messageHintText,
-          enabled: widget.enabled,
-          // Work around iOS native keyboard event-order assertions by avoiding
-          // native return-key submit interception. Users can still send via the
-          // send button and desktop shortcuts on non-iOS platforms.
-          sendOnEnter: Platform.isIOS ? false : sendOnEnter,
-          // Keep native accessory bar disabled for now.
-          // On iOS 26 it renders an extra floating control row that duplicates
-          // the existing Flutter composer actions.
-          showInputAccessoryBar: false,
-          accessoryCanSend:
-              widget.enabled && _hasText && !isGenerating && allUploadsComplete,
-          accessoryCanUseMic:
-              widget.enabled && voiceAvailable && !_hasText && !isGenerating,
-          accessoryIsRecording: _isRecording,
-          minHeight: nativeMinHeight,
-          maxHeight: nativeMaxHeight,
-          fontSize: baseChatStyle.fontSize ?? 17,
-          textColor: animatedTextColor,
-          placeholderColor: animatedPlaceholder,
-          onHeightChanged: _handleNativeInputHeightChanged,
-          onChanged: (text) {
-            if (_controller.text == text) return;
-            final previousSelection = _controller.selection;
-            final collapsedOffset = math.min(
-              previousSelection.extentOffset,
-              text.length,
-            );
-            _controller.value = TextEditingValue(
-              text: text,
-              selection: TextSelection.collapsed(offset: collapsedOffset),
-              composing: TextRange.empty,
-            );
-          },
-          onSelectionChanged: (selection) {
-            if (!selection.isValid) return;
-            if (_controller.selection == selection) return;
-            _controller.value = _controller.value.copyWith(
-              selection: selection,
-            );
-          },
-          onFocusChanged: (hasFocus) {
-            if (!mounted || _isDeactivated) return;
-            if (_nativeHasFocus != hasFocus) {
-              setState(() {
-                _nativeHasFocus = hasFocus;
-              });
-            }
-            if (hasFocus) {
-              try {
-                ref.read(composerAutofocusEnabledProvider.notifier).set(true);
-              } catch (_) {}
-            }
-            try {
-              ref.read(composerHasFocusProvider.notifier).set(hasFocus);
-            } catch (_) {}
-          },
-          onSubmitted: (_) {
-            if (_showPromptOverlay) {
-              _confirmPromptSelection();
-              return;
-            }
-            if (sendOnEnter) {
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (!mounted || _isDeactivated) return;
-                _sendMessage();
-              });
-            }
-          },
-          onAccessoryAction: (action) {
-            switch (action) {
-              case 'plus':
-                _showOverflowSheet();
-                break;
-              case 'mic':
-                if (widget.enabled &&
-                    voiceAvailable &&
-                    !_hasText &&
-                    !isGenerating) {
-                  HapticFeedback.selectionClick();
-                  _toggleVoice();
-                }
-                break;
-              case 'send':
-                if (widget.enabled &&
-                    _hasText &&
-                    !isGenerating &&
-                    allUploadsComplete) {
-                  PlatformUtils.lightHaptic();
-                  _sendMessage();
-                }
-                break;
-            }
-          },
-        ),
-      );
-    }
-
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       // Exclude from semantics so screen readers interact directly with the
@@ -1882,12 +1708,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   : FontWeight.w400;
               final TextStyle baseChatStyle = AppTypography.chatMessageStyle;
 
-              // Rely on TextField's built-in accessibility via hintText.
-              // Wrapping with Semantics creates duplicate accessibility nodes
-              // which confuses screen readers and causes keyboard issues with
-              // alternative input methods (e.g., Braille keyboards).
-              // The hintText "Ask Conduit" provides sufficient context for
-              // screen readers to identify this as a message input field.
+              // On iOS, AdaptiveTextField uses CupertinoTextField for a native
+              // feel. On Android/desktop/web, it falls back to Material
+              // TextField which supports richer features like
+              // contentInsertionConfiguration and contextMenuBuilder.
               //
               // IMPORTANT: Always use TextInputAction.newline for multiline
               // chat input. Using TextInputAction.send causes issues with
@@ -1895,6 +1719,35 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               // the "confirm" action is used to commit characters, not to
               // send messages. The send-on-enter functionality is handled
               // by keyboard shortcuts (Enter key) instead.
+              if (!kIsWeb && Platform.isIOS) {
+                return AdaptiveTextField(
+                  controller: _controller,
+                  focusNode: _focusNode,
+                  placeholder: AppLocalizations.of(context)!.messageHintText,
+                  enabled: widget.enabled,
+                  autofocus: false,
+                  minLines: 1,
+                  maxLines: null,
+                  keyboardType: TextInputType.multiline,
+                  textCapitalization: TextCapitalization.sentences,
+                  textInputAction: TextInputAction.newline,
+                  style: baseChatStyle.copyWith(
+                    color: animatedTextColor,
+                    fontStyle:
+                        _isRecording ? FontStyle.italic : FontStyle.normal,
+                    fontWeight: recordingWeight,
+                  ),
+                  // Transparent decoration — the glass container provides
+                  // the visual frame.
+                  cupertinoDecoration: const BoxDecoration(),
+                  padding: contentPadding,
+                  onSubmitted: (_) {},
+                  onTap: () {
+                    if (!widget.enabled) return;
+                    _ensureFocusedIfEnabled();
+                  },
+                );
+              }
               return TextField(
                 controller: _controller,
                 focusNode: _focusNode,
@@ -1905,9 +1758,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 textAlignVertical: TextAlignVertical.center,
                 keyboardType: TextInputType.multiline,
                 textCapitalization: TextCapitalization.sentences,
-                // Always use newline action for accessibility compatibility.
-                // Braille keyboards use "confirm" to commit characters, not
-                // to send messages. Send-on-enter is handled via Shortcuts.
                 textInputAction: TextInputAction.newline,
                 autofillHints: const <String>[],
                 showCursor: true,
@@ -1949,16 +1799,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 contextMenuBuilder: (context, editableTextState) {
                   return _buildContextMenu(context, editableTextState);
                 },
-                // Note: With TextInputAction.newline, onSubmitted is typically
-                // not called. We keep this callback but don't auto-send to
-                // maintain compatibility with alternative input methods like
-                // Braille keyboards where "confirm" means "commit character"
-                // not "send message". Users can send via the send button or
-                // keyboard shortcuts (Cmd/Ctrl+Enter, or Enter if enabled).
-                onSubmitted: (_) {
-                  // Intentionally not auto-sending here to support Braille
-                  // keyboards and other alternative input methods.
-                },
+                onSubmitted: (_) {},
                 onTap: () {
                   if (!widget.enabled) return;
                   _ensureFocusedIfEnabled();
@@ -2666,17 +2507,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   void _showOverflowSheet() {
     HapticFeedback.selectionClick();
     final prevCanRequest = _focusNode.canRequestFocus;
-    final wasFocused = _useNativePlatformChatInput
-        ? _nativeHasFocus
-        : _focusNode.hasFocus;
+    final wasFocused = _focusNode.hasFocus;
     _focusNode.canRequestFocus = false;
     try {
-      if (_useNativePlatformChatInput) {
-        _nativeInputController.unfocus();
-      } else {
-        FocusScope.of(context).unfocus();
-        SystemChannels.textInput.invokeMethod('TextInput.hide');
-      }
+      FocusScope.of(context).unfocus();
+      SystemChannels.textInput.invokeMethod('TextInput.hide');
     } catch (_) {}
 
     showModalBottomSheet(
@@ -3549,31 +3384,60 @@ class _ExpandedTextEditorSheetState
             ),
             // Text editor
             Expanded(
-              child: CupertinoTextField(
-                controller: widget.controller,
-                autofocus: true,
-                maxLines: null,
-                expands: true,
-                textAlignVertical: TextAlignVertical.top,
-                style: TextStyle(
-                  color: theme.textPrimary,
-                  fontSize: 16,
-                  height: 1.5,
-                ),
-                placeholder: l10n.messageHintText,
-                placeholderStyle: TextStyle(
-                  color: theme.textSecondary.withValues(alpha: 0.5),
-                  fontSize: 16,
-                ),
-                cursorColor: CupertinoColors.activeBlue,
-                padding: const EdgeInsets.fromLTRB(
-                  Spacing.md,
-                  Spacing.xs,
-                  Spacing.md,
-                  Spacing.sm,
-                ),
-                decoration: const BoxDecoration(),
-              ),
+              child: !kIsWeb && Platform.isIOS
+                  ? CupertinoTextField(
+                      controller: widget.controller,
+                      autofocus: true,
+                      maxLines: null,
+                      expands: true,
+                      textAlignVertical: TextAlignVertical.top,
+                      style: TextStyle(
+                        color: theme.textPrimary,
+                        fontSize: 16,
+                        height: 1.5,
+                      ),
+                      placeholder: l10n.messageHintText,
+                      placeholderStyle: TextStyle(
+                        color: theme.textSecondary.withValues(alpha: 0.5),
+                        fontSize: 16,
+                      ),
+                      padding: const EdgeInsets.fromLTRB(
+                        Spacing.md,
+                        Spacing.xs,
+                        Spacing.md,
+                        Spacing.sm,
+                      ),
+                      decoration: const BoxDecoration(),
+                    )
+                  : TextField(
+                      controller: widget.controller,
+                      autofocus: true,
+                      maxLines: null,
+                      expands: true,
+                      textAlignVertical: TextAlignVertical.top,
+                      style: TextStyle(
+                        color: theme.textPrimary,
+                        fontSize: 16,
+                        height: 1.5,
+                      ),
+                      decoration: InputDecoration(
+                        hintText: l10n.messageHintText,
+                        hintStyle: TextStyle(
+                          color: theme.textSecondary.withValues(alpha: 0.5),
+                          fontSize: 16,
+                        ),
+                        border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        contentPadding: const EdgeInsets.fromLTRB(
+                          Spacing.md,
+                          Spacing.xs,
+                          Spacing.md,
+                          Spacing.sm,
+                        ),
+                        isDense: true,
+                      ),
+                    ),
             ),
             // Bottom bar — send button, keyboard-aware.
             Padding(
