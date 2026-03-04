@@ -35,6 +35,7 @@ import '../../auth/providers/unified_auth_providers.dart';
 import 'chat_input_intents.dart';
 import 'expanded_text_editor.dart';
 import 'composer_overflow_menu.dart';
+import 'prompt_suggestion_overlay.dart';
 
 class ModernChatInput extends ConsumerStatefulWidget {
   final Function(String) onSendMessage;
@@ -839,182 +840,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     );
   }
 
-  Widget _buildPromptOverlay(BuildContext context) {
-    final Brightness brightness = Theme.of(context).brightness;
-    final overlayColor = context.conduitTheme.cardBackground;
-    final borderColor = context.conduitTheme.cardBorder.withValues(
-      alpha: brightness == Brightness.dark ? 0.6 : 0.4,
-    );
-
-    if (_currentPromptCommand.startsWith('#')) {
-      return _buildKnowledgeOverlay(context, overlayColor, borderColor);
-    }
-
-    final AsyncValue<List<Prompt>> promptsAsync = ref.watch(
-      promptsListProvider,
-    );
-
-    return Container(
-      decoration: BoxDecoration(
-        color: overlayColor,
-        borderRadius: BorderRadius.circular(AppBorderRadius.card),
-        border: Border.all(color: borderColor, width: BorderWidth.thin),
-        boxShadow: [
-          BoxShadow(
-            color: context.conduitTheme.cardShadow.withValues(
-              alpha: brightness == Brightness.dark ? 0.28 : 0.16,
-            ),
-            blurRadius: 22,
-            offset: const Offset(0, 8),
-            spreadRadius: -4,
-          ),
-        ],
-      ),
-      child: promptsAsync.when(
-        data: (prompts) {
-          final List<Prompt> filtered = _filterPrompts(prompts);
-          if (filtered.isEmpty) {
-            return _buildPromptOverlayPlaceholder(
-              context,
-              Icon(
-                Icons.inbox_outlined,
-                size: IconSize.medium,
-                color: context.conduitTheme.textSecondary.withValues(
-                  alpha: Alpha.medium,
-                ),
-              ),
-              AppLocalizations.of(context)!.noResults,
-            );
-          }
-
-          int activeIndex = _promptSelectionIndex;
-          if (activeIndex < 0) {
-            activeIndex = 0;
-          } else if (activeIndex >= filtered.length) {
-            activeIndex = filtered.length - 1;
-          }
-
-          return ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 240),
-            child: ListView.separated(
-              padding: const EdgeInsets.symmetric(vertical: Spacing.xs),
-              shrinkWrap: true,
-              physics: const ClampingScrollPhysics(),
-              itemCount: filtered.length,
-              separatorBuilder: (context, index) =>
-                  const SizedBox(height: Spacing.xxs),
-              itemBuilder: (context, index) {
-                final prompt = filtered[index];
-                final bool isSelected = index == activeIndex;
-                final Color highlight = isSelected
-                    ? context.conduitTheme.navigationSelectedBackground
-                          .withValues(alpha: 0.4)
-                    : Colors.transparent;
-
-                return Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(AppBorderRadius.card),
-                    onTap: () => _applyPrompt(prompt),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: highlight,
-                        borderRadius: BorderRadius.circular(
-                          AppBorderRadius.card,
-                        ),
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: Spacing.sm,
-                        vertical: Spacing.xs,
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            prompt.command,
-                            style: Theme.of(context).textTheme.bodyMedium
-                                ?.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                  color: context.conduitTheme.textPrimary,
-                                ),
-                          ),
-                          if (prompt.title.trim().isNotEmpty)
-                            Padding(
-                              padding: const EdgeInsets.only(top: Spacing.xxs),
-                              child: Text(
-                                prompt.title,
-                                style: Theme.of(context).textTheme.bodySmall
-                                    ?.copyWith(
-                                      color: context.conduitTheme.textSecondary,
-                                    ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
-          );
-        },
-        loading: () => _buildPromptOverlayPlaceholder(
-          context,
-          SizedBox(
-            width: IconSize.large,
-            height: IconSize.large,
-            child: CircularProgressIndicator(
-              strokeWidth: BorderWidth.regular,
-              valueColor: AlwaysStoppedAnimation<Color>(
-                context.conduitTheme.loadingIndicator,
-              ),
-            ),
-          ),
-          null,
-        ),
-        error: (error, stackTrace) => _buildPromptOverlayPlaceholder(
-          context,
-          Icon(
-            Icons.error_outline,
-            size: IconSize.medium,
-            color: context.conduitTheme.error,
-          ),
-          null,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPromptOverlayPlaceholder(
-    BuildContext context,
-    Widget leading,
-    String? message,
-  ) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: Spacing.sm,
-        vertical: Spacing.md,
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          leading,
-          if (message != null) ...[
-            const SizedBox(width: Spacing.sm),
-            Flexible(
-              child: Text(
-                message,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: context.conduitTheme.textSecondary,
-                ),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
   Widget _buildKnowledgeOverlay(
     BuildContext context,
     Color overlayColor,
@@ -1272,7 +1097,21 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
             Spacing.sm,
             Spacing.xs,
           ),
-          child: _buildPromptOverlay(context),
+          child: _currentPromptCommand.startsWith('#')
+              ? _buildKnowledgeOverlay(
+                  context,
+                  context.conduitTheme.cardBackground,
+                  context.conduitTheme.cardBorder.withValues(
+                    alpha: Theme.of(context).brightness == Brightness.dark
+                        ? 0.6
+                        : 0.4,
+                  ),
+                )
+              : PromptSuggestionOverlay(
+                  filteredPrompts: _filterPrompts,
+                  selectionIndex: _promptSelectionIndex,
+                  onPromptSelected: _applyPrompt,
+                ),
         ),
       if (!showCompactComposer) ...[
         Padding(
@@ -1508,7 +1347,22 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
             if (_showPromptOverlay)
               Padding(
                 padding: const EdgeInsets.only(bottom: Spacing.xs),
-                child: _buildPromptOverlay(context),
+                child: _currentPromptCommand.startsWith('#')
+                    ? _buildKnowledgeOverlay(
+                        context,
+                        context.conduitTheme.cardBackground,
+                        context.conduitTheme.cardBorder.withValues(
+                          alpha:
+                              Theme.of(context).brightness == Brightness.dark
+                                  ? 0.6
+                                  : 0.4,
+                        ),
+                      )
+                    : PromptSuggestionOverlay(
+                        filteredPrompts: _filterPrompts,
+                        selectionIndex: _promptSelectionIndex,
+                        onPromptSelected: _applyPrompt,
+                      ),
               ),
             Row(
               crossAxisAlignment: CrossAxisAlignment.end,
