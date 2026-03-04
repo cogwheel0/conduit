@@ -1271,8 +1271,9 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer> {
 
     // Reset temporary chat state based on user preference
     final settings = ref.read(appSettingsProvider);
-    ref.read(temporaryChatEnabledProvider.notifier).state =
-        settings.temporaryChatByDefault;
+    ref
+        .read(temporaryChatEnabledProvider.notifier)
+        .set(settings.temporaryChatByDefault);
   }
 
   Future<void> _renameFolder(
@@ -1639,7 +1640,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer> {
     final container = ProviderScope.containerOf(context, listen: false);
 
     // Selecting a real conversation exits temporary mode
-    container.read(temporaryChatEnabledProvider.notifier).state = false;
+    container.read(temporaryChatEnabledProvider.notifier).set(false);
 
     try {
       // Mark global loading to show skeletons in chat

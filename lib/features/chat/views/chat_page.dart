@@ -106,8 +106,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
     // Reset temporary chat state based on user preference
     final settings = ref.read(appSettingsProvider);
-    ref.read(temporaryChatEnabledProvider.notifier).state =
-        settings.temporaryChatByDefault;
+    ref
+        .read(temporaryChatEnabledProvider.notifier)
+        .set(settings.temporaryChatByDefault);
   }
 
   /// Persists a temporary chat to the server, transitioning it
@@ -117,6 +118,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if (messages.isEmpty) return;
 
     final api = ref.read(apiServiceProvider);
+    if (api == null) return;
     final activeConversation = ref.read(activeConversationProvider);
     if (activeConversation == null) return;
 
@@ -156,7 +158,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
               updatedAt: DateTime.now(),
             ),
           );
-      ref.read(temporaryChatEnabledProvider.notifier).state = false;
+      ref.read(temporaryChatEnabledProvider.notifier).set(false);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2024,7 +2026,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                                         temporaryChatEnabledProvider
                                             .notifier,
                                       )
-                                      .state = true;
+                                      .set(true);
                                 } else if (ref
                                     .read(chatMessagesProvider)
                                     .isNotEmpty) {
@@ -2037,7 +2039,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                                         temporaryChatEnabledProvider
                                             .notifier,
                                       )
-                                      .state = false;
+                                      .set(false);
                                 }
                               },
                               fallbackIcon: isTemporary
@@ -2047,7 +2049,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                                   ? 'bubble.left.fill'
                                   : 'bubble.left',
                               color: isTemporary
-                                  ? context.conduitTheme.primary
+                                  ? context
+                                      .conduitTheme
+                                      .buttonPrimary
                                   : context
                                       .conduitTheme
                                       .textPrimary,

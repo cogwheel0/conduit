@@ -1503,10 +1503,16 @@ class Conversations extends _$Conversations {
 /// When true, conversations use `local:{socketId}` IDs and skip all
 /// server persistence. Resets on app restart unless the user has
 /// `temporaryChatByDefault` enabled in settings.
-final temporaryChatEnabledProvider = StateProvider<bool>((ref) {
-  final settings = ref.watch(appSettingsProvider);
-  return settings.temporaryChatByDefault;
-});
+@riverpod
+class TemporaryChatEnabled extends _$TemporaryChatEnabled {
+  @override
+  bool build() {
+    final settings = ref.watch(appSettingsProvider);
+    return settings.temporaryChatByDefault;
+  }
+
+  void set(bool value) => state = value;
+}
 
 /// Returns true if the given conversation ID represents a temporary chat.
 bool isTemporaryChat(String? id) =>
