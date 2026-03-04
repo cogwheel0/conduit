@@ -186,7 +186,7 @@ class FloatingAppBar extends StatelessWidget implements PreferredSizeWidget {
                 ],
               ),
             ),
-            if (bottom != null) bottom!,
+            ?bottom,
           ],
         ),
       ),

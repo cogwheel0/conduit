@@ -307,12 +307,12 @@ Map<String, dynamic>? _parseSiblingAsVersion(
     'content': contentString,
     'timestamp': _parseTimestamp(msgData['timestamp']).toIso8601String(),
     if (msgData['model'] != null) 'model': msgData['model'].toString(),
-    if (files != null) 'files': files,
+    'files': ?files,
     'sources': _parseSourcesField(sourcesRaw),
     'followUps': _coerceStringList(followUpsRaw),
     'codeExecutions': _parseCodeExecutionsField(codeExecRaw),
     if (rawUsage.isNotEmpty) 'usage': rawUsage,
-    if (errorData != null) 'error': errorData,
+    'error': ?errorData,
   };
 }
 
@@ -508,8 +508,8 @@ Map<String, dynamic> _parseOpenWebUIMessageToJson(
     'timestamp': _parseTimestamp(msgData['timestamp']).toIso8601String(),
     'model': msgData['model']?.toString(),
     'isStreaming': _safeBool(msgData['isStreaming']) ?? false,
-    if (attachmentIds != null) 'attachmentIds': attachmentIds,
-    if (files != null) 'files': files,
+    'attachmentIds': ?attachmentIds,
+    'files': ?files,
     'metadata': _coerceJsonMap(msgData['metadata']),
     'statusHistory': _parseStatusHistoryField(statusHistoryRaw),
     'followUps': _coerceStringList(followUpsRaw),
@@ -517,7 +517,7 @@ Map<String, dynamic> _parseOpenWebUIMessageToJson(
     'sources': _parseSourcesField(sourcesRaw),
     'usage': usage,
     'versions': const <Map<String, dynamic>>[],
-    if (errorData != null) 'error': errorData,
+    'error': ?errorData,
   };
 }
 

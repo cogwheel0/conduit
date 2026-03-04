@@ -2701,7 +2701,7 @@ class _ToggleTile extends StatelessWidget {
                   : Switch(
                       value: selected,
                       onChanged: (_) {},
-                      activeColor: theme.buttonPrimary,
+                      activeThumbColor: theme.buttonPrimary,
                     ),
             ),
           ],

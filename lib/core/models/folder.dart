@@ -110,7 +110,7 @@ extension FolderJsonExtension on Folder {
       if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
       if (updatedAt != null) 'updated_at': updatedAt!.toIso8601String(),
       'is_expanded': isExpanded,
-      if (normalizedItems != null) 'items': normalizedItems,
+      'items': ?normalizedItems,
       if (meta != null) 'meta': Map<String, dynamic>.from(meta!),
       if (data != null) 'data': Map<String, dynamic>.from(data!),
       if (conversationIds.isNotEmpty)

@@ -971,7 +971,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           alignment: Alignment.topCenter,
           children: <Widget>[
             ...previousChildren,
-            if (currentChild != null) currentChild,
+            ?currentChild,
           ],
         );
       },

@@ -1,3 +1,4 @@
+// ignore_for_file: experimental_member_use
 import 'dart:typed_data';
 
 import 'package:just_audio/just_audio.dart';

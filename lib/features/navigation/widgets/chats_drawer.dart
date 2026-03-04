@@ -2053,11 +2053,6 @@ class _ConversationTileState extends State<_ConversationTile> {
                 )
               : baseBackground);
 
-    // Border styling
-    final Color borderColor = widget.selected
-        ? theme.buttonPrimary.withValues(alpha: 0.4)
-        : Colors.transparent;
-
     Color? overlayForStates(Set<WidgetState> states) {
       if (states.contains(WidgetState.pressed)) {
         return theme.buttonPrimary.withValues(alpha: Alpha.buttonPressed);

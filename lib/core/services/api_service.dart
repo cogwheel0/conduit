@@ -1247,7 +1247,7 @@ class ApiService {
         'params': {},
         'history': {
           'messages': messagesMap,
-          if (currentId != null) 'currentId': currentId,
+          'currentId': ?currentId,
         },
         'messages': messagesArray,
         'tags': [],
@@ -1332,7 +1332,7 @@ class ApiService {
         if (msg.role == 'user' && model != null) 'models': [model],
         if (msg.attachmentIds != null && msg.attachmentIds!.isNotEmpty)
           'attachment_ids': List<String>.from(msg.attachmentIds!),
-        if (sanitizedFiles != null) 'files': sanitizedFiles,
+        'files': ?sanitizedFiles,
         // Mirror status updates, follow-ups, code executions, sources, and usage
         if (msg.statusHistory.isNotEmpty)
           'statusHistory': msg.statusHistory.map((s) => s.toJson()).toList(),
@@ -1375,7 +1375,7 @@ class ApiService {
         if (msg.role == 'user' && model != null) 'models': [model],
         if (msg.attachmentIds != null && msg.attachmentIds!.isNotEmpty)
           'attachment_ids': List<String>.from(msg.attachmentIds!),
-        if (sanitizedArrayFiles != null) 'files': sanitizedArrayFiles,
+        'files': ?sanitizedArrayFiles,
         // Mirror status updates, follow-ups, code executions, sources, and usage
         if (msg.statusHistory.isNotEmpty)
           'statusHistory': msg.statusHistory.map((s) => s.toJson()).toList(),
@@ -1444,14 +1444,14 @@ class ApiService {
     // Create the chat data structure matching OpenWebUI format exactly
     final chatData = {
       'chat': {
-        if (title != null) 'title': title, // Include the title if provided
+        'title': ?title, // Include the title if provided
         'models': model != null ? [model] : [],
         if (systemPrompt != null && systemPrompt.trim().isNotEmpty)
           'system': systemPrompt,
         'messages': messagesArray,
         'history': {
           'messages': messagesMap,
-          if (currentId != null) 'currentId': currentId,
+          'currentId': ?currentId,
         },
         'params': {},
         'files': [],
@@ -1473,8 +1473,8 @@ class ApiService {
   }) async {
     // OpenWebUI expects POST to /api/v1/chats/{id} with ChatForm { chat: {...} }
     final chatPayload = <String, dynamic>{
-      if (title != null) 'title': title,
-      if (systemPrompt != null) 'system': systemPrompt,
+      'title': ?title,
+      'system': ?systemPrompt,
     };
     await _dio.post('/api/v1/chats/$id', data: {'chat': chatPayload});
   }
@@ -1642,7 +1642,7 @@ class ApiService {
     _traceApi('Creating folder: $name');
     final response = await _dio.post(
       '/api/v1/folders/',
-      data: {'name': name, if (parentId != null) 'parent_id': parentId},
+      data: {'name': name, 'parent_id': ?parentId},
     );
     return response.data as Map<String, dynamic>;
   }
@@ -1901,8 +1901,8 @@ class ApiService {
     final response = await _dio.put(
       '/api/v1/files/$fileId/metadata',
       data: {
-        if (filename != null) 'filename': filename,
-        if (metadata != null) 'metadata': metadata,
+        'filename': ?filename,
+        'metadata': ?metadata,
       },
     );
     return response.data as Map<String, dynamic>;
@@ -1918,8 +1918,8 @@ class ApiService {
       '/api/v1/retrieval/process/files/batch',
       data: {
         'file_ids': fileIds,
-        if (operation != null) 'operation': operation,
-        if (options != null) 'options': options,
+        'operation': ?operation,
+        'options': ?options,
       },
     );
     final data = response.data;
@@ -1980,7 +1980,7 @@ class ApiService {
     _traceApi('Creating knowledge base: $name');
     final response = await _dio.post(
       '/api/v1/knowledge/',
-      data: {'name': name, if (description != null) 'description': description},
+      data: {'name': name, 'description': ?description},
     );
     return response.data as Map<String, dynamic>;
   }
@@ -1994,8 +1994,8 @@ class ApiService {
     await _dio.put(
       '/api/v1/knowledge/$id',
       data: {
-        if (name != null) 'name': name,
-        if (description != null) 'description': description,
+        'name': ?name,
+        'description': ?description,
       },
     );
   }
@@ -2032,8 +2032,8 @@ class ApiService {
       '/api/v1/knowledge/$knowledgeBaseId/items',
       data: {
         'content': content,
-        if (title != null) 'title': title,
-        if (metadata != null) 'metadata': metadata,
+        'title': ?title,
+        'metadata': ?metadata,
       },
     );
     return response.data as Map<String, dynamic>;
@@ -2172,7 +2172,7 @@ class ApiService {
         '/api/v1/retrieval/process/web',
         data: {
           'url': url,
-          if (collectionName != null) 'collection_name': collectionName,
+          'collection_name': ?collectionName,
         },
       );
       if (response.data is Map<String, dynamic>) {
@@ -2195,7 +2195,7 @@ class ApiService {
         '/api/v1/retrieval/process/youtube',
         data: {
           'url': url,
-          if (collectionName != null) 'collection_name': collectionName,
+          'collection_name': ?collectionName,
         },
       );
       if (response.data is Map<String, dynamic>) {
@@ -2494,8 +2494,8 @@ class ApiService {
       '/api/v1/audio/speech',
       data: {
         'input': text,
-        if (voice != null) 'voice': voice,
-        if (speed != null) 'speed': speed,
+        'voice': ?voice,
+        'speed': ?speed,
       },
       options: Options(responseType: ResponseType.bytes),
     );
@@ -2635,11 +2635,11 @@ class ApiService {
         '/api/v1/images/generations',
         data: {
           'prompt': prompt,
-          if (model != null) 'model': model,
-          if (width != null) 'width': width,
-          if (height != null) 'height': height,
-          if (steps != null) 'steps': steps,
-          if (guidance != null) 'guidance': guidance,
+          'model': ?model,
+          'width': ?width,
+          'height': ?height,
+          'steps': ?steps,
+          'guidance': ?guidance,
         },
       );
       return response.data;
@@ -2702,8 +2702,8 @@ class ApiService {
       data: {
         'title': title,
         'content': content,
-        if (description != null) 'description': description,
-        if (tags != null) 'tags': tags,
+        'description': ?description,
+        'tags': ?tags,
       },
     );
     return response.data as Map<String, dynamic>;
@@ -2720,10 +2720,10 @@ class ApiService {
     await _dio.put(
       '/api/v1/prompts/$id',
       data: {
-        if (title != null) 'title': title,
-        if (content != null) 'content': content,
-        if (description != null) 'description': description,
-        if (tags != null) 'tags': tags,
+        'title': ?title,
+        'content': ?content,
+        'description': ?description,
+        'tags': ?tags,
       },
     );
   }
@@ -2777,7 +2777,7 @@ class ApiService {
       data: {
         'name': name,
         'code': code,
-        if (description != null) 'description': description,
+        'description': ?description,
       },
     );
     return response.data as Map<String, dynamic>;
@@ -2800,9 +2800,9 @@ class ApiService {
     final response = await _dio.post(
       '/api/v1/tools/id/$toolId/update',
       data: {
-        if (name != null) 'name': name,
-        if (spec != null) 'spec': spec,
-        if (description != null) 'description': description,
+        'name': ?name,
+        'spec': ?spec,
+        'description': ?description,
       },
     );
     return response.data as Map<String, dynamic>;
@@ -2885,9 +2885,9 @@ class ApiService {
     final response = await _dio.post(
       '/api/v1/functions/id/$functionId/update',
       data: {
-        if (name != null) 'name': name,
-        if (code != null) 'code': code,
-        if (description != null) 'description': description,
+        'name': ?name,
+        'code': ?code,
+        'description': ?description,
       },
     );
     return response.data as Map<String, dynamic>;
@@ -2984,7 +2984,7 @@ class ApiService {
     _traceApi('Creating memory');
     final response = await _dio.post(
       '/api/v1/memories/',
-      data: {'content': content, if (title != null) 'title': title},
+      data: {'content': content, 'title': ?title},
     );
     return response.data as Map<String, dynamic>;
   }
@@ -3010,7 +3010,7 @@ class ApiService {
       '/api/v1/channels/',
       data: {
         'name': name,
-        if (description != null) 'description': description,
+        'description': ?description,
         'is_private': isPrivate,
       },
     );
@@ -3067,9 +3067,9 @@ class ApiService {
     final response = await _dio.post(
       '/api/v1/channels/$channelId/update',
       data: {
-        if (name != null) 'name': name,
-        if (description != null) 'description': description,
-        if (isPrivate != null) 'is_private': isPrivate,
+        'name': ?name,
+        'description': ?description,
+        'is_private': ?isPrivate,
       },
     );
     return response.data as Map<String, dynamic>;
@@ -3116,8 +3116,8 @@ class ApiService {
       '/api/v1/channels/$channelId/messages/post',
       data: {
         'content': content,
-        if (messageType != null) 'message_type': messageType,
-        if (metadata != null) 'metadata': metadata,
+        'message_type': ?messageType,
+        'metadata': ?metadata,
       },
     );
     return response.data as Map<String, dynamic>;
@@ -3133,8 +3133,8 @@ class ApiService {
     final response = await _dio.post(
       '/api/v1/channels/$channelId/messages/$messageId/update',
       data: {
-        if (content != null) 'content': content,
-        if (metadata != null) 'metadata': metadata,
+        'content': ?content,
+        'metadata': ?metadata,
       },
     );
     return response.data as Map<String, dynamic>;
@@ -3208,7 +3208,7 @@ class ApiService {
     _traceApi('Replying to message: $channelId/$messageId');
     final response = await _dio.post(
       '/api/v1/channels/$channelId/messages/$messageId/reply',
-      data: {'content': content, if (metadata != null) 'metadata': metadata},
+      data: {'content': content, 'metadata': ?metadata},
     );
     return response.data as Map<String, dynamic>;
   }
@@ -3217,7 +3217,7 @@ class ApiService {
     _traceApi('Marking channel as read: $channelId');
     await _dio.post(
       '/api/v1/channels/$channelId/read',
-      data: {if (messageId != null) 'last_read_message_id': messageId},
+      data: {'last_read_message_id': ?messageId},
     );
   }
 
@@ -3759,7 +3759,7 @@ class ApiService {
       '/api/v1/chats/import',
       data: {
         'chats': chatsData,
-        if (folderId != null) 'folder_id': folderId,
+        'folder_id': ?folderId,
         'overwrite_existing': overwriteExisting,
       },
     );
@@ -3806,8 +3806,8 @@ class ApiService {
     final response = await _dio.post(
       '/api/v1/chats/archive/all',
       data: {
-        if (excludeIds != null) 'exclude_ids': excludeIds,
-        if (beforeDate != null) 'before_date': beforeDate,
+        'exclude_ids': ?excludeIds,
+        'before_date': ?beforeDate,
       },
     );
     return response.data as Map<String, dynamic>;
@@ -3823,8 +3823,8 @@ class ApiService {
     final response = await _dio.post(
       '/api/v1/chats/delete/all',
       data: {
-        if (excludeIds != null) 'exclude_ids': excludeIds,
-        if (beforeDate != null) 'before_date': beforeDate,
+        'exclude_ids': ?excludeIds,
+        'before_date': ?beforeDate,
         'archived_only': archived,
       },
     );
@@ -3946,13 +3946,13 @@ class ApiService {
     final qp = <String, dynamic>{
       'text': query,
       'query': query,
-      if (chatId != null) 'chat_id': chatId,
-      if (userId != null) 'user_id': userId,
-      if (role != null) 'role': role,
+      'chat_id': ?chatId,
+      'user_id': ?userId,
+      'role': ?role,
       if (fromDate != null) 'from_date': fromDate.toIso8601String(),
       if (toDate != null) 'to_date': toDate.toIso8601String(),
-      if (limit != null) 'limit': limit,
-      if (offset != null) 'offset': offset,
+      'limit': ?limit,
+      'offset': ?offset,
     };
 
     try {
@@ -4019,7 +4019,7 @@ class ApiService {
     _traceApi('Duplicating chat: $chatId');
     final response = await _dio.post(
       '/api/v1/chats/$chatId/duplicate',
-      data: {if (title != null) 'title': title},
+      data: {'title': ?title},
     );
     final json = await _workerManager
         .schedule<Map<String, dynamic>, Map<String, dynamic>>(
@@ -4099,7 +4099,7 @@ class ApiService {
       data: {
         'chat_ids': chatIds,
         'operation': operation,
-        if (params != null) 'params': params,
+        'params': ?params,
       },
     );
     return response.data as Map<String, dynamic>;
@@ -4156,8 +4156,8 @@ class ApiService {
     final response = await _dio.post(
       '/api/v1/chats/templates/$templateId/create',
       data: {
-        if (variables != null) 'variables': variables,
-        if (title != null) 'title': title,
+        'variables': ?variables,
+        'title': ?title,
       },
     );
     final json = await _workerManager
@@ -4255,9 +4255,9 @@ class ApiService {
       '/api/v1/notes/create',
       data: {
         'title': title,
-        if (data != null) 'data': data,
-        if (meta != null) 'meta': meta,
-        if (accessControl != null) 'access_control': accessControl,
+        'data': ?data,
+        'meta': ?meta,
+        'access_control': ?accessControl,
       },
     );
     return response.data as Map<String, dynamic>;
@@ -4275,10 +4275,10 @@ class ApiService {
     final response = await _dio.post(
       '/api/v1/notes/$id/update',
       data: {
-        if (title != null) 'title': title,
-        if (data != null) 'data': data,
-        if (meta != null) 'meta': meta,
-        if (accessControl != null) 'access_control': accessControl,
+        'title': ?title,
+        'data': ?data,
+        'meta': ?meta,
+        'access_control': ?accessControl,
       },
     );
     return response.data as Map<String, dynamic>;

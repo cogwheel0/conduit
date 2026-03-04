@@ -1095,7 +1095,7 @@ Future<Map<String, dynamic>> _buildMessagePayloadWithAttachments({
           // OpenWebUI now stores just the file ID, not the full URL path
           'url': attachmentId,
           'name': fileName,
-          if (fileSize != null) 'size': fileSize,
+          'size': ?fileSize,
         });
       }
     } catch (_) {
@@ -1805,8 +1805,8 @@ Future<void> _sendMessageInternal(
           // OpenWebUI now stores just the file ID, not the full URL path
           // The frontend resolves it when displaying
           'url': fileId,
-          if (fileSize != null) 'size': fileSize,
-          if (collectionName != null) 'collection_name': collectionName,
+          'size': ?fileSize,
+          'collection_name': ?collectionName,
           if (contentType.isNotEmpty) 'content_type': contentType,
         };
       } catch (_) {

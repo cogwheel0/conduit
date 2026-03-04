@@ -559,7 +559,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
         onBeforeClose: () => HapticFeedback.selectionClick(),
         onSelected: () async {
           await Clipboard.setData(ClipboardData(text: note.markdownContent));
-          if (!mounted) return;
+          if (!context.mounted) return;
           AdaptiveSnackBar.show(
             context,
             message: l10n.noteCopiedToClipboard,
