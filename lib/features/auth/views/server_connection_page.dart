@@ -490,19 +490,11 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   @override
   Widget build(BuildContext context) {
     final reviewerMode = ref.watch(reviewerModeProvider);
-
-    final topPadding =
-        MediaQuery.of(context).padding.top + kToolbarHeight + 24;
+    final safePadding = MediaQuery.of(context).padding;
 
     return ErrorBoundary(
       child: Scaffold(
         backgroundColor: context.conduitTheme.surfaceBackground,
-        extendBodyBehindAppBar: true,
-        appBar: FloatingAppBar(
-          title: FloatingAppBarTitle(
-            text: AppLocalizations.of(context)!.connectToServer,
-          ),
-        ),
         body: Column(
           children: [
             // Main content
@@ -510,37 +502,36 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
               child: SingleChildScrollView(
                 keyboardDismissBehavior:
                     ScrollViewKeyboardDismissBehavior.onDrag,
-                padding: EdgeInsets.only(
-                  left: Spacing.pagePadding,
-                  right: Spacing.pagePadding,
-                  top: topPadding,
-                ),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 480),
-                  child: Form(
-                    key: _formKey,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        // Brand header
-                        _buildBrandHeader(reviewerMode),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 480),
+                    child: Padding(
+                      padding: EdgeInsets.only(
+                        left: Spacing.pagePadding,
+                        right: Spacing.pagePadding,
+                        top: safePadding.top + Spacing.xxl,
+                      ),
+                      child: Form(
+                        key: _formKey,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            // Brand header with welcome text
+                            _buildHeader(reviewerMode),
 
-                        const SizedBox(height: Spacing.xl),
+                            const SizedBox(height: Spacing.xxl),
 
-                        // Welcome section
-                        _buildWelcomeSection(),
+                            // Reviewer mode demo (if enabled)
+                            if (reviewerMode) ...[
+                              _buildReviewerModeSection(),
+                              const SizedBox(height: Spacing.xl),
+                            ],
 
-                        const SizedBox(height: Spacing.xl),
-
-                        // Reviewer mode demo (if enabled)
-                        if (reviewerMode) ...[
-                          _buildReviewerModeSection(),
-                          const SizedBox(height: Spacing.xl),
-                        ],
-
-                        // Server connection form
-                        _buildServerForm(),
-                      ],
+                            // Server connection form
+                            _buildServerForm(),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -553,9 +544,12 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
                 Spacing.pagePadding,
                 Spacing.md,
                 Spacing.pagePadding,
-                MediaQuery.of(context).padding.bottom + Spacing.md,
+                safePadding.bottom + Spacing.md,
               ),
-              child: _buildConnectButton(),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 480),
+                child: _buildConnectButton(),
+              ),
             ),
           ],
         ),
@@ -563,66 +557,89 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     );
   }
 
-  Widget _buildBrandHeader(bool reviewerMode) {
-    return GestureDetector(
-      onLongPress: () async {
-        HapticFeedback.mediumImpact();
-        await ref.read(reviewerModeProvider.notifier).toggle();
-        if (!mounted) return;
-        final enabled = ref.read(reviewerModeProvider);
-        AdaptiveSnackBar.show(
-          context,
-          message: enabled
-              ? 'Reviewer Mode enabled: Demo without server'
-              : 'Reviewer Mode disabled',
-          type: AdaptiveSnackBarType.info,
-        );
-      },
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          // Brand logo
-          BrandService.createBrandIcon(
-            size: 56,
-            useGradient: false,
-            addShadow: false,
-            context: context,
-          ),
-          // Reviewer mode badge
-          if (reviewerMode)
-            Positioned(
-              bottom: -4,
-              child: ConduitBadge(
-                text: AppLocalizations.of(context)!.demoBadge,
-                backgroundColor: context.conduitTheme.warning.withValues(
-                  alpha: 0.15,
-                ),
-                textColor: context.conduitTheme.warning,
-                isCompact: true,
-              ),
-            ),
-        ],
-      ),
-    );
-  }
+  Widget _buildHeader(bool reviewerMode) {
+    final theme = context.conduitTheme;
 
-  Widget _buildWelcomeSection() {
     return Column(
       children: [
+        // Brand icon with gradient container
+        GestureDetector(
+          onLongPress: () async {
+            HapticFeedback.mediumImpact();
+            await ref.read(reviewerModeProvider.notifier).toggle();
+            if (!mounted) return;
+            final enabled = ref.read(reviewerModeProvider);
+            AdaptiveSnackBar.show(
+              context,
+              message: enabled
+                  ? 'Reviewer Mode enabled: Demo without server'
+                  : 'Reviewer Mode disabled',
+              type: AdaptiveSnackBarType.info,
+            );
+          },
+          child: Stack(
+            alignment: Alignment.center,
+            clipBehavior: Clip.none,
+            children: [
+              Container(
+                width: 72,
+                height: 72,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      theme.buttonPrimary.withValues(alpha: 0.12),
+                      theme.buttonPrimary.withValues(alpha: 0.04),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: theme.buttonPrimary.withValues(alpha: 0.15),
+                    width: BorderWidth.standard,
+                  ),
+                ),
+                child: Center(
+                  child: BrandService.createBrandIcon(
+                    size: 36,
+                    useGradient: true,
+                    context: context,
+                  ),
+                ),
+              ),
+              // Reviewer mode badge
+              if (reviewerMode)
+                Positioned(
+                  bottom: -8,
+                  child: ConduitBadge(
+                    text: AppLocalizations.of(context)!.demoBadge,
+                    backgroundColor: theme.warning.withValues(alpha: 0.15),
+                    textColor: theme.warning,
+                    isCompact: true,
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: Spacing.lg),
+
+        // Title
         Text(
           AppLocalizations.of(context)!.connectToServer,
           textAlign: TextAlign.center,
-          style: context.conduitTheme.headingLarge?.copyWith(
-            fontWeight: FontWeight.w600,
-            height: 1.3,
+          style: theme.headingLarge?.copyWith(
+            fontWeight: FontWeight.w700,
+            letterSpacing: AppTypography.letterSpacingTight,
           ),
         ),
         const SizedBox(height: Spacing.sm),
+
+        // Subtitle
         Text(
           AppLocalizations.of(context)!.enterServerAddress,
           textAlign: TextAlign.center,
-          style: context.conduitTheme.bodyMedium?.copyWith(
-            color: context.conduitTheme.textSecondary,
+          style: theme.bodyMedium?.copyWith(
+            color: theme.textSecondary,
             height: 1.4,
           ),
         ),
@@ -720,272 +737,311 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   }
 
   Widget _buildAdvancedSettings() {
-    return Column(
-      children: [
-        InkWell(
-          onTap: () =>
-              setState(() => _showAdvancedSettings = !_showAdvancedSettings),
-          borderRadius: BorderRadius.circular(AppBorderRadius.button),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: Spacing.md,
-              vertical: Spacing.sm,
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  Platform.isIOS ? CupertinoIcons.gear_alt : Icons.settings,
-                  color: context.conduitTheme.iconSecondary,
-                  size: IconSize.small,
-                ),
-                const SizedBox(width: Spacing.sm),
-                Expanded(
-                  child: Text(
-                    AppLocalizations.of(context)!.advancedSettings,
-                    style: context.conduitTheme.bodySmall?.copyWith(
-                      color: context.conduitTheme.textSecondary,
-                    ),
-                  ),
-                ),
-                if (_customHeaders.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(right: Spacing.sm),
-                    child: ConduitBadge(
-                      text: '${_customHeaders.length}',
-                      backgroundColor: context.conduitTheme.buttonPrimary
-                          .withValues(alpha: 0.1),
-                      textColor: context.conduitTheme.buttonPrimary,
-                      isCompact: true,
-                    ),
-                  ),
-                AnimatedRotation(
-                  duration: AnimationDuration.microInteraction,
-                  turns: _showAdvancedSettings ? 0.5 : 0,
-                  child: Icon(
-                    Platform.isIOS
-                        ? CupertinoIcons.chevron_down
-                        : Icons.expand_more,
-                    color: context.conduitTheme.iconSecondary,
-                    size: IconSize.small,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        // Use AnimatedCrossFade instead of AnimatedSize to avoid
-        // "Build scheduled during frame" errors
-        AnimatedCrossFade(
-          duration: AnimationDuration.microInteraction,
-          sizeCurve: Curves.easeInOutCubic,
-          crossFadeState: _showAdvancedSettings
-              ? CrossFadeState.showSecond
-              : CrossFadeState.showFirst,
-          firstChild: const SizedBox.shrink(),
-          secondChild: _buildAdvancedSettingsContent(),
-        ),
-      ],
-    );
-  }
+    final theme = context.conduitTheme;
 
-  Widget _buildAdvancedSettingsContent() {
-    final l10n = AppLocalizations.of(context)!;
-    return Padding(
-      padding: const EdgeInsets.all(Spacing.md),
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.surfaceContainer.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(AppBorderRadius.card),
+        border: Border.all(
+          color: theme.cardBorder,
+          width: BorderWidth.thin,
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Self-signed certificates toggle
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(Spacing.md),
-            margin: const EdgeInsets.only(bottom: Spacing.md),
-            decoration: BoxDecoration(
-              color: context.conduitTheme.surfaceContainer.withValues(
-                alpha: 0.3,
-              ),
-              borderRadius: BorderRadius.circular(AppBorderRadius.small),
-              border: Border.all(
-                color: context.conduitTheme.dividerColor.withValues(alpha: 0.4),
-                width: BorderWidth.thin,
-              ),
+          // Toggle header
+          InkWell(
+            onTap: () => setState(
+              () => _showAdvancedSettings = !_showAdvancedSettings,
             ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(
-                  Platform.isIOS
-                      ? CupertinoIcons.lock_shield
-                      : Icons.verified_user,
-                  color: context.conduitTheme.iconSecondary,
-                  size: IconSize.small,
-                ),
-                const SizedBox(width: Spacing.sm),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        l10n.allowSelfSignedCertificates,
-                        style: context.conduitTheme.bodySmall?.copyWith(
-                          fontWeight: FontWeight.w600,
-                          color: context.conduitTheme.textPrimary,
-                        ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: Spacing.md,
+                vertical: Spacing.md,
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Platform.isIOS
+                        ? CupertinoIcons.gear_alt
+                        : Icons.tune_rounded,
+                    color: theme.iconSecondary,
+                    size: IconSize.medium,
+                  ),
+                  const SizedBox(width: Spacing.sm),
+                  Expanded(
+                    child: Text(
+                      AppLocalizations.of(context)!.advancedSettings,
+                      style: theme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w500,
+                        color: theme.textPrimary,
                       ),
-                      const SizedBox(height: Spacing.xs),
-                      Text(
-                        l10n.allowSelfSignedCertificatesDescription,
-                        style: context.conduitTheme.bodySmall?.copyWith(
-                          color: context.conduitTheme.textSecondary,
-                        ),
+                    ),
+                  ),
+                  if (_customHeaders.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(right: Spacing.sm),
+                      child: ConduitBadge(
+                        text: '${_customHeaders.length}',
+                        backgroundColor: theme.buttonPrimary
+                            .withValues(alpha: 0.1),
+                        textColor: theme.buttonPrimary,
+                        isCompact: true,
                       ),
-                    ],
+                    ),
+                  AnimatedRotation(
+                    duration: AnimationDuration.microInteraction,
+                    turns: _showAdvancedSettings ? 0.5 : 0,
+                    child: Icon(
+                      Platform.isIOS
+                          ? CupertinoIcons.chevron_down
+                          : Icons.expand_more,
+                      color: theme.iconSecondary,
+                      size: IconSize.medium,
+                    ),
                   ),
-                ),
-                const SizedBox(width: Spacing.sm),
-                AdaptiveSwitch(
-                  value: _allowSelfSignedCertificates,
-                  onChanged: (value) {
-                    setState(() {
-                      _allowSelfSignedCertificates = value;
-                    });
-                  },
-                  activeColor: context.conduitTheme.buttonPrimary,
-                ),
-              ],
+                ],
+              ),
             ),
           ),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                l10n.customHeaders,
-                style: context.conduitTheme.bodySmall?.copyWith(
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              if (_customHeaders.isNotEmpty)
-                Text(
-                  '${_customHeaders.length}/10',
-                  style: context.conduitTheme.bodySmall?.copyWith(
-                    color: _customHeaders.length >= 10
-                        ? context.conduitTheme.error
-                        : context.conduitTheme.textSecondary,
-                  ),
-                ),
-            ],
+
+          // Expandable content
+          AnimatedCrossFade(
+            duration: AnimationDuration.microInteraction,
+            sizeCurve: Curves.easeInOutCubic,
+            crossFadeState: _showAdvancedSettings
+                ? CrossFadeState.showSecond
+                : CrossFadeState.showFirst,
+            firstChild: const SizedBox.shrink(),
+            secondChild: _buildAdvancedSettingsContent(),
           ),
-          const SizedBox(height: Spacing.xs),
-          Text(
-            l10n.customHeadersDescription,
-            style: context.conduitTheme.bodySmall?.copyWith(
-              color: context.conduitTheme.textSecondary,
-            ),
-          ),
-          const SizedBox(height: Spacing.md),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Expanded(
-                flex: 2,
-                child: AdaptiveTextFormField(
-                  placeholder: 'X-Custom-Header',
-                  controller: _headerKeyController,
-                  validator: (value) => _validateHeaderKey(
-                    value ?? _headerKeyController.text,
-                  ),
-                  keyboardType: TextInputType.text,
-                ),
-              ),
-              const SizedBox(width: Spacing.sm),
-              Expanded(
-                flex: 3,
-                child: AdaptiveTextFormField(
-                  placeholder: l10n.headerValueHint,
-                  controller: _headerValueController,
-                  validator: (value) => _validateHeaderValue(
-                    value ?? _headerValueController.text,
-                  ),
-                  keyboardType: TextInputType.text,
-                ),
-              ),
-              const SizedBox(width: Spacing.sm),
-              ConduitIconButton(
-                icon: Platform.isIOS ? CupertinoIcons.plus : Icons.add,
-                onPressed: _customHeaders.length >= 10
-                    ? null
-                    : _addCustomHeader,
-                tooltip: _customHeaders.length >= 10
-                    ? l10n.maximumHeadersReached
-                    : l10n.addHeader,
-                backgroundColor: _customHeaders.length >= 10
-                    ? context.conduitTheme.surfaceContainer
-                    : context.conduitTheme.buttonPrimary,
-                iconColor: _customHeaders.length >= 10
-                    ? context.conduitTheme.textDisabled
-                    : context.conduitTheme.buttonPrimaryText,
-              ),
-            ],
-          ),
-          if (_customHeaders.isNotEmpty) ...[
-            const SizedBox(height: Spacing.md),
-            _buildCustomHeadersList(),
-          ],
         ],
       ),
     );
   }
 
-  Widget _buildCustomHeadersList() {
+  Widget _buildAdvancedSettingsContent() {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = context.conduitTheme;
+
     return Column(
-      children: _customHeaders.entries.map((entry) {
-        return Container(
-          margin: const EdgeInsets.only(bottom: Spacing.xs),
-          padding: const EdgeInsets.symmetric(
-            horizontal: Spacing.md,
-            vertical: Spacing.sm,
-          ),
-          decoration: BoxDecoration(
-            color: context.conduitTheme.surfaceContainer.withValues(alpha: 0.3),
-            borderRadius: BorderRadius.circular(AppBorderRadius.small),
-            border: Border.all(
-              color: context.conduitTheme.dividerColor.withValues(alpha: 0.5),
-              width: BorderWidth.standard,
-            ),
-          ),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Divider(
+          height: BorderWidth.thin,
+          thickness: BorderWidth.thin,
+          color: theme.cardBorder,
+        ),
+
+        // Self-signed certificates toggle
+        Padding(
+          padding: const EdgeInsets.all(Spacing.md),
           child: Row(
             children: [
-              Flexible(
-                fit: FlexFit.loose,
-                child: Text(
-                  entry.key,
-                  style: context.conduitTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.w500,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              const SizedBox(width: Spacing.sm),
               Expanded(
-                child: Text(
-                  entry.value,
-                  style: context.conduitTheme.bodySmall?.copyWith(
-                    color: context.conduitTheme.textSecondary,
-                    fontFamily: AppTypography.monospaceFontFamily,
-                  ),
-                  overflow: TextOverflow.ellipsis,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      l10n.allowSelfSignedCertificates,
+                      style: theme.bodySmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: theme.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: Spacing.xxs),
+                    Text(
+                      l10n.allowSelfSignedCertificatesDescription,
+                      style: TextStyle(
+                        fontSize: AppTypography.labelSmall,
+                        color: theme.textSecondary,
+                        height: 1.3,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(width: Spacing.sm),
-              ConduitIconButton(
-                icon: Platform.isIOS ? CupertinoIcons.xmark : Icons.close,
-                onPressed: () => _removeCustomHeader(entry.key),
-                tooltip: AppLocalizations.of(context)!.removeHeader,
-                backgroundColor: Colors.transparent,
-                iconColor: context.conduitTheme.textSecondary,
-                isCompact: true,
+              const SizedBox(width: Spacing.md),
+              AdaptiveSwitch(
+                value: _allowSelfSignedCertificates,
+                onChanged: (value) {
+                  setState(() {
+                    _allowSelfSignedCertificates = value;
+                  });
+                },
+                activeColor: theme.buttonPrimary,
               ),
             ],
+          ),
+        ),
+
+        Divider(
+          height: BorderWidth.thin,
+          thickness: BorderWidth.thin,
+          color: theme.cardBorder,
+        ),
+
+        // Custom headers section
+        Padding(
+          padding: const EdgeInsets.all(Spacing.md),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          l10n.customHeaders,
+                          style: theme.bodySmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                            color: theme.textPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: Spacing.xxs),
+                        Text(
+                          l10n.customHeadersDescription,
+                          style: TextStyle(
+                            fontSize: AppTypography.labelSmall,
+                            color: theme.textSecondary,
+                            height: 1.3,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: Spacing.sm),
+                  if (_customHeaders.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(right: Spacing.xs),
+                      child: Text(
+                        '${_customHeaders.length}/10',
+                        style: TextStyle(
+                          fontSize: AppTypography.labelSmall,
+                          color: _customHeaders.length >= 10
+                              ? theme.error
+                              : theme.textTertiary,
+                        ),
+                      ),
+                    ),
+                  ConduitIconButton(
+                    icon: Platform.isIOS
+                        ? CupertinoIcons.plus
+                        : Icons.add_rounded,
+                    onPressed: _customHeaders.length >= 10
+                        ? null
+                        : _addCustomHeader,
+                    tooltip: _customHeaders.length >= 10
+                        ? l10n.maximumHeadersReached
+                        : l10n.addHeader,
+                    backgroundColor: _customHeaders.length >= 10
+                        ? theme.surfaceContainer
+                        : theme.buttonPrimary,
+                    iconColor: _customHeaders.length >= 10
+                        ? theme.textDisabled
+                        : theme.buttonPrimaryText,
+                  ),
+                ],
+              ),
+              const SizedBox(height: Spacing.md),
+
+              // Header input row
+              Row(
+                children: [
+                  Expanded(
+                    child: AdaptiveTextFormField(
+                      placeholder: 'X-Custom-Header',
+                      controller: _headerKeyController,
+                      validator: (value) => _validateHeaderKey(
+                        value ?? _headerKeyController.text,
+                      ),
+                      keyboardType: TextInputType.text,
+                    ),
+                  ),
+                  const SizedBox(width: Spacing.sm),
+                  Expanded(
+                    child: AdaptiveTextFormField(
+                      placeholder: l10n.headerValueHint,
+                      controller: _headerValueController,
+                      validator: (value) => _validateHeaderValue(
+                        value ?? _headerValueController.text,
+                      ),
+                      keyboardType: TextInputType.text,
+                    ),
+                  ),
+                ],
+              ),
+
+              // Header list
+              if (_customHeaders.isNotEmpty) ...[
+                const SizedBox(height: Spacing.md),
+                _buildCustomHeadersList(),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCustomHeadersList() {
+    final theme = context.conduitTheme;
+
+    return Column(
+      children: _customHeaders.entries.map((entry) {
+        return Padding(
+          padding: const EdgeInsets.only(bottom: Spacing.xs),
+          child: Container(
+            padding: const EdgeInsets.only(
+              left: Spacing.md,
+              top: Spacing.sm,
+              bottom: Spacing.sm,
+              right: Spacing.xs,
+            ),
+            decoration: BoxDecoration(
+              color: theme.surfaceBackground,
+              borderRadius: BorderRadius.circular(AppBorderRadius.small),
+              border: Border.all(
+                color: theme.cardBorder,
+                width: BorderWidth.thin,
+              ),
+            ),
+            child: Row(
+              children: [
+                Text(
+                  entry.key,
+                  style: theme.bodySmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: theme.buttonPrimary,
+                  ),
+                ),
+                const SizedBox(width: Spacing.sm),
+                Expanded(
+                  child: Text(
+                    entry.value,
+                    style: theme.bodySmall?.copyWith(
+                      color: theme.textSecondary,
+                      fontFamily: AppTypography.monospaceFontFamily,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                ConduitIconButton(
+                  icon: Platform.isIOS
+                      ? CupertinoIcons.xmark
+                      : Icons.close_rounded,
+                  onPressed: () => _removeCustomHeader(entry.key),
+                  tooltip: AppLocalizations.of(context)!.removeHeader,
+                  backgroundColor: Colors.transparent,
+                  iconColor: theme.textTertiary,
+                  isCompact: true,
+                ),
+              ],
+            ),
           ),
         );
       }).toList(),
