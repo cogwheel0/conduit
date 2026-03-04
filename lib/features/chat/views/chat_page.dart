@@ -1977,12 +1977,126 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                         ),
                   actions: [
                     if (!_isSelectionMode) ...[
+                      // Temporary chat toggle
+                      Consumer(
+                        builder: (context, ref, _) {
+                          final isTemporary = ref.watch(
+                            temporaryChatEnabledProvider,
+                          );
+                          final activeConversation = ref.watch(
+                            activeConversationProvider,
+                          );
+
+                          // Show toggle when: no conversation,
+                          // or current is temporary
+                          final showToggle =
+                              activeConversation == null ||
+                              isTemporaryChat(
+                                activeConversation.id,
+                              );
+
+                          if (!showToggle) {
+                            return const SizedBox.shrink();
+                          }
+
+                          return AdaptiveTooltip(
+                            message: isTemporary
+                                ? AppLocalizations.of(context)!
+                                    .temporaryChatTooltip
+                                : AppLocalizations.of(context)!
+                                    .temporaryChat,
+                            child: _buildAppBarIconButton(
+                              context: context,
+                              onPressed: () {
+                                HapticFeedback.selectionClick();
+                                final current = ref.read(
+                                  temporaryChatEnabledProvider,
+                                );
+                                if (!current) {
+                                  ref
+                                      .read(
+                                        temporaryChatEnabledProvider
+                                            .notifier,
+                                      )
+                                      .state = true;
+                                } else if (ref
+                                    .read(chatMessagesProvider)
+                                    .isNotEmpty) {
+                                  // Toggle OFF with messages =
+                                  // save chat
+                                  _saveTemporaryChat();
+                                } else {
+                                  ref
+                                      .read(
+                                        temporaryChatEnabledProvider
+                                            .notifier,
+                                      )
+                                      .state = false;
+                                }
+                              },
+                              fallbackIcon: isTemporary
+                                  ? Icons.chat_bubble
+                                  : Icons.chat_bubble_outline,
+                              sfSymbol: isTemporary
+                                  ? 'bubble.left.fill'
+                                  : 'bubble.left',
+                              color: isTemporary
+                                  ? context.conduitTheme.primary
+                                  : context
+                                      .conduitTheme
+                                      .textPrimary,
+                            ),
+                          );
+                        },
+                      ),
+                      // Save button for temporary chats
+                      // with messages
+                      Consumer(
+                        builder: (context, ref, _) {
+                          final isTemporary = ref.watch(
+                            temporaryChatEnabledProvider,
+                          );
+                          final hasMessages = ref
+                              .watch(chatMessagesProvider)
+                              .isNotEmpty;
+                          final activeConversation = ref.watch(
+                            activeConversationProvider,
+                          );
+
+                          if (!isTemporary ||
+                              !hasMessages ||
+                              activeConversation == null) {
+                            return const SizedBox.shrink();
+                          }
+
+                          return AdaptiveTooltip(
+                            message: AppLocalizations.of(
+                              context,
+                            )!.saveChat,
+                            child: _buildAppBarIconButton(
+                              context: context,
+                              onPressed: _saveTemporaryChat,
+                              fallbackIcon: Platform.isIOS
+                                  ? CupertinoIcons
+                                      .arrow_down_doc
+                                  : Icons.save_alt,
+                              sfSymbol:
+                                  'square.and.arrow.down',
+                              color: context
+                                  .conduitTheme
+                                  .textPrimary,
+                            ),
+                          );
+                        },
+                      ),
                       Padding(
                         padding: const EdgeInsets.only(
                           right: Spacing.inputPadding,
                         ),
                         child: AdaptiveTooltip(
-                          message: AppLocalizations.of(context)!.newChat,
+                          message: AppLocalizations.of(
+                            context,
+                          )!.newChat,
                           child: _buildAppBarIconButton(
                             context: context,
                             onPressed: _handleNewChat,
@@ -1990,7 +2104,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                                 ? CupertinoIcons.create
                                 : Icons.add_comment,
                             sfSymbol: 'square.and.pencil',
-                            color: context.conduitTheme.textPrimary,
+                            color: context
+                                .conduitTheme
+                                .textPrimary,
                           ),
                         ),
                       ),
