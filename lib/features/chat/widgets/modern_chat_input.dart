@@ -7,8 +7,6 @@ import 'package:flutter/services.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/glass_colors.dart';
 // app_theme not required here; using theme extension tokens
-import '../../../shared/widgets/sheet_handle.dart';
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'dart:io' show Platform;
@@ -30,43 +28,13 @@ import '../../../core/models/knowledge_base.dart';
 
 import '../../../shared/utils/platform_utils.dart';
 import 'package:conduit/l10n/app_localizations.dart';
-import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/modal_safe_area.dart';
 import '../../../core/utils/prompt_variable_parser.dart';
 import '../../prompts/widgets/prompt_variable_dialog.dart';
 import '../../auth/providers/unified_auth_providers.dart';
-
-class _SendMessageIntent extends Intent {
-  const _SendMessageIntent();
-}
-
-class _InsertNewlineIntent extends Intent {
-  const _InsertNewlineIntent();
-}
-
-class _SelectNextPromptIntent extends Intent {
-  const _SelectNextPromptIntent();
-}
-
-class _SelectPreviousPromptIntent extends Intent {
-  const _SelectPreviousPromptIntent();
-}
-
-class _DismissPromptIntent extends Intent {
-  const _DismissPromptIntent();
-}
-
-class _PromptCommandMatch {
-  const _PromptCommandMatch({
-    required this.command,
-    required this.start,
-    required this.end,
-  });
-
-  final String command;
-  final int start;
-  final int end;
-}
+import 'chat_input_intents.dart';
+import 'expanded_text_editor.dart';
+import 'composer_overflow_menu.dart';
 
 class ModernChatInput extends ConsumerStatefulWidget {
   final Function(String) onSendMessage;
@@ -455,7 +423,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     // (~4 lines: 3+ explicit newlines or ~160 wrapped chars).
     final bool showExpand =
         isMultiline && (text.split('\n').length >= 4 || text.length > 160);
-    final _PromptCommandMatch? match = _resolvePromptCommand(
+    final PromptCommandMatch? match = _resolvePromptCommand(
       text,
       selection,
       widget.enabled,
@@ -517,7 +485,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     }
   }
 
-  _PromptCommandMatch? _resolvePromptCommand(
+  PromptCommandMatch? _resolvePromptCommand(
     String text,
     TextSelection selection,
     bool enabled,
@@ -544,7 +512,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       return null;
     }
 
-    return _PromptCommandMatch(command: candidate, start: start, end: cursor);
+    return PromptCommandMatch(command: candidate, start: start, end: cursor);
   }
 
   List<Prompt> _filterPrompts(List<Prompt> prompts) {
@@ -1653,32 +1621,32 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         shortcuts: () {
           final map = <LogicalKeySet, Intent>{
             LogicalKeySet(LogicalKeyboardKey.meta, LogicalKeyboardKey.enter):
-                const _SendMessageIntent(),
+                const SendMessageIntent(),
             LogicalKeySet(LogicalKeyboardKey.control, LogicalKeyboardKey.enter):
-                const _SendMessageIntent(),
+                const SendMessageIntent(),
           };
           if (sendOnEnter) {
             map[LogicalKeySet(LogicalKeyboardKey.enter)] =
-                const _SendMessageIntent();
+                const SendMessageIntent();
             map[LogicalKeySet(
                   LogicalKeyboardKey.shift,
                   LogicalKeyboardKey.enter,
                 )] =
-                const _InsertNewlineIntent();
+                const InsertNewlineIntent();
           }
           if (_showPromptOverlay) {
             map[LogicalKeySet(LogicalKeyboardKey.arrowDown)] =
-                const _SelectNextPromptIntent();
+                const SelectNextPromptIntent();
             map[LogicalKeySet(LogicalKeyboardKey.arrowUp)] =
-                const _SelectPreviousPromptIntent();
+                const SelectPreviousPromptIntent();
             map[LogicalKeySet(LogicalKeyboardKey.escape)] =
-                const _DismissPromptIntent();
+                const DismissPromptIntent();
           }
           return map;
         }(),
         child: Actions(
           actions: <Type, Action<Intent>>{
-            _SendMessageIntent: CallbackAction<_SendMessageIntent>(
+            SendMessageIntent: CallbackAction<SendMessageIntent>(
               onInvoke: (intent) {
                 if (_showPromptOverlay) {
                   _confirmPromptSelection();
@@ -1688,26 +1656,26 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 return null;
               },
             ),
-            _InsertNewlineIntent: CallbackAction<_InsertNewlineIntent>(
+            InsertNewlineIntent: CallbackAction<InsertNewlineIntent>(
               onInvoke: (intent) {
                 _insertNewline();
                 return null;
               },
             ),
-            _SelectNextPromptIntent: CallbackAction<_SelectNextPromptIntent>(
+            SelectNextPromptIntent: CallbackAction<SelectNextPromptIntent>(
               onInvoke: (intent) {
                 _movePromptSelection(1);
                 return null;
               },
             ),
-            _SelectPreviousPromptIntent:
-                CallbackAction<_SelectPreviousPromptIntent>(
+            SelectPreviousPromptIntent:
+                CallbackAction<SelectPreviousPromptIntent>(
                   onInvoke: (intent) {
                     _movePromptSelection(-1);
                     return null;
                   },
                 ),
-            _DismissPromptIntent: CallbackAction<_DismissPromptIntent>(
+            DismissPromptIntent: CallbackAction<DismissPromptIntent>(
               onInvoke: (intent) {
                 _hidePromptOverlay();
                 return null;
@@ -2286,7 +2254,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (_) => _ComposerOverflowSheet(
+      builder: (_) => ComposerOverflowSheet(
         onFileAttachment: widget.onFileAttachment,
         onImageAttachment: widget.onImageAttachment,
         onCameraCapture: widget.onCameraCapture,
@@ -2329,7 +2297,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       isScrollControlled: true,
       enableDrag: true,
       useSafeArea: true,
-      builder: (modalContext) => _ExpandedTextEditorSheet(
+      builder: (modalContext) => ExpandedTextEditorSheet(
         controller: modalController,
         onSend: () {
           FocusScope.of(modalContext).unfocus();
@@ -2420,785 +2388,5 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       type: AdaptiveSnackBarType.warning,
       duration: const Duration(seconds: 2),
     );
-  }
-}
-
-/// Full-screen bottom sheet editor shown when the chat input grows large.
-///
-/// Uses [showModalBottomSheet] so Flutter's built-in drag-to-dismiss gesture
-/// works naturally — drag the handle at the top (or anywhere outside the text
-/// field) downward to close. The send button mirrors the compact chat input.
-class _ExpandedTextEditorSheet extends StatefulWidget {
-  const _ExpandedTextEditorSheet({
-    required this.controller,
-    required this.onSend,
-  });
-
-  final TextEditingController controller;
-  final VoidCallback onSend;
-
-  @override
-  State<_ExpandedTextEditorSheet> createState() =>
-      _ExpandedTextEditorSheetState();
-}
-
-class _ExpandedTextEditorSheetState
-    extends State<_ExpandedTextEditorSheet> {
-  bool _hasText = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _hasText = widget.controller.text.trim().isNotEmpty;
-    widget.controller.addListener(_onTextChanged);
-  }
-
-  @override
-  void dispose() {
-    widget.controller.removeListener(_onTextChanged);
-    super.dispose();
-  }
-
-  void _onTextChanged() {
-    final hasText = widget.controller.text.trim().isNotEmpty;
-    if (hasText != _hasText) setState(() => _hasText = hasText);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-    final l10n = AppLocalizations.of(context)!;
-    final viewInsets = MediaQuery.of(context).viewInsets;
-    final viewPadding = MediaQuery.of(context).viewPadding;
-    // Match the dense (compact) chat input button — 36px, medium size.
-    const double buttonSize = 36.0;
-
-    final iconColor = _hasText
-        ? theme.buttonPrimaryText
-        : theme.textPrimary.withValues(alpha: Alpha.disabled);
-    final sendIcon = Icon(
-      Platform.isIOS ? CupertinoIcons.arrow_up : Icons.arrow_upward,
-      size: IconSize.small + 1,
-      color: iconColor,
-    );
-
-    final Widget sendButton;
-    if (!kIsWeb && Platform.isIOS) {
-      sendButton = AdaptiveButton.child(
-        onPressed: _hasText ? widget.onSend : null,
-        enabled: _hasText,
-        style: AdaptiveButtonStyle.prominentGlass,
-        color: theme.buttonPrimary,
-        size: AdaptiveButtonSize.medium,
-        minSize: const Size(buttonSize, buttonSize),
-        padding: EdgeInsets.zero,
-        borderRadius: BorderRadius.circular(buttonSize),
-        useSmoothRectangleBorder: false,
-        child: sendIcon,
-      );
-    } else {
-      sendButton = SizedBox(
-        width: buttonSize,
-        height: buttonSize,
-        child: Material(
-          color: _hasText
-              ? theme.buttonPrimary
-              : theme.surfaceContainerHighest,
-          shape: CircleBorder(
-            side: BorderSide(
-              color: _hasText ? theme.buttonPrimary : theme.cardBorder,
-              width: BorderWidth.thin,
-            ),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: _hasText ? widget.onSend : null,
-            customBorder: const CircleBorder(),
-            child: Center(child: sendIcon),
-          ),
-        ),
-      );
-    }
-
-    // useSafeArea: true on the showModalBottomSheet call already constrains
-    // the sheet to the safe area — no manual height calculation needed.
-    return Material(
-      color: Colors.transparent,
-      child: Container(
-        height: double.infinity,
-        decoration: BoxDecoration(
-          color: theme.surfaceBackground,
-          borderRadius: const BorderRadius.vertical(
-            top: Radius.circular(AppBorderRadius.bottomSheet),
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Drag handle — primary dismiss affordance.
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                margin: const EdgeInsets.symmetric(vertical: Spacing.sm),
-                decoration: BoxDecoration(
-                  color: theme.dividerColor,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            // Text editor
-            Expanded(
-              child: !kIsWeb && Platform.isIOS
-                  ? CupertinoTextField(
-                      controller: widget.controller,
-                      autofocus: true,
-                      maxLines: null,
-                      expands: true,
-                      textAlignVertical: TextAlignVertical.top,
-                      style: TextStyle(
-                        color: theme.textPrimary,
-                        fontSize: 16,
-                        height: 1.5,
-                      ),
-                      placeholder: l10n.messageHintText,
-                      placeholderStyle: TextStyle(
-                        color: theme.textSecondary.withValues(alpha: 0.5),
-                        fontSize: 16,
-                      ),
-                      padding: const EdgeInsets.fromLTRB(
-                        Spacing.md,
-                        Spacing.xs,
-                        Spacing.md,
-                        Spacing.sm,
-                      ),
-                      decoration: const BoxDecoration(),
-                    )
-                  : TextField(
-                      controller: widget.controller,
-                      autofocus: true,
-                      maxLines: null,
-                      expands: true,
-                      textAlignVertical: TextAlignVertical.top,
-                      style: TextStyle(
-                        color: theme.textPrimary,
-                        fontSize: 16,
-                        height: 1.5,
-                      ),
-                      decoration: InputDecoration(
-                        hintText: l10n.messageHintText,
-                        hintStyle: TextStyle(
-                          color: theme.textSecondary.withValues(alpha: 0.5),
-                          fontSize: 16,
-                        ),
-                        border: InputBorder.none,
-                        enabledBorder: InputBorder.none,
-                        focusedBorder: InputBorder.none,
-                        contentPadding: const EdgeInsets.fromLTRB(
-                          Spacing.md,
-                          Spacing.xs,
-                          Spacing.md,
-                          Spacing.sm,
-                        ),
-                        isDense: true,
-                      ),
-                    ),
-            ),
-            // Bottom bar — send button, keyboard-aware.
-            Padding(
-              padding: EdgeInsets.fromLTRB(
-                Spacing.screenPadding,
-                Spacing.sm,
-                Spacing.screenPadding,
-                viewInsets.bottom > 0
-                    ? viewInsets.bottom + Spacing.sm
-                    : Spacing.md + viewPadding.bottom,
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [sendButton],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ToggleTile extends StatelessWidget {
-  const _ToggleTile({
-    required this.glyph,
-    required this.title,
-    this.subtitle,
-    required this.selected,
-    required this.onToggle,
-    required this.theme,
-  });
-
-  final Widget glyph;
-  final String title;
-  final String? subtitle;
-  final bool selected;
-  final VoidCallback onToggle;
-  final ConduitThemeExtension theme;
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      toggled: selected,
-      label: title,
-      hint: (subtitle?.isEmpty ?? true) ? null : subtitle,
-      child: ConduitCard(
-        padding: const EdgeInsets.all(Spacing.md),
-        onTap: () {
-          HapticFeedback.selectionClick();
-          onToggle();
-        },
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            glyph,
-            const SizedBox(width: Spacing.md),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: theme.bodyMedium?.copyWith(
-                      color: theme.sidebarForeground,
-                      fontWeight: FontWeight.w600,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  if (subtitle != null && subtitle!.isNotEmpty) ...[
-                    const SizedBox(height: Spacing.xs),
-                    Text(
-                      subtitle!,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.bodySmall?.copyWith(
-                        color: theme.sidebarForeground.withValues(
-                          alpha: 0.75,
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            const SizedBox(width: Spacing.sm),
-            IgnorePointer(
-              child: Platform.isIOS
-                  ? CupertinoSwitch(
-                      value: selected,
-                      onChanged: (_) {},
-                      activeTrackColor: theme.buttonPrimary,
-                    )
-                  : Switch(
-                      value: selected,
-                      onChanged: (_) {},
-                      activeThumbColor: theme.buttonPrimary,
-                    ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-// ---------------------------------------------------------------------------
-// Overflow sheet modal
-// ---------------------------------------------------------------------------
-
-List<Widget> _withVerticalSpacing(List<Widget> children, double gap) {
-  if (children.length <= 1) return List<Widget>.from(children);
-  final spaced = <Widget>[];
-  for (var i = 0; i < children.length; i++) {
-    spaced.add(children[i]);
-    if (i != children.length - 1) spaced.add(SizedBox(height: gap));
-  }
-  return spaced;
-}
-
-class _ComposerOverflowSheet extends ConsumerStatefulWidget {
-  const _ComposerOverflowSheet({
-    this.onFileAttachment,
-    this.onImageAttachment,
-    this.onCameraCapture,
-    this.onWebAttachment,
-  });
-
-  final VoidCallback? onFileAttachment;
-  final VoidCallback? onImageAttachment;
-  final VoidCallback? onCameraCapture;
-  final VoidCallback? onWebAttachment;
-
-  @override
-  ConsumerState<_ComposerOverflowSheet> createState() =>
-      _ComposerOverflowSheetState();
-}
-
-class _ComposerOverflowSheetState
-    extends ConsumerState<_ComposerOverflowSheet> {
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final theme = context.conduitTheme;
-
-    final attachments = <Widget>[
-      _buildAction(
-        icon: Platform.isIOS ? CupertinoIcons.doc : Icons.attach_file,
-        label: l10n.file,
-        onTap: widget.onFileAttachment == null
-            ? null
-            : () {
-                HapticFeedback.lightImpact();
-                widget.onFileAttachment!();
-              },
-      ),
-      _buildAction(
-        icon: Platform.isIOS ? CupertinoIcons.photo : Icons.image,
-        label: l10n.photo,
-        onTap: widget.onImageAttachment == null
-            ? null
-            : () {
-                HapticFeedback.lightImpact();
-                widget.onImageAttachment!();
-              },
-      ),
-      _buildAction(
-        icon: Platform.isIOS ? CupertinoIcons.camera : Icons.camera_alt,
-        label: l10n.camera,
-        onTap: widget.onCameraCapture == null
-            ? null
-            : () {
-                HapticFeedback.lightImpact();
-                widget.onCameraCapture!();
-              },
-      ),
-      _buildAction(
-        icon: Icons.public,
-        label: l10n.webPage,
-        onTap: widget.onWebAttachment == null
-            ? null
-            : () {
-                HapticFeedback.lightImpact();
-                widget.onWebAttachment!();
-              },
-      ),
-    ];
-
-    final featureTiles = <Widget>[];
-    final webSearchAvailable = ref.watch(webSearchAvailableProvider);
-    final webSearchEnabled = ref.watch(webSearchEnabledProvider);
-    if (webSearchAvailable) {
-      featureTiles.add(
-        _buildToggleTile(
-          icon: Platform.isIOS ? CupertinoIcons.search : Icons.search,
-          title: l10n.webSearch,
-          subtitle: l10n.webSearchDescription,
-          value: webSearchEnabled,
-          onChanged: (v) =>
-              ref.read(webSearchEnabledProvider.notifier).set(v),
-        ),
-      );
-    }
-
-    final imageGenAvailable = ref.watch(imageGenerationAvailableProvider);
-    final imageGenEnabled = ref.watch(imageGenerationEnabledProvider);
-    if (imageGenAvailable) {
-      featureTiles.add(
-        _buildToggleTile(
-          icon: Platform.isIOS ? CupertinoIcons.photo : Icons.image,
-          title: l10n.imageGeneration,
-          subtitle: l10n.imageGenerationDescription,
-          value: imageGenEnabled,
-          onChanged: (v) =>
-              ref.read(imageGenerationEnabledProvider.notifier).set(v),
-        ),
-      );
-    }
-
-    final selectedToolIds = ref.watch(selectedToolIdsProvider);
-    final toolsAsync = ref.watch(toolsListProvider);
-    final toolsSection = toolsAsync.when(
-      data: (tools) {
-        if (tools.isEmpty) return _buildInfoCard('No tools available');
-        final tiles = tools.map((tool) {
-          final isSelected = selectedToolIds.contains(tool.id);
-          return _buildToolTile(
-            tool: tool,
-            selected: isSelected,
-            onToggle: () {
-              final current = List<String>.from(
-                ref.read(selectedToolIdsProvider),
-              );
-              isSelected ? current.remove(tool.id) : current.add(tool.id);
-              ref.read(selectedToolIdsProvider.notifier).set(current);
-            },
-          );
-        }).toList();
-        return Column(children: _withVerticalSpacing(tiles, Spacing.xxs));
-      },
-      loading: () => Center(
-        child: SizedBox(
-          width: 24,
-          height: 24,
-          child: CircularProgressIndicator(strokeWidth: BorderWidth.thin),
-        ),
-      ),
-      error: (_, _) => _buildInfoCard('Failed to load tools'),
-    );
-
-    final listItems = <Widget>[
-      const SheetHandle(),
-      const SizedBox(height: Spacing.sm),
-      Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          for (var i = 0; i < attachments.length; i++) ...[
-            if (i != 0) const SizedBox(width: Spacing.sm),
-            Expanded(child: attachments[i]),
-          ],
-        ],
-      ),
-      if (featureTiles.isNotEmpty) ...[
-        const SizedBox(height: Spacing.sm),
-        ..._withVerticalSpacing(featureTiles, Spacing.xxs),
-      ],
-      const SizedBox(height: Spacing.sm),
-      _buildSectionLabel(l10n.tools),
-      toolsSection,
-    ];
-
-    final selectedModel = ref.watch(selectedModelProvider);
-    final toggleFilters = selectedModel?.filters ?? const <ToggleFilter>[];
-    if (toggleFilters.isNotEmpty) {
-      final selectedFilterIds = ref.watch(selectedFilterIdsProvider);
-      final filterTiles = toggleFilters.map((filter) {
-        final isSelected = selectedFilterIds.contains(filter.id);
-        return _buildFilterTile(
-          filter: filter,
-          selected: isSelected,
-          onToggle: () =>
-              ref.read(selectedFilterIdsProvider.notifier).toggle(filter.id),
-        );
-      }).toList();
-      listItems
-        ..add(const SizedBox(height: Spacing.sm))
-        ..add(_buildSectionLabel(l10n.filters))
-        ..add(
-          Column(children: _withVerticalSpacing(filterTiles, Spacing.xxs)),
-        );
-    }
-
-    listItems.add(const SizedBox(height: Spacing.sm));
-
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () => Navigator.of(context).maybePop(),
-            child: const SizedBox.shrink(),
-          ),
-        ),
-        DraggableScrollableSheet(
-          expand: false,
-          initialChildSize: 0.28,
-          minChildSize: 0.28,
-          maxChildSize: 0.92,
-          snap: true,
-          snapSizes: const [0.28, 0.92],
-          builder: (_, scrollController) => Container(
-            decoration: BoxDecoration(
-              color: theme.surfaceBackground,
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(AppBorderRadius.bottomSheet),
-              ),
-              border: Border.all(
-                color: theme.dividerColor,
-                width: BorderWidth.thin,
-              ),
-              boxShadow: ConduitShadows.modal(context),
-            ),
-            child: ModalSheetSafeArea(
-              padding: const EdgeInsets.fromLTRB(
-                Spacing.md,
-                Spacing.xs,
-                Spacing.md,
-                0,
-              ),
-              child: ListView.builder(
-                controller: scrollController,
-                itemCount: listItems.length,
-                itemBuilder: (_, i) => listItems[i],
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildSectionLabel(String text) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: Spacing.xxs),
-      child: Text(
-        text,
-        style: AppTypography.labelStyle.copyWith(
-          color: context.conduitTheme.textSecondary.withValues(
-            alpha: Alpha.strong,
-          ),
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInfoCard(String message) {
-    final theme = context.conduitTheme;
-    return ConduitCard(
-      padding: const EdgeInsets.all(Spacing.md),
-      child: Text(
-        message,
-        style: theme.bodySmall?.copyWith(
-          color: theme.sidebarForeground.withValues(alpha: 0.75),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAction({
-    required IconData icon,
-    required String label,
-    VoidCallback? onTap,
-  }) {
-    final theme = context.conduitTheme;
-    final bool enabled = onTap != null;
-    final Color iconColor = enabled ? theme.buttonPrimary : theme.iconDisabled;
-    final Color textColor = enabled
-        ? theme.sidebarForeground
-        : theme.sidebarForeground.withValues(alpha: Alpha.disabled);
-
-    return Opacity(
-      opacity: enabled ? 1.0 : Alpha.disabled,
-      child: ConduitCard(
-        padding: const EdgeInsets.symmetric(
-          horizontal: Spacing.xs,
-          vertical: Spacing.sm,
-        ),
-        onTap: onTap == null
-            ? null
-            : () {
-                Navigator.of(context).pop();
-                Future.microtask(onTap);
-              },
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: enabled
-                    ? iconColor.withValues(alpha: 0.1)
-                    : theme.surfaceContainer.withValues(alpha: 0.60),
-                borderRadius:
-                    BorderRadius.circular(AppBorderRadius.small),
-                border: Border.all(
-                  color: enabled
-                      ? iconColor.withValues(alpha: 0.2)
-                      : Colors.transparent,
-                  width: BorderWidth.thin,
-                ),
-              ),
-              alignment: Alignment.center,
-              child: Icon(icon, color: iconColor, size: IconSize.medium),
-            ),
-            const SizedBox(height: Spacing.xs),
-            Text(
-              label,
-              textAlign: TextAlign.center,
-              style: AppTypography.captionStyle.copyWith(
-                fontWeight: FontWeight.w600,
-                color: textColor,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildToggleTile({
-    required IconData icon,
-    required String title,
-    String? subtitle,
-    required bool value,
-    required ValueChanged<bool> onChanged,
-    String? iconUrl,
-  }) {
-    final theme = context.conduitTheme;
-    final glyph = iconUrl != null && iconUrl.isNotEmpty
-        ? _buildFilterGlyph(iconUrl: iconUrl, selected: value, theme: theme)
-        : _buildIconGlyph(icon: icon, selected: value, theme: theme);
-    return _ToggleTile(
-      glyph: glyph,
-      title: title,
-      subtitle: subtitle,
-      selected: value,
-      onToggle: () => onChanged(!value),
-      theme: theme,
-    );
-  }
-
-  Widget _buildToolTile({
-    required Tool tool,
-    required bool selected,
-    required VoidCallback onToggle,
-  }) {
-    final theme = context.conduitTheme;
-    return _ToggleTile(
-      glyph: _buildIconGlyph(icon: _iconFor(tool), selected: selected, theme: theme),
-      title: tool.name,
-      subtitle: _descriptionFor(tool),
-      selected: selected,
-      onToggle: onToggle,
-      theme: theme,
-    );
-  }
-
-  Widget _buildFilterTile({
-    required ToggleFilter filter,
-    required bool selected,
-    required VoidCallback onToggle,
-  }) {
-    final theme = context.conduitTheme;
-    return _ToggleTile(
-      glyph: _buildFilterGlyph(iconUrl: filter.icon, selected: selected, theme: theme),
-      title: filter.name,
-      subtitle: filter.description,
-      selected: selected,
-      onToggle: onToggle,
-      theme: theme,
-    );
-  }
-
-  Widget _buildIconGlyph({
-    required IconData icon,
-    required bool selected,
-    required ConduitThemeExtension theme,
-  }) {
-    final color = selected ? theme.buttonPrimary : theme.iconPrimary;
-    return Container(
-      width: 40,
-      height: 40,
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(AppBorderRadius.small),
-        border: Border.all(
-          color: color.withValues(alpha: 0.2),
-          width: BorderWidth.thin,
-        ),
-      ),
-      alignment: Alignment.center,
-      child: Icon(icon, color: color, size: IconSize.medium),
-    );
-  }
-
-  Widget _buildFilterGlyph({
-    String? iconUrl,
-    required bool selected,
-    required ConduitThemeExtension theme,
-  }) {
-    final color = selected ? theme.buttonPrimary : theme.iconPrimary;
-    final fallback = Icon(
-      Platform.isIOS ? CupertinoIcons.sparkles : Icons.auto_awesome,
-      color: color,
-      size: IconSize.medium,
-    );
-    return Container(
-      width: 40,
-      height: 40,
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(AppBorderRadius.small),
-        border: Border.all(
-          color: color.withValues(alpha: 0.2),
-          width: BorderWidth.thin,
-        ),
-      ),
-      alignment: Alignment.center,
-      child: iconUrl != null && iconUrl.isNotEmpty
-          ? ClipRRect(
-              borderRadius: BorderRadius.circular(AppBorderRadius.small),
-              child: Image.network(
-                iconUrl,
-                width: 40,
-                height: 40,
-                fit: BoxFit.cover,
-                color: iconUrl.endsWith('.svg') ? color : null,
-                colorBlendMode: BlendMode.srcIn,
-                errorBuilder: (_, _, _) => fallback,
-              ),
-            )
-          : fallback,
-    );
-  }
-
-  IconData _iconFor(Tool tool) {
-    final name = tool.name.toLowerCase();
-    if (name.contains('image') || name.contains('vision')) {
-      return Platform.isIOS ? CupertinoIcons.photo : Icons.image;
-    }
-    if (name.contains('code') || name.contains('python')) {
-      return Platform.isIOS
-          ? CupertinoIcons.chevron_left_slash_chevron_right
-          : Icons.code;
-    }
-    if (name.contains('calculator') || name.contains('math')) return Icons.calculate;
-    if (name.contains('file') || name.contains('document')) {
-      return Platform.isIOS ? CupertinoIcons.doc : Icons.description;
-    }
-    if (name.contains('api') || name.contains('request')) return Icons.cloud;
-    if (name.contains('search')) {
-      return Platform.isIOS ? CupertinoIcons.search : Icons.search;
-    }
-    return Platform.isIOS ? CupertinoIcons.square_grid_2x2 : Icons.extension;
-  }
-
-  String _descriptionFor(Tool tool) {
-    final meta = tool.meta;
-    if (meta != null) {
-      final v = meta['description'];
-      if (v is String && v.trim().isNotEmpty) return v.trim();
-    }
-    final custom = tool.description?.trim();
-    if (custom != null && custom.isNotEmpty) return custom;
-    final name = tool.name.toLowerCase();
-    if (name.contains('search') || name.contains('browse')) {
-      return 'Search the web for fresh context to improve answers.';
-    }
-    if (name.contains('image') || name.contains('vision')) {
-      return 'Understand or generate imagery alongside your conversation.';
-    }
-    if (name.contains('code') || name.contains('python')) {
-      return 'Execute code snippets and return computed results inline.';
-    }
-    if (name.contains('calc') || name.contains('math')) {
-      return 'Perform precise math and calculations on demand.';
-    }
-    if (name.contains('file') || name.contains('document')) {
-      return 'Access and summarize your uploaded files during chat.';
-    }
-    if (name.contains('api') || name.contains('request')) {
-      return 'Trigger API requests and bring external data into the chat.';
-    }
-    return 'Enhance responses with specialized capabilities from this tool.';
   }
 }
