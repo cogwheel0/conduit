@@ -491,98 +491,75 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   Widget build(BuildContext context) {
     final reviewerMode = ref.watch(reviewerModeProvider);
 
+    final topPadding =
+        MediaQuery.of(context).padding.top + kToolbarHeight + 24;
+
     return ErrorBoundary(
-      child: AdaptiveScaffold(
-        body: Material(
-          type: MaterialType.transparency,
-          child: SafeArea(
-            child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: Spacing.pagePadding,
-              vertical: Spacing.lg,
-            ),
-            child: Column(
-              children: [
-                // Header with progress indicator
-                _buildHeader(),
+      child: Scaffold(
+        backgroundColor: context.conduitTheme.surfaceBackground,
+        extendBodyBehindAppBar: true,
+        appBar: FloatingAppBar(
+          title: FloatingAppBarTitle(
+            text: AppLocalizations.of(context)!.connectToServer,
+          ),
+        ),
+        body: Column(
+          children: [
+            // Main content
+            Expanded(
+              child: SingleChildScrollView(
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
+                padding: EdgeInsets.only(
+                  left: Spacing.pagePadding,
+                  right: Spacing.pagePadding,
+                  top: topPadding,
+                ),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 480),
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        // Brand header
+                        _buildBrandHeader(reviewerMode),
 
-                const SizedBox(height: Spacing.xl),
+                        const SizedBox(height: Spacing.xl),
 
-                // Main content
-                Expanded(
-                  child: SingleChildScrollView(
-                    keyboardDismissBehavior:
-                        ScrollViewKeyboardDismissBehavior.onDrag,
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 480),
-                      child: Form(
-                        key: _formKey,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            // Brand header
-                            _buildBrandHeader(reviewerMode),
+                        // Welcome section
+                        _buildWelcomeSection(),
 
-                            const SizedBox(height: Spacing.xl),
+                        const SizedBox(height: Spacing.xl),
 
-                            // Welcome section
-                            _buildWelcomeSection(),
+                        // Reviewer mode demo (if enabled)
+                        if (reviewerMode) ...[
+                          _buildReviewerModeSection(),
+                          const SizedBox(height: Spacing.xl),
+                        ],
 
-                            const SizedBox(height: Spacing.xl),
-
-                            // Reviewer mode demo (if enabled)
-                            if (reviewerMode) ...[
-                              _buildReviewerModeSection(),
-                              const SizedBox(height: Spacing.xl),
-                            ],
-
-                            // Server connection form
-                            _buildServerForm(),
-                          ],
-                        ),
-                      ),
+                        // Server connection form
+                        _buildServerForm(),
+                      ],
                     ),
                   ),
                 ),
-
-                // Bottom action button
-                _buildConnectButton(),
-              ],
-            ),
-          ),
-        ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildHeader() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        // Progress indicator (step 1 of 2)
-        Row(
-          children: [
-            Container(
-              width: 24,
-              height: 4,
-              decoration: BoxDecoration(
-                color: context.conduitTheme.buttonPrimary,
-                borderRadius: BorderRadius.circular(AppBorderRadius.round),
               ),
             ),
-            const SizedBox(width: Spacing.xs),
-            Container(
-              width: 24,
-              height: 4,
-              decoration: BoxDecoration(
-                color: context.conduitTheme.dividerColor.withValues(alpha: 0.3),
-                borderRadius: BorderRadius.circular(AppBorderRadius.round),
+
+            // Bottom action button
+            Padding(
+              padding: EdgeInsets.fromLTRB(
+                Spacing.pagePadding,
+                Spacing.md,
+                Spacing.pagePadding,
+                MediaQuery.of(context).padding.bottom + Spacing.md,
               ),
+              child: _buildConnectButton(),
             ),
           ],
         ),
-      ],
+      ),
     );
   }
 
@@ -709,24 +686,24 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        AccessibleFormField(
-          label: AppLocalizations.of(context)!.serverUrl,
-          hint: AppLocalizations.of(context)!.serverUrlHint,
+        AdaptiveTextFormField(
           controller: _urlController,
-          validator: InputValidationService.combine([
-            InputValidationService.validateRequired,
-            (value) =>
-                InputValidationService.validateUrl(value, required: true),
-          ]),
+          placeholder: AppLocalizations.of(context)!.serverUrlHint,
+          validator: (value) {
+            final v = value ?? _urlController.text;
+            return InputValidationService.combine([
+              InputValidationService.validateRequired,
+              (val) =>
+                  InputValidationService.validateUrl(val, required: true),
+            ])(v);
+          },
           keyboardType: TextInputType.url,
-          semanticLabel: AppLocalizations.of(context)!.enterServerUrlSemantic,
           onSubmitted: (_) => _connectToServer(),
           prefixIcon: Icon(
             Platform.isIOS ? CupertinoIcons.globe : Icons.public,
             color: context.conduitTheme.iconSecondary,
           ),
           autofillHints: const [AutofillHints.url],
-          isRequired: true,
         ),
 
         if (_connectionError != null) ...[
@@ -866,14 +843,14 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
                   ),
                 ),
                 const SizedBox(width: Spacing.sm),
-                Switch.adaptive(
+                AdaptiveSwitch(
                   value: _allowSelfSignedCertificates,
                   onChanged: (value) {
                     setState(() {
                       _allowSelfSignedCertificates = value;
                     });
                   },
-                  activeTrackColor: context.conduitTheme.buttonPrimary,
+                  activeColor: context.conduitTheme.buttonPrimary,
                 ),
               ],
             ),
@@ -911,26 +888,24 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
             children: [
               Expanded(
                 flex: 2,
-                child: AccessibleFormField(
-                  label: l10n.headerName,
-                  hint: 'X-Custom-Header',
+                child: AdaptiveTextFormField(
+                  placeholder: 'X-Custom-Header',
                   controller: _headerKeyController,
-                  validator: (value) => _validateHeaderKey(value ?? ''),
-                  semanticLabel: 'Enter header name',
-                  isCompact: true,
+                  validator: (value) => _validateHeaderKey(
+                    value ?? _headerKeyController.text,
+                  ),
                   keyboardType: TextInputType.text,
                 ),
               ),
               const SizedBox(width: Spacing.sm),
               Expanded(
                 flex: 3,
-                child: AccessibleFormField(
-                  label: l10n.headerValue,
-                  hint: l10n.headerValueHint,
+                child: AdaptiveTextFormField(
+                  placeholder: l10n.headerValueHint,
                   controller: _headerValueController,
-                  validator: (value) => _validateHeaderValue(value ?? ''),
-                  semanticLabel: 'Enter header value',
-                  isCompact: true,
+                  validator: (value) => _validateHeaderValue(
+                    value ?? _headerValueController.text,
+                  ),
                   keyboardType: TextInputType.text,
                 ),
               ),
@@ -1018,21 +993,18 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   }
 
   Widget _buildConnectButton() {
-    return Padding(
-      padding: const EdgeInsets.only(top: Spacing.lg),
-      child: ConduitButton(
-        text: _isConnecting
-            ? AppLocalizations.of(context)!.connecting
-            : AppLocalizations.of(context)!.connectToServerButton,
-        icon: _isConnecting
-            ? null
-            : (Platform.isIOS
-                  ? CupertinoIcons.arrow_right
-                  : Icons.arrow_forward),
-        onPressed: _isConnecting ? null : _connectToServer,
-        isLoading: _isConnecting,
-        isFullWidth: true,
-      ),
+    return ConduitButton(
+      text: _isConnecting
+          ? AppLocalizations.of(context)!.connecting
+          : AppLocalizations.of(context)!.connectToServerButton,
+      icon: _isConnecting
+          ? null
+          : (Platform.isIOS
+                ? CupertinoIcons.arrow_right
+                : Icons.arrow_forward),
+      onPressed: _isConnecting ? null : _connectToServer,
+      isLoading: _isConnecting,
+      isFullWidth: true,
     );
   }
 

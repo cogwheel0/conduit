@@ -12,7 +12,6 @@ import '../../../core/providers/app_providers.dart';
 import '../../../core/services/input_validation_service.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../core/widgets/error_boundary.dart';
-import '../../../shared/services/brand_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../core/auth/auth_state_manager.dart';
@@ -52,7 +51,6 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   String? _loginError;
   bool _isSigningIn = false;
   bool _serverConfigSaved = false;
-  bool _showMoreOptions = false;
 
   /// Whether the server has OAuth/SSO providers configured.
   bool get _hasSsoEnabled =>
@@ -68,6 +66,31 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   /// OAuth providers available on the server.
   OAuthProviders get _oauthProviders =>
       widget.backendConfig?.oauthProviders ?? const OAuthProviders();
+
+  /// Available auth modes for the segmented control.
+  List<AuthMode> get _availableAuthModes {
+    final modes = <AuthMode>[];
+    if (_hasLoginFormEnabled) modes.add(AuthMode.credentials);
+    if (isWebViewSupported && !_hasSsoEnabled) modes.add(AuthMode.sso);
+    if (_hasLdapEnabled) modes.add(AuthMode.ldap);
+    modes.add(AuthMode.token);
+    return modes;
+  }
+
+  /// Label for each auth mode segment.
+  String _authModeLabel(AuthMode mode) {
+    final l10n = AppLocalizations.of(context)!;
+    switch (mode) {
+      case AuthMode.credentials:
+        return l10n.credentials;
+      case AuthMode.sso:
+        return l10n.sso;
+      case AuthMode.ldap:
+        return l10n.ldap;
+      case AuthMode.token:
+        return l10n.token;
+    }
+  }
 
   @override
   void initState() {
@@ -247,192 +270,114 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
       }
     });
 
+    final topPadding =
+        MediaQuery.of(context).padding.top + kToolbarHeight + 24;
+
     return ErrorBoundary(
-      child: AdaptiveScaffold(
-        body: Material(
-          type: MaterialType.transparency,
-          child: SafeArea(
-            child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: Spacing.pagePadding,
-              vertical: Spacing.lg,
-            ),
-            child: Column(
-              children: [
-                // Header with progress indicator
-                _buildHeader(),
+      child: Scaffold(
+        backgroundColor: context.conduitTheme.surfaceBackground,
+        extendBodyBehindAppBar: true,
+        appBar: FloatingAppBar(
+          leading: FloatingAppBarBackButton(
+            onTap: () => context.go(Routes.serverConnection),
+          ),
+          title: FloatingAppBarTitle(
+            text: AppLocalizations.of(context)!.signIn,
+          ),
+        ),
+        body: Column(
+          children: [
+            // Auth mode segmented control
+            if (_availableAuthModes.length > 1)
+              Padding(
+                padding: EdgeInsets.only(
+                  top: topPadding,
+                  left: Spacing.pagePadding,
+                  right: Spacing.pagePadding,
+                ),
+                child: _buildAuthModeSelector(),
+              ),
 
-                const SizedBox(height: Spacing.xl),
+            const SizedBox(height: Spacing.lg),
 
-                // Main content
-                Expanded(
-                  child: SingleChildScrollView(
-                    keyboardDismissBehavior:
-                        ScrollViewKeyboardDismissBehavior.onDrag,
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 480),
-                      child: Form(
-                        key: _formKey,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            // Server connection status
-                            _buildServerStatus(),
+            // Main content
+            Expanded(
+              child: SingleChildScrollView(
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
+                padding: EdgeInsets.only(
+                  left: Spacing.pagePadding,
+                  right: Spacing.pagePadding,
+                  top: _availableAuthModes.length <= 1 ? topPadding : 0,
+                ),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 480),
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        // Server domain
+                        _buildServerDomain(),
 
-                            const SizedBox(height: Spacing.xl),
+                        const SizedBox(height: Spacing.xl),
 
-                            // Welcome section
-                            _buildWelcomeSection(),
-
-                            const SizedBox(height: Spacing.xl),
-
-                            // Authentication form
-                            _buildAuthForm(),
-                          ],
-                        ),
-                      ),
+                        // Authentication form
+                        _buildAuthForm(),
+                      ],
                     ),
                   ),
                 ),
-
-                // Bottom action button
-                _buildSignInButton(),
-              ],
+              ),
             ),
-          ),
-        ),
+
+            // Bottom action button
+            Padding(
+              padding: EdgeInsets.fromLTRB(
+                Spacing.pagePadding,
+                Spacing.md,
+                Spacing.pagePadding,
+                MediaQuery.of(context).padding.bottom + Spacing.md,
+              ),
+              child: _buildSignInButton(),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildHeader() {
-    return Row(
-      children: [
-        ConduitIconButton(
-          icon: Platform.isIOS ? CupertinoIcons.back : Icons.arrow_back,
-          onPressed: () => context.go(Routes.serverConnection),
-          tooltip: AppLocalizations.of(context)!.backToServerSetup,
-        ),
-        const Spacer(),
-        // Progress indicator (step 2 of 2)
-        Row(
-          children: [
-            Container(
-              width: 24,
-              height: 4,
-              decoration: BoxDecoration(
-                color: context.conduitTheme.buttonPrimary,
-                borderRadius: BorderRadius.circular(AppBorderRadius.round),
-              ),
-            ),
-            const SizedBox(width: Spacing.xs),
-            Container(
-              width: 24,
-              height: 4,
-              decoration: BoxDecoration(
-                color: context.conduitTheme.buttonPrimary,
-                borderRadius: BorderRadius.circular(AppBorderRadius.round),
-              ),
-            ),
-          ],
-        ),
-        const Spacer(),
-        const SizedBox(width: TouchTarget.minimum), // Balance the back button
-      ],
+  Widget _buildAuthModeSelector() {
+    final modes = _availableAuthModes;
+    final selectedIndex = modes.indexOf(_authMode);
+
+    return AdaptiveSegmentedControl(
+      labels: modes.map(_authModeLabel).toList(),
+      selectedIndex: selectedIndex >= 0 ? selectedIndex : 0,
+      onValueChanged: (index) {
+        setState(() {
+          _authMode = modes[index];
+          _loginError = null;
+          _obscurePassword = true;
+        });
+      },
     );
   }
 
-  Widget _buildServerStatus() {
-    // Prefer route-provided config; otherwise fall back to active server
+  Widget _buildServerDomain() {
     final activeServerAsync = ref.watch(activeServerProvider);
     final cfg =
         widget.serverConfig ??
         activeServerAsync.maybeWhen(data: (s) => s, orElse: () => null);
-    final hostText = () {
-      try {
-        final url = cfg?.url;
-        if (url != null && url.isNotEmpty) return Uri.parse(url).host;
-      } catch (_) {}
-      return 'Server';
-    }();
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: Spacing.md,
-        vertical: Spacing.sm,
+    final displayUrl = cfg?.url ?? 'Server';
+    return Text(
+      displayUrl,
+      textAlign: TextAlign.center,
+      overflow: TextOverflow.ellipsis,
+      style: context.conduitTheme.bodySmall?.copyWith(
+        color: context.conduitTheme.textSecondary,
+        fontFamily: AppTypography.monospaceFontFamily,
       ),
-      decoration: BoxDecoration(
-        color: context.conduitTheme.success.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(AppBorderRadius.small),
-        border: Border.all(
-          color: context.conduitTheme.success.withValues(alpha: 0.2),
-          width: BorderWidth.standard,
-        ),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            Platform.isIOS
-                ? CupertinoIcons.checkmark_circle
-                : Icons.check_circle_outline,
-            color: context.conduitTheme.success,
-            size: IconSize.small,
-          ),
-          const SizedBox(width: Spacing.sm),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  AppLocalizations.of(context)!.connectedToServer,
-                  style: context.conduitTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.w500,
-                    color: context.conduitTheme.success,
-                  ),
-                ),
-                Text(
-                  hostText,
-                  style: context.conduitTheme.bodySmall?.copyWith(
-                    color: context.conduitTheme.textSecondary,
-                    fontFamily: AppTypography.monospaceFontFamily,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildWelcomeSection() {
-    return Column(
-      children: [
-        BrandService.createBrandIcon(
-          size: 48,
-          useGradient: false,
-          addShadow: false,
-          context: context,
-        ),
-        const SizedBox(height: Spacing.lg),
-        Text(
-          AppLocalizations.of(context)!.signIn,
-          textAlign: TextAlign.center,
-          style: context.conduitTheme.headingLarge?.copyWith(
-            fontWeight: FontWeight.w600,
-            height: 1.3,
-          ),
-        ),
-        const SizedBox(height: Spacing.sm),
-        Text(
-          AppLocalizations.of(context)!.enterCredentials,
-          textAlign: TextAlign.center,
-          style: context.conduitTheme.bodyMedium?.copyWith(
-            color: context.conduitTheme.textSecondary,
-            height: 1.4,
-          ),
-        ),
-      ],
     );
   }
 
@@ -469,10 +414,6 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
           const SizedBox(height: Spacing.md),
           _buildErrorMessage(_loginError!),
         ],
-
-        // More options section - always show for additional auth methods
-        const SizedBox(height: Spacing.lg),
-        _buildMoreOptionsSection(l10n),
       ],
     );
   }
@@ -576,13 +517,13 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     return Column(
       key: const ValueKey('api_key_form'),
       children: [
-        AccessibleFormField(
-          label: AppLocalizations.of(context)!.token,
-          hint: 'eyJ...',
+        AdaptiveTextFormField(
           controller: _apiKeyController,
-          validator: _validateJwtToken,
+          placeholder: 'eyJ...',
+          validator: (value) => _validateJwtToken(
+            value ?? _apiKeyController.text,
+          ),
           obscureText: _obscurePassword,
-          semanticLabel: AppLocalizations.of(context)!.enterToken,
           prefixIcon: Icon(
             Platform.isIOS
                 ? CupertinoIcons.lock_shield
@@ -604,7 +545,6 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
                 setState(() => _obscurePassword = !_obscurePassword),
           ),
           onSubmitted: (_) => _signIn(),
-          isRequired: true,
           autofillHints: const [AutofillHints.password],
         ),
         const SizedBox(height: Spacing.sm),
@@ -622,38 +562,39 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     return Column(
       key: const ValueKey('credentials_form'),
       children: [
-        AccessibleFormField(
-          label: AppLocalizations.of(context)!.usernameOrEmail,
-          hint: AppLocalizations.of(context)!.usernameOrEmailHint,
+        AdaptiveTextFormField(
           controller: _usernameController,
-          validator: InputValidationService.combine([
-            InputValidationService.validateRequired,
-            (value) => InputValidationService.validateEmailOrUsername(value),
-          ]),
+          placeholder: AppLocalizations.of(context)!.usernameOrEmailHint,
+          validator: (value) {
+            final v = value ?? _usernameController.text;
+            return InputValidationService.combine([
+              InputValidationService.validateRequired,
+              (val) => InputValidationService.validateEmailOrUsername(val),
+            ])(v);
+          },
           keyboardType: TextInputType.emailAddress,
-          semanticLabel: AppLocalizations.of(context)!.usernameOrEmailHint,
           prefixIcon: Icon(
             Platform.isIOS ? CupertinoIcons.person : Icons.person_outline,
             color: context.conduitTheme.iconSecondary,
           ),
           autofillHints: const [AutofillHints.username, AutofillHints.email],
-          isRequired: true,
         ),
         const SizedBox(height: Spacing.lg),
-        AccessibleFormField(
-          label: AppLocalizations.of(context)!.password,
-          hint: AppLocalizations.of(context)!.passwordHint,
+        AdaptiveTextFormField(
           controller: _passwordController,
-          validator: InputValidationService.combine([
-            InputValidationService.validateRequired,
-            (value) => InputValidationService.validateMinLength(
-              value,
-              1,
-              fieldName: AppLocalizations.of(context)!.password,
-            ),
-          ]),
+          placeholder: AppLocalizations.of(context)!.passwordHint,
+          validator: (value) {
+            final v = value ?? _passwordController.text;
+            return InputValidationService.combine([
+              InputValidationService.validateRequired,
+              (val) => InputValidationService.validateMinLength(
+                val,
+                1,
+                fieldName: AppLocalizations.of(context)!.password,
+              ),
+            ])(v);
+          },
           obscureText: _obscurePassword,
-          semanticLabel: AppLocalizations.of(context)!.passwordHint,
           prefixIcon: Icon(
             Platform.isIOS ? CupertinoIcons.lock : Icons.lock_outline,
             color: context.conduitTheme.iconSecondary,
@@ -674,7 +615,6 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
           ),
           onSubmitted: (_) => _signIn(),
           autofillHints: const [AutofillHints.password],
-          isRequired: true,
         ),
       ],
     );
@@ -686,35 +626,35 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     return Column(
       key: const ValueKey('ldap_form'),
       children: [
-        AccessibleFormField(
-          label: l10n.ldapUsername,
-          hint: l10n.ldapUsernameHint,
+        AdaptiveTextFormField(
           controller: _ldapUsernameController,
-          validator: InputValidationService.validateRequired,
+          placeholder: l10n.ldapUsernameHint,
+          validator: (value) => InputValidationService.validateRequired(
+            value ?? _ldapUsernameController.text,
+          ),
           keyboardType: TextInputType.text,
-          semanticLabel: l10n.ldapUsernameHint,
           prefixIcon: Icon(
             Platform.isIOS ? CupertinoIcons.person : Icons.person_outline,
             color: context.conduitTheme.iconSecondary,
           ),
           autofillHints: const [AutofillHints.username],
-          isRequired: true,
         ),
         const SizedBox(height: Spacing.lg),
-        AccessibleFormField(
-          label: l10n.password,
-          hint: l10n.passwordHint,
+        AdaptiveTextFormField(
           controller: _ldapPasswordController,
-          validator: InputValidationService.combine([
-            InputValidationService.validateRequired,
-            (value) => InputValidationService.validateMinLength(
-              value,
-              1,
-              fieldName: l10n.password,
-            ),
-          ]),
+          placeholder: l10n.passwordHint,
+          validator: (value) {
+            final v = value ?? _ldapPasswordController.text;
+            return InputValidationService.combine([
+              InputValidationService.validateRequired,
+              (val) => InputValidationService.validateMinLength(
+                val,
+                1,
+                fieldName: l10n.password,
+              ),
+            ])(v);
+          },
           obscureText: _obscurePassword,
-          semanticLabel: l10n.passwordHint,
           prefixIcon: Icon(
             Platform.isIOS ? CupertinoIcons.lock : Icons.lock_outline,
             color: context.conduitTheme.iconSecondary,
@@ -735,7 +675,6 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
           ),
           onSubmitted: (_) => _signIn(),
           autofillHints: const [AutofillHints.password],
-          isRequired: true,
         ),
         const SizedBox(height: Spacing.sm),
         Text(
@@ -810,197 +749,6 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     context.pushNamed(RouteNames.ssoAuth, extra: widget.serverConfig);
   }
 
-  Widget _buildMoreOptionsSection(AppLocalizations l10n) {
-    // Build list of available options - always show all available options
-    // with the current one highlighted for consistency
-    final options = <Widget>[];
-
-    // Credentials option (if login form is enabled)
-    if (_hasLoginFormEnabled) {
-      options.add(
-        _buildOptionButton(
-          icon: Platform.isIOS
-              ? CupertinoIcons.person_circle
-              : Icons.account_circle_outlined,
-          label: l10n.credentials,
-          isSelected: _authMode == AuthMode.credentials,
-          onTap: () => setState(() {
-            _authMode = AuthMode.credentials;
-            _loginError = null;
-            _obscurePassword = true;
-          }),
-        ),
-      );
-    }
-
-    // SSO option (only if WebView supported and no OAuth buttons shown above)
-    if (isWebViewSupported && !_hasSsoEnabled) {
-      options.add(
-        _buildOptionButton(
-          icon: Platform.isIOS ? CupertinoIcons.lock_shield : Icons.security,
-          label: l10n.sso,
-          isSelected: _authMode == AuthMode.sso,
-          onTap: () => setState(() {
-            _authMode = AuthMode.sso;
-            _loginError = null;
-            _obscurePassword = true;
-          }),
-        ),
-      );
-    }
-
-    // LDAP option (if enabled on server)
-    if (_hasLdapEnabled) {
-      options.add(
-        _buildOptionButton(
-          icon: Platform.isIOS ? CupertinoIcons.building_2_fill : Icons.domain,
-          label: l10n.ldap,
-          isSelected: _authMode == AuthMode.ldap,
-          onTap: () => setState(() {
-            _authMode = AuthMode.ldap;
-            _loginError = null;
-            _obscurePassword = true;
-          }),
-        ),
-      );
-    }
-
-    // Token option (always available as fallback)
-    options.add(
-      _buildOptionButton(
-        icon: Platform.isIOS ? CupertinoIcons.lock_shield : Icons.vpn_key,
-        label: l10n.token,
-        isSelected: _authMode == AuthMode.token,
-        onTap: () => setState(() {
-          _authMode = AuthMode.token;
-          _loginError = null;
-          _obscurePassword = true;
-        }),
-      ),
-    );
-
-    if (options.isEmpty) return const SizedBox.shrink();
-
-    return Column(
-      children: [
-        // Expandable header
-        InkWell(
-          onTap: () => setState(() => _showMoreOptions = !_showMoreOptions),
-          borderRadius: BorderRadius.circular(AppBorderRadius.button),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: Spacing.md,
-              vertical: Spacing.sm,
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  l10n.moreSignInOptions,
-                  style: context.conduitTheme.bodySmall?.copyWith(
-                    color: context.conduitTheme.textSecondary,
-                  ),
-                ),
-                const SizedBox(width: Spacing.xs),
-                AnimatedRotation(
-                  duration: AnimationDuration.microInteraction,
-                  turns: _showMoreOptions ? 0.5 : 0,
-                  child: Icon(
-                    Platform.isIOS
-                        ? CupertinoIcons.chevron_down
-                        : Icons.expand_more,
-                    color: context.conduitTheme.iconSecondary,
-                    size: IconSize.small,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-
-        // Options (collapsed by default unless a secondary option is selected)
-        AnimatedCrossFade(
-          duration: AnimationDuration.microInteraction,
-          sizeCurve: Curves.easeInOutCubic,
-          crossFadeState:
-              _showMoreOptions ||
-                  _authMode == AuthMode.ldap ||
-                  _authMode == AuthMode.token ||
-                  (_authMode == AuthMode.sso && !_hasSsoEnabled)
-              ? CrossFadeState.showSecond
-              : CrossFadeState.showFirst,
-          firstChild: const SizedBox.shrink(),
-          secondChild: Padding(
-            padding: const EdgeInsets.only(top: Spacing.md),
-            child: Row(
-              children: [
-                for (int i = 0; i < options.length; i++) ...[
-                  if (i > 0) const SizedBox(width: Spacing.sm),
-                  Expanded(child: options[i]),
-                ],
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildOptionButton({
-    required IconData icon,
-    required String label,
-    required bool isSelected,
-    required VoidCallback onTap,
-  }) {
-    return Material(
-      color: isSelected
-          ? context.conduitTheme.buttonPrimary.withValues(alpha: 0.1)
-          : context.conduitTheme.surfaceContainer.withValues(alpha: 0.3),
-      borderRadius: BorderRadius.circular(AppBorderRadius.small),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppBorderRadius.small),
-        child: Container(
-          padding: const EdgeInsets.symmetric(
-            vertical: Spacing.md,
-            horizontal: Spacing.sm,
-          ),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(AppBorderRadius.small),
-            border: Border.all(
-              color: isSelected
-                  ? context.conduitTheme.buttonPrimary
-                  : context.conduitTheme.dividerColor.withValues(alpha: 0.5),
-              width: BorderWidth.standard,
-            ),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                icon,
-                size: IconSize.small,
-                color: isSelected
-                    ? context.conduitTheme.buttonPrimary
-                    : context.conduitTheme.iconSecondary,
-              ),
-              const SizedBox(width: Spacing.xs),
-              Text(
-                label,
-                style: context.conduitTheme.bodySmall?.copyWith(
-                  color: isSelected
-                      ? context.conduitTheme.buttonPrimary
-                      : context.conduitTheme.textSecondary,
-                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildSignInButton() {
     final l10n = AppLocalizations.of(context)!;
 
@@ -1025,19 +773,16 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
       }
     }
 
-    return Padding(
-      padding: const EdgeInsets.only(top: Spacing.lg),
-      child: ConduitButton(
-        text: buttonText,
-        icon: _isSigningIn
-            ? null
-            : (Platform.isIOS
-                  ? CupertinoIcons.arrow_right
-                  : Icons.arrow_forward),
-        onPressed: _isSigningIn ? null : _signIn,
-        isLoading: _isSigningIn,
-        isFullWidth: true,
-      ),
+    return ConduitButton(
+      text: buttonText,
+      icon: _isSigningIn
+          ? null
+          : (Platform.isIOS
+                ? CupertinoIcons.arrow_right
+                : Icons.arrow_forward),
+      onPressed: _isSigningIn ? null : _signIn,
+      isLoading: _isSigningIn,
+      isFullWidth: true,
     );
   }
 

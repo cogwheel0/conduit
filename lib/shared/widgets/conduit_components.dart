@@ -4,6 +4,7 @@ import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../theme/theme_extensions.dart';
 import '../services/brand_service.dart';
@@ -141,8 +142,9 @@ class FloatingAppBar extends StatelessWidget implements PreferredSizeWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final overlayStyle = theme.appBarTheme.systemOverlayStyle;
 
-    return Container(
+    Widget bar = Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
@@ -191,6 +193,15 @@ class FloatingAppBar extends StatelessWidget implements PreferredSizeWidget {
         ),
       ),
     );
+
+    if (overlayStyle != null) {
+      bar = AnnotatedRegion<SystemUiOverlayStyle>(
+        value: overlayStyle,
+        child: bar,
+      );
+    }
+
+    return bar;
   }
 }
 
@@ -1219,7 +1230,9 @@ class AccessibleFormField extends StatelessWidget {
             maxLines: maxLines,
             keyboardType: keyboardType,
             autofocus: autofocus,
-            validator: validator,
+            validator: validator != null
+                ? (value) => validator!(value ?? controller?.text)
+                : null,
             autofillHints: autofillHints?.toList(),
             placeholder: hint,
             prefixIcon: prefixIcon,
@@ -1284,17 +1297,7 @@ class AccessibleFormField extends StatelessWidget {
                 color: context.conduitTheme.error,
               ),
             ),
-            cupertinoDecoration: BoxDecoration(
-              color: enabled
-                  ? context.conduitTheme.inputBackground
-                  : context.conduitTheme.surfaceContainer,
-              borderRadius:
-                  BorderRadius.circular(AppBorderRadius.input),
-              border: Border.all(
-                color: context.conduitTheme.inputBorder,
-                width: BorderWidth.standard,
-              ),
-            ),
+            cupertinoDecoration: null,
           ),
         ),
       ],
