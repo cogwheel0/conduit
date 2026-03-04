@@ -2109,6 +2109,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                           );
                         },
                       ),
+                      const SizedBox(width: Spacing.sm),
                       Padding(
                         padding: const EdgeInsets.only(
                           right: Spacing.inputPadding,
