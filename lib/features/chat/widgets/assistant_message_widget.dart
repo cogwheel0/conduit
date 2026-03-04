@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import 'dart:convert';
 import 'dart:async';
 import 'dart:io' show Platform;
 import '../../../shared/theme/theme_extensions.dart';
@@ -31,6 +30,8 @@ import '../utils/file_utils.dart';
 import 'code_execution_display.dart';
 import 'follow_up_suggestions.dart';
 import 'usage_stats_modal.dart';
+import 'tool_call_tile.dart';
+import 'reasoning_tile.dart';
 
 // Pre-compiled regex patterns for image processing (performance optimization)
 final _base64ImagePattern = RegExp(r'data:image/[^;]+;base64,[A-Za-z0-9+/]+=*');
@@ -72,7 +73,6 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   late AnimationController _slideController;
   // Unified content segments (text, tool-calls, reasoning)
   List<MessageSegment> _segments = const [];
-  final Set<String> _expandedToolIds = {};
   final Set<int> _expandedReasoning = {};
   Widget? _cachedAvatar;
   bool _allowTypingIndicator = false;
@@ -386,214 +386,6 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   // No streaming-specific markdown fixes needed here; handled by Markdown widget
 
-  // Tool call tile - minimal design inspired by OpenWebUI
-  Widget _buildToolCallTile(ToolCallEntry tc) {
-    final isExpanded = _expandedToolIds.contains(tc.id);
-    final theme = context.conduitTheme;
-    // Show shimmer when streaming and tool call is not done
-    final showShimmer = widget.isStreaming && !tc.done;
-
-    String pretty(dynamic v, {int max = 1200}) {
-      try {
-        final formatted = const JsonEncoder.withIndent('  ').convert(v);
-        return formatted.length > max
-            ? '${formatted.substring(0, max)}\n…'
-            : formatted;
-      } catch (_) {
-        final s = v?.toString() ?? '';
-        return s.length > max ? '${s.substring(0, max)}…' : s;
-      }
-    }
-
-    Widget buildHeader() {
-      final headerWidget = Row(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Icon(
-            isExpanded
-                ? Icons.keyboard_arrow_up_rounded
-                : Icons.keyboard_arrow_down_rounded,
-            size: 14,
-            color: theme.textPrimary.withValues(alpha: 0.8),
-          ),
-          const SizedBox(width: 2),
-          Flexible(
-            child: Text(
-              tc.done ? 'Used ${tc.name}' : 'Running ${tc.name}…',
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: AppTypography.bodySmall,
-                color: theme.textPrimary.withValues(alpha: 0.8),
-                height: 1.3,
-              ),
-            ),
-          ),
-        ],
-      );
-
-      if (showShimmer) {
-        return headerWidget
-            .animate(onPlay: (controller) => controller.repeat())
-            .shimmer(
-              duration: 1500.ms,
-              color: theme.shimmerHighlight.withValues(alpha: 0.6),
-            );
-      }
-      return headerWidget;
-    }
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: Spacing.xs),
-      child: GestureDetector(
-        onTap: () {
-          setState(() {
-            if (isExpanded) {
-              _expandedToolIds.remove(tc.id);
-            } else {
-              _expandedToolIds.add(tc.id);
-            }
-          });
-        },
-        behavior: HitTestBehavior.opaque,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Minimal header - just text with chevron
-            buildHeader(),
-
-            // Expanded content with left border accent
-            AnimatedCrossFade(
-              firstChild: const SizedBox.shrink(),
-              secondChild: Container(
-                margin: const EdgeInsets.only(top: Spacing.xs, left: 16),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: Spacing.sm,
-                  vertical: Spacing.xs,
-                ),
-                decoration: BoxDecoration(
-                  color: theme.surfaceContainer.withValues(alpha: 0.3),
-                  borderRadius: BorderRadius.circular(4),
-                  border: Border(
-                    left: BorderSide(
-                      color: theme.dividerColor.withValues(alpha: 0.4),
-                      width: 2,
-                    ),
-                  ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (tc.arguments != null) ...[
-                      Text(
-                        'Arguments',
-                        style: TextStyle(
-                          fontSize: AppTypography.labelSmall,
-                          color: theme.textSecondary,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      SelectableText(
-                        pretty(tc.arguments),
-                        style: TextStyle(
-                          fontSize: AppTypography.bodySmall,
-                          color: theme.textSecondary,
-                          fontFamily: AppTypography.monospaceFontFamily,
-                          height: 1.35,
-                        ),
-                      ),
-                      if (tc.result != null) const SizedBox(height: Spacing.xs),
-                    ],
-
-                    if (tc.result != null) ...[
-                      Text(
-                        'Result',
-                        style: TextStyle(
-                          fontSize: AppTypography.labelSmall,
-                          color: theme.textSecondary,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      SelectableText(
-                        pretty(tc.result),
-                        style: TextStyle(
-                          fontSize: AppTypography.bodySmall,
-                          color: theme.textSecondary,
-                          fontFamily: AppTypography.monospaceFontFamily,
-                          height: 1.35,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              crossFadeState: isExpanded
-                  ? CrossFadeState.showSecond
-                  : CrossFadeState.showFirst,
-              duration: const Duration(milliseconds: 200),
-            ),
-
-            // Render file images when tool call is done
-            // Mirrors Open WebUI's Collapsible.svelte file rendering
-            if (tc.done && tc.files != null) ...[
-              _buildToolCallFiles(tc.files!),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// Builds image widgets from tool call files array.
-  /// Mirrors Open WebUI's Collapsible.svelte file rendering logic:
-  /// - String starting with 'data:image/' -> base64 image
-  /// - Object with type='image' and url -> network image
-  Widget _buildToolCallFiles(List<dynamic> files) {
-    final imageUrls = <String>[];
-
-    for (final file in files) {
-      if (file is String) {
-        // Base64 image data URL
-        if (file.startsWith('data:image/')) {
-          imageUrls.add(file);
-        }
-      } else if (file is Map) {
-        // Object with type and url
-        final type = file['type']?.toString();
-        final url = file['url']?.toString();
-        if (type == 'image' && url != null && url.isNotEmpty) {
-          imageUrls.add(url);
-        }
-      }
-    }
-
-    if (imageUrls.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
-    return Padding(
-      padding: const EdgeInsets.only(top: Spacing.sm),
-      child: Wrap(
-        spacing: Spacing.sm,
-        runSpacing: Spacing.sm,
-        children: imageUrls.map((url) {
-          return EnhancedImageAttachment(
-            attachmentId: url,
-            isMarkdownFormat: true,
-            constraints: BoxConstraints(
-              maxWidth: imageUrls.length == 1 ? 400 : 200,
-              maxHeight: imageUrls.length == 1 ? 300 : 150,
-            ),
-            disableAnimation: false,
-          );
-        }).toList(),
-      ),
-    );
-  }
-
   Widget _buildSegmentedContent() {
     final children = <Widget>[];
     bool firstToolSpacerAdded = false;
@@ -605,9 +397,22 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           children.add(const SizedBox(height: Spacing.sm));
           firstToolSpacerAdded = true;
         }
-        children.add(_buildToolCallTile(seg.toolCall!));
+        children.add(ToolCallTile(
+          toolCall: seg.toolCall!,
+          isStreaming: widget.isStreaming,
+        ));
       } else if (seg.isReasoning && seg.reasoning != null) {
-        children.add(_buildReasoningTile(seg.reasoning!, idx));
+        children.add(ReasoningTile(
+          reasoning: seg.reasoning!,
+          index: idx,
+          onExpand: (i) =>
+              setState(() => _expandedReasoning.add(i)),
+          onCollapse: (i) {
+            if (mounted) {
+              setState(() => _expandedReasoning.remove(i));
+            }
+          },
+        ));
       } else if ((seg.text ?? '').trim().isNotEmpty) {
         // No extra spacing needed - reasoning/tool tiles have bottom padding
         children.add(_buildEnhancedMarkdownContent(seg.text!));
@@ -1469,217 +1274,6 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     );
   }
 
-  /// Opens a bottom sheet modal displaying the full reasoning/thinking
-  /// content with markdown rendering.
-  void _showReasoningBottomSheet(
-    ReasoningEntry rc,
-    String title, {
-    int? index,
-  }) {
-    final theme = context.conduitTheme;
-
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: theme.surfaceBackground,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(AppBorderRadius.dialog),
-        ),
-      ),
-      builder: (ctx) {
-        return DraggableScrollableSheet(
-          initialChildSize: 0.6,
-          minChildSize: 0.3,
-          maxChildSize: 0.95,
-          expand: false,
-          builder: (_, controller) {
-            return Column(
-              children: [
-                // Drag handle
-                Padding(
-                  padding: const EdgeInsets.only(top: Spacing.sm),
-                  child: Container(
-                    width: 36,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: theme.dividerColor.withValues(alpha: 0.4),
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                // Header row
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: Spacing.lg,
-                    vertical: Spacing.sm,
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.psychology_outlined,
-                        size: IconSize.md,
-                        color: theme.textPrimary,
-                      ),
-                      const SizedBox(width: Spacing.sm),
-                      Expanded(
-                        child: Text(
-                          title,
-                          style: TextStyle(
-                            fontSize: AppTypography.bodyLarge,
-                            fontWeight: FontWeight.w600,
-                            color: theme.textPrimary,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.close, size: 20),
-                        onPressed: () => Navigator.of(ctx).pop(),
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                        color: theme.textSecondary,
-                      ),
-                    ],
-                  ),
-                ),
-                Divider(
-                  height: 1,
-                  color: theme.dividerColor.withValues(alpha: 0.3),
-                ),
-                // Scrollable markdown body
-                Expanded(
-                  child: ListView(
-                    controller: controller,
-                    padding: const EdgeInsets.all(Spacing.lg),
-                    children: [
-                      StreamingMarkdownWidget(
-                        content: rc.cleanedReasoning,
-                        isStreaming: !rc.isDone,
-                        onTapLink: (url, _) => _launchUri(url),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    ).whenComplete(() {
-      if (!mounted) return;
-      if (index != null) {
-        setState(() => _expandedReasoning.remove(index));
-      }
-    });
-  }
-
-  // Reasoning tile rendered inline - minimal design inspired by OpenWebUI
-  Widget _buildReasoningTile(ReasoningEntry rc, int index) {
-    final theme = context.conduitTheme;
-    // Show shimmer when reasoning is not done (mirrors OpenWebUI's done !== 'true')
-    final showShimmer = !rc.isDone;
-
-    String headerText() {
-      final l10n = AppLocalizations.of(context)!;
-      final hasSummary = rc.summary.isNotEmpty;
-      final summaryLower = rc.summary.trim().toLowerCase();
-
-      // Mirror Open WebUI's Collapsible.svelte logic for different block types
-      if (rc.isCodeInterpreter) {
-        // Code interpreter: "Analyzing..." -> "Analyzed"
-        if (!rc.isDone) {
-          return l10n.analyzing;
-        }
-        return l10n.analyzed;
-      }
-
-      // Reasoning block
-      final isThinkingSummary =
-          summaryLower == 'thinking…' ||
-          summaryLower == 'thinking...' ||
-          summaryLower.startsWith('thinking');
-
-      // Check if summary contains server-formatted duration (e.g., "(0s)", "for 0 secs")
-      final hasDurationInSummary = RegExp(
-        r'\(\d+s\)|\bfor \d+ secs?\b',
-        caseSensitive: false,
-      ).hasMatch(rc.summary);
-
-      // - If not done (streaming): show "Thinking..."
-      // - If done: show humanized "Thought for X" (uses our formatDuration)
-      // - If done without duration and has custom summary: show summary
-      if (!rc.isDone) {
-        // Still thinking - use summary if available, else default
-        return hasSummary && !isThinkingSummary ? rc.summary : l10n.thinking;
-      }
-
-      // Done thinking - always use humanized duration format
-      // This ensures "less than a second" instead of "0 secs" from server
-      if (rc.duration >= 0 &&
-          (rc.duration > 0 || hasDurationInSummary || isThinkingSummary)) {
-        return l10n.thoughtForDuration(rc.formattedDuration);
-      }
-
-      // Has custom summary that's not a duration - show it
-      if (hasSummary && !isThinkingSummary) {
-        return rc.summary;
-      }
-
-      return l10n.thoughts;
-    }
-
-    Widget buildHeader() {
-      final headerWidget = Row(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Flexible(
-            child: Text(
-              headerText(),
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: AppTypography.bodyMedium,
-                color: theme.textPrimary.withValues(alpha: 0.6),
-                height: 1.3,
-              ),
-            ),
-          ),
-          const SizedBox(width: 4),
-          Icon(
-            Icons.chevron_right_rounded,
-            size: 16,
-            color: theme.textPrimary.withValues(alpha: 0.6),
-          ),
-        ],
-      );
-
-      if (showShimmer) {
-        return headerWidget
-            .animate(onPlay: (controller) => controller.repeat())
-            .shimmer(
-              duration: 1500.ms,
-              color: theme.shimmerHighlight.withValues(alpha: 0.6),
-            );
-      }
-      return headerWidget;
-    }
-
-    final title = headerText();
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: Spacing.xs),
-      child: GestureDetector(
-        onTap: () {
-          if (rc.cleanedReasoning.trim().isEmpty) return;
-          setState(() => _expandedReasoning.add(index));
-          _showReasoningBottomSheet(rc, title, index: index);
-        },
-        behavior: HitTestBehavior.opaque,
-        child: buildHeader(),
-      ),
-    );
-  }
 }
 
 String _buildTtsPlainTextWorker(Map<String, dynamic> payload) {
