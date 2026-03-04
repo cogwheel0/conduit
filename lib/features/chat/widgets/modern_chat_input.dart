@@ -107,10 +107,18 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focusNode = FocusNode();
+  /// Preserves the text field widget across parent shell swaps (e.g. when the
+  /// compact shell switches between native glass and blur on multiline toggle).
+  /// Without this, different parent ValueKeys cause Flutter to unmount and
+  /// remount the TextField, losing focus and keyboard state.
+  final GlobalKey _textFieldKey = GlobalKey();
   bool _pendingFocus = false;
   bool _isRecording = false;
   bool _hasText = false; // track locally without rebuilding on each keystroke
   bool _isMultiline = false; // track multiline for dynamic border radius
+  /// Tracks the last time the user edited text, used to detect unexpected
+  /// focus loss during active typing (e.g. from widget tree restructures).
+  DateTime _lastEditTime = DateTime(0);
   StreamSubscription<String>? _voiceStreamSubscription;
   late VoiceInputService _voiceService;
   StreamSubscription<String>? _textSub;
@@ -150,7 +158,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     // Listen for text and selection changes in the composer
     _controller.addListener(_handleComposerChanged);
 
-    // Publish focus changes to listeners
+    // Publish focus changes to listeners and guard against unexpected loss
+    // during active editing (e.g. widget tree restructure on expansion).
     _focusNode.addListener(() {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || _isDeactivated) return;
@@ -159,6 +168,23 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         try {
           ref.read(composerHasFocusProvider.notifier).set(hasFocus);
         } catch (_) {}
+
+        // If focus was lost within 500ms of the last text edit, the user was
+        // actively typing and the loss was likely caused by a widget tree
+        // restructure (shell swap, parent rebuild from MeasureSize, etc.).
+        // Only restore when text is non-empty (excludes post-send clear),
+        // the widget is enabled, and autofocus hasn't been explicitly
+        // suppressed (excludes body tap / scroll dismiss).
+        if (!hasFocus &&
+            widget.enabled &&
+            !_expandModalOpen &&
+            _controller.text.isNotEmpty &&
+            DateTime.now().difference(_lastEditTime).inMilliseconds < 500) {
+          final autofocusEnabled = ref.read(composerAutofocusEnabledProvider);
+          if (autofocusEnabled) {
+            _focusNode.requestFocus();
+          }
+        }
       });
     });
 
@@ -417,6 +443,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   void _handleComposerChanged() {
     if (!mounted || _isDeactivated) return;
+    _lastEditTime = DateTime.now();
 
     final String text = _controller.text;
     final TextSelection selection = _controller.selection;
@@ -458,8 +485,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
     if (!needsUpdate) return;
 
-    final bool hadFocus = _focusNode.hasFocus;
-
     setState(() {
       _hasText = hasText;
       _isMultiline = isMultiline;
@@ -482,18 +507,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         _showPromptOverlay = false;
       }
     });
-
-    // The setState above can swap the shell widget tree (e.g. on iOS 26 the
-    // compact shell changes between native glass and blur when _isMultiline
-    // flips). The different ValueKeys cause Flutter to unmount/remount the
-    // TextField, dropping focus. Restore it after the rebuild completes.
-    if (hadFocus) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && !_isDeactivated && !_focusNode.hasFocus) {
-          _focusNode.requestFocus();
-        }
-      });
-    }
 
     if (!wasShowing && shouldShow) {
       // Trigger prompt fetch lazily when overlay first appears
@@ -1620,6 +1633,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     required bool isActive,
   }) {
     return GestureDetector(
+      key: _textFieldKey,
       behavior: HitTestBehavior.opaque,
       // Exclude from semantics so screen readers interact directly with the
       // TextField, which provides its own accessibility via hintText.
@@ -2377,7 +2391,7 @@ class _ExpandedTextEditorSheetState
       onPressed: _hasText ? widget.onSend : null,
       enabled: _hasText,
       style: AdaptiveButtonStyle.prominentGlass,
-      color: _hasText ? theme.buttonPrimary : null,
+      color: theme.buttonPrimary,
       size: AdaptiveButtonSize.medium,
       minSize: const Size(buttonSize, buttonSize),
       useSmoothRectangleBorder: false,
