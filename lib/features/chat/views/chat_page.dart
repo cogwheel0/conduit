@@ -40,7 +40,6 @@ import '../../../core/models/model.dart';
 import '../providers/context_attachments_provider.dart';
 import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
-import '../../onboarding/views/onboarding_sheet.dart';
 import '../../../shared/widgets/measure_size.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
@@ -121,67 +120,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     await restoreDefaultModel(ref);
   }
 
-  Future<void> _checkAndShowOnboarding() async {
-    try {
-      // Check if onboarding has been seen
-      final storage = ref.read(optimizedStorageServiceProvider);
-      final seen = await storage.getOnboardingSeen();
-      DebugLogger.log(
-        'onboarding-status',
-        scope: 'chat/onboarding',
-        data: {'seen': seen},
-      );
-
-      if (!seen && mounted) {
-        // Small delay to ensure navigation has settled
-        await Future.delayed(const Duration(milliseconds: 500));
-        if (!mounted) return;
-
-        DebugLogger.log('onboarding-show', scope: 'chat/onboarding');
-        _showOnboarding();
-        await storage.setOnboardingSeen(true);
-        DebugLogger.log('onboarding-marked', scope: 'chat/onboarding');
-      }
-    } catch (e) {
-      DebugLogger.error(
-        'onboarding-status-failed',
-        scope: 'chat/onboarding',
-        error: e,
-      );
-    }
-  }
-
-  void _showOnboarding() {
-    try {
-      ref.read(composerAutofocusEnabledProvider.notifier).set(false);
-    } catch (_) {}
-    try {
-      FocusManager.instance.primaryFocus?.unfocus();
-      SystemChannels.textInput.invokeMethod('TextInput.hide');
-    } catch (_) {}
-
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (context) => Container(
-        decoration: BoxDecoration(
-          color: context.conduitTheme.surfaceBackground,
-          borderRadius: const BorderRadius.vertical(
-            top: Radius.circular(AppBorderRadius.modal),
-          ),
-          boxShadow: ConduitShadows.modal(context),
-        ),
-        child: const OnboardingSheet(),
-      ),
-    ).whenComplete(() {
-      if (!mounted) return;
-      try {
-        ref.read(composerAutofocusEnabledProvider.notifier).set(true);
-      } catch (_) {}
-    });
-  }
-
   Future<void> _checkAndLoadDemoConversation() async {
     if (!mounted) return;
     final isReviewerMode = ref.read(reviewerModeProvider);
@@ -260,10 +198,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
       // Then check for demo conversation in reviewer mode
       await _checkAndLoadDemoConversation();
-      if (!mounted) return;
-
-      // Finally, show onboarding if needed
-      await _checkAndShowOnboarding();
     });
   }
 
@@ -880,7 +814,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         useSmoothRectangleBorder: false,
         child: Icon(
           icon,
-          size: IconSize.medium,
+          size: IconSize.large,
           color: GlassColors.label(context),
         ),
       );
@@ -905,7 +839,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           child: Center(
             child: Icon(
               icon,
-              size: IconSize.medium,
+              size: IconSize.large,
               color: theme.textPrimary,
             ),
           ),
@@ -936,7 +870,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         size: AdaptiveButtonSize.large,
         minSize: const Size(TouchTarget.minimum, TouchTarget.minimum),
         useSmoothRectangleBorder: false,
-        child: Icon(fallbackIcon, size: 18, color: color),
+        child: Icon(fallbackIcon, size: IconSize.appBar, color: color),
       );
     }
 
@@ -1379,7 +1313,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         (greetingStyle?.fontSize ?? 24) * (greetingStyle?.height ?? 1.1);
     final String? resolvedGreetingName = hasGreeting ? greetingName : null;
     final greetingText = resolvedGreetingName != null
-        ? l10n.onboardStartTitle(resolvedGreetingName)
+        ? l10n.greetingTitle(resolvedGreetingName)
         : null;
 
     // Check if there's a pending folder for the new chat
@@ -1477,8 +1411,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       },
     );
   }
-
-  // Removed detailed help items from chat page; guidance now lives in Onboarding
 
   @override
   Widget build(BuildContext context) {
@@ -1864,7 +1796,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                                           color: context
                                               .conduitTheme
                                               .iconSecondary,
-                                          size: IconSize.xs,
+                                          size: IconSize.small,
                                         ),
                                       ],
                                     ),
@@ -1908,7 +1840,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                                               color: context
                                                   .conduitTheme
                                                   .iconSecondary,
-                                              size: IconSize.small,
+                                              size: IconSize.medium,
                                             ),
                                           ],
                                         ),

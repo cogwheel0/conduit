@@ -83,25 +83,6 @@
   "unableToConnectServer": "Verbindung zum Server nicht möglich. Bitte Verbindung prüfen.",
   "requestTimedOut": "Zeitüberschreitung. Bitte erneut versuchen.",
   "genericSignInFailed": "Anmeldung nicht möglich. Zugangsdaten und Server prüfen.",
-  "skip": "Überspringen",
-  "next": "Weiter",
-  "done": "Fertig",
-  "onboardStartTitle": "Hallo, {username}",
-  "onboardStartSubtitle": "Wähle ein Modell, um loszulegen. Tippe jederzeit auf Neuer Chat.",
-  "onboardStartBullet1": "Modellname oben antippen, um zu wechseln",
-  "onboardStartBullet2": "Mit Neuer Chat den Kontext zurücksetzen",
-  "onboardAttachTitle": "Kontext hinzufügen",
-  "onboardAttachSubtitle": "Antworten mit Inhalten aus Arbeitsbereich oder Fotos untermauern.",
-  "onboardAttachBullet1": "Arbeitsbereich: PDFs, Dokumente, Datensätze",
-  "onboardAttachBullet2": "Fotos: Kamera oder Bibliothek",
-  "onboardSpeakTitle": "Natürlich sprechen",
-  "onboardSpeakSubtitle": "Auf das Mikro tippen, um zu diktieren.",
-  "onboardSpeakBullet1": "Jederzeit stoppen; Text bleibt erhalten",
-  "onboardSpeakBullet2": "Ideal für kurze Notizen oder lange Prompts",
-  "onboardQuickTitle": "Schnellaktionen",
-  "onboardQuickSubtitle": "Menü öffnen, um zwischen Chats, Arbeitsbereich und Profil zu wechseln.",
-  "onboardQuickBullet1": "Menü tippen für Chats, Arbeitsbereich, Profil",
-  "onboardQuickBullet2": "Neuer Chat starten oder Modelle oben verwalten",
   "attachmentLabel": "Anhang",
   "tools": "Werkzeuge",
   "filters": "Filter",
@@ -689,15 +670,6 @@
   "themePaletteTangerineDescription": "Warmes Orange-Schiefer-Farbschema.",
   "@themePaletteTangerineDescription": {
     "description": "Description of the Tangerine palette."
-  },
-  "@onboardStartTitle": {
-    "description": "Onboarding card: start chatting title.",
-    "placeholders": {
-      "username": {
-        "type": "String",
-        "example": "Alex"
-      }
-    }
   },
   "@notAnImageFile": {
     "description": "Error when a referenced file is not an image.",

@@ -238,7 +238,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
           'Authentication successful, initializing background resources',
         );
 
-        // Model selection and onboarding will be handled by the chat page
+        // Model selection will be handled by the chat page
         // to avoid widget disposal issues
 
         DebugLogger.auth('Navigating to chat page');

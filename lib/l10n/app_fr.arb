@@ -83,25 +83,6 @@
   "unableToConnectServer": "Impossible de se connecter au serveur. Vérifiez votre connexion.",
   "requestTimedOut": "Délai d'attente dépassé. Réessayez.",
   "genericSignInFailed": "Connexion impossible. Vérifiez vos identifiants et le serveur.",
-  "skip": "Ignorer",
-  "next": "Suivant",
-  "done": "Terminé",
-  "onboardStartTitle": "Bonjour, {username}",
-  "onboardStartSubtitle": "Choisissez un modèle pour commencer. Touchez Nouveau chat à tout moment.",
-  "onboardStartBullet1": "Touchez le nom du modèle en haut pour changer",
-  "onboardStartBullet2": "Utilisez Nouveau chat pour réinitialiser le contexte",
-  "onboardAttachTitle": "Ajouter du contexte",
-  "onboardAttachSubtitle": "Ancrez les réponses avec l'Espace de travail ou des photos.",
-  "onboardAttachBullet1": "Espace de travail : PDF, documents, jeux de données",
-  "onboardAttachBullet2": "Photos : appareil photo ou galerie",
-  "onboardSpeakTitle": "Parlez naturellement",
-  "onboardSpeakSubtitle": "Touchez le micro pour dicter avec retour visuel.",
-  "onboardSpeakBullet1": "Arrêtez à tout moment ; le texte partiel est conservé",
-  "onboardSpeakBullet2": "Idéal pour des notes rapides ou de longs prompts",
-  "onboardQuickTitle": "Actions rapides",
-  "onboardQuickSubtitle": "Ouvrez le menu pour passer entre Chats, Espace de travail et Profil.",
-  "onboardQuickBullet1": "Touchez le menu pour accéder à Chats, Espace, Profil",
-  "onboardQuickBullet2": "Lancez Nouveau chat ou gérez les modèles depuis la barre",
   "attachmentLabel": "Pièce jointe",
   "tools": "Outils",
   "filters": "Filtres",
@@ -689,15 +670,6 @@
   "themePaletteTangerineDescription": "Palette chaleureuse d'oranges et d'ardoises.",
   "@themePaletteTangerineDescription": {
     "description": "Description of the Tangerine palette."
-  },
-  "@onboardStartTitle": {
-    "description": "Onboarding card: start chatting title.",
-    "placeholders": {
-      "username": {
-        "type": "String",
-        "example": "Alex"
-      }
-    }
   },
   "@notAnImageFile": {
     "description": "Error when a referenced file is not an image.",

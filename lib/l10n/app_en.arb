@@ -364,87 +364,15 @@
   "@genericSignInFailed": {
     "description": "Fallback sign-in error when no specific cause is known."
   },
-  "skip": "Skip",
-  "@skip": {
-    "description": "Onboarding: skip current step."
-  },
-  "next": "Next",
-  "@next": {
-    "description": "Onboarding: go to the next step."
-  },
-  "done": "Done",
-  "@done": {
-    "description": "Onboarding: finish the flow."
-  },
-  "onboardStartTitle": "Hello, {username}",
-  "@onboardStartTitle": {
-    "description": "Onboarding card: start chatting title.",
+  "greetingTitle": "Hello, {username}",
+  "@greetingTitle": {
+    "description": "Greeting shown on the empty chat page.",
     "placeholders": {
       "username": {
         "type": "String",
         "example": "Alex"
       }
     }
-  },
-  "onboardStartSubtitle": "Choose a model to get started. Tap New Chat anytime.",
-  "@onboardStartSubtitle": {
-    "description": "Onboarding card: brief guidance to begin a chat."
-  },
-  "onboardStartBullet1": "Tap the model name in the top bar to switch models",
-  "@onboardStartBullet1": {
-    "description": "Bullet: how to switch models."
-  },
-  "onboardStartBullet2": "Use New Chat to reset context",
-  "@onboardStartBullet2": {
-    "description": "Bullet: how to reset context."
-  },
-  "onboardAttachTitle": "Add context",
-  "@onboardAttachTitle": {
-    "description": "Onboarding card: attach context title."
-  },
-  "onboardAttachSubtitle": "Ground replies with content from Workspace or photos.",
-  "@onboardAttachSubtitle": {
-    "description": "Onboarding card: why attaching context helps."
-  },
-  "onboardAttachBullet1": "Workspace: PDFs, docs, datasets",
-  "@onboardAttachBullet1": {
-    "description": "Bullet: types of workspace files."
-  },
-  "onboardAttachBullet2": "Photos: camera or library",
-  "@onboardAttachBullet2": {
-    "description": "Bullet: photo sources supported."
-  },
-  "onboardSpeakTitle": "Speak naturally",
-  "@onboardSpeakTitle": {
-    "description": "Onboarding card: voice input title."
-  },
-  "onboardSpeakSubtitle": "Tap the mic to dictate with live waveform feedback.",
-  "@onboardSpeakSubtitle": {
-    "description": "Onboarding card: how voice input works."
-  },
-  "onboardSpeakBullet1": "Stop anytime; partial text is preserved",
-  "@onboardSpeakBullet1": {
-    "description": "Bullet: stop dictation preserves text."
-  },
-  "onboardSpeakBullet2": "Great for quick notes or long prompts",
-  "@onboardSpeakBullet2": {
-    "description": "Bullet: benefits of voice input."
-  },
-  "onboardQuickTitle": "Quick actions",
-  "@onboardQuickTitle": {
-    "description": "Onboarding card: quick actions title."
-  },
-  "onboardQuickSubtitle": "Open the menu to switch between Chats, Workspace, and Profile.",
-  "@onboardQuickSubtitle": {
-    "description": "Onboarding card: how to use the app menu."
-  },
-  "onboardQuickBullet1": "Tap the menu to access Chats, Workspace, Profile",
-  "@onboardQuickBullet1": {
-    "description": "Bullet: menu access to sections."
-  },
-  "onboardQuickBullet2": "Start New Chat or manage models from the top bar",
-  "@onboardQuickBullet2": {
-    "description": "Bullet: actions available in the top bar."
   },
   "attachmentLabel": "Attachment",
   "@attachmentLabel": {

@@ -98,7 +98,6 @@ class PersistenceMigrator {
     copyString(PreferenceKeys.themeMode);
     copyString(PreferenceKeys.themePalette);
     copyString(PreferenceKeys.localeCode);
-    copyBool(PreferenceKeys.onboardingSeen);
     copyBool(PreferenceKeys.reviewerMode);
 
     if (updates.isNotEmpty) {
@@ -220,7 +219,6 @@ class PersistenceMigrator {
       PreferenceKeys.themeMode,
       PreferenceKeys.themePalette,
       PreferenceKeys.localeCode,
-      PreferenceKeys.onboardingSeen,
       PreferenceKeys.reviewerMode,
       HiveStoreKeys.localConversations,
       HiveStoreKeys.localFolders,

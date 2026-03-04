@@ -15,9 +15,6 @@ import '../services/quick_actions_service.dart';
 import '../models/conversation.dart';
 import '../services/background_streaming_handler.dart';
 import '../services/socket_service.dart';
-import '../../features/onboarding/views/onboarding_sheet.dart';
-import '../../features/chat/providers/chat_providers.dart';
-import '../../shared/theme/theme_extensions.dart';
 import '../services/connectivity_service.dart';
 import '../utils/debug_logger.dart';
 import '../models/server_config.dart';
@@ -394,8 +391,6 @@ class AppStartupFlow extends _$AppStartupFlow {
             // Kick background chat warmup now that we're authenticated
             _scheduleConversationWarmup(ref, force: true);
 
-            // Show onboarding once when user reaches chat and hasn't seen it yet
-            await _maybeShowOnboarding(ref);
           } catch (e) {
             DebugLogger.error(
               'startup-flow-failed',
@@ -674,56 +669,3 @@ class _SocketPersistenceObserver extends WidgetsBindingObserver {
   }
 }
 
-Future<void> _maybeShowOnboarding(Ref ref) async {
-  try {
-    final storage = ref.read(optimizedStorageServiceProvider);
-    final seen = await storage.getOnboardingSeen();
-    if (seen) return;
-
-    // Small delay to allow initial navigation/frame to settle
-    await Future.delayed(const Duration(milliseconds: 300));
-
-    // Only surface onboarding on the chat route to avoid interrupting flows
-    if (NavigationService.currentRoute != Routes.chat) return;
-
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final navContext = NavigationService.navigatorKey.currentContext;
-      if (navContext == null) return;
-
-      try {
-        ref.read(composerAutofocusEnabledProvider.notifier).set(false);
-      } catch (_) {}
-      try {
-        FocusManager.instance.primaryFocus?.unfocus();
-        SystemChannels.textInput.invokeMethod('TextInput.hide');
-      } catch (_) {}
-
-      // Show onboarding sheet
-      final sheetFuture = showModalBottomSheet(
-        context: navContext,
-        backgroundColor: Colors.transparent,
-        isScrollControlled: true,
-        builder: (context) => Container(
-          decoration: BoxDecoration(
-            color: context.conduitTheme.surfaceBackground,
-            borderRadius: const BorderRadius.vertical(
-              top: Radius.circular(AppBorderRadius.modal),
-            ),
-            boxShadow: ConduitShadows.modal(context),
-          ),
-          child: const OnboardingSheet(),
-        ),
-      );
-      sheetFuture.whenComplete(() {
-        try {
-          ref.read(composerAutofocusEnabledProvider.notifier).set(true);
-        } catch (_) {}
-      });
-
-      await storage.setOnboardingSeen(true);
-    });
-  } catch (e) {
-    // Best-effort only; never fail app startup due to onboarding
-    DebugLogger.warning('StartupFlow: onboarding display failed: $e');
-  }
-}

@@ -83,25 +83,6 @@
   "unableToConnectServer": "無法連接到服務器。請檢查您的連接。",
   "requestTimedOut": "請求超時。請重試。",
   "genericSignInFailed": "我們無法讓您登錄。請檢查您的憑據和服務器設置。",
-  "skip": "跳過",
-  "next": "下一步",
-  "done": "完成",
-  "onboardStartTitle": "你好，{username}",
-  "onboardStartSubtitle": "選擇一個模型以開始。隨時點擊新對話。",
-  "onboardStartBullet1": "點擊頂部欄中的模型名稱以切換模型",
-  "onboardStartBullet2": "使用新對話重置上下文",
-  "onboardAttachTitle": "添加上下文",
-  "onboardAttachSubtitle": "使用工作區或照片中的內容來支持回覆。",
-  "onboardAttachBullet1": "工作區：PDF、文檔、數據集",
-  "onboardAttachBullet2": "照片：相機或相冊",
-  "onboardSpeakTitle": "自然說話",
-  "onboardSpeakSubtitle": "點擊麥克風以實時波形反饋聽寫。",
-  "onboardSpeakBullet1": "隨時停止；部分文本會保留",
-  "onboardSpeakBullet2": "非常適合快速筆記或長提示",
-  "onboardQuickTitle": "快速操作",
-  "onboardQuickSubtitle": "打開菜單在對話、工作區和個人資料之間切換。",
-  "onboardQuickBullet1": "點擊菜單訪問對話、工作區、個人資料",
-  "onboardQuickBullet2": "從頂部欄開始新對話或管理模型",
   "attachmentLabel": "附件",
   "tools": "工具",
   "filters": "過濾器",
@@ -689,15 +670,6 @@
   "themePaletteTangerineDescription": "溫暖的橙色與石板色調。",
   "@themePaletteTangerineDescription": {
     "description": "Description of the Tangerine palette."
-  },
-  "@onboardStartTitle": {
-    "description": "Onboarding card: start chatting title.",
-    "placeholders": {
-      "username": {
-        "type": "String",
-        "example": "Alex"
-      }
-    }
   },
   "@notAnImageFile": {
     "description": "Error when a referenced file is not an image.",

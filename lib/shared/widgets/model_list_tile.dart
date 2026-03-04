@@ -101,8 +101,8 @@ class ModelListTile extends StatelessWidget {
     final Widget leading;
     if (isAutoSelect) {
       leading = Container(
-        width: 28,
-        height: 28,
+        width: 32,
+        height: 32,
         decoration: BoxDecoration(
           color: theme.buttonPrimary.withValues(alpha: 0.15),
           borderRadius: BorderRadius.circular(AppBorderRadius.xs),
@@ -110,11 +110,11 @@ class ModelListTile extends StatelessWidget {
         child: Icon(
           Platform.isIOS ? CupertinoIcons.wand_stars : Icons.auto_awesome,
           color: theme.buttonPrimary,
-          size: 14,
+          size: IconSize.small,
         ),
       );
     } else {
-      leading = ModelAvatar(size: 28, imageUrl: iconUrl, label: model.name);
+      leading = ModelAvatar(size: 32, imageUrl: iconUrl, label: model.name);
     }
 
     final hasCapabilities =
@@ -163,7 +163,7 @@ class ModelListTile extends StatelessWidget {
                           fontWeight: isSelected
                               ? FontWeight.w600
                               : FontWeight.w400,
-                          fontSize: AppTypography.bodySmall,
+                          fontSize: AppTypography.bodyMedium,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -208,7 +208,7 @@ class ModelListTile extends StatelessWidget {
                         ? CupertinoIcons.check_mark
                         : Icons.check,
                     color: theme.buttonPrimary,
-                    size: IconSize.small,
+                    size: IconSize.medium,
                   ),
                 ],
               ],

@@ -83,25 +83,6 @@
   "unableToConnectServer": "Kan geen verbinding maken met server. Controleer je verbinding.",
   "requestTimedOut": "Het verzoek is verlopen. Probeer het opnieuw.",
   "genericSignInFailed": "We konden je niet inloggen. Controleer je inloggegevens en serverinstellingen.",
-  "skip": "Overslaan",
-  "next": "Volgende",
-  "done": "Klaar",
-  "onboardStartTitle": "Hallo, {username}",
-  "onboardStartSubtitle": "Kies een model om te beginnen. Tik op Nieuwe chat wanneer je maar wilt.",
-  "onboardStartBullet1": "Tik op de modelnaam in de bovenbalk om van model te wisselen",
-  "onboardStartBullet2": "Gebruik Nieuwe chat om de context te resetten",
-  "onboardAttachTitle": "Context toevoegen",
-  "onboardAttachSubtitle": "Onderbouw antwoorden met inhoud uit de werkruimte of foto's.",
-  "onboardAttachBullet1": "Werkruimte: PDF's, documenten, datasets",
-  "onboardAttachBullet2": "Foto's: camera of galerij",
-  "onboardSpeakTitle": "Spreek natuurlijk",
-  "onboardSpeakSubtitle": "Tik op de microfoon om te dicteren met live golfvormfeedback.",
-  "onboardSpeakBullet1": "Stop op elk moment; gedeeltelijke tekst wordt bewaard",
-  "onboardSpeakBullet2": "Geweldig voor snelle notities of lange prompts",
-  "onboardQuickTitle": "Snelle acties",
-  "onboardQuickSubtitle": "Open het menu om te schakelen tussen Chats, Werkruimte en Profiel.",
-  "onboardQuickBullet1": "Tik op het menu voor toegang tot Chats, Werkruimte, Profiel",
-  "onboardQuickBullet2": "Start Nieuwe chat of beheer modellen vanuit de bovenbalk",
   "attachmentLabel": "Bijlage",
   "tools": "Hulpmiddelen",
   "filters": "Filters",
@@ -689,15 +670,6 @@
   "themePaletteTangerineDescription": "Warm oranje-en-leisteenpalet.",
   "@themePaletteTangerineDescription": {
     "description": "Description of the Tangerine palette."
-  },
-  "@onboardStartTitle": {
-    "description": "Onboarding card: start chatting title.",
-    "placeholders": {
-      "username": {
-        "type": "String",
-        "example": "Alex"
-      }
-    }
   },
   "@notAnImageFile": {
     "description": "Error when a referenced file is not an image.",

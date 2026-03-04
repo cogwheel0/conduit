@@ -83,25 +83,6 @@
   "unableToConnectServer": "Impossibile connettersi al server. Controlla la connessione.",
   "requestTimedOut": "Richiesta scaduta. Riprova.",
   "genericSignInFailed": "Impossibile accedere. Controlla credenziali e server.",
-  "skip": "Salta",
-  "next": "Avanti",
-  "done": "Fatto",
-  "onboardStartTitle": "Ciao, {username}",
-  "onboardStartSubtitle": "Scegli un modello per iniziare. Tocca Nuova chat in qualsiasi momento.",
-  "onboardStartBullet1": "Tocca il nome del modello in alto per cambiare",
-  "onboardStartBullet2": "Usa Nuova chat per azzerare il contesto",
-  "onboardAttachTitle": "Aggiungi contesto",
-  "onboardAttachSubtitle": "Collega le risposte a Workspace o alle foto.",
-  "onboardAttachBullet1": "Workspace: PDF, documenti, dataset",
-  "onboardAttachBullet2": "Foto: fotocamera o libreria",
-  "onboardSpeakTitle": "Parla in modo naturale",
-  "onboardSpeakSubtitle": "Tocca il microfono per dettare con feedback visivo.",
-  "onboardSpeakBullet1": "Interrompi in qualsiasi momento; il testo parziale viene mantenuto",
-  "onboardSpeakBullet2": "Ottimo per note rapide o prompt lunghi",
-  "onboardQuickTitle": "Azioni rapide",
-  "onboardQuickSubtitle": "Apri il menu per passare tra Chat, Workspace e Profilo.",
-  "onboardQuickBullet1": "Tocca il menu per accedere a Chat, Workspace, Profilo",
-  "onboardQuickBullet2": "Avvia Nuova chat o gestisci i modelli dalla barra",
   "attachmentLabel": "Allegato",
   "tools": "Strumenti",
   "filters": "Filtri",
@@ -689,15 +670,6 @@
   "themePaletteTangerineDescription": "Palette calda arancione e ardesia.",
   "@themePaletteTangerineDescription": {
     "description": "Description of the Tangerine palette."
-  },
-  "@onboardStartTitle": {
-    "description": "Onboarding card: start chatting title.",
-    "placeholders": {
-      "username": {
-        "type": "String",
-        "example": "Alex"
-      }
-    }
   },
   "@notAnImageFile": {
     "description": "Error when a referenced file is not an image.",

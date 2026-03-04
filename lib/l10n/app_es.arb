@@ -83,25 +83,6 @@
   "unableToConnectServer": "No se puede conectar al servidor. Por favor, verifica tu conexión.",
   "requestTimedOut": "Se agotó el tiempo de espera de la solicitud. Por favor, inténtalo de nuevo.",
   "genericSignInFailed": "No pudimos iniciar tu sesión. Verifica tus credenciales y configuración del servidor.",
-  "skip": "Omitir",
-  "next": "Siguiente",
-  "done": "Listo",
-  "onboardStartTitle": "Hola, {username}",
-  "onboardStartSubtitle": "Elige un modelo para comenzar. Toca Nueva conversación cuando quieras.",
-  "onboardStartBullet1": "Toca el nombre del modelo en la barra superior para cambiar modelos",
-  "onboardStartBullet2": "Usa Nueva conversación para restablecer el contexto",
-  "onboardAttachTitle": "Añadir contexto",
-  "onboardAttachSubtitle": "Fundamenta las respuestas con contenido del espacio de trabajo o fotos.",
-  "onboardAttachBullet1": "Espacio de trabajo: PDFs, documentos, conjuntos de datos",
-  "onboardAttachBullet2": "Fotos: cámara o galería",
-  "onboardSpeakTitle": "Habla naturalmente",
-  "onboardSpeakSubtitle": "Toca el micrófono para dictar con retroalimentación de forma de onda en vivo.",
-  "onboardSpeakBullet1": "Detente en cualquier momento; el texto parcial se conserva",
-  "onboardSpeakBullet2": "Genial para notas rápidas o prompts largos",
-  "onboardQuickTitle": "Acciones rápidas",
-  "onboardQuickSubtitle": "Abre el menú para cambiar entre Conversaciones, Espacio de trabajo y Perfil.",
-  "onboardQuickBullet1": "Toca el menú para acceder a Conversaciones, Espacio de trabajo, Perfil",
-  "onboardQuickBullet2": "Inicia Nueva conversación o gestiona modelos desde la barra superior",
   "attachmentLabel": "Adjunto",
   "tools": "Herramientas",
   "filters": "Filtros",
@@ -689,15 +670,6 @@
   "themePaletteTangerineDescription": "Paleta cálida de tonos naranja y gris pizarra.",
   "@themePaletteTangerineDescription": {
     "description": "Description of the Tangerine palette."
-  },
-  "@onboardStartTitle": {
-    "description": "Onboarding card: start chatting title.",
-    "placeholders": {
-      "username": {
-        "type": "String",
-        "example": "Alex"
-      }
-    }
   },
   "@notAnImageFile": {
     "description": "Error when a referenced file is not an image.",

@@ -57,7 +57,6 @@ class OptimizedStorageService {
   static const String _localDefaultModelKey = HiveStoreKeys.localDefaultModel;
   static const String _localModelsKey = HiveStoreKeys.localModels;
   static const String _localFoldersKey = HiveStoreKeys.localFolders;
-  static const String _onboardingSeenKey = PreferenceKeys.onboardingSeen;
   static const String _reviewerModeKey = PreferenceKeys.reviewerMode;
   // Longer TTLs to reduce secure storage churn for OpenWebUI sessions.
   static const Duration _authTokenTtl = Duration(hours: 12);
@@ -294,14 +293,6 @@ class OptimizedStorageService {
     } else {
       await _preferencesBox.put(_localeCodeKey, code);
     }
-  }
-
-  Future<bool> getOnboardingSeen() async {
-    return (_preferencesBox.get(_onboardingSeenKey) as bool?) ?? false;
-  }
-
-  Future<void> setOnboardingSeen(bool seen) async {
-    await _preferencesBox.put(_onboardingSeenKey, seen);
   }
 
   Future<bool> getReviewerMode() async {

@@ -83,25 +83,6 @@
   "unableToConnectServer": "Не удается подключиться к серверу. Пожалуйста, проверьте соединение.",
   "requestTimedOut": "Время ожидания запроса истекло. Пожалуйста, попробуйте еще раз.",
   "genericSignInFailed": "Не удалось войти. Проверьте учетные данные и настройки сервера.",
-  "skip": "Пропустить",
-  "next": "Далее",
-  "done": "Готово",
-  "onboardStartTitle": "Здравствуйте, {username}",
-  "onboardStartSubtitle": "Выберите модель для начала. Нажмите «Новый чат» в любое время.",
-  "onboardStartBullet1": "Нажмите на имя модели в верхней панели для переключения моделей",
-  "onboardStartBullet2": "Используйте «Новый чат» для сброса контекста",
-  "onboardAttachTitle": "Добавить контекст",
-  "onboardAttachSubtitle": "Обоснуйте ответы содержимым из рабочего пространства или фотографиями.",
-  "onboardAttachBullet1": "Рабочее пространство: PDF, документы, наборы данных",
-  "onboardAttachBullet2": "Фотографии: камера или галерея",
-  "onboardSpeakTitle": "Говорите естественно",
-  "onboardSpeakSubtitle": "Нажмите на микрофон для диктовки с визуализацией формы волны в реальном времени.",
-  "onboardSpeakBullet1": "Остановитесь в любое время; частичный текст сохранится",
-  "onboardSpeakBullet2": "Отлично подходит для быстрых заметок или длинных запросов",
-  "onboardQuickTitle": "Быстрые действия",
-  "onboardQuickSubtitle": "Откройте меню для переключения между чатами, рабочим пространством и профилем.",
-  "onboardQuickBullet1": "Нажмите на меню для доступа к чатам, рабочему пространству, профилю",
-  "onboardQuickBullet2": "Начните новый чат или управляйте моделями из верхней панели",
   "attachmentLabel": "Вложение",
   "tools": "Инструменты",
   "filters": "Фильтры",
@@ -689,15 +670,6 @@
   "themePaletteTangerineDescription": "Тёплая палитра оранжевых и сланцевых оттенков.",
   "@themePaletteTangerineDescription": {
     "description": "Description of the Tangerine palette."
-  },
-  "@onboardStartTitle": {
-    "description": "Onboarding card: start chatting title.",
-    "placeholders": {
-      "username": {
-        "type": "String",
-        "example": "Alex"
-      }
-    }
   },
   "@notAnImageFile": {
     "description": "Error when a referenced file is not an image.",

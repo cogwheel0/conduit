@@ -59,7 +59,7 @@ class ToggleTile extends StatelessWidget {
                 children: [
                   Text(
                     title,
-                    style: theme.bodyMedium?.copyWith(
+                    style: theme.bodySmall?.copyWith(
                       color: theme.sidebarForeground,
                       fontWeight: FontWeight.w600,
                     ),
@@ -72,7 +72,7 @@ class ToggleTile extends StatelessWidget {
                       subtitle!,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: theme.bodySmall?.copyWith(
+                      style: AppTypography.captionStyle.copyWith(
                         color: theme.sidebarForeground.withValues(
                           alpha: 0.75,
                         ),

@@ -1715,7 +1715,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
             : null,
         size: buttonSize,
         isProminent: isActive,
-        child: Icon(overflowIcon, size: IconSize.medium, color: iconColor),
+        child: Icon(overflowIcon, size: IconSize.large, color: iconColor),
       ),
     );
   }
@@ -1728,7 +1728,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         padding: const EdgeInsets.all(Spacing.xs),
         child: Icon(
           Icons.open_in_full,
-          size: IconSize.medium,
+          size: IconSize.large,
           color: context.conduitTheme.textSecondary.withValues(alpha: 0.7),
         ),
       ),
@@ -1789,7 +1789,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           color: context.conduitTheme.error,
           child: Icon(
             Platform.isIOS ? CupertinoIcons.stop_fill : Icons.stop,
-            size: dense ? IconSize.small + 1 : IconSize.medium,
+            size: dense ? IconSize.medium : IconSize.large,
             color: context.conduitTheme.error,
           ),
         ),
@@ -1815,7 +1815,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
             )
           : Icon(
               CupertinoIcons.arrow_up,
-              size: IconSize.medium,
+              size: IconSize.large,
               color: enabled
                   ? context.conduitTheme.buttonPrimaryText
                   : context.conduitTheme.textPrimary.withValues(
@@ -1852,7 +1852,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         isProminent: true,
         child: Icon(
           Platform.isIOS ? CupertinoIcons.waveform : Icons.graphic_eq,
-          size: dense ? IconSize.small + 1 : IconSize.medium,
+          size: dense ? IconSize.medium : IconSize.large,
           color: enabledVoiceCall
               ? context.conduitTheme.buttonPrimaryText
               : context.conduitTheme.textPrimary.withValues(

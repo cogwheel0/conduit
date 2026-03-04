@@ -124,34 +124,6 @@
   "unableToConnectServer": "서버에 연결할 수 없습니다. 연결을 확인해주세요.",
   "requestTimedOut": "요청 시간이 초과되었습니다. 다시 시도해주세요.",
   "genericSignInFailed": "로그인할 수 없습니다. 자격 증명과 서버 설정을 확인하세요.",
-  "skip": "건너뛰기",
-  "next": "다음",
-  "done": "완료",
-  "onboardStartTitle": "안녕하세요, {username}",
-  "@onboardStartTitle": {
-    "description": "Onboarding card: start chatting title.",
-    "placeholders": {
-      "username": {
-        "type": "String",
-        "example": "Alex"
-      }
-    }
-  },
-  "onboardStartSubtitle": "모델을 선택하여 시작하세요. 언제든지 새 채팅을 탭하세요.",
-  "onboardStartBullet1": "상단 바의 모델 이름을 탭하여 모델 전환",
-  "onboardStartBullet2": "새 채팅을 사용하여 컨텍스트 재설정",
-  "onboardAttachTitle": "컨텍스트 추가",
-  "onboardAttachSubtitle": "작업 공간 또는 사진의 콘텐츠로 답변에 근거를 둡니다.",
-  "onboardAttachBullet1": "작업 공간: PDF, 문서, 데이터셋",
-  "onboardAttachBullet2": "사진: 카메라 또는 갤러리",
-  "onboardSpeakTitle": "자연스럽게 말하기",
-  "onboardSpeakSubtitle": "마이크를 탭하여 실시간 파형 피드백으로 받아쓰기",
-  "onboardSpeakBullet1": "언제든지 중지 가능; 부분 텍스트는 보존됨",
-  "onboardSpeakBullet2": "빠른 메모나 긴 프롬프트에 적합",
-  "onboardQuickTitle": "빠른 작업",
-  "onboardQuickSubtitle": "메뉴를 열어 채팅, 작업 공간, 프로필 사이를 전환하세요.",
-  "onboardQuickBullet1": "메뉴를 탭하여 채팅, 작업 공간, 프로필 액세스",
-  "onboardQuickBullet2": "상단 바에서 새 채팅 시작 또는 모델 관리",
   "attachmentLabel": "첨부",
   "tools": "도구",
   "filters": "필터",
