@@ -6,8 +6,6 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/models/socket_health.dart';
-import '../../../core/services/socket_service.dart';
 import '../../../core/services/settings_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/theme/tweakcn_themes.dart';
@@ -19,6 +17,10 @@ import '../../../core/providers/app_providers.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../chat/providers/text_to_speech_provider.dart';
 import '../../chat/services/voice_input_service.dart';
+import '../widgets/adaptive_segmented_selector.dart';
+import '../widgets/customization_tile.dart';
+import '../widgets/expandable_card.dart';
+import '../widgets/socket_health_card.dart';
 
 const _sectionGap = SizedBox(height: Spacing.lg);
 
@@ -109,7 +111,7 @@ class AppCustomizationPage extends ConsumerWidget {
       children: [
         _SectionHeader(title: AppLocalizations.of(context)!.display),
         const SizedBox(height: Spacing.sm),
-        _ExpandableCard(
+        ExpandableCard(
           title: AppLocalizations.of(context)!.darkMode,
           subtitle: themeDescription,
           icon: UiUtils.platformIcon(
@@ -119,7 +121,7 @@ class AppCustomizationPage extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _ThemeModeSegmentedControl(
+              ThemeModeSegmentedControl(
                 value: themeMode,
                 onChanged: (mode) {
                   ref.read(appThemeModeProvider.notifier).setTheme(mode);
@@ -149,7 +151,7 @@ class AppCustomizationPage extends ConsumerWidget {
       children: [
         _SectionHeader(title: AppLocalizations.of(context)!.appLanguage),
         const SizedBox(height: Spacing.sm),
-        _CustomizationTile(
+        CustomizationTile(
           leading: _buildIconBadge(
             context,
             UiUtils.platformIcon(
@@ -188,7 +190,7 @@ class AppCustomizationPage extends ConsumerWidget {
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
 
-    return _CustomizationTile(
+    return CustomizationTile(
       leading: _buildIconBadge(
         context,
         UiUtils.platformIcon(
@@ -285,7 +287,7 @@ class AppCustomizationPage extends ConsumerWidget {
         ),
     ];
 
-    return _ExpandableCard(
+    return ExpandableCard(
       title: l10n.quickActionsDescription,
       subtitle: selectedCountText,
       icon: UiUtils.platformIcon(
@@ -395,7 +397,7 @@ class AppCustomizationPage extends ConsumerWidget {
       children: [
         _SectionHeader(title: l10n.chatSettings),
         const SizedBox(height: Spacing.sm),
-        _CustomizationTile(
+        CustomizationTile(
           leading: _buildIconBadge(
             context,
             UiUtils.platformIcon(
@@ -427,7 +429,7 @@ class AppCustomizationPage extends ConsumerWidget {
               transportAvailability.allowWebsocketOnly,
         ),
         const SizedBox(height: Spacing.sm),
-        _CustomizationTile(
+        CustomizationTile(
           leading: _buildIconBadge(
             context,
             Platform.isIOS ? CupertinoIcons.paperplane : Icons.keyboard_return,
@@ -447,7 +449,7 @@ class AppCustomizationPage extends ConsumerWidget {
         ),
         if (Platform.isAndroid) ...[
           const SizedBox(height: Spacing.sm),
-          _CustomizationTile(
+          CustomizationTile(
             leading: _buildIconBadge(
               context,
               Icons.assistant,
@@ -475,7 +477,7 @@ class AppCustomizationPage extends ConsumerWidget {
       children: [
         const _SectionHeader(title: 'Connection Health'),
         const SizedBox(height: Spacing.sm),
-        _SocketHealthCard(socketService: socketService),
+        SocketHealthCard(socketService: socketService),
       ],
     );
   }
@@ -701,7 +703,7 @@ class AppCustomizationPage extends ConsumerWidget {
                 ],
               ),
               const SizedBox(height: Spacing.sm),
-              _AdaptiveSegmentedSelector<SttPreference>(
+              AdaptiveSegmentedSelector<SttPreference>(
                 value: settings.sttPreference,
                 onChanged: notifier.setSttPreference,
                 options: [
@@ -915,7 +917,7 @@ class AppCustomizationPage extends ConsumerWidget {
                 ],
               ),
               const SizedBox(height: Spacing.sm),
-              _AdaptiveSegmentedSelector<TtsEngine>(
+              AdaptiveSegmentedSelector<TtsEngine>(
                 value: settings.ttsEngine,
                 onChanged: (engine) {
                   final notifier = ref.read(appSettingsProvider.notifier);
@@ -982,7 +984,7 @@ class AppCustomizationPage extends ConsumerWidget {
           ),
         ),
         const SizedBox(height: Spacing.sm),
-        _ExpandableCard(
+        ExpandableCard(
           title: l10n.ttsVoice,
           subtitle: _ttsVoiceSubtitle(l10n, settings),
           icon: UiUtils.platformIcon(
@@ -993,7 +995,7 @@ class AppCustomizationPage extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // Voice Selection
-              _CustomizationTile(
+              CustomizationTile(
                 leading: _buildIconBadge(
                   context,
                   UiUtils.platformIcon(
@@ -1029,7 +1031,7 @@ class AppCustomizationPage extends ConsumerWidget {
               ],
               const SizedBox(height: Spacing.md),
               // Preview Button
-              _CustomizationTile(
+              CustomizationTile(
                 leading: _buildIconBadge(
                   context,
                   UiUtils.platformIcon(
@@ -2159,701 +2161,4 @@ class _SheetHeader extends StatelessWidget {
   }
 }
 
-class _AdaptiveSegmentedSelector<T extends Object> extends StatelessWidget {
-  const _AdaptiveSegmentedSelector({
-    required this.value,
-    required this.onChanged,
-    required this.options,
-  });
 
-  final T value;
-  final ValueChanged<T> onChanged;
-  final List<
-    ({
-      T value,
-      String label,
-      IconData cupertinoIcon,
-      IconData materialIcon,
-      bool enabled,
-    })
-  >
-  options;
-
-  @override
-  Widget build(BuildContext context) {
-    final isCupertino =
-        Platform.isIOS || Theme.of(context).platform == TargetPlatform.macOS;
-
-    if (isCupertino) {
-      return CupertinoSlidingSegmentedControl<T>(
-        groupValue: value,
-        disabledChildren: {
-          for (final option in options)
-            if (!option.enabled) option.value,
-        },
-        onValueChanged: (next) {
-          if (next == null) return;
-          final selected = options.any(
-            (option) => option.value == next && option.enabled,
-          );
-          if (selected) {
-            onChanged(next);
-          }
-        },
-        children: {
-          for (final option in options)
-            option.value: _ThemeModeSegmentLabel(
-              icon: option.cupertinoIcon,
-              label: option.label,
-            ),
-        },
-      );
-    }
-
-    return SegmentedButton<T>(
-      selected: {value},
-      showSelectedIcon: false,
-      segments: [
-        for (final option in options)
-          ButtonSegment<T>(
-            value: option.value,
-            icon: Icon(option.materialIcon),
-            label: Text(option.label),
-            enabled: option.enabled,
-          ),
-      ],
-      onSelectionChanged: (selection) {
-        if (selection.isEmpty) return;
-        final next = selection.first;
-        final selected = options.any(
-          (option) => option.value == next && option.enabled,
-        );
-        if (selected) {
-          onChanged(next);
-        }
-      },
-    );
-  }
-}
-
-class _ThemeModeSegmentedControl extends StatelessWidget {
-  const _ThemeModeSegmentedControl({
-    required this.value,
-    required this.onChanged,
-  });
-
-  final ThemeMode value;
-  final ValueChanged<ThemeMode> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final isCupertino =
-        Platform.isIOS || Theme.of(context).platform == TargetPlatform.macOS;
-
-    if (isCupertino) {
-      return CupertinoSlidingSegmentedControl<ThemeMode>(
-        groupValue: value,
-        onValueChanged: (next) {
-          if (next != null) {
-            onChanged(next);
-          }
-        },
-        children: {
-          ThemeMode.system: _ThemeModeSegmentLabel(
-            icon: CupertinoIcons.sparkles,
-            label: l10n.system,
-          ),
-          ThemeMode.light: _ThemeModeSegmentLabel(
-            icon: CupertinoIcons.sun_max,
-            label: l10n.themeLight,
-          ),
-          ThemeMode.dark: _ThemeModeSegmentLabel(
-            icon: CupertinoIcons.moon_fill,
-            label: l10n.themeDark,
-          ),
-        },
-      );
-    }
-
-    return SegmentedButton<ThemeMode>(
-      selected: {value},
-      segments: [
-        ButtonSegment<ThemeMode>(
-          value: ThemeMode.system,
-          icon: const Icon(Icons.auto_mode),
-          label: Text(l10n.system),
-        ),
-        ButtonSegment<ThemeMode>(
-          value: ThemeMode.light,
-          icon: const Icon(Icons.light_mode),
-          label: Text(l10n.themeLight),
-        ),
-        ButtonSegment<ThemeMode>(
-          value: ThemeMode.dark,
-          icon: const Icon(Icons.dark_mode),
-          label: Text(l10n.themeDark),
-        ),
-      ],
-      showSelectedIcon: false,
-      onSelectionChanged: (selection) {
-        if (selection.isNotEmpty) {
-          onChanged(selection.first);
-        }
-      },
-    );
-  }
-}
-
-class _ThemeModeSegmentLabel extends StatelessWidget {
-  const _ThemeModeSegmentLabel({required this.icon, required this.label});
-
-  final IconData icon;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: Spacing.sm,
-        vertical: Spacing.xs,
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: IconSize.small),
-          const SizedBox(width: Spacing.xs),
-          Text(label),
-        ],
-      ),
-    );
-  }
-}
-
-class _CustomizationTile extends StatelessWidget {
-  const _CustomizationTile({
-    required this.leading,
-    required this.title,
-    required this.subtitle,
-    this.trailing,
-    this.onTap,
-    this.showChevron = true,
-  });
-
-  final Widget leading;
-  final String title;
-  final String subtitle;
-  final Widget? trailing;
-  final VoidCallback? onTap;
-  final bool showChevron;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-    return ConduitCard(
-      padding: const EdgeInsets.all(Spacing.md),
-      onTap: onTap,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          leading,
-          const SizedBox(width: Spacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: theme.bodyMedium?.copyWith(
-                    color: theme.sidebarForeground,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: Spacing.xs),
-                Text(
-                  subtitle,
-                  style: theme.bodySmall?.copyWith(
-                    color: theme.sidebarForeground.withValues(alpha: 0.75),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (trailing != null) ...[
-            const SizedBox(width: Spacing.sm),
-            trailing!,
-          ] else if (showChevron && onTap != null) ...[
-            const SizedBox(width: Spacing.sm),
-            Icon(
-              UiUtils.platformIcon(
-                ios: CupertinoIcons.chevron_right,
-                android: Icons.chevron_right,
-              ),
-              color: theme.iconSecondary,
-              size: IconSize.small,
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-/// Expandable card widget for collapsible settings sections.
-class _ExpandableCard extends StatefulWidget {
-  const _ExpandableCard({
-    required this.title,
-    required this.subtitle,
-    required this.icon,
-    required this.child,
-  });
-
-  final String title;
-  final String subtitle;
-  final IconData icon;
-  final Widget child;
-
-  @override
-  State<_ExpandableCard> createState() => _ExpandableCardState();
-}
-
-class _ExpandableCardState extends State<_ExpandableCard>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _animationController;
-  late Animation<double> _rotationAnimation;
-  bool _isExpanded = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _animationController = AnimationController(
-      duration: const Duration(milliseconds: 300),
-      vsync: this,
-    );
-    _rotationAnimation = Tween<double>(begin: 0, end: 0.5).animate(
-      CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
-    );
-  }
-
-  @override
-  void dispose() {
-    _animationController.dispose();
-    super.dispose();
-  }
-
-  void _toggle() {
-    setState(() {
-      _isExpanded = !_isExpanded;
-    });
-    if (_isExpanded) {
-      _animationController.forward();
-    } else {
-      _animationController.reverse();
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-
-    return ConduitCard(
-      padding: EdgeInsets.zero,
-      onTap: _toggle,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(Spacing.md),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                // Icon badge
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: theme.buttonPrimary.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(AppBorderRadius.small),
-                    border: Border.all(
-                      color: theme.buttonPrimary.withValues(alpha: 0.2),
-                      width: BorderWidth.thin,
-                    ),
-                  ),
-                  alignment: Alignment.center,
-                  child: Icon(
-                    widget.icon,
-                    color: theme.buttonPrimary,
-                    size: IconSize.medium,
-                  ),
-                ),
-                const SizedBox(width: Spacing.md),
-                // Title and subtitle
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        widget.title,
-                        style: theme.bodyMedium?.copyWith(
-                          color: theme.sidebarForeground,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: Spacing.xs),
-                      Text(
-                        widget.subtitle,
-                        style: theme.bodySmall?.copyWith(
-                          color: theme.sidebarForeground.withValues(
-                            alpha: 0.75,
-                          ),
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: Spacing.sm),
-                // Expand/collapse icon
-                RotationTransition(
-                  turns: _rotationAnimation,
-                  child: Icon(
-                    UiUtils.platformIcon(
-                      ios: CupertinoIcons.chevron_down,
-                      android: Icons.expand_more,
-                    ),
-                    color: theme.iconSecondary,
-                    size: IconSize.small,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // Expandable content
-          if (_isExpanded) ...[
-            const Divider(height: 1),
-            Padding(
-              padding: const EdgeInsets.all(Spacing.md),
-              child: widget.child,
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-/// Widget that displays socket connection health with real-time updates.
-class _SocketHealthCard extends StatefulWidget {
-  const _SocketHealthCard({required this.socketService});
-
-  final SocketService socketService;
-
-  @override
-  State<_SocketHealthCard> createState() => _SocketHealthCardState();
-}
-
-class _SocketHealthCardState extends State<_SocketHealthCard> {
-  SocketHealth? _health;
-  StreamSubscription<SocketHealth>? _subscription;
-
-  @override
-  void initState() {
-    super.initState();
-    _initHealth();
-  }
-
-  void _initHealth() {
-    _health = widget.socketService.currentHealth;
-    _subscription = widget.socketService.healthStream.listen((health) {
-      if (mounted) {
-        setState(() => _health = health);
-      }
-    });
-  }
-
-  @override
-  void didUpdateWidget(covariant _SocketHealthCard oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.socketService != widget.socketService) {
-      _subscription?.cancel();
-      _initHealth();
-    }
-  }
-
-  @override
-  void dispose() {
-    _subscription?.cancel();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-    final health = _health;
-
-    if (health == null) {
-      return ConduitCard(
-        padding: const EdgeInsets.all(Spacing.md),
-        child: Row(
-          children: [
-            Icon(
-              Icons.cloud_off,
-              color: theme.iconSecondary,
-              size: IconSize.medium,
-            ),
-            const SizedBox(width: Spacing.md),
-            Text(
-              'Not connected',
-              style: theme.bodyMedium?.copyWith(color: theme.textSecondary),
-            ),
-          ],
-        ),
-      );
-    }
-
-    final statusColor = health.isConnected ? theme.success : theme.error;
-    final qualityColor = _getQualityColor(theme, health.quality);
-
-    return ConduitCard(
-      padding: const EdgeInsets.all(Spacing.md),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Connection Status Row
-          Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: statusColor.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(AppBorderRadius.small),
-                  border: Border.all(
-                    color: statusColor.withValues(alpha: 0.2),
-                    width: BorderWidth.thin,
-                  ),
-                ),
-                alignment: Alignment.center,
-                child: Icon(
-                  health.isConnected ? Icons.cloud_done : Icons.cloud_off,
-                  color: statusColor,
-                  size: IconSize.medium,
-                ),
-              ),
-              const SizedBox(width: Spacing.md),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      health.isConnected ? 'Connected' : 'Disconnected',
-                      style: theme.bodyMedium?.copyWith(
-                        color: theme.sidebarForeground,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: Spacing.xxs),
-                    Text(
-                      _getTransportLabel(health.transport),
-                      style: theme.bodySmall?.copyWith(
-                        color: theme.sidebarForeground.withValues(alpha: 0.75),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              // Connection quality indicator
-              if (health.isConnected && health.hasLatencyInfo)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: Spacing.sm,
-                    vertical: Spacing.xs,
-                  ),
-                  decoration: BoxDecoration(
-                    color: qualityColor.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(AppBorderRadius.small),
-                    border: Border.all(
-                      color: qualityColor.withValues(alpha: 0.3),
-                      width: BorderWidth.thin,
-                    ),
-                  ),
-                  child: Text(
-                    _getQualityLabel(health.quality),
-                    style: theme.bodySmall?.copyWith(
-                      color: qualityColor,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          if (health.isConnected) ...[
-            const SizedBox(height: Spacing.md),
-            const Divider(height: 1),
-            const SizedBox(height: Spacing.md),
-            // Metrics Grid
-            Row(
-              children: [
-                Expanded(
-                  child: _MetricTile(
-                    icon: Icons.speed,
-                    label: 'Latency',
-                    value: health.hasLatencyInfo
-                        ? '${health.latencyMs}ms'
-                        : '—',
-                    color: qualityColor,
-                  ),
-                ),
-                const SizedBox(width: Spacing.md),
-                Expanded(
-                  child: _MetricTile(
-                    icon: Icons.refresh,
-                    label: 'Reconnects',
-                    value: '${health.reconnectCount}',
-                    color: health.reconnectCount > 0
-                        ? theme.warning
-                        : theme.success,
-                  ),
-                ),
-              ],
-            ),
-            if (health.lastHeartbeat != null) ...[
-              const SizedBox(height: Spacing.md),
-              Row(
-                children: [
-                  Icon(
-                    Icons.favorite,
-                    color: theme.error.withValues(alpha: 0.7),
-                    size: IconSize.small,
-                  ),
-                  const SizedBox(width: Spacing.xs),
-                  Text(
-                    'Last heartbeat: ${_formatLastHeartbeat(health.lastHeartbeat!)}',
-                    style: theme.bodySmall?.copyWith(
-                      color: theme.sidebarForeground.withValues(alpha: 0.6),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ],
-        ],
-      ),
-    );
-  }
-
-  String _getTransportLabel(String transport) {
-    switch (transport) {
-      case 'websocket':
-        return 'WebSocket transport';
-      case 'polling':
-        return 'HTTP polling transport';
-      default:
-        return 'Unknown transport';
-    }
-  }
-
-  String _getQualityLabel(String quality) {
-    switch (quality) {
-      case 'excellent':
-        return 'Excellent';
-      case 'good':
-        return 'Good';
-      case 'fair':
-        return 'Fair';
-      case 'poor':
-        return 'Poor';
-      default:
-        return '—';
-    }
-  }
-
-  Color _getQualityColor(ConduitThemeExtension theme, String quality) {
-    switch (quality) {
-      case 'excellent':
-        return theme.success;
-      case 'good':
-        return theme.success.withValues(alpha: 0.8);
-      case 'fair':
-        return theme.warning;
-      case 'poor':
-        return theme.error;
-      default:
-        return theme.textSecondary;
-    }
-  }
-
-  String _formatLastHeartbeat(DateTime lastHeartbeat) {
-    final now = DateTime.now();
-    final diff = now.difference(lastHeartbeat);
-
-    if (diff.inSeconds < 5) {
-      return 'just now';
-    } else if (diff.inSeconds < 60) {
-      return '${diff.inSeconds}s ago';
-    } else if (diff.inMinutes < 60) {
-      return '${diff.inMinutes}m ago';
-    } else {
-      return '${diff.inHours}h ago';
-    }
-  }
-}
-
-class _MetricTile extends StatelessWidget {
-  const _MetricTile({
-    required this.icon,
-    required this.label,
-    required this.value,
-    required this.color,
-  });
-
-  final IconData icon;
-  final String label;
-  final String value;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-
-    return Container(
-      padding: const EdgeInsets.all(Spacing.sm),
-      decoration: BoxDecoration(
-        color: theme.cardBackground.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(AppBorderRadius.small),
-        border: Border.all(
-          color: theme.cardBorder.withValues(alpha: 0.3),
-          width: BorderWidth.thin,
-        ),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: color, size: IconSize.small),
-          const SizedBox(width: Spacing.xs),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: theme.bodySmall?.copyWith(
-                    color: theme.textSecondary,
-                    fontSize: 10,
-                  ),
-                ),
-                Text(
-                  value,
-                  style: theme.bodyMedium?.copyWith(
-                    color: color,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}

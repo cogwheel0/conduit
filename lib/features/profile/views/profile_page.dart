@@ -12,7 +12,6 @@ import '../../../shared/widgets/conduit_loading.dart';
 
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
-import '../../../shared/widgets/sheet_handle.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/navigation_service.dart';
@@ -23,14 +22,13 @@ import '../../../core/models/model.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/models/user.dart' as models;
 import 'dart:async';
-import 'dart:io';
-import '../../../shared/widgets/modal_safe_area.dart';
 import '../../../core/utils/user_display_name.dart';
 import '../../../core/utils/user_avatar_utils.dart';
 import '../../../core/utils/model_icon_utils.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../../../shared/widgets/model_avatar.dart';
-import '../../../shared/widgets/model_list_tile.dart';
+import '../widgets/default_model_sheet.dart';
+import '../widgets/profile_setting_tile.dart';
 
 /// Profile page (You tab) showing user info and main actions
 /// Enhanced with production-grade design tokens for better cohesion
@@ -186,7 +184,7 @@ class ProfilePage extends ConsumerWidget {
     required Color color,
   }) {
     final theme = context.conduitTheme;
-    return _ProfileSettingTile(
+    return ProfileSettingTile(
       onTap: () => _openExternalLink(context, url),
       leading: _buildIconBadge(context, icon, color: color),
       title: title,
@@ -376,7 +374,7 @@ class ProfilePage extends ConsumerWidget {
   }) {
     final theme = context.conduitTheme;
     final color = theme.buttonPrimary;
-    return _ProfileSettingTile(
+    return ProfileSettingTile(
       onTap: onTap,
       leading: _buildIconBadge(context, icon, color: color),
       title: title,
@@ -452,14 +450,14 @@ class ProfilePage extends ConsumerWidget {
           );
         }
 
-        return _ProfileSettingTile(
+        return ProfileSettingTile(
           leading: leading,
           title: AppLocalizations.of(context)!.defaultModel,
           subtitle: modelLabel,
           onTap: () => _showModelSelector(context, ref, models),
         );
       },
-      loading: () => _ProfileSettingTile(
+      loading: () => ProfileSettingTile(
         leading: _buildIconBadge(
           context,
           UiUtils.platformIcon(
@@ -482,7 +480,7 @@ class ProfilePage extends ConsumerWidget {
           ),
         ),
       ),
-      error: (error, stack) => _ProfileSettingTile(
+      error: (error, stack) => ProfileSettingTile(
         leading: _buildIconBadge(
           context,
           UiUtils.platformIcon(
@@ -619,7 +617,7 @@ class ProfilePage extends ConsumerWidget {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => _DefaultModelBottomSheet(
+      builder: (ctx) => DefaultModelBottomSheet(
         models: models,
         currentDefaultModelId: ref.read(appSettingsProvider).defaultModel,
       ),
@@ -654,359 +652,3 @@ class ProfilePage extends ConsumerWidget {
   }
 }
 
-class _ProfileSettingTile extends StatelessWidget {
-  const _ProfileSettingTile({
-    required this.leading,
-    required this.title,
-    required this.subtitle,
-    this.onTap,
-    this.trailing,
-    this.showChevron = true,
-  });
-
-  final Widget leading;
-  final String title;
-  final String subtitle;
-  final VoidCallback? onTap;
-  final Widget? trailing;
-  final bool showChevron;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-    final textColor = theme.sidebarForeground;
-    final subtitleColor = theme.sidebarForeground.withValues(alpha: 0.75);
-
-    return ConduitCard(
-      padding: const EdgeInsets.all(Spacing.md),
-      onTap: onTap,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          leading,
-          const SizedBox(width: Spacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: theme.bodyMedium?.copyWith(
-                    color: textColor,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: Spacing.xs),
-                Text(
-                  subtitle,
-                  style: theme.bodySmall?.copyWith(color: subtitleColor),
-                ),
-              ],
-            ),
-          ),
-          if (trailing != null) ...[
-            const SizedBox(width: Spacing.sm),
-            trailing!,
-          ] else if (showChevron && onTap != null) ...[
-            const SizedBox(width: Spacing.sm),
-            Icon(
-              UiUtils.platformIcon(
-                ios: CupertinoIcons.chevron_right,
-                android: Icons.chevron_right,
-              ),
-              color: theme.iconSecondary,
-              size: IconSize.small,
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _DefaultModelBottomSheet extends ConsumerStatefulWidget {
-  final List<Model> models;
-  final String? currentDefaultModelId;
-
-  const _DefaultModelBottomSheet({
-    required this.models,
-    required this.currentDefaultModelId,
-  });
-
-  @override
-  ConsumerState<_DefaultModelBottomSheet> createState() =>
-      _DefaultModelBottomSheetState();
-}
-
-class _DefaultModelBottomSheetState
-    extends ConsumerState<_DefaultModelBottomSheet> {
-  final TextEditingController _searchController = TextEditingController();
-  String _searchQuery = '';
-  List<Model> _filteredModels = [];
-  Timer? _searchDebounce;
-  String? _selectedModelId;
-
-  @override
-  void initState() {
-    super.initState();
-    // If no default model is set (null), default to auto-select
-    _selectedModelId = widget.currentDefaultModelId ?? 'auto-select';
-    // Add auto-select as first item
-    _filteredModels = _allModels();
-  }
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    _searchDebounce?.cancel();
-    super.dispose();
-  }
-
-  List<Model> _allModels() {
-    return [
-      const Model(id: 'auto-select', name: 'Auto-select'),
-      ...widget.models,
-    ];
-  }
-
-  void _filterModels(String query) {
-    setState(() => _searchQuery = query);
-
-    _searchDebounce?.cancel();
-    _searchDebounce = Timer(const Duration(milliseconds: 160), () {
-      if (!mounted) return;
-
-      final normalized = query.trim().toLowerCase();
-      final allModels = _allModels();
-      final filtered = normalized.isEmpty
-          ? allModels
-          : allModels.where((model) {
-              final name = model.name.toLowerCase();
-              final id = model.id.toLowerCase();
-              return name.contains(normalized) || id.contains(normalized);
-            }).toList();
-
-      setState(() {
-        _filteredModels = filtered;
-      });
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () => Navigator.of(context).maybePop(),
-            child: const SizedBox.shrink(),
-          ),
-        ),
-        DraggableScrollableSheet(
-          expand: false,
-          initialChildSize: 0.75,
-          maxChildSize: 0.92,
-          minChildSize: 0.45,
-          builder: (context, scrollController) {
-            return Container(
-              decoration: BoxDecoration(
-                color: context.sidebarTheme.background,
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(AppBorderRadius.bottomSheet),
-                ),
-                border: Border.all(
-                  color: context.conduitTheme.dividerColor,
-                  width: BorderWidth.regular,
-                ),
-                boxShadow: ConduitShadows.modal(context),
-              ),
-              child: ModalSheetSafeArea(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: Spacing.modalPadding,
-                  vertical: Spacing.modalPadding,
-                ),
-                child: Column(
-                  children: [
-                    // Handle bar stays pinned above scrollable content
-                    const SheetHandle(),
-
-                    // Content area: list scrolls behind floating search + header
-                    Expanded(
-                      child: Stack(
-                        children: [
-                          // Scrollable list — extends behind the floating bar
-                          Positioned.fill(
-                            child: Scrollbar(
-                              controller: scrollController,
-                              child: _filteredModels.isEmpty
-                                  ? Center(
-                                      child: Column(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.center,
-                                        children: [
-                                          Icon(
-                                            Platform.isIOS
-                                                ? CupertinoIcons.search_circle
-                                                : Icons.search_off,
-                                            size: 48,
-                                            color: context
-                                                .conduitTheme
-                                                .iconSecondary,
-                                          ),
-                                          const SizedBox(height: Spacing.md),
-                                          Text(
-                                            AppLocalizations.of(
-                                              context,
-                                            )!.noResults,
-                                            style: TextStyle(
-                                              color: context
-                                                  .conduitTheme
-                                                  .textSecondary,
-                                              fontSize: AppTypography.bodyLarge,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    )
-                                  : ListView.builder(
-                                      controller: scrollController,
-                                      padding: const EdgeInsets.only(top: 120),
-                                      itemCount: _filteredModels.length,
-                                      itemBuilder: (context, index) {
-                                        final model = _filteredModels[index];
-                                        final isAutoSelect =
-                                            model.id == 'auto-select';
-                                        final isSelected = isAutoSelect
-                                            ? _selectedModelId == null ||
-                                                  _selectedModelId ==
-                                                      'auto-select'
-                                            : _selectedModelId == model.id;
-                                        final api =
-                                            ref.watch(apiServiceProvider);
-                                        final iconUrl = isAutoSelect
-                                            ? null
-                                            : resolveModelIconUrlForModel(
-                                                api,
-                                                model,
-                                              );
-
-                                        return ModelListTile(
-                                          model: model,
-                                          isSelected: isSelected,
-                                          isAutoSelect: isAutoSelect,
-                                          iconUrl: iconUrl,
-                                          onTap: () {
-                                            final selectedId = isAutoSelect
-                                                ? 'auto-select'
-                                                : model.id;
-                                            Navigator.pop(context, selectedId);
-                                          },
-                                        );
-                                      },
-                                    ),
-                            ),
-                          ),
-
-                          // Floating search bar + section header with gradient fade
-                          Positioned(
-                            top: 0,
-                            left: 0,
-                            right: 0,
-                            child: Container(
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  begin: Alignment.topCenter,
-                                  end: Alignment.bottomCenter,
-                                  stops: const [0.0, 0.65, 1.0],
-                                  colors: [
-                                    context.sidebarTheme.background,
-                                    context.sidebarTheme.background
-                                        .withValues(alpha: 0.9),
-                                    context.sidebarTheme.background
-                                        .withValues(alpha: 0.0),
-                                  ],
-                                ),
-                              ),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const SizedBox(height: Spacing.md),
-                                  ConduitGlassSearchField(
-                                    controller: _searchController,
-                                    hintText: AppLocalizations.of(
-                                      context,
-                                    )!.searchModels,
-                                    onChanged: _filterModels,
-                                    query: _searchQuery,
-                                    onClear: () {
-                                      _searchController.clear();
-                                      _filterModels('');
-                                    },
-                                  ),
-                                  const SizedBox(height: Spacing.md),
-                                  Row(
-                                    children: [
-                                      Text(
-                                        AppLocalizations.of(
-                                          context,
-                                        )!.availableModels,
-                                        style: AppTypography.bodySmallStyle
-                                            .copyWith(
-                                              fontWeight: FontWeight.w600,
-                                              color: context
-                                                  .conduitTheme
-                                                  .textSecondary,
-                                              letterSpacing: 0.2,
-                                            ),
-                                      ),
-                                      const SizedBox(width: Spacing.xs),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 6,
-                                          vertical: 2,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: context.sidebarTheme.background
-                                              .withValues(alpha: 0.6),
-                                          borderRadius: BorderRadius.circular(
-                                            AppBorderRadius.xs,
-                                          ),
-                                          border: Border.all(
-                                            color: context
-                                                .conduitTheme
-                                                .dividerColor,
-                                            width: BorderWidth.thin,
-                                          ),
-                                        ),
-                                        child: Text(
-                                          '${_filteredModels.length}',
-                                          style: AppTypography.bodySmallStyle
-                                              .copyWith(
-                                                color: context
-                                                    .conduitTheme
-                                                    .textSecondary,
-                                              ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: Spacing.md),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        ),
-      ],
-    );
-  }
-
-}
