@@ -852,7 +852,9 @@ Future<String> _preseedAssistantAndPersist(
   try {
     final api = ref.read(apiServiceProvider);
     final activeConv = ref.read(activeConversationProvider);
-    if (api != null && activeConv != null) {
+    if (api != null &&
+        activeConv != null &&
+        !isTemporaryChat(activeConv.id)) {
       final resolvedSystemPrompt =
           (systemPrompt != null && systemPrompt.trim().isNotEmpty)
           ? systemPrompt.trim()
@@ -2087,7 +2089,8 @@ Future<void> _sendMessageInternal(
     // Sync conversation state to ensure WebUI can load conversation history
     try {
       final activeConvForSeed = ref.read(activeConversationProvider);
-      if (activeConvForSeed != null) {
+      if (activeConvForSeed != null &&
+          !isTemporaryChat(activeConvForSeed.id)) {
         final msgsForSeed = ref.read(chatMessagesProvider);
         await api.syncConversationMessages(
           activeConvForSeed.id,
