@@ -247,6 +247,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     return activeConversation?.messages ?? const [];
   }
 
+  /// Safely clears the streaming content provider, tolerating disposal
+  /// races during conversation transitions.
+  void _clearStreamingContent() {
+    _clearStreamingContent();
+  }
+
   void _cancelMessageStream() {
     final controller = _messageStream;
     _messageStream = null;
@@ -257,11 +263,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _streamingBuffer = null;
     _streamingSyncTimer?.cancel();
     _streamingSyncTimer = null;
-    try {
-      ref.read(streamingContentProvider.notifier).set(null);
-    } on StateError catch (_) {
-      // Provider may already be disposed
-    }
+    _clearStreamingContent();
     _stopRemoteTaskMonitor();
   }
 
@@ -736,8 +738,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _streamingBuffer ??= StringBuffer(lastMessage.content);
     _streamingBuffer!.write(content);
 
-    // Update streaming content provider per-chunk
-    // (only the streaming widget watches this)
+    // Update streaming content provider per-chunk so only the streaming
+    // widget re-parses. Note: .toString() materializes the full string each
+    // time (O(n) per chunk), but the StringBuffer avoids creating intermediate
+    // concatenation objects that pressure GC. The alternative of exposing the
+    // StringBuffer directly would leak mutable state into the widget layer.
     final accumulated = _streamingBuffer!.toString();
     ref.read(streamingContentProvider.notifier).set(accumulated);
 
@@ -775,11 +780,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _streamingBuffer = null;
     _streamingSyncTimer?.cancel();
     _streamingSyncTimer = null;
-    try {
-      ref.read(streamingContentProvider.notifier).set(null);
-    } on StateError catch (_) {
-      // Provider may already be disposed
-    }
+    _clearStreamingContent();
     if (state.isEmpty) return;
 
     final lastMessage = state.last;
@@ -799,7 +800,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _streamingBuffer = null;
     _streamingSyncTimer?.cancel();
     _streamingSyncTimer = null;
-    ref.read(streamingContentProvider.notifier).set(null);
+    _clearStreamingContent();
 
     if (state.isEmpty) return;
 
