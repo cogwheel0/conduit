@@ -87,6 +87,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   // Active version index (-1 means current/live content)
   int _activeVersionIndex = -1;
   String? _lastStreamingContent;
+
+  /// Cache the last raw content that was fully parsed, so we can detect
+  /// when only the tail has changed and skip re-parsing earlier segments.
+  String _lastFullyParsedContent = '';
   // press state handled by shared ChatActionButton
 
   Future<void> _handleFollowUpTap(String suggestion) async {
@@ -136,6 +140,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
     if (oldWidget.message.id != widget.message.id) {
       _lastStreamingContent = null;
+      _lastFullyParsedContent = '';
     }
 
     // Re-parse sections when message content changes
@@ -175,6 +180,41 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     }
     if (raw.startsWith(searchBanner)) {
       raw = raw.substring(searchBanner.length);
+    }
+
+    // Optimization: during streaming, if content only grew at the end and
+    // there's no new reasoning/tool block, just update the last text segment.
+    if (widget.isStreaming &&
+        _segments.isNotEmpty &&
+        raw.startsWith(_lastFullyParsedContent) &&
+        _lastFullyParsedContent.isNotEmpty) {
+      final newTail = raw.substring(_lastFullyParsedContent.length);
+      // Quick check: if the new tail doesn't contain reasoning or tool
+      // markers, we can just extend the last text segment.
+      if (!newTail.contains('<details') &&
+          !newTail.contains('<think')) {
+        final lastSeg = _segments.last;
+        if (lastSeg.isText) {
+          final updatedSegments = [
+            ..._segments.sublist(0, _segments.length - 1),
+            MessageSegment.text((lastSeg.text ?? '') + newTail),
+          ];
+          _lastFullyParsedContent = raw;
+          if (!mounted) return;
+          setState(() {
+            _segments = updatedSegments;
+          });
+          _scheduleTtsPlainTextBuild(
+            updatedSegments
+                .where((s) => s.isText)
+                .map((s) => s.text!)
+                .toList(growable: false),
+            raw,
+          );
+          _updateTypingIndicatorGate();
+          return;
+        }
+      }
     }
 
     // Note: Link reference definitions (including OpenAI annotations like
@@ -228,6 +268,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
     final segments = out.isEmpty ? [MessageSegment.text(raw)] : out;
 
+    _lastFullyParsedContent = raw;
     if (!mounted) return;
     setState(() {
       _segments = segments;
