@@ -12,6 +12,7 @@ import '../../../core/providers/app_providers.dart';
 import '../../../core/services/input_validation_service.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../core/widgets/error_boundary.dart';
+import '../../../shared/services/brand_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../core/auth/auth_state_manager.dart';
@@ -270,63 +271,58 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
       }
     });
 
-    final topPadding =
-        MediaQuery.of(context).padding.top + kToolbarHeight + 24;
+    final safePadding = MediaQuery.of(context).padding;
 
     return ErrorBoundary(
       child: Scaffold(
         backgroundColor: context.conduitTheme.surfaceBackground,
-        extendBodyBehindAppBar: true,
-        appBar: FloatingAppBar(
-          leading: FloatingAppBarBackButton(
-            onTap: () => context.go(Routes.serverConnection),
-          ),
-          title: FloatingAppBarTitle(
-            text: AppLocalizations.of(context)!.signIn,
-          ),
-        ),
         body: Column(
           children: [
-            // Auth mode segmented control
-            if (_availableAuthModes.length > 1)
-              Padding(
-                padding: EdgeInsets.only(
-                  top: topPadding,
-                  left: Spacing.pagePadding,
-                  right: Spacing.pagePadding,
-                ),
-                child: _buildAuthModeSelector(),
-              ),
-
-            const SizedBox(height: Spacing.lg),
-
-            // Main content
+            // Main scrollable content
             Expanded(
               child: SingleChildScrollView(
                 keyboardDismissBehavior:
                     ScrollViewKeyboardDismissBehavior.onDrag,
-                padding: EdgeInsets.only(
-                  left: Spacing.pagePadding,
-                  right: Spacing.pagePadding,
-                  top: _availableAuthModes.length <= 1 ? topPadding : 0,
-                ),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 480),
-                  child: Form(
-                    key: _formKey,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        // Server domain
-                        _buildServerDomain(),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 480),
+                    child: Padding(
+                      padding: EdgeInsets.only(
+                        left: Spacing.pagePadding,
+                        right: Spacing.pagePadding,
+                        top: safePadding.top + Spacing.md,
+                      ),
+                    child: Form(
+                      key: _formKey,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          // Back button row
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: _buildBackButton(),
+                          ),
 
-                        const SizedBox(height: Spacing.xl),
+                          const SizedBox(height: Spacing.xl),
 
-                        // Authentication form
-                        _buildAuthForm(),
-                      ],
+                          // Brand icon + title header
+                          _buildHeader(),
+
+                          const SizedBox(height: Spacing.xxl),
+
+                          // Auth mode selector
+                          if (_availableAuthModes.length > 1) ...[
+                            _buildAuthModeSelector(),
+                            const SizedBox(height: Spacing.lg),
+                          ],
+
+                          // Authentication form
+                          _buildAuthForm(),
+                        ],
+                      ),
                     ),
                   ),
+                ),
                 ),
               ),
             ),
@@ -337,9 +333,12 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
                 Spacing.pagePadding,
                 Spacing.md,
                 Spacing.pagePadding,
-                MediaQuery.of(context).padding.bottom + Spacing.md,
+                safePadding.bottom + Spacing.md,
               ),
-              child: _buildSignInButton(),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 480),
+                child: _buildSignInButton(),
+              ),
             ),
           ],
         ),
@@ -347,20 +346,152 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     );
   }
 
+  Widget _buildBackButton() {
+    return GestureDetector(
+      onTap: () => context.go(Routes.serverConnection),
+      child: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: context.conduitTheme.surfaceContainer,
+          borderRadius: BorderRadius.circular(AppBorderRadius.button),
+          border: Border.all(
+            color: context.conduitTheme.cardBorder,
+            width: BorderWidth.thin,
+          ),
+        ),
+        child: Icon(
+          Icons.arrow_back,
+          color: context.conduitTheme.textPrimary,
+          size: IconSize.medium,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader() {
+    final theme = context.conduitTheme;
+
+    return Column(
+      children: [
+        // Brand icon with subtle glow
+        Container(
+          width: 72,
+          height: 72,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                theme.buttonPrimary.withValues(alpha: 0.12),
+                theme.buttonPrimary.withValues(alpha: 0.04),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: theme.buttonPrimary.withValues(alpha: 0.15),
+              width: BorderWidth.standard,
+            ),
+          ),
+          child: Center(
+            child: BrandService.createBrandIcon(
+              size: 36,
+              useGradient: true,
+              context: context,
+            ),
+          ),
+        ),
+        const SizedBox(height: Spacing.lg),
+
+        // Title
+        Text(
+          AppLocalizations.of(context)!.signIn,
+          textAlign: TextAlign.center,
+          style: theme.headingLarge?.copyWith(
+            fontWeight: FontWeight.w700,
+            letterSpacing: AppTypography.letterSpacingTight,
+          ),
+        ),
+        const SizedBox(height: Spacing.sm),
+
+        // Server domain subtitle
+        _buildServerDomain(),
+      ],
+    );
+  }
+
   Widget _buildAuthModeSelector() {
     final modes = _availableAuthModes;
     final selectedIndex = modes.indexOf(_authMode);
+    final theme = context.conduitTheme;
 
-    return AdaptiveSegmentedControl(
-      labels: modes.map(_authModeLabel).toList(),
-      selectedIndex: selectedIndex >= 0 ? selectedIndex : 0,
-      onValueChanged: (index) {
-        setState(() {
-          _authMode = modes[index];
-          _loginError = null;
-          _obscurePassword = true;
-        });
-      },
+    if (!Platform.isAndroid) {
+      return AdaptiveSegmentedControl(
+        labels: modes.map(_authModeLabel).toList(),
+        selectedIndex: selectedIndex >= 0 ? selectedIndex : 0,
+        onValueChanged: (index) {
+          setState(() {
+            _authMode = modes[index];
+            _loginError = null;
+            _obscurePassword = true;
+          });
+        },
+      );
+    }
+
+    // Android: custom segmented control without checkmark
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.surfaceContainer,
+        borderRadius: BorderRadius.circular(AppBorderRadius.button),
+        border: Border.all(
+          color: theme.cardBorder,
+          width: BorderWidth.thin,
+        ),
+      ),
+      padding: const EdgeInsets.all(3),
+      child: Row(
+        children: [
+          for (int i = 0; i < modes.length; i++)
+            Expanded(
+              child: GestureDetector(
+                onTap: () {
+                  setState(() {
+                    _authMode = modes[i];
+                    _loginError = null;
+                    _obscurePassword = true;
+                  });
+                },
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  curve: Curves.easeInOut,
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  decoration: BoxDecoration(
+                    color: i == selectedIndex
+                        ? theme.buttonPrimary
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(
+                      AppBorderRadius.button - 2,
+                    ),
+                  ),
+                  child: Text(
+                    _authModeLabel(modes[i]),
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: AppTypography.bodySmall,
+                      fontWeight: i == selectedIndex
+                          ? FontWeight.w600
+                          : FontWeight.w500,
+                      color: i == selectedIndex
+                          ? theme.buttonPrimaryText
+                          : theme.textSecondary,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 
@@ -559,131 +690,135 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   }
 
   Widget _buildCredentialsForm() {
-    return Column(
-      key: const ValueKey('credentials_form'),
-      children: [
-        AdaptiveTextFormField(
-          controller: _usernameController,
-          placeholder: AppLocalizations.of(context)!.usernameOrEmailHint,
-          validator: (value) {
-            final v = value ?? _usernameController.text;
-            return InputValidationService.combine([
-              InputValidationService.validateRequired,
-              (val) => InputValidationService.validateEmailOrUsername(val),
-            ])(v);
-          },
-          keyboardType: TextInputType.emailAddress,
-          prefixIcon: Icon(
-            Platform.isIOS ? CupertinoIcons.person : Icons.person_outline,
-            color: context.conduitTheme.iconSecondary,
-          ),
-          autofillHints: const [AutofillHints.username, AutofillHints.email],
-        ),
-        const SizedBox(height: Spacing.lg),
-        AdaptiveTextFormField(
-          controller: _passwordController,
-          placeholder: AppLocalizations.of(context)!.passwordHint,
-          validator: (value) {
-            final v = value ?? _passwordController.text;
-            return InputValidationService.combine([
-              InputValidationService.validateRequired,
-              (val) => InputValidationService.validateMinLength(
-                val,
-                1,
-                fieldName: AppLocalizations.of(context)!.password,
-              ),
-            ])(v);
-          },
-          obscureText: _obscurePassword,
-          prefixIcon: Icon(
-            Platform.isIOS ? CupertinoIcons.lock : Icons.lock_outline,
-            color: context.conduitTheme.iconSecondary,
-          ),
-          suffixIcon: IconButton(
-            icon: Icon(
-              _obscurePassword
-                  ? (Platform.isIOS
-                        ? CupertinoIcons.eye_slash
-                        : Icons.visibility_off)
-                  : (Platform.isIOS
-                        ? CupertinoIcons.eye
-                        : Icons.visibility),
+    return AutofillGroup(
+      child: Column(
+        key: const ValueKey('credentials_form'),
+        children: [
+          AdaptiveTextFormField(
+            controller: _usernameController,
+            placeholder: AppLocalizations.of(context)!.usernameOrEmailHint,
+            validator: (value) {
+              final v = value ?? _usernameController.text;
+              return InputValidationService.combine([
+                InputValidationService.validateRequired,
+                (val) => InputValidationService.validateEmailOrUsername(val),
+              ])(v);
+            },
+            keyboardType: TextInputType.emailAddress,
+            prefixIcon: Icon(
+              Platform.isIOS ? CupertinoIcons.person : Icons.person_outline,
               color: context.conduitTheme.iconSecondary,
             ),
-            onPressed: () =>
-                setState(() => _obscurePassword = !_obscurePassword),
+            autofillHints: const [AutofillHints.username, AutofillHints.email],
           ),
-          onSubmitted: (_) => _signIn(),
-          autofillHints: const [AutofillHints.password],
-        ),
-      ],
+          const SizedBox(height: Spacing.lg),
+          AdaptiveTextFormField(
+            controller: _passwordController,
+            placeholder: AppLocalizations.of(context)!.passwordHint,
+            validator: (value) {
+              final v = value ?? _passwordController.text;
+              return InputValidationService.combine([
+                InputValidationService.validateRequired,
+                (val) => InputValidationService.validateMinLength(
+                  val,
+                  1,
+                  fieldName: AppLocalizations.of(context)!.password,
+                ),
+              ])(v);
+            },
+            obscureText: _obscurePassword,
+            prefixIcon: Icon(
+              Platform.isIOS ? CupertinoIcons.lock : Icons.lock_outline,
+              color: context.conduitTheme.iconSecondary,
+            ),
+            suffixIcon: IconButton(
+              icon: Icon(
+                _obscurePassword
+                    ? (Platform.isIOS
+                          ? CupertinoIcons.eye_slash
+                          : Icons.visibility_off)
+                    : (Platform.isIOS
+                          ? CupertinoIcons.eye
+                          : Icons.visibility),
+                color: context.conduitTheme.iconSecondary,
+              ),
+              onPressed: () =>
+                  setState(() => _obscurePassword = !_obscurePassword),
+            ),
+            onSubmitted: (_) => _signIn(),
+            autofillHints: const [AutofillHints.password],
+          ),
+        ],
+      ),
     );
   }
 
   Widget _buildLdapForm() {
     final l10n = AppLocalizations.of(context)!;
 
-    return Column(
-      key: const ValueKey('ldap_form'),
-      children: [
-        AdaptiveTextFormField(
-          controller: _ldapUsernameController,
-          placeholder: l10n.ldapUsernameHint,
-          validator: (value) => InputValidationService.validateRequired(
-            value ?? _ldapUsernameController.text,
-          ),
-          keyboardType: TextInputType.text,
-          prefixIcon: Icon(
-            Platform.isIOS ? CupertinoIcons.person : Icons.person_outline,
-            color: context.conduitTheme.iconSecondary,
-          ),
-          autofillHints: const [AutofillHints.username],
-        ),
-        const SizedBox(height: Spacing.lg),
-        AdaptiveTextFormField(
-          controller: _ldapPasswordController,
-          placeholder: l10n.passwordHint,
-          validator: (value) {
-            final v = value ?? _ldapPasswordController.text;
-            return InputValidationService.combine([
-              InputValidationService.validateRequired,
-              (val) => InputValidationService.validateMinLength(
-                val,
-                1,
-                fieldName: l10n.password,
-              ),
-            ])(v);
-          },
-          obscureText: _obscurePassword,
-          prefixIcon: Icon(
-            Platform.isIOS ? CupertinoIcons.lock : Icons.lock_outline,
-            color: context.conduitTheme.iconSecondary,
-          ),
-          suffixIcon: IconButton(
-            icon: Icon(
-              _obscurePassword
-                  ? (Platform.isIOS
-                        ? CupertinoIcons.eye_slash
-                        : Icons.visibility_off)
-                  : (Platform.isIOS
-                        ? CupertinoIcons.eye
-                        : Icons.visibility),
+    return AutofillGroup(
+      child: Column(
+        key: const ValueKey('ldap_form'),
+        children: [
+          AdaptiveTextFormField(
+            controller: _ldapUsernameController,
+            placeholder: l10n.ldapUsernameHint,
+            validator: (value) => InputValidationService.validateRequired(
+              value ?? _ldapUsernameController.text,
+            ),
+            keyboardType: TextInputType.text,
+            prefixIcon: Icon(
+              Platform.isIOS ? CupertinoIcons.person : Icons.person_outline,
               color: context.conduitTheme.iconSecondary,
             ),
-            onPressed: () =>
-                setState(() => _obscurePassword = !_obscurePassword),
+            autofillHints: const [AutofillHints.username],
           ),
-          onSubmitted: (_) => _signIn(),
-          autofillHints: const [AutofillHints.password],
-        ),
-        const SizedBox(height: Spacing.sm),
-        Text(
-          l10n.ldapDescription,
-          style: context.conduitTheme.bodySmall?.copyWith(
-            color: context.conduitTheme.textSecondary,
+          const SizedBox(height: Spacing.lg),
+          AdaptiveTextFormField(
+            controller: _ldapPasswordController,
+            placeholder: l10n.passwordHint,
+            validator: (value) {
+              final v = value ?? _ldapPasswordController.text;
+              return InputValidationService.combine([
+                InputValidationService.validateRequired,
+                (val) => InputValidationService.validateMinLength(
+                  val,
+                  1,
+                  fieldName: l10n.password,
+                ),
+              ])(v);
+            },
+            obscureText: _obscurePassword,
+            prefixIcon: Icon(
+              Platform.isIOS ? CupertinoIcons.lock : Icons.lock_outline,
+              color: context.conduitTheme.iconSecondary,
+            ),
+            suffixIcon: IconButton(
+              icon: Icon(
+                _obscurePassword
+                    ? (Platform.isIOS
+                          ? CupertinoIcons.eye_slash
+                          : Icons.visibility_off)
+                    : (Platform.isIOS
+                          ? CupertinoIcons.eye
+                          : Icons.visibility),
+                color: context.conduitTheme.iconSecondary,
+              ),
+              onPressed: () =>
+                  setState(() => _obscurePassword = !_obscurePassword),
+            ),
+            onSubmitted: (_) => _signIn(),
+            autofillHints: const [AutofillHints.password],
           ),
-        ),
-      ],
+          const SizedBox(height: Spacing.sm),
+          Text(
+            l10n.ldapDescription,
+            style: context.conduitTheme.bodySmall?.copyWith(
+              color: context.conduitTheme.textSecondary,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
