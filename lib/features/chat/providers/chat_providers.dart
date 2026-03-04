@@ -761,35 +761,42 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       );
       ref.read(activeConversationProvider.notifier).set(updatedActive);
 
-      final conversationsAsync = ref.read(conversationsProvider);
-      Conversation? summary;
-      conversationsAsync.maybeWhen(
-        data: (conversations) {
-          for (final conversation in conversations) {
-            if (conversation.id == updatedActive.id) {
-              summary = conversation;
-              break;
+      // Skip conversations list update for temporary chats
+      if (!isTemporaryChat(activeConversation.id)) {
+        final conversationsAsync = ref.read(conversationsProvider);
+        Conversation? summary;
+        conversationsAsync.maybeWhen(
+          data: (conversations) {
+            for (final conversation in conversations) {
+              if (conversation.id == updatedActive.id) {
+                summary = conversation;
+                break;
+              }
             }
-          }
-        },
-        orElse: () {},
-      );
-      final updatedSummary =
-          (summary ?? updatedActive.copyWith(messages: const [])).copyWith(
-            updatedAt: updatedActive.updatedAt,
-          );
+          },
+          orElse: () {},
+        );
+        final updatedSummary =
+            (summary ?? updatedActive.copyWith(messages: const [])).copyWith(
+              updatedAt: updatedActive.updatedAt,
+            );
 
-      ref
-          .read(conversationsProvider.notifier)
-          .upsertConversation(updatedSummary.copyWith(messages: const []));
+        ref
+            .read(conversationsProvider.notifier)
+            .upsertConversation(
+              updatedSummary.copyWith(messages: const []),
+            );
+      }
     }
 
-    // Trigger a refresh of the conversations list so UI like the Chats Drawer
-    // can reconcile with the server once streaming completes. Best-effort:
-    // ignore if ref lifecycle/context prevents invalidation.
-    try {
-      refreshConversationsCache(ref);
-    } catch (_) {}
+    // Skip server cache refresh for temporary chats
+    if (!isTemporaryChat(
+      ref.read(activeConversationProvider)?.id,
+    )) {
+      try {
+        refreshConversationsCache(ref);
+      } catch (_) {}
+    }
   }
 }
 
@@ -845,7 +852,9 @@ Future<String> _preseedAssistantAndPersist(
   try {
     final api = ref.read(apiServiceProvider);
     final activeConv = ref.read(activeConversationProvider);
-    if (api != null && activeConv != null) {
+    if (api != null &&
+        activeConv != null &&
+        !isTemporaryChat(activeConv.id)) {
       final resolvedSystemPrompt =
           (systemPrompt != null && systemPrompt.trim().isNotEmpty)
           ? systemPrompt.trim()
@@ -1500,17 +1509,20 @@ Future<void> regenerateMessage(
     }
 
     // Background tasks parity with Web client (safe defaults)
+    final isTemporary = ref.read(temporaryChatEnabledProvider);
     bool shouldGenerateTitle = false;
-    try {
-      final conv = ref.read(activeConversationProvider);
-      final nonSystemCount = conversationMessages
-          .where((m) => (m['role']?.toString() ?? '') != 'system')
-          .length;
-      shouldGenerateTitle =
-          (conv == null) ||
-          ((conv.title == 'New Chat' || (conv.title.isEmpty)) &&
-              nonSystemCount == 1);
-    } catch (_) {}
+    if (!isTemporary) {
+      try {
+        final conv = ref.read(activeConversationProvider);
+        final nonSystemCount = conversationMessages
+            .where((m) => (m['role']?.toString() ?? '') != 'system')
+            .length;
+        shouldGenerateTitle =
+            (conv == null) ||
+            ((conv.title == 'New Chat' || (conv.title.isEmpty)) &&
+                nonSystemCount == 1);
+      } catch (_) {}
+    }
 
     final bgTasks = <String, dynamic>{
       if (shouldGenerateTitle) 'title_generation': true,
@@ -1631,27 +1643,27 @@ Future<void> regenerateMessage(
           imageGenerationEnabled,
       onChatTitleUpdated: (newTitle) {
         final active = ref.read(activeConversationProvider);
-        if (active != null) {
-          ref
-              .read(activeConversationProvider.notifier)
-              .set(active.copyWith(title: newTitle));
-          ref
-              .read(conversationsProvider.notifier)
-              .updateConversation(
-                active.id,
-                (conversation) => conversation.copyWith(
-                  title: newTitle,
-                  updatedAt: DateTime.now(),
-                ),
-              );
-        }
+        if (active == null || isTemporaryChat(active.id)) return;
+        ref
+            .read(activeConversationProvider.notifier)
+            .set(active.copyWith(title: newTitle));
+        ref
+            .read(conversationsProvider.notifier)
+            .updateConversation(
+              active.id,
+              (conversation) => conversation.copyWith(
+                title: newTitle,
+                updatedAt: DateTime.now(),
+              ),
+            );
         refreshConversationsCache(ref);
       },
       onChatTagsUpdated: () {
-        refreshConversationsCache(ref);
         final active = ref.read(activeConversationProvider);
+        if (active == null || isTemporaryChat(active.id)) return;
+        refreshConversationsCache(ref);
         final api = ref.read(apiServiceProvider);
-        if (active != null && api != null) {
+        if (api != null) {
           Future.microtask(() async {
             try {
               final refreshed = await api.getConversation(active.id);
@@ -1845,88 +1857,106 @@ Future<void> _sendMessageInternal(
   var activeConversation = ref.read(activeConversationProvider);
 
   if (activeConversation == null) {
-    // Check if there's a pending folder ID for this new conversation
     final pendingFolderId = ref.read(pendingFolderIdProvider);
+    final isTemporary = ref.read(temporaryChatEnabledProvider);
 
-    // Create new conversation with user message AND assistant placeholder
-    // so the listener doesn't remove the placeholder when setting active
-    final localConversation = Conversation(
-      id: const Uuid().v4(),
-      title: 'New Chat',
-      createdAt: DateTime.now(),
-      updatedAt: DateTime.now(),
-      systemPrompt: userSystemPrompt,
-      messages: [userMessage, assistantPlaceholder],
-      folderId: pendingFolderId,
-    );
+    if (isTemporary) {
+      // Temporary chat: use local ID, skip server creation entirely
+      final socketId =
+          ref.read(socketServiceProvider)?.sessionId ?? 'unknown';
+      final localConversation = Conversation(
+        id: 'local:${socketId}_${const Uuid().v4()}',
+        title: 'New Chat',
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+        systemPrompt: userSystemPrompt,
+        messages: [userMessage, assistantPlaceholder],
+      );
 
-    // Set as active conversation locally
-    ref.read(activeConversationProvider.notifier).set(localConversation);
-    activeConversation = localConversation;
+      ref.read(activeConversationProvider.notifier).set(localConversation);
+      activeConversation = localConversation;
+      ref.read(pendingFolderIdProvider.notifier).clear();
+    } else {
+      // Create new conversation with user message AND assistant placeholder
+      // so the listener doesn't remove the placeholder when setting active
+      final localConversation = Conversation(
+        id: const Uuid().v4(),
+        title: 'New Chat',
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+        systemPrompt: userSystemPrompt,
+        messages: [userMessage, assistantPlaceholder],
+        folderId: pendingFolderId,
+      );
 
-    if (!reviewerMode) {
-      // Try to create on server - use lightweight message without large
-      // base64 image data to avoid timeout (images sent in chat request)
-      try {
-        final lightweightMessage = userMessage.copyWith(
-          attachmentIds: null,
-          files: null,
-        );
-        final serverConversation = await api.createConversation(
-          title: 'New Chat',
-          messages: [lightweightMessage],
-          model: selectedModel.id,
-          systemPrompt: userSystemPrompt,
-          folderId: pendingFolderId,
-        );
+      // Set as active conversation locally
+      ref.read(activeConversationProvider.notifier).set(localConversation);
+      activeConversation = localConversation;
 
-        // Clear the pending folder ID after successful creation
-        ref.read(pendingFolderIdProvider.notifier).clear();
+      if (!reviewerMode) {
+        // Try to create on server - use lightweight message without large
+        // base64 image data to avoid timeout (images sent in chat request)
+        try {
+          final lightweightMessage = userMessage.copyWith(
+            attachmentIds: null,
+            files: null,
+          );
+          final serverConversation = await api.createConversation(
+            title: 'New Chat',
+            messages: [lightweightMessage],
+            model: selectedModel.id,
+            systemPrompt: userSystemPrompt,
+            folderId: pendingFolderId,
+          );
 
-        // Keep local messages (user + assistant placeholder) instead of server
-        // messages, since we're in the middle of sending and streaming
-        final currentMessages = ref.read(chatMessagesProvider);
-        final updatedConversation = localConversation.copyWith(
-          id: serverConversation.id,
-          systemPrompt: serverConversation.systemPrompt ?? userSystemPrompt,
-          messages: currentMessages,
-          folderId: serverConversation.folderId ?? pendingFolderId,
-        );
-        ref.read(activeConversationProvider.notifier).set(updatedConversation);
-        activeConversation = updatedConversation;
+          // Clear the pending folder ID after successful creation
+          ref.read(pendingFolderIdProvider.notifier).clear();
 
-        ref
-            .read(conversationsProvider.notifier)
-            .upsertConversation(
-              updatedConversation.copyWith(updatedAt: DateTime.now()),
-            );
+          // Keep local messages (user + assistant placeholder) instead of server
+          // messages, since we're in the middle of sending and streaming
+          final currentMessages = ref.read(chatMessagesProvider);
+          final updatedConversation = localConversation.copyWith(
+            id: serverConversation.id,
+            systemPrompt: serverConversation.systemPrompt ?? userSystemPrompt,
+            messages: currentMessages,
+            folderId: serverConversation.folderId ?? pendingFolderId,
+          );
+          ref.read(activeConversationProvider.notifier).set(updatedConversation);
+          activeConversation = updatedConversation;
 
-        // Invalidate conversations provider to refresh the list
-        // Adding a small delay to prevent rapid invalidations that could cause duplicates
-        Future.delayed(const Duration(milliseconds: 100), () {
-          try {
-            // Guard against using ref after provider disposal
-            // Only Ref has .mounted; WidgetRef/ProviderContainer don't support
-            // this check, so we proceed and let the underlying read operations
-            // handle any disposal gracefully.
-            final isMounted = ref is Ref ? ref.mounted : true;
-            if (isMounted) {
-              refreshConversationsCache(
-                ref,
-                includeFolders: pendingFolderId != null,
+          ref
+              .read(conversationsProvider.notifier)
+              .upsertConversation(
+                updatedConversation.copyWith(updatedAt: DateTime.now()),
               );
+
+          // Invalidate conversations provider to refresh the list
+          // Adding a small delay to prevent rapid invalidations that could cause duplicates
+          Future.delayed(const Duration(milliseconds: 100), () {
+            try {
+              // Guard against using ref after provider disposal
+              // Only Ref has .mounted; WidgetRef/ProviderContainer don't support
+              // this check, so we proceed and let the underlying read operations
+              // handle any disposal gracefully.
+              final isMounted = ref is Ref ? ref.mounted : true;
+              if (isMounted) {
+                refreshConversationsCache(
+                  ref,
+                  includeFolders: pendingFolderId != null,
+                );
+              }
+            } catch (_) {
+              // If ref is disposed or invalid, skip
             }
-          } catch (_) {
-            // If ref is disposed or invalid, skip
-          }
-        });
-      } catch (e) {
-        // Clear the pending folder ID on failure to prevent stale state
+          });
+        } catch (e) {
+          // Clear the pending folder ID on failure to prevent stale state
+          ref.read(pendingFolderIdProvider.notifier).clear();
+        }
+      } else {
+        // Clear the pending folder ID even in reviewer mode
         ref.read(pendingFolderIdProvider.notifier).clear();
       }
-    } else {
-      // Clear the pending folder ID even in reviewer mode
-      ref.read(pendingFolderIdProvider.notifier).clear();
     }
   }
 
@@ -2059,7 +2089,8 @@ Future<void> _sendMessageInternal(
     // Sync conversation state to ensure WebUI can load conversation history
     try {
       final activeConvForSeed = ref.read(activeConversationProvider);
-      if (activeConvForSeed != null) {
+      if (activeConvForSeed != null &&
+          !isTemporaryChat(activeConvForSeed.id)) {
         final msgsForSeed = ref.read(chatMessagesProvider);
         await api.syncConversationMessages(
           activeConvForSeed.id,
@@ -2226,18 +2257,21 @@ Future<void> _sendMessageInternal(
 
     // Background tasks parity with Web client (safe defaults)
     // Enable title/tags generation on the very first user turn of a new chat.
+    final isTemporary = ref.read(temporaryChatEnabledProvider);
     bool shouldGenerateTitle = false;
-    try {
-      final conv = ref.read(activeConversationProvider);
-      // Use the outbound conversationMessages we just built (excludes streaming placeholders)
-      final nonSystemCount = conversationMessages
-          .where((m) => (m['role']?.toString() ?? '') != 'system')
-          .length;
-      shouldGenerateTitle =
-          (conv == null) ||
-          ((conv.title == 'New Chat' || (conv.title.isEmpty)) &&
-              nonSystemCount == 1);
-    } catch (_) {}
+    if (!isTemporary) {
+      try {
+        final conv = ref.read(activeConversationProvider);
+        // Use the outbound conversationMessages we just built (excludes streaming placeholders)
+        final nonSystemCount = conversationMessages
+            .where((m) => (m['role']?.toString() ?? '') != 'system')
+            .length;
+        shouldGenerateTitle =
+            (conv == null) ||
+            ((conv.title == 'New Chat' || (conv.title.isEmpty)) &&
+                nonSystemCount == 1);
+      } catch (_) {}
+    }
 
     // Match web client: request background follow-ups always; title/tags on first turn
     final bgTasks = <String, dynamic>{
@@ -2366,27 +2400,27 @@ Future<void> _sendMessageInternal(
           imageGenerationEnabled,
       onChatTitleUpdated: (newTitle) {
         final active = ref.read(activeConversationProvider);
-        if (active != null) {
-          ref
-              .read(activeConversationProvider.notifier)
-              .set(active.copyWith(title: newTitle));
-          ref
-              .read(conversationsProvider.notifier)
-              .updateConversation(
-                active.id,
-                (conversation) => conversation.copyWith(
-                  title: newTitle,
-                  updatedAt: DateTime.now(),
-                ),
-              );
-        }
+        if (active == null || isTemporaryChat(active.id)) return;
+        ref
+            .read(activeConversationProvider.notifier)
+            .set(active.copyWith(title: newTitle));
+        ref
+            .read(conversationsProvider.notifier)
+            .updateConversation(
+              active.id,
+              (conversation) => conversation.copyWith(
+                title: newTitle,
+                updatedAt: DateTime.now(),
+              ),
+            );
         refreshConversationsCache(ref);
       },
       onChatTagsUpdated: () {
-        refreshConversationsCache(ref);
         final active = ref.read(activeConversationProvider);
+        if (active == null || isTemporaryChat(active.id)) return;
+        refreshConversationsCache(ref);
         final api = ref.read(apiServiceProvider);
-        if (active != null && api != null) {
+        if (api != null) {
           Future.microtask(() async {
             try {
               final refreshed = await api.getConversation(active.id);

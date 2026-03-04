@@ -10,6 +10,7 @@ import 'package:go_router/go_router.dart';
 import 'package:super_drag_and_drop/super_drag_and_drop.dart';
 
 import '../../../core/providers/app_providers.dart';
+import '../../../core/services/settings_service.dart';
 import '../../auth/providers/unified_auth_providers.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../chat/providers/chat_providers.dart' as chat;
@@ -1267,6 +1268,12 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer> {
         ResponsiveDrawerLayout.of(context)?.close();
       }
     }
+
+    // Reset temporary chat state based on user preference
+    final settings = ref.read(appSettingsProvider);
+    ref
+        .read(temporaryChatEnabledProvider.notifier)
+        .set(settings.temporaryChatByDefault);
   }
 
   Future<void> _renameFolder(
@@ -1631,6 +1638,10 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer> {
     // Capture a provider container detached from this widget's lifecycle so
     // we can continue to read/write providers after the drawer is closed.
     final container = ProviderScope.containerOf(context, listen: false);
+
+    // Selecting a real conversation exits temporary mode
+    container.read(temporaryChatEnabledProvider.notifier).set(false);
+
     try {
       // Mark global loading to show skeletons in chat
       container.read(chat.isLoadingConversationProvider.notifier).set(true);

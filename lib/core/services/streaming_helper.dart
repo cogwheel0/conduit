@@ -6,6 +6,7 @@ import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/models/chat_message.dart';
+import '../../core/providers/app_providers.dart' show isTemporaryChat;
 import '../../core/models/socket_event.dart';
 import '../../core/services/socket_service.dart';
 import '../../core/utils/tool_calls_parser.dart';
@@ -301,7 +302,9 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
   pollServerForMessage({int attempt = 0, int maxAttempts = 3}) async {
     try {
       final chatId = activeConversationId;
-      if (chatId == null || chatId.isEmpty) return null;
+      if (chatId == null || chatId.isEmpty || isTemporaryChat(chatId)) {
+        return null;
+      }
 
       final resp = await api.dio.get('/api/v1/chats/$chatId');
       final data = resp.data as Map<String, dynamic>?;
@@ -579,7 +582,7 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
   Future<void> refreshConversationSnapshot() async {
     if (refreshingSnapshot) return;
     final chatId = activeConversationId;
-    if (chatId == null || chatId.isEmpty) {
+    if (chatId == null || chatId.isEmpty || isTemporaryChat(chatId)) {
       return;
     }
     refreshingSnapshot = true;
@@ -637,28 +640,9 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
             try {
               socketService?.offEvent(channel);
             } catch (_) {}
-            try {
-              // Fire and forget
-              // ignore: unawaited_futures
-              api.sendChatCompleted(
-                chatId: activeConversationId ?? '',
-                messageId: assistantMessageId,
-                messages: const [],
-                model: modelId,
-                modelItem: modelItem,
-                sessionId: sessionId,
-              );
-            } catch (_) {}
-            wrappedFinishStreaming();
-            return;
-          }
-          if (s.startsWith('data:')) {
-            final dataStr = s.substring(5).trim();
-            if (dataStr == '[DONE]') {
+            if (!isTemporaryChat(activeConversationId)) {
               try {
-                socketService?.offEvent(channel);
-              } catch (_) {}
-              try {
+                // Fire and forget
                 // ignore: unawaited_futures
                 api.sendChatCompleted(
                   chatId: activeConversationId ?? '',
@@ -669,6 +653,29 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
                   sessionId: sessionId,
                 );
               } catch (_) {}
+            }
+            wrappedFinishStreaming();
+            return;
+          }
+          if (s.startsWith('data:')) {
+            final dataStr = s.substring(5).trim();
+            if (dataStr == '[DONE]') {
+              try {
+                socketService?.offEvent(channel);
+              } catch (_) {}
+              if (!isTemporaryChat(activeConversationId)) {
+                try {
+                  // ignore: unawaited_futures
+                  api.sendChatCompleted(
+                    chatId: activeConversationId ?? '',
+                    messageId: assistantMessageId,
+                    messages: const [],
+                    model: modelId,
+                    modelItem: modelItem,
+                    sessionId: sessionId,
+                  );
+                } catch (_) {}
+              }
               wrappedFinishStreaming();
               return;
             }
@@ -948,27 +955,29 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
                 return msgMap;
               }).toList();
 
-              // Send chatCompleted to run any filters/actions
-              // ignore: unawaited_futures
-              api.sendChatCompleted(
-                chatId: activeConversationId ?? '',
-                messageId: assistantMessageId,
-                messages: messagesForCompleted,
-                model: modelId,
-                modelItem: modelItem,
-                sessionId: sessionId,
-              );
-
-              // Sync conversation to persist usage data (issue #274)
-              // chatCompleted doesn't persist - syncConversationMessages does
-              final chatId = activeConversationId;
-              if (chatId != null && chatId.isNotEmpty) {
+              if (!isTemporaryChat(activeConversationId)) {
+                // Send chatCompleted to run any filters/actions
                 // ignore: unawaited_futures
-                api.syncConversationMessages(
-                  chatId,
-                  currentMessages,
+                api.sendChatCompleted(
+                  chatId: activeConversationId ?? '',
+                  messageId: assistantMessageId,
+                  messages: messagesForCompleted,
                   model: modelId,
+                  modelItem: modelItem,
+                  sessionId: sessionId,
                 );
+
+                // Sync conversation to persist usage data (issue #274)
+                // chatCompleted doesn't persist - syncConversationMessages does
+                final chatId = activeConversationId;
+                if (chatId != null && chatId.isNotEmpty) {
+                  // ignore: unawaited_futures
+                  api.syncConversationMessages(
+                    chatId,
+                    currentMessages,
+                    model: modelId,
+                  );
+                }
               }
             } catch (_) {
               // Non-critical - continue if sync fails
@@ -987,7 +996,9 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
                 Future.microtask(() async {
                   try {
                     final chatId = activeConversationId;
-                    if (chatId != null && chatId.isNotEmpty) {
+                    if (chatId != null &&
+                        chatId.isNotEmpty &&
+                        !isTemporaryChat(chatId)) {
                       final resp = await api.dio.get('/api/v1/chats/$chatId');
                       final data = resp.data as Map<String, dynamic>?;
                       String content = '';
@@ -1106,7 +1117,10 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
 
             // Sync to server to persist follow-ups (they arrive after done:true)
             final chatId = activeConversationId;
-            if (chatId != null && chatId.isNotEmpty && suggestions.isNotEmpty) {
+            if (chatId != null &&
+                chatId.isNotEmpty &&
+                !isTemporaryChat(chatId) &&
+                suggestions.isNotEmpty) {
               Future.microtask(() async {
                 try {
                   final currentMessages = getMessages();

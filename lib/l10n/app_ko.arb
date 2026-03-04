@@ -671,5 +671,12 @@
   "loadingAudio": "오디오 로드 중...",
   "failedToLoadAudio": "오디오를 로드할 수 없습니다",
   "webPage": "웹 페이지",
-  "greetingTitle": "안녕하세요, {username}"
+  "greetingTitle": "안녕하세요, {username}",
+  "temporaryChat": "Temporary Chat",
+  "temporaryChatTooltip": "This chat won't appear in history",
+  "saveChat": "Save Chat",
+  "temporaryChatByDefault": "Temporary Chat by Default",
+  "temporaryChatByDefaultDescription": "New chats won't be saved to history unless you choose to save them",
+  "chatSaved": "Chat saved to history",
+  "chatSaveFailed": "Failed to save chat"
 }

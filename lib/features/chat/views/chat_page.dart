@@ -16,6 +16,7 @@ import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../navigation/widgets/chats_drawer.dart';
 import 'dart:async';
 import '../../../core/providers/app_providers.dart';
+import '../../../core/services/settings_service.dart';
 import '../../auth/providers/unified_auth_providers.dart';
 import '../providers/chat_providers.dart';
 import '../../../core/utils/debug_logger.dart';
@@ -102,6 +103,91 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _pendingConversationScrollReset = false;
     _userPausedAutoScroll = false;
     _scheduleAutoScrollToBottom();
+
+    // Reset temporary chat state based on user preference
+    final settings = ref.read(appSettingsProvider);
+    ref
+        .read(temporaryChatEnabledProvider.notifier)
+        .set(settings.temporaryChatByDefault);
+  }
+
+  bool _isSavingTemporary = false;
+
+  /// Persists a temporary chat to the server, transitioning it
+  /// into a permanent conversation.
+  Future<void> _saveTemporaryChat() async {
+    if (_isSavingTemporary) return;
+    if (ref.read(isChatStreamingProvider)) return;
+    _isSavingTemporary = true;
+    try {
+      final messages = ref.read(chatMessagesProvider);
+      if (messages.isEmpty) return;
+
+      final api = ref.read(apiServiceProvider);
+      if (api == null) return;
+      final activeConversation = ref.read(activeConversationProvider);
+      if (activeConversation == null) return;
+
+      // Generate title from first user message
+      final firstUserMsg = messages.firstWhere(
+        (m) => m.role == 'user',
+        orElse: () => messages.first,
+      );
+      final title = firstUserMsg.content.length > 50
+          ? '${firstUserMsg.content.substring(0, 50)}...'
+          : firstUserMsg.content.isEmpty
+              ? 'New Chat'
+              : firstUserMsg.content;
+
+      final selectedModel = ref.read(selectedModelProvider);
+      final serverConversation = await api.createConversation(
+        title: title,
+        messages: messages,
+        model: selectedModel?.id ?? '',
+        systemPrompt: activeConversation.systemPrompt,
+        folderId: activeConversation.folderId,
+      );
+
+      // Transition to permanent chat
+      final updatedConversation = serverConversation.copyWith(
+        messages: messages,
+      );
+      ref
+          .read(activeConversationProvider.notifier)
+          .set(updatedConversation);
+      ref
+          .read(conversationsProvider.notifier)
+          .upsertConversation(
+            updatedConversation.copyWith(
+              messages: const [],
+              updatedAt: DateTime.now(),
+            ),
+          );
+      ref.read(temporaryChatEnabledProvider.notifier).set(false);
+      refreshConversationsCache(ref);
+
+      if (mounted) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          SnackBar(
+            content: Text(
+              AppLocalizations.of(context)!.chatSaved,
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          SnackBar(
+            content: Text(
+              AppLocalizations.of(context)!.chatSaveFailed,
+            ),
+          ),
+        );
+      }
+    } finally {
+      _isSavingTemporary = false;
+    }
   }
 
   Future<void> _checkAndAutoSelectModel() async {
@@ -1590,8 +1676,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   surfaceTintColor: Colors.transparent,
                   shadowColor: Colors.transparent,
                   toolbarHeight: kToolbarHeight + 8,
-                  centerTitle: true,
-                  titleSpacing: 0.0,
+                  centerTitle: false,
+                  titleSpacing: Spacing.sm,
                   leadingWidth: 44 + Spacing.inputPadding + Spacing.xs,
                   leading: _isSelectionMode
                       ? Padding(
@@ -1907,12 +1993,107 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                         ),
                   actions: [
                     if (!_isSelectionMode) ...[
+                      // Temporary chat toggle / Save chat button
+                      // Shows save when temporary + has messages,
+                      // otherwise shows the toggle
+                      Consumer(
+                        builder: (context, ref, _) {
+                          final isTemporary = ref.watch(
+                            temporaryChatEnabledProvider,
+                          );
+                          final activeConversation = ref.watch(
+                            activeConversationProvider,
+                          );
+                          final hasMessages = ref
+                              .watch(chatMessagesProvider)
+                              .isNotEmpty;
+
+                          final showToggle =
+                              activeConversation == null ||
+                              isTemporaryChat(
+                                activeConversation.id,
+                              );
+
+                          if (!showToggle) {
+                            return const SizedBox.shrink();
+                          }
+
+                          // Show save button when temporary
+                          // chat has messages
+                          if (isTemporary &&
+                              hasMessages &&
+                              activeConversation != null) {
+                            return AdaptiveTooltip(
+                              message: AppLocalizations.of(
+                                context,
+                              )!.saveChat,
+                              child: _buildAppBarIconButton(
+                                context: context,
+                                onPressed: _saveTemporaryChat,
+                                fallbackIcon: Platform.isIOS
+                                    ? CupertinoIcons
+                                        .arrow_down_doc
+                                    : Icons.save_alt,
+                                sfSymbol:
+                                    'square.and.arrow.down',
+                                color: context
+                                    .conduitTheme
+                                    .textPrimary,
+                              ),
+                            );
+                          }
+
+                          // Show toggle button
+                          return AdaptiveTooltip(
+                            message: isTemporary
+                                ? AppLocalizations.of(context)!
+                                    .temporaryChatTooltip
+                                : AppLocalizations.of(context)!
+                                    .temporaryChat,
+                            child: _buildAppBarIconButton(
+                              context: context,
+                              onPressed: () {
+                                HapticFeedback.selectionClick();
+                                final current = ref.read(
+                                  temporaryChatEnabledProvider,
+                                );
+                                ref
+                                    .read(
+                                      temporaryChatEnabledProvider
+                                          .notifier,
+                                    )
+                                    .set(!current);
+                              },
+                              fallbackIcon: isTemporary
+                                  ? (Platform.isIOS
+                                      ? CupertinoIcons.eye_slash
+                                      : Icons.visibility_off)
+                                  : (Platform.isIOS
+                                      ? CupertinoIcons.eye
+                                      : Icons.visibility_outlined),
+                              sfSymbol: isTemporary
+                                  ? 'eye.slash'
+                                  : 'eye',
+                              color: isTemporary
+                                  ? context
+                                      .conduitTheme
+                                      .buttonPrimary
+                                  : context
+                                      .conduitTheme
+                                      .textPrimary,
+                            ),
+                          );
+                        },
+                      ),
+                      const SizedBox(width: Spacing.sm),
                       Padding(
                         padding: const EdgeInsets.only(
                           right: Spacing.inputPadding,
                         ),
                         child: AdaptiveTooltip(
-                          message: AppLocalizations.of(context)!.newChat,
+                          message: AppLocalizations.of(
+                            context,
+                          )!.newChat,
                           child: _buildAppBarIconButton(
                             context: context,
                             onPressed: _handleNewChat,
@@ -1920,7 +2101,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                                 ? CupertinoIcons.create
                                 : Icons.add_comment,
                             sfSymbol: 'square.and.pencil',
-                            color: context.conduitTheme.textPrimary,
+                            color: context
+                                .conduitTheme
+                                .textPrimary,
                           ),
                         ),
                       ),

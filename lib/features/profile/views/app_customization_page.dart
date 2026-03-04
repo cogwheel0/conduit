@@ -447,6 +447,28 @@ class AppCustomizationPage extends ConsumerWidget {
               .read(appSettingsProvider.notifier)
               .setSendOnEnter(!settings.sendOnEnter),
         ),
+        const SizedBox(height: Spacing.sm),
+        CustomizationTile(
+          leading: _buildIconBadge(
+            context,
+            Icons.history_toggle_off,
+            color: theme.buttonPrimary,
+          ),
+          title: l10n.temporaryChatByDefault,
+          subtitle: l10n.temporaryChatByDefaultDescription,
+          trailing: AdaptiveSwitch(
+            value: settings.temporaryChatByDefault,
+            onChanged: (value) => ref
+                .read(appSettingsProvider.notifier)
+                .setTemporaryChatByDefault(value),
+          ),
+          showChevron: false,
+          onTap: () => ref
+              .read(appSettingsProvider.notifier)
+              .setTemporaryChatByDefault(
+                !settings.temporaryChatByDefault,
+              ),
+        ),
         if (Platform.isAndroid) ...[
           const SizedBox(height: Spacing.sm),
           CustomizationTile(
