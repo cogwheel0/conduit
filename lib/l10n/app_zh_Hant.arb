@@ -892,5 +892,6 @@
   "audioAttachment": "音訊附件",
   "loadingAudio": "正在載入音訊...",
   "failedToLoadAudio": "無法載入音訊",
-  "webPage": "網頁"
+  "webPage": "網頁",
+  "greetingTitle": "你好，{username}"
 }

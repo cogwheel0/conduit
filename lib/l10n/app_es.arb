@@ -892,5 +892,6 @@
   "audioAttachment": "Archivo de audio",
   "loadingAudio": "Cargando audio...",
   "failedToLoadAudio": "Error al cargar el audio",
-  "webPage": "Página Web"
+  "webPage": "Página Web",
+  "greetingTitle": "Hola, {username}"
 }

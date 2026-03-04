@@ -892,5 +892,6 @@
   "audioAttachment": "Аудио вложение",
   "loadingAudio": "Загрузка аудио...",
   "failedToLoadAudio": "Не удалось загрузить аудио",
-  "webPage": "Веб-страница"
+  "webPage": "Веб-страница",
+  "greetingTitle": "Привет, {username}"
 }

@@ -892,5 +892,6 @@
   "audioAttachment": "Audiobijlage",
   "loadingAudio": "Audio laden...",
   "failedToLoadAudio": "Audio laden mislukt",
-  "webPage": "Webpagina"
+  "webPage": "Webpagina",
+  "greetingTitle": "Hallo, {username}"
 }

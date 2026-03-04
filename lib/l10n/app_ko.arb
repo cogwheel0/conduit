@@ -670,5 +670,6 @@
   "audioAttachment": "오디오 첨부 파일",
   "loadingAudio": "오디오 로드 중...",
   "failedToLoadAudio": "오디오를 로드할 수 없습니다",
-  "webPage": "웹 페이지"
+  "webPage": "웹 페이지",
+  "greetingTitle": "안녕하세요, {username}"
 }
