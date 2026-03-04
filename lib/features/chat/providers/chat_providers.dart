@@ -250,7 +250,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   /// Safely clears the streaming content provider, tolerating disposal
   /// races during conversation transitions.
   void _clearStreamingContent() {
-    _clearStreamingContent();
+    try {
+      ref.read(streamingContentProvider.notifier).set(null);
+    } catch (_) {
+      // Tolerate disposal races during conversation transitions.
+    }
   }
 
   void _cancelMessageStream() {
@@ -760,10 +764,17 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   /// Syncs the accumulated streaming buffer content into
   /// the message list state.
   void _syncStreamingBufferToState() {
-    if (_streamingBuffer == null || state.isEmpty) return;
+    if (_streamingBuffer == null || state.isEmpty) {
+      // Streaming ended but timer still fired — cancel it.
+      _streamingSyncTimer?.cancel();
+      _streamingSyncTimer = null;
+      return;
+    }
     final lastMessage = state.last;
     if (lastMessage.role != 'assistant' ||
         !lastMessage.isStreaming) {
+      _streamingSyncTimer?.cancel();
+      _streamingSyncTimer = null;
       return;
     }
 

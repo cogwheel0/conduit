@@ -651,18 +651,17 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   @override
   Widget build(BuildContext context) {
-    // Listen to streaming content provider for per-chunk updates.
-    // Registered unconditionally so the listener lifecycle is stable
-    // across rebuilds; the callback short-circuits for non-streaming.
-    // Uses per-message isStreaming flag (not the global widget.isStreaming)
-    // so only the actually-streaming message re-parses on each chunk.
-    ref.listen(streamingContentProvider, (prev, next) {
-      if (!(widget.message.isStreaming as bool)) return;
-      if (next != null && next != _lastStreamingContent) {
-        _lastStreamingContent = next;
-        unawaited(_reparseSections(next));
-      }
-    });
+    // Listen to streaming content provider only for the actively streaming
+    // message. This avoids invoking no-op callbacks for every historical
+    // message on each chunk.
+    if (widget.message.isStreaming) {
+      ref.listen(streamingContentProvider, (prev, next) {
+        if (next != null && next != _lastStreamingContent) {
+          _lastStreamingContent = next;
+          unawaited(_reparseSections(next));
+        }
+      });
+    }
     return _buildDocumentationMessage();
   }
 

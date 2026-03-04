@@ -1245,15 +1245,18 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 if (rawModel != null && rawModel.isNotEmpty) {
                   if (models != null) {
                     try {
+                      // Prefer exact ID match; fall back to exact name match
                       final match = models.firstWhere(
                         (m) => m.id == rawModel || m.name == rawModel,
                       );
                       matchedModel = match;
                       displayModelName = _formatModelDisplayName(match.name);
                     } catch (_) {
+                      // As a fallback, format the raw value to be readable
                       displayModelName = _formatModelDisplayName(rawModel);
                     }
                   } else {
+                    // Models not loaded yet; format raw value for readability
                     displayModelName = _formatModelDisplayName(rawModel);
                   }
                 }
