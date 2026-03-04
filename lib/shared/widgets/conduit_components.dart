@@ -1191,20 +1191,27 @@ class AccessibleFormField extends StatelessWidget {
               label ??
               (AppLocalizations.of(context)?.inputField ?? 'Input field'),
           textField: true,
-          child: TextFormField(
+          child: AdaptiveTextFormField(
             controller: controller,
             onChanged: onChanged,
             onTap: onTap,
-            onFieldSubmitted: onSubmitted,
+            onSubmitted: onSubmitted,
             obscureText: obscureText,
             enabled: enabled,
             maxLines: maxLines,
             keyboardType: keyboardType,
             autofocus: autofocus,
             validator: validator,
-            autofillHints: autofillHints,
+            autofillHints: autofillHints?.toList(),
+            placeholder: hint,
+            prefixIcon: prefixIcon,
+            suffixIcon: suffixIcon,
             style: AppTypography.standard.copyWith(
               color: context.conduitTheme.textPrimary,
+            ),
+            padding: EdgeInsets.symmetric(
+              horizontal: isCompact ? Spacing.md : Spacing.inputPadding,
+              vertical: isCompact ? Spacing.sm : Spacing.md,
             ),
             decoration: InputDecoration(
               hintText: hint,
@@ -1257,6 +1264,17 @@ class AccessibleFormField extends StatelessWidget {
               errorText: errorText,
               errorStyle: AppTypography.small.copyWith(
                 color: context.conduitTheme.error,
+              ),
+            ),
+            cupertinoDecoration: BoxDecoration(
+              color: enabled
+                  ? context.conduitTheme.inputBackground
+                  : context.conduitTheme.surfaceContainer,
+              borderRadius:
+                  BorderRadius.circular(AppBorderRadius.input),
+              border: Border.all(
+                color: context.conduitTheme.inputBorder,
+                width: BorderWidth.standard,
               ),
             ),
           ),

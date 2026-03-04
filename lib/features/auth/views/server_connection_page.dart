@@ -493,8 +493,10 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
 
     return ErrorBoundary(
       child: AdaptiveScaffold(
-        body: SafeArea(
-          child: Padding(
+        body: Material(
+          type: MaterialType.transparency,
+          child: SafeArea(
+            child: Padding(
             padding: const EdgeInsets.symmetric(
               horizontal: Spacing.pagePadding,
               vertical: Spacing.lg,
@@ -548,6 +550,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
               ],
             ),
           ),
+        ),
         ),
       ),
     );

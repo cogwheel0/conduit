@@ -249,8 +249,10 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
 
     return ErrorBoundary(
       child: AdaptiveScaffold(
-        body: SafeArea(
-          child: Padding(
+        body: Material(
+          type: MaterialType.transparency,
+          child: SafeArea(
+            child: Padding(
             padding: const EdgeInsets.symmetric(
               horizontal: Spacing.pagePadding,
               vertical: Spacing.lg,
@@ -298,6 +300,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
               ],
             ),
           ),
+        ),
         ),
       ),
     );
@@ -592,7 +595,9 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
                   ? (Platform.isIOS
                         ? CupertinoIcons.eye_slash
                         : Icons.visibility_off)
-                  : (Platform.isIOS ? CupertinoIcons.eye : Icons.visibility),
+                  : (Platform.isIOS
+                        ? CupertinoIcons.eye
+                        : Icons.visibility),
               color: context.conduitTheme.iconSecondary,
             ),
             onPressed: () =>
@@ -659,7 +664,9 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
                   ? (Platform.isIOS
                         ? CupertinoIcons.eye_slash
                         : Icons.visibility_off)
-                  : (Platform.isIOS ? CupertinoIcons.eye : Icons.visibility),
+                  : (Platform.isIOS
+                        ? CupertinoIcons.eye
+                        : Icons.visibility),
               color: context.conduitTheme.iconSecondary,
             ),
             onPressed: () =>
@@ -718,7 +725,9 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
                   ? (Platform.isIOS
                         ? CupertinoIcons.eye_slash
                         : Icons.visibility_off)
-                  : (Platform.isIOS ? CupertinoIcons.eye : Icons.visibility),
+                  : (Platform.isIOS
+                        ? CupertinoIcons.eye
+                        : Icons.visibility),
               color: context.conduitTheme.iconSecondary,
             ),
             onPressed: () =>
