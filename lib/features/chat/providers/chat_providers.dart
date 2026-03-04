@@ -43,6 +43,23 @@ final isChatStreamingProvider = Provider<bool>((ref) {
   return last.role == 'assistant' && last.isStreaming;
 });
 
+/// The content of the currently streaming assistant message.
+/// Only the actively streaming message widget should watch this.
+/// This avoids rebuilding all visible messages on every chunk.
+final streamingContentProvider =
+    NotifierProvider<StreamingContentNotifier, String?>(
+      StreamingContentNotifier.new,
+    );
+
+/// Notifier that holds the current streaming content text.
+class StreamingContentNotifier extends Notifier<String?> {
+  @override
+  String? build() => null;
+
+  // ignore: use_setters_to_change_properties
+  void set(String? value) => state = value;
+}
+
 // Loading state for conversation (used to show chat skeletons during fetch)
 @Riverpod(keepAlive: true)
 class IsLoadingConversation extends _$IsLoadingConversation {
@@ -106,6 +123,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   VoidCallback? _socketTeardown;
   DateTime? _lastStreamingActivity;
   StringBuffer? _streamingBuffer;
+  Timer? _streamingSyncTimer;
   Timer? _taskStatusTimer;
   bool _taskStatusCheckInFlight = false;
   bool _observedRemoteTask = false;
@@ -203,6 +221,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
         _cancelMessageStream();
         _stopRemoteTaskMonitor();
+        _streamingSyncTimer?.cancel();
+        _streamingSyncTimer = null;
 
         _conversationListener?.close();
         _conversationListener = null;
@@ -221,6 +241,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
     cancelSocketSubscriptions();
     _streamingBuffer = null;
+    _streamingSyncTimer?.cancel();
+    _streamingSyncTimer = null;
+    try {
+      ref.read(streamingContentProvider.notifier).set(null);
+    } catch (_) {}
     _stopRemoteTaskMonitor();
   }
 
@@ -684,7 +709,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     if (lastMessage.role != 'assistant') return;
     if (!lastMessage.isStreaming) {
       DebugLogger.log(
-        'Ignoring late chunk for finished message: ${lastMessage.id}',
+        'Ignoring late chunk for finished message: '
+        '${lastMessage.id}',
         scope: 'chat/providers',
       );
       return;
@@ -694,16 +720,48 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _streamingBuffer ??= StringBuffer(lastMessage.content);
     _streamingBuffer!.write(content);
 
+    // Update streaming content provider per-chunk
+    // (only the streaming widget watches this)
     final accumulated = _streamingBuffer!.toString();
+    ref.read(streamingContentProvider.notifier).set(accumulated);
+
+    // Throttle message list state updates to every 500ms.
+    // This prevents rebuilding ALL visible messages on
+    // every chunk.
+    _streamingSyncTimer ??= Timer.periodic(
+      const Duration(milliseconds: 500),
+      (_) => _syncStreamingBufferToState(),
+    );
+
+    _touchStreamingActivity();
+  }
+
+  /// Syncs the accumulated streaming buffer content into
+  /// the message list state.
+  void _syncStreamingBufferToState() {
+    if (_streamingBuffer == null || state.isEmpty) return;
+    final lastMessage = state.last;
+    if (lastMessage.role != 'assistant' ||
+        !lastMessage.isStreaming) {
+      return;
+    }
+
+    final accumulated = _streamingBuffer!.toString();
+    if (accumulated == lastMessage.content) return;
+
     state = [
       ...state.sublist(0, state.length - 1),
       lastMessage.copyWith(content: accumulated),
     ];
-    _touchStreamingActivity();
   }
 
   void replaceLastMessageContent(String content) {
     _streamingBuffer = null;
+    _streamingSyncTimer?.cancel();
+    _streamingSyncTimer = null;
+    try {
+      ref.read(streamingContentProvider.notifier).set(null);
+    } catch (_) {}
     if (state.isEmpty) return;
 
     final lastMessage = state.last;
@@ -718,7 +776,13 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   }
 
   void finishStreaming() {
+    // Sync final buffer content to state before clearing
+    _syncStreamingBufferToState();
     _streamingBuffer = null;
+    _streamingSyncTimer?.cancel();
+    _streamingSyncTimer = null;
+    ref.read(streamingContentProvider.notifier).set(null);
+
     if (state.isEmpty) return;
 
     final lastMessage = state.last;

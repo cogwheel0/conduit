@@ -20,7 +20,8 @@ import '../../../shared/widgets/model_avatar.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
 import 'package:url_launcher/url_launcher_string.dart';
-import '../providers/chat_providers.dart' show sendMessageWithContainer;
+import '../providers/chat_providers.dart'
+    show sendMessageWithContainer, streamingContentProvider;
 import '../../../core/utils/debug_logger.dart';
 import 'sources/openwebui_sources.dart';
 import '../providers/assistant_response_builder_provider.dart';
@@ -85,6 +86,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   int _ttsPlainTextRequestId = 0;
   // Active version index (-1 means current/live content)
   int _activeVersionIndex = -1;
+  String? _lastStreamingContent;
   // press state handled by shared ChatActionButton
 
   Future<void> _handleFollowUpTap(String suggestion) async {
@@ -132,6 +134,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   void didUpdateWidget(AssistantMessageWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
 
+    if (oldWidget.message.id != widget.message.id) {
+      _lastStreamingContent = null;
+    }
+
     // Re-parse sections when message content changes
     if (oldWidget.message.content != widget.message.content) {
       unawaited(_reparseSections());
@@ -154,11 +160,12 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     }
   }
 
-  Future<void> _reparseSections() async {
+  Future<void> _reparseSections([String? overrideContent]) async {
     final raw0 = _activeVersionIndex >= 0
-        ? (widget.message.versions[_activeVersionIndex].content as String?) ??
+        ? (widget.message.versions[_activeVersionIndex]
+                  .content as String?) ??
               ''
-        : widget.message.content ?? '';
+        : (overrideContent ?? widget.message.content ?? '');
     // Strip any leftover placeholders from content before parsing
     const ti = '[TYPING_INDICATOR]';
     const searchBanner = '🔍 Searching the web...';
@@ -597,6 +604,19 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   @override
   Widget build(BuildContext context) {
+    // During streaming, watch the dedicated streaming content
+    // provider for per-chunk updates without triggering full
+    // message list rebuilds.
+    if (widget.isStreaming) {
+      final streamingContent =
+          ref.watch(streamingContentProvider);
+      if (streamingContent != null &&
+          streamingContent != _lastStreamingContent) {
+        _lastStreamingContent = streamingContent;
+        // Schedule reparse with the latest streaming content
+        unawaited(_reparseSections(streamingContent));
+      }
+    }
     return _buildDocumentationMessage();
   }
 
