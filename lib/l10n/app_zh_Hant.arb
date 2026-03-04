@@ -893,5 +893,12 @@
   "loadingAudio": "正在載入音訊...",
   "failedToLoadAudio": "無法載入音訊",
   "webPage": "網頁",
-  "greetingTitle": "你好，{username}"
+  "greetingTitle": "你好，{username}",
+  "temporaryChat": "Temporary Chat",
+  "temporaryChatTooltip": "This chat won't appear in history",
+  "saveChat": "Save Chat",
+  "temporaryChatByDefault": "Temporary Chat by Default",
+  "temporaryChatByDefaultDescription": "New chats won't be saved to history unless you choose to save them",
+  "chatSaved": "Chat saved to history",
+  "chatSaveFailed": "Failed to save chat"
 }

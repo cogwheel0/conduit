@@ -893,5 +893,12 @@
   "loadingAudio": "Cargando audio...",
   "failedToLoadAudio": "Error al cargar el audio",
   "webPage": "Página Web",
-  "greetingTitle": "Hola, {username}"
+  "greetingTitle": "Hola, {username}",
+  "temporaryChat": "Temporary Chat",
+  "temporaryChatTooltip": "This chat won't appear in history",
+  "saveChat": "Save Chat",
+  "temporaryChatByDefault": "Temporary Chat by Default",
+  "temporaryChatByDefaultDescription": "New chats won't be saved to history unless you choose to save them",
+  "chatSaved": "Chat saved to history",
+  "chatSaveFailed": "Failed to save chat"
 }

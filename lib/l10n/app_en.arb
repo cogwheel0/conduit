@@ -1980,5 +1980,33 @@
   "imageFileType": "Image",
   "@imageFileType": {
     "description": "Label for image file type."
+  },
+  "temporaryChat": "Temporary Chat",
+  "@temporaryChat": {
+    "description": "Label for the temporary chat toggle."
+  },
+  "temporaryChatTooltip": "This chat won't appear in history",
+  "@temporaryChatTooltip": {
+    "description": "Tooltip shown when temporary chat is enabled."
+  },
+  "saveChat": "Save Chat",
+  "@saveChat": {
+    "description": "Action to save a temporary chat to history."
+  },
+  "temporaryChatByDefault": "Temporary Chat by Default",
+  "@temporaryChatByDefault": {
+    "description": "Setting to make all new chats temporary by default."
+  },
+  "temporaryChatByDefaultDescription": "New chats won't be saved to history unless you choose to save them",
+  "@temporaryChatByDefaultDescription": {
+    "description": "Description for the temporary chat by default setting."
+  },
+  "chatSaved": "Chat saved to history",
+  "@chatSaved": {
+    "description": "Snackbar message shown after saving a temporary chat."
+  },
+  "chatSaveFailed": "Failed to save chat",
+  "@chatSaveFailed": {
+    "description": "Snackbar message shown when saving a temporary chat fails."
   }
 }
