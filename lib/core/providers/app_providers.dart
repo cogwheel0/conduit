@@ -1507,6 +1507,8 @@ class Conversations extends _$Conversations {
 class TemporaryChatEnabled extends _$TemporaryChatEnabled {
   @override
   bool build() {
+    // Use ref.read (not watch) so settings changes don't reset
+    // the ephemeral toggle state mid-conversation.
     final settings = ref.read(appSettingsProvider);
     return settings.temporaryChatByDefault;
   }

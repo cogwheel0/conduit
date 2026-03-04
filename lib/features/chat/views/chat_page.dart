@@ -117,6 +117,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   /// into a permanent conversation.
   Future<void> _saveTemporaryChat() async {
     if (_isSavingTemporary) return;
+    if (ref.read(isChatStreamingProvider)) return;
     _isSavingTemporary = true;
     try {
       final messages = ref.read(chatMessagesProvider);
@@ -163,6 +164,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             ),
           );
       ref.read(temporaryChatEnabledProvider.notifier).set(false);
+      refreshConversationsCache(ref);
 
       if (mounted) {
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(
@@ -2055,21 +2057,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                                 final current = ref.read(
                                   temporaryChatEnabledProvider,
                                 );
-                                if (!current) {
-                                  ref
-                                      .read(
-                                        temporaryChatEnabledProvider
-                                            .notifier,
-                                      )
-                                      .set(true);
-                                } else {
-                                  ref
-                                      .read(
-                                        temporaryChatEnabledProvider
-                                            .notifier,
-                                      )
-                                      .set(false);
-                                }
+                                ref
+                                    .read(
+                                      temporaryChatEnabledProvider
+                                          .notifier,
+                                    )
+                                    .set(!current);
                               },
                               fallbackIcon: isTemporary
                                   ? (Platform.isIOS
