@@ -104,6 +104,76 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _scheduleAutoScrollToBottom();
   }
 
+  /// Persists a temporary chat to the server, transitioning it
+  /// into a permanent conversation.
+  Future<void> _saveTemporaryChat() async {
+    final messages = ref.read(chatMessagesProvider);
+    if (messages.isEmpty) return;
+
+    final api = ref.read(apiServiceProvider);
+    final activeConversation = ref.read(activeConversationProvider);
+    if (activeConversation == null) return;
+
+    // Generate title from first user message
+    final firstUserMsg = messages.firstWhere(
+      (m) => m.role == 'user',
+      orElse: () => messages.first,
+    );
+    final title = firstUserMsg.content.length > 50
+        ? '${firstUserMsg.content.substring(0, 50)}...'
+        : firstUserMsg.content.isEmpty
+            ? 'New Chat'
+            : firstUserMsg.content;
+
+    try {
+      final selectedModel = ref.read(selectedModelProvider);
+      final serverConversation = await api.createConversation(
+        title: title,
+        messages: messages,
+        model: selectedModel?.id ?? '',
+        systemPrompt: activeConversation.systemPrompt,
+        folderId: activeConversation.folderId,
+      );
+
+      // Transition to permanent chat
+      final updatedConversation = serverConversation.copyWith(
+        messages: messages,
+      );
+      ref
+          .read(activeConversationProvider.notifier)
+          .set(updatedConversation);
+      ref
+          .read(conversationsProvider.notifier)
+          .upsertConversation(
+            updatedConversation.copyWith(
+              messages: const [],
+              updatedAt: DateTime.now(),
+            ),
+          );
+      ref.read(temporaryChatEnabledProvider.notifier).state = false;
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              AppLocalizations.of(context)!.chatSaved,
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              AppLocalizations.of(context)!.chatSaveFailed,
+            ),
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _checkAndAutoSelectModel() async {
     // Check if a model is already selected
     final selectedModel = ref.read(selectedModelProvider);
