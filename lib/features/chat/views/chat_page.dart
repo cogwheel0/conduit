@@ -1095,6 +1095,37 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     );
   }
 
+  /// Walks the message list once (O(n)) to pre-compute, for each index,
+  /// whether the next user or assistant bubble appears below it.
+  ///
+  /// System messages are skipped, matching the original per-item scan
+  /// behavior.
+  Map<int, ({bool hasUserBelow, bool hasAssistantBelow})>
+      _computeBubbleAdjacency(List<ChatMessage> messages) {
+    final result =
+        <int, ({bool hasUserBelow, bool hasAssistantBelow})>{};
+
+    // Track the role of the nearest user/assistant message seen
+    // so far while walking backwards.
+    String? nextRelevantRole;
+
+    for (var i = messages.length - 1; i >= 0; i--) {
+      // Record what's below *this* index before updating.
+      result[i] = (
+        hasUserBelow: nextRelevantRole == 'user',
+        hasAssistantBelow: nextRelevantRole == 'assistant',
+      );
+
+      // Update the tracked role if this message is user or assistant.
+      final role = messages[i].role;
+      if (role == 'user' || role == 'assistant') {
+        nextRelevantRole = role;
+      }
+    }
+
+    return result;
+  }
+
   Widget _buildActualMessagesList(List<ChatMessage> messages) {
     if (messages.isEmpty) {
       return _buildEmptyState(Theme.of(context));
@@ -1144,6 +1175,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
     // Check if any message is currently streaming
     final isStreaming = messages.any((msg) => msg.isStreaming);
+
+    // Pre-compute bubble adjacency in O(n) instead of O(n^2) per-item scan
+    final bubbleAdjacency = _computeBubbleAdjacency(messages);
 
     return NotificationListener<ScrollNotification>(
       onNotification: (notification) {
@@ -1228,19 +1262,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   matchedModel,
                 );
 
-                var hasUserBubbleBelow = false;
-                var hasAssistantBubbleBelow = false;
-                for (var i = index + 1; i < messages.length; i++) {
-                  final role = messages[i].role;
-                  if (role == 'user') {
-                    hasUserBubbleBelow = true;
-                    break;
-                  }
-                  if (role == 'assistant') {
-                    hasAssistantBubbleBelow = true;
-                    break;
-                  }
-                }
+                final adjacency = bubbleAdjacency[index];
+                final hasUserBubbleBelow =
+                    adjacency?.hasUserBelow ?? false;
+                final hasAssistantBubbleBelow =
+                    adjacency?.hasAssistantBelow ?? false;
 
                 // Hide archived assistant variants in the linear view
                 final isArchivedVariant =
