@@ -115,7 +115,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   void initState() {
     super.initState();
     _fadeController = AnimationController(
-      duration: const Duration(milliseconds: 200),
+      duration: const Duration(milliseconds: 300),
       vsync: this,
     );
     _slideController = AnimationController(
@@ -193,7 +193,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       // Quick check: if the new tail doesn't contain reasoning or tool
       // markers, we can just extend the last text segment.
       if (!newTail.contains('<details') &&
-          !newTail.contains('<think')) {
+          !newTail.contains('</details') &&
+          !newTail.contains('<think') &&
+          !newTail.contains('</think')) {
         final lastSeg = _segments.last;
         if (lastSeg.isText) {
           final updatedSegments = [
@@ -646,18 +648,16 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   @override
   Widget build(BuildContext context) {
-    // During streaming, watch the dedicated streaming content
-    // provider for per-chunk updates without triggering full
-    // message list rebuilds.
+    // During streaming, listen to the dedicated streaming content provider
+    // for per-chunk updates. Using ref.listen (not ref.watch) to avoid
+    // triggering side effects inside build().
     if (widget.isStreaming) {
-      final streamingContent =
-          ref.watch(streamingContentProvider);
-      if (streamingContent != null &&
-          streamingContent != _lastStreamingContent) {
-        _lastStreamingContent = streamingContent;
-        // Schedule reparse with the latest streaming content
-        unawaited(_reparseSections(streamingContent));
-      }
+      ref.listen(streamingContentProvider, (prev, next) {
+        if (next != null && next != _lastStreamingContent) {
+          _lastStreamingContent = next;
+          unawaited(_reparseSections(next));
+        }
+      });
     }
     return _buildDocumentationMessage();
   }

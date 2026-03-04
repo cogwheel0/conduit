@@ -250,7 +250,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _streamingSyncTimer = null;
     try {
       ref.read(streamingContentProvider.notifier).set(null);
-    } catch (_) {}
+    } on StateError catch (_) {
+      // Provider may already be disposed
+    }
     _stopRemoteTaskMonitor();
   }
 
@@ -766,7 +768,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _streamingSyncTimer = null;
     try {
       ref.read(streamingContentProvider.notifier).set(null);
-    } catch (_) {}
+    } on StateError catch (_) {
+      // Provider may already be disposed
+    }
     if (state.isEmpty) return;
 
     final lastMessage = state.last;
