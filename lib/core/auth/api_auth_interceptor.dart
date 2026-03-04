@@ -16,6 +16,7 @@ class ApiAuthInterceptor extends Interceptor {
   // Public endpoints that don't require authentication
   static const Set<String> _publicEndpoints = {
     '/health',
+    '/api/v1/auths/ldap',
     '/api/v1/auths/signin',
     '/api/v1/auths/signup',
     '/api/v1/auths/signup/enabled',
