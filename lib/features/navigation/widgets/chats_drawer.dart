@@ -28,10 +28,9 @@ import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../../core/models/model.dart';
 import '../../../core/models/conversation.dart';
 import '../../../core/models/folder.dart';
-import '../../../core/persistence/persistence_keys.dart';
-import '../../../core/persistence/hive_boxes.dart';
-import 'package:hive_ce/hive.dart';
-import '../../../shared/widgets/middle_ellipsis_text.dart';
+import 'conversation_tile.dart';
+import 'create_folder_dialog.dart';
+import 'drawer_section_notifiers.dart';
 
 /// Defines the section types that can be collapsed in the chats drawer
 enum _SectionType { pinned, recent }
@@ -55,19 +54,6 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer> {
   bool _isDragging = false;
   bool _draggingHasFolder = false;
 
-  // UI state providers for sections
-  static final _showArchivedProvider =
-      NotifierProvider<_ShowArchivedNotifier, bool>(_ShowArchivedNotifier.new);
-  static final _showPinnedProvider =
-      NotifierProvider<_ShowPinnedNotifier, bool>(_ShowPinnedNotifier.new);
-  static final _showFoldersProvider =
-      NotifierProvider<_ShowFoldersNotifier, bool>(_ShowFoldersNotifier.new);
-  static final _showRecentProvider =
-      NotifierProvider<_ShowRecentNotifier, bool>(_ShowRecentNotifier.new);
-  static final _expandedFoldersProvider =
-      NotifierProvider<_ExpandedFoldersNotifier, Map<String, bool>>(
-        _ExpandedFoldersNotifier.new,
-      );
 
   Future<void> _refreshChats() async {
     try {
@@ -346,9 +332,9 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer> {
 
           final archived = list.where((c) => c.archived == true).toList();
 
-          final showPinned = ref.watch(_showPinnedProvider);
-          final showFolders = ref.watch(_showFoldersProvider);
-          final showRecent = ref.watch(_showRecentProvider);
+          final showPinned = ref.watch(showPinnedProvider);
+          final showFolders = ref.watch(showFoldersProvider);
+          final showRecent = ref.watch(showRecentProvider);
           final foldersEnabled = ref.watch(foldersFeatureEnabledProvider);
 
           final slivers = <Widget>[
@@ -396,7 +382,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer> {
                         grouped.putIfAbsent(id, () => []).add(c);
                       }
 
-                      final expandedMap = ref.watch(_expandedFoldersProvider);
+                      final expandedMap = ref.watch(expandedFoldersProvider);
 
                       final out = <Widget>[];
                       for (final folder in folders) {
@@ -495,7 +481,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer> {
                   child: _buildArchivedHeader(archived.length),
                 ),
               ),
-              if (ref.watch(_showArchivedProvider)) ...[
+              if (ref.watch(showArchivedProvider)) ...[
                 const SliverToBoxAdapter(child: SizedBox(height: Spacing.xs)),
                 _conversationsSliver(archived, modelsById: modelsById),
               ],
@@ -574,9 +560,9 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer> {
 
         final archived = list.where((c) => c.archived == true).toList();
 
-        final showPinned = ref.watch(_showPinnedProvider);
-        final showFolders = ref.watch(_showFoldersProvider);
-        final showRecent = ref.watch(_showRecentProvider);
+        final showPinned = ref.watch(showPinnedProvider);
+        final showFolders = ref.watch(showFoldersProvider);
+        final showRecent = ref.watch(showRecentProvider);
 
         final slivers = <Widget>[
           SliverPadding(
@@ -649,7 +635,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer> {
                     final id = c.folderId!;
                     grouped.putIfAbsent(id, () => []).add(c);
                   }
-                  final expandedMap = ref.watch(_expandedFoldersProvider);
+                  final expandedMap = ref.watch(expandedFoldersProvider);
                   final out = <Widget>[];
                   for (final folder in folders) {
                     final existing = grouped[folder.id] ?? const <dynamic>[];
@@ -753,7 +739,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer> {
               ),
             ),
           ]);
-          if (ref.watch(_showArchivedProvider)) {
+          if (ref.watch(showArchivedProvider)) {
             slivers.add(
               const SliverToBoxAdapter(child: SizedBox(height: Spacing.xs)),
             );
@@ -791,11 +777,11 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer> {
     VoidCallback? onToggle;
 
     if (sectionType == _SectionType.pinned) {
-      isExpanded = ref.watch(_showPinnedProvider);
-      onToggle = () => ref.read(_showPinnedProvider.notifier).toggle();
+      isExpanded = ref.watch(showPinnedProvider);
+      onToggle = () => ref.read(showPinnedProvider.notifier).toggle();
     } else if (sectionType == _SectionType.recent) {
-      isExpanded = ref.watch(_showRecentProvider);
-      onToggle = () => ref.read(_showRecentProvider.notifier).toggle();
+      isExpanded = ref.watch(showRecentProvider);
+      onToggle = () => ref.read(showRecentProvider.notifier).toggle();
     }
 
     final headerContent = Row(
@@ -862,12 +848,12 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer> {
   Widget _buildFoldersSectionHeader() {
     final theme = context.conduitTheme;
     final sidebarTheme = context.sidebarTheme;
-    final isExpanded = ref.watch(_showFoldersProvider);
+    final isExpanded = ref.watch(showFoldersProvider);
 
     return Row(
       children: [
         InkWell(
-          onTap: () => ref.read(_showFoldersProvider.notifier).toggle(),
+          onTap: () => ref.read(showFoldersProvider.notifier).toggle(),
           borderRadius: BorderRadius.circular(AppBorderRadius.xs),
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: Spacing.xxs),
@@ -907,44 +893,16 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer> {
                 : Icons.create_new_folder_outlined,
             color: theme.iconPrimary,
           ),
-          onPressed: _promptCreateFolder,
+          onPressed: () => CreateFolderDialog.show(
+            context,
+            ref,
+            onError: _showDrawerError,
+          ),
         ),
       ],
     );
   }
 
-  Future<void> _promptCreateFolder() async {
-    final name = await ThemedDialogs.promptTextInput(
-      context,
-      title: AppLocalizations.of(context)!.newFolder,
-      hintText: AppLocalizations.of(context)!.folderName,
-      confirmText: AppLocalizations.of(context)!.create,
-      cancelText: AppLocalizations.of(context)!.cancel,
-    );
-
-    if (name == null) return;
-    if (name.isEmpty) return;
-    try {
-      final api = ref.read(apiServiceProvider);
-      if (api == null) throw Exception('No API service');
-      final created = await api.createFolder(name: name);
-      final folder = Folder.fromJson(Map<String, dynamic>.from(created));
-      HapticFeedback.lightImpact();
-      ref.read(foldersProvider.notifier).upsertFolder(folder);
-      refreshConversationsCache(ref, includeFolders: true);
-    } catch (e, stackTrace) {
-      if (!mounted) return;
-      DebugLogger.error(
-        'create-folder-failed',
-        scope: 'drawer',
-        error: e,
-        stackTrace: stackTrace,
-      );
-      await _showDrawerError(
-        AppLocalizations.of(context)!.failedToCreateFolder,
-      );
-    }
-  }
 
   Widget _buildFolderHeader(
     String folderId,
@@ -953,7 +911,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer> {
     bool defaultExpanded = false,
   }) {
     final theme = context.conduitTheme;
-    final expandedMap = ref.watch(_expandedFoldersProvider);
+    final expandedMap = ref.watch(expandedFoldersProvider);
     final isExpanded = expandedMap[folderId] ?? defaultExpanded;
     final isHover = _dragHoverFolderId == folderId;
     final baseColor = theme.surfaceContainer;
@@ -1031,10 +989,10 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer> {
           child: InkWell(
             borderRadius: BorderRadius.circular(AppBorderRadius.small),
             onTap: () {
-              final current = {...ref.read(_expandedFoldersProvider)};
+              final current = {...ref.read(expandedFoldersProvider)};
               final next = !isExpanded;
               current[folderId] = next;
-              ref.read(_expandedFoldersProvider.notifier).set(current);
+              ref.read(expandedFoldersProvider.notifier).set(current);
             },
             onLongPress: null, // Handled by ConduitContextMenu
             overlayColor: WidgetStateProperty.resolveWith(overlayForStates),
@@ -1498,7 +1456,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer> {
     final foldersEnabled = ref.watch(foldersFeatureEnabledProvider);
     final dragEnabled = foldersEnabled && !isLoadingSelected;
 
-    final tileWidget = _ConversationTile(
+    final tileWidget = ConversationTile(
       title: title,
       pinned: isPinned,
       selected: isActive,
@@ -1558,7 +1516,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer> {
           // Custom drag preview
           return Opacity(
             opacity: 0.9,
-            child: _ConversationDragFeedback(
+            child: ConversationDragFeedback(
               title: title,
               pinned: isPinned,
               theme: theme,
@@ -1576,7 +1534,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer> {
 
   Widget _buildArchivedHeader(int count) {
     final theme = context.conduitTheme;
-    final show = ref.watch(_showArchivedProvider);
+    final show = ref.watch(showArchivedProvider);
     return Material(
       color: show ? theme.navigationSelectedBackground : theme.surfaceContainer,
       shape: RoundedRectangleBorder(
@@ -1590,7 +1548,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer> {
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(AppBorderRadius.small),
-        onTap: () => ref.read(_showArchivedProvider.notifier).set(!show),
+        onTap: () => ref.read(showArchivedProvider.notifier).set(!show),
         overlayColor: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.pressed)) {
             return theme.buttonPrimary.withValues(alpha: Alpha.buttonPressed);
@@ -1823,290 +1781,9 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer> {
   }
 }
 
-class _ShowArchivedNotifier extends Notifier<bool> {
-  @override
-  bool build() => false;
-
-  void set(bool value) => state = value;
-}
-
-class _ShowPinnedNotifier extends Notifier<bool> {
-  Box<dynamic> get _box => Hive.box<dynamic>(HiveBoxNames.preferences);
-
-  @override
-  bool build() {
-    return _box.get(PreferenceKeys.drawerShowPinned, defaultValue: true)
-        as bool;
-  }
-
-  void toggle() {
-    state = !state;
-    _box.put(PreferenceKeys.drawerShowPinned, state);
-  }
-}
-
-class _ShowFoldersNotifier extends Notifier<bool> {
-  Box<dynamic> get _box => Hive.box<dynamic>(HiveBoxNames.preferences);
-
-  @override
-  bool build() {
-    return _box.get(PreferenceKeys.drawerShowFolders, defaultValue: true)
-        as bool;
-  }
-
-  void toggle() {
-    state = !state;
-    _box.put(PreferenceKeys.drawerShowFolders, state);
-  }
-}
-
-class _ShowRecentNotifier extends Notifier<bool> {
-  Box<dynamic> get _box => Hive.box<dynamic>(HiveBoxNames.preferences);
-
-  @override
-  bool build() {
-    return _box.get(PreferenceKeys.drawerShowRecent, defaultValue: true)
-        as bool;
-  }
-
-  void toggle() {
-    state = !state;
-    _box.put(PreferenceKeys.drawerShowRecent, state);
-  }
-}
-
-class _ExpandedFoldersNotifier extends Notifier<Map<String, bool>> {
-  @override
-  Map<String, bool> build() => {};
-
-  void set(Map<String, bool> value) => state = Map<String, bool>.from(value);
-}
-
-class _ConversationDragFeedback extends StatelessWidget {
-  final String title;
-  final bool pinned;
-  final ConduitThemeExtension theme;
-
-  const _ConversationDragFeedback({
-    required this.title,
-    required this.pinned,
-    required this.theme,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final borderRadius = BorderRadius.circular(AppBorderRadius.small);
-    final borderColor = theme.surfaceContainerHighest.withValues(alpha: 0.40);
-
-    return Material(
-      color: Colors.transparent,
-      elevation: Elevation.low,
-      borderRadius: borderRadius,
-      child: Container(
-        constraints: const BoxConstraints(minHeight: TouchTarget.listItem),
-        padding: const EdgeInsets.symmetric(
-          horizontal: Spacing.md,
-          vertical: Spacing.xs,
-        ),
-        decoration: BoxDecoration(
-          color: theme.surfaceContainer,
-          borderRadius: borderRadius,
-          border: Border.all(color: borderColor, width: BorderWidth.thin),
-        ),
-        child: _ConversationTileContent(
-          title: title,
-          pinned: pinned,
-          selected: false,
-          isLoading: false,
-        ),
-      ),
-    );
-  }
-}
-
-class _ConversationTileContent extends StatelessWidget {
-  final String title;
-  final bool pinned;
-  final bool selected;
-  final bool isLoading;
-
-  const _ConversationTileContent({
-    required this.title,
-    required this.pinned,
-    required this.selected,
-    required this.isLoading,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-
-    // Enhanced typography with better visual hierarchy
-    final textStyle = AppTypography.standard.copyWith(
-      color: selected ? theme.textPrimary : theme.textSecondary,
-      fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-      height: 1.4,
-    );
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final hasFiniteWidth = constraints.maxWidth.isFinite;
-        final textFit = hasFiniteWidth ? FlexFit.tight : FlexFit.loose;
-
-        final trailingWidgets = <Widget>[];
-
-        if (pinned) {
-          trailingWidgets.addAll([
-            const SizedBox(width: Spacing.sm),
-            Container(
-              padding: const EdgeInsets.all(Spacing.xxs),
-              decoration: BoxDecoration(
-                color: theme.buttonPrimary.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(AppBorderRadius.xs),
-              ),
-              child: Icon(
-                Platform.isIOS
-                    ? CupertinoIcons.pin_fill
-                    : Icons.push_pin_rounded,
-                color: theme.buttonPrimary.withValues(alpha: 0.7),
-                size: IconSize.xs,
-              ),
-            ),
-          ]);
-        }
-
-        if (isLoading) {
-          trailingWidgets.addAll([
-            const SizedBox(width: Spacing.sm),
-            SizedBox(
-              width: IconSize.sm,
-              height: IconSize.sm,
-              child: CircularProgressIndicator(
-                strokeWidth: BorderWidth.medium,
-                valueColor: AlwaysStoppedAnimation<Color>(
-                  theme.loadingIndicator,
-                ),
-              ),
-            ),
-          ]);
-        }
-
-        return Row(
-          mainAxisSize: hasFiniteWidth ? MainAxisSize.max : MainAxisSize.min,
-          children: [
-            Flexible(
-              fit: textFit,
-              child: MiddleEllipsisText(
-                title,
-                style: textStyle,
-                semanticsLabel: title,
-              ),
-            ),
-            ...trailingWidgets,
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _ConversationTile extends StatefulWidget {
-  final String title;
-  final bool pinned;
-  final bool selected;
-  final bool isLoading;
-  final VoidCallback? onTap;
-
-  const _ConversationTile({
-    required this.title,
-    required this.pinned,
-    required this.selected,
-    required this.isLoading,
-    required this.onTap,
-  });
-
-  @override
-  State<_ConversationTile> createState() => _ConversationTileState();
-}
-
-class _ConversationTileState extends State<_ConversationTile> {
-  bool _isHovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-    final sidebarTheme = context.sidebarTheme;
-    final borderRadius = BorderRadius.circular(AppBorderRadius.card);
-
-    // Use opaque backgrounds for proper context menu snapshot rendering
-    final Color baseBackground = sidebarTheme.background;
-
-    final Color background = widget.selected
-        ? Color.alphaBlend(
-            theme.buttonPrimary.withValues(alpha: 0.1),
-            baseBackground,
-          )
-        : (_isHovered
-              ? Color.alphaBlend(
-                  theme.buttonPrimary.withValues(alpha: 0.05),
-                  baseBackground,
-                )
-              : baseBackground);
-
-    Color? overlayForStates(Set<WidgetState> states) {
-      if (states.contains(WidgetState.pressed)) {
-        return theme.buttonPrimary.withValues(alpha: Alpha.buttonPressed);
-      }
-      return Colors.transparent;
-    }
-
-    return Semantics(
-      selected: widget.selected,
-      button: true,
-      child: MouseRegion(
-        onEnter: (_) => setState(() => _isHovered = true),
-        onExit: (_) => setState(() => _isHovered = false),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOutCubic,
-          margin: const EdgeInsets.symmetric(
-            horizontal: Spacing.xs,
-            vertical: Spacing.xxs,
-          ),
-          decoration: BoxDecoration(
-            color: background,
-            borderRadius: borderRadius,
-          ),
-          child: Material(
-            color: Colors.transparent,
-            borderRadius: borderRadius,
-            child: InkWell(
-              borderRadius: borderRadius,
-              onTap: widget.isLoading ? null : widget.onTap,
-              overlayColor: WidgetStateProperty.resolveWith(overlayForStates),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(
-                  minHeight: TouchTarget.listItem,
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: Spacing.md,
-                    vertical: Spacing.sm,
-                  ),
-                  child: _ConversationTileContent(
-                    title: widget.title,
-                    pinned: widget.pinned,
-                    selected: widget.selected,
-                    isLoading: widget.isLoading,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 // Bottom quick actions widget removed as design now shows only profile card
+// Notifier classes extracted to drawer_section_notifiers.dart
+// Conversation tile widgets extracted to conversation_tile.dart
+// Create folder dialog extracted to create_folder_dialog.dart
+
+// (classes removed - see drawer_section_notifiers.dart)
