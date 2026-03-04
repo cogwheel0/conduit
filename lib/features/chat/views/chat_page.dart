@@ -16,6 +16,7 @@ import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../navigation/widgets/chats_drawer.dart';
 import 'dart:async';
 import '../../../core/providers/app_providers.dart';
+import '../../../core/services/settings_service.dart';
 import '../../auth/providers/unified_auth_providers.dart';
 import '../providers/chat_providers.dart';
 import '../../../core/utils/debug_logger.dart';
@@ -102,6 +103,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _pendingConversationScrollReset = false;
     _userPausedAutoScroll = false;
     _scheduleAutoScrollToBottom();
+
+    // Reset temporary chat state based on user preference
+    final settings = ref.read(appSettingsProvider);
+    ref.read(temporaryChatEnabledProvider.notifier).state =
+        settings.temporaryChatByDefault;
   }
 
   /// Persists a temporary chat to the server, transitioning it
