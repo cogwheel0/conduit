@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:async';
 import 'dart:io' show Platform;
 import '../../../shared/theme/theme_extensions.dart';
@@ -87,6 +87,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   // Active version index (-1 means current/live content)
   int _activeVersionIndex = -1;
   String? _lastStreamingContent;
+  bool _hasAnimated = false;
 
   /// Cache the last raw content that was fully parsed, so we can detect
   /// when only the tail has changed and skip re-parsing earlier segments.
@@ -677,7 +678,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         : widget.message.files;
     final hasSources = widget.message.sources.isNotEmpty;
 
-    return Container(
+    final content = Container(
           width: double.infinity,
           margin: const EdgeInsets.only(
             bottom: 16,
@@ -795,15 +796,30 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
               ],
             ],
           ),
-        )
-        .animate()
-        .fadeIn(duration: const Duration(milliseconds: 300))
-        .slideY(
-          begin: 0.1,
-          end: 0,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOutCubic,
         );
+
+    // Animate on first appearance only, not on every streaming rebuild
+    if (!_hasAnimated) {
+      _hasAnimated = true;
+      _fadeController.forward();
+      _slideController.forward();
+    }
+
+    return FadeTransition(
+      opacity: _fadeController,
+      child: SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(0, 0.1),
+          end: Offset.zero,
+        ).animate(
+          CurvedAnimation(
+            parent: _slideController,
+            curve: Curves.easeOutCubic,
+          ),
+        ),
+        child: content,
+      ),
+    );
   }
 
   /// Get the error for the currently active message or version.
