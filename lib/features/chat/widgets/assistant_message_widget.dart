@@ -142,6 +142,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     if (oldWidget.message.id != widget.message.id) {
       _lastStreamingContent = null;
       _lastFullyParsedContent = '';
+      _hasAnimated = false;
+      _fadeController.reset();
+      _slideController.reset();
     }
 
     // Re-parse sections when message content changes
@@ -648,17 +651,16 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   @override
   Widget build(BuildContext context) {
-    // During streaming, listen to the dedicated streaming content provider
-    // for per-chunk updates. Using ref.listen (not ref.watch) to avoid
-    // triggering side effects inside build().
-    if (widget.isStreaming) {
-      ref.listen(streamingContentProvider, (prev, next) {
-        if (next != null && next != _lastStreamingContent) {
-          _lastStreamingContent = next;
-          unawaited(_reparseSections(next));
-        }
-      });
-    }
+    // Listen to streaming content provider for per-chunk updates.
+    // Registered unconditionally so the listener lifecycle is stable
+    // across rebuilds; the callback short-circuits for non-streaming.
+    ref.listen(streamingContentProvider, (prev, next) {
+      if (!widget.isStreaming) return;
+      if (next != null && next != _lastStreamingContent) {
+        _lastStreamingContent = next;
+        unawaited(_reparseSections(next));
+      }
+    });
     return _buildDocumentationMessage();
   }
 

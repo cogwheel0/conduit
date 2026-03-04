@@ -160,6 +160,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
               final needsCleanup = _shouldCleanupStreamingFromServer(
                 serverMessages,
               );
+              // Clear buffer/timer before adopting server state to prevent
+              // the sync timer from writing stale content back over it.
+              _streamingBuffer = null;
+              _streamingSyncTimer?.cancel();
+              _streamingSyncTimer = null;
               state = serverMessages;
               if (needsCleanup) _cancelMessageStream();
               return;
@@ -190,6 +195,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
                 final needsCleanup = _shouldCleanupStreamingFromServer(
                   serverMessages,
                 );
+                // Clear buffer/timer before adopting server state
+                _streamingBuffer = null;
+                _streamingSyncTimer?.cancel();
+                _streamingSyncTimer = null;
                 state = serverMessages;
                 if (needsCleanup) _cancelMessageStream();
                 return;

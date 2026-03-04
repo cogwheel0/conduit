@@ -1100,10 +1100,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   ///
   /// System messages are skipped, matching the original per-item scan
   /// behavior.
-  Map<int, ({bool hasUserBelow, bool hasAssistantBelow})>
+  List<({bool hasUserBelow, bool hasAssistantBelow})>
       _computeBubbleAdjacency(List<ChatMessage> messages) {
-    final result =
-        <int, ({bool hasUserBelow, bool hasAssistantBelow})>{};
+    final result = List.filled(
+      messages.length,
+      (hasUserBelow: false, hasAssistantBelow: false),
+    );
 
     // Track the role of the nearest user/assistant message seen
     // so far while walking backwards.
@@ -1262,10 +1264,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 );
 
                 final adjacency = bubbleAdjacency[index];
-                final hasUserBubbleBelow =
-                    adjacency?.hasUserBelow ?? false;
+                final hasUserBubbleBelow = adjacency.hasUserBelow;
                 final hasAssistantBubbleBelow =
-                    adjacency?.hasAssistantBelow ?? false;
+                    adjacency.hasAssistantBelow;
 
                 // Hide archived assistant variants in the linear view
                 final isArchivedVariant =
