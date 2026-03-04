@@ -919,5 +919,6 @@
   "failedToUploadAudio": "Caricamento audio fallito",
   "audioAttachment": "Allegato audio",
   "loadingAudio": "Caricamento audio...",
-  "failedToLoadAudio": "Impossibile caricare l'audio"
+  "failedToLoadAudio": "Impossibile caricare l'audio",
+  "webPage": "Pagina Web"
 }

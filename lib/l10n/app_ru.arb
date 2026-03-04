@@ -919,5 +919,6 @@
   "failedToUploadAudio": "Не удалось загрузить аудио",
   "audioAttachment": "Аудио вложение",
   "loadingAudio": "Загрузка аудио...",
-  "failedToLoadAudio": "Не удалось загрузить аудио"
+  "failedToLoadAudio": "Не удалось загрузить аудио",
+  "webPage": "Веб-страница"
 }

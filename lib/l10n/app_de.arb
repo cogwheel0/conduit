@@ -919,5 +919,6 @@
   "failedToUploadAudio": "Audio hochladen fehlgeschlagen",
   "audioAttachment": "Audio-Anhang",
   "loadingAudio": "Audio wird geladen...",
-  "failedToLoadAudio": "Audio konnte nicht geladen werden"
+  "failedToLoadAudio": "Audio konnte nicht geladen werden",
+  "webPage": "Webseite"
 }

@@ -919,5 +919,6 @@
   "failedToUploadAudio": "Audio uploaden mislukt",
   "audioAttachment": "Audiobijlage",
   "loadingAudio": "Audio laden...",
-  "failedToLoadAudio": "Audio laden mislukt"
+  "failedToLoadAudio": "Audio laden mislukt",
+  "webPage": "Webpagina"
 }

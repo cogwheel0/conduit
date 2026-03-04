@@ -919,5 +919,6 @@
   "failedToUploadAudio": "音频上传失败",
   "audioAttachment": "音频附件",
   "loadingAudio": "正在加载音频...",
-  "failedToLoadAudio": "无法加载音频"
+  "failedToLoadAudio": "无法加载音频",
+  "webPage": "网页"
 }
