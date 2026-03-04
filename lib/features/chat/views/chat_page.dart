@@ -1179,6 +1179,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     // Pre-compute bubble adjacency in O(n) instead of O(n^2) per-item scan
     final bubbleAdjacency = _computeBubbleAdjacency(messages);
 
+    // Watch models once here instead of per-message in the item builder
+    final modelsAsync = ref.watch(modelsProvider);
+    final models = modelsAsync.hasValue ? modelsAsync.value : null;
+
     return NotificationListener<ScrollNotification>(
       onNotification: (notification) {
         // Detect user-initiated scroll (drag gesture)
@@ -1237,22 +1241,17 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 Model? matchedModel;
                 final rawModel = message.model;
                 if (rawModel != null && rawModel.isNotEmpty) {
-                  final modelsAsync = ref.watch(modelsProvider);
-                  if (modelsAsync.hasValue) {
-                    final models = modelsAsync.value!;
+                  if (models != null) {
                     try {
-                      // Prefer exact ID match; fall back to exact name match
                       final match = models.firstWhere(
                         (m) => m.id == rawModel || m.name == rawModel,
                       );
                       matchedModel = match;
                       displayModelName = _formatModelDisplayName(match.name);
                     } catch (_) {
-                      // As a fallback, format the raw value to be more readable
                       displayModelName = _formatModelDisplayName(rawModel);
                     }
                   } else {
-                    // Models not loaded yet; format raw value for readability
                     displayModelName = _formatModelDisplayName(rawModel);
                   }
                 }
