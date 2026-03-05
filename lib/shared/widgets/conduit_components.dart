@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../theme/conduit_button_styles.dart';
+import '../theme/conduit_input_styles.dart';
 import '../theme/theme_extensions.dart';
 import '../services/brand_service.dart';
 import '../../core/services/enhanced_accessibility_service.dart';
@@ -552,24 +553,71 @@ class ConduitButton extends ConsumerWidget {
   }
 }
 
+/// Variants that map to [ConduitInputStyles] presets.
+enum _InputVariant { standard, borderless, underline, compact }
+
+/// A themed text input that delegates decoration to
+/// [ConduitInputStyles].
+///
+/// Use the default constructor for standard form fields, or the
+/// named constructors [ConduitInput.borderless],
+/// [ConduitInput.underline], and [ConduitInput.compact] for
+/// alternative styles.
 class ConduitInput extends StatelessWidget {
+  /// Label displayed above the input field.
   final String? label;
+
+  /// Hint text shown inside the input when empty.
   final String? hint;
+
+  /// Controller for the underlying text field.
   final TextEditingController? controller;
+
+  /// Called when the text value changes.
   final ValueChanged<String>? onChanged;
+
+  /// Called when the input is tapped.
   final VoidCallback? onTap;
+
+  /// Whether the text is obscured (for passwords).
   final bool obscureText;
+
+  /// Whether the input is interactive.
   final bool enabled;
+
+  /// Error message shown below the input.
   final String? errorText;
+
+  /// Maximum number of lines for the input.
   final int? maxLines;
+
+  /// Widget displayed after the input text.
   final Widget? suffixIcon;
+
+  /// Widget displayed before the input text.
   final Widget? prefixIcon;
+
+  /// Keyboard type for the input.
   final TextInputType? keyboardType;
+
+  /// Whether the input should autofocus on mount.
   final bool autofocus;
+
+  /// Accessibility label for screen readers.
   final String? semanticLabel;
+
+  /// Called when the user submits the input.
   final ValueChanged<String>? onSubmitted;
+
+  /// Whether to display a required asterisk next to the label.
   final bool isRequired;
 
+  /// Optional custom text style for the input content.
+  final TextStyle? style;
+
+  final _InputVariant _variant;
+
+  /// Standard form input with outlined border and fill.
   const ConduitInput({
     super.key,
     this.label,
@@ -588,10 +636,110 @@ class ConduitInput extends StatelessWidget {
     this.semanticLabel,
     this.onSubmitted,
     this.isRequired = false,
-  });
+    this.style,
+  }) : _variant = _InputVariant.standard;
+
+  /// Borderless input for chat, note editor, and inline edits.
+  const ConduitInput.borderless({
+    super.key,
+    this.label,
+    this.hint,
+    this.controller,
+    this.onChanged,
+    this.onTap,
+    this.obscureText = false,
+    this.enabled = true,
+    this.errorText,
+    this.maxLines = 1,
+    this.suffixIcon,
+    this.prefixIcon,
+    this.keyboardType,
+    this.autofocus = false,
+    this.semanticLabel,
+    this.onSubmitted,
+    this.isRequired = false,
+    this.style,
+  }) : _variant = _InputVariant.borderless;
+
+  /// Underline input for dialog text fields.
+  const ConduitInput.underline({
+    super.key,
+    this.label,
+    this.hint,
+    this.controller,
+    this.onChanged,
+    this.onTap,
+    this.obscureText = false,
+    this.enabled = true,
+    this.errorText,
+    this.maxLines = 1,
+    this.suffixIcon,
+    this.prefixIcon,
+    this.keyboardType,
+    this.autofocus = false,
+    this.semanticLabel,
+    this.onSubmitted,
+    this.isRequired = false,
+    this.style,
+  }) : _variant = _InputVariant.underline;
+
+  /// Compact input with tighter padding for search bars.
+  const ConduitInput.compact({
+    super.key,
+    this.label,
+    this.hint,
+    this.controller,
+    this.onChanged,
+    this.onTap,
+    this.obscureText = false,
+    this.enabled = true,
+    this.errorText,
+    this.maxLines = 1,
+    this.suffixIcon,
+    this.prefixIcon,
+    this.keyboardType,
+    this.autofocus = false,
+    this.semanticLabel,
+    this.onSubmitted,
+    this.isRequired = false,
+    this.style,
+  }) : _variant = _InputVariant.compact;
+
+  InputDecoration _resolveDecoration(
+    ConduitInputStyles inputStyles,
+  ) {
+    final base = switch (_variant) {
+      _InputVariant.standard =>
+        inputStyles.standard(hint: hint, error: errorText),
+      _InputVariant.borderless =>
+        inputStyles.borderless(hint: hint),
+      _InputVariant.underline =>
+        inputStyles.underline(hint: hint),
+      _InputVariant.compact =>
+        inputStyles.compact(hint: hint, error: errorText),
+    };
+
+    return base.copyWith(
+      suffixIcon: suffixIcon,
+      prefixIcon: prefixIcon,
+      errorText: switch (_variant) {
+        _InputVariant.borderless ||
+        _InputVariant.underline =>
+          errorText,
+        _ => null,
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
+    final inputStyles = context.conduitInputStyles;
+    final decoration = _resolveDecoration(inputStyles);
+    final textStyle = style ??
+        AppTypography.standard.copyWith(
+          color: context.conduitTheme.textPrimary,
+        );
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -623,7 +771,8 @@ class ConduitInput extends StatelessWidget {
           label:
               semanticLabel ??
               label ??
-              (AppLocalizations.of(context)?.inputField ?? 'Input field'),
+              (AppLocalizations.of(context)?.inputField ??
+                  'Input field'),
           textField: true,
           child: AdaptiveTextField(
             controller: controller,
@@ -635,65 +784,11 @@ class ConduitInput extends StatelessWidget {
             maxLines: maxLines,
             keyboardType: keyboardType,
             autofocus: autofocus,
-            style: AppTypography.standard.copyWith(
-              color: context.conduitTheme.textPrimary,
-            ),
+            style: textStyle,
             placeholder: hint,
             suffixIcon: suffixIcon,
             prefixIcon: prefixIcon,
-            decoration: InputDecoration(
-              hintText: hint,
-              hintStyle: AppTypography.standard.copyWith(
-                color: context.conduitTheme.inputPlaceholder,
-              ),
-              filled: true,
-              fillColor: context.conduitTheme.inputBackground,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(AppBorderRadius.input),
-                borderSide: BorderSide(
-                  color: context.conduitTheme.inputBorder,
-                  width: BorderWidth.standard,
-                ),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(AppBorderRadius.input),
-                borderSide: BorderSide(
-                  color: context.conduitTheme.inputBorder,
-                  width: BorderWidth.standard,
-                ),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(AppBorderRadius.input),
-                borderSide: BorderSide(
-                  color: context.conduitTheme.buttonPrimary,
-                  width: BorderWidth.thick,
-                ),
-              ),
-              errorBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(AppBorderRadius.input),
-                borderSide: BorderSide(
-                  color: context.conduitTheme.error,
-                  width: BorderWidth.standard,
-                ),
-              ),
-              focusedErrorBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(AppBorderRadius.input),
-                borderSide: BorderSide(
-                  color: context.conduitTheme.error,
-                  width: BorderWidth.thick,
-                ),
-              ),
-              contentPadding: EdgeInsets.symmetric(
-                horizontal: Spacing.inputPadding,
-                vertical: Spacing.md,
-              ),
-              suffixIcon: suffixIcon,
-              prefixIcon: prefixIcon,
-              errorText: errorText,
-              errorStyle: AppTypography.small.copyWith(
-                color: context.conduitTheme.error,
-              ),
-            ),
+            decoration: decoration,
           ),
         ),
       ],
