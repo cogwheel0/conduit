@@ -924,17 +924,29 @@ class ConduitIconButton extends ConsumerWidget {
           borderRadius: borderRadius,
           minSize: Size(size, size),
           padding: EdgeInsets.zero,
-          child: SizedBox(
-            width: size,
-            height: size,
-            child: Center(
-              child: Icon(
-                icon,
-                size: isCompact
-                    ? IconSize.small
-                    : IconSize.medium,
-                color: effectiveIconColor,
-                semanticLabel: tooltip,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: borderRadius,
+              border: isActive
+                  ? Border.all(
+                      color: context.conduitTheme.buttonPrimary
+                          .withValues(alpha: Alpha.standard),
+                      width: BorderWidth.standard,
+                    )
+                  : null,
+            ),
+            child: SizedBox(
+              width: size,
+              height: size,
+              child: Center(
+                child: Icon(
+                  icon,
+                  size: isCompact
+                      ? IconSize.small
+                      : IconSize.medium,
+                  color: effectiveIconColor,
+                  semanticLabel: tooltip,
+                ),
               ),
             ),
           ),
