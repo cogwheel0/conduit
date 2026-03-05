@@ -779,24 +779,33 @@ class ConduitIconButton extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final hapticEnabled = ref.watch(hapticEnabledProvider);
-    final effectiveBackgroundColor =
-        backgroundColor ??
-        (isActive
-            ? context.conduitTheme.buttonPrimary.withValues(
-                alpha: Alpha.highlight,
-              )
-            : Colors.transparent);
+    final styles = context.conduitButtonStyles;
+    final variant = isActive ? styles.primary() : styles.ghost();
     final effectiveIconColor =
         iconColor ??
         (isActive
-            ? context.conduitTheme.buttonPrimary
+            ? variant.background
             : context.conduitTheme.iconSecondary);
+    final effectiveBackgroundColor =
+        backgroundColor ??
+        (isActive
+            ? variant.background.withValues(
+                alpha: Alpha.highlight,
+              )
+            : Colors.transparent);
 
-    // Build semantic label with context
     String semanticLabel = tooltip ?? 'Button';
     if (isActive) {
       semanticLabel = '$semanticLabel, active';
     }
+
+    final double size =
+        isCompact ? TouchTarget.medium : TouchTarget.minimum;
+    final borderRadius = BorderRadius.circular(
+      isCircular
+          ? AppBorderRadius.circular
+          : AppBorderRadius.standard,
+    );
 
     return Semantics(
       label: semanticLabel,
@@ -804,40 +813,34 @@ class ConduitIconButton extends ConsumerWidget {
       enabled: onPressed != null,
       child: AdaptiveTooltip(
         message: tooltip ?? '',
-        child: GestureDetector(
-          onTap: () {
-            if (onPressed != null) {
-              PlatformService.hapticFeedbackWithSettings(
-                type: HapticType.selection,
-                hapticEnabled: hapticEnabled,
-              );
-              onPressed!();
-            }
-          },
-          child: Container(
-            width: isCompact ? TouchTarget.medium : TouchTarget.minimum,
-            height: isCompact ? TouchTarget.medium : TouchTarget.minimum,
-            decoration: BoxDecoration(
-              color: effectiveBackgroundColor,
-              borderRadius: BorderRadius.circular(
-                isCircular
-                    ? AppBorderRadius.circular
-                    : AppBorderRadius.standard,
+        child: AdaptiveButton.child(
+          onPressed: onPressed != null
+              ? () {
+                  PlatformService.hapticFeedbackWithSettings(
+                    type: HapticType.selection,
+                    hapticEnabled: hapticEnabled,
+                  );
+                  onPressed!();
+                }
+              : null,
+          enabled: onPressed != null,
+          color: effectiveBackgroundColor,
+          style: variant.adaptiveStyle,
+          borderRadius: borderRadius,
+          minSize: Size(size, size),
+          padding: EdgeInsets.zero,
+          child: SizedBox(
+            width: size,
+            height: size,
+            child: Center(
+              child: Icon(
+                icon,
+                size: isCompact
+                    ? IconSize.small
+                    : IconSize.medium,
+                color: effectiveIconColor,
+                semanticLabel: tooltip,
               ),
-              border: isActive
-                  ? Border.all(
-                      color: context.conduitTheme.buttonPrimary.withValues(
-                        alpha: Alpha.standard,
-                      ),
-                      width: BorderWidth.standard,
-                    )
-                  : null,
-            ),
-            child: Icon(
-              icon,
-              size: isCompact ? IconSize.small : IconSize.medium,
-              color: effectiveIconColor,
-              semanticLabel: tooltip,
             ),
           ),
         ),
