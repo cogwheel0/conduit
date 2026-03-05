@@ -661,19 +661,21 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
                 : Icons.vpn_key_outlined,
             color: context.conduitTheme.iconSecondary,
           ),
-          suffixIcon: IconButton(
-            icon: Icon(
-              _obscurePassword
-                  ? (Platform.isIOS
-                        ? CupertinoIcons.eye_slash
-                        : Icons.visibility_off)
-                  : (Platform.isIOS
-                        ? CupertinoIcons.eye
-                        : Icons.visibility),
-              color: context.conduitTheme.iconSecondary,
-            ),
+          suffixIcon: ConduitIconButton(
+            icon: _obscurePassword
+                ? (Platform.isIOS
+                      ? CupertinoIcons.eye_slash
+                      : Icons.visibility_off)
+                : (Platform.isIOS
+                      ? CupertinoIcons.eye
+                      : Icons.visibility),
+            iconColor: context.conduitTheme.iconSecondary,
             onPressed: () =>
                 setState(() => _obscurePassword = !_obscurePassword),
+            tooltip: _obscurePassword
+                ? 'Show password'
+                : 'Hide password',
+            isCompact: true,
           ),
           onSubmitted: (_) => _signIn(),
           autofillHints: const [AutofillHints.password],
@@ -731,19 +733,21 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
               Platform.isIOS ? CupertinoIcons.lock : Icons.lock_outline,
               color: context.conduitTheme.iconSecondary,
             ),
-            suffixIcon: IconButton(
-              icon: Icon(
-                _obscurePassword
-                    ? (Platform.isIOS
-                          ? CupertinoIcons.eye_slash
-                          : Icons.visibility_off)
-                    : (Platform.isIOS
-                          ? CupertinoIcons.eye
-                          : Icons.visibility),
-                color: context.conduitTheme.iconSecondary,
-              ),
+            suffixIcon: ConduitIconButton(
+              icon: _obscurePassword
+                  ? (Platform.isIOS
+                        ? CupertinoIcons.eye_slash
+                        : Icons.visibility_off)
+                  : (Platform.isIOS
+                        ? CupertinoIcons.eye
+                        : Icons.visibility),
+              iconColor: context.conduitTheme.iconSecondary,
               onPressed: () =>
                   setState(() => _obscurePassword = !_obscurePassword),
+              tooltip: _obscurePassword
+                  ? 'Show password'
+                  : 'Hide password',
+              isCompact: true,
             ),
             onSubmitted: (_) => _signIn(),
             autofillHints: const [AutofillHints.password],
@@ -793,19 +797,21 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
               Platform.isIOS ? CupertinoIcons.lock : Icons.lock_outline,
               color: context.conduitTheme.iconSecondary,
             ),
-            suffixIcon: IconButton(
-              icon: Icon(
-                _obscurePassword
-                    ? (Platform.isIOS
-                          ? CupertinoIcons.eye_slash
-                          : Icons.visibility_off)
-                    : (Platform.isIOS
-                          ? CupertinoIcons.eye
-                          : Icons.visibility),
-                color: context.conduitTheme.iconSecondary,
-              ),
+            suffixIcon: ConduitIconButton(
+              icon: _obscurePassword
+                  ? (Platform.isIOS
+                        ? CupertinoIcons.eye_slash
+                        : Icons.visibility_off)
+                  : (Platform.isIOS
+                        ? CupertinoIcons.eye
+                        : Icons.visibility),
+              iconColor: context.conduitTheme.iconSecondary,
               onPressed: () =>
                   setState(() => _obscurePassword = !_obscurePassword),
+              tooltip: _obscurePassword
+                  ? 'Show password'
+                  : 'Hide password',
+              isCompact: true,
             ),
             onSubmitted: (_) => _signIn(),
             autofillHints: const [AutofillHints.password],
