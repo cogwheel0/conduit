@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 
 import 'package:conduit/core/utils/prompt_variable_parser.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/shared/theme/conduit_input_styles.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 
 // Use AppTypography constants for font sizes
@@ -222,7 +223,8 @@ class _PromptVariableDialogState extends State<PromptVariableDialog> {
     return TextFormField(
       controller: _controllers[variable.name],
       style: TextStyle(color: theme.inputText),
-      decoration: _inputDecoration(theme, variable.placeholder),
+      decoration: context.conduitInputStyles
+          .standard(hint: variable.placeholder),
       validator: (value) {
         if (variable.isRequired && (value == null || value.trim().isEmpty)) {
           return l10n.requiredFieldHelper;
@@ -240,7 +242,8 @@ class _PromptVariableDialogState extends State<PromptVariableDialog> {
     return TextFormField(
       controller: _controllers[variable.name],
       style: TextStyle(color: theme.inputText),
-      decoration: _inputDecoration(theme, variable.placeholder),
+      decoration: context.conduitInputStyles
+          .standard(hint: variable.placeholder),
       minLines: 3,
       maxLines: 6,
       validator: (value) {
@@ -259,7 +262,8 @@ class _PromptVariableDialogState extends State<PromptVariableDialog> {
 
     return DropdownButtonFormField<String>(
       initialValue: _selectValues[variable.name],
-      decoration: _inputDecoration(theme, variable.placeholder),
+      decoration: context.conduitInputStyles
+          .standard(hint: variable.placeholder),
       dropdownColor: theme.surfaceBackground,
       style: TextStyle(color: theme.inputText),
       items: options.map((option) {
@@ -286,7 +290,8 @@ class _PromptVariableDialogState extends State<PromptVariableDialog> {
     return TextFormField(
       controller: _controllers[variable.name],
       style: TextStyle(color: theme.inputText),
-      decoration: _inputDecoration(theme, variable.placeholder),
+      decoration: context.conduitInputStyles
+          .standard(hint: variable.placeholder),
       keyboardType: TextInputType.numberWithOptions(
         decimal: variable.step != null && variable.step! < 1,
         signed: variable.min != null && variable.min! < 0,

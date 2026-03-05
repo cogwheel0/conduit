@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../shared/theme/conduit_input_styles.dart';
+
 /// Comprehensive input validation service
 class InputValidationService {
   // Email regex pattern
@@ -481,13 +483,15 @@ class _ValidatedFormFieldState extends State<ValidatedFormField> {
         widget.onChanged?.call(value);
       },
       onFieldSubmitted: widget.onFieldSubmitted,
-      decoration: InputDecoration(
-        labelText: widget.label,
-        hintText: widget.hint,
-        errorText: _errorText,
-        suffixIcon: widget.suffixIcon,
-        border: const OutlineInputBorder(),
-      ),
+      decoration: context.conduitInputStyles
+          .standard(
+            hint: widget.hint,
+            error: _errorText,
+          )
+          .copyWith(
+            labelText: widget.label,
+            suffixIcon: widget.suffixIcon,
+          ),
     );
   }
 }

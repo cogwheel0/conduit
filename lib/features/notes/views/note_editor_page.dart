@@ -15,6 +15,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import '../../../core/models/note.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/widgets/error_boundary.dart';
+import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/glass_colors.dart';
 import '../../../shared/utils/ui_utils.dart';
@@ -908,28 +909,30 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                                                     padding: EdgeInsets.zero,
                                                     cupertinoDecoration:
                                                         const BoxDecoration(),
-                                                    decoration: InputDecoration(
-                                                      hintText: l10n.untitled,
-                                                      hintStyle: AppTypography
-                                                          .headlineSmallStyle
-                                                          .copyWith(
-                                                            color: conduitTheme
-                                                                .textSecondary
-                                                                .withValues(
-                                                                  alpha: 0.6,
-                                                                ),
-                                                            fontWeight:
-                                                                FontWeight.w600,
-                                                          ),
-                                                      border: InputBorder.none,
-                                                      enabledBorder:
-                                                          InputBorder.none,
-                                                      focusedBorder:
-                                                          InputBorder.none,
-                                                      contentPadding:
-                                                          EdgeInsets.zero,
-                                                      isDense: true,
-                                                    ),
+                                                    decoration: context
+                                                        .conduitInputStyles
+                                                        .borderless(
+                                                          hint: l10n.untitled,
+                                                        )
+                                                        .copyWith(
+                                                          hintStyle:
+                                                              AppTypography
+                                                                  .headlineSmallStyle
+                                                                  .copyWith(
+                                                                    color: conduitTheme
+                                                                        .textSecondary
+                                                                        .withValues(
+                                                                          alpha:
+                                                                              0.6,
+                                                                        ),
+                                                                    fontWeight:
+                                                                        FontWeight
+                                                                            .w600,
+                                                                  ),
+                                                          contentPadding:
+                                                              EdgeInsets.zero,
+                                                          isDense: true,
+                                                        ),
                                                   ),
                                                 ),
                                               ),
