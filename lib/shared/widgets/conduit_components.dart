@@ -849,6 +849,76 @@ class ConduitIconButton extends ConsumerWidget {
   }
 }
 
+/// A text button for dialog actions, replacing raw [TextButton].
+///
+/// Wraps [AdaptiveButton] with [ConduitButtonStyles.ghost] for the
+/// default style or uses primary/destructive colors for emphasis.
+class ConduitTextButton extends ConsumerWidget {
+  /// The button label text.
+  final String text;
+
+  /// Called when the button is tapped.
+  final VoidCallback? onPressed;
+
+  /// Whether to use destructive (error) coloring.
+  final bool isDestructive;
+
+  /// Whether to use primary coloring for emphasis.
+  final bool isPrimary;
+
+  /// Creates a text button styled for dialog actions.
+  const ConduitTextButton({
+    super.key,
+    required this.text,
+    this.onPressed,
+    this.isDestructive = false,
+    this.isPrimary = false,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final hapticEnabled = ref.watch(hapticEnabledProvider);
+    final styles = context.conduitButtonStyles;
+    final Color textColor;
+    if (isDestructive) {
+      textColor = styles.destructive().background;
+    } else if (isPrimary) {
+      textColor = styles.primary().background;
+    } else {
+      textColor = styles.ghost().foreground;
+    }
+
+    return AdaptiveButton.child(
+      onPressed: onPressed != null
+          ? () {
+              PlatformService.hapticFeedbackWithSettings(
+                type: isDestructive
+                    ? HapticType.warning
+                    : HapticType.light,
+                hapticEnabled: hapticEnabled,
+              );
+              onPressed!();
+            }
+          : null,
+      enabled: onPressed != null,
+      style: AdaptiveButtonStyle.plain,
+      padding: const EdgeInsets.symmetric(
+        horizontal: Spacing.md,
+        vertical: Spacing.sm,
+      ),
+      child: Text(
+        text,
+        style: AppTypography.standard.copyWith(
+          color: textColor,
+          fontWeight: isPrimary || isDestructive
+              ? FontWeight.w600
+              : FontWeight.normal,
+        ),
+      ),
+    );
+  }
+}
+
 class ConduitLoadingIndicator extends StatelessWidget {
   final String? message;
   final double size;
