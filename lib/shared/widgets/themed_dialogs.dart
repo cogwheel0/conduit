@@ -6,7 +6,9 @@ import 'package:flutter/material.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
 
+import '../theme/conduit_input_styles.dart';
 import '../theme/theme_extensions.dart';
+import 'conduit_components.dart';
 
 /// Centralized helper for building themed dialogs consistently.
 ///
@@ -108,24 +110,15 @@ class ThemedDialogs {
             style: TextStyle(color: theme.textSecondary),
           ),
           actions: [
-            TextButton(
+            ConduitTextButton(
+              text: effectiveCancelText,
               onPressed: () => Navigator.of(ctx).pop(false),
-              child: Text(
-                effectiveCancelText,
-                style: TextStyle(color: theme.textSecondary),
-              ),
             ),
-            TextButton(
+            ConduitTextButton(
+              text: effectiveConfirmText,
               onPressed: () => Navigator.of(ctx).pop(true),
-              child: Text(
-                effectiveConfirmText,
-                style: TextStyle(
-                  color: isDestructive
-                      ? theme.error
-                      : theme.buttonPrimary,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
+              isDestructive: isDestructive,
+              isPrimary: !isDestructive,
             ),
           ],
         );
@@ -287,40 +280,24 @@ class _TextInputDialogContentState extends State<_TextInputDialogContent> {
         textCapitalization: widget.textCapitalization,
         maxLength: widget.maxLength,
         style: TextStyle(color: theme.textPrimary),
-        decoration: InputDecoration(
-          hintText: widget.hintText,
-          hintStyle: TextStyle(
-            color: theme.textSecondary.withValues(alpha: 0.6),
-          ),
-          counterStyle: TextStyle(color: theme.textSecondary),
-          enabledBorder: UnderlineInputBorder(
-            borderSide: BorderSide(color: theme.cardBorder),
-          ),
-          focusedBorder: UnderlineInputBorder(
-            borderSide: BorderSide(
-              color: theme.buttonPrimary,
-              width: 2,
+        decoration: context.conduitInputStyles
+            .underline(hint: widget.hintText)
+            .copyWith(
+              counterStyle: TextStyle(
+                color: theme.textSecondary,
+              ),
             ),
-          ),
-        ),
       ),
       actions: [
-        TextButton(
+        ConduitTextButton(
+          text: widget.cancelText,
           onPressed: () => Navigator.of(context).pop(null),
-          child: Text(
-            widget.cancelText,
-            style: TextStyle(color: theme.textSecondary),
-          ),
         ),
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(_controller.text),
-          child: Text(
-            widget.confirmText,
-            style: TextStyle(
-              color: theme.buttonPrimary,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
+        ConduitTextButton(
+          text: widget.confirmText,
+          onPressed: () =>
+              Navigator.of(context).pop(_controller.text),
+          isPrimary: true,
         ),
       ],
     );
