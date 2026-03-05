@@ -80,25 +80,6 @@ class PlatformService {
     }
   }
 
-  /// Get platform-appropriate button style
-  static ButtonStyle getPlatformButtonStyle({
-    Color? backgroundColor,
-    Color? foregroundColor,
-    EdgeInsetsGeometry? padding,
-    bool isDestructive = false,
-  }) {
-    // Return Material button style for both platforms since ButtonStyle is a Material concept
-    return ElevatedButton.styleFrom(
-      backgroundColor: backgroundColor,
-      foregroundColor: foregroundColor,
-      padding: padding,
-      elevation: isDestructive ? 0 : 1,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppBorderRadius.md),
-      ),
-    );
-  }
-
   /// Get platform-appropriate card elevation
   static double getPlatformCardElevation({bool isRaised = false}) {
     if (isIOS) {

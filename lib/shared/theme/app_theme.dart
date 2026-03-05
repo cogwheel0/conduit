@@ -160,19 +160,6 @@ class AppTheme {
         shape: RoundedRectangleBorder(borderRadius: shapes.extraLarge),
         showDragHandle: false,
       ),
-      elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          padding: const EdgeInsets.symmetric(
-            horizontal: Spacing.lg,
-            vertical: Spacing.xs,
-          ),
-          backgroundColor: variant.primary,
-          foregroundColor: _pickOnColor(variant.primary, tokens),
-          shape: RoundedRectangleBorder(borderRadius: shapes.medium),
-          elevation: Elevation.low,
-          shadowColor: shadows.shadowSm.first.color,
-        ),
-      ),
       cardTheme: CardThemeData(
         color: surfaces.card,
         elevation: Elevation.low,
@@ -212,8 +199,8 @@ class AppTheme {
           borderSide: BorderSide(color: tokens.statusError60, width: 1),
         ),
         contentPadding: const EdgeInsets.symmetric(
-          horizontal: Spacing.md,
-          vertical: Spacing.sm,
+          horizontal: Spacing.inputPadding,
+          vertical: Spacing.md,
         ),
       ),
       chipTheme: ChipThemeData(
