@@ -5,6 +5,7 @@ import 'package:flutter/cupertino.dart';
 
 import 'dart:io' show Platform;
 
+import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 
@@ -134,60 +135,29 @@ class _ExpandedTextEditorSheetState extends State<ExpandedTextEditorSheet> {
             ),
             // Text editor
             Expanded(
-              child: !kIsWeb && Platform.isIOS
-                  ? CupertinoTextField(
-                      controller: widget.controller,
-                      autofocus: true,
-                      maxLines: null,
-                      expands: true,
-                      textAlignVertical: TextAlignVertical.top,
-                      style: TextStyle(
-                        color: theme.textPrimary,
-                        fontSize: 16,
-                        height: 1.5,
-                      ),
-                      placeholder: l10n.messageHintText,
-                      placeholderStyle: TextStyle(
-                        color: theme.textSecondary.withValues(alpha: 0.5),
-                        fontSize: 16,
-                      ),
-                      padding: const EdgeInsets.fromLTRB(
+              child: TextField(
+                controller: widget.controller,
+                autofocus: true,
+                maxLines: null,
+                expands: true,
+                textAlignVertical: TextAlignVertical.top,
+                style: TextStyle(
+                  color: theme.textPrimary,
+                  fontSize: 16,
+                  height: 1.5,
+                ),
+                decoration: context.conduitInputStyles
+                    .borderless(hint: l10n.messageHintText)
+                    .copyWith(
+                      contentPadding: const EdgeInsets.fromLTRB(
                         Spacing.md,
                         Spacing.xs,
                         Spacing.md,
                         Spacing.sm,
                       ),
-                      decoration: const BoxDecoration(),
-                    )
-                  : TextField(
-                      controller: widget.controller,
-                      autofocus: true,
-                      maxLines: null,
-                      expands: true,
-                      textAlignVertical: TextAlignVertical.top,
-                      style: TextStyle(
-                        color: theme.textPrimary,
-                        fontSize: 16,
-                        height: 1.5,
-                      ),
-                      decoration: InputDecoration(
-                        hintText: l10n.messageHintText,
-                        hintStyle: TextStyle(
-                          color: theme.textSecondary.withValues(alpha: 0.5),
-                          fontSize: 16,
-                        ),
-                        border: InputBorder.none,
-                        enabledBorder: InputBorder.none,
-                        focusedBorder: InputBorder.none,
-                        contentPadding: const EdgeInsets.fromLTRB(
-                          Spacing.md,
-                          Spacing.xs,
-                          Spacing.md,
-                          Spacing.sm,
-                        ),
-                        isDense: true,
-                      ),
+                      isDense: true,
                     ),
+              ),
             ),
             // Bottom bar — send button, keyboard-aware.
             Padding(

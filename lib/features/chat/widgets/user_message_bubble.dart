@@ -1,5 +1,6 @@
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
+import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import 'enhanced_image_attachment.dart';
 import 'enhanced_attachment.dart';
@@ -575,13 +576,14 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
                                       padding: EdgeInsets.zero,
                                       cupertinoDecoration:
                                           const BoxDecoration(),
-                                      decoration:
-                                          const InputDecoration(
-                                        isCollapsed: true,
-                                        border: InputBorder.none,
-                                        contentPadding:
-                                            EdgeInsets.zero,
-                                      ),
+                                      decoration: context
+                                          .conduitInputStyles
+                                          .borderless()
+                                          .copyWith(
+                                            isCollapsed: true,
+                                            contentPadding:
+                                                EdgeInsets.zero,
+                                          ),
                                     ),
                                   ),
                                 ),

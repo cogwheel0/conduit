@@ -3,6 +3,7 @@ import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import '../../../core/widgets/error_boundary.dart';
 import '../../../shared/widgets/optimized_list.dart';
+import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/glass_colors.dart';
 import 'package:flutter/services.dart';
@@ -605,12 +606,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                     const SizedBox(height: 12),
                     AdaptiveTextField(
                       placeholder: 'https://example.com/article',
-                      decoration: InputDecoration(
-                        labelText: 'Webpage URL',
-                        hintText: 'https://example.com/article',
-                        border: const OutlineInputBorder(),
-                        errorText: errorText,
-                      ),
+                      decoration: innerContext
+                          .conduitInputStyles
+                          .standard(
+                            hint: 'https://example.com/article',
+                            error: errorText,
+                          )
+                          .copyWith(labelText: 'Webpage URL'),
                       onChanged: (value) {
                         url = value;
                         if (errorText != null) setError(null);
