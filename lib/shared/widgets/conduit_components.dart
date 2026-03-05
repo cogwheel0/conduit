@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../theme/conduit_button_styles.dart';
 import '../theme/theme_extensions.dart';
 import '../services/brand_service.dart';
 import '../../core/services/enhanced_accessibility_service.dart';
@@ -456,19 +457,14 @@ class ConduitButton extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final hapticEnabled = ref.watch(hapticEnabledProvider);
-    Color backgroundColor;
-    Color textColor;
-
-    if (isDestructive) {
-      backgroundColor = context.conduitTheme.error;
-      textColor = context.conduitTheme.buttonPrimaryText;
-    } else if (isSecondary) {
-      backgroundColor = context.conduitTheme.buttonSecondary;
-      textColor = context.conduitTheme.buttonSecondaryText;
-    } else {
-      backgroundColor = context.conduitTheme.buttonPrimary;
-      textColor = context.conduitTheme.buttonPrimaryText;
-    }
+    final styles = context.conduitButtonStyles;
+    final variant = isDestructive
+        ? styles.destructive()
+        : isSecondary
+            ? styles.secondary()
+            : styles.primary();
+    final backgroundColor = variant.background;
+    final textColor = variant.foreground;
 
     // Build semantic label
     String semanticLabel = text;
@@ -500,9 +496,7 @@ class ConduitButton extends ConsumerWidget {
             onPressed: onPressed,
             enabled: !isLoading && onPressed != null,
             color: backgroundColor,
-            style: isSecondary
-                ? AdaptiveButtonStyle.bordered
-                : AdaptiveButtonStyle.filled,
+            style: variant.adaptiveStyle,
             size: isCompact
                 ? AdaptiveButtonSize.small
                 : AdaptiveButtonSize.medium,
