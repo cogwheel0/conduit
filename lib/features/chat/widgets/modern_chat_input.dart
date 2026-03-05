@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
+import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/glass_colors.dart';
 // app_theme not required here; using theme extension tokens
@@ -1619,25 +1620,23 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   fontStyle: _isRecording ? FontStyle.italic : FontStyle.normal,
                   fontWeight: recordingWeight,
                 ),
-                decoration: InputDecoration(
-                  hintText: AppLocalizations.of(context)!.messageHintText,
-                  hintStyle: baseChatStyle.copyWith(
-                    color: animatedPlaceholder,
-                    fontWeight: recordingWeight,
-                    fontStyle: _isRecording
-                        ? FontStyle.italic
-                        : FontStyle.normal,
-                  ),
-                  filled: false,
-                  border: InputBorder.none,
-                  enabledBorder: InputBorder.none,
-                  focusedBorder: InputBorder.none,
-                  errorBorder: InputBorder.none,
-                  disabledBorder: InputBorder.none,
-                  contentPadding: contentPadding,
-                  isDense: true,
-                  alignLabelWithHint: true,
-                ),
+                decoration: context.conduitInputStyles
+                    .borderless(
+                      hint: AppLocalizations.of(context)!
+                          .messageHintText,
+                    )
+                    .copyWith(
+                      hintStyle: baseChatStyle.copyWith(
+                        color: animatedPlaceholder,
+                        fontWeight: recordingWeight,
+                        fontStyle: _isRecording
+                            ? FontStyle.italic
+                            : FontStyle.normal,
+                      ),
+                      contentPadding: contentPadding,
+                      isDense: true,
+                      alignLabelWithHint: true,
+                    ),
                 // Enable pasting images and files from clipboard
                 contentInsertionConfiguration: ContentInsertionConfiguration(
                   allowedMimeTypes: ClipboardAttachmentService
