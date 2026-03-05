@@ -318,38 +318,5 @@ class _PromptVariableDialogState extends State<PromptVariableDialog> {
       onFieldSubmitted: (_) => _submit(),
     );
   }
-
-  InputDecoration _inputDecoration(ConduitThemeExtension theme, String? hint) {
-    return InputDecoration(
-      hintText: hint,
-      hintStyle: TextStyle(color: theme.inputPlaceholder),
-      filled: true,
-      fillColor: theme.inputBackground,
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(AppBorderRadius.md),
-        borderSide: BorderSide.none,
-      ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(AppBorderRadius.md),
-        borderSide: BorderSide(color: theme.inputBorder, width: 1),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(AppBorderRadius.md),
-        borderSide: BorderSide(color: theme.buttonPrimary, width: 1),
-      ),
-      errorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(AppBorderRadius.md),
-        borderSide: BorderSide(color: theme.error, width: 1),
-      ),
-      focusedErrorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(AppBorderRadius.md),
-        borderSide: BorderSide(color: theme.error, width: 1.5),
-      ),
-      contentPadding: const EdgeInsets.symmetric(
-        horizontal: Spacing.md,
-        vertical: Spacing.md,
-      ),
-    );
-  }
 }
 

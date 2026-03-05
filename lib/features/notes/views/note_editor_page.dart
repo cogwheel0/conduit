@@ -1270,18 +1270,17 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
               keyboardType: TextInputType.multiline,
               padding: EdgeInsets.zero,
               cupertinoDecoration: const BoxDecoration(),
-              decoration: InputDecoration(
-                hintText: l10n.writeNote,
-                hintStyle: AppTypography.bodyLargeStyle.copyWith(
-                  color: theme.textSecondary.withValues(alpha: 0.35),
-                  height: 1.8,
-                ),
-                filled: false,
-                border: InputBorder.none,
-                enabledBorder: InputBorder.none,
-                focusedBorder: InputBorder.none,
-                contentPadding: EdgeInsets.zero,
-              ),
+              decoration: context.conduitInputStyles
+                  .borderless(hint: l10n.writeNote)
+                  .copyWith(
+                    hintStyle:
+                        AppTypography.bodyLargeStyle.copyWith(
+                          color: theme.textSecondary
+                              .withValues(alpha: 0.35),
+                          height: 1.8,
+                        ),
+                    contentPadding: EdgeInsets.zero,
+                  ),
             ),
           ],
         ),
