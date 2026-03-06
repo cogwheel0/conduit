@@ -92,7 +92,7 @@ class TaskWorker {
       }
     } catch (_) {}
 
-    // For images: convert unsupported formats and optimize large JPEG/PNG
+    // For images: convert unsupported formats to JPEG for compatibility.
     String uploadPath = task.filePath;
     String uploadFileName = task.fileName;
     String? uploadMimeType = task.mimeType;
@@ -102,12 +102,12 @@ class TaskWorker {
         final convertedPath = await _convertImageForUpload(task);
         if (convertedPath != null) {
           uploadPath = convertedPath;
-          // Update filename to .webp extension since we converted the format
+          // Update filename to .jpg extension since we converted the format.
           final baseName = task.fileName.contains('.')
               ? task.fileName.substring(0, task.fileName.lastIndexOf('.'))
               : task.fileName;
-          uploadFileName = '$baseName.webp';
-          uploadMimeType = 'image/webp';
+          uploadFileName = '$baseName.jpg';
+          uploadMimeType = 'image/jpeg';
         }
       }
     }
@@ -240,27 +240,37 @@ class TaskWorker {
     );
   }
 
-  /// Check if image should be converted to WebP before upload
-  /// - Always convert: HEIC, RAW formats, BMP (unsupported or inefficient)
-  /// - Optimize if large: JPEG, PNG > 500KB
-  /// - Never convert: WebP (already optimal), GIF (may be animated)
+  /// Check if image should be converted to JPEG before upload.
+  ///
+  /// We preserve standard browser/model-friendly formats and only normalize
+  /// formats that are commonly unsupported by upload or vision pipelines.
   Future<bool> _shouldConvertImage(String lowerName, int? fileSize) async {
-    // Always convert these formats (unsupported by some backends or inefficient)
+    // Always convert these formats (unsupported by some backends/providers).
     const alwaysConvert = {
-      '.heic', '.heif', '.dng', '.raw', '.cr2', '.nef', '.arw', '.orf', '.rw2', '.bmp',
+      '.heic',
+      '.heif',
+      '.dng',
+      '.raw',
+      '.cr2',
+      '.nef',
+      '.arw',
+      '.orf',
+      '.rw2',
+      '.bmp',
     };
     if (alwaysConvert.any(lowerName.endsWith)) {
       return true;
     }
 
-    // Never convert these (already optimal or special format)
+    // Preserve formats that are already optimal or have special semantics.
     const neverConvert = {'.webp', '.gif'};
     if (neverConvert.any(lowerName.endsWith)) {
       return false;
     }
 
-    // Optimize large JPEG/PNG (> 500KB)
-    const optimizeThreshold = 500 * 1024; // 500KB
+    // Large JPEG/PNG uploads still end up embedded as base64 in chat requests,
+    // so keep shrinking them before upload to avoid request-size regressions.
+    const optimizeThreshold = 500 * 1024;
     const optimizableFormats = {'.jpg', '.jpeg', '.png'};
     if (optimizableFormats.any(lowerName.endsWith)) {
       final size = fileSize ?? 0;
@@ -270,22 +280,22 @@ class TaskWorker {
     return false;
   }
 
-  /// Convert image to WebP for upload if needed
+  /// Convert image to JPEG for upload if needed.
   Future<String?> _convertImageForUpload(UploadMediaTask task) async {
     try {
       final file = File(task.filePath);
       final result = await FlutterImageCompress.compressWithFile(
         file.absolute.path,
-        format: CompressFormat.webp,
-        quality: 85,
+        format: CompressFormat.jpeg,
+        quality: 90,
       );
-      
+
       if (result != null && result.isNotEmpty) {
         // Write to temp file for upload
         final tempDir = await Directory.systemTemp.createTemp('conduit_img_');
-        final tempFile = File('${tempDir.path}/converted.webp');
+        final tempFile = File('${tempDir.path}/converted.jpg');
         await tempFile.writeAsBytes(result);
-        
+
         DebugLogger.log(
           'Converted image for upload',
           scope: 'tasks/upload',
@@ -296,11 +306,15 @@ class TaskWorker {
             'convertedSize': result.length,
           },
         );
-        
+
         return tempFile.path;
       }
     } catch (e) {
-      DebugLogger.error('image-conversion-failed', scope: 'tasks/upload', error: e);
+      DebugLogger.error(
+        'image-conversion-failed',
+        scope: 'tasks/upload',
+        error: e,
+      );
     }
     return null;
   }

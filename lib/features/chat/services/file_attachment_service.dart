@@ -12,10 +12,6 @@ import '../../../shared/utils/file_type_utils.dart';
 import '../../../core/services/worker_manager.dart';
 import '../../../core/utils/debug_logger.dart';
 
-/// Size threshold for optimizing images to WebP (200KB).
-/// Images larger than this will be converted to WebP for better compression.
-const int _webpOptimizationThreshold = 200 * 1024;
-
 /// Standard web image formats that LLMs can process directly.
 const Set<String> _standardImageFormats = {
   '.jpg',
@@ -25,7 +21,7 @@ const Set<String> _standardImageFormats = {
   '.webp',
 };
 
-/// Formats that should always be converted to WebP (not widely supported).
+/// Formats that should always be converted to JPEG for compatibility.
 const Set<String> _alwaysConvertFormats = {
   '.heic',
   '.heif',
@@ -39,9 +35,6 @@ const Set<String> _alwaysConvertFormats = {
   '.bmp',
 };
 
-/// Formats that benefit from WebP conversion when large.
-const Set<String> _optimizableFormats = {'.jpg', '.jpeg', '.png'};
-
 /// Formats that should never be converted (animation, already optimal).
 const Set<String> _preserveFormats = {'.gif', '.webp'};
 
@@ -51,19 +44,29 @@ const Set<String> allSupportedImageFormats = {
   ..._alwaysConvertFormats,
 };
 
-/// Returns true if the extension always requires conversion to WebP.
+/// Returns true if the extension always requires conversion to JPEG.
 bool _alwaysNeedsConversion(String extension) {
   return _alwaysConvertFormats.contains(extension);
-}
-
-/// Returns true if the format can benefit from WebP optimization.
-bool _canOptimize(String extension) {
-  return _optimizableFormats.contains(extension);
 }
 
 /// Returns true if the format should be preserved as-is.
 bool _shouldPreserve(String extension) {
   return _preserveFormats.contains(extension);
+}
+
+String _mimeTypeForExtension(String extension) {
+  return switch (extension) {
+    '.jpg' || '.jpeg' => 'image/jpeg',
+    '.png' => 'image/png',
+    '.gif' => 'image/gif',
+    '.webp' => 'image/webp',
+    _ => 'image/jpeg',
+  };
+}
+
+String _extractMimeTypeFromDataUrl(String imageDataUrl) {
+  final match = RegExp(r'^data:([^;]+);').firstMatch(imageDataUrl);
+  return match?.group(1)?.toLowerCase() ?? 'image/png';
 }
 
 /// Top-level function for base64 encoding in an isolate.
@@ -90,15 +93,14 @@ Future<String> _encodeToDataUrl(
   return 'data:$mimeType;base64,${base64Encode(bytes)}';
 }
 
-/// Converts an image file to a base64 data URL with smart optimization.
+/// Converts an image file to a base64 data URL with compatibility-first rules.
 /// This is a standalone utility used by both FileAttachmentService and TaskWorker.
 ///
-/// Optimization strategy:
-/// - HEIC/HEIF/RAW/BMP → Always convert to WebP
-/// - Large JPEG/PNG (>200KB) → Convert to WebP for better compression
-/// - Small JPEG/PNG (<200KB) → Pass through as-is
+/// Conversion strategy:
+/// - HEIC/HEIF/RAW/BMP → Always convert to JPEG
+/// - JPEG/PNG → Preserve as-is
 /// - GIF → Preserve (maintains animation)
-/// - WebP → Preserve (already optimal)
+/// - WebP → Preserve
 ///
 /// If [worker] is provided, base64 encoding runs in a background isolate
 /// to avoid blocking the UI thread for large images.
@@ -115,14 +117,14 @@ Future<String?> convertImageFileToDataUrl(
     // Formats that must always be converted (HEIC, RAW, BMP, etc.)
     if (_alwaysNeedsConversion(ext)) {
       DebugLogger.log(
-        'Converting image from $ext to WebP (required)',
+        'Converting image from $ext to JPEG (required)',
         scope: 'attachments',
         data: {'path': imageFile.path, 'size': fileSize},
       );
 
-      final convertedBytes = await _convertToWebP(imageFile);
+      final convertedBytes = await _convertToJpeg(imageFile);
       if (convertedBytes != null) {
-        return _encodeToDataUrl(convertedBytes, 'image/webp', worker);
+        return _encodeToDataUrl(convertedBytes, 'image/jpeg', worker);
       }
 
       DebugLogger.warning(
@@ -138,39 +140,9 @@ Future<String?> convertImageFileToDataUrl(
       return _encodeToDataUrl(bytes, mimeType, worker);
     }
 
-    // Optimizable formats (JPEG, PNG) - convert if large
-    if (_canOptimize(ext) && fileSize > _webpOptimizationThreshold) {
-      DebugLogger.log(
-        'Optimizing large image from $ext to WebP',
-        scope: 'attachments',
-        data: {'path': imageFile.path, 'size': fileSize},
-      );
-
-      final convertedBytes = await _convertToWebP(imageFile);
-      if (convertedBytes != null) {
-        final savings = fileSize - convertedBytes.length;
-        final savingsPercent = (savings / fileSize * 100).toStringAsFixed(1);
-        DebugLogger.log(
-          'WebP optimization saved $savingsPercent%',
-          scope: 'attachments',
-          data: {
-            'originalSize': fileSize,
-            'newSize': convertedBytes.length,
-            'saved': savings,
-          },
-        );
-        return _encodeToDataUrl(convertedBytes, 'image/webp', worker);
-      }
-      // Fall through to pass-through if conversion fails
-    }
-
-    // Pass through as-is (small images or unknown formats)
+    // Pass through standard browser-readable formats as-is.
     final bytes = await imageFile.readAsBytes();
-    String mimeType = 'image/png';
-    if (ext == '.jpg' || ext == '.jpeg') {
-      mimeType = 'image/jpeg';
-    }
-
+    final mimeType = _mimeTypeForExtension(ext);
     return _encodeToDataUrl(bytes, mimeType, worker);
   } catch (e) {
     DebugLogger.error('convert-image-failed', scope: 'attachments', error: e);
@@ -178,19 +150,18 @@ Future<String?> convertImageFileToDataUrl(
   }
 }
 
-/// Converts an image file to WebP bytes using flutter_image_compress.
-/// WebP provides better compression than JPEG while maintaining quality.
-Future<List<int>?> _convertToWebP(File imageFile) async {
+/// Converts an image file to JPEG bytes for broad compatibility.
+Future<List<int>?> _convertToJpeg(File imageFile) async {
   try {
     final result = await FlutterImageCompress.compressWithFile(
       imageFile.absolute.path,
-      format: CompressFormat.webp,
-      quality: 85,
+      format: CompressFormat.jpeg,
+      quality: 90,
     );
 
     if (result != null && result.isNotEmpty) {
       DebugLogger.log(
-        'Image converted to WebP successfully',
+        'Image converted to JPEG successfully',
         scope: 'attachments',
         data: {'originalPath': imageFile.path, 'resultSize': result.length},
       );
@@ -199,7 +170,7 @@ Future<List<int>?> _convertToWebP(File imageFile) async {
 
     return null;
   } catch (e) {
-    DebugLogger.error('webp-conversion-failed', scope: 'attachments', error: e);
+    DebugLogger.error('jpeg-conversion-failed', scope: 'attachments', error: e);
     return null;
   }
 }
@@ -233,7 +204,7 @@ String _deriveDisplayName({
 String _timestampedName({required String prefix, required String extension}) {
   final DateTime now = DateTime.now();
   String two(int value) => value.toString().padLeft(2, '0');
-  final String ext = extension.isNotEmpty ? extension : '.webp';
+  final String ext = extension.isNotEmpty ? extension : '.jpg';
   final String timestamp =
       '${now.year}${two(now.month)}${two(now.day)}_${two(now.hour)}${two(now.minute)}${two(now.second)}';
   return '${prefix}_$timestamp$ext';
@@ -365,9 +336,8 @@ class FileAttachmentService {
     }
   }
 
-  /// Compresses and resizes an image data URL.
-  /// Uses PNG format for the resize operation (dart:ui limitation),
-  /// then converts to WebP for optimal file size.
+  /// Compresses and resizes an image data URL while preserving a
+  /// compatibility-friendly format.
   Future<String> compressImage(
     String imageDataUrl,
     int? maxWidth,
@@ -426,7 +396,7 @@ class FileAttachmentService {
         height = maxHeight;
       }
 
-      // Create resized image (dart:ui only supports PNG output)
+      // Create resized image (dart:ui only supports PNG output).
       final recorder = ui.PictureRecorder();
       final canvas = Canvas(recorder);
 
@@ -443,16 +413,20 @@ class FileAttachmentService {
         format: ui.ImageByteFormat.png,
       );
       final pngBytes = byteData!.buffer.asUint8List();
+      final originalMimeType = _extractMimeTypeFromDataUrl(imageDataUrl);
 
-      // Convert PNG to WebP for better compression
-      final webpBytes = await FlutterImageCompress.compressWithList(
-        pngBytes,
-        format: CompressFormat.webp,
-        quality: 85,
-      );
+      if (originalMimeType == 'image/jpeg' || originalMimeType == 'image/jpg') {
+        final jpegBytes = await FlutterImageCompress.compressWithList(
+          pngBytes,
+          format: CompressFormat.jpeg,
+          quality: 90,
+        );
+        final compressedBase64 = base64Encode(jpegBytes);
+        return 'data:image/jpeg;base64,$compressedBase64';
+      }
 
-      final compressedBase64 = base64Encode(webpBytes);
-      return 'data:image/webp;base64,$compressedBase64';
+      final compressedBase64 = base64Encode(pngBytes);
+      return 'data:image/png;base64,$compressedBase64';
     } catch (e) {
       DebugLogger.error(
         'compress-failed',
@@ -483,8 +457,7 @@ class FileAttachmentService {
   }
 
   /// Formats a byte count into a human-readable string.
-  String formatFileSize(int bytes) =>
-      FileTypeUtils.formatFileSize(bytes);
+  String formatFileSize(int bytes) => FileTypeUtils.formatFileSize(bytes);
 
   /// Returns an emoji icon for the given [fileName] based on its extension.
   String getFileIcon(String fileName) {
