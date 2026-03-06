@@ -52,7 +52,7 @@ class ConduitMarkdown {
         : Colors.black.withValues(alpha: 0.1);
 
     return Container(
-      margin: const EdgeInsets.symmetric(vertical: Spacing.sm),
+      margin: const EdgeInsets.symmetric(vertical: Spacing.xs + 2),
       decoration: BoxDecoration(
         color: codeBackground,
         borderRadius: BorderRadius.circular(AppBorderRadius.lg),
@@ -490,8 +490,8 @@ class _CodeBlockBodyState extends State<_CodeBlockBody> {
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(
-            horizontal: Spacing.md,
-            vertical: Spacing.sm + 4,
+            horizontal: Spacing.sm + 2,
+            vertical: Spacing.sm,
           ),
           child: HighlightView(
             displayCode,
@@ -547,8 +547,8 @@ class _CollapseToggle extends StatelessWidget {
       behavior: HitTestBehavior.opaque,
       child: Container(
         padding: const EdgeInsets.symmetric(
-          horizontal: Spacing.md,
-          vertical: Spacing.xs + 2,
+          horizontal: Spacing.sm + 2,
+          vertical: Spacing.xs + 1,
         ),
         decoration: BoxDecoration(
           border: Border(
@@ -643,8 +643,8 @@ class _CodeBlockHeaderState extends State<CodeBlockHeader> {
 
     return Container(
       padding: const EdgeInsets.symmetric(
-        horizontal: Spacing.md,
-        vertical: Spacing.xs + 2,
+        horizontal: Spacing.sm + 2,
+        vertical: Spacing.xs + 1,
       ),
       decoration: BoxDecoration(
         color: widget.backgroundColor,
@@ -684,8 +684,8 @@ class _CodeBlockHeaderState extends State<CodeBlockHeader> {
               child: AnimatedContainer(
                 duration: AnimationDuration.fast,
                 padding: const EdgeInsets.symmetric(
-                  horizontal: Spacing.sm,
-                  vertical: Spacing.xs,
+                  horizontal: Spacing.xs + 2,
+                  vertical: Spacing.xs - 1,
                 ),
                 decoration: BoxDecoration(
                   color: _isHovering

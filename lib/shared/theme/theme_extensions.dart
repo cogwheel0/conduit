@@ -426,17 +426,13 @@ class TypographyThemeExtension
   });
 
   factory TypographyThemeExtension.fromVariant(TweakcnThemeVariant variant) {
-    final List<String> sansStack = _sanitizeFontStack(variant.fontSans);
-    final List<String> serifStack = _sanitizeFontStack(variant.fontSerif);
-    final List<String> monoStack = _sanitizeFontStack(variant.fontMono);
-
     return TypographyThemeExtension(
-      primaryFont: _preferredFont(sansStack),
-      primaryFallback: _fallbackForStack(sansStack),
-      serifFont: _preferredFont(serifStack),
-      serifFallback: _fallbackForStack(serifStack),
-      monospaceFont: _preferredFont(monoStack),
-      monospaceFallback: _fallbackForStack(monoStack),
+      primaryFont: _preferredFont(variant.fontSans),
+      primaryFallback: _fallbackForStack(variant.fontSans),
+      serifFont: _preferredFont(variant.fontSerif),
+      serifFallback: _fallbackForStack(variant.fontSerif),
+      monospaceFont: _preferredFont(variant.fontMono),
+      monospaceFallback: _fallbackForStack(variant.fontMono),
     );
   }
 
@@ -836,45 +832,16 @@ List<BoxShadow> _buildShadow(List<_ShadowSpec> specs) {
       .toList(growable: false);
 }
 
-final Set<String> _genericFontFamilies = <String>{
-  'ui-sans-serif',
-  'system-ui',
-  '-apple-system',
-  'BlinkMacSystemFont',
-  'sans-serif',
-  'ui-serif',
-  'serif',
-  'ui-monospace',
-  'monospace',
-};
+/// Always returns empty so Flutter uses the platform's
+/// default system font (which includes emoji support).
+/// CSS font stacks from tweakcn themes are web-oriented
+/// and not usable by Flutter's native text engine.
+String _preferredFont(List<String> stack) => '';
 
-List<String> _sanitizeFontStack(List<String> stack) {
-  final List<String> cleaned = <String>[];
-  for (final String raw in stack) {
-    final String trimmed = raw
-        .trim()
-        .replaceAll(RegExp("^[\"']"), '')
-        .replaceAll(RegExp("[\"']\$"), '');
-    if (trimmed.isEmpty) continue;
-    if (!cleaned.contains(trimmed)) cleaned.add(trimmed);
-  }
-  return cleaned;
-}
-
-String _preferredFont(List<String> stack) {
-  for (final String font in stack) {
-    if (!_genericFontFamilies.contains(font)) {
-      return font;
-    }
-  }
-  return stack.isNotEmpty ? stack.first : '';
-}
-
-List<String> _fallbackForStack(List<String> stack) {
-  if (stack.isEmpty) return const <String>[];
-  final String primary = _preferredFont(stack);
-  return stack.where((font) => font != primary).toList(growable: false);
-}
+/// Returns an empty fallback list — the platform system
+/// font handles all glyph coverage including emoji.
+List<String> _fallbackForStack(List<String> stack) =>
+    const <String>[];
 
 /// Consistent spacing values - Enhanced for production with better hierarchy
 class Spacing {
