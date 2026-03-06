@@ -1,0 +1,646 @@
+{
+  "@@locale": "pt_BR",
+  "appTitle": "Conduit",
+  "retry": "Tentar novamente",
+  "back": "Voltar",
+  "you": "Você",
+  "loadingProfile": "Carregando perfil...",
+  "pleaseCheckConnection": "Por favor, verifique sua conexão e tente novamente",
+  "connectionIssueTitle": "Não foi possível conectar ao servidor",
+  "@connectionIssueTitle": {
+    "description": "Título exibido quando o servidor configurado não está disponível"
+  },
+  "connectionIssueSubtitle": "Reconecte para continuar ou saia para escolher outro servidor.",
+  "@connectionIssueSubtitle": {
+    "description": "Subtítulo que explica as ações disponíveis quando o servidor não pode ser acessado"
+  },
+  "account": "Conta",
+  "supportConduit": "Apoie o Conduit",
+  "supportConduitSubtitle": "Mantenha o Conduit independente financiando o desenvolvimento contínuo.",
+  "githubSponsorsTitle": "GitHub Sponsors",
+  "githubSponsorsSubtitle": "Torne-se um patrocinador recorrente para financiar itens do roteiro.",
+  "buyMeACoffeeTitle": "Me pague um Café",
+  "buyMeACoffeeSubtitle": "Faça uma doação única para agradecer.",
+  "signOut": "Desconectar",
+  "endYourSession": "Encerrar sua sessão",
+  "defaultModel": "Modelo padrão",
+  "autoSelect": "Padrão do servidor",
+  "loadingModels": "Carregando modelos...",
+  "failedToLoadModels": "Não foi possível carregar os modelos",
+  "availableModels": "Modelos disponíveis",
+  "noResults": "Nenhum resultado",
+  "searchModels": "Buscar modelos...",
+  "errorMessage": "Algo deu errado. Por favor, tente novamente.",
+  "closeButtonSemantic": "Fechar",
+  "loadingContent": "Carregando conteúdo",
+  "noItems": "Sem itens",
+  "noItemsToDisplay": "Não há itens para exibir",
+  "knowledgeBase": "Base de conhecimento",
+  "attachments": "Anexos",
+  "takePhoto": "Tirar uma foto",
+  "document": "Documento",
+  "backToServerSetup": "Voltar para a configuração do servidor",
+  "connectedToServer": "Conectado ao servidor",
+  "signIn": "Entrar",
+  "enterCredentials": "Insira suas credenciais para acessar suas conversas de IA",
+  "credentials": "Credenciais",
+  "apiKey": "Chave de API",
+  "token": "Token",
+  "usernameOrEmail": "Usuário ou e-mail",
+  "password": "Senha",
+  "signInWithToken": "Entrar com token",
+  "connectToServer": "Conectar ao servidor",
+  "enterServerAddress": "Insira o endereço do seu servidor Open-WebUI para começar",
+  "serverUrl": "URL do servidor",
+  "serverUrlHint": "https://seu-servidor.com",
+  "enterServerUrlSemantic": "Insira a URL ou endereço IP do seu servidor",
+  "headerName": "Nome do cabeçalho",
+  "headerValue": "Valor do cabeçalho",
+  "headerValueHint": "api-key-123 ou Bearer token",
+  "addHeader": "Adicionar cabeçalho",
+  "maximumHeadersReached": "Número máximo de cabeçalhos atingido",
+  "removeHeader": "Remover cabeçalho",
+  "connecting": "Conectando...",
+  "connectToServerButton": "Conectar ao servidor",
+  "demoModeActive": "Modo demo ativo",
+  "skipServerSetupTryDemo": "Pular configuração do servidor e testar a demonstração",
+  "enterDemo": "Entrar na demonstração",
+  "demoBadge": "Demo",
+  "serverNotOpenWebUI": "Este não parece ser um servidor Open-WebUI.",
+  "serverUrlEmpty": "A URL do servidor não pode estar vazia",
+  "invalidUrlFormat": "Formato de URL inválido. Por favor, verifique sua entrada.",
+  "onlyHttpHttps": "Apenas os protocolos HTTP e HTTPS são suportados.",
+  "serverAddressRequired": "O endereço do servidor é obrigatório (ex. 192.168.1.10 ou exemplo.com).",
+  "portRange": "A porta deve estar entre 1 e 65535.",
+  "invalidIpFormat": "Formato de endereço IP inválido. Use um formato como 192.168.1.10.",
+  "couldNotConnectGeneric": "Não foi possível conectar. Verifique o endereço e tente novamente.",
+  "weCouldntReachServer": "Não conseguimos conectar ao servidor. Verifique sua conexão e se o servidor está funcionando.",
+  "connectionTimedOut": "O tempo de conexão esgotou. O servidor pode estar ocupado ou bloqueado por um firewall.",
+  "useHttpOrHttpsOnly": "Use apenas http:// ou https://.",
+  "loginFailed": "Erro ao entrar",
+  "invalidCredentials": "Usuário ou senha inválidos. Por favor, tente novamente.",
+  "serverRedirectingHttps": "O servidor está redirecionando as solicitações. Verifique a configuração HTTPS do seu servidor.",
+  "unableToConnectServer": "Não foi possível conectar ao servidor. Por favor, verifique sua conexão.",
+  "requestTimedOut": "O tempo de espera da solicitação esgotou. Por favor, tente novamente.",
+  "genericSignInFailed": "Não conseguimos iniciar sua sessão. Verifique suas credenciais e a configuração do servidor.",
+  "skip": "Pular",
+  "next": "Próximo",
+  "done": "Concluído",
+  "onboardStartTitle": "Olá, {username}",
+  "onboardStartSubtitle": "Escolha um modelo para começar. Toque em Nova conversa quando quiser.",
+  "onboardStartBullet1": "Toque no nome do modelo na barra superior para trocar de modelo",
+  "onboardStartBullet2": "Use Nova conversa para redefinir o contexto",
+  "onboardAttachTitle": "Adicionar contexto",
+  "onboardAttachSubtitle": "Baseie as respostas com conteúdo do Workspace ou fotos.",
+  "onboardAttachBullet1": "Workspace: PDFs, documentos, conjuntos de dados",
+  "onboardAttachBullet2": "Fotos: câmera ou galeria",
+  "onboardSpeakTitle": "Fale naturalmente",
+  "onboardSpeakSubtitle": "Toque no microfone para ditar com feedback de onda sonora em tempo real.",
+  "onboardSpeakBullet1": "Pare a qualquer momento; o texto parcial será preservado",
+  "onboardSpeakBullet2": "Ótimo para notas rápidas ou prompts longos",
+  "onboardQuickTitle": "Ações rápidas",
+  "onboardQuickSubtitle": "Abra o menu para alternar entre Conversas, Workspace e Perfil.",
+  "onboardQuickBullet1": "Toque no menu para acessar Conversas, Workspace e Perfil",
+  "onboardQuickBullet2": "Inicie uma Nova conversa ou gerencie modelos na barra superior",
+  "attachmentLabel": "Anexo",
+  "tools": "Ferramentas",
+  "filters": "Filtros",
+  "voiceInput": "Entrada de voz",
+  "voice": "Voz",
+  "voiceStatusListening": "Ouvindo...",
+  "voiceStatusRecording": "Gravando...",
+  "voiceHoldToTalk": "Mantenha pressionado para falar",
+  "voiceAutoSend": "Envio automático",
+  "voiceTranscript": "Transcrição",
+  "voicePromptSpeakNow": "Fale agora...",
+  "voicePromptTapStart": "Toque em Iniciar para começar",
+  "voiceActionStop": "Parar",
+  "voiceActionStart": "Iniciar",
+  "messageHintText": "Pergunte ao Conduit",
+  "stopGenerating": "Parar geração",
+  "codeCopiedToClipboard": "Código copiado para a área de transferência.",
+  "send": "Enviar",
+  "sendMessage": "Enviar mensagem",
+  "file": "Arquivo",
+  "photo": "Foto",
+  "camera": "Câmera",
+  "pasteImage": "Colar imagem",
+  "apiUnavailable": "Serviço de API indisponível",
+  "unableToLoadImage": "Não foi possível carregar a imagem",
+  "notAnImageFile": "Não é um arquivo de imagem: {fileName}",
+  "failedToLoadImage": "Não foi possível carregar a imagem: {error}",
+  "invalidDataUrl": "Formato de URL de dados inválido",
+  "failedToDecodeImage": "Não foi possível decodificar a imagem",
+  "invalidImageFormat": "Formato de imagem inválido",
+  "emptyImageData": "Dados de imagem vazios",
+  "confirm": "Confirmar",
+  "cancel": "Cancelar",
+  "ok": "OK",
+  "inputField": "Campo de entrada",
+  "checkConnection": "Verificar conexão",
+  "openSettings": "Abrir configurações",
+  "goBack": "Voltar",
+  "technicalDetails": "Detalhes técnicos",
+  "save": "Salvar",
+  "chooseModel": "Escolher modelo",
+  "reviewerMode": "MODO REVISOR",
+  "selectLanguage": "Selecionar idioma",
+  "newFolder": "Nova pasta",
+  "folderName": "Nome da pasta",
+  "newChat": "Nova conversa",
+  "more": "Mais",
+  "clear": "Limpar",
+  "searchConversations": "Pesquisar conversas...",
+  "create": "Criar",
+  "failedToCreateFolder": "Não foi possível criar a pasta",
+  "failedToMoveChat": "Não foi possível mover a conversa",
+  "failedToLoadChats": "Não foi possível carregar as conversas",
+  "failedToUpdatePin": "Não foi possível atualizar a fixação",
+  "failedToDeleteChat": "Não foi possível excluir a conversa",
+  "manage": "Gerenciar",
+  "rename": "Renomear",
+  "delete": "Excluir",
+  "renameChat": "Renomear conversa",
+  "enterChatName": "Insira o nome da conversa",
+  "failedToRenameChat": "Não foi possível renomear a conversa",
+  "failedToUpdateArchive": "Não foi possível atualizar o arquivo",
+  "unarchive": "Desarquivar",
+  "archive": "Arquivar",
+  "pin": "Fixar",
+  "unpin": "Desafixar",
+  "recent": "Recente",
+  "system": "Sistema",
+  "english": "Inglês",
+  "deutsch": "Alemão",
+  "francais": "Francês",
+  "italiano": "Italiano",
+  "espanol": "Espanhol",
+  "nederlands": "Holandês",
+  "russian": "Russo",
+  "chinese": "Chinês",
+  "chineseSimplified": "Chinês (simplificado)",
+  "chineseTraditional": "Chinês (tradicional)",
+  "korean": "Coreano",
+  "portugueseBrazilian": "Português (Brasileiro)",
+  "deleteMessagesTitle": "Excluir mensagens",
+  "deleteMessagesMessage": "Excluir {count} mensagens?",
+  "@deleteMessagesMessage": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "routeNotFound": "Rota não encontrada: {routeName}",
+  "@routeNotFound": {
+    "placeholders": {
+      "routeName": {
+        "type": "String"
+      }
+    }
+  },
+  "deleteChatTitle": "Excluir conversa",
+  "deleteChatMessage": "Esta conversa será excluída permanentemente.",
+  "deleteFolderTitle": "Excluir pasta",
+  "deleteFolderMessage": "Esta pasta e suas referências de atribuição serão excluídas.",
+  "failedToDeleteFolder": "Não foi possível excluir a pasta",
+  "aboutApp": "Sobre",
+  "aboutAppSubtitle": "Informações e links do Conduit",
+  "web": "Web",
+  "imageGen": "Geração de imagens",
+  "pinned": "Fixado",
+  "folders": "Pastas",
+  "archived": "Arquivado",
+  "appLanguage": "Idioma do aplicativo",
+  "darkMode": "Modo escuro",
+  "webSearch": "Pesquisa na web",
+  "webSearchDescription": "Pesquisa na web e cita fontes nas respostas.",
+  "imageGeneration": "Geração de imagens",
+  "imageGenerationDescription": "Cria imagens a partir dos seus prompts.",
+  "copy": "Copiar",
+  "ttsListen": "Ouvir",
+  "ttsStop": "Parar",
+  "edit": "Editar",
+  "regenerate": "Regenerar",
+  "noConversationsYet": "Ainda não há conversas",
+  "usernameOrEmailHint": "Insira seu usuário ou e-mail",
+  "passwordHint": "Insira sua senha",
+  "enterToken": "Insira seu token JWT",
+  "tokenHint": "Obtenha o token JWT nas configurações do OpenWebUI. Chaves API (sk-...) não são compatíveis com streaming.",
+  "apiKeyNotSupported": "Chaves API (sk-...) não são suportadas. Por favor, use um token JWT em seu lugar.",
+  "apiKeyNoLongerSupported": "Sua sessão foi encerrada porque as chaves API não são mais suportadas. Por favor, entre com um token JWT das configurações do OpenWebUI.",
+  "tokenTooShort": "O token é muito curto",
+  "signingIn": "Conectando...",
+  "advancedSettings": "Configurações avançadas",
+  "customHeaders": "Cabeçalhos personalizados",
+  "customHeadersDescription": "Adicione cabeçalhos HTTP personalizados para autenticação, chaves API ou requisitos especiais do servidor.",
+  "allowSelfSignedCertificates": "Confiar em certificados autoassinados",
+  "@allowSelfSignedCertificates": {
+    "description": "Rótulo da alternância que permite confiar em certificados TLS autoassinados para o servidor configurado."
+  },
+  "allowSelfSignedCertificatesDescription": "Aceita o certificado TLS deste servidor mesmo que seja autoassinado. Ative apenas para servidores em que você confia.",
+  "@allowSelfSignedCertificatesDescription": {
+    "description": "Texto de ajuda que esclarece os riscos de ativar a alternância de certificados autoassinados."
+  },
+  "headerNameTooLong": "Nome do cabeçalho muito longo (máx. 64 caracteres)",
+  "headerNameInvalidChars": "Nome do cabeçalho inválido. Use apenas letras, números e estes símbolos: !#$&-^_`|~",
+  "headerNameReserved": "Não é possível sobrescrever o cabeçalho reservado \"{key}\"",
+  "@headerNameReserved": {
+    "placeholders": {
+      "key": {
+        "type": "String"
+      }
+    }
+  },
+  "headerValueTooLong": "Valor do cabeçalho muito longo (máx. 1024 caracteres)",
+  "headerValueInvalidChars": "O valor do cabeçalho contém caracteres inválidos. Use apenas ASCII imprimível.",
+  "headerValueUnsafe": "O valor do cabeçalho parece conter conteúdo potencialmente inseguro",
+  "headerAlreadyExists": "O cabeçalho \"{key}\" já existe. Remova-o primeiro para atualizá-lo.",
+  "@headerAlreadyExists": {
+    "placeholders": {
+      "key": {
+        "type": "String"
+      }
+    }
+  },
+  "maxHeadersReachedDetail": "Máximo de 10 cabeçalhos personalizados permitidos. Remova alguns para adicionar mais.",
+  "noModelsAvailable": "Não há modelos disponíveis",
+  "followingSystem": "Seguindo o sistema: {theme}",
+  "@followingSystem": {
+    "placeholders": {
+      "theme": {
+        "type": "String"
+      }
+    }
+  },
+  "themeDark": "Escuro",
+  "themePalette": "Paleta de sotaques",
+  "@themePalette": {
+    "description": "Título para selecionar a paleta de cores do aplicativo."
+  },
+  "themeLight": "Claro",
+  "currentlyUsingDarkTheme": "Atualmente usando o tema escuro",
+  "currentlyUsingLightTheme": "Atualmente usando o tema claro",
+  "aboutConduit": "Sobre o Conduit",
+  "versionLabel": "Versão: {version} ({build})",
+  "@versionLabel": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      },
+      "build": {
+        "type": "String"
+      }
+    }
+  },
+  "githubRepository": "Repositório GitHub",
+  "unableToLoadAppInfo": "Não foi possível carregar as informações do aplicativo",
+  "thinking": "Pensando...",
+  "thoughts": "Pensamentos",
+  "thoughtForDuration": "Pensou por {duration}",
+  "@thoughtForDuration": {
+    "description": "Mostra quanto tempo o assistente ficou pensando antes de responder.",
+    "placeholders": {
+      "duration": {
+        "type": "String",
+        "example": "3s"
+      }
+    }
+  },
+  "analyzing": "Analisando…",
+  "analyzed": "Analisado",
+  "appCustomization": "Personalização",
+  "appCustomizationSubtitle": "Tema, idioma, voz e quickpills",
+  "quickActionsDescription": "Atalhos no chat",
+  "chatSettings": "Conversa",
+  "sendOnEnter": "Enviar com Enter",
+  "sendOnEnterDescription": "Enter envia (teclado virtual). Cmd/Ctrl+Enter também disponível",
+  "androidAssistantTitle": "Assistente digital Android",
+  "androidAssistantDescription": "Escolha o que acontece ao acionar o assistente digital do Android.",
+  "androidAssistantOverlayOption": "Mostrar sobreposição rápida (padrão)",
+  "androidAssistantNewChatOption": "Abrir o Conduit com uma nova conversa",
+  "androidAssistantVoiceCallOption": "Iniciar uma chamada de voz",
+  "sttSettings": "Voz para texto",
+  "sttEngineLabel": "Motor de reconhecimento",
+  "sttEngineDevice": "No dispositivo",
+  "sttEngineServer": "Servidor",
+  "sttEngineDeviceDescription": "Mantém o áudio neste dispositivo. A entrada de voz não funciona se o dispositivo não suportar reconhecimento de voz.",
+  "sttEngineServerDescription": "Sempre envia as gravações para o seu servidor OpenWebUI para a transcrição.",
+  "sttDeviceUnavailableWarning": "O reconhecimento de voz no dispositivo não está disponível neste aparelho.",
+  "sttServerUnavailableWarning": "Conecte-se a um servidor com transcrição habilitada para usar esta opção.",
+  "sttSilenceDuration": "Duração do silêncio",
+  "sttSilenceDurationDescription": "Tempo de espera após o silêncio antes de parar automaticamente a gravação",
+  "ttsSettings": "Texto para voz",
+  "ttsEngineDeviceDescription": "Mantém a síntese neste dispositivo. A reprodução de voz não funciona se o dispositivo não suportar TTS.",
+  "ttsEngineServerDescription": "Sempre solicita o áudio ao seu servidor OpenWebUI.",
+  "ttsDeviceUnavailableWarning": "A síntese de voz no dispositivo não está disponível neste aparelho.",
+  "ttsServerUnavailableWarning": "Conecte-se a um servidor com texto para voz habilitado para usar esta opção.",
+  "ttsVoice": "Voz",
+  "ttsSpeechRate": "Velocidade da fala",
+  "ttsPitch": "Tom",
+  "ttsVolume": "Volume",
+  "ttsPreview": "Prévia da voz",
+  "ttsSystemDefault": "Padrão do sistema",
+  "ttsSelectVoice": "Selecionar voz",
+  "ttsPreviewText": "Esta é uma prévia da voz selecionada.",
+  "ttsNoVoicesAvailable": "Não há vozes disponíveis",
+  "ttsVoicesForLanguage": "Vozes de {language}",
+  "ttsOtherVoices": "Outros idiomas",
+  "error": "Erro",
+  "display": "Visualização",
+  "realtime": "Tempo real",
+  "transportMode": "Modo de transporte",
+  "mode": "Modo",
+  "transportModePolling": "Polling de backup",
+  "transportModeWs": "Apenas WebSocket",
+  "transportModePollingInfo": "Recorrerá ao HTTP polling se o WebSocket estiver bloqueado. Será atualizado para WebSocket quando possível.",
+  "transportModeWsInfo": "Menor sobrecarga, mas pode falhar atrás de proxies/firewalls rigorosos.",
+  "quickActionsSelectedCount": "{count, plural, =0{Nenhuma ação selecionada} one{{count} ação selecionada} other{{count} ações selecionadas}}",
+  "@quickActionsSelectedCount": {
+    "description": "Subtítulo indicando quantas ações rápidas estão selecionadas.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "autoSelectDescription": "Usar o modelo padrão configurado no servidor",
+  "@autoSelectDescription": {
+    "description": "Explica o que a configuração de modelo fornecida pelo servidor faz."
+  },
+  "ttsEngineLabel": "Motor",
+  "@ttsEngineLabel": {
+    "description": "Rótulo para selecionar o motor de texto para voz."
+  },
+  "ttsEngineDevice": "No dispositivo",
+  "@ttsEngineDevice": {
+    "description": "Rótulo do chip para usar texto para voz no dispositivo."
+  },
+  "ttsEngineServer": "Servidor",
+  "@ttsEngineServer": {
+    "description": "Rótulo do chip para usar texto para voz do lado do servidor."
+  },
+  "modelCapabilityMultimodal": "Multimodal",
+  "@modelCapabilityMultimodal": {
+    "description": "Rótulo do chip de capacidade para modelos que suportam entrada multimodal."
+  },
+  "modelCapabilityReasoning": "Raciocínio",
+  "@modelCapabilityReasoning": {
+    "description": "Rótulo do chip de capacidade para modelos que suportam recursos de raciocínio."
+  },
+  "voiceCallTitle": "Chamada de voz",
+  "@voiceCallTitle": {
+    "description": "Título exibido na tela de chamada de voz."
+  },
+  "voiceCallPause": "Pausar",
+  "@voiceCallPause": {
+    "description": "Rótulo do botão para pausar uma chamada de voz."
+  },
+  "voiceCallResume": "Retomar",
+  "@voiceCallResume": {
+    "description": "Rótulo do botão para retomar uma chamada de voz pausada."
+  },
+  "voiceCallStop": "Parar",
+  "@voiceCallStop": {
+    "description": "Rótulo do botão para parar a chamada de voz ativa."
+  },
+  "voiceCallEnd": "Encerrar chamada",
+  "@voiceCallEnd": {
+    "description": "Rótulo do botão para encerrar a sessão de chamada de voz."
+  },
+  "chooseDifferentFile": "Selecionar outro arquivo",
+  "@chooseDifferentFile": {
+    "description": "Rótulo de ação sugerindo ao usuário que escolha outro arquivo."
+  },
+  "errorWithMessage": "Erro: {message}",
+  "@errorWithMessage": {
+    "description": "Rótulo de erro com o texto da mensagem anexado.",
+    "placeholders": {
+      "message": {
+        "type": "String",
+        "example": "Network timeout"
+      }
+    }
+  },
+  "networkTimeoutError": "A conexão expirou. Verifique sua conexão com a internet e tente novamente.",
+  "@networkTimeoutError": {
+    "description": "Mensagem voltada para o usuário quando uma solicitação de rede expira."
+  },
+  "networkUnreachableError": "Não foi possível acessar o servidor. Verifique a URL do servidor e sua conexão com a internet.",
+  "@networkUnreachableError": {
+    "description": "Mensagem voltada para o usuário quando o servidor não pode ser acessado."
+  },
+  "networkServerNotResponding": "O servidor não responde. Verifique se ele está em execução e acessível.",
+  "@networkServerNotResponding": {
+    "description": "Mensagem voltada para o usuário quando o servidor não responde a uma solicitação."
+  },
+  "networkGenericError": "Problema de conexão de rede. Verifique sua conexão com a internet.",
+  "@networkGenericError": {
+    "description": "Mensagem de reserva para erros genéricos de rede."
+  },
+  "serverError500": "O servidor está com problemas. Geralmente é temporário.",
+  "@serverError500": {
+    "description": "Mensagem quando um erro 500 é encontrado."
+  },
+  "serverErrorUnavailable": "O servidor está temporariamente indisponível. Tente novamente em instantes.",
+  "@serverErrorUnavailable": {
+    "description": "Mensagem quando um erro 502/503 é encontrado."
+  },
+  "serverErrorTimeout": "O servidor demorou muito para responder. Tente novamente.",
+  "@serverErrorTimeout": {
+    "description": "Mensagem quando o servidor expira."
+  },
+  "serverErrorGeneric": "O servidor está tendo problemas. Tente mais tarde.",
+  "@serverErrorGeneric": {
+    "description": "Mensagem de erro de servidor de reserva."
+  },
+  "authSessionExpired": "Sua sessão expirou. Por favor, entre novamente.",
+  "@authSessionExpired": {
+    "description": "Mensagem quando uma sessão de autenticação expira."
+  },
+  "authForbidden": "Você não tem permissão para realizar esta ação.",
+  "@authForbidden": {
+    "description": "Mensagem quando o usuário carece de permissões necessárias."
+  },
+  "authInvalidToken": "O token de autenticação não é válido. Entre novamente.",
+  "@authInvalidToken": {
+    "description": "Mensagem quando o token de autenticação é inválido."
+  },
+  "authGenericError": "Problema de autenticação. Entre novamente.",
+  "@authGenericError": {
+    "description": "Mensagem de erro de autenticação de reserva."
+  },
+  "validationInvalidEmail": "Insira um endereço de e-mail válido.",
+  "@validationInvalidEmail": {
+    "description": "Mensagem de validação para entrada de e-mail inválida."
+  },
+  "validationWeakPassword": "A senha não atende aos requisitos. Revise-a e tente novamente.",
+  "@validationWeakPassword": {
+    "description": "Mensagem de validação para senhas fracas."
+  },
+  "validationMissingRequired": "Preencha todos os campos obrigatórios.",
+  "@validationMissingRequired": {
+    "description": "Mensagem de validação quando faltam campos obrigatórios."
+  },
+  "validationFormatError": "Alguns dados têm um formato incorreto. Revise-os e tente novamente.",
+  "@validationFormatError": {
+    "description": "Mensagem de validação para problemas genéricos de formatação."
+  },
+  "validationGenericError": "Revise sua entrada e tente novamente.",
+  "@validationGenericError": {
+    "description": "Mensagem de validação de reserva."
+  },
+  "fileNotFound": "Arquivo não encontrado. Pode ter sido movido ou excluído.",
+  "@fileNotFound": {
+    "description": "Mensagem quando um arquivo não pode ser localizado."
+  },
+  "fileAccessDenied": "Não foi possível acessar o arquivo. Verifique as permissões.",
+  "@fileAccessDenied": {
+    "description": "Mensagem quando o acesso ao arquivo é negado."
+  },
+  "fileTooLarge": "O arquivo é muito grande. Escolha um menor.",
+  "@fileTooLarge": {
+    "description": "Mensagem quando um arquivo excede os limites de tamanho."
+  },
+  "fileGenericError": "Problema com o arquivo. Tente com outro arquivo.",
+  "@fileGenericError": {
+    "description": "Mensagem de erro de arquivo de reserva."
+  },
+  "permissionCameraRequired": "É necessária permissão de câmera. Ative-a nas configurações.",
+  "@permissionCameraRequired": {
+    "description": "Mensagem quando falta permissão de câmera."
+  },
+  "permissionStorageRequired": "É necessária permissão de armazenamento. Ative-a nas configurações.",
+  "@permissionStorageRequired": {
+    "description": "Mensagem quando falta permissão de armazenamento."
+  },
+  "permissionMicrophoneRequired": "É necessária permissão de microfone. Ative-a nas configurações.",
+  "@permissionMicrophoneRequired": {
+    "description": "Mensagem quando falta permissão de microfone."
+  },
+  "permissionGenericError": "É necessária uma permissão. Revise as permissões do app nas configurações.",
+  "@permissionGenericError": {
+    "description": "Mensagem de erro de permissão de reserva."
+  },
+  "actionRetryRequest": "Tente a solicitação novamente.",
+  "@actionRetryRequest": {
+    "description": "Descrição para tentar novamente uma solicitação falha."
+  },
+  "actionVerifyConnection": "Verifique sua conexão com a internet.",
+  "@actionVerifyConnection": {
+    "description": "Descrição para verificar a conectividade com a internet."
+  },
+  "actionRetryOperation": "Tente novamente a operação.",
+  "@actionRetryOperation": {
+    "description": "Descrição para tentar novamente a mesma operação."
+  },
+  "actionRetryAfterDelay": "Aguarde um momento e tente novamente.",
+  "@actionRetryAfterDelay": {
+    "description": "Descrição sugerindo um curto atraso antes de tentar novamente."
+  },
+  "actionSignInToAccount": "Entre na sua conta.",
+  "@actionSignInToAccount": {
+    "description": "Descrição para entrar novamente no aplicativo."
+  },
+  "actionSelectAnotherFile": "Selecione outro arquivo.",
+  "@actionSelectAnotherFile": {
+    "description": "Descrição para escolher um arquivo diferente."
+  },
+  "actionOpenAppSettings": "Abra as configurações do aplicativo para conceder permissões.",
+  "@actionOpenAppSettings": {
+    "description": "Descrição para abrir as configurações do sistema ou do app."
+  },
+  "actionRetryAfterPermission": "Tente novamente após conceder a permissão.",
+  "@actionRetryAfterPermission": {
+    "description": "Descrição para tentar novamente uma vez que as permissões forem concedidas."
+  },
+  "actionReturnToPrevious": "Volte para a tela anterior.",
+  "@actionReturnToPrevious": {
+    "description": "Descrição para navegar de volta à tela anterior."
+  },
+  "continueAction": "Continuar",
+  "@continueAction": {
+    "description": "Rótulo do botão para continuar uma ação ou fluxo."
+  },
+  "loadingShort": "Carregando",
+  "@loadingShort": {
+    "description": "Rótulo curto de carregamento usado para acessibilidade."
+  },
+  "loadingAnnouncement": "Carregando: {message}",
+  "@loadingAnnouncement": {
+    "description": "Anúncio do leitor de tela ao carregar um recurso.",
+    "placeholders": {
+      "message": {
+        "type": "String",
+        "example": "Mensagens"
+      }
+    }
+  },
+  "errorAnnouncement": "Erro: {error}",
+  "@errorAnnouncement": {
+    "description": "Anúncio do leitor de tela para um erro.",
+    "placeholders": {
+      "error": {
+        "type": "String",
+        "example": "Network timeout"
+      }
+    }
+  },
+  "errorAnnouncementWithSuggestion": "Erro: {error}. {suggestion}",
+  "@errorAnnouncementWithSuggestion": {
+    "description": "Anúncio do leitor de tela para um erro com uma sugestão de acompanhamento.",
+    "placeholders": {
+      "error": {
+        "type": "String",
+        "example": "Network timeout"
+      },
+      "suggestion": {
+        "type": "String",
+        "example": "Por favor, tente novamente mais tarde."
+      }
+    }
+  },
+  "successAnnouncement": "Sucesso: {message}",
+  "@successAnnouncement": {
+    "description": "Anúncio do leitor de tela para ações bem-sucedidas.",
+    "placeholders": {
+      "message": {
+        "type": "String",
+        "example": "Perfil atualizado"
+      }
+    }
+  },
+  "requiredFieldLabel": "{label} *",
+  "@requiredFieldLabel": {
+    "description": "Texto do rótulo indicando um campo obrigatório.",
+    "placeholders": {
+      "label": {
+        "type": "String",
+        "example": "E-mail"
+      }
+    }
+  },
+  "requiredFieldHelper": "Campo obrigatório",
+  "@requiredFieldHelper": {
+    "description": "Texto de ajuda indicando que o campo é obrigatório."
+  },
+  "switchOnLabel": "Ativado",
+  "@switchOnLabel": {
+    "description": "Rótulo semântico quando um interruptor está ativado."
+  },
+  "switchOffLabel": "Desativado",
+  "@switchOffLabel": {
+    "description": "Rótulo semântico quando um interruptor está desativado."
+  },
+  "dialogSemanticLabel": "Diálogo: {title}",
+  "@dialogSemanticLabel": {
+    "description": "Rótulo semântico descrevendo o título do diálogo.",
+    "placeholders": {
+      "title": {
+        "type": "String",
+        "example": "Configurações"
+      }
+    }
+  }
+}
