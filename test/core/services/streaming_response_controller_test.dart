@@ -15,7 +15,7 @@ void main() {
           stream: upstream.stream,
           onChunk: chunks.add,
           onComplete: () {},
-          onError: (_, __) {},
+          onError: (_, _) {},
         );
 
         upstream.add('a');
@@ -39,7 +39,7 @@ void main() {
           stream: upstream.stream,
           onChunk: (_) {},
           onComplete: () => completed = true,
-          onError: (_, __) {},
+          onError: (_, _) {},
         );
 
         await upstream.close();
@@ -94,7 +94,7 @@ void main() {
           stream: upstream.stream,
           onChunk: chunks.add,
           onComplete: () {},
-          onError: (_, __) {},
+          onError: (_, _) {},
         );
 
         upstream.add('a');
@@ -116,7 +116,7 @@ void main() {
           stream: upstream.stream,
           onChunk: (_) {},
           onComplete: () => completed = true,
-          onError: (_, __) {},
+          onError: (_, _) {},
         );
 
         await controller.cancel();
@@ -134,7 +134,7 @@ void main() {
           stream: upstream.stream,
           onChunk: (_) {},
           onComplete: () {},
-          onError: (_, __) => errorSeen = true,
+          onError: (_, _) => errorSeen = true,
         );
 
         await controller.cancel();
@@ -154,7 +154,7 @@ void main() {
           stream: upstream.stream,
           onChunk: (_) {},
           onComplete: () {},
-          onError: (_, __) {},
+          onError: (_, _) {},
         );
 
         check(controller.isActive).isTrue();
@@ -170,7 +170,7 @@ void main() {
           stream: upstream.stream,
           onChunk: (_) {},
           onComplete: () {},
-          onError: (_, __) {},
+          onError: (_, _) {},
         );
 
         await controller.cancel();
@@ -185,7 +185,7 @@ void main() {
           stream: upstream.stream,
           onChunk: (_) {},
           onComplete: () {},
-          onError: (_, __) {},
+          onError: (_, _) {},
         );
 
         await upstream.close();
@@ -201,7 +201,7 @@ void main() {
           stream: upstream.stream,
           onChunk: (_) {},
           onComplete: () {},
-          onError: (_, __) {},
+          onError: (_, _) {},
         );
 
         upstream.addError(StateError('fail'));
@@ -219,7 +219,7 @@ void main() {
           stream: upstream.stream,
           onChunk: (_) {},
           onComplete: () {},
-          onError: (_, __) {},
+          onError: (_, _) {},
         );
 
         await controller.cancel();

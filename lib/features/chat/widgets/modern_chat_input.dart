@@ -1879,7 +1879,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           isProminent: true,
           child: Icon(
             Platform.isIOS ? CupertinoIcons.stop_fill : Icons.stop,
-            size: dense ? IconSize.medium : IconSize.large,
+            size: dense ? IconSize.large : IconSize.xl,
             color: context.conduitTheme.buttonPrimaryText,
           ),
         ),
