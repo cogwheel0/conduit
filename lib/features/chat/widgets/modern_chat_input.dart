@@ -1876,11 +1876,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
             stopGeneration();
           },
           size: buttonSize,
-          color: context.conduitTheme.error,
+          isProminent: true,
           child: Icon(
             Platform.isIOS ? CupertinoIcons.stop_fill : Icons.stop,
             size: dense ? IconSize.medium : IconSize.large,
-            color: context.conduitTheme.error,
+            color: context.conduitTheme.buttonPrimaryText,
           ),
         ),
       );
@@ -1942,7 +1942,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         isProminent: true,
         child: Icon(
           Platform.isIOS ? CupertinoIcons.waveform : Icons.graphic_eq,
-          size: dense ? IconSize.medium : IconSize.large,
+          size: dense ? IconSize.large : IconSize.xl,
           color: enabledVoiceCall
               ? context.conduitTheme.buttonPrimaryText
               : context.conduitTheme.textPrimary.withValues(

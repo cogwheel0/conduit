@@ -137,8 +137,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       final title = firstUserMsg.content.length > 50
           ? '${firstUserMsg.content.substring(0, 50)}...'
           : firstUserMsg.content.isEmpty
-              ? 'New Chat'
-              : firstUserMsg.content;
+          ? 'New Chat'
+          : firstUserMsg.content;
 
       final selectedModel = ref.read(selectedModelProvider);
       final serverConversation = await api.createConversation(
@@ -153,9 +153,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       final updatedConversation = serverConversation.copyWith(
         messages: messages,
       );
-      ref
-          .read(activeConversationProvider.notifier)
-          .set(updatedConversation);
+      ref.read(activeConversationProvider.notifier).set(updatedConversation);
       ref
           .read(conversationsProvider.notifier)
           .upsertConversation(
@@ -169,21 +167,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
       if (mounted) {
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-          SnackBar(
-            content: Text(
-              AppLocalizations.of(context)!.chatSaved,
-            ),
-          ),
+          SnackBar(content: Text(AppLocalizations.of(context)!.chatSaved)),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-          SnackBar(
-            content: Text(
-              AppLocalizations.of(context)!.chatSaveFailed,
-            ),
-          ),
+          SnackBar(content: Text(AppLocalizations.of(context)!.chatSaveFailed)),
         );
       }
     } finally {
@@ -606,8 +596,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                     const SizedBox(height: 12),
                     AdaptiveTextField(
                       placeholder: 'https://example.com/article',
-                      decoration: innerContext
-                          .conduitInputStyles
+                      decoration: innerContext.conduitInputStyles
                           .standard(
                             hint: 'https://example.com/article',
                             error: errorText,
@@ -888,8 +877,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final icon = isResuming
         ? (Platform.isIOS ? CupertinoIcons.play_fill : Icons.play_arrow)
         : (Platform.isIOS
-            ? CupertinoIcons.chevron_down
-            : Icons.keyboard_arrow_down);
+              ? CupertinoIcons.chevron_down
+              : Icons.keyboard_arrow_down);
 
     if (!kIsWeb && Platform.isIOS) {
       return AdaptiveButton.child(
@@ -915,21 +904,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       child: Material(
         color: theme.surfaceContainerHighest,
         shape: CircleBorder(
-          side: BorderSide(
-            color: theme.cardBorder,
-            width: BorderWidth.thin,
-          ),
+          side: BorderSide(color: theme.cardBorder, width: BorderWidth.thin),
         ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: _scrollToBottom,
           customBorder: const CircleBorder(),
           child: Center(
-            child: Icon(
-              icon,
-              size: IconSize.large,
-              color: theme.textPrimary,
-            ),
+            child: Icon(icon, size: IconSize.large, color: theme.textPrimary),
           ),
         ),
       ),
@@ -987,10 +969,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       layoutBuilder: (currentChild, previousChildren) {
         return Stack(
           alignment: Alignment.topCenter,
-          children: <Widget>[
-            ...previousChildren,
-            ?currentChild,
-          ],
+          children: <Widget>[...previousChildren, ?currentChild],
         );
       },
       child: isLoadingConversation && messages.isEmpty
@@ -1102,12 +1081,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   ///
   /// System messages are skipped, matching the original per-item scan
   /// behavior.
-  List<({bool hasUserBelow, bool hasAssistantBelow})>
-      _computeBubbleAdjacency(List<ChatMessage> messages) {
-    final result = List.filled(
-      messages.length,
-      (hasUserBelow: false, hasAssistantBelow: false),
-    );
+  List<({bool hasUserBelow, bool hasAssistantBelow})> _computeBubbleAdjacency(
+    List<ChatMessage> messages,
+  ) {
+    final result = List.filled(messages.length, (
+      hasUserBelow: false,
+      hasAssistantBelow: false,
+    ));
 
     // Track the role of the nearest user/assistant message seen
     // so far while walking backwards.
@@ -1196,9 +1176,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           // keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag
           // which only affects Flutter's text input system).
           try {
-            ref
-                .read(composerAutofocusEnabledProvider.notifier)
-                .set(false);
+            ref.read(composerAutofocusEnabledProvider.notifier).set(false);
           } catch (_) {}
           // User started dragging - pause auto-scroll during generation
           if (isStreaming && !_userPausedAutoScroll) {
@@ -1270,8 +1248,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
                 final adjacency = bubbleAdjacency[index];
                 final hasUserBubbleBelow = adjacency.hasUserBelow;
-                final hasAssistantBubbleBelow =
-                    adjacency.hasAssistantBelow;
+                final hasAssistantBubbleBelow = adjacency.hasAssistantBelow;
 
                 // Hide archived assistant variants in the linear view
                 final isArchivedVariant =
@@ -1616,11 +1593,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           // Flutter's focus tree (composerHasFocusProvider tracks them).
           final hasNativeFocus = ref.read(composerHasFocusProvider);
           final currentFocus = FocusManager.instance.primaryFocus;
-          if (hasNativeFocus || (currentFocus != null && currentFocus.hasFocus)) {
+          if (hasNativeFocus ||
+              (currentFocus != null && currentFocus.hasFocus)) {
             try {
-              ref
-                  .read(composerAutofocusEnabledProvider.notifier)
-                  .set(false);
+              ref.read(composerAutofocusEnabledProvider.notifier).set(false);
             } catch (_) {}
             currentFocus?.unfocus();
             return;
@@ -2041,9 +2017,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
                           final showToggle =
                               activeConversation == null ||
-                              isTemporaryChat(
-                                activeConversation.id,
-                              );
+                              isTemporaryChat(activeConversation.id);
 
                           if (!showToggle) {
                             return const SizedBox.shrink();
@@ -2055,21 +2029,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                               hasMessages &&
                               activeConversation != null) {
                             return AdaptiveTooltip(
-                              message: AppLocalizations.of(
-                                context,
-                              )!.saveChat,
+                              message: AppLocalizations.of(context)!.saveChat,
                               child: _buildAppBarIconButton(
                                 context: context,
                                 onPressed: _saveTemporaryChat,
                                 fallbackIcon: Platform.isIOS
-                                    ? CupertinoIcons
-                                        .arrow_down_doc
+                                    ? CupertinoIcons.arrow_down_doc
                                     : Icons.save_alt,
-                                sfSymbol:
-                                    'square.and.arrow.down',
-                                color: context
-                                    .conduitTheme
-                                    .textPrimary,
+                                sfSymbol: 'square.and.arrow.down',
+                                color: context.conduitTheme.textPrimary,
                               ),
                             );
                           }
@@ -2077,10 +2045,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                           // Show toggle button
                           return AdaptiveTooltip(
                             message: isTemporary
-                                ? AppLocalizations.of(context)!
-                                    .temporaryChatTooltip
-                                : AppLocalizations.of(context)!
-                                    .temporaryChat,
+                                ? AppLocalizations.of(
+                                    context,
+                                  )!.temporaryChatTooltip
+                                : AppLocalizations.of(context)!.temporaryChat,
                             child: _buildAppBarIconButton(
                               context: context,
                               onPressed: () {
@@ -2089,29 +2057,20 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                                   temporaryChatEnabledProvider,
                                 );
                                 ref
-                                    .read(
-                                      temporaryChatEnabledProvider
-                                          .notifier,
-                                    )
+                                    .read(temporaryChatEnabledProvider.notifier)
                                     .set(!current);
                               },
                               fallbackIcon: isTemporary
                                   ? (Platform.isIOS
-                                      ? CupertinoIcons.eye_slash
-                                      : Icons.visibility_off)
+                                        ? CupertinoIcons.eye_slash
+                                        : Icons.visibility_off)
                                   : (Platform.isIOS
-                                      ? CupertinoIcons.eye
-                                      : Icons.visibility_outlined),
-                              sfSymbol: isTemporary
-                                  ? 'eye.slash'
-                                  : 'eye',
+                                        ? CupertinoIcons.eye
+                                        : Icons.visibility_outlined),
+                              sfSymbol: isTemporary ? 'eye.slash' : 'eye',
                               color: isTemporary
-                                  ? context
-                                      .conduitTheme
-                                      .buttonPrimary
-                                  : context
-                                      .conduitTheme
-                                      .textPrimary,
+                                  ? Colors.blue
+                                  : context.conduitTheme.textPrimary,
                             ),
                           );
                         },
@@ -2122,9 +2081,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                           right: Spacing.inputPadding,
                         ),
                         child: AdaptiveTooltip(
-                          message: AppLocalizations.of(
-                            context,
-                          )!.newChat,
+                          message: AppLocalizations.of(context)!.newChat,
                           child: _buildAppBarIconButton(
                             context: context,
                             onPressed: _handleNewChat,
@@ -2132,9 +2089,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                                 ? CupertinoIcons.create
                                 : Icons.add_comment,
                             sfSymbol: 'square.and.pencil',
-                            color: context
-                                .conduitTheme
-                                .textPrimary,
+                            color: context.conduitTheme.textPrimary,
                           ),
                         ),
                       ),
@@ -2279,21 +2234,24 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                                   // (AdaptiveBlurView) from going blank when
                                   // a modal sheet scrolls over it.
                                   RepaintBoundary(
-                                  child: ModernChatInput(
-                                    onSendMessage: (text) =>
-                                        _handleMessageSend(text, selectedModel),
-                                    onVoiceInput: null,
-                                    onVoiceCall: _handleVoiceCall,
-                                    onFileAttachment: _handleFileAttachment,
-                                    onImageAttachment: _handleImageAttachment,
-                                    onCameraCapture: () =>
-                                        _handleImageAttachment(
-                                          fromCamera: true,
-                                        ),
-                                    onWebAttachment: _promptAttachWebpage,
-                                    onPastedAttachments:
-                                        _handlePastedAttachments,
-                                  ),
+                                    child: ModernChatInput(
+                                      onSendMessage: (text) =>
+                                          _handleMessageSend(
+                                            text,
+                                            selectedModel,
+                                          ),
+                                      onVoiceInput: null,
+                                      onVoiceCall: _handleVoiceCall,
+                                      onFileAttachment: _handleFileAttachment,
+                                      onImageAttachment: _handleImageAttachment,
+                                      onCameraCapture: () =>
+                                          _handleImageAttachment(
+                                            fromCamera: true,
+                                          ),
+                                      onWebAttachment: _promptAttachWebpage,
+                                      onPastedAttachments:
+                                          _handlePastedAttachments,
+                                    ),
                                   ),
                                 ],
                               ),
@@ -2374,7 +2332,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                                         : 'Scroll to bottom',
                                     child: _buildScrollToBottomButton(
                                       context,
-                                      isResuming: _userPausedAutoScroll &&
+                                      isResuming:
+                                          _userPausedAutoScroll &&
                                           isStreamingAnyMessage,
                                     ),
                                   ),
