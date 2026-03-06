@@ -177,6 +177,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.0.4"
+  checks:
+    dependency: "direct dev"
+    description:
+      name: checks
+      sha256: "016871c84732c1ac9856b8940236d5a5802ba638b3bd3e0ea7027b51a35f7aa7"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.3.1"
   ci:
     dependency: transitive
     description:
@@ -1070,6 +1078,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "5.6.3"
+  mocktail:
+    dependency: "direct dev"
+    description:
+      name: mocktail
+      sha256: "890df3f9688106f25755f26b1c60589a92b3ab91a22b8b224947ad041bf172d8"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.0.4"
   native_toolchain_c:
     dependency: transitive
     description:
