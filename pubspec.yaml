@@ -79,12 +79,12 @@ dependencies:
   html_unescape: ^2.0.0
   home_widget: ^0.8.1
   flutter_highlight: ^0.7.0
-  pasteboard: ^0.4.0
   super_context_menu: ^0.9.1
   super_drag_and_drop: ^0.9.1
   just_audio: ^0.10.5
   adaptive_platform_ui: ^0.1.103
   flutter_tex: ^5.2.6
+  super_clipboard: ^0.9.1
   
   # Clipboard functionality is available through flutter/services (part of Flutter SDK)
 

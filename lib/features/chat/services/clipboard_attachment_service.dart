@@ -1,20 +1,20 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:pasteboard/pasteboard.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
+import 'package:path_provider/path_provider.dart';
+import 'package:super_clipboard/super_clipboard.dart';
 import 'file_attachment_service.dart';
 
-/// Service for handling clipboard paste operations for images and files.
+/// Service for handling clipboard image paste operations.
 ///
-/// This service converts pasted image data into [LocalAttachment] objects
-/// that integrate with the existing file attachment flow.
+/// This service converts pasted image data into [LocalAttachment] objects that
+/// integrate with the existing file attachment flow.
 ///
-/// Uses the pasteboard package to read images from the system clipboard,
-/// which works across iOS, Android, and desktop platforms. On iOS 16+,
-/// this properly handles privacy restrictions that prevent standard paste
-/// operations from accessing image content.
+/// Uses `super_clipboard` to read native clipboard formats across platforms.
+/// On iOS, callers should invoke reads in direct response to a user paste
+/// action so the system can present paste permission UI if needed.
 class ClipboardAttachmentService {
   /// Supported MIME types for image paste operations.
   static const Set<String> supportedImageMimeTypes = {
@@ -24,95 +24,33 @@ class ClipboardAttachmentService {
     'image/gif',
     'image/webp',
     'image/bmp',
+    'image/tiff',
+    'image/heic',
+    'image/heif',
   };
+
+  static const List<(FileFormat, String)> _supportedImageFormats = [
+    (Formats.png, 'image/png'),
+    (Formats.jpeg, 'image/jpeg'),
+    (Formats.gif, 'image/gif'),
+    (Formats.webp, 'image/webp'),
+    (Formats.bmp, 'image/bmp'),
+    (Formats.tiff, 'image/tiff'),
+    (Formats.heic, 'image/heic'),
+    (Formats.heif, 'image/heif'),
+  ];
 
   /// Reads an image from the system clipboard.
   ///
   /// Returns the image data as bytes if an image is present, null otherwise.
-  /// This uses the pasteboard package which properly interfaces with iOS's
-  /// UIPasteboard and works on other platforms as well.
   Future<Uint8List?> getClipboardImage() async {
     try {
-      final imageBytes = await Pasteboard.image;
-      return imageBytes;
+      final result = await _readClipboardImage();
+      return result?.$1;
     } catch (e) {
       debugPrint('ClipboardAttachmentService: Failed to read clipboard: $e');
       return null;
     }
-  }
-
-  /// Gets files from the clipboard (supported on desktop platforms).
-  ///
-  /// Returns a list of file paths if files are present, empty list otherwise.
-  Future<List<String>> getClipboardFiles() async {
-    try {
-      final files = await Pasteboard.files();
-      return files;
-    } catch (e) {
-      debugPrint(
-        'ClipboardAttachmentService: Failed to read clipboard files: $e',
-      );
-      return [];
-    }
-  }
-
-  /// Checks if the clipboard currently contains image data.
-  ///
-  /// Note: This reads the full image data from the clipboard because the
-  /// pasteboard package doesn't provide a lightweight check method. On iOS,
-  /// this also triggers the paste confirmation dialog.
-  Future<bool> hasClipboardImage() async {
-    try {
-      // The pasteboard package doesn't have a dedicated hasImage method,
-      // so we need to attempt to read the image. On iOS this is required
-      // for the user to see the paste confirmation.
-      final imageBytes = await Pasteboard.image;
-      return imageBytes != null && imageBytes.isNotEmpty;
-    } catch (e) {
-      debugPrint('ClipboardAttachmentService: Failed to check clipboard: $e');
-      return false;
-    }
-  }
-
-  /// Creates a [LocalAttachment] from the current clipboard image.
-  ///
-  /// Works on iOS, Android, and desktop platforms via the pasteboard package.
-  /// Returns null if no image is in the clipboard or if the operation fails.
-  Future<LocalAttachment?> createAttachmentFromClipboard() async {
-    final imageData = await getClipboardImage();
-    if (imageData == null || imageData.isEmpty) {
-      return null;
-    }
-
-    // Pasteboard returns PNG data by default
-    return createAttachmentFromImageData(
-      imageData: imageData,
-      mimeType: 'image/png',
-    );
-  }
-
-  /// Creates [LocalAttachment]s from clipboard files.
-  ///
-  /// Useful on desktop platforms where files can be copied directly.
-  Future<List<LocalAttachment>> createAttachmentsFromClipboardFiles() async {
-    final filePaths = await getClipboardFiles();
-    final attachments = <LocalAttachment>[];
-
-    for (final filePath in filePaths) {
-      try {
-        final file = File(filePath);
-        if (await file.exists()) {
-          final fileName = path.basename(file.path);
-          attachments.add(LocalAttachment(file: file, displayName: fileName));
-        }
-      } catch (e) {
-        debugPrint(
-          'ClipboardAttachmentService: Failed to process file $filePath: $e',
-        );
-      }
-    }
-
-    return attachments;
   }
 
   /// Creates a [LocalAttachment] from pasted image data.
@@ -165,41 +103,6 @@ class ClipboardAttachmentService {
     }
   }
 
-  /// Creates [LocalAttachment]s from a list of pasted URIs.
-  ///
-  /// Used when content is pasted as file URIs rather than raw image data.
-  Future<List<LocalAttachment>> createAttachmentsFromUris(
-    List<Uri> uris,
-  ) async {
-    final attachments = <LocalAttachment>[];
-
-    for (final uri in uris) {
-      try {
-        if (uri.scheme == 'file') {
-          final file = File(uri.toFilePath());
-          if (await file.exists()) {
-            final fileName = path.basename(file.path);
-            attachments.add(LocalAttachment(file: file, displayName: fileName));
-          }
-        } else if (uri.scheme == 'content') {
-          // Android content URIs need special handling
-          // The file picker and image picker handle this internally
-          // For direct content URI paste, we'd need platform channel support
-          debugPrint(
-            'ClipboardAttachmentService: Content URI not directly supported: '
-            '$uri',
-          );
-        }
-      } catch (e) {
-        debugPrint(
-          'ClipboardAttachmentService: Failed to process URI $uri: $e',
-        );
-      }
-    }
-
-    return attachments;
-  }
-
   /// Checks if a MIME type is a supported image type.
   bool isSupportedImageType(String mimeType) {
     return supportedImageMimeTypes.contains(mimeType.toLowerCase());
@@ -219,9 +122,50 @@ class ClipboardAttachmentService {
         return '.webp';
       case 'image/bmp':
         return '.bmp';
+      case 'image/tiff':
+        return '.tiff';
+      case 'image/heic':
+        return '.heic';
+      case 'image/heif':
+        return '.heif';
       default:
         return null;
     }
+  }
+
+  Future<(Uint8List, String)?> _readClipboardImage() async {
+    final clipboard = SystemClipboard.instance;
+    if (clipboard == null) {
+      return null;
+    }
+
+    final reader = await clipboard.read();
+    for (final entry in _supportedImageFormats) {
+      final format = entry.$1;
+      if (!reader.canProvide(format)) {
+        continue;
+      }
+
+      final completer = Completer<Uint8List?>();
+      final progress = reader.getFile(format, (file) async {
+        try {
+          completer.complete(await file.readAll());
+        } catch (error) {
+          completer.completeError(error);
+        }
+      }, onError: completer.completeError);
+
+      if (progress == null) {
+        continue;
+      }
+
+      final bytes = await completer.future;
+      if (bytes != null && bytes.isNotEmpty) {
+        return (bytes, entry.$2);
+      }
+    }
+
+    return null;
   }
 
   /// Generates a timestamped filename for pasted images.
@@ -232,38 +176,5 @@ class ClipboardAttachmentService {
         '${now.year}${two(now.month)}${two(now.day)}_'
         '${two(now.hour)}${two(now.minute)}${two(now.second)}';
     return 'pasted_$timestamp$extension';
-  }
-
-  /// Cleans up temporary pasted files that are older than the specified
-  /// duration.
-  ///
-  /// Call this periodically to prevent temp directory bloat.
-  Future<void> cleanupOldPastedFiles({
-    Duration olderThan = const Duration(hours: 24),
-  }) async {
-    try {
-      final tempDir = await getTemporaryDirectory();
-      final dir = Directory(tempDir.path);
-
-      if (!await dir.exists()) return;
-
-      final cutoff = DateTime.now().subtract(olderThan);
-
-      await for (final entity in dir.list()) {
-        if (entity is File &&
-            path.basename(entity.path).startsWith('pasted_')) {
-          try {
-            final stat = await entity.stat();
-            if (stat.modified.isBefore(cutoff)) {
-              await entity.delete();
-            }
-          } catch (_) {
-            // Ignore errors for individual files
-          }
-        }
-      }
-    } catch (e) {
-      debugPrint('ClipboardAttachmentService: Cleanup failed: $e');
-    }
   }
 }

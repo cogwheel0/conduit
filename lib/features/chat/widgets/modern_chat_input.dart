@@ -15,6 +15,7 @@ import 'dart:async';
 import '../providers/chat_providers.dart';
 import '../services/clipboard_attachment_service.dart';
 import '../services/file_attachment_service.dart';
+import '../services/ios_native_paste_service.dart';
 import '../providers/context_attachments_provider.dart';
 import '../providers/knowledge_cache_provider.dart';
 import '../../tools/providers/tools_providers.dart';
@@ -78,6 +79,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focusNode = FocusNode();
+
   /// Preserves the text field widget across parent shell swaps (e.g. when the
   /// compact shell switches between native glass and blur on multiline toggle).
   /// Without this, different parent ValueKeys cause Flutter to unmount and
@@ -91,6 +93,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   /// focus loss during active typing (e.g. from widget tree restructures).
   DateTime _lastEditTime = DateTime(0);
   StreamSubscription<String>? _voiceStreamSubscription;
+  StreamSubscription<IosNativePastePayload>? _pasteSubscription;
   late VoiceInputService _voiceService;
   StreamSubscription<String>? _textSub;
   String _baseTextAtStart = '';
@@ -128,6 +131,14 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
     // Listen for text and selection changes in the composer
     _controller.addListener(_handleComposerChanged);
+
+    if (!kIsWeb && Platform.isIOS) {
+      _pasteSubscription = IosNativePasteService.instance.onPaste.listen((
+        payload,
+      ) {
+        unawaited(_handleNativePastePayload(payload));
+      });
+    }
 
     // Publish focus changes to listeners and guard against unexpected loss
     // during active editing (e.g. widget tree restructure on expansion).
@@ -171,6 +182,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     _focusNode.dispose();
     _pendingFocus = false;
     _voiceStreamSubscription?.cancel();
+    _pasteSubscription?.cancel();
     _textSub?.cancel();
     _voiceService.stopListening();
     super.dispose();
@@ -317,12 +329,86 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     }
   }
 
-  /// Builds a custom context menu with standard options plus "Paste Image".
-  ///
-  /// Adds a "Paste Image" option when there's an image in the clipboard,
-  /// but only if the system hasn't already provided one (to avoid duplicates
-  /// on platforms like iOS that may include their own paste image option).
-  Widget _buildContextMenu(
+  Future<void> _handleNativePastePayload(IosNativePastePayload payload) async {
+    if (!mounted || !widget.enabled || !_focusNode.hasFocus) {
+      return;
+    }
+
+    final onPasted = widget.onPastedAttachments;
+    if (onPasted == null) {
+      return;
+    }
+
+    switch (payload) {
+      case IosNativeTextPaste():
+        return;
+      case IosNativeImagePaste(:final items):
+        final attachments = <LocalAttachment>[];
+        for (final item in items) {
+          final attachment = await _clipboardService
+              .createAttachmentFromImageData(
+                imageData: item.data,
+                mimeType: item.mimeType,
+              );
+          if (attachment != null) {
+            attachments.add(attachment);
+          }
+        }
+        if (attachments.isNotEmpty) {
+          await onPasted(attachments);
+        }
+      case IosNativeUnsupportedPaste():
+        return;
+    }
+  }
+
+  Widget _buildIosContextMenu(
+    BuildContext context,
+    EditableTextState editableTextState,
+  ) {
+    if (SystemContextMenu.isSupportedByField(editableTextState)) {
+      return SystemContextMenu.editableText(
+        editableTextState: editableTextState,
+        items: _buildIosSystemContextMenuItems(editableTextState),
+      );
+    }
+
+    return _buildFallbackContextMenu(context, editableTextState);
+  }
+
+  List<IOSSystemContextMenuItem> _buildIosSystemContextMenuItems(
+    EditableTextState editableTextState,
+  ) {
+    final items = List<IOSSystemContextMenuItem>.from(
+      SystemContextMenu.getDefaultItems(editableTextState),
+    );
+
+    if (widget.onPastedAttachments == null ||
+        items.any((item) => item is IOSSystemContextMenuItemPaste)) {
+      return items;
+    }
+
+    final pasteItem = const IOSSystemContextMenuItemPaste();
+    final insertionIndex = items.indexWhere(
+      (item) =>
+          item is IOSSystemContextMenuItemSelectAll ||
+          item is IOSSystemContextMenuItemLookUp ||
+          item is IOSSystemContextMenuItemSearchWeb ||
+          item is IOSSystemContextMenuItemShare ||
+          item is IOSSystemContextMenuItemLiveText,
+    );
+
+    if (insertionIndex >= 0) {
+      items.insert(insertionIndex, pasteItem);
+    } else {
+      items.add(pasteItem);
+    }
+
+    return items;
+  }
+
+  /// Builds a Flutter-rendered fallback menu with "Paste Image".
+  Widget _buildFallbackContextMenu(
     BuildContext context,
     EditableTextState editableTextState,
   ) {
@@ -338,8 +424,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       );
     }
 
-    // Check clipboard for images - the data is captured in the closure to
-    // avoid double-read and stale cache issues
     return FutureBuilder<Uint8List?>(
       future: _clipboardService.getClipboardImage(),
       builder: (context, snapshot) {
@@ -347,10 +431,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         final hasImage = imageData != null && imageData.isNotEmpty;
 
         if (hasImage) {
-          // Check if the system already provides a paste image option
-          // (e.g., iOS may include one automatically). Look for any button
-          // with a label containing "image" (case-insensitive) to avoid
-          // adding a duplicate.
+          // Avoid duplicating any platform or framework-provided image paste
+          // action that is already present in the button list.
           final pasteImageLabel =
               AppLocalizations.of(context)?.pasteImage ?? 'Paste Image';
           final alreadyHasPasteImage = buttonItems.any(
@@ -1255,9 +1337,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   // layout.
                   SizedBox(
                     height: 36.0,
-                    child: Center(
-                      child: _buildInlineMicAction(voiceAvailable),
-                    ),
+                    child: Center(child: _buildInlineMicAction(voiceAvailable)),
                   ),
                 ],
                 const SizedBox(width: Spacing.xs),
@@ -1276,8 +1356,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               top: Spacing.xs,
               right: 0,
               child: AnimatedOpacity(
-                opacity:
-                    (_showExpandButton && !_expandModalOpen) ? 1.0 : 0.0,
+                opacity: (_showExpandButton && !_expandModalOpen) ? 1.0 : 0.0,
                 duration: const Duration(milliseconds: 160),
                 child: IgnorePointer(
                   ignoring: !_showExpandButton || _expandModalOpen,
@@ -1353,10 +1432,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                         context,
                         context.conduitTheme.cardBackground,
                         context.conduitTheme.cardBorder.withValues(
-                          alpha:
-                              Theme.of(context).brightness == Brightness.dark
-                                  ? 0.6
-                                  : 0.4,
+                          alpha: Theme.of(context).brightness == Brightness.dark
+                              ? 0.6
+                              : 0.4,
                         ),
                       )
                     : PromptSuggestionOverlay(
@@ -1411,10 +1489,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     );
 
     final Widget shell = _wrapIosSurfaceShadow(
-      _buildComposerShell(
-        borderRadius: shellRadius,
-        child: shellContent,
-      ),
+      _buildComposerShell(borderRadius: shellRadius, child: shellContent),
       borderRadius: shellRadius,
     );
 
@@ -1559,11 +1634,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   : FontWeight.w400;
               final TextStyle baseChatStyle = AppTypography.chatMessageStyle;
 
-              // On iOS, AdaptiveTextField uses CupertinoTextField for a native
-              // feel. On Android/desktop/web, it falls back to Material
-              // TextField which supports richer features like
-              // contentInsertionConfiguration and contextMenuBuilder.
-              //
               // IMPORTANT: Always use TextInputAction.newline for multiline
               // chat input. Using TextInputAction.send causes issues with
               // Braille keyboards (like Advanced Braille Keyboard) where
@@ -1571,27 +1641,50 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               // send messages. The send-on-enter functionality is handled
               // by keyboard shortcuts (Enter key) instead.
               if (!kIsWeb && Platform.isIOS) {
-                return AdaptiveTextField(
+                return CupertinoTextField(
                   controller: _controller,
                   focusNode: _focusNode,
                   placeholder: AppLocalizations.of(context)!.messageHintText,
+                  placeholderStyle: baseChatStyle.copyWith(
+                    color: animatedPlaceholder,
+                    fontWeight: recordingWeight,
+                    fontStyle: _isRecording
+                        ? FontStyle.italic
+                        : FontStyle.normal,
+                  ),
                   enabled: widget.enabled,
                   autofocus: false,
                   minLines: 1,
                   maxLines: null,
+                  textAlignVertical: TextAlignVertical.center,
                   keyboardType: TextInputType.multiline,
                   textCapitalization: TextCapitalization.sentences,
                   textInputAction: TextInputAction.newline,
+                  autofillHints: const <String>[],
+                  showCursor: true,
+                  scrollPadding: const EdgeInsets.only(bottom: 80),
+                  keyboardAppearance: brightness,
+                  cursorColor: animatedTextColor,
                   style: baseChatStyle.copyWith(
                     color: animatedTextColor,
-                    fontStyle:
-                        _isRecording ? FontStyle.italic : FontStyle.normal,
+                    fontStyle: _isRecording
+                        ? FontStyle.italic
+                        : FontStyle.normal,
                     fontWeight: recordingWeight,
+                  ),
+                  contentInsertionConfiguration: ContentInsertionConfiguration(
+                    allowedMimeTypes: ClipboardAttachmentService
+                        .supportedImageMimeTypes
+                        .toList(),
+                    onContentInserted: _handleContentInserted,
                   ),
                   // Transparent decoration — the glass container provides
                   // the visual frame.
-                  cupertinoDecoration: const BoxDecoration(),
+                  decoration: const BoxDecoration(),
                   padding: contentPadding,
+                  contextMenuBuilder: (context, editableTextState) {
+                    return _buildIosContextMenu(context, editableTextState);
+                  },
                   onSubmitted: (_) {},
                   onTap: () {
                     if (!widget.enabled) return;
@@ -1622,8 +1715,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 ),
                 decoration: context.conduitInputStyles
                     .borderless(
-                      hint: AppLocalizations.of(context)!
-                          .messageHintText,
+                      hint: AppLocalizations.of(context)!.messageHintText,
                     )
                     .copyWith(
                       hintStyle: baseChatStyle.copyWith(
@@ -1646,7 +1738,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 ),
                 // Custom context menu with "Paste Image" option
                 contextMenuBuilder: (context, editableTextState) {
-                  return _buildContextMenu(context, editableTextState);
+                  return _buildFallbackContextMenu(context, editableTextState);
                 },
                 onSubmitted: (_) {},
                 onTap: () {
@@ -1696,8 +1788,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     )) {
       (true, _, _, _) => Platform.isIOS ? CupertinoIcons.search : Icons.search,
       (_, true, _, _) => Platform.isIOS ? CupertinoIcons.photo : Icons.image,
-      (_, _, true, _) =>
-        Platform.isIOS ? CupertinoIcons.wrench : Icons.build,
+      (_, _, true, _) => Platform.isIOS ? CupertinoIcons.wrench : Icons.build,
       (_, _, _, true) =>
         Platform.isIOS ? CupertinoIcons.sparkles : Icons.auto_awesome,
       _ => Platform.isIOS ? CupertinoIcons.add : Icons.add,
@@ -1910,10 +2001,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
             decoration: BoxDecoration(
               color: background,
               borderRadius: BorderRadius.circular(AppBorderRadius.round),
-              border: Border.all(
-                color: borderColor,
-                width: BorderWidth.thin,
-              ),
+              border: Border.all(color: borderColor, width: BorderWidth.thin),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -1964,7 +2052,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     );
   }
 
-
   /// Builds a circular icon button for the composer.
   ///
   /// On iOS, uses [AdaptiveButton] with glass style for native appearance.
@@ -1990,9 +2077,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
             ? AdaptiveButtonStyle.prominentGlass
             : AdaptiveButtonStyle.glass,
         color: effectiveColor,
-        size: size > 40
-            ? AdaptiveButtonSize.large
-            : AdaptiveButtonSize.medium,
+        size: size > 40 ? AdaptiveButtonSize.large : AdaptiveButtonSize.medium,
         minSize: Size(size, size),
         padding: EdgeInsets.zero,
         borderRadius: BorderRadius.circular(size),
@@ -2004,9 +2089,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final bgColor = isProminent
         ? effectiveColor
         : theme.surfaceContainerHighest;
-    final borderColor = isProminent
-        ? effectiveColor
-        : theme.cardBorder;
+    final borderColor = isProminent ? effectiveColor : theme.cardBorder;
 
     return SizedBox(
       key: key,
@@ -2015,10 +2098,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       child: Material(
         color: bgColor,
         shape: CircleBorder(
-          side: BorderSide(
-            color: borderColor,
-            width: BorderWidth.thin,
-          ),
+          side: BorderSide(color: borderColor, width: BorderWidth.thin),
         ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
@@ -2054,10 +2134,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       decoration: BoxDecoration(
         color: theme.surfaceContainerHighest,
         borderRadius: borderRadius,
-        border: Border.all(
-          color: theme.cardBorder,
-          width: BorderWidth.thin,
-        ),
+        border: Border.all(color: theme.cardBorder, width: BorderWidth.thin),
       ),
       child: child,
     );

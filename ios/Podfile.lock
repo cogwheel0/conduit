@@ -94,8 +94,6 @@ PODS:
     - onnxruntime-c (= 1.22.0)
   - package_info_plus (0.4.5):
     - Flutter
-  - pasteboard (0.0.1):
-    - Flutter
   - permission_handler_apple (9.3.0):
     - Flutter
   - quick_actions_ios (0.0.1):
@@ -160,7 +158,6 @@ DEPENDENCIES:
   - irondash_engine_context (from `.symlinks/plugins/irondash_engine_context/ios`)
   - just_audio (from `.symlinks/plugins/just_audio/darwin`)
   - package_info_plus (from `.symlinks/plugins/package_info_plus/ios`)
-  - pasteboard (from `.symlinks/plugins/pasteboard/ios`)
   - permission_handler_apple (from `.symlinks/plugins/permission_handler_apple/ios`)
   - quick_actions_ios (from `.symlinks/plugins/quick_actions_ios/ios`)
   - record_ios (from `.symlinks/plugins/record_ios/ios`)
@@ -226,8 +223,6 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/just_audio/darwin"
   package_info_plus:
     :path: ".symlinks/plugins/package_info_plus/ios"
-  pasteboard:
-    :path: ".symlinks/plugins/pasteboard/ios"
   permission_handler_apple:
     :path: ".symlinks/plugins/permission_handler_apple/ios"
   quick_actions_ios:
@@ -284,7 +279,6 @@ SPEC CHECKSUMS:
   onnxruntime-c: 7f778680e96145956c0a31945f260321eed2611a
   onnxruntime-objc: 83d28b87525bd971259a66e153ea32b5d023de19
   package_info_plus: af8e2ca6888548050f16fa2f1938db7b5a5df499
-  pasteboard: 49088aeb6119d51f976a421db60d8e1ab079b63c
   permission_handler_apple: 4ed2196e43d0651e8ff7ca3483a069d469701f2d
   quick_actions_ios: 500fcc11711d9f646739093395c4ae8eec25f779
   record_ios: 412daca2350b228e698fffcd08f1f94ceb1e3844

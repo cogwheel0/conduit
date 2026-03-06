@@ -3,7 +3,6 @@ import BackgroundTasks
 import Flutter
 import AppIntents
 import UIKit
-import UniformTypeIdentifiers
 import WebKit
 /// Manages AVAudioSession for voice calls in the background.
 ///
@@ -762,6 +761,10 @@ struct AppShortcuts: AppShortcutsProvider {
       AppIntentMethodChannel.shared = AppIntentMethodChannel(
         messenger: registrar.messenger()
       )
+    }
+
+    if let registrar = self.registrar(forPlugin: "NativePasteBridge") {
+      NativePasteBridge.shared.configure(messenger: registrar.messenger())
     }
 
     // Setup background streaming handler using the plugin registry messenger
