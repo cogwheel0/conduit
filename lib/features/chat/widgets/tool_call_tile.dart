@@ -1,9 +1,9 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../core/utils/tool_calls_parser.dart';
 import 'enhanced_image_attachment.dart';
+import 'assistant_detail_header.dart';
 
 /// A tile displaying a tool call execution with status, name,
 /// and expandable parameters/result.
@@ -27,8 +27,6 @@ class ToolCallTile extends StatefulWidget {
 }
 
 class _ToolCallTileState extends State<ToolCallTile> {
-  bool _isExpanded = false;
-
   String _pretty(dynamic v, {int max = 1200}) {
     try {
       final formatted = const JsonEncoder.withIndent('  ').convert(v);
@@ -50,30 +48,13 @@ class _ToolCallTileState extends State<ToolCallTile> {
     return Padding(
       padding: const EdgeInsets.only(bottom: Spacing.xs),
       child: GestureDetector(
-        onTap: () => setState(() => _isExpanded = !_isExpanded),
+        onTap: () => _showToolCallBottomSheet(context, tc, theme),
         behavior: HitTestBehavior.opaque,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            _ToolCallHeader(
-              toolCall: tc,
-              isExpanded: _isExpanded,
-              showShimmer: showShimmer,
-              theme: theme,
-            ),
-            AnimatedCrossFade(
-              firstChild: const SizedBox.shrink(),
-              secondChild: _ToolCallExpandedContent(
-                toolCall: tc,
-                theme: theme,
-                pretty: _pretty,
-              ),
-              crossFadeState: _isExpanded
-                  ? CrossFadeState.showSecond
-                  : CrossFadeState.showFirst,
-              duration: const Duration(milliseconds: 200),
-            ),
+            _ToolCallHeader(toolCall: tc, showShimmer: showShimmer),
             if (tc.done && tc.files != null) ...[
               _ToolCallFiles(files: tc.files!),
             ],
@@ -82,61 +63,115 @@ class _ToolCallTileState extends State<ToolCallTile> {
       ),
     );
   }
+
+  void _showToolCallBottomSheet(
+    BuildContext context,
+    ToolCallEntry toolCall,
+    ConduitThemeExtension theme,
+  ) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: theme.surfaceBackground,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(AppBorderRadius.dialog),
+        ),
+      ),
+      builder: (ctx) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.6,
+          minChildSize: 0.3,
+          maxChildSize: 0.95,
+          expand: false,
+          builder: (_, controller) {
+            return Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(top: Spacing.sm),
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: theme.dividerColor.withValues(alpha: 0.4),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: Spacing.lg,
+                    vertical: Spacing.sm,
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.build_outlined,
+                        size: IconSize.md,
+                        color: theme.textPrimary,
+                      ),
+                      const SizedBox(width: Spacing.sm),
+                      Expanded(
+                        child: Text(
+                          toolCall.done
+                              ? 'Used ${toolCall.name}'
+                              : 'Running ${toolCall.name}…',
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: AppTypography.bodyLarge,
+                            fontWeight: FontWeight.w600,
+                            color: theme.textPrimary,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close, size: 20),
+                        onPressed: () => Navigator.of(ctx).pop(),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        color: theme.textSecondary,
+                      ),
+                    ],
+                  ),
+                ),
+                Divider(
+                  height: 1,
+                  color: theme.dividerColor.withValues(alpha: 0.3),
+                ),
+                Expanded(
+                  child: ListView(
+                    controller: controller,
+                    padding: const EdgeInsets.all(Spacing.lg),
+                    children: [
+                      _ToolCallExpandedContent(
+                        toolCall: toolCall,
+                        theme: theme,
+                        pretty: _pretty,
+                        isBottomSheet: true,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
 }
 
 class _ToolCallHeader extends StatelessWidget {
   final ToolCallEntry toolCall;
-  final bool isExpanded;
   final bool showShimmer;
-  final ConduitThemeExtension theme;
 
-  const _ToolCallHeader({
-    required this.toolCall,
-    required this.isExpanded,
-    required this.showShimmer,
-    required this.theme,
-  });
+  const _ToolCallHeader({required this.toolCall, required this.showShimmer});
 
   @override
-  Widget build(BuildContext context) {
-    final headerWidget = Row(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Icon(
-          isExpanded
-              ? Icons.keyboard_arrow_up_rounded
-              : Icons.keyboard_arrow_down_rounded,
-          size: 14,
-          color: theme.textPrimary.withValues(alpha: 0.8),
-        ),
-        const SizedBox(width: 2),
-        Flexible(
-          child: Text(
-            toolCall.done
-                ? 'Used ${toolCall.name}'
-                : 'Running ${toolCall.name}…',
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: AppTypography.bodySmall,
-              color: theme.textPrimary.withValues(alpha: 0.8),
-              height: 1.3,
-            ),
-          ),
-        ),
-      ],
-    );
-
-    if (showShimmer) {
-      return headerWidget
-          .animate(onPlay: (controller) => controller.repeat())
-          .shimmer(
-            duration: 1500.ms,
-            color: theme.shimmerHighlight.withValues(alpha: 0.6),
-          );
-    }
-    return headerWidget;
-  }
+  Widget build(BuildContext context) => AssistantDetailHeader(
+    title: toolCall.done ? toolCall.name : '${toolCall.name}…',
+    showShimmer: showShimmer,
+  );
 }
 
 class _ToolCallExpandedContent extends StatelessWidget {
@@ -148,12 +183,17 @@ class _ToolCallExpandedContent extends StatelessWidget {
     required this.toolCall,
     required this.theme,
     required this.pretty,
+    this.isBottomSheet = false,
   });
+
+  final bool isBottomSheet;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(top: Spacing.xs, left: 16),
+    final child = Container(
+      margin: isBottomSheet
+          ? EdgeInsets.zero
+          : const EdgeInsets.only(top: Spacing.xs, left: 16),
       padding: const EdgeInsets.symmetric(
         horizontal: Spacing.sm,
         vertical: Spacing.xs,
@@ -190,8 +230,7 @@ class _ToolCallExpandedContent extends StatelessWidget {
                 height: 1.35,
               ),
             ),
-            if (toolCall.result != null)
-              const SizedBox(height: Spacing.xs),
+            if (toolCall.result != null) const SizedBox(height: Spacing.xs),
           ],
           if (toolCall.result != null) ...[
             Text(
@@ -216,6 +255,12 @@ class _ToolCallExpandedContent extends StatelessWidget {
         ],
       ),
     );
+
+    if (isBottomSheet) {
+      return child;
+    }
+
+    return child;
   }
 }
 

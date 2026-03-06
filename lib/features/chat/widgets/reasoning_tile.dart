@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/markdown/streaming_markdown_widget.dart';
 import '../../../core/utils/reasoning_parser.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import '../../../core/utils/debug_logger.dart';
+import 'assistant_detail_header.dart';
 
 /// An expandable tile showing the model's reasoning/thinking section.
 ///
@@ -47,11 +47,7 @@ class ReasoningTile extends StatelessWidget {
           _showReasoningBottomSheet(context, title, theme);
         },
         behavior: HitTestBehavior.opaque,
-        child: _ReasoningHeader(
-          title: title,
-          showShimmer: showShimmer,
-          theme: theme,
-        ),
+        child: _ReasoningHeader(title: title, showShimmer: showShimmer),
       ),
     );
   }
@@ -85,9 +81,7 @@ class ReasoningTile extends StatelessWidget {
     }
 
     if (reasoning.duration >= 0 &&
-        (reasoning.duration > 0 ||
-            hasDurationInSummary ||
-            isThinkingSummary)) {
+        (reasoning.duration > 0 || hasDurationInSummary || isThinkingSummary)) {
       return l10n.thoughtForDuration(reasoning.formattedDuration);
     }
 
@@ -195,50 +189,12 @@ class ReasoningTile extends StatelessWidget {
 class _ReasoningHeader extends StatelessWidget {
   final String title;
   final bool showShimmer;
-  final ConduitThemeExtension theme;
 
-  const _ReasoningHeader({
-    required this.title,
-    required this.showShimmer,
-    required this.theme,
-  });
+  const _ReasoningHeader({required this.title, required this.showShimmer});
 
   @override
-  Widget build(BuildContext context) {
-    final headerWidget = Row(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Flexible(
-          child: Text(
-            title,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: AppTypography.bodyMedium,
-              color: theme.textPrimary.withValues(alpha: 0.6),
-              height: 1.3,
-            ),
-          ),
-        ),
-        const SizedBox(width: 4),
-        Icon(
-          Icons.chevron_right_rounded,
-          size: 16,
-          color: theme.textPrimary.withValues(alpha: 0.6),
-        ),
-      ],
-    );
-
-    if (showShimmer) {
-      return headerWidget
-          .animate(onPlay: (controller) => controller.repeat())
-          .shimmer(
-            duration: 1500.ms,
-            color: theme.shimmerHighlight.withValues(alpha: 0.6),
-          );
-    }
-    return headerWidget;
-  }
+  Widget build(BuildContext context) =>
+      AssistantDetailHeader(title: title, showShimmer: showShimmer);
 }
 
 Future<void> _launchUri(String url) async {
@@ -246,9 +202,6 @@ Future<void> _launchUri(String url) async {
   try {
     await launchUrlString(url, mode: LaunchMode.externalApplication);
   } catch (err) {
-    DebugLogger.log(
-      'Unable to open url $url: $err',
-      scope: 'chat/reasoning',
-    );
+    DebugLogger.log('Unable to open url $url: $err', scope: 'chat/reasoning');
   }
 }

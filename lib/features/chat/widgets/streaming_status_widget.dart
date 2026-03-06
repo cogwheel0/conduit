@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher_string.dart';
 import '../../../core/models/chat_message.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import 'assistant_detail_header.dart';
 
 /// A minimal, unobtrusive streaming status widget inspired by OpenWebUI.
 /// Displays live status updates during AI response generation without
@@ -24,8 +25,6 @@ class StreamingStatusWidget extends StatefulWidget {
 }
 
 class _StreamingStatusWidgetState extends State<StreamingStatusWidget> {
-  bool _expanded = false;
-
   @override
   Widget build(BuildContext context) {
     final visible = widget.updates
@@ -34,35 +33,125 @@ class _StreamingStatusWidgetState extends State<StreamingStatusWidget> {
     if (visible.isEmpty) return const SizedBox.shrink();
 
     final current = visible.last;
-    final hasPrevious = visible.length > 1;
     final isPending = current.done != true && widget.isStreaming;
+    final hasDetails =
+        visible.length > 1 ||
+        _collectQueries(current).isNotEmpty ||
+        _collectLinks(current).isNotEmpty;
 
     return GestureDetector(
-      onTap: hasPrevious ? () => setState(() => _expanded = !_expanded) : null,
+      onTap: hasDetails
+          ? () => _showStatusBottomSheet(
+              context,
+              updates: visible,
+              isStreaming: widget.isStreaming,
+            )
+          : null,
       behavior: HitTestBehavior.opaque,
       child: Padding(
         padding: const EdgeInsets.only(bottom: Spacing.xs),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Current status (always visible) - minimal text only
-            _MinimalStatusRow(
-              update: current,
-              isPending: isPending,
-              hasPrevious: hasPrevious,
-              isExpanded: _expanded,
-            ),
-
-            // Expanded history timeline
-            if (_expanded && hasPrevious)
-              _MinimalHistoryTimeline(
-                updates: visible,
-                isStreaming: widget.isStreaming,
-              ),
-          ],
+        child: _MinimalStatusRow(
+          update: current,
+          isPending: isPending,
+          hasDetails: hasDetails,
         ),
       ),
+    );
+  }
+
+  void _showStatusBottomSheet(
+    BuildContext context, {
+    required List<ChatStatusUpdate> updates,
+    required bool isStreaming,
+  }) {
+    final theme = context.conduitTheme;
+    final current = updates.last;
+    final title = _resolveStatusDescription(current);
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: theme.surfaceBackground,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(AppBorderRadius.dialog),
+        ),
+      ),
+      builder: (ctx) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.6,
+          minChildSize: 0.3,
+          maxChildSize: 0.95,
+          expand: false,
+          builder: (_, controller) {
+            return Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(top: Spacing.sm),
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: theme.dividerColor.withValues(alpha: 0.4),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: Spacing.lg,
+                    vertical: Spacing.sm,
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.public,
+                        size: IconSize.md,
+                        color: theme.textPrimary,
+                      ),
+                      const SizedBox(width: Spacing.sm),
+                      Expanded(
+                        child: Text(
+                          title,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: AppTypography.bodyLarge,
+                            fontWeight: FontWeight.w600,
+                            color: theme.textPrimary,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close, size: 20),
+                        onPressed: () => Navigator.of(ctx).pop(),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        color: theme.textSecondary,
+                      ),
+                    ],
+                  ),
+                ),
+                Divider(
+                  height: 1,
+                  color: theme.dividerColor.withValues(alpha: 0.3),
+                ),
+                Expanded(
+                  child: ListView(
+                    controller: controller,
+                    padding: const EdgeInsets.all(Spacing.lg),
+                    children: [
+                      _MinimalHistoryTimeline(
+                        updates: updates,
+                        isStreaming: isStreaming,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 }
@@ -72,58 +161,22 @@ class _MinimalStatusRow extends StatelessWidget {
   const _MinimalStatusRow({
     required this.update,
     required this.isPending,
-    required this.hasPrevious,
-    required this.isExpanded,
+    required this.hasDetails,
   });
 
   final ChatStatusUpdate update;
   final bool isPending;
-  final bool hasPrevious;
-  final bool isExpanded;
+  final bool hasDetails;
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-    final queries = _collectQueries(update);
-    final links = _collectLinks(update);
     final description = _resolveStatusDescription(update);
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        // Main status text
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            if (hasPrevious) ...[
-              Icon(
-                isExpanded
-                    ? Icons.keyboard_arrow_up_rounded
-                    : Icons.keyboard_arrow_down_rounded,
-                size: 14,
-                color: theme.textPrimary.withValues(alpha: 0.8),
-              ),
-              const SizedBox(width: 2),
-            ],
-            Flexible(child: _buildStatusText(context, description, isPending)),
-          ],
-        ),
+    if (hasDetails) {
+      return AssistantDetailHeader(title: description, showShimmer: isPending);
+    }
 
-        // Query pills (inline, compact)
-        if (queries.isNotEmpty && !isExpanded) ...[
-          const SizedBox(height: Spacing.xxs),
-          _MinimalQueryChips(queries: queries),
-        ],
-
-        // Source links (inline, compact)
-        if (links.isNotEmpty && !isExpanded) ...[
-          const SizedBox(height: Spacing.xxs),
-          _MinimalSourceLinks(links: links),
-        ],
-      ],
-    );
+    return _buildStatusText(context, description, isPending);
   }
 
   Widget _buildStatusText(
@@ -167,76 +220,73 @@ class _MinimalHistoryTimeline extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
 
-    return Padding(
-      padding: const EdgeInsets.only(top: Spacing.xs, left: 6),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: updates.asMap().entries.map((entry) {
-          final index = entry.key;
-          final update = entry.value;
-          final isLast = index == updates.length - 1;
-          final isPending = isLast && update.done != true && isStreaming;
-          final description = _resolveStatusDescription(update);
-          final queries = _collectQueries(update);
-          final links = _collectLinks(update);
+    final items = updates.asMap().entries.map((entry) {
+      final index = entry.key;
+      final update = entry.value;
+      final isLast = index == updates.length - 1;
+      final isPending = isLast && update.done != true && isStreaming;
+      final description = _resolveStatusDescription(update);
+      final queries = _collectQueries(update);
+      final links = _collectLinks(update);
 
-          return IntrinsicHeight(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Timeline dot and line
-                SizedBox(
-                  width: 12,
-                  child: Column(
-                    children: [
-                      Container(
-                        margin: const EdgeInsets.only(top: 5),
-                        width: 5,
-                        height: 5,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: theme.textSecondary.withValues(alpha: 0.6),
-                        ),
-                      ),
-                      if (!isLast)
-                        Expanded(
-                          child: Container(
-                            width: 0.5,
-                            margin: const EdgeInsets.symmetric(vertical: 2),
-                            color: theme.dividerColor.withValues(alpha: 0.4),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: Spacing.xs),
-                // Content
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.only(bottom: Spacing.xs),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _buildStatusText(context, description, isPending),
-                        if (queries.isNotEmpty) ...[
-                          const SizedBox(height: 2),
-                          _MinimalQueryChips(queries: queries),
-                        ],
-                        if (links.isNotEmpty) ...[
-                          const SizedBox(height: 2),
-                          _MinimalSourceLinks(links: links),
-                        ],
-                      ],
+      return IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 20,
+              child: Column(
+                children: [
+                  Container(
+                    margin: const EdgeInsets.only(top: 5),
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: theme.textSecondary.withValues(alpha: 0.6),
                     ),
                   ),
-                ),
-              ],
+                  if (!isLast)
+                    Expanded(
+                      child: Container(
+                        width: 1,
+                        margin: const EdgeInsets.symmetric(vertical: 4),
+                        color: theme.dividerColor.withValues(alpha: 0.4),
+                      ),
+                    ),
+                ],
+              ),
             ),
-          );
-        }).toList(),
-      ),
+            const SizedBox(width: Spacing.sm),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: Spacing.sm),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _buildStatusText(context, description, isPending),
+                    if (queries.isNotEmpty) ...[
+                      const SizedBox(height: Spacing.xs),
+                      _MinimalQueryChips(queries: queries),
+                    ],
+                    if (links.isNotEmpty) ...[
+                      const SizedBox(height: Spacing.xs),
+                      _MinimalSourceLinks(links: links),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: items,
     );
   }
 

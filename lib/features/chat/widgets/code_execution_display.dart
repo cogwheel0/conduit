@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher_string.dart';
 import '../../../core/models/chat_message.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import 'assistant_detail_header.dart';
 
 /// Displays a list of code execution results as interactive chips.
 ///
@@ -17,7 +18,6 @@ class CodeExecutionListView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
     if (executions.isEmpty) {
       return const SizedBox.shrink();
     }
@@ -25,40 +25,30 @@ class CodeExecutionListView extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Code executions',
-          style: TextStyle(
-            color: theme.textPrimary,
-            fontWeight: FontWeight.w600,
-            fontSize: AppTypography.bodyLarge,
-          ),
-        ),
-        const SizedBox(height: Spacing.xs),
-        Wrap(
-          spacing: Spacing.xs,
-          runSpacing: Spacing.xs,
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: executions.map((execution) {
             final hasError = execution.result?.error != null;
             final hasOutput = execution.result?.output != null;
-            IconData icon;
-            Color iconColor;
-            if (hasError) {
-              icon = Icons.error_outline;
-              iconColor = theme.error;
-            } else if (hasOutput) {
-              icon = Icons.check_circle_outline;
-              iconColor = theme.success;
-            } else {
-              icon = Icons.sync;
-              iconColor = theme.textSecondary;
-            }
             final label = execution.name?.isNotEmpty == true
                 ? execution.name!
                 : 'Execution';
-            return ActionChip(
-              avatar: Icon(icon, size: 16, color: iconColor),
-              label: Text(label),
-              onPressed: () => _showCodeExecutionDetails(context, execution),
+            final title = hasError
+                ? '$label failed'
+                : hasOutput
+                ? label
+                : '$label…';
+
+            return Padding(
+              padding: const EdgeInsets.only(bottom: Spacing.xs),
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => _showCodeExecutionDetails(context, execution),
+                child: AssistantDetailHeader(
+                  title: title,
+                  showShimmer: !hasError && !hasOutput,
+                ),
+              ),
             );
           }).toList(),
         ),
@@ -118,8 +108,7 @@ class CodeExecutionListView extends StatelessWidget {
                       style: TextStyle(color: theme.textSecondary),
                     ),
                   const SizedBox(height: Spacing.sm),
-                  if (execution.code != null &&
-                      execution.code!.isNotEmpty) ...[
+                  if (execution.code != null && execution.code!.isNotEmpty) ...[
                     Text(
                       'Code',
                       style: TextStyle(
@@ -132,8 +121,7 @@ class CodeExecutionListView extends StatelessWidget {
                       padding: const EdgeInsets.all(Spacing.sm),
                       decoration: BoxDecoration(
                         color: theme.surfaceContainer,
-                        borderRadius:
-                            BorderRadius.circular(AppBorderRadius.md),
+                        borderRadius: BorderRadius.circular(AppBorderRadius.md),
                       ),
                       child: SelectableText(
                         execution.code!,
@@ -179,12 +167,10 @@ class CodeExecutionListView extends StatelessWidget {
                     ),
                     const SizedBox(height: Spacing.xs),
                     ...result!.files.map((file) {
-                      final name =
-                          file.name ?? file.url ?? 'Download';
+                      final name = file.name ?? file.url ?? 'Download';
                       return AdaptiveListTile(
                         padding: EdgeInsets.zero,
-                        leading:
-                            const Icon(Icons.insert_drive_file_outlined),
+                        leading: const Icon(Icons.insert_drive_file_outlined),
                         title: Text(name),
                         onTap: file.url != null
                             ? () => _launchUri(file.url!)
@@ -210,9 +196,6 @@ Future<void> _launchUri(String url) async {
   try {
     await launchUrlString(url, mode: LaunchMode.externalApplication);
   } catch (err) {
-    DebugLogger.log(
-      'Unable to open url $url: $err',
-      scope: 'chat/assistant',
-    );
+    DebugLogger.log('Unable to open url $url: $err', scope: 'chat/assistant');
   }
 }
