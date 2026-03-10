@@ -1194,14 +1194,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
     if (_pendingConversationScrollReset) {
       _pendingConversationScrollReset = false;
-      if (messages.length <= 1) {
-        _shouldAutoScrollToBottom = true;
-      } else {
-        // When opening an existing conversation, start reading from the top
-        _shouldAutoScrollToBottom = false;
-        _resetScrollToTop();
-        _suppressKeepPinnedOnce = true;
-      }
+      // When opening an existing conversation, start reading from the top
+      _shouldAutoScrollToBottom = false;
+      _resetScrollToTop();
+      _suppressKeepPinnedOnce = true;
     }
 
     if (_shouldAutoScrollToBottom) {
