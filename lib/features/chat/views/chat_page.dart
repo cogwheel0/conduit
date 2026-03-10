@@ -1773,7 +1773,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
               settleFraction: 0.06, // even gentler settle for instant open feel
               scrimColor: scrim,
               contentScaleDelta: 0.0,
-              contentBlurSigma: 0.0,
               tabletDrawerWidth: 320.0,
               onOpenStart: () {
                 // Suppress composer auto-focus once we unfocus for the drawer

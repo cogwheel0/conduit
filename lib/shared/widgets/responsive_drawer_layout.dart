@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/physics.dart';
 import 'package:flutter/services.dart';
-import 'dart:ui' as ui;
 import '../../shared/theme/theme_extensions.dart';
 
 /// A responsive layout that shows a persistent drawer on tablets (side-by-side)
@@ -17,12 +17,9 @@ class ResponsiveDrawerLayout extends StatefulWidget {
   final double maxFraction; // 0..1 of screen width for mobile drawer
   final double edgeFraction; // 0..1 active edge width for open gesture
   final double settleFraction; // threshold to settle open on release
-  final Duration duration;
-  final Curve curve;
   final Color? scrimColor;
   final bool pushContent;
   final double contentScaleDelta;
-  final double contentBlurSigma;
   final VoidCallback? onOpenStart;
 
   // Tablet-specific configuration
@@ -37,12 +34,9 @@ class ResponsiveDrawerLayout extends StatefulWidget {
     this.maxFraction = 0.84,
     this.edgeFraction = 0.5,
     this.settleFraction = 0.12,
-    this.duration = const Duration(milliseconds: 180),
-    this.curve = Curves.fastOutSlowIn,
     this.scrimColor,
     this.pushContent = true,
     this.contentScaleDelta = 0.02,
-    this.contentBlurSigma = 2.0,
     this.onOpenStart,
     this.tabletDrawerWidth = 320.0,
     this.tabletDismissible = true,
@@ -60,13 +54,22 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller = AnimationController(
     vsync: this,
-    duration: widget.duration,
     value: 0.0,
   );
   late bool _isTabletDocked = widget.tabletInitiallyDocked;
 
   /// Cached tablet state to avoid accessing context when unmounted.
   bool _cachedIsTablet = false;
+
+  /// Spring description matching iOS navigation drawer physics.
+  static final SpringDescription _spring = SpringDescription(
+    mass: 1.0,
+    stiffness: 600.0,
+    damping: 44.0,
+  );
+
+  /// Duration for tablet animated container transitions.
+  static const Duration _tabletDuration = Duration(milliseconds: 250);
 
   bool _isTablet(BuildContext context) {
     final size = MediaQuery.of(context).size;
@@ -107,27 +110,22 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
     }
   }
 
-  Future<void> _animateTo(
-    double target, {
-    double velocity = 0.0,
-    bool? easeOut,
-  }) async {
-    final current = _controller.value;
-    final distance = (current - target).abs().clamp(0.0, 1.0);
-    final baseMs = widget.duration.inMilliseconds;
-    final normSpeed = (velocity.abs() / (_panelWidth + 0.001)).clamp(0.0, 4.0);
-    final ms = (baseMs * distance / (1.0 + 1.5 * normSpeed))
-        .clamp(90, baseMs)
-        .round();
-    final bool useEaseOut = easeOut ?? (target > current);
-    final curve = useEaseOut
-        ? (normSpeed > 0.5 ? Curves.linearToEaseOut : Curves.easeOutCubic)
-        : (normSpeed > 0.5 ? Curves.easeInToLinear : Curves.easeInCubic);
-    await _controller.animateTo(
+  /// Animate to [target] using iOS-style spring physics.
+  ///
+  /// [velocity] is in pixels/sec from the drag gesture, converted to
+  /// the 0..1 animation range.
+  void _springTo(double target, {double velocity = 0.0}) {
+    final panelPx = _panelWidth;
+    // Convert px/s velocity to animation-units/s
+    final unitVelocity = panelPx > 0 ? velocity / panelPx : 0.0;
+
+    final simulation = SpringSimulation(
+      _spring,
+      _controller.value,
       target,
-      duration: Duration(milliseconds: ms),
-      curve: curve,
+      unitVelocity,
     );
+    _controller.animateWith(simulation);
   }
 
   void open({double velocity = 0.0}) {
@@ -142,7 +140,7 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
       widget.onOpenStart?.call();
     } catch (_) {}
     _dismissKeyboard();
-    _animateTo(1.0, velocity: velocity);
+    _springTo(1.0, velocity: velocity);
   }
 
   void close({double velocity = 0.0}) {
@@ -154,7 +152,7 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
       return;
     }
 
-    _animateTo(0.0, velocity: velocity, easeOut: true);
+    _springTo(0.0, velocity: -velocity.abs());
   }
 
   void toggle() {
@@ -174,7 +172,8 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
     } catch (_) {}
   }
 
-  double _startValue = 0.0;
+  double _dragStartControllerValue = 0.0;
+  double _dragCumulativeDelta = 0.0;
 
   void _onDragStart(DragStartDetails d) {
     if (_isTablet(context)) return;
@@ -185,16 +184,19 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
       } catch (_) {}
       _dismissKeyboard();
     }
-    _startValue = _controller.value;
+    _controller.stop();
+    _dragStartControllerValue = _controller.value;
+    _dragCumulativeDelta = 0.0;
   }
 
   void _onDragUpdate(DragUpdateDetails d) {
     if (_isTablet(context)) return;
 
-    final delta = d.primaryDelta ?? 0.0;
-    final next = (_startValue + delta / _panelWidth).clamp(0.0, 1.0);
+    _dragCumulativeDelta += d.primaryDelta ?? 0.0;
+    final next =
+        (_dragStartControllerValue + _dragCumulativeDelta / _panelWidth)
+            .clamp(0.0, 1.0);
     _controller.value = next;
-    _startValue = next;
   }
 
   void _onDragEnd(DragEndDetails d) {
@@ -240,8 +242,8 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
       children: [
         // Persistent drawer
         AnimatedContainer(
-          duration: widget.duration,
-          curve: widget.curve,
+          duration: _tabletDuration,
+          curve: Curves.easeOutCubic,
           width: targetWidth,
           decoration: BoxDecoration(
             color: theme.surfaceBackground,
@@ -270,43 +272,31 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
       children: [
         // Content (optionally pushed by the drawer)
         Positioned.fill(
-          child: AnimatedBuilder(
-            animation: _controller,
-            builder: (context, _) {
-              final t = _controller.value;
-              final dx = (widget.pushContent ? _panelWidth * t : 0.0)
-                  .roundToDouble();
-              final scale =
-                  1.0 -
-                  (widget.pushContent
-                      ? (widget.contentScaleDelta.clamp(0.0, 0.2) * t)
-                      : 0.0);
-              final blurSigma =
-                  (widget.pushContent
-                          ? (widget.contentBlurSigma.clamp(0.0, 8.0) * t)
-                          : 0.0)
-                      .toDouble();
-              Widget content = widget.child;
-              if (blurSigma > 0.0) {
-                content = ImageFiltered(
-                  imageFilter: ui.ImageFilter.blur(
-                    sigmaX: blurSigma,
-                    sigmaY: blurSigma,
-                  ),
-                  child: content,
+          child: RepaintBoundary(
+            child: AnimatedBuilder(
+              animation: _controller,
+              builder: (context, child) {
+                final t = _controller.value;
+                final dx = (widget.pushContent ? _panelWidth * t : 0.0)
+                    .roundToDouble();
+                final scaleDelta = widget.pushContent
+                    ? widget.contentScaleDelta.clamp(0.0, 0.2) * t
+                    : 0.0;
+                final scale = 1.0 - scaleDelta;
+
+                final matrix = Matrix4.identity()
+                  ..setEntry(0, 3, dx)
+                  ..setEntry(0, 0, scale)
+                  ..setEntry(1, 1, scale);
+
+                return Transform(
+                  transform: matrix,
+                  alignment: Alignment.centerLeft,
+                  child: child,
                 );
-              }
-              content = Transform.scale(
-                scale: scale,
-                alignment: Alignment.centerLeft,
-                child: content,
-              );
-              content = Transform.translate(
-                offset: Offset(dx, 0),
-                child: content,
-              );
-              return content;
-            },
+              },
+              child: widget.child,
+            ),
           ),
         ),
 
@@ -327,7 +317,7 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
         // Scrim + panel when animating or open
         AnimatedBuilder(
           animation: _controller,
-          builder: (context, _) {
+          builder: (context, child) {
             final t = _controller.value;
             final ignoring = t == 0.0;
             return IgnorePointer(
@@ -358,19 +348,20 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
                       onHorizontalDragStart: _onDragStart,
                       onHorizontalDragUpdate: _onDragUpdate,
                       onHorizontalDragEnd: _onDragEnd,
-                      child: RepaintBoundary(
-                        child: Material(
-                          color: theme.surfaceBackground,
-                          elevation: 8,
-                          child: widget.drawer,
-                        ),
-                      ),
+                      child: child!,
                     ),
                   ),
                 ],
               ),
             );
           },
+          child: RepaintBoundary(
+            child: Material(
+              color: theme.surfaceBackground,
+              elevation: 8,
+              child: widget.drawer,
+            ),
+          ),
         ),
       ],
     );
