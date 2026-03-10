@@ -1,9 +1,10 @@
+import 'dart:async';
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'dart:async';
-import 'dart:io' show Platform;
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/markdown/streaming_markdown_widget.dart';
 import '../../../core/utils/reasoning_parser.dart';
@@ -90,6 +91,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   bool _hasAnimated = false;
   ProviderSubscription<String?>? _streamingContentSub;
 
+  // Streaming fade-in animation state
+  late AnimationController _chunkFadeController;
+
   /// Cache the last raw content that was fully parsed, so we can detect
   /// when only the tail has changed and skip re-parsing earlier segments.
   String _lastFullyParsedContent = '';
@@ -123,6 +127,11 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       duration: const Duration(milliseconds: 300),
       vsync: this,
     );
+    _chunkFadeController = AnimationController(
+      duration: const Duration(milliseconds: 200),
+      vsync: this,
+      value: 1.0, // Start fully opaque for non-streaming messages
+    );
 
     // Parse reasoning and tool-calls sections
     unawaited(_reparseSections());
@@ -147,12 +156,20 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       _hasAnimated = false;
       _fadeController.reset();
       _slideController.reset();
+      _chunkFadeController.value = 1.0;
     }
 
     // Re-sync subscription when streaming state changes
     if (oldWidget.isStreaming != widget.isStreaming ||
         oldWidget.message.id != widget.message.id) {
       _syncStreamingContentSubscription();
+    }
+
+    // Reset fade controller when streaming ends for the same message
+    if (oldWidget.isStreaming &&
+        !widget.isStreaming &&
+        oldWidget.message.id == widget.message.id) {
+      _chunkFadeController.value = 1.0;
     }
 
     // Re-parse sections when message content changes
@@ -209,6 +226,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           !newTail.contains('</think')) {
         final lastSeg = _segments.last;
         if (lastSeg.isText) {
+          final previousLength = _lastFullyParsedContent.length;
           final updatedSegments = [
             ..._segments.sublist(0, _segments.length - 1),
             MessageSegment.text((lastSeg.text ?? '') + newTail),
@@ -218,6 +236,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           setState(() {
             _segments = updatedSegments;
           });
+          if (widget.isStreaming) {
+            _onStreamingChunk(previousLength, raw.length);
+          }
           _scheduleTtsPlainTextBuild(
             updatedSegments
                 .where((s) => s.isText)
@@ -282,11 +303,15 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
     final segments = out.isEmpty ? [MessageSegment.text(raw)] : out;
 
+    final previousLength = _lastFullyParsedContent.length;
     _lastFullyParsedContent = raw;
     if (!mounted) return;
     setState(() {
       _segments = segments;
     });
+    if (widget.isStreaming) {
+      _onStreamingChunk(previousLength, raw.length);
+    }
     _scheduleTtsPlainTextBuild(
       List<String>.from(textSegments, growable: false),
       raw,
@@ -477,7 +502,20 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         ));
       } else if ((seg.text ?? '').trim().isNotEmpty) {
         // No extra spacing needed - reasoning/tool tiles have bottom padding
-        children.add(_buildEnhancedMarkdownContent(seg.text!));
+        final markdownWidget = _buildEnhancedMarkdownContent(seg.text!);
+        // Wrap the last text segment with fade-in overlay during streaming
+        final isLastTextSeg = widget.isStreaming &&
+            _segments.skip(idx + 1).every((s) => !s.isText);
+        children.add(
+          isLastTextSeg
+              ? RepaintBoundary(
+                  child: _StreamingFadeOverlay(
+                    animation: _chunkFadeController,
+                    child: markdownWidget,
+                  ),
+                )
+              : markdownWidget,
+        );
       }
       idx++;
     }
@@ -646,6 +684,19 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     );
   }
 
+  /// Called on each streaming chunk to drive the fade-in animation
+  /// and trigger haptic feedback.
+  void _onStreamingChunk(int previousLength, int newLength) {
+    if (newLength <= previousLength) return;
+
+    // Respect reduced motion preference
+    if (MediaQuery.of(context).disableAnimations) {
+      _chunkFadeController.value = 1.0;
+    } else {
+      _chunkFadeController.forward(from: 0.0);
+    }
+  }
+
   /// Subscribes to [streamingContentProvider] only while this message is
   /// actively streaming. Uses [ref.listenManual] for explicit lifecycle
   /// control instead of calling [ref.listen] inside [build].
@@ -676,6 +727,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     _pendingTtsPlainTextSource = null;
     _fadeController.dispose();
     _slideController.dispose();
+    _chunkFadeController.dispose();
     super.dispose();
   }
 
@@ -1409,5 +1461,55 @@ Future<void> _launchUri(String url) async {
     await launchUrlString(url, mode: LaunchMode.externalApplication);
   } catch (err) {
     DebugLogger.log('Unable to open url $url: $err', scope: 'chat/assistant');
+  }
+}
+
+/// Overlays a vertical gradient [ShaderMask] on the child widget to
+/// fade in the trailing portion of newly-arrived streaming text.
+///
+/// Uses a fixed pixel height for the fade region so the effect
+/// remains visible regardless of total content length. The bottom
+/// [_fadeHeightPx] pixels animate from semi-transparent to fully
+/// opaque over the [animation] duration.
+class _StreamingFadeOverlay extends AnimatedWidget {
+  const _StreamingFadeOverlay({
+    required Animation<double> animation,
+    required this.child,
+  }) : super(listenable: animation);
+
+  final Widget child;
+
+  /// Fixed height in logical pixels for the fade region.
+  /// Covers roughly 2-3 lines of text.
+  static const double _fadeHeightPx = 36.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = (listenable as Animation<double>).value;
+
+    // Once fully animated, skip the ShaderMask entirely.
+    if (t >= 1.0) return child;
+
+    return ShaderMask(
+      blendMode: BlendMode.dstIn,
+      shaderCallback: (bounds) {
+        // Compute fade start as a fraction of total height.
+        // For short content (< _fadeHeightPx), fade the entire widget.
+        final fadeStartFrac = bounds.height > _fadeHeightPx
+            ? (bounds.height - _fadeHeightPx) / bounds.height
+            : 0.0;
+
+        return LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          stops: [fadeStartFrac, 1.0],
+          colors: [
+            const Color(0xFFFFFFFF),
+            Color.fromRGBO(255, 255, 255, t.clamp(0.3, 1.0)),
+          ],
+        ).createShader(bounds);
+      },
+      child: child,
+    );
   }
 }

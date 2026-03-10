@@ -815,35 +815,68 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
   }
 
+  /// User-initiated scroll to bottom (e.g. button tap).
+  /// Resets auto-scroll pause and ends pin-to-top so streaming
+  /// continues to follow from the bottom.
+  void _userScrollToBottom() {
+    if (_wantsPinToTop) {
+      final streamingId = _pinnedStreamingId;
+      _endPinToTop(instant: true);
+      _pinnedStreamingId = streamingId;
+    }
+    if (_userPausedAutoScroll) {
+      _userPausedAutoScroll = false;
+    }
+    setState(() {});
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _scrollToBottom();
+    });
+  }
+
   void _scrollToBottom({bool smooth = true}) {
     if (!_scrollController.hasClients) return;
-    // Reset user pause when explicitly scrolling to bottom
-    if (_userPausedAutoScroll) {
-      setState(() {
-        _userPausedAutoScroll = false;
-      });
-    }
     final position = _scrollController.position;
-    final maxScroll = position.maxScrollExtent;
-    final target = maxScroll.isFinite ? maxScroll : 0.0;
+    var maxScroll = position.maxScrollExtent;
+    if (!maxScroll.isFinite || maxScroll <= 0) return;
+
+    // During pin-to-top, subtract the phantom sliver so we scroll
+    // to the actual content bottom, not into empty space.
+    if (_wantsPinToTop) {
+      final phantomHeight = MediaQuery.of(context).size.height;
+      maxScroll = (maxScroll - phantomHeight).clamp(0.0, maxScroll);
+    }
+
     if (smooth) {
       _scrollController.animateTo(
-        target,
+        maxScroll,
         duration: const Duration(milliseconds: 200),
         curve: Curves.easeOutCubic,
       );
     } else {
-      _scrollController.jumpTo(target);
+      _scrollController.jumpTo(maxScroll);
     }
   }
 
   /// Scrolls the pinned user message to the top of the visible viewport
-  /// (just below the floating app bar).
-  void _scrollToUserMessage() {
+  /// (just below the floating app bar). Uses an instant jump to avoid
+  /// competing with per-chunk scroll updates during streaming.
+  ///
+  /// If the target widget isn't built yet (off-screen due to lazy list),
+  /// scrolls to the bottom first to trigger its layout, then retries.
+  void _scrollToUserMessage([int retries = 0]) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final ctx = _pinnedUserMessageKey.currentContext;
-      if (ctx == null) return;
+      if (ctx == null) {
+        if (retries < 3 && _scrollController.hasClients) {
+          // Widget not built yet (off-screen). Jump to bottom to
+          // trigger layout of the target message, then retry with
+          // smooth ensureVisible on the next frame.
+          _scrollToBottom(smooth: false);
+          _scrollToUserMessage(retries + 1);
+        }
+        return;
+      }
       final topPadding =
           MediaQuery.of(context).padding.top + kToolbarHeight + Spacing.md;
       final viewportHeight = MediaQuery.of(context).size.height;
@@ -861,8 +894,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   bool _endPinToTopInFlight = false;
 
-  /// Smoothly transitions out of pin-to-top mode when streaming completes.
-  void _endPinToTop() {
+  /// Transitions out of pin-to-top mode.
+  ///
+  /// When [instant] is true (e.g. during streaming), uses jumpTo to
+  /// avoid competing with per-chunk scroll updates. When false (e.g.
+  /// streaming just completed), animates smoothly.
+  void _endPinToTop({bool instant = false}) {
     if (!_wantsPinToTop || !mounted || _endPinToTopInFlight) return;
     if (!_scrollController.hasClients) {
       setState(() {
@@ -882,8 +919,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       newMaxExtent.clamp(0.0, double.infinity),
     );
 
-    if ((currentOffset - targetOffset).abs() < 1.0) {
-      // Already at a valid position — just remove padding
+    if (instant || (currentOffset - targetOffset).abs() < 1.0) {
+      // Jump instantly and remove padding
+      if ((currentOffset - targetOffset).abs() >= 1.0) {
+        _scrollController.jumpTo(targetOffset);
+      }
       setState(() {
         _wantsPinToTop = false;
         _pinnedStreamingId = null;
@@ -957,7 +997,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
     if (!kIsWeb && Platform.isIOS) {
       return AdaptiveButton.child(
-        onPressed: _scrollToBottom,
+        onPressed: _userScrollToBottom,
         style: AdaptiveButtonStyle.glass,
         size: AdaptiveButtonSize.large,
         minSize: const Size(TouchTarget.minimum, TouchTarget.minimum),
@@ -983,7 +1023,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
-          onTap: _scrollToBottom,
+          onTap: _userScrollToBottom,
           customBorder: const CircleBorder(),
           child: Center(
             child: Icon(icon, size: IconSize.large, color: theme.textPrimary),
@@ -1256,6 +1296,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         if (mounted) _endPinToTop();
       });
     }
+    // Clear the pinned ID when streaming ends so the next message
+    // can activate pin-to-top fresh.
+    if (!isStreaming && _pinnedStreamingId != null) {
+      _pinnedStreamingId = null;
+    }
 
     // Pre-compute bubble adjacency in O(n) instead of O(n^2) per-item scan
     final bubbleAdjacency = _computeBubbleAdjacency(messages);
@@ -1282,7 +1327,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             });
             // End pin-to-top when user scrolls away during streaming
             if (_wantsPinToTop) {
-              _endPinToTop();
+              _endPinToTop(instant: true);
             }
           }
         }
@@ -1674,6 +1719,43 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         _scrollController.position.maxScrollExtent > 0;
     // Use dedicated streaming provider to avoid iterating all messages on rebuild
     final isStreamingAnyMessage = ref.watch(isChatStreamingProvider);
+
+    // Per-chunk scroll following: keep the view scrolled to the bottom as
+    // streaming content grows. The chatMessagesProvider only syncs every 500ms,
+    // but streamingContentProvider updates per-chunk, so listening here
+    // ensures smooth scroll tracking during streaming.
+    ref.listen(streamingContentProvider, (_, _) {
+      if (_userPausedAutoScroll) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_scrollController.hasClients) return;
+        if (_userPausedAutoScroll) return;
+
+        if (_wantsPinToTop) {
+          // During pin-to-top, end it once the actual content (excluding
+          // the phantom sliver) has grown past the viewport so the view
+          // transitions to scroll-following like ChatGPT.
+          final position = _scrollController.position;
+          final phantomHeight = MediaQuery.of(context).size.height;
+          final actualMaxExtent =
+              position.maxScrollExtent - phantomHeight;
+          if (actualMaxExtent > 0) {
+            // Preserve _pinnedStreamingId so the pin-to-top detection
+            // guard at line ~1244 doesn't re-trigger on the next rebuild.
+            final streamingId = _pinnedStreamingId;
+            _endPinToTop(instant: true);
+            _pinnedStreamingId = streamingId;
+            _scrollToBottom(smooth: false);
+          }
+          return;
+        }
+
+        const keepPinnedThreshold = 60.0;
+        final dist = _distanceFromBottom();
+        if (dist > 0 && dist <= keepPinnedThreshold) {
+          _scrollToBottom(smooth: false);
+        }
+      });
+    });
 
     // On keyboard open, if already near bottom, auto-scroll to bottom to keep input visible
     if (keyboardVisible && !_lastKeyboardVisible) {
