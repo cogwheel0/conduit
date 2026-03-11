@@ -735,7 +735,7 @@ struct AppShortcuts: AppShortcutsProvider {
 }
 
 @main
-@objc class AppDelegate: FlutterAppDelegate {
+@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   private var backgroundStreamingHandler: BackgroundStreamingHandler?
 
   /// Checks if a cookie matches a given URL based on domain.
@@ -754,78 +754,78 @@ struct AppShortcuts: AppShortcutsProvider {
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    GeneratedPluginRegistrant.register(with: self)
+    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  func didInitializeImplicitFlutterEngine(
+    _ engineBridge: FlutterImplicitEngineBridge
+  ) {
+    GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
 
     // Setup App Intents method channel for native -> Flutter communication
-    if let registrar = self.registrar(forPlugin: "AppIntentMethodChannel") {
-      AppIntentMethodChannel.shared = AppIntentMethodChannel(
-        messenger: registrar.messenger()
-      )
-    }
+    let appIntentRegistrar = engineBridge.applicationRegistrar
+    AppIntentMethodChannel.shared = AppIntentMethodChannel(
+      messenger: appIntentRegistrar.messenger()
+    )
 
-    if let registrar = self.registrar(forPlugin: "NativePasteBridge") {
-      NativePasteBridge.shared.configure(messenger: registrar.messenger())
-    }
+    let pasteRegistrar = engineBridge.applicationRegistrar
+    NativePasteBridge.shared.configure(messenger: pasteRegistrar.messenger())
 
-    // Setup background streaming handler using the plugin registry messenger
-    if let registrar = self.registrar(forPlugin: "BackgroundStreamingHandler") {
-      let channel = FlutterMethodChannel(
-        name: "conduit/background_streaming",
-        binaryMessenger: registrar.messenger()
-      )
+    // Setup background streaming handler
+    let bgRegistrar = engineBridge.applicationRegistrar
+    let channel = FlutterMethodChannel(
+      name: "conduit/background_streaming",
+      binaryMessenger: bgRegistrar.messenger()
+    )
 
-      backgroundStreamingHandler = BackgroundStreamingHandler()
-      backgroundStreamingHandler?.setup(with: channel)
+    backgroundStreamingHandler = BackgroundStreamingHandler()
+    backgroundStreamingHandler?.setup(with: channel)
 
-      // Register BGTaskScheduler tasks
-      backgroundStreamingHandler?.registerBackgroundTasks()
+    // Register BGTaskScheduler tasks
+    backgroundStreamingHandler?.registerBackgroundTasks()
 
-      // Register method call handler
-      channel.setMethodCallHandler { [weak self] (call, result) in
-        self?.backgroundStreamingHandler?.handle(call, result: result)
-      }
+    // Register method call handler
+    channel.setMethodCallHandler { [weak self] (call, result) in
+      self?.backgroundStreamingHandler?.handle(call, result: result)
     }
 
     // Setup cookie manager channel for WebView cookie access
-    if let registrar = self.registrar(forPlugin: "CookieManagerChannel") {
-      let cookieChannel = FlutterMethodChannel(
-        name: "com.conduit.app/cookies",
-        binaryMessenger: registrar.messenger()
-      )
+    let cookieRegistrar = engineBridge.applicationRegistrar
+    let cookieChannel = FlutterMethodChannel(
+      name: "com.conduit.app/cookies",
+      binaryMessenger: cookieRegistrar.messenger()
+    )
 
-      cookieChannel.setMethodCallHandler { [weak self] (call, result) in
-        if call.method == "getCookies" {
-          guard let args = call.arguments as? [String: Any],
-                let urlString = args["url"] as? String,
-                let url = URL(string: urlString) else {
-            result(FlutterError(code: "INVALID_ARGS", message: "Invalid URL", details: nil))
+    cookieChannel.setMethodCallHandler { [weak self] (call, result) in
+      if call.method == "getCookies" {
+        guard let args = call.arguments as? [String: Any],
+              let urlString = args["url"] as? String,
+              let url = URL(string: urlString) else {
+          result(FlutterError(code: "INVALID_ARGS", message: "Invalid URL", details: nil))
+          return
+        }
+
+        // Get cookies from WKWebView's cookie store
+        WKWebsiteDataStore.default().httpCookieStore.getAllCookies { [weak self] cookies in
+          guard let self = self else {
+            // Always call result to avoid leaving Dart side hanging
+            result([:])
             return
           }
+          var cookieDict: [String: String] = [:]
 
-          // Get cookies from WKWebView's cookie store
-          WKWebsiteDataStore.default().httpCookieStore.getAllCookies { [weak self] cookies in
-            guard let self = self else {
-              // Always call result to avoid leaving Dart side hanging
-              result([:])
-              return
+          for cookie in cookies {
+            // Filter cookies for this domain
+            if self.cookieMatchesUrl(cookie: cookie, url: url) {
+              cookieDict[cookie.name] = cookie.value
             }
-            var cookieDict: [String: String] = [:]
-
-            for cookie in cookies {
-              // Filter cookies for this domain
-              if self.cookieMatchesUrl(cookie: cookie, url: url) {
-                cookieDict[cookie.name] = cookie.value
-              }
-            }
-
-            result(cookieDict)
           }
-        } else {
-          result(FlutterMethodNotImplemented)
+
+          result(cookieDict)
         }
+      } else {
+        result(FlutterMethodNotImplemented)
       }
     }
-
-    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 }
