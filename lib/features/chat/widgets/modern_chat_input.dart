@@ -2236,7 +2236,14 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       ),
     ).then((shouldSend) {
       modalController.removeListener(syncToMain);
-      modalController.dispose();
+      // Defer disposal to the next frame so the modal route's widget tree
+      // is fully deactivated first. Disposing here would race with
+      // ExpandedTextEditorSheet.dispose() which still needs the controller,
+      // and can trigger _dependents.isEmpty assertion failures when
+      // MediaQuery-dependent widgets rebuild during deactivation.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        modalController.dispose();
+      });
       if (mounted) setState(() => _expandModalOpen = false);
       if (shouldSend == true && mounted) _sendMessage();
     });

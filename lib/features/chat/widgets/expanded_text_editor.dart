@@ -41,7 +41,11 @@ class _ExpandedTextEditorSheetState extends State<ExpandedTextEditorSheet> {
 
   @override
   void dispose() {
-    widget.controller.removeListener(_onTextChanged);
+    // Guard: the controller may already be disposed by the time this runs
+    // (the .then() callback on the modal future disposes it first).
+    try {
+      widget.controller.removeListener(_onTextChanged);
+    } catch (_) {}
     super.dispose();
   }
 
