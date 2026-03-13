@@ -26,15 +26,16 @@ final class NativePasteBridge {
         guard !didSwizzle else { return }
         didSwizzle = true
 
-        [
-            "FlutterTextInputView",
-            "FlutterSecureTextInputView",
-        ].forEach { className in
-            guard let targetClass = NSClassFromString(className) else { return }
-            swizzlePaste(for: targetClass)
-            swizzleCanPerformAction(for: targetClass)
-            swizzlePasteConfiguration(for: targetClass)
-        }
+        // Only swizzle the base class. FlutterSecureTextInputView inherits
+        // from FlutterTextInputView, so the swizzle applies automatically.
+        // Swizzling both causes infinite recursion: the subclass swizzle
+        // sees the parent's already-swizzled Method, making the exchange
+        // a no-op and leaving conduit_canPerformAction pointing at itself.
+        guard let targetClass = NSClassFromString("FlutterTextInputView")
+        else { return }
+        swizzlePaste(for: targetClass)
+        swizzleCanPerformAction(for: targetClass)
+        swizzlePasteConfiguration(for: targetClass)
     }
 
     private static func swizzlePaste(for targetClass: AnyClass) {
