@@ -38,6 +38,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   final Map<String, String> _customHeaders = {};
   final TextEditingController _headerKeyController = TextEditingController();
   final TextEditingController _headerValueController = TextEditingController();
+  final FocusNode _headerValueFocusNode = FocusNode();
 
   String? _connectionError;
   bool _isConnecting = false;
@@ -64,6 +65,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     _urlController.dispose();
     _headerKeyController.dispose();
     _headerValueController.dispose();
+    _headerValueFocusNode.dispose();
     super.dispose();
   }
 
@@ -721,6 +723,13 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
             color: context.conduitTheme.iconSecondary,
           ),
           autofillHints: const [AutofillHints.url],
+          cupertinoDecoration: BoxDecoration(
+            color: CupertinoColors.tertiarySystemBackground,
+            border: Border.all(
+              color: context.conduitTheme.inputBorder,
+            ),
+            borderRadius: BorderRadius.circular(8),
+          ),
         ),
 
         if (_connectionError != null) ...[
@@ -928,23 +937,6 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
                         ),
                       ),
                     ),
-                  ConduitIconButton(
-                    icon: Platform.isIOS
-                        ? CupertinoIcons.plus
-                        : Icons.add_rounded,
-                    onPressed: _customHeaders.length >= 10
-                        ? null
-                        : _addCustomHeader,
-                    tooltip: _customHeaders.length >= 10
-                        ? l10n.maximumHeadersReached
-                        : l10n.addHeader,
-                    backgroundColor: _customHeaders.length >= 10
-                        ? theme.surfaceContainer
-                        : theme.buttonPrimary,
-                    iconColor: _customHeaders.length >= 10
-                        ? theme.textDisabled
-                        : theme.buttonPrimaryText,
-                  ),
                 ],
               ),
               const SizedBox(height: Spacing.md),
@@ -960,6 +952,17 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
                         value ?? _headerKeyController.text,
                       ),
                       keyboardType: TextInputType.text,
+                      textInputAction: TextInputAction.next,
+                      onSubmitted: (_) =>
+                          _headerValueFocusNode.requestFocus(),
+                      cupertinoDecoration: BoxDecoration(
+                        color: CupertinoColors
+                            .tertiarySystemBackground,
+                        border: Border.all(
+                          color: theme.inputBorder,
+                        ),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
                     ),
                   ),
                   const SizedBox(width: Spacing.sm),
@@ -967,13 +970,51 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
                     child: AdaptiveTextFormField(
                       placeholder: l10n.headerValueHint,
                       controller: _headerValueController,
+                      focusNode: _headerValueFocusNode,
                       validator: (value) => _validateHeaderValue(
                         value ?? _headerValueController.text,
                       ),
                       keyboardType: TextInputType.text,
+                      textInputAction: TextInputAction.done,
+                      onSubmitted: (_) => _addCustomHeader(),
+                      cupertinoDecoration: BoxDecoration(
+                        color: CupertinoColors
+                            .tertiarySystemBackground,
+                        border: Border.all(
+                          color: theme.inputBorder,
+                        ),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
                     ),
                   ),
                 ],
+              ),
+              const SizedBox(height: Spacing.sm),
+              Center(
+                child: GestureDetector(
+                  onTap: _customHeaders.length >= 10
+                      ? null
+                      : _addCustomHeader,
+                  child: Container(
+                    width: TouchTarget.minimum,
+                    height: TouchTarget.minimum,
+                    decoration: BoxDecoration(
+                      color: _customHeaders.length >= 10
+                          ? theme.surfaceContainer
+                          : theme.buttonPrimary,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Platform.isIOS
+                          ? CupertinoIcons.plus
+                          : Icons.add_rounded,
+                      color: _customHeaders.length >= 10
+                          ? theme.textDisabled
+                          : theme.buttonPrimaryText,
+                      size: IconSize.medium,
+                    ),
+                  ),
+                ),
               ),
 
               // Header list

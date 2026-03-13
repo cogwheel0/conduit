@@ -679,6 +679,13 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
           ),
           onSubmitted: (_) => _signIn(),
           autofillHints: const [AutofillHints.password],
+          cupertinoDecoration: BoxDecoration(
+            color: CupertinoColors.tertiarySystemBackground,
+            border: Border.all(
+              color: context.conduitTheme.inputBorder,
+            ),
+            borderRadius: BorderRadius.circular(8),
+          ),
         ),
         const SizedBox(height: Spacing.sm),
         Text(
@@ -712,6 +719,13 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
               color: context.conduitTheme.iconSecondary,
             ),
             autofillHints: const [AutofillHints.username, AutofillHints.email],
+            cupertinoDecoration: BoxDecoration(
+              color: CupertinoColors.tertiarySystemBackground,
+              border: Border.all(
+                color: context.conduitTheme.inputBorder,
+              ),
+              borderRadius: BorderRadius.circular(8),
+            ),
           ),
           const SizedBox(height: Spacing.lg),
           AdaptiveTextFormField(
@@ -751,6 +765,13 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
             ),
             onSubmitted: (_) => _signIn(),
             autofillHints: const [AutofillHints.password],
+            cupertinoDecoration: BoxDecoration(
+              color: CupertinoColors.tertiarySystemBackground,
+              border: Border.all(
+                color: context.conduitTheme.inputBorder,
+              ),
+              borderRadius: BorderRadius.circular(8),
+            ),
           ),
         ],
       ),
@@ -776,6 +797,13 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
               color: context.conduitTheme.iconSecondary,
             ),
             autofillHints: const [AutofillHints.username],
+            cupertinoDecoration: BoxDecoration(
+              color: CupertinoColors.tertiarySystemBackground,
+              border: Border.all(
+                color: context.conduitTheme.inputBorder,
+              ),
+              borderRadius: BorderRadius.circular(8),
+            ),
           ),
           const SizedBox(height: Spacing.lg),
           AdaptiveTextFormField(
@@ -815,6 +843,13 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
             ),
             onSubmitted: (_) => _signIn(),
             autofillHints: const [AutofillHints.password],
+            cupertinoDecoration: BoxDecoration(
+              color: CupertinoColors.tertiarySystemBackground,
+              border: Border.all(
+                color: context.conduitTheme.inputBorder,
+              ),
+              borderRadius: BorderRadius.circular(8),
+            ),
           ),
           const SizedBox(height: Spacing.sm),
           Text(
