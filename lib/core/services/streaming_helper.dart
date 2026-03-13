@@ -1336,6 +1336,11 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
         if (channel is String && channel.isNotEmpty) {
           channelLineHandlerFactory(channel);
         }
+        // Acknowledge the RPC call so the server can proceed immediately.
+        // Without this, sio.call() waits for the 60s timeout (issue #378).
+        if (ack != null) {
+          ack({'status': true});
+        }
       } else if (type == 'execute:tool' && payload != null) {
         // Show an executing tile immediately; also surface any inline files/result
         try {
