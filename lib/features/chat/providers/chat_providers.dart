@@ -169,6 +169,14 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
               return;
             }
 
+            // Guard: while we are actively streaming via socket, don't let
+            // server refreshes overwrite the locally-accumulated content.
+            // Check isActive (not just non-null) because finishStreaming()
+            // early-return paths may leave a stale _messageStream reference.
+            if (_messageStream?.isActive == true) {
+              return;
+            }
+
             // Secondary rule: if counts are equal but the last assistant message grew,
             // adopt the server copy to recover from missed socket events.
             if (serverMessages.isNotEmpty && state.isNotEmpty) {
@@ -182,14 +190,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
                   serverText.isNotEmpty && serverText.length > localText.length;
               final localEmptyButServerHas =
                   localText.isEmpty && serverText.isNotEmpty;
-              // Also recover if server says streaming is done but local still streaming
-              final serverDoneButLocalStreaming =
-                  !serverLast.isStreaming && localLast.isStreaming;
               if (sameLastId &&
                   isAssistant &&
-                  (serverHasMore ||
-                      localEmptyButServerHas ||
-                      serverDoneButLocalStreaming)) {
+                  (serverHasMore || localEmptyButServerHas)) {
                 // Check streaming state BEFORE updating state
                 final needsCleanup = _shouldCleanupStreamingFromServer(
                   serverMessages,
