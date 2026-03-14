@@ -407,14 +407,18 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
                   .firstOrNull;
 
               if (serverVersion != null) {
-                final serverDone = !serverVersion.isStreaming;
-                final serverHasMoreContent =
-                    serverVersion.content.length > localLast.content.length;
+                final serverHasContent =
+                    serverVersion.content.trim().isNotEmpty;
 
-                if (serverDone || serverHasMoreContent) {
+                // Since tasksDone already guarantees tasks genuinely completed,
+                // server content should be the final version. Adopt if the
+                // server has any content (replaces broken isStreaming check).
+                if (serverHasContent) {
                   DebugLogger.log(
                     'Server sync: adopting server state '
-                    '(serverDone=$serverDone, serverHasMore=$serverHasMoreContent)',
+                    '(serverHasContent=$serverHasContent, '
+                    'serverLen=${serverVersion.content.length}, '
+                    'localLen=${localLast.content.length})',
                     scope: 'chat/providers',
                   );
                   state = serverMessages;
