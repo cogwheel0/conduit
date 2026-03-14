@@ -174,6 +174,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
             // Check isActive (not just non-null) because finishStreaming()
             // early-return paths may leave a stale _messageStream reference.
             if (_messageStream?.isActive == true) {
+              DebugLogger.log(
+                'Skipping server state adoption during active streaming '
+                '(message: ${state.lastOrNull?.id ?? "unknown"})',
+                scope: 'chat/providers',
+              );
               return;
             }
 
