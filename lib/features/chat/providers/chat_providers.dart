@@ -171,9 +171,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
             // Guard: while we are actively streaming via socket, don't let
             // server refreshes overwrite the locally-accumulated content.
-            // Check isActive (not just non-null) because finishStreaming()
-            // early-return paths may leave a stale _messageStream reference.
-            if (_messageStream?.isActive == true) {
+            // _messageStream is non-null from setMessageStream() until
+            // finishStreaming() completes or _cancelMessageStream() runs.
+            if (_messageStream != null) {
               DebugLogger.log(
                 'Skipping server state adoption during active streaming '
                 '(message: ${state.lastOrNull?.id ?? "unknown"})',
@@ -832,10 +832,16 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _streamingSyncTimer = null;
     _clearStreamingContent();
 
-    if (state.isEmpty) return;
+    if (state.isEmpty) {
+      _messageStream = null;
+      return;
+    }
 
     final lastMessage = state.last;
-    if (lastMessage.role != 'assistant' || !lastMessage.isStreaming) return;
+    if (lastMessage.role != 'assistant' || !lastMessage.isStreaming) {
+      _messageStream = null;
+      return;
+    }
 
     final cleaned = _stripStreamingPlaceholders(lastMessage.content);
 
