@@ -789,6 +789,14 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     ];
   }
 
+  /// Flushes any pending streaming buffer content into the
+  /// message list state.
+  ///
+  /// Called by the streaming helper before completion checks
+  /// to ensure buffered delta content is visible in the
+  /// Riverpod state.
+  void syncStreamingBuffer() => _syncStreamingBufferToState();
+
   void replaceLastMessageContent(String content) {
     _streamingBuffer = null;
     _streamingSyncTimer?.cancel();
@@ -1782,6 +1790,9 @@ Future<void> regenerateMessage(
       finishStreaming: () =>
           ref.read(chatMessagesProvider.notifier).finishStreaming(),
       getMessages: () => ref.read(chatMessagesProvider),
+      flushStreamingBuffer: () => ref
+          .read(chatMessagesProvider.notifier)
+          .syncStreamingBuffer(),
     );
     ref.read(chatMessagesProvider.notifier)
       ..setMessageStream(activeStream.controller)
@@ -2539,6 +2550,9 @@ Future<void> _sendMessageInternal(
       finishStreaming: () =>
           ref.read(chatMessagesProvider.notifier).finishStreaming(),
       getMessages: () => ref.read(chatMessagesProvider),
+      flushStreamingBuffer: () => ref
+          .read(chatMessagesProvider.notifier)
+          .syncStreamingBuffer(),
     );
 
     ref.read(chatMessagesProvider.notifier)

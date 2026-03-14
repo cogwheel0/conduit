@@ -214,6 +214,11 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
   required void Function() finishStreaming,
   required List<ChatMessage> Function() getMessages,
 
+  /// Flushes buffered streaming content into state so
+  /// [getMessages] returns up-to-date content. Must be
+  /// called before checking content on completion.
+  required void Function() flushStreamingBuffer,
+
   /// Whether the model uses reasoning/thinking (needs longer watchdog window).
   bool modelUsesReasoning = false,
 
