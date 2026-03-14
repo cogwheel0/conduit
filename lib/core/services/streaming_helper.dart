@@ -994,78 +994,50 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
               refreshConversationSnapshot,
             );
 
+            // Flush buffer and check if we have content
+            flushStreamingBuffer();
             final msgs = getMessages();
             if (msgs.isNotEmpty && msgs.last.role == 'assistant') {
               final lastContent = msgs.last.content.trim();
+              DebugLogger.log(
+                'Done signal received: content length=${lastContent.length}',
+                scope: 'streaming/helper',
+              );
               if (lastContent.isEmpty) {
-                Future.microtask(() async {
-                  try {
-                    final chatId = activeConversationId;
-                    if (chatId != null &&
-                        chatId.isNotEmpty &&
-                        !isTemporaryChat(chatId)) {
-                      final resp = await api.dio.get('/api/v1/chats/$chatId');
-                      final data = resp.data as Map<String, dynamic>?;
-                      String content = '';
-                      final chatObj = data?['chat'] as Map<String, dynamic>?;
-                      if (chatObj != null) {
-                        final list = chatObj['messages'];
-                        if (list is List) {
-                          final target = list.firstWhere(
-                            (m) =>
-                                (m is Map &&
-                                (m['id']?.toString() == assistantMessageId)),
-                            orElse: () => null,
-                          );
-                          if (target != null) {
-                            final rawContent = (target as Map)['content'];
-                            if (rawContent is String) {
-                              content = rawContent;
-                            } else if (rawContent is List) {
-                              final textItem = rawContent.firstWhere(
-                                (i) => i is Map && i['type'] == 'text',
-                                orElse: () => null,
-                              );
-                              if (textItem != null) {
-                                content = textItem['text']?.toString() ?? '';
-                              }
-                            }
+                // No content from deltas or done event. Schedule a delayed
+                // server fetch as a last-resort recovery. The 2s delay gives
+                // the server time to persist the response.
+                final chatId = activeConversationId;
+                if (chatId != null &&
+                    chatId.isNotEmpty &&
+                    !isTemporaryChat(chatId)) {
+                  Future.delayed(
+                    const Duration(seconds: 2),
+                    () async {
+                      if (hasFinished) {
+                        // Already finished via another path
+                        return;
+                      }
+                      try {
+                        final result = await pollServerForMessage();
+                        if (result != null && result.content.isNotEmpty) {
+                          replaceLastMessageContent(result.content);
+                          if (result.followUps.isNotEmpty) {
+                            setFollowUps(assistantMessageId, result.followUps);
                           }
                         }
-                        if (content.isEmpty) {
-                          final history = chatObj['history'];
-                          if (history is Map && history['messages'] is Map) {
-                            final Map<String, dynamic> messagesMap =
-                                (history['messages'] as Map)
-                                    .cast<String, dynamic>();
-                            final msg = messagesMap[assistantMessageId];
-                            if (msg is Map) {
-                              final rawContent = msg['content'];
-                              if (rawContent is String) {
-                                content = rawContent;
-                              } else if (rawContent is List) {
-                                final textItem = rawContent.firstWhere(
-                                  (i) => i is Map && i['type'] == 'text',
-                                  orElse: () => null,
-                                );
-                                if (textItem != null) {
-                                  content = textItem['text']?.toString() ?? '';
-                                }
-                              }
-                            }
-                          }
-                        }
+                      } catch (e) {
+                        DebugLogger.log(
+                          'Server recovery failed: $e',
+                          scope: 'streaming/helper',
+                        );
+                      } finally {
+                        wrappedFinishStreaming();
                       }
-                      if (content.isNotEmpty) {
-                        replaceLastMessageContent(content);
-                      }
-                    }
-                  } catch (_) {
-                  } finally {
-                    wrappedFinishStreaming();
-                  }
-                });
-                return;
+                    },
+                  );
+                  return;
+                }
               }
             }
             wrappedFinishStreaming();
