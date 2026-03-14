@@ -997,6 +997,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         attachedFiles.every((f) => f.status == FileUploadStatus.completed);
 
     final webSearchEnabled = ref.watch(webSearchEnabledProvider);
+    final webSearchAvailable = ref.watch(webSearchAvailableProvider);
     final imageGenEnabled = ref.watch(imageGenerationEnabledProvider);
     final imageGenAvailable = ref.watch(imageGenerationAvailableProvider);
     final selectedQuickPills = ref.watch(
@@ -1046,7 +1047,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final List<Widget> quickPills = <Widget>[];
 
     for (final id in selectedQuickPills) {
-      if (id == 'web' && showWebPill) {
+      if (id == 'web' && showWebPill && webSearchAvailable) {
         final String label = AppLocalizations.of(context)!.web;
         final IconData icon = Platform.isIOS
             ? CupertinoIcons.search

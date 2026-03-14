@@ -2114,9 +2114,13 @@ final imageGenerationAvailableProvider = Provider<bool>((ref) {
         if (value is bool) return value;
         if (value is String) return value.toLowerCase() == 'true';
       }
-      return false;
+      // No explicit permission — default to available. Open WebUI defaults
+      // image_generation to true and the server will ignore the flag if the
+      // feature is not configured.
+      return true;
     },
-    orElse: () => false,
+    // Permissions unavailable (loading, error, older server) — assume available.
+    orElse: () => true,
   );
 });
 
@@ -2130,9 +2134,13 @@ final webSearchAvailableProvider = Provider<bool>((ref) {
         if (value is bool) return value;
         if (value is String) return value.toLowerCase() == 'true';
       }
-      return false;
+      // No explicit permission — default to available. Open WebUI defaults
+      // web_search to true and the server will ignore the flag if the feature
+      // is not configured.
+      return true;
     },
-    orElse: () => false,
+    // Permissions unavailable (loading, error, older server) — assume available.
+    orElse: () => true,
   );
 });
 
