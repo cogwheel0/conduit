@@ -169,6 +169,19 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
               return;
             }
 
+            // Guard: while we are actively streaming via socket, don't let
+            // server refreshes overwrite the locally-accumulated content.
+            // _messageStream is non-null from setMessageStream() until
+            // finishStreaming() completes or _cancelMessageStream() runs.
+            if (_messageStream != null) {
+              DebugLogger.log(
+                'Skipping server state adoption during active streaming '
+                '(message: ${state.lastOrNull?.id ?? "unknown"})',
+                scope: 'chat/providers',
+              );
+              return;
+            }
+
             // Secondary rule: if counts are equal but the last assistant message grew,
             // adopt the server copy to recover from missed socket events.
             if (serverMessages.isNotEmpty && state.isNotEmpty) {
@@ -182,14 +195,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
                   serverText.isNotEmpty && serverText.length > localText.length;
               final localEmptyButServerHas =
                   localText.isEmpty && serverText.isNotEmpty;
-              // Also recover if server says streaming is done but local still streaming
-              final serverDoneButLocalStreaming =
-                  !serverLast.isStreaming && localLast.isStreaming;
               if (sameLastId &&
                   isAssistant &&
-                  (serverHasMore ||
-                      localEmptyButServerHas ||
-                      serverDoneButLocalStreaming)) {
+                  (serverHasMore || localEmptyButServerHas)) {
                 // Check streaming state BEFORE updating state
                 final needsCleanup = _shouldCleanupStreamingFromServer(
                   serverMessages,
@@ -404,14 +412,18 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
                   .firstOrNull;
 
               if (serverVersion != null) {
-                final serverDone = !serverVersion.isStreaming;
-                final serverHasMoreContent =
-                    serverVersion.content.length > localLast.content.length;
+                final serverHasContent =
+                    serverVersion.content.trim().isNotEmpty;
 
-                if (serverDone || serverHasMoreContent) {
+                // Since tasksDone already guarantees tasks genuinely completed,
+                // server content should be the final version. Adopt if the
+                // server has any content (replaces broken isStreaming check).
+                if (serverHasContent) {
                   DebugLogger.log(
                     'Server sync: adopting server state '
-                    '(serverDone=$serverDone, serverHasMore=$serverHasMoreContent)',
+                    '(serverHasContent=$serverHasContent, '
+                    'serverLen=${serverVersion.content.length}, '
+                    'localLen=${localLast.content.length})',
                     scope: 'chat/providers',
                   );
                   state = serverMessages;
@@ -786,6 +798,14 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     ];
   }
 
+  /// Flushes any pending streaming buffer content into the
+  /// message list state.
+  ///
+  /// Called by the streaming helper before completion checks
+  /// to ensure buffered delta content is visible in the
+  /// Riverpod state.
+  void syncStreamingBuffer() => _syncStreamingBufferToState();
+
   void replaceLastMessageContent(String content) {
     _streamingBuffer = null;
     _streamingSyncTimer?.cancel();
@@ -812,10 +832,16 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _streamingSyncTimer = null;
     _clearStreamingContent();
 
-    if (state.isEmpty) return;
+    if (state.isEmpty) {
+      _messageStream = null;
+      return;
+    }
 
     final lastMessage = state.last;
-    if (lastMessage.role != 'assistant' || !lastMessage.isStreaming) return;
+    if (lastMessage.role != 'assistant' || !lastMessage.isStreaming) {
+      _messageStream = null;
+      return;
+    }
 
     final cleaned = _stripStreamingPlaceholders(lastMessage.content);
 
@@ -1779,6 +1805,9 @@ Future<void> regenerateMessage(
       finishStreaming: () =>
           ref.read(chatMessagesProvider.notifier).finishStreaming(),
       getMessages: () => ref.read(chatMessagesProvider),
+      flushStreamingBuffer: () => ref
+          .read(chatMessagesProvider.notifier)
+          .syncStreamingBuffer(),
     );
     ref.read(chatMessagesProvider.notifier)
       ..setMessageStream(activeStream.controller)
@@ -2536,6 +2565,9 @@ Future<void> _sendMessageInternal(
       finishStreaming: () =>
           ref.read(chatMessagesProvider.notifier).finishStreaming(),
       getMessages: () => ref.read(chatMessagesProvider),
+      flushStreamingBuffer: () => ref
+          .read(chatMessagesProvider.notifier)
+          .syncStreamingBuffer(),
     );
 
     ref.read(chatMessagesProvider.notifier)
