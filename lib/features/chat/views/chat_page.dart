@@ -67,8 +67,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   String? _lastConversationId;
   bool _shouldAutoScrollToBottom = true;
   bool _autoScrollCallbackScheduled = false;
-  bool _pendingConversationScrollReset = false;
-  bool _suppressKeepPinnedOnce = false; // skip keep-pinned bottom after reset
+  final Map<String, double> _savedScrollOffsets = {};
+  bool _pendingScrollRestore = false;
+  double _restoreScrollOffset = 0;
   bool _userPausedAutoScroll = false; // user scrolled away during generation
   // Pin-to-top: scroll user message to top of viewport when sending
   bool _wantsPinToTop = false;
@@ -99,13 +100,20 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     // Reset to default model for new conversations (fixes #296)
     restoreDefaultModel(ref);
 
+    // Save outgoing conversation's scroll position before resetting
+    if (_lastConversationId != null && _scrollController.hasClients) {
+      _savedScrollOffsets[_lastConversationId!] =
+          _scrollController.position.pixels;
+    }
+
     // Scroll to top
     if (_scrollController.hasClients) {
       _scrollController.jumpTo(0);
     }
 
     _shouldAutoScrollToBottom = true;
-    _pendingConversationScrollReset = false;
+    _pendingScrollRestore = false;
+    _restoreScrollOffset = 0;
     _userPausedAutoScroll = false;
     _wantsPinToTop = false;
     _pinnedStreamingId = null;
@@ -799,22 +807,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     });
   }
 
-  void _resetScrollToTop() {
-    if (!_scrollController.hasClients) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || !_scrollController.hasClients) {
-          return;
-        }
-        _scrollController.jumpTo(0);
-      });
-      return;
-    }
-
-    if (_scrollController.position.pixels != 0) {
-      _scrollController.jumpTo(0);
-    }
-  }
-
   /// User-initiated scroll to bottom (e.g. button tap).
   /// Resets auto-scroll pause and ends pin-to-top so streaming
   /// continues to follow from the bottom.
@@ -1232,12 +1224,28 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
     final apiService = ref.watch(apiServiceProvider);
 
-    if (_pendingConversationScrollReset) {
-      _pendingConversationScrollReset = false;
-      // When opening an existing conversation, start reading from the top
-      _shouldAutoScrollToBottom = false;
-      _resetScrollToTop();
-      _suppressKeepPinnedOnce = true;
+    if (_pendingScrollRestore) {
+      _pendingScrollRestore = false;
+      final targetOffset = _restoreScrollOffset;
+      if (!_scrollController.hasClients) {
+        // Scroll controller not attached yet — retry once after frame
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || !_scrollController.hasClients) return;
+          _scrollController.jumpTo(
+            targetOffset.clamp(
+              0.0,
+              _scrollController.position.maxScrollExtent,
+            ),
+          );
+        });
+      } else {
+        _scrollController.jumpTo(
+          targetOffset.clamp(
+            0.0,
+            _scrollController.position.maxScrollExtent,
+          ),
+        );
+      }
     }
 
     if (_shouldAutoScrollToBottom) {
@@ -1246,12 +1254,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       // Only keep-pinned to bottom if user hasn't paused auto-scroll
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        if (_suppressKeepPinnedOnce) {
-          // Skip the one-time keep-pinned-to-bottom adjustment right after
-          // a conversation switch so we remain at the top.
-          _suppressKeepPinnedOnce = false;
-          return;
-        }
         // Skip if user has paused auto-scroll (double-check in callback)
         if (_userPausedAutoScroll) return;
         const double keepPinnedThreshold = 60.0;
@@ -1686,6 +1688,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       activeConversationProvider.select((conv) => conv?.id),
     );
     if (conversationId != _lastConversationId) {
+      // Save outgoing conversation's scroll position
+      final outgoingId = _lastConversationId;
+      if (outgoingId != null && _scrollController.hasClients) {
+        _savedScrollOffsets[outgoingId] =
+            _scrollController.position.pixels;
+      }
+
       _lastConversationId = conversationId;
       _userPausedAutoScroll = false; // Reset pause on conversation change
       _wantsPinToTop = false;
@@ -1693,11 +1702,18 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       _endPinToTopInFlight = false;
       if (conversationId == null) {
         _shouldAutoScrollToBottom = true;
-        _pendingConversationScrollReset = false;
+        _pendingScrollRestore = false;
         _scheduleAutoScrollToBottom();
-      } else {
-        _pendingConversationScrollReset = true;
+      } else if (_savedScrollOffsets.containsKey(conversationId)) {
+        // Restore saved scroll position for this conversation
+        _pendingScrollRestore = true;
+        _restoreScrollOffset = _savedScrollOffsets[conversationId]!;
         _shouldAutoScrollToBottom = false;
+      } else {
+        // First open in this session — scroll to bottom (latest message)
+        _shouldAutoScrollToBottom = true;
+        _pendingScrollRestore = false;
+        _scheduleAutoScrollToBottom();
       }
     }
     // Watch loading state for app bar skeleton
