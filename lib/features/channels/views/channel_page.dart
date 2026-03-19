@@ -46,6 +46,15 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   final TextEditingController _editController =
       TextEditingController();
   Timer? _typingTimer;
+  ChannelMessage? _replyToMessage;
+
+  void _setReplyTo(ChannelMessage message) {
+    setState(() => _replyToMessage = message);
+  }
+
+  void _clearReplyTo() {
+    setState(() => _replyToMessage = null);
+  }
 
   @override
   void initState() {
@@ -139,6 +148,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         widget.channelId,
         content: content,
         tempId: tempId,
+        replyToId: _replyToMessage?.id,
       );
       if (!mounted) return;
       final message = ChannelMessage.fromJson(json);
@@ -148,6 +158,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
                 .notifier,
           )
           .prependMessage(message);
+      _clearReplyTo();
     } catch (e, s) {
       developer.log(
         'Failed to send channel message',
@@ -439,6 +450,18 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
               onTap: () {
                 Navigator.pop(ctx);
                 _showEmojiPicker(message);
+              },
+            ),
+            ListTile(
+              leading: const Icon(
+                Icons.reply_outlined,
+              ),
+              title: Text(
+                l10n?.channelMessageReply ?? 'Reply',
+              ),
+              onTap: () {
+                Navigator.pop(ctx);
+                _setReplyTo(message);
               },
             ),
             ListTile(
@@ -814,6 +837,46 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
               );
             },
           ),
+          if (_replyToMessage != null)
+            Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: Spacing.md,
+                vertical: Spacing.sm,
+              ),
+              color: theme.surfaceContainer,
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.reply,
+                    size: 16,
+                    color: theme.textSecondary,
+                  ),
+                  const SizedBox(width: Spacing.sm),
+                  Expanded(
+                    child: Text(
+                      'Replying to '
+                      '${_replyToMessage!.userName}',
+                      style: TextStyle(
+                        color: theme.textSecondary,
+                        fontSize: 13,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  IconButton(
+                    icon: Icon(
+                      Icons.close,
+                      size: 16,
+                      color: theme.textSecondary,
+                    ),
+                    onPressed: _clearReplyTo,
+                    padding: EdgeInsets.zero,
+                    constraints:
+                        const BoxConstraints(),
+                  ),
+                ],
+              ),
+            ),
           RepaintBoundary(
             child: ModernChatInput(
               onSendMessage: _sendMessage,
@@ -989,6 +1052,82 @@ class _MessageBubble extends StatelessWidget {
                 children: [
                   _buildHeader(theme, timestamp),
                   const SizedBox(height: Spacing.xxs),
+                  if (message.replyToMessage != null)
+                    Container(
+                      margin: const EdgeInsets.only(
+                        bottom: Spacing.xxs,
+                      ),
+                      padding: const EdgeInsets.only(
+                        left: Spacing.sm,
+                      ),
+                      decoration: BoxDecoration(
+                        border: Border(
+                          left: BorderSide(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .primary,
+                            width: 2,
+                          ),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment:
+                            CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            message.replyToMessage!
+                                .userName,
+                            style: TextStyle(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .primary,
+                              fontSize: 11,
+                              fontWeight:
+                                  FontWeight.w600,
+                            ),
+                          ),
+                          Text(
+                            message
+                                .replyToMessage!.content,
+                            maxLines: 2,
+                            overflow:
+                                TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color:
+                                  theme.textSecondary,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  else if (message.replyToId != null)
+                    Container(
+                      margin: const EdgeInsets.only(
+                        bottom: Spacing.xxs,
+                      ),
+                      padding: const EdgeInsets.only(
+                        left: Spacing.sm,
+                      ),
+                      decoration: BoxDecoration(
+                        border: Border(
+                          left: BorderSide(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .primary,
+                            width: 2,
+                          ),
+                        ),
+                      ),
+                      child: Text(
+                        'Reply',
+                        style: TextStyle(
+                          color: theme.textSecondary,
+                          fontSize: 11,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ),
                   if (message.isPinned)
                     Padding(
                       padding: const EdgeInsets.only(
