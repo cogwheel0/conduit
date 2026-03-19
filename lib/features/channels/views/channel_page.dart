@@ -822,6 +822,35 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
               : Icons.tag,
         ),
         actions: [
+          if (channel?.userCount != null)
+            Padding(
+              padding: const EdgeInsets.only(
+                right: Spacing.xs,
+              ),
+              child: GestureDetector(
+                onTap: _showMemberList,
+                child: FloatingAppBarPill(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.people_outline,
+                        size: IconSize.appBar,
+                        color: theme.textPrimary,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${channel!.userCount}',
+                        style: TextStyle(
+                          color: theme.textPrimary,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           Padding(
             padding: const EdgeInsets.only(
               right: Spacing.inputPadding,
@@ -1021,6 +1050,112 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         );
       },
     );
+  }
+
+  Future<void> _showMemberList() async {
+    final api = ref.read(apiServiceProvider);
+    if (api == null) return;
+    final theme = context.conduitTheme;
+
+    try {
+      final result = await api.getChannelMembers(
+        widget.channelId,
+      );
+      if (!mounted) return;
+      final users =
+          (result['users'] as List<dynamic>?) ?? [];
+      final total =
+          (result['total'] as int?) ?? users.length;
+
+      showModalBottomSheet<void>(
+        context: context,
+        backgroundColor: theme.surfaceContainer,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(
+            top: Radius.circular(
+              AppBorderRadius.bottomSheet,
+            ),
+          ),
+        ),
+        builder: (ctx) => SafeArea(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight:
+                  MediaQuery.of(ctx).size.height *
+                      0.6,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(
+                    Spacing.md,
+                  ),
+                  child: Text(
+                    'Members ($total)',
+                    style: TextStyle(
+                      color: theme.textPrimary,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
+                const Divider(height: 1),
+                Flexible(
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: users.length,
+                    itemBuilder: (ctx, index) {
+                      final u = users[index]
+                          as Map<String, dynamic>;
+                      final name =
+                          u['name'] as String? ??
+                              'Unknown';
+                      final role =
+                          u['role'] as String? ?? '';
+                      return ListTile(
+                        leading: CircleAvatar(
+                          radius: 16,
+                          child: Text(
+                            name[0].toUpperCase(),
+                            style: const TextStyle(
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                        title: Text(
+                          name,
+                          style: TextStyle(
+                            color: theme.textPrimary,
+                          ),
+                        ),
+                        subtitle: role.isNotEmpty
+                            ? Text(
+                                role,
+                                style: TextStyle(
+                                  color: theme
+                                      .textSecondary,
+                                  fontSize: 12,
+                                ),
+                              )
+                            : null,
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    } catch (e, st) {
+      developer.log(
+        'Failed to load members',
+        name: 'ChannelPage',
+        error: e,
+        stackTrace: st,
+      );
+    }
   }
 
   Widget _buildMoreMenuButton(
