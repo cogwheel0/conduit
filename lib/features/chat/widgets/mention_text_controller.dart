@@ -1,5 +1,26 @@
 import 'package:flutter/material.dart';
 
+/// Metadata for a tracked mention (range + identity).
+class MentionData {
+  MentionData({
+    required this.range,
+    required this.idType,
+    required this.id,
+    required this.label,
+  });
+
+  TextRange range;
+
+  /// 'M' for model, 'U' for user, 'C' for channel.
+  final String idType;
+
+  /// The entity ID (e.g. model ID).
+  final String id;
+
+  /// Display label (e.g. model name).
+  final String label;
+}
+
 /// A [TextEditingController] that renders tracked `@mention` spans
 /// with distinct styling inside the text field.
 ///
@@ -11,8 +32,9 @@ import 'package:flutter/material.dart';
 class MentionTextEditingController extends TextEditingController {
   MentionTextEditingController({super.text});
 
-  /// Active mention ranges, sorted by [TextRange.start].
-  final List<TextRange> _mentions = <TextRange>[];
+  /// Active mention data, sorted by [TextRange.start].
+  final List<MentionData> _mentionData = <MentionData>[];
+
 
   /// The color used for mention text. Updated by the widget that
   /// owns this controller whenever the theme changes.
@@ -21,56 +43,105 @@ class MentionTextEditingController extends TextEditingController {
   /// Background highlight for mention tokens.
   Color mentionBackground = const Color(0x1A1976D2);
 
-  /// Registers a new mention spanning [start] to [end] in the
-  /// current text.
-  void addMention(int start, int end) {
-    _mentions
-      ..add(TextRange(start: start, end: end))
-      ..sort((a, b) => a.start.compareTo(b.start));
+  /// Registers a new mention spanning [start] to [end].
+  ///
+  /// [idType] is 'M' for model, 'U' for user, 'C' for
+  /// channel. [id] is the entity ID and [label] is the
+  /// display name.
+  void addMention(
+    int start,
+    int end, {
+    String idType = 'M',
+    String id = '',
+    String label = '',
+  }) {
+    _mentionData
+      ..add(MentionData(
+        range: TextRange(start: start, end: end),
+        idType: idType,
+        id: id,
+        label: label,
+      ))
+      ..sort(
+        (a, b) => a.range.start.compareTo(b.range.start),
+      );
   }
 
   /// Removes all tracked mentions.
-  void clearMentions() => _mentions.clear();
+  void clearMentions() => _mentionData.clear();
+
+  /// Converts display text to the OpenWebUI wire format.
+  ///
+  /// Replaces each tracked mention span (e.g. `@GPT-4`)
+  /// with `<@M:model_id|GPT-4>`.
+  String toWireFormat() {
+    final String plainText = text;
+    if (_mentionData.isEmpty) return plainText;
+
+    final buf = StringBuffer();
+    int cursor = 0;
+
+    for (final m in _mentionData) {
+      final start =
+          m.range.start.clamp(0, plainText.length);
+      final end =
+          m.range.end.clamp(start, plainText.length);
+      if (start == end) continue;
+
+      buf.write(plainText.substring(cursor, start));
+      buf.write('<@${m.idType}:${m.id}|${m.label}>');
+      cursor = end;
+    }
+
+    if (cursor < plainText.length) {
+      buf.write(plainText.substring(cursor));
+    }
+    return buf.toString();
+  }
 
   @override
   set value(TextEditingValue newValue) {
     // Adjust mention ranges when text length changes.
-    if (_mentions.isNotEmpty) {
+    if (_mentionData.isNotEmpty) {
       _reconcileMentions(text, newValue.text);
     }
     super.value = newValue;
   }
 
-  /// Walks the diff between [oldText] and [newText] and shifts /
-  /// invalidates mention ranges accordingly.
-  void _reconcileMentions(String oldText, String newText) {
+  /// Walks the diff between [oldText] and [newText] and
+  /// shifts / invalidates mention ranges accordingly.
+  void _reconcileMentions(
+    String oldText,
+    String newText,
+  ) {
     if (oldText == newText) return;
 
     final int delta = newText.length - oldText.length;
-    // Find the first character that differs.
     int changeStart = 0;
-    final int minLen =
-        oldText.length < newText.length ? oldText.length : newText.length;
+    final int minLen = oldText.length < newText.length
+        ? oldText.length
+        : newText.length;
     while (changeStart < minLen &&
         oldText[changeStart] == newText[changeStart]) {
       changeStart++;
     }
 
-    final List<TextRange> updated = <TextRange>[];
-    for (final TextRange m in _mentions) {
-      if (changeStart >= m.end) {
-        // Change is entirely after this mention — keep as-is.
+    final List<MentionData> updated = <MentionData>[];
+    for (final MentionData m in _mentionData) {
+      if (changeStart >= m.range.end) {
+        // After this mention — keep as-is.
         updated.add(m);
-      } else if (changeStart <= m.start) {
-        // Change is entirely before this mention — shift it.
-        updated.add(TextRange(
-          start: m.start + delta,
-          end: m.end + delta,
-        ));
+      } else if (changeStart <= m.range.start) {
+        // Before this mention — shift it.
+        m.range = TextRange(
+          start: m.range.start + delta,
+          end: m.range.end + delta,
+        );
+        updated.add(m);
       }
-      // Otherwise the change overlaps the mention — drop it.
+      // Overlaps the mention — drop it.
     }
-    _mentions
+    _mentionData
       ..clear()
       ..addAll(updated);
   }
@@ -82,7 +153,7 @@ class MentionTextEditingController extends TextEditingController {
     required bool withComposing,
   }) {
     final String plainText = text;
-    if (plainText.isEmpty || _mentions.isEmpty) {
+    if (plainText.isEmpty || _mentionData.isEmpty) {
       return TextSpan(style: style, text: plainText);
     }
 
@@ -95,32 +166,43 @@ class MentionTextEditingController extends TextEditingController {
     final List<InlineSpan> children = <InlineSpan>[];
     int cursor = 0;
 
-    for (final TextRange m in _mentions) {
-      final int start = m.start.clamp(0, plainText.length);
-      final int end = m.end.clamp(start, plainText.length);
+    for (final MentionData m in _mentionData) {
+      final int start =
+          m.range.start.clamp(0, plainText.length);
+      final int end =
+          m.range.end.clamp(start, plainText.length);
       if (start == end) continue;
 
-      // Plain text before this mention.
       if (start > cursor) {
         children.add(
-          TextSpan(text: plainText.substring(cursor, start), style: style),
+          TextSpan(
+            text: plainText.substring(cursor, start),
+            style: style,
+          ),
         );
       }
 
-      // The mention itself.
       children.add(
-        TextSpan(text: plainText.substring(start, end), style: mentionStyle),
+        TextSpan(
+          text: plainText.substring(start, end),
+          style: mentionStyle,
+        ),
       );
       cursor = end;
     }
 
-    // Trailing plain text.
     if (cursor < plainText.length) {
       children.add(
-        TextSpan(text: plainText.substring(cursor), style: style),
+        TextSpan(
+          text: plainText.substring(cursor),
+          style: style,
+        ),
       );
     }
 
-    return TextSpan(style: style, children: children);
+    return TextSpan(
+      style: style,
+      children: children,
+    );
   }
 }

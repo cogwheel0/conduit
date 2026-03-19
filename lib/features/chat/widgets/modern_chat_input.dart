@@ -263,8 +263,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final text = _controller.text.trim();
     if (text.isEmpty || !widget.enabled) return;
 
+    // Convert @mentions to OpenWebUI wire format
+    // (e.g. @GPT-4 → <@M:gpt-4|GPT-4>) before sending.
+    final wireText = _controller.toWireFormat().trim();
+
     PlatformUtils.lightHaptic();
-    widget.onSendMessage(text);
+    widget.onSendMessage(wireText);
     _controller.clearMentions();
     _controller.clear();
     _focusNode.unfocus();
@@ -681,10 +685,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       selection: TextSelection.collapsed(offset: newCursor),
     );
 
-    // Track the mention range for styled rendering (exclude trailing space).
+    // Track the mention range for styled rendering
+    // (exclude trailing space) and store the model ID
+    // so we can convert to OpenWebUI wire format on send.
     _controller.addMention(
       range.start,
       range.start + mention.trimRight().length,
+      idType: 'M',
+      id: model.id,
+      label: model.name,
     );
 
     // Switch to the selected model.
