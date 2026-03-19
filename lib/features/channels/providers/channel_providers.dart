@@ -57,8 +57,8 @@ class ActiveChannel extends _$ActiveChannel {
   void clear() => state = null;
 }
 
-/// Fetches paginated messages for a channel using cursor-based
-/// pagination (the [before] timestamp of the oldest loaded message).
+/// Fetches paginated messages for a channel using skip/limit
+/// pagination.
 @riverpod
 class ChannelMessages extends _$ChannelMessages {
   static const int _pageSize = 50;
@@ -82,7 +82,7 @@ class ChannelMessages extends _$ChannelMessages {
 
   bool get hasMore => _hasMore;
 
-  /// Loads older messages before the oldest currently loaded message.
+  /// Loads older messages using skip/limit pagination.
   Future<void> loadMore() async {
     if (!_hasMore) return;
     final current = state.value ?? [];
@@ -91,12 +91,10 @@ class ChannelMessages extends _$ChannelMessages {
     final api = ref.read(apiServiceProvider);
     if (api == null) return;
 
-    final oldest = current.last;
-    final before = oldest.createdDateTime;
     final rawMessages = await api.getChannelMessages(
       channelId,
+      skip: current.length,
       limit: _pageSize,
-      before: before,
     );
     final older = rawMessages
         .map((json) => ChannelMessage.fromJson(json))
@@ -133,25 +131,15 @@ class ChannelMessages extends _$ChannelMessages {
   }
 }
 
-/// Fetches member list for a channel.
+/// Fetches member list for a channel (first page).
 @riverpod
-Future<List<Map<String, dynamic>>> channelMembers(
+Future<Map<String, dynamic>> channelMembers(
   Ref ref,
   String channelId,
 ) async {
   final api = ref.watch(apiServiceProvider);
-  if (api == null) return [];
+  if (api == null) {
+    return {'users': <dynamic>[], 'total': 0};
+  }
   return api.getChannelMembers(channelId);
-}
-
-/// Fetches unread count for a channel.
-@Riverpod(keepAlive: true)
-Future<int> channelUnreadCount(
-  Ref ref,
-  String channelId,
-) async {
-  final api = ref.watch(apiServiceProvider);
-  if (api == null) return 0;
-  final result = await api.getChannelUnreadCount(channelId);
-  return (result['count'] as int?) ?? 0;
 }

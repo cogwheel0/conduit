@@ -270,10 +270,7 @@ class _ChannelTile extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = context.conduitTheme;
-    final unreadAsync = ref.watch(
-      channelUnreadCountProvider(channel.id),
-    );
-    final unread = unreadAsync.asData?.value ?? 0;
+    final unread = channel.unreadCount;
 
     final background = selected
         ? Color.alphaBlend(
