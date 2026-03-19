@@ -139,6 +139,7 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
       if (api == null) return;
       final json = await api.createChannel(
         name: name,
+        type: 'group',
         description: description,
         isPrivate: isPrivate,
       );
