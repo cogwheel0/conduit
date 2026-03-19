@@ -21,6 +21,7 @@ import '../providers/knowledge_cache_provider.dart';
 import '../../tools/providers/tools_providers.dart';
 import '../../prompts/providers/prompts_providers.dart';
 import '../../../core/models/tool.dart';
+import '../../../core/models/model.dart';
 import '../../../core/models/prompt.dart';
 import '../../../core/models/toggle_filter.dart';
 import '../../../core/providers/app_providers.dart';
@@ -37,11 +38,23 @@ import '../../auth/providers/unified_auth_providers.dart';
 import 'chat_input_intents.dart';
 import 'expanded_text_editor.dart';
 import 'composer_overflow_menu.dart';
+import 'mention_text_controller.dart';
+import 'model_suggestion_overlay.dart';
 import 'prompt_suggestion_overlay.dart';
 
 class ModernChatInput extends ConsumerStatefulWidget {
   final Function(String) onSendMessage;
   final bool enabled;
+
+  /// Optional placeholder text shown when the input is empty.
+  /// Falls back to the localised default ("Ask anything...").
+  final String? placeholder;
+
+  /// Builder that replaces the default overflow (+) button entirely.
+  /// Receives the button size so the replacement can match layout.
+  /// When provided, the default [ComposerOverflowSheet] is not used.
+  final Widget Function(double size)? overflowButtonBuilder;
+
   final Function()? onVoiceInput;
   final Function()? onVoiceCall;
   final Function()? onFileAttachment;
@@ -56,6 +69,8 @@ class ModernChatInput extends ConsumerStatefulWidget {
     super.key,
     required this.onSendMessage,
     this.enabled = true,
+    this.placeholder,
+    this.overflowButtonBuilder,
     this.onVoiceInput,
     this.onVoiceCall,
     this.onFileAttachment,
@@ -77,7 +92,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   static const double _composerRadius = AppBorderRadius.card;
 
-  final TextEditingController _controller = TextEditingController();
+  final MentionTextEditingController _controller =
+      MentionTextEditingController();
   final FocusNode _focusNode = FocusNode();
 
   /// Preserves the text field widget across parent shell swaps (e.g. when the
@@ -249,6 +265,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
     PlatformUtils.lightHaptic();
     widget.onSendMessage(text);
+    _controller.clearMentions();
     _controller.clear();
     _focusNode.unfocus();
     try {
@@ -562,9 +579,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     });
 
     if (!wasShowing && shouldShow) {
-      // Trigger prompt fetch lazily when overlay first appears
+      // Trigger data fetch lazily when overlay first appears.
       if (_currentPromptCommand.startsWith('/')) {
         ref.read(promptsListProvider.future);
+      } else if (_currentPromptCommand.startsWith('@')) {
+        ref.read(modelsProvider.future);
       }
     }
   }
@@ -592,7 +611,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
     final String candidate = text.substring(start, cursor);
     if (candidate.isEmpty ||
-        !(candidate.startsWith('/') || candidate.startsWith('#'))) {
+        !(candidate.startsWith('/') ||
+            candidate.startsWith('#') ||
+            candidate.startsWith('@'))) {
       return null;
     }
 
@@ -626,24 +647,82 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     return filtered;
   }
 
+  List<Model> _filterModels(List<Model> models) {
+    if (models.isEmpty) return const <Model>[];
+    final String query = _currentPromptCommand.toLowerCase().trim();
+    final String searchQuery =
+        query.startsWith('@') ? query.substring(1) : query;
+
+    if (searchQuery.isEmpty) return models;
+
+    return models
+        .where(
+          (m) =>
+              m.name.toLowerCase().contains(searchQuery) ||
+              m.id.toLowerCase().contains(searchQuery),
+        )
+        .toList();
+  }
+
+  void _applyModel(Model model) {
+    final TextRange? range = _currentPromptRange;
+    if (range == null) return;
+
+    // Replace the @query with @ModelName (keep it visible like OpenWebUI).
+    final String text = _controller.text;
+    final String before = text.substring(0, range.start);
+    final String after = text.substring(range.end);
+    final String mention = '@${model.name} ';
+    final String newText = '$before$mention$after';
+    final int newCursor = before.length + mention.length;
+
+    _controller.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(offset: newCursor),
+    );
+
+    // Track the mention range for styled rendering (exclude trailing space).
+    _controller.addMention(
+      range.start,
+      range.start + mention.trimRight().length,
+    );
+
+    // Switch to the selected model.
+    ref.read(selectedModelProvider.notifier).set(model);
+
+    setState(() {
+      _hasText = newText.trim().isNotEmpty;
+      _showPromptOverlay = false;
+      _currentPromptCommand = '';
+      _currentPromptRange = null;
+      _promptSelectionIndex = 0;
+    });
+  }
+
   void _movePromptSelection(int delta) {
     if (_currentPromptCommand.startsWith('#')) {
       // Only a single option in knowledge overlay; nothing to move.
       return;
     }
 
-    final AsyncValue<List<Prompt>> promptsAsync = ref.read(promptsListProvider);
-    final List<Prompt>? prompts = promptsAsync.value;
-    if (prompts == null || prompts.isEmpty) return;
-
-    final List<Prompt> filtered = _filterPrompts(prompts);
-    if (filtered.isEmpty) return;
+    // Determine filtered list length based on trigger type.
+    final int filteredLength;
+    if (_currentPromptCommand.startsWith('@')) {
+      final List<Model>? models = ref.read(modelsProvider).value;
+      if (models == null || models.isEmpty) return;
+      filteredLength = _filterModels(models).length;
+    } else {
+      final List<Prompt>? prompts = ref.read(promptsListProvider).value;
+      if (prompts == null || prompts.isEmpty) return;
+      filteredLength = _filterPrompts(prompts).length;
+    }
+    if (filteredLength == 0) return;
 
     int newIndex = _promptSelectionIndex + delta;
     if (newIndex < 0) {
       newIndex = 0;
-    } else if (newIndex >= filtered.length) {
-      newIndex = filtered.length - 1;
+    } else if (newIndex >= filteredLength) {
+      newIndex = filteredLength - 1;
     }
     if (newIndex == _promptSelectionIndex) return;
 
@@ -655,6 +734,16 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   void _confirmPromptSelection() {
     if (_currentPromptCommand.startsWith('#')) {
       _openKnowledgePicker();
+      return;
+    }
+
+    if (_currentPromptCommand.startsWith('@')) {
+      final List<Model>? models = ref.read(modelsProvider).value;
+      if (models == null || models.isEmpty) return;
+      final List<Model> filtered = _filterModels(models);
+      if (filtered.isEmpty) return;
+      int index = _promptSelectionIndex.clamp(0, filtered.length - 1);
+      _applyModel(filtered[index]);
       return;
     }
 
@@ -923,6 +1012,33 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     );
   }
 
+  /// Returns the correct overlay widget for the current trigger character.
+  Widget _buildActiveOverlay() {
+    if (_currentPromptCommand.startsWith('#')) {
+      return _buildKnowledgeOverlay(
+        context,
+        context.conduitTheme.cardBackground,
+        context.conduitTheme.cardBorder.withValues(
+          alpha: Theme.of(context).brightness == Brightness.dark
+              ? 0.6
+              : 0.4,
+        ),
+      );
+    }
+    if (_currentPromptCommand.startsWith('@')) {
+      return ModelSuggestionOverlay(
+        filteredModels: _filterModels,
+        selectionIndex: _promptSelectionIndex,
+        onModelSelected: _applyModel,
+      );
+    }
+    return PromptSuggestionOverlay(
+      filteredPrompts: _filterPrompts,
+      selectionIndex: _promptSelectionIndex,
+      onPromptSelected: _applyPrompt,
+    );
+  }
+
   Widget _buildKnowledgeOverlay(
     BuildContext context,
     Color overlayColor,
@@ -1036,6 +1152,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     }
 
     final Brightness brightness = Theme.of(context).brightness;
+
+    // Keep mention highlight colors in sync with the theme.
+    final mentionColor = context.conduitTheme.buttonPrimary;
+    _controller.mentionColor = mentionColor;
+    _controller.mentionBackground = mentionColor.withValues(alpha: 0.12);
+
     final bool hasComposerFocus = _focusNode.hasFocus;
     final bool isActive = hasComposerFocus || _hasText;
     final bool useGlassColors = !kIsWeb && Platform.isIOS;
@@ -1181,21 +1303,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
             Spacing.sm,
             Spacing.xs,
           ),
-          child: _currentPromptCommand.startsWith('#')
-              ? _buildKnowledgeOverlay(
-                  context,
-                  context.conduitTheme.cardBackground,
-                  context.conduitTheme.cardBorder.withValues(
-                    alpha: Theme.of(context).brightness == Brightness.dark
-                        ? 0.6
-                        : 0.4,
-                  ),
-                )
-              : PromptSuggestionOverlay(
-                  filteredPrompts: _filterPrompts,
-                  selectionIndex: _promptSelectionIndex,
-                  onPromptSelected: _applyPrompt,
-                ),
+          child: _buildActiveOverlay(),
         ),
       if (!showCompactComposer) ...[
         Padding(
@@ -1428,21 +1536,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
             if (_showPromptOverlay)
               Padding(
                 padding: const EdgeInsets.only(bottom: Spacing.xs),
-                child: _currentPromptCommand.startsWith('#')
-                    ? _buildKnowledgeOverlay(
-                        context,
-                        context.conduitTheme.cardBackground,
-                        context.conduitTheme.cardBorder.withValues(
-                          alpha: Theme.of(context).brightness == Brightness.dark
-                              ? 0.6
-                              : 0.4,
-                        ),
-                      )
-                    : PromptSuggestionOverlay(
-                        filteredPrompts: _filterPrompts,
-                        selectionIndex: _promptSelectionIndex,
-                        onPromptSelected: _applyPrompt,
-                      ),
+                child: _buildActiveOverlay(),
               ),
             Row(
               crossAxisAlignment: CrossAxisAlignment.end,
@@ -1645,7 +1739,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 return CupertinoTextField(
                   controller: _controller,
                   focusNode: _focusNode,
-                  placeholder: AppLocalizations.of(context)!.messageHintText,
+                  placeholder: widget.placeholder ??
+                      AppLocalizations.of(context)!.messageHintText,
                   placeholderStyle: baseChatStyle.copyWith(
                     color: animatedPlaceholder,
                     fontWeight: recordingWeight,
@@ -1716,7 +1811,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 ),
                 decoration: context.conduitInputStyles
                     .borderless(
-                      hint: AppLocalizations.of(context)!.messageHintText,
+                      hint: widget.placeholder ??
+                          AppLocalizations.of(context)!.messageHintText,
                     )
                     .copyWith(
                       hintStyle: baseChatStyle.copyWith(
@@ -1762,6 +1858,13 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     required bool filtersActive,
     bool dense = false,
   }) {
+    final double buttonSize = dense ? 36.0 : TouchTarget.minimum;
+
+    // Let the parent supply a completely custom overflow button.
+    if (widget.overflowButtonBuilder != null) {
+      return widget.overflowButtonBuilder!(buttonSize);
+    }
+
     final bool enabled = widget.enabled && !_isRecording;
 
     Color? activeColor;
@@ -1772,7 +1875,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       activeColor = context.conduitTheme.buttonPrimary;
     }
 
-    final double buttonSize = dense ? 36.0 : TouchTarget.minimum;
     final bool isActive = activeColor != null;
 
     final Color iconColor = !enabled
@@ -1927,28 +2029,46 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       );
     }
 
-    // VOICE CALL variant when no text is present
-    final bool enabledVoiceCall = widget.enabled && widget.onVoiceCall != null;
-    return AdaptiveTooltip(
-      message: 'Voice Call',
-      child: _buildComposerIconButton(
-        key: const ValueKey('primary-btn-voice-call'),
-        onPressed: enabledVoiceCall
-            ? () {
-                PlatformUtils.lightHaptic();
-                widget.onVoiceCall!();
-              }
-            : null,
-        size: buttonSize,
-        isProminent: true,
-        child: Icon(
-          Platform.isIOS ? CupertinoIcons.waveform : Icons.graphic_eq,
-          size: dense ? IconSize.large : IconSize.xl,
-          color: enabledVoiceCall
-              ? context.conduitTheme.buttonPrimaryText
-              : context.conduitTheme.textPrimary.withValues(
-                  alpha: Alpha.disabled,
-                ),
+    // VOICE CALL variant when no text is present and voice is available.
+    // Otherwise fall back to a muted send button.
+    if (widget.onVoiceCall != null) {
+      final bool enabledVoiceCall = widget.enabled;
+      return AdaptiveTooltip(
+        message: 'Voice Call',
+        child: _buildComposerIconButton(
+          key: const ValueKey('primary-btn-voice-call'),
+          onPressed: enabledVoiceCall
+              ? () {
+                  PlatformUtils.lightHaptic();
+                  widget.onVoiceCall!();
+                }
+              : null,
+          size: buttonSize,
+          isProminent: true,
+          child: Icon(
+            Platform.isIOS ? CupertinoIcons.waveform : Icons.graphic_eq,
+            size: dense ? IconSize.large : IconSize.xl,
+            color: enabledVoiceCall
+                ? context.conduitTheme.buttonPrimaryText
+                : context.conduitTheme.textPrimary.withValues(
+                    alpha: Alpha.disabled,
+                  ),
+          ),
+        ),
+      );
+    }
+
+    // Muted send button when no text and no voice call.
+    return _buildComposerIconButton(
+      key: const ValueKey('primary-btn-send-muted'),
+      onPressed: null,
+      size: buttonSize,
+      isProminent: false,
+      child: Icon(
+        CupertinoIcons.arrow_up,
+        size: IconSize.large,
+        color: context.conduitTheme.textPrimary.withValues(
+          alpha: Alpha.disabled,
         ),
       ),
     );

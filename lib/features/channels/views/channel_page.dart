@@ -3,16 +3,13 @@ import 'dart:io' show Platform;
 
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
 
 import '../../../core/models/channel.dart';
 import '../../../core/models/channel_message.dart';
-import '../../../core/models/prompt.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../shared/theme/conduit_input_styles.dart';
@@ -20,9 +17,8 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
-import '../../chat/widgets/composer_overflow_menu.dart';
-import '../../chat/widgets/prompt_suggestion_overlay.dart';
-import '../../prompts/providers/prompts_providers.dart';
+import '../../chat/services/file_attachment_service.dart';
+import '../../chat/widgets/modern_chat_input.dart';
 import '../../navigation/widgets/sidebar_page.dart';
 import '../providers/channel_providers.dart';
 import '../providers/channel_socket_handler.dart';
@@ -41,25 +37,13 @@ class ChannelPage extends ConsumerStatefulWidget {
 }
 
 class _ChannelPageState extends ConsumerState<ChannelPage> {
-  static final _promptBoundary = RegExp(r'\s');
-
   final ScrollController _scrollController = ScrollController();
-  final TextEditingController _messageController =
-      TextEditingController();
-  final FocusNode _inputFocusNode = FocusNode();
   bool _isSending = false;
   bool _isLoadingMore = false;
-
-  // Prompt command overlay state (@, /, #)
-  bool _showPromptOverlay = false;
-  String _currentPromptCommand = '';
-  TextRange _currentPromptRange = TextRange.empty;
-  int _promptSelectionIndex = 0;
 
   @override
   void initState() {
     super.initState();
-    _messageController.addListener(_handleComposerChanged);
     _scrollController.addListener(_onScroll);
     _loadChannel();
     ref
@@ -72,10 +56,6 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     _scrollController
       ..removeListener(_onScroll)
       ..dispose();
-    _messageController
-      ..removeListener(_handleComposerChanged)
-      ..dispose();
-    _inputFocusNode.dispose();
     try {
       ref.read(channelSocketHandlerProvider.notifier).unsubscribe();
     } catch (_) {
@@ -127,8 +107,8 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   // Sending messages
   // ---------------------------------------------------------------------------
 
-  Future<void> _sendMessage() async {
-    final content = _messageController.text.trim();
+  Future<void> _sendMessage(String text) async {
+    final content = text.trim();
     if (content.isEmpty || _isSending) return;
 
     final api = ref.read(apiServiceProvider);
@@ -145,7 +125,6 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       ref
           .read(channelMessagesProvider(widget.channelId).notifier)
           .prependMessage(message);
-      _messageController.clear();
     } catch (_) {
       if (!mounted) return;
       final l10n = AppLocalizations.of(context);
@@ -156,6 +135,81 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       }
     } finally {
       if (mounted) setState(() => _isSending = false);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Attachment popup (plus button)
+  // ---------------------------------------------------------------------------
+
+  /// Builds the overflow (+) button as an [AdaptivePopupMenuButton]
+  /// with file, photo, and camera actions.
+  Widget _buildAttachmentButton(double size) {
+    final l10n = AppLocalizations.of(context);
+    final theme = context.conduitTheme;
+
+    return AdaptivePopupMenuButton.widget<String>(
+      items: [
+        AdaptivePopupMenuItem<String>(
+          value: 'file',
+          label: l10n?.file ?? 'File',
+          icon: Platform.isIOS
+              ? CupertinoIcons.doc
+              : Icons.attach_file,
+        ),
+        AdaptivePopupMenuItem<String>(
+          value: 'photo',
+          label: l10n?.photo ?? 'Photo',
+          icon: Platform.isIOS
+              ? CupertinoIcons.photo
+              : Icons.image,
+        ),
+        AdaptivePopupMenuItem<String>(
+          value: 'camera',
+          label: l10n?.camera ?? 'Camera',
+          icon: Platform.isIOS
+              ? CupertinoIcons.camera
+              : Icons.camera_alt,
+        ),
+      ],
+      onSelected: (index, entry) => _handleAttachmentAction(
+        entry.value as String,
+      ),
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: theme.surfaceContainerHighest,
+          border: Border.all(
+            color: theme.cardBorder,
+            width: BorderWidth.thin,
+          ),
+        ),
+        child: Icon(
+          Platform.isIOS ? CupertinoIcons.add : Icons.add,
+          size: IconSize.large,
+          color: theme.textPrimary.withValues(
+            alpha: Alpha.strong,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handleAttachmentAction(String action) async {
+    final fileService = ref.read(fileAttachmentServiceProvider);
+    if (fileService == null || fileService is! FileAttachmentService) {
+      return;
+    }
+
+    switch (action) {
+      case 'file':
+        await fileService.pickFiles();
+      case 'photo':
+        await fileService.pickImage();
+      case 'camera':
+        await fileService.takePhoto();
     }
   }
 
@@ -571,7 +625,13 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
               ),
             ),
           ),
-          _buildInputBar(theme),
+          RepaintBoundary(
+            child: ModernChatInput(
+              onSendMessage: _sendMessage,
+              placeholder: 'Type here...',
+              overflowButtonBuilder: _buildAttachmentButton,
+            ),
+          ),
         ],
       ),
     );
@@ -679,425 +739,6 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Prompt command detection (@, /, #)
-  // ---------------------------------------------------------------------------
-
-  void _handleComposerChanged() {
-    final text = _messageController.text;
-    final selection = _messageController.selection;
-    setState(() {}); // rebuild for hasText
-
-    if (!selection.isValid || !selection.isCollapsed) {
-      if (_showPromptOverlay) {
-        setState(() => _showPromptOverlay = false);
-      }
-      return;
-    }
-
-    final match = _resolvePromptCommand(text, selection);
-    if (match != null) {
-      final (command, start, end) = match;
-      if (command != _currentPromptCommand) {
-        setState(() {
-          _showPromptOverlay = true;
-          _currentPromptCommand = command;
-          _currentPromptRange = TextRange(start: start, end: end);
-          _promptSelectionIndex = 0;
-        });
-        // Lazy-load prompts list when '/' typed.
-        if (command.startsWith('/')) {
-          ref.read(promptsListProvider.future);
-        }
-      } else {
-        _currentPromptRange = TextRange(start: start, end: end);
-      }
-    } else if (_showPromptOverlay) {
-      setState(() {
-        _showPromptOverlay = false;
-        _currentPromptCommand = '';
-        _currentPromptRange = TextRange.empty;
-      });
-    }
-  }
-
-  (String, int, int)? _resolvePromptCommand(
-    String text,
-    TextSelection selection,
-  ) {
-    final cursor = selection.baseOffset;
-    if (cursor <= 0 || cursor > text.length) return null;
-
-    var start = cursor - 1;
-    while (start >= 0 && !_promptBoundary.hasMatch(text[start])) {
-      start--;
-    }
-    start++;
-
-    if (start >= cursor) return null;
-    final candidate = text.substring(start, cursor);
-    if (candidate.isEmpty) return null;
-    final trigger = candidate[0];
-    if (trigger != '/' && trigger != '#') return null;
-
-    return (candidate, start, cursor);
-  }
-
-  void _applyPrompt(Prompt prompt) {
-    final content = prompt.content;
-    final text = _messageController.text;
-    final range = _currentPromptRange;
-
-    final before = text.substring(0, range.start);
-    final after = text.substring(range.end);
-    final newText = '$before$content$after';
-    final newCursor = before.length + content.length;
-
-    _messageController.value = TextEditingValue(
-      text: newText,
-      selection: TextSelection.collapsed(offset: newCursor),
-    );
-
-    setState(() {
-      _showPromptOverlay = false;
-      _currentPromptCommand = '';
-      _currentPromptRange = TextRange.empty;
-    });
-  }
-
-  List<Prompt> _filterPrompts(List<Prompt> prompts) {
-    if (_currentPromptCommand.length <= 1) return prompts;
-    final query = _currentPromptCommand.substring(1).toLowerCase();
-    return prompts
-        .where(
-          (p) =>
-              p.command.toLowerCase().contains(query) ||
-              p.title.toLowerCase().contains(query),
-        )
-        .toList();
-  }
-
-  void _movePromptSelection(int delta) {
-    setState(() {
-      _promptSelectionIndex =
-          (_promptSelectionIndex + delta).clamp(0, 99);
-    });
-  }
-
-  void _hidePromptOverlay() {
-    setState(() {
-      _showPromptOverlay = false;
-      _currentPromptCommand = '';
-      _currentPromptRange = TextRange.empty;
-    });
-  }
-
-  void _handleOverlayKeyEvent(KeyEvent event) {
-    if (event is! KeyDownEvent) return;
-    if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
-      _movePromptSelection(1);
-    } else if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
-      _movePromptSelection(-1);
-    } else if (event.logicalKey == LogicalKeyboardKey.escape) {
-      _hidePromptOverlay();
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Overflow sheet (plus button)
-  // ---------------------------------------------------------------------------
-
-  void _showOverflowSheet() {
-    HapticFeedback.selectionClick();
-    final prevCanRequest = _inputFocusNode.canRequestFocus;
-    final wasFocused = _inputFocusNode.hasFocus;
-    _inputFocusNode.canRequestFocus = false;
-    try {
-      FocusScope.of(context).unfocus();
-      SystemChannels.textInput.invokeMethod('TextInput.hide');
-    } catch (_) {}
-
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (_) => const ComposerOverflowSheet(),
-    ).whenComplete(() {
-      if (mounted) {
-        _inputFocusNode.canRequestFocus = prevCanRequest;
-        if (wasFocused) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (!mounted) return;
-            _inputFocusNode.requestFocus();
-          });
-        }
-      }
-    });
-  }
-
-  // ---------------------------------------------------------------------------
-  // Input bar
-  // ---------------------------------------------------------------------------
-
-  Widget _buildInputBar(ConduitThemeExtension theme) {
-    final bottomPadding =
-        MediaQuery.of(context).viewPadding.bottom;
-    final hasText = _messageController.text.trim().isNotEmpty;
-    final sendEnabled = hasText && !_isSending;
-    final shellRadius = BorderRadius.circular(
-      AppBorderRadius.round,
-    );
-
-    return Padding(
-      padding: EdgeInsets.fromLTRB(
-        Spacing.screenPadding,
-        0,
-        Spacing.screenPadding,
-        bottomPadding + Spacing.md,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Prompt suggestion overlay
-          if (_showPromptOverlay &&
-              _currentPromptCommand.startsWith('/'))
-            Padding(
-              padding: const EdgeInsets.only(bottom: Spacing.xs),
-              child: PromptSuggestionOverlay(
-                filteredPrompts: _filterPrompts,
-                selectionIndex: _promptSelectionIndex,
-                onPromptSelected: _applyPrompt,
-              ),
-            ),
-          // Composer shell
-          _buildComposerShell(
-            theme: theme,
-            borderRadius: shellRadius,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                // Plus / overflow button
-                Padding(
-                  padding: const EdgeInsets.only(
-                    bottom: Spacing.xs,
-                  ),
-                  child: _buildComposerIconButton(
-                    theme: theme,
-                    onPressed: _showOverflowSheet,
-                    size: 36.0,
-                    child: Icon(
-                      Platform.isIOS
-                          ? CupertinoIcons.add
-                          : Icons.add,
-                      size: IconSize.large,
-                      color: theme.textPrimary.withValues(
-                        alpha: Alpha.strong,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: Spacing.xs),
-                // Text field
-                Expanded(
-                  child: KeyboardListener(
-                    focusNode: FocusNode(skipTraversal: true),
-                    onKeyEvent: _showPromptOverlay
-                        ? _handleOverlayKeyEvent
-                        : null,
-                    child: _buildComposerTextField(theme),
-                  ),
-                ),
-                const SizedBox(width: Spacing.xs),
-                // Send button
-                Padding(
-                  padding: const EdgeInsets.only(
-                    bottom: Spacing.xs,
-                  ),
-                  child: _buildSendButton(
-                    theme,
-                    enabled: sendEnabled,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildComposerShell({
-    required ConduitThemeExtension theme,
-    required BorderRadius borderRadius,
-    required Widget child,
-  }) {
-    if (!kIsWeb && Platform.isIOS) {
-      return AdaptiveBlurView(
-        blurStyle: BlurStyle.systemUltraThinMaterial,
-        borderRadius: borderRadius,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(
-            Spacing.md, 0, Spacing.md, 0,
-          ),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(
-              minHeight: TouchTarget.input,
-            ),
-            child: Center(child: child),
-          ),
-        ),
-      );
-    }
-
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.surfaceContainerHighest,
-        borderRadius: borderRadius,
-        border: Border.all(
-          color: theme.cardBorder,
-          width: BorderWidth.thin,
-        ),
-      ),
-      padding: const EdgeInsets.fromLTRB(
-        Spacing.md, 0, Spacing.md, 0,
-      ),
-      constraints: const BoxConstraints(
-        minHeight: TouchTarget.input,
-      ),
-      alignment: Alignment.center,
-      child: child,
-    );
-  }
-
-  Widget _buildComposerTextField(ConduitThemeExtension theme) {
-    final textStyle = AppTypography.chatMessageStyle.copyWith(
-      color: theme.inputText,
-    );
-    const contentPadding = EdgeInsets.symmetric(
-      vertical: Spacing.xs,
-    );
-    final hint = AppLocalizations.of(context)?.channelMessageHint
-        ?? 'Message...';
-
-    if (!kIsWeb && Platform.isIOS) {
-      return CupertinoTextField(
-        controller: _messageController,
-        focusNode: _inputFocusNode,
-        style: textStyle,
-        placeholder: hint,
-        placeholderStyle: textStyle.copyWith(
-          color: theme.inputPlaceholder,
-        ),
-        decoration: const BoxDecoration(),
-        padding: contentPadding,
-        textCapitalization: TextCapitalization.sentences,
-        textInputAction: TextInputAction.newline,
-        keyboardType: TextInputType.multiline,
-        minLines: 1,
-        maxLines: null,
-        keyboardAppearance:
-            Theme.of(context).brightness,
-        onSubmitted: (_) => _sendMessage(),
-      );
-    }
-
-    return TextField(
-      controller: _messageController,
-      focusNode: _inputFocusNode,
-      style: textStyle,
-      decoration: context.conduitInputStyles.borderless(
-        hint: hint,
-      ).copyWith(
-        contentPadding: contentPadding,
-        isDense: true,
-      ),
-      textCapitalization: TextCapitalization.sentences,
-      textInputAction: TextInputAction.newline,
-      keyboardType: TextInputType.multiline,
-      minLines: 1,
-      maxLines: null,
-      onSubmitted: (_) => _sendMessage(),
-    );
-  }
-
-  Widget _buildComposerIconButton({
-    required ConduitThemeExtension theme,
-    required VoidCallback? onPressed,
-    required Widget child,
-    required double size,
-    bool isProminent = false,
-    Color? color,
-  }) {
-    final effectiveColor = color ?? theme.buttonPrimary;
-
-    if (!kIsWeb && Platform.isIOS) {
-      return AdaptiveButton.child(
-        onPressed: onPressed,
-        enabled: onPressed != null,
-        style: isProminent
-            ? AdaptiveButtonStyle.prominentGlass
-            : AdaptiveButtonStyle.glass,
-        color: effectiveColor,
-        size: size > 40
-            ? AdaptiveButtonSize.large
-            : AdaptiveButtonSize.medium,
-        minSize: Size(size, size),
-        padding: EdgeInsets.zero,
-        borderRadius: BorderRadius.circular(size),
-        useSmoothRectangleBorder: false,
-        child: child,
-      );
-    }
-
-    final bgColor = isProminent
-        ? effectiveColor
-        : theme.surfaceContainerHighest;
-    final borderColor = isProminent
-        ? effectiveColor
-        : theme.cardBorder;
-
-    return SizedBox(
-      width: size,
-      height: size,
-      child: Material(
-        color: bgColor,
-        shape: CircleBorder(
-          side: BorderSide(
-            color: borderColor,
-            width: BorderWidth.thin,
-          ),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onPressed,
-          customBorder: const CircleBorder(),
-          child: Center(child: child),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSendButton(
-    ConduitThemeExtension theme, {
-    required bool enabled,
-  }) {
-    const double size = 36.0;
-    final iconColor = enabled
-        ? theme.buttonPrimaryText
-        : theme.textPrimary.withValues(alpha: Alpha.disabled);
-
-    return _buildComposerIconButton(
-      theme: theme,
-      onPressed: enabled ? _sendMessage : null,
-      size: size,
-      isProminent: true,
-      child: Icon(
-        CupertinoIcons.arrow_up,
-        size: IconSize.large,
-        color: iconColor,
-      ),
-    );
-  }
 }
 
 // ---------------------------------------------------------------------------
