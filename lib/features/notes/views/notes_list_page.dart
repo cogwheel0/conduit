@@ -82,7 +82,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
         .createNote(title: defaultTitle);
 
     if (note != null && mounted) {
-      context.pushNamed(RouteNames.noteEditor, pathParameters: {'id': note.id});
+      context.goNamed(RouteNames.noteEditor, pathParameters: {'id': note.id});
     }
   }
 
@@ -246,7 +246,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
     // Add top padding for floating app bar and search bar
     final topPadding = MediaQuery.of(context).padding.top;
     // App bar height: kToolbarHeight + search bar (48) + padding (xs + sm)
-    final appBarHeight = kToolbarHeight + 48 + Spacing.xs + Spacing.sm;
+    final appBarHeight = kTextTabBarHeight + 48 + Spacing.xs + Spacing.sm;
     final paddedSlivers = <Widget>[
       SliverToBoxAdapter(child: SizedBox(height: topPadding + appBarHeight)),
       ...slivers,
@@ -402,7 +402,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
               overlayColor: WidgetStateProperty.resolveWith(overlayForStates),
               onTap: () {
                 HapticFeedback.selectionClick();
-                context.pushNamed(
+                context.goNamed(
                   RouteNames.noteEditor,
                   pathParameters: {'id': note.id},
                 );
@@ -584,7 +584,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
     final l10n = AppLocalizations.of(context)!;
     final isSearchActive = _query.isNotEmpty;
     final topPadding = MediaQuery.of(context).padding.top;
-    final appBarHeight = kToolbarHeight + 48 + Spacing.xs + Spacing.sm;
+    final appBarHeight = kTextTabBarHeight + 48 + Spacing.xs + Spacing.sm;
 
     return Center(
       child: Padding(
@@ -667,7 +667,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
   Widget _buildLoading(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final topPadding = MediaQuery.of(context).padding.top;
-    final appBarHeight = kToolbarHeight + 48 + Spacing.xs + Spacing.sm;
+    final appBarHeight = kTextTabBarHeight + 48 + Spacing.xs + Spacing.sm;
     return Padding(
       padding: EdgeInsets.only(top: topPadding + appBarHeight),
       child: Center(child: ImprovedLoadingState(message: l10n.loadingNotes)),
@@ -679,7 +679,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
     final sidebarTheme = context.sidebarTheme;
     final l10n = AppLocalizations.of(context)!;
     final topPadding = MediaQuery.of(context).padding.top;
-    final appBarHeight = kToolbarHeight + 48 + Spacing.xs + Spacing.sm;
+    final appBarHeight = kTextTabBarHeight + 48 + Spacing.xs + Spacing.sm;
 
     return Center(
       child: Padding(

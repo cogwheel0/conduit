@@ -3002,58 +3002,41 @@ class ApiService {
 
   Future<Map<String, dynamic>> createChannel({
     required String name,
+    String? type,
     String? description,
-    bool isPrivate = false,
+    bool? isPrivate,
+    Map<String, dynamic>? data,
+    Map<String, dynamic>? meta,
+    List<Map<String, dynamic>>? accessGrants,
+    List<String>? groupIds,
+    List<String>? userIds,
   }) async {
     _traceApi('Creating channel: $name');
     final response = await _dio.post(
-      '/api/v1/channels/',
+      '/api/v1/channels/create',
       data: {
         'name': name,
-        'description': ?description,
-        'is_private': isPrivate,
+        if (type != null) 'type': type,
+        if (description != null) 'description': description,
+        if (isPrivate != null) 'is_private': isPrivate,
+        if (data != null) 'data': data,
+        if (meta != null) 'meta': meta,
+        if (accessGrants != null)
+          'access_grants': accessGrants,
+        if (groupIds != null) 'group_ids': groupIds,
+        if (userIds != null) 'user_ids': userIds,
       },
     );
     return response.data as Map<String, dynamic>;
   }
 
-  Future<void> joinChannel(String channelId) async {
-    _traceApi('Joining channel: $channelId');
-    await _dio.post('/api/v1/channels/$channelId/join');
-  }
-
-  Future<void> leaveChannel(String channelId) async {
-    _traceApi('Leaving channel: $channelId');
-    await _dio.post('/api/v1/channels/$channelId/leave');
-  }
-
-  Future<List<Map<String, dynamic>>> getChannelMembers(String channelId) async {
-    _traceApi('Fetching channel members: $channelId');
-    final response = await _dio.get('/api/v1/channels/$channelId/members');
-    final data = response.data;
-    if (data is List) {
-      return data.cast<Map<String, dynamic>>();
-    }
-    return [];
-  }
-
-  Future<List<Conversation>> getChannelConversations(String channelId) async {
-    _traceApi('Fetching channel conversations: $channelId');
-    final response = await _dio.get('/api/v1/channels/$channelId/chats');
-    final data = response.data;
-    if (data is List) {
-      return data.whereType<Map>().map((chatData) {
-        final map = Map<String, dynamic>.from(chatData);
-        return Conversation.fromJson(parseConversationSummary(map));
-      }).toList();
-    }
-    return [];
-  }
-
-  // Enhanced Channel Management Operations
-  Future<Map<String, dynamic>> getChannel(String channelId) async {
+  Future<Map<String, dynamic>> getChannel(
+    String channelId,
+  ) async {
     _traceApi('Fetching channel details: $channelId');
-    final response = await _dio.get('/api/v1/channels/$channelId');
+    final response = await _dio.get(
+      '/api/v1/channels/$channelId',
+    );
     return response.data as Map<String, dynamic>;
   }
 
@@ -3062,14 +3045,22 @@ class ApiService {
     String? name,
     String? description,
     bool? isPrivate,
+    Map<String, dynamic>? data,
+    Map<String, dynamic>? meta,
+    List<Map<String, dynamic>>? accessGrants,
   }) async {
     _traceApi('Updating channel: $channelId');
     final response = await _dio.post(
       '/api/v1/channels/$channelId/update',
       data: {
-        'name': ?name,
-        'description': ?description,
-        'is_private': ?isPrivate,
+        if (name != null) 'name': name,
+        if (description != null)
+          'description': description,
+        if (isPrivate != null) 'is_private': isPrivate,
+        if (data != null) 'data': data,
+        if (meta != null) 'meta': meta,
+        if (accessGrants != null)
+          'access_grants': accessGrants,
       },
     );
     return response.data as Map<String, dynamic>;
@@ -3077,26 +3068,44 @@ class ApiService {
 
   Future<void> deleteChannel(String channelId) async {
     _traceApi('Deleting channel: $channelId');
-    await _dio.delete('/api/v1/channels/$channelId/delete');
+    await _dio.delete(
+      '/api/v1/channels/$channelId/delete',
+    );
+  }
+
+  Future<Map<String, dynamic>> getChannelMembers(
+    String channelId, {
+    String? query,
+    String? orderBy,
+    String? direction,
+    int page = 1,
+  }) async {
+    _traceApi('Fetching channel members: $channelId');
+    final params = <String, dynamic>{'page': page};
+    if (query != null) params['query'] = query;
+    if (orderBy != null) params['order_by'] = orderBy;
+    if (direction != null) {
+      params['direction'] = direction;
+    }
+    final response = await _dio.get(
+      '/api/v1/channels/$channelId/members',
+      queryParameters: params,
+    );
+    return response.data as Map<String, dynamic>;
   }
 
   Future<List<Map<String, dynamic>>> getChannelMessages(
     String channelId, {
-    int? limit,
-    int? offset,
-    DateTime? before,
-    DateTime? after,
+    int skip = 0,
+    int limit = 50,
   }) async {
     _traceApi('Fetching channel messages: $channelId');
-    final queryParams = <String, dynamic>{};
-    if (limit != null) queryParams['limit'] = limit;
-    if (offset != null) queryParams['offset'] = offset;
-    if (before != null) queryParams['before'] = before.toIso8601String();
-    if (after != null) queryParams['after'] = after.toIso8601String();
-
     final response = await _dio.get(
       '/api/v1/channels/$channelId/messages',
-      queryParameters: queryParams,
+      queryParameters: {
+        'skip': skip,
+        'limit': limit,
+      },
     );
     final data = response.data;
     if (data is List) {
@@ -3108,16 +3117,25 @@ class ApiService {
   Future<Map<String, dynamic>> postChannelMessage(
     String channelId, {
     required String content,
-    String? messageType,
-    Map<String, dynamic>? metadata,
+    String? tempId,
+    String? replyToId,
+    String? parentId,
+    Map<String, dynamic>? data,
+    Map<String, dynamic>? meta,
   }) async {
-    _traceApi('Posting message to channel: $channelId');
+    _traceApi(
+      'Posting message to channel: $channelId',
+    );
     final response = await _dio.post(
       '/api/v1/channels/$channelId/messages/post',
       data: {
         'content': content,
-        'message_type': ?messageType,
-        'metadata': ?metadata,
+        if (tempId != null) 'temp_id': tempId,
+        if (replyToId != null)
+          'reply_to_id': replyToId,
+        if (parentId != null) 'parent_id': parentId,
+        if (data != null) 'data': data,
+        if (meta != null) 'meta': meta,
       },
     );
     return response.data as Map<String, dynamic>;
@@ -3126,71 +3144,171 @@ class ApiService {
   Future<Map<String, dynamic>> updateChannelMessage(
     String channelId,
     String messageId, {
-    String? content,
-    Map<String, dynamic>? metadata,
+    required String content,
+    Map<String, dynamic>? data,
+    Map<String, dynamic>? meta,
   }) async {
-    _traceApi('Updating channel message: $channelId/$messageId');
+    _traceApi(
+      'Updating channel message: '
+      '$channelId/$messageId',
+    );
     final response = await _dio.post(
-      '/api/v1/channels/$channelId/messages/$messageId/update',
+      '/api/v1/channels/$channelId/messages'
+      '/$messageId/update',
       data: {
-        'content': ?content,
-        'metadata': ?metadata,
+        'content': content,
+        if (data != null) 'data': data,
+        if (meta != null) 'meta': meta,
       },
     );
     return response.data as Map<String, dynamic>;
   }
 
-  Future<void> deleteChannelMessage(String channelId, String messageId) async {
-    _traceApi('Deleting channel message: $channelId/$messageId');
-    await _dio.delete('/api/v1/channels/$channelId/messages/$messageId');
-  }
-
-  Future<Map<String, dynamic>> addMessageReaction(
+  Future<void> deleteChannelMessage(
     String channelId,
     String messageId,
-    String emoji,
   ) async {
-    _traceApi('Adding reaction to message: $channelId/$messageId');
-    final response = await _dio.post(
-      '/api/v1/channels/$channelId/messages/$messageId/reactions',
-      data: {'emoji': emoji},
+    _traceApi(
+      'Deleting channel message: '
+      '$channelId/$messageId',
     );
-    return response.data as Map<String, dynamic>;
-  }
-
-  Future<void> removeMessageReaction(
-    String channelId,
-    String messageId,
-    String emoji,
-  ) async {
-    _traceApi('Removing reaction from message: $channelId/$messageId');
     await _dio.delete(
-      '/api/v1/channels/$channelId/messages/$messageId/reactions/$emoji',
+      '/api/v1/channels/$channelId/messages'
+      '/$messageId/delete',
     );
   }
 
-  Future<List<Map<String, dynamic>>> getMessageReactions(
+  Future<bool> addMessageReaction(
+    String channelId,
+    String messageId,
+    String name,
+  ) async {
+    _traceApi(
+      'Adding reaction to message: '
+      '$channelId/$messageId',
+    );
+    final response = await _dio.post(
+      '/api/v1/channels/$channelId/messages'
+      '/$messageId/reactions/add',
+      data: {'name': name},
+    );
+    return response.data as bool;
+  }
+
+  Future<bool> removeMessageReaction(
+    String channelId,
+    String messageId,
+    String name,
+  ) async {
+    _traceApi(
+      'Removing reaction: $channelId/$messageId',
+    );
+    final response = await _dio.post(
+      '/api/v1/channels/$channelId/messages'
+      '/$messageId/reactions/remove',
+      data: {'name': name},
+    );
+    return response.data as bool;
+  }
+
+  /// Gets or creates a DM channel with the given user.
+  Future<Map<String, dynamic>?> getDmChannel(
+    String userId,
+  ) async {
+    _traceApi('Getting DM channel with user: $userId');
+    final response = await _dio.get(
+      '/api/v1/channels/users/$userId',
+    );
+    return response.data as Map<String, dynamic>?;
+  }
+
+  /// Updates current user's active status in a channel.
+  Future<bool> updateMemberActiveStatus(
+    String channelId, {
+    required bool isActive,
+  }) async {
+    _traceApi(
+      'Updating active status in channel: '
+      '$channelId',
+    );
+    final response = await _dio.post(
+      '/api/v1/channels/$channelId/members'
+      '/active',
+      data: {'is_active': isActive},
+    );
+    return response.data as bool;
+  }
+
+  /// Adds members to a channel.
+  Future<List<dynamic>> addChannelMembers(
+    String channelId, {
+    List<String>? userIds,
+    List<String>? groupIds,
+  }) async {
+    _traceApi(
+      'Adding members to channel: $channelId',
+    );
+    final response = await _dio.post(
+      '/api/v1/channels/$channelId'
+      '/update/members/add',
+      data: {
+        if (userIds != null) 'user_ids': userIds,
+        if (groupIds != null)
+          'group_ids': groupIds,
+      },
+    );
+    return response.data as List<dynamic>;
+  }
+
+  /// Removes members from a channel.
+  Future<int> removeChannelMembers(
+    String channelId, {
+    required List<String> userIds,
+  }) async {
+    _traceApi(
+      'Removing members from channel: $channelId',
+    );
+    final response = await _dio.post(
+      '/api/v1/channels/$channelId'
+      '/update/members/remove',
+      data: {'user_ids': userIds},
+    );
+    return response.data as int;
+  }
+
+  /// Fetches a single message with thread info and reactions.
+  Future<Map<String, dynamic>?> getChannelMessage(
     String channelId,
     String messageId,
   ) async {
-    _traceApi('Fetching message reactions: $channelId/$messageId');
-    final response = await _dio.get(
-      '/api/v1/channels/$channelId/messages/$messageId/reactions',
+    _traceApi(
+      'Fetching message: $channelId/$messageId',
     );
-    final data = response.data;
-    if (data is List) {
-      return data.cast<Map<String, dynamic>>();
-    }
-    return [];
+    final response = await _dio.get(
+      '/api/v1/channels/$channelId/messages'
+      '/$messageId',
+    );
+    return response.data as Map<String, dynamic>?;
   }
 
+  /// Fetches thread replies for a message.
   Future<List<Map<String, dynamic>>> getMessageThread(
     String channelId,
-    String messageId,
-  ) async {
-    _traceApi('Fetching message thread: $channelId/$messageId');
+    String messageId, {
+    int skip = 0,
+    int limit = 50,
+  }) async {
+    _traceApi(
+      'Fetching message thread: '
+      '$channelId/$messageId',
+    );
     final response = await _dio.get(
-      '/api/v1/channels/$channelId/messages/$messageId/thread',
+      '/api/v1/channels/$channelId/messages'
+      '/$messageId/thread',
+      queryParameters: {
+        'skip': skip,
+        'limit': limit,
+      },
     );
     final data = response.data;
     if (data is List) {
@@ -3199,32 +3317,58 @@ class ApiService {
     return [];
   }
 
-  Future<Map<String, dynamic>> replyToMessage(
+  /// Pins or unpins a message.
+  Future<Map<String, dynamic>?> pinMessage(
     String channelId,
     String messageId, {
-    required String content,
-    Map<String, dynamic>? metadata,
+    required bool isPinned,
   }) async {
-    _traceApi('Replying to message: $channelId/$messageId');
+    _traceApi(
+      'Pinning message: $channelId/$messageId '
+      '($isPinned)',
+    );
     final response = await _dio.post(
-      '/api/v1/channels/$channelId/messages/$messageId/reply',
-      data: {'content': content, 'metadata': ?metadata},
+      '/api/v1/channels/$channelId/messages'
+      '/$messageId/pin',
+      data: {'is_pinned': isPinned},
     );
-    return response.data as Map<String, dynamic>;
+    return response.data as Map<String, dynamic>?;
   }
 
-  Future<void> markChannelRead(String channelId, {String? messageId}) async {
-    _traceApi('Marking channel as read: $channelId');
-    await _dio.post(
-      '/api/v1/channels/$channelId/read',
-      data: {'last_read_message_id': ?messageId},
+  /// Fetches pinned messages for a channel.
+  Future<List<Map<String, dynamic>>> getPinnedMessages(
+    String channelId, {
+    int page = 1,
+  }) async {
+    _traceApi(
+      'Fetching pinned messages: $channelId',
     );
+    final response = await _dio.get(
+      '/api/v1/channels/$channelId/messages'
+      '/pinned',
+      queryParameters: {'page': page},
+    );
+    final data = response.data;
+    if (data is List) {
+      return data.cast<Map<String, dynamic>>();
+    }
+    return [];
   }
 
-  Future<Map<String, dynamic>> getChannelUnreadCount(String channelId) async {
-    _traceApi('Fetching unread count for channel: $channelId');
-    final response = await _dio.get('/api/v1/channels/$channelId/unread');
-    return response.data as Map<String, dynamic>;
+  /// Fetches message data (files, attachments).
+  Future<Map<String, dynamic>?> getMessageData(
+    String channelId,
+    String messageId,
+  ) async {
+    _traceApi(
+      'Fetching message data: '
+      '$channelId/$messageId',
+    );
+    final response = await _dio.get(
+      '/api/v1/channels/$channelId/messages'
+      '/$messageId/data',
+    );
+    return response.data as Map<String, dynamic>?;
   }
 
   // Chat streaming with conversation context

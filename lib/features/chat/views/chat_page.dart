@@ -14,7 +14,6 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
 
 import '../../../shared/widgets/responsive_drawer_layout.dart';
-import '../../navigation/widgets/chats_drawer.dart';
 import 'dart:async';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/settings_service.dart';
@@ -870,7 +869,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         return;
       }
       final topPadding =
-          MediaQuery.of(context).padding.top + kToolbarHeight + Spacing.md;
+          MediaQuery.of(context).padding.top + kTextTabBarHeight + Spacing.md;
       final viewportHeight = MediaQuery.of(context).size.height;
       // alignment places the widget at (alignment * viewport) from the top
       final alignment =
@@ -1091,7 +1090,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     // AnimatedSwitcher attaching the same controller twice.
     // Add top padding for floating app bar, bottom padding for floating input.
     final topPadding =
-        MediaQuery.of(context).padding.top + kToolbarHeight + Spacing.md;
+        MediaQuery.of(context).padding.top + kTextTabBarHeight + Spacing.md;
     final bottomPadding = Spacing.lg + _inputHeight;
     return CustomScrollView(
       key: const ValueKey('loading_messages'),
@@ -1267,7 +1266,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
     // Add top padding for floating app bar, bottom padding for floating input.
     final topPadding =
-        MediaQuery.of(context).padding.top + kToolbarHeight + Spacing.md;
+        MediaQuery.of(context).padding.top + kTextTabBarHeight + Spacing.md;
     final bottomPadding = Spacing.lg + _inputHeight;
 
     // Check if any message is currently streaming
@@ -1587,7 +1586,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
     // Add top padding for floating app bar, bottom padding for floating input.
     final topPadding =
-        MediaQuery.of(context).padding.top + kToolbarHeight + Spacing.md;
+        MediaQuery.of(context).padding.top + kTextTabBarHeight + Spacing.md;
     final bottomPadding = _inputHeight;
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -1855,42 +1854,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             }
           }
         },
-        child: Builder(
-          builder: (outerCtx) {
-            final size = MediaQuery.of(outerCtx).size;
-            final isTablet = size.shortestSide >= 600;
-            final maxFraction = isTablet ? 0.42 : 0.84;
-            final edgeFraction = isTablet ? 0.36 : 0.50; // large phone edge
-            final scrim = Platform.isIOS
-                ? context.colorTokens.scrimMedium
-                : context.colorTokens.scrimStrong;
-
-            return ResponsiveDrawerLayout(
-              maxFraction: maxFraction,
-              edgeFraction: edgeFraction,
-              settleFraction: 0.06, // even gentler settle for instant open feel
-              scrimColor: scrim,
-              contentScaleDelta: 0.0,
-              tabletDrawerWidth: 320.0,
-              onOpenStart: () {
-                // Suppress composer auto-focus once we unfocus for the drawer
-                try {
-                  ref
-                      .read(composerAutofocusEnabledProvider.notifier)
-                      .set(false);
-                } catch (_) {}
-              },
-              drawer: Container(
-                color: context.sidebarTheme.background,
-                child: SafeArea(
-                  top: true,
-                  bottom: true,
-                  left: false,
-                  right: false,
-                  child: const ChatsDrawer(),
-                ),
-              ),
-              child: Scaffold(
+        child: Scaffold(
                 backgroundColor: context.conduitTheme.surfaceBackground,
                 // Replace Scaffold drawer with a tunable slide drawer for gentler snap behavior.
                 drawerEnableOpenDragGesture: false,
@@ -1901,7 +1865,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   elevation: Elevation.none,
                   surfaceTintColor: Colors.transparent,
                   shadowColor: Colors.transparent,
-                  toolbarHeight: kToolbarHeight + 8,
+                  toolbarHeight: kTextTabBarHeight,
                   centerTitle: false,
                   titleSpacing: Spacing.sm,
                   leadingWidth: 44 + Spacing.inputPadding + Spacing.xs,
@@ -2075,7 +2039,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                                             IconSize.xs +
                                             Spacing.xs +
                                             12)
-                                        .clamp(132.0, maxPillWidth)
+                                        .clamp(0.0, maxPillWidth)
                                         .toDouble();
 
                                 modelPill = AdaptiveButton.child(
@@ -2351,7 +2315,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                           // Position indicator below the floating app bar
                           edgeOffset:
                               MediaQuery.of(context).padding.top +
-                              kToolbarHeight,
+                              kTextTabBarHeight,
                           onRefresh: () async {
                             // Reload active conversation messages from server
                             final api = ref.read(apiServiceProvider);
@@ -2488,7 +2452,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                           child: Container(
                             height:
                                 MediaQuery.of(context).padding.top +
-                                kToolbarHeight +
+                                kTextTabBarHeight +
                                 Spacing.xl,
                             decoration: BoxDecoration(
                               gradient: LinearGradient(
@@ -2567,10 +2531,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                     ],
                   ),
                 ),
-              ), // Scaffold inside ResponsiveDrawerLayout
-            );
-          },
-        ),
+              ), // Scaffold
       ), // PopScope
     ); // ErrorBoundary
   }

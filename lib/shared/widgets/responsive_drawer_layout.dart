@@ -52,10 +52,7 @@ class ResponsiveDrawerLayout extends StatefulWidget {
 
 class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    value: 0.0,
-  );
+  late final AnimationController _controller;
   late bool _isTabletDocked = widget.tabletInitiallyDocked;
 
   /// Cached tablet state to avoid accessing context when unmounted.
@@ -77,11 +74,12 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
     return _cachedIsTablet;
   }
 
-  double get _panelWidth =>
-      (MediaQuery.of(context).size.width * widget.maxFraction).clamp(
-        280.0,
-        520.0,
-      );
+  double get _panelWidth {
+    final w = MediaQuery.of(context).size.width;
+    final raw = w * widget.maxFraction;
+    final maxClamp = widget.maxFraction >= 1.0 ? w : 520.0;
+    return raw.clamp(280.0, maxClamp);
+  }
 
   double get _edgeWidth =>
       MediaQuery.of(context).size.width * widget.edgeFraction;
@@ -90,6 +88,12 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
   /// Uses cached tablet state to avoid context access issues when unmounted.
   bool get isOpen =>
       _cachedIsTablet ? _isTabletDocked : _controller.value == 1.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(vsync: this, value: 0.0);
+  }
 
   @override
   void didChangeDependencies() {

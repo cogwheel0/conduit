@@ -139,7 +139,8 @@ class FloatingAppBar extends StatelessWidget implements PreferredSizeWidget {
   });
 
   @override
-  Size get preferredSize => Size.fromHeight(kToolbarHeight + bottomHeight);
+  Size get preferredSize =>
+      Size.fromHeight(kTextTabBarHeight + bottomHeight);
 
   @override
   Widget build(BuildContext context) {
@@ -165,7 +166,7 @@ class FloatingAppBar extends StatelessWidget implements PreferredSizeWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             SizedBox(
-              height: kToolbarHeight,
+              height: kTextTabBarHeight,
               child: Row(
                 children: [
                   // Leading

@@ -35,6 +35,8 @@ final class PreferenceKeys {
   static const String drawerShowPinned = 'drawer_show_pinned';
   static const String drawerShowFolders = 'drawer_show_folders';
   static const String drawerShowRecent = 'drawer_show_recent';
+
+  static const String sidebarActiveTab = 'sidebar_active_tab';
 }
 
 final class LegacyPreferenceKeys {

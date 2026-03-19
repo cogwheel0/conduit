@@ -2008,5 +2008,128 @@
   "chatSaveFailed": "Failed to save chat",
   "@chatSaveFailed": {
     "description": "Snackbar message shown when saving a temporary chat fails."
+  },
+  "sidebarChatsTab": "Chats",
+  "@sidebarChatsTab": {
+    "description": "Label for the Chats tab in the sidebar"
+  },
+  "sidebarNotesTab": "Notes",
+  "@sidebarNotesTab": {
+    "description": "Label for the Notes tab in the sidebar"
+  },
+  "sidebarChannelsTab": "Channels",
+  "@sidebarChannelsTab": {
+    "description": "Label for the Channels tab in the sidebar"
+  },
+  "closeSidebar": "Close sidebar",
+  "@closeSidebar": {
+    "description": "Tooltip for the sidebar close button"
+  },
+  "channelCreateTitle": "Create Channel",
+  "@channelCreateTitle": {
+    "description": "Title for the create channel dialog"
+  },
+  "channelName": "Channel Name",
+  "@channelName": {
+    "description": "Label for channel name input field"
+  },
+  "channelDescription": "Description",
+  "@channelDescription": {
+    "description": "Label for channel description input field"
+  },
+  "channelPrivate": "Private Channel",
+  "@channelPrivate": {
+    "description": "Label for the private channel toggle"
+  },
+  "channelJoin": "Join Channel",
+  "@channelJoin": {
+    "description": "Button label to join a channel"
+  },
+  "channelLeave": "Leave Channel",
+  "@channelLeave": {
+    "description": "Button label to leave a channel"
+  },
+  "channelDelete": "Delete Channel",
+  "@channelDelete": {
+    "description": "Button label to delete a channel"
+  },
+  "channelEdit": "Edit Channel",
+  "@channelEdit": {
+    "description": "Button label to edit channel details"
+  },
+  "channelDeleteConfirm": "Delete this channel? This cannot be undone.",
+  "@channelDeleteConfirm": {
+    "description": "Confirmation message when deleting a channel"
+  },
+  "channelLeaveConfirm": "Leave this channel?",
+  "@channelLeaveConfirm": {
+    "description": "Confirmation message when leaving a channel"
+  },
+  "channelEmptyState": "No channels yet",
+  "@channelEmptyState": {
+    "description": "Message shown when there are no channels"
+  },
+  "channelNoMessages": "No messages yet. Start the conversation!",
+  "@channelNoMessages": {
+    "description": "Message shown when a channel has no messages"
+  },
+  "channelMembers": "{count} {count, plural, =1{member} other{members}}",
+  "@channelMembers": {
+    "description": "Member count display in channel header",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "channelMessageReply": "Reply",
+  "@channelMessageReply": {
+    "description": "Context menu option to reply to a message"
+  },
+  "channelMessageReact": "React",
+  "@channelMessageReact": {
+    "description": "Context menu option to add a reaction"
+  },
+  "channelMessageEdit": "Edit",
+  "@channelMessageEdit": {
+    "description": "Context menu option to edit own message"
+  },
+  "channelMessageDelete": "Delete",
+  "@channelMessageDelete": {
+    "description": "Context menu option to delete own message"
+  },
+  "channelLoadError": "Failed to load channels",
+  "@channelLoadError": {
+    "description": "Error message when channels fail to load"
+  },
+  "channelSendError": "Failed to send message",
+  "@channelSendError": {
+    "description": "Error message when a channel message fails to send"
+  },
+  "channelDeleted": "This channel has been deleted",
+  "@channelDeleted": {
+    "description": "Snackbar message when a viewed channel is deleted"
+  },
+  "searchChannels": "Search channels...",
+  "@searchChannels": {
+    "description": "Hint text for the channel search field"
+  },
+  "channelCreateError": "Failed to create channel",
+  "@channelCreateError": {
+    "description": "Snackbar message when channel creation fails"
+  },
+  "channelMessageHint": "Message...",
+  "@channelMessageHint": {
+    "description": "Hint text for the channel message input field"
+  },
+  "audioUploadError": "Failed to upload audio: {error}",
+  "@audioUploadError": {
+    "description": "Error message when audio upload fails",
+    "placeholders": {
+      "error": {
+        "type": "String",
+        "description": "The error message"
+      }
+    }
   }
 }

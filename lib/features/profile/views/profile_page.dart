@@ -80,7 +80,7 @@ class ProfilePage extends ConsumerWidget {
   }
 
   Widget _buildCenteredState(BuildContext context, Widget child) {
-    final topPadding = MediaQuery.of(context).padding.top + kToolbarHeight + 24;
+    final topPadding = MediaQuery.of(context).padding.top + kTextTabBarHeight + 24;
     return Padding(
       padding: EdgeInsets.fromLTRB(
         Spacing.pagePadding,
@@ -99,7 +99,7 @@ class ProfilePage extends ConsumerWidget {
     ApiService? api,
   ) {
     // Calculate top padding to account for app bar + safe area
-    final topPadding = MediaQuery.of(context).padding.top + kToolbarHeight + 24;
+    final topPadding = MediaQuery.of(context).padding.top + kTextTabBarHeight + 24;
 
     return ListView(
       physics: const BouncingScrollPhysics(

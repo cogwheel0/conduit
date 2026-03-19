@@ -20,6 +20,7 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/glass_colors.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
@@ -61,10 +62,15 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   StreamSubscription<String>? _voiceSub;
   String _voiceBaseText = '';
 
-  int get _wordCount {
+  static final _whitespacePattern = RegExp(r'\s+');
+  static final _boldPattern = RegExp(r'\*\*(.+?)\*\*');
+  static final _italicPattern = RegExp(r'\*(.+?)\*');
+  int _cachedWordCount = 0;
+
+  void _updateWordCount() {
     final text = _contentController.text.trim();
-    if (text.isEmpty) return 0;
-    return text.split(RegExp(r'\s+')).length;
+    _cachedWordCount =
+        text.isEmpty ? 0 : text.split(_whitespacePattern).length;
   }
 
   int get _charCount => _contentController.text.length;
@@ -143,6 +149,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     if (hasRealChanges) {
       _debounceSave();
     }
+    _updateWordCount();
   }
 
   void _debounceSave() {
@@ -226,11 +233,11 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
           // markdown formatting replacements on the escaped text.
           var text = _escapeHtml(p);
           text = text.replaceAllMapped(
-            RegExp(r'\*\*(.+?)\*\*'),
+            _boldPattern,
             (m) => '<strong>${m.group(1)!}</strong>',
           );
           text = text.replaceAllMapped(
-            RegExp(r'\*(.+?)\*'),
+            _italicPattern,
             (m) => '<em>${m.group(1)!}</em>',
           );
           return '<p>$text</p>';
@@ -257,13 +264,6 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     );
   }
 
-  Future<bool> _onWillPop() async {
-    if (_hasChanges) {
-      await _saveNote(showFeedback: false);
-    }
-    return true;
-  }
-
   Future<void> _deleteNote() async {
     if (_note == null) return;
 
@@ -284,7 +284,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
           .read(noteDeleterProvider.notifier)
           .deleteNote(widget.noteId);
       if (success && mounted) {
-        Navigator.of(context).pop();
+        context.go('/chat');
       }
     }
   }
@@ -694,7 +694,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     } catch (e) {
       if (mounted) {
         setState(() => _isUploadingAudio = false);
-        _showError('Failed to upload audio: $e');
+        _showError(
+          AppLocalizations.of(context)!.audioUploadError(e.toString()),
+        );
       }
     }
   }
@@ -727,38 +729,23 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       return const AdaptiveScaffold();
     }
 
-    return PopScope(
-      // Only allow immediate pop when there are no unsaved changes.
-      // When there are changes, we intercept, save first, then pop manually.
-      canPop: !_hasChanges,
-      onPopInvokedWithResult: (didPop, result) async {
-        if (didPop) return; // Already popped, nothing to do
-        // Capture navigator before async gap
-        final navigator = Navigator.of(context);
-        // Save changes before allowing pop
-        await _saveNote(showFeedback: false);
-        if (!mounted) return;
-        navigator.pop();
-      },
-      child: ErrorBoundary(
-        child: Scaffold(
-          backgroundColor: context.conduitTheme.surfaceBackground,
-          extendBodyBehindAppBar: true,
-          appBar: _buildAppBar(context),
-          body: Stack(
-            children: [
-              // Main content - scrolls behind floating elements
-              Positioned.fill(child: _buildMainContent(context)),
-              // Floating action buttons
-              if (!_isLoading && _note != null)
-                Positioned(
-                  left: Spacing.md,
-                  right: Spacing.md,
-                  bottom: Spacing.md + MediaQuery.of(context).padding.bottom,
-                  child: _buildFloatingActionsRow(context),
-                ),
-            ],
-          ),
+    return ErrorBoundary(
+      child: Scaffold(
+        backgroundColor: context.conduitTheme.surfaceBackground,
+        extendBodyBehindAppBar: true,
+        appBar: _buildAppBar(context),
+        body: Stack(
+          children: [
+            Positioned.fill(child: _buildMainContent(context)),
+            if (!_isLoading && _note != null)
+              Positioned(
+                left: Spacing.md,
+                right: Spacing.md,
+                bottom: Spacing.md +
+                    MediaQuery.of(context).padding.bottom,
+                child: _buildFloatingActionsRow(context),
+              ),
+          ],
         ),
       ),
     );
@@ -770,7 +757,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     final l10n = AppLocalizations.of(context)!;
 
     return PreferredSize(
-      preferredSize: const Size.fromHeight(kToolbarHeight + 40),
+      preferredSize: const Size.fromHeight(kTextTabBarHeight + 40),
       child: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
@@ -791,33 +778,21 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
             children: [
               // App bar row with back button, title, and menu
               SizedBox(
-                height: kToolbarHeight,
+                height: kTextTabBarHeight,
                 child: Row(
                   children: [
-                    // Leading (back button)
+                    // Leading (hamburger menu)
                     Padding(
                       padding: const EdgeInsets.only(
                         left: Spacing.inputPadding,
                       ),
                       child: Center(
-                        child: GestureDetector(
-                          onTap: () async {
-                            final navigator = Navigator.of(context);
-                            await _onWillPop();
-                            if (!mounted) return;
-                            navigator.pop();
-                          },
-                          child: _buildAppBarPill(
-                            context,
-                            Icon(
-                              UiUtils.platformIcon(
-                                ios: CupertinoIcons.back,
-                                android: Icons.arrow_back,
-                              ),
-                              color: conduitTheme.textPrimary,
-                              size: IconSize.appBar,
-                            ),
-                            isCircular: true,
+                        child: Builder(
+                          builder: (ctx) => FloatingAppBarIconButton(
+                            icon: UiUtils.menuIcon,
+                            onTap: () =>
+                                ResponsiveDrawerLayout.of(ctx)
+                                    ?.toggle(),
                           ),
                         ),
                       ),
@@ -829,8 +804,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                           context,
                           Padding(
                             padding: const EdgeInsets.symmetric(
-                              horizontal: Spacing.sm,
-                              vertical: Spacing.xs,
+                              horizontal: Spacing.md,
+                              vertical: Spacing.sm,
                             ),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
@@ -888,14 +863,14 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                                                     focusNode: _titleFocusNode,
                                                     enabled:
                                                         !_isGeneratingTitle,
-                                                    style: AppTypography
-                                                        .headlineSmallStyle
-                                                        .copyWith(
-                                                          color: conduitTheme
-                                                              .textPrimary,
-                                                          fontWeight:
-                                                              FontWeight.w600,
-                                                        ),
+                                                    style: TextStyle(
+                                                      color: conduitTheme
+                                                          .textPrimary,
+                                                      fontSize: AppTypography
+                                                          .bodySmall,
+                                                      fontWeight:
+                                                          FontWeight.w500,
+                                                    ),
                                                     placeholder: l10n.untitled,
                                                     textAlign: TextAlign.center,
                                                     textCapitalization:
@@ -916,18 +891,19 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                                                         )
                                                         .copyWith(
                                                           hintStyle:
-                                                              AppTypography
-                                                                  .headlineSmallStyle
-                                                                  .copyWith(
+                                                              TextStyle(
                                                                     color: conduitTheme
                                                                         .textSecondary
                                                                         .withValues(
                                                                           alpha:
                                                                               0.6,
                                                                         ),
+                                                                    fontSize:
+                                                                        AppTypography
+                                                                            .bodySmall,
                                                                     fontWeight:
                                                                         FontWeight
-                                                                            .w600,
+                                                                            .w500,
                                                                   ),
                                                           contentPadding:
                                                               EdgeInsets.zero,
@@ -947,9 +923,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                                                             .isEmpty
                                                         ? l10n.untitled
                                                         : _titleController.text,
-                                                    style: AppTypography
-                                                        .headlineSmallStyle
-                                                        .copyWith(
+                                                    style: TextStyle(
                                                           color:
                                                               _titleController
                                                                   .text
@@ -962,8 +936,11 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                                                                     )
                                                               : conduitTheme
                                                                     .textPrimary,
+                                                          fontSize:
+                                                              AppTypography
+                                                                  .bodySmall,
                                                           fontWeight:
-                                                              FontWeight.w600,
+                                                              FontWeight.w500,
                                                         ),
                                                   ),
                                                 ),
@@ -1121,7 +1098,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
             icon: Platform.isIOS
                 ? CupertinoIcons.doc_text
                 : Icons.article_rounded,
-            label: l10n.wordCount(_wordCount),
+            label: l10n.wordCount(_cachedWordCount),
           ),
           _buildMetadataSeparator(context),
           _buildMetadataChip(
@@ -1226,8 +1203,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final topPadding = MediaQuery.of(context).padding.top;
-    // App bar height: kToolbarHeight + metadata bar (~40)
-    final appBarHeight = kToolbarHeight + 40;
+    // App bar height: kTextTabBarHeight + metadata bar (~40)
+    final appBarHeight = kTextTabBarHeight + 40;
 
     // Get attached files
     final files = _note?.data.files ?? [];
