@@ -17,6 +17,7 @@ import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../navigation/widgets/sidebar_page.dart';
 import '../providers/channel_providers.dart';
+import '../providers/channel_socket_handler.dart';
 
 /// Full-screen view for a single channel with messaging,
 /// reactions, and channel management actions.
@@ -44,6 +45,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     super.initState();
     _scrollController.addListener(_onScroll);
     _loadChannel();
+    ref
+        .read(channelSocketHandlerProvider.notifier)
+        .subscribe(widget.channelId);
   }
 
   @override
@@ -53,6 +57,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       ..dispose();
     _messageController.dispose();
     _inputFocusNode.dispose();
+    ref.read(channelSocketHandlerProvider.notifier).unsubscribe();
     super.dispose();
   }
 
