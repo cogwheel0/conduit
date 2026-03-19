@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../providers/sidebar_providers.dart';
+import '../../channels/widgets/channel_list_tab.dart';
 import '../../notes/widgets/notes_list_tab.dart';
 import 'chats_drawer.dart';
 
@@ -98,8 +99,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
             children: const [
               ChatsDrawer(),
               NotesListTab(),
-              // Task 9 will add ChannelListTab.
-              Center(child: Text('Channels')),
+              ChannelListTab(),
             ],
           ),
         ),
