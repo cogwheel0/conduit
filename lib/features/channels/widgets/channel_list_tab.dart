@@ -268,6 +268,25 @@ class _ChannelTile extends ConsumerWidget {
   final bool selected;
   final VoidCallback onTap;
 
+  IconData _channelIcon() {
+    if (channel.isDm) return Icons.person_outline;
+    if (channel.isGroup) return Icons.group_outlined;
+    return channel.isPrivate ? Icons.lock_outlined : Icons.tag;
+  }
+
+  String _channelDisplayName() {
+    if (channel.isDm &&
+        channel.users != null &&
+        channel.users!.isNotEmpty) {
+      final names = channel.users!
+          .map((u) => u['name'] as String? ?? '')
+          .where((n) => n.isNotEmpty)
+          .toList();
+      return names.join(', ');
+    }
+    return channel.name;
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = context.conduitTheme;
@@ -300,9 +319,7 @@ class _ChannelTile extends ConsumerWidget {
               child: Row(
                 children: [
                   Icon(
-                    channel.isPrivate
-                        ? Icons.lock_outlined
-                        : Icons.tag,
+                    _channelIcon(),
                     color: selected
                         ? theme.textPrimary
                         : theme.textSecondary,
@@ -314,7 +331,7 @@ class _ChannelTile extends ConsumerWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          channel.name,
+                          _channelDisplayName(),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: AppTypography.bodyMediumStyle.copyWith(
