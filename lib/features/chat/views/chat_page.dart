@@ -1859,7 +1859,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           builder: (outerCtx) {
             final size = MediaQuery.of(outerCtx).size;
             final isTablet = size.shortestSide >= 600;
-            final maxFraction = isTablet ? 0.42 : 0.84;
+            final maxFraction = isTablet ? 0.42 : 1.0;
             final edgeFraction = isTablet ? 0.36 : 0.50; // large phone edge
             final scrim = Platform.isIOS
                 ? context.colorTokens.scrimMedium
@@ -1870,6 +1870,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
               edgeFraction: edgeFraction,
               settleFraction: 0.06, // even gentler settle for instant open feel
               scrimColor: scrim,
+              pushContent: isTablet,
               contentScaleDelta: 0.0,
               tabletDrawerWidth: 320.0,
               onOpenStart: () {

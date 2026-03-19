@@ -77,11 +77,12 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
     return _cachedIsTablet;
   }
 
-  double get _panelWidth =>
-      (MediaQuery.of(context).size.width * widget.maxFraction).clamp(
-        280.0,
-        520.0,
-      );
+  double get _panelWidth {
+    final w = MediaQuery.of(context).size.width;
+    final raw = w * widget.maxFraction;
+    final maxClamp = widget.maxFraction >= 1.0 ? w : 520.0;
+    return raw.clamp(280.0, maxClamp);
+  }
 
   double get _edgeWidth =>
       MediaQuery.of(context).size.width * widget.edgeFraction;
