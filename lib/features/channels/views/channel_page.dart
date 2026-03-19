@@ -82,6 +82,8 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
             channelId: widget.channelId,
             parentMessage: message,
             onClose: () => Navigator.pop(ctx),
+            overflowButtonBuilder:
+                _buildAttachmentButton,
           ),
         ),
       );
@@ -1028,6 +1030,8 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
                 onClose: () => setState(
                   () => _threadParent = null,
                 ),
+                overflowButtonBuilder:
+                    _buildAttachmentButton,
               ),
             ),
         ],

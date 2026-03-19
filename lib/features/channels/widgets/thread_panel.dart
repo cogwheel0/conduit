@@ -25,6 +25,7 @@ class ThreadPanel extends ConsumerStatefulWidget {
     required this.channelId,
     required this.parentMessage,
     required this.onClose,
+    this.overflowButtonBuilder,
   });
 
   /// The channel containing the thread.
@@ -35,6 +36,10 @@ class ThreadPanel extends ConsumerStatefulWidget {
 
   /// Called when the user closes the panel.
   final VoidCallback onClose;
+
+  /// Builder for the overflow (+) attachment button.
+  final Widget Function(double size)?
+      overflowButtonBuilder;
 
   @override
   ConsumerState<ThreadPanel> createState() =>
@@ -142,6 +147,8 @@ class _ThreadPanelState
             child: ModernChatInput(
               onSendMessage: _sendReply,
               placeholder: 'Reply...',
+              overflowButtonBuilder:
+                  widget.overflowButtonBuilder,
             ),
           ),
         ],
