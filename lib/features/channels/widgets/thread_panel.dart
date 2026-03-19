@@ -8,6 +8,7 @@ import '../../../core/providers/app_providers.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../chat/widgets/modern_chat_input.dart';
 import '../providers/channel_providers.dart';
+import '../utils/mention_utils.dart';
 
 /// Side panel (tablet) or bottom sheet (mobile) for
 /// viewing and replying to a message thread.
@@ -189,26 +190,71 @@ class _ParentMessageTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.all(Spacing.md),
-      child: Column(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            message.userName,
-            style: TextStyle(
-              color: theme.textPrimary,
-              fontWeight: FontWeight.w600,
-              fontSize: 13,
-            ),
-          ),
-          const SizedBox(height: Spacing.xxs),
-          Text(
-            message.content,
-            style: TextStyle(
-              color: theme.textPrimary,
-              fontSize: 14,
+          _buildAvatar(theme),
+          const SizedBox(width: Spacing.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment:
+                  CrossAxisAlignment.start,
+              children: [
+                Text(
+                  messageDisplayName(message),
+                  style: TextStyle(
+                    color: theme.textPrimary,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: Spacing.xxs),
+                RichText(
+                  text: buildMentionSpan(
+                    content: message.content,
+                    baseStyle: TextStyle(
+                      color: theme.textPrimary,
+                      fontSize: 14,
+                    ),
+                    mentionColor:
+                        Theme.of(context)
+                            .colorScheme
+                            .primary,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildAvatar(ConduitThemeExtension theme) {
+    if (isModelMessage(message)) {
+      return CircleAvatar(
+        radius: 16,
+        backgroundColor: theme.buttonSecondary,
+        child: Icon(
+          Icons.smart_toy_outlined,
+          size: 16,
+          color: theme.textPrimary,
+        ),
+      );
+    }
+    final initial = message.userName.isNotEmpty
+        ? message.userName[0].toUpperCase()
+        : '?';
+    return CircleAvatar(
+      radius: 16,
+      backgroundColor: theme.buttonSecondary,
+      child: Text(
+        initial,
+        style: TextStyle(
+          color: theme.textPrimary,
+          fontWeight: FontWeight.w600,
+          fontSize: 12,
+        ),
       ),
     );
   }
@@ -244,29 +290,73 @@ class _ThreadReplies extends StatelessWidget {
       itemCount: messages.length,
       itemBuilder: (context, index) {
         final message = messages[index];
+        final isModel = isModelMessage(message);
         return Padding(
           padding: const EdgeInsets.symmetric(
             horizontal: Spacing.md,
             vertical: Spacing.xs,
           ),
-          child: Column(
+          child: Row(
             crossAxisAlignment:
                 CrossAxisAlignment.start,
             children: [
-              Text(
-                message.userName,
-                style: TextStyle(
-                  color: theme.textPrimary,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 12,
+              if (isModel)
+                CircleAvatar(
+                  radius: 14,
+                  backgroundColor:
+                      theme.buttonSecondary,
+                  child: Icon(
+                    Icons.smart_toy_outlined,
+                    size: 14,
+                    color: theme.textPrimary,
+                  ),
+                )
+              else
+                CircleAvatar(
+                  radius: 14,
+                  backgroundColor:
+                      theme.buttonSecondary,
+                  child: Text(
+                    message.userName.isNotEmpty
+                        ? message.userName[0]
+                            .toUpperCase()
+                        : '?',
+                    style: TextStyle(
+                      color: theme.textPrimary,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 10,
+                    ),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                message.content,
-                style: TextStyle(
-                  color: theme.textPrimary,
-                  fontSize: 13,
+              const SizedBox(width: Spacing.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment:
+                      CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      messageDisplayName(message),
+                      style: TextStyle(
+                        color: theme.textPrimary,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    RichText(
+                      text: buildMentionSpan(
+                        content: message.content,
+                        baseStyle: TextStyle(
+                          color: theme.textPrimary,
+                          fontSize: 13,
+                        ),
+                        mentionColor:
+                            Theme.of(context)
+                                .colorScheme
+                                .primary,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],

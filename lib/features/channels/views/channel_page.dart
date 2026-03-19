@@ -23,6 +23,7 @@ import '../../chat/widgets/modern_chat_input.dart';
 import '../../navigation/widgets/sidebar_page.dart';
 import '../providers/channel_providers.dart';
 import '../providers/channel_socket_handler.dart';
+import '../utils/mention_utils.dart';
 import '../widgets/thread_panel.dart';
 
 /// Full-screen view for a single channel with messaging,
@@ -1222,17 +1223,6 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
 // Message bubble
 // ---------------------------------------------------------------------------
 
-/// Regex that matches OpenWebUI mention tags:
-/// `<@M:model_id|Label>` or `<@U:user_id|Name>`.
-final _mentionRegex = RegExp(r'<@[A-Z]:[^|>]+\|([^>]+)>');
-
-/// Strips OpenWebUI mention markup, keeping only the label.
-String _stripMentions(String content) =>
-    content.replaceAllMapped(
-      _mentionRegex,
-      (m) => '@${m.group(1)}',
-    );
-
 /// Renders a single channel message with avatar, metadata,
 /// content, and reaction chips.
 class _MessageBubble extends StatelessWidget {
@@ -1429,12 +1419,18 @@ class _MessageBubble extends StatelessWidget {
                       ],
                     )
                   else
-                    Text(
-                      _stripMentions(message.content),
-                      style: TextStyle(
-                        color: theme.textPrimary,
-                        fontSize: 14,
-                        height: 1.4,
+                    RichText(
+                      text: buildMentionSpan(
+                        content: message.content,
+                        baseStyle: TextStyle(
+                          color: theme.textPrimary,
+                          fontSize: 14,
+                          height: 1.4,
+                        ),
+                        mentionColor:
+                            Theme.of(context)
+                                .colorScheme
+                                .primary,
                       ),
                     ),
                   if (message.replyCount > 0 &&
@@ -1472,24 +1468,9 @@ class _MessageBubble extends StatelessWidget {
     );
   }
 
-  /// Whether this message was sent by a model (has
-  /// model_id in meta).
-  bool get _isModelMessage =>
-      message.meta?['model_id'] != null;
-
-  /// Display name: model name if model message, else user.
-  String get _displayName {
-    if (_isModelMessage) {
-      return message.meta!['model_name'] as String? ??
-          message.meta!['model_id'] as String? ??
-          'Model';
-    }
-    return message.userName;
-  }
-
   Widget _buildAvatar(ConduitThemeExtension theme) {
     // Model messages: show a robot-style icon.
-    if (_isModelMessage) {
+    if (isModelMessage(message)) {
       return CircleAvatar(
         radius: 18,
         backgroundColor: theme.buttonSecondary,
@@ -1537,7 +1518,7 @@ class _MessageBubble extends StatelessWidget {
       children: [
         Flexible(
           child: Text(
-            _displayName,
+            messageDisplayName(message),
             style: TextStyle(
               color: theme.textPrimary,
               fontWeight: FontWeight.w600,
