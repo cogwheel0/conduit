@@ -43,7 +43,10 @@ class ChatsDrawer extends ConsumerStatefulWidget {
   ConsumerState<ChatsDrawer> createState() => _ChatsDrawerState();
 }
 
-class _ChatsDrawerState extends ConsumerState<ChatsDrawer> {
+class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode(debugLabel: 'drawer_search');
   final ScrollController _listController = ScrollController();
@@ -158,6 +161,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     // Bottom section now only shows navigation actions
     final sidebarTheme = context.sidebarTheme;
 
