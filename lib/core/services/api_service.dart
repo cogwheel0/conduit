@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http_parser/http_parser.dart';
 // Removed legacy websocket/socket.io imports
 import 'package:uuid/uuid.dart';
+import 'chat_completion_transport.dart';
 import '../models/backend_config.dart';
 import '../models/server_config.dart';
 import '../models/user.dart';
@@ -54,6 +55,28 @@ String? _getMimeType(String fileName) {
     'json' => 'application/json',
     _ => null,
   };
+}
+
+/// Result of body-sniffing during chat completion response classification.
+sealed class _SniffResult {}
+
+/// The body looks like SSE data (starts with `data:`).
+final class _SniffSse extends _SniffResult {
+  _SniffSse({required this.buffered, this.rest});
+
+  /// Chunks already consumed during sniffing.
+  final List<List<int>> buffered;
+
+  /// The paused subscription for the remaining stream, if any.
+  final StreamSubscription<List<int>>? rest;
+}
+
+/// The body is valid JSON.
+final class _SniffJson extends _SniffResult {
+  _SniffJson({required this.json});
+
+  /// The parsed JSON map.
+  final Map<String, dynamic> json;
 }
 
 /// Result of a health check with proxy detection.
@@ -415,10 +438,10 @@ class ApiService {
             final client = HttpClient();
             client.badCertificateCallback =
                 (X509Certificate cert, String requestHost, int requestPort) {
-              if (requestHost.toLowerCase() != host) return false;
-              if (port == null) return true;
-              return requestPort == port;
-            };
+                  if (requestHost.toLowerCase() != host) return false;
+                  if (port == null) return true;
+                  return requestPort == port;
+                };
             return client;
           };
         }
@@ -467,7 +490,8 @@ class ApiService {
           // OpenWebUI's /health returns JSON, not HTML.
           // Any HTML response indicates a proxy page or misconfiguration.
           final htmlContent = data?.toString().toLowerCase() ?? '';
-          final hasLoginKeywords = htmlContent.contains('login') ||
+          final hasLoginKeywords =
+              htmlContent.contains('login') ||
               htmlContent.contains('sign in') ||
               htmlContent.contains('authenticate') ||
               htmlContent.contains('oauth');
@@ -814,10 +838,7 @@ class ApiService {
 
       // Fallback: user has no default model configured, pick first available
       // This fixes issue #353 where secondary accounts couldn't send messages
-      DebugLogger.log(
-        'default-model-fallback',
-        scope: 'api/user-settings',
-      );
+      DebugLogger.log('default-model-fallback', scope: 'api/user-settings');
       return _getFirstAvailableModelId();
     } catch (e) {
       DebugLogger.error(
@@ -1245,10 +1266,7 @@ class ApiService {
         if (systemPrompt != null && systemPrompt.trim().isNotEmpty)
           'system': systemPrompt,
         'params': {},
-        'history': {
-          'messages': messagesMap,
-          'currentId': ?currentId,
-        },
+        'history': {'messages': messagesMap, 'currentId': ?currentId},
         'messages': messagesArray,
         'tags': [],
         'timestamp': DateTime.now().millisecondsSinceEpoch,
@@ -1449,10 +1467,7 @@ class ApiService {
         if (systemPrompt != null && systemPrompt.trim().isNotEmpty)
           'system': systemPrompt,
         'messages': messagesArray,
-        'history': {
-          'messages': messagesMap,
-          'currentId': ?currentId,
-        },
+        'history': {'messages': messagesMap, 'currentId': ?currentId},
         'params': {},
         'files': [],
       },
@@ -1900,10 +1915,7 @@ class ApiService {
     _traceApi('Updating file metadata: $fileId');
     final response = await _dio.put(
       '/api/v1/files/$fileId/metadata',
-      data: {
-        'filename': ?filename,
-        'metadata': ?metadata,
-      },
+      data: {'filename': ?filename, 'metadata': ?metadata},
     );
     return response.data as Map<String, dynamic>;
   }
@@ -1916,11 +1928,7 @@ class ApiService {
     _traceApi('Processing files batch: ${fileIds.length} files');
     final response = await _dio.post(
       '/api/v1/retrieval/process/files/batch',
-      data: {
-        'file_ids': fileIds,
-        'operation': ?operation,
-        'options': ?options,
-      },
+      data: {'file_ids': fileIds, 'operation': ?operation, 'options': ?options},
     );
     final data = response.data;
     if (data is List) {
@@ -1993,10 +2001,7 @@ class ApiService {
     _traceApi('Updating knowledge base: $id');
     await _dio.put(
       '/api/v1/knowledge/$id',
-      data: {
-        'name': ?name,
-        'description': ?description,
-      },
+      data: {'name': ?name, 'description': ?description},
     );
   }
 
@@ -2030,11 +2035,7 @@ class ApiService {
     _traceApi('Adding item to knowledge base: $knowledgeBaseId');
     final response = await _dio.post(
       '/api/v1/knowledge/$knowledgeBaseId/items',
-      data: {
-        'content': content,
-        'title': ?title,
-        'metadata': ?metadata,
-      },
+      data: {'content': content, 'title': ?title, 'metadata': ?metadata},
     );
     return response.data as Map<String, dynamic>;
   }
@@ -2170,10 +2171,7 @@ class ApiService {
     try {
       final response = await _dio.post(
         '/api/v1/retrieval/process/web',
-        data: {
-          'url': url,
-          'collection_name': ?collectionName,
-        },
+        data: {'url': url, 'collection_name': ?collectionName},
       );
       if (response.data is Map<String, dynamic>) {
         return response.data as Map<String, dynamic>;
@@ -2193,10 +2191,7 @@ class ApiService {
     try {
       final response = await _dio.post(
         '/api/v1/retrieval/process/youtube',
-        data: {
-          'url': url,
-          'collection_name': ?collectionName,
-        },
+        data: {'url': url, 'collection_name': ?collectionName},
       );
       if (response.data is Map<String, dynamic>) {
         return response.data as Map<String, dynamic>;
@@ -2492,11 +2487,7 @@ class ApiService {
     _traceApi('Generating speech for text: $textPreview...');
     final response = await _dio.post(
       '/api/v1/audio/speech',
-      data: {
-        'input': text,
-        'voice': ?voice,
-        'speed': ?speed,
-      },
+      data: {'input': text, 'voice': ?voice, 'speed': ?speed},
       options: Options(responseType: ResponseType.bytes),
     );
 
@@ -2774,11 +2765,7 @@ class ApiService {
     _traceApi('Creating function: $name');
     final response = await _dio.post(
       '/api/v1/functions/',
-      data: {
-        'name': name,
-        'code': code,
-        'description': ?description,
-      },
+      data: {'name': name, 'code': code, 'description': ?description},
     );
     return response.data as Map<String, dynamic>;
   }
@@ -2799,11 +2786,7 @@ class ApiService {
     _traceApi('Updating tool: $toolId');
     final response = await _dio.post(
       '/api/v1/tools/id/$toolId/update',
-      data: {
-        'name': ?name,
-        'spec': ?spec,
-        'description': ?description,
-      },
+      data: {'name': ?name, 'spec': ?spec, 'description': ?description},
     );
     return response.data as Map<String, dynamic>;
   }
@@ -2884,11 +2867,7 @@ class ApiService {
     _traceApi('Updating function: $functionId');
     final response = await _dio.post(
       '/api/v1/functions/id/$functionId/update',
-      data: {
-        'name': ?name,
-        'code': ?code,
-        'description': ?description,
-      },
+      data: {'name': ?name, 'code': ?code, 'description': ?description},
     );
     return response.data as Map<String, dynamic>;
   }
@@ -3021,8 +3000,7 @@ class ApiService {
         if (isPrivate != null) 'is_private': isPrivate,
         if (data != null) 'data': data,
         if (meta != null) 'meta': meta,
-        if (accessGrants != null)
-          'access_grants': accessGrants,
+        if (accessGrants != null) 'access_grants': accessGrants,
         if (groupIds != null) 'group_ids': groupIds,
         if (userIds != null) 'user_ids': userIds,
       },
@@ -3030,13 +3008,9 @@ class ApiService {
     return response.data as Map<String, dynamic>;
   }
 
-  Future<Map<String, dynamic>> getChannel(
-    String channelId,
-  ) async {
+  Future<Map<String, dynamic>> getChannel(String channelId) async {
     _traceApi('Fetching channel details: $channelId');
-    final response = await _dio.get(
-      '/api/v1/channels/$channelId',
-    );
+    final response = await _dio.get('/api/v1/channels/$channelId');
     return response.data as Map<String, dynamic>;
   }
 
@@ -3054,13 +3028,11 @@ class ApiService {
       '/api/v1/channels/$channelId/update',
       data: {
         if (name != null) 'name': name,
-        if (description != null)
-          'description': description,
+        if (description != null) 'description': description,
         if (isPrivate != null) 'is_private': isPrivate,
         if (data != null) 'data': data,
         if (meta != null) 'meta': meta,
-        if (accessGrants != null)
-          'access_grants': accessGrants,
+        if (accessGrants != null) 'access_grants': accessGrants,
       },
     );
     return response.data as Map<String, dynamic>;
@@ -3068,9 +3040,7 @@ class ApiService {
 
   Future<void> deleteChannel(String channelId) async {
     _traceApi('Deleting channel: $channelId');
-    await _dio.delete(
-      '/api/v1/channels/$channelId/delete',
-    );
+    await _dio.delete('/api/v1/channels/$channelId/delete');
   }
 
   Future<Map<String, dynamic>> getChannelMembers(
@@ -3102,10 +3072,7 @@ class ApiService {
     _traceApi('Fetching channel messages: $channelId');
     final response = await _dio.get(
       '/api/v1/channels/$channelId/messages',
-      queryParameters: {
-        'skip': skip,
-        'limit': limit,
-      },
+      queryParameters: {'skip': skip, 'limit': limit},
     );
     final data = response.data;
     if (data is List) {
@@ -3123,16 +3090,13 @@ class ApiService {
     Map<String, dynamic>? data,
     Map<String, dynamic>? meta,
   }) async {
-    _traceApi(
-      'Posting message to channel: $channelId',
-    );
+    _traceApi('Posting message to channel: $channelId');
     final response = await _dio.post(
       '/api/v1/channels/$channelId/messages/post',
       data: {
         'content': content,
         if (tempId != null) 'temp_id': tempId,
-        if (replyToId != null)
-          'reply_to_id': replyToId,
+        if (replyToId != null) 'reply_to_id': replyToId,
         if (parentId != null) 'parent_id': parentId,
         if (data != null) 'data': data,
         if (meta != null) 'meta': meta,
@@ -3164,10 +3128,7 @@ class ApiService {
     return response.data as Map<String, dynamic>;
   }
 
-  Future<void> deleteChannelMessage(
-    String channelId,
-    String messageId,
-  ) async {
+  Future<void> deleteChannelMessage(String channelId, String messageId) async {
     _traceApi(
       'Deleting channel message: '
       '$channelId/$messageId',
@@ -3200,9 +3161,7 @@ class ApiService {
     String messageId,
     String name,
   ) async {
-    _traceApi(
-      'Removing reaction: $channelId/$messageId',
-    );
+    _traceApi('Removing reaction: $channelId/$messageId');
     final response = await _dio.post(
       '/api/v1/channels/$channelId/messages'
       '/$messageId/reactions/remove',
@@ -3212,13 +3171,9 @@ class ApiService {
   }
 
   /// Gets or creates a DM channel with the given user.
-  Future<Map<String, dynamic>?> getDmChannel(
-    String userId,
-  ) async {
+  Future<Map<String, dynamic>?> getDmChannel(String userId) async {
     _traceApi('Getting DM channel with user: $userId');
-    final response = await _dio.get(
-      '/api/v1/channels/users/$userId',
-    );
+    final response = await _dio.get('/api/v1/channels/users/$userId');
     return response.data as Map<String, dynamic>?;
   }
 
@@ -3245,16 +3200,13 @@ class ApiService {
     List<String>? userIds,
     List<String>? groupIds,
   }) async {
-    _traceApi(
-      'Adding members to channel: $channelId',
-    );
+    _traceApi('Adding members to channel: $channelId');
     final response = await _dio.post(
       '/api/v1/channels/$channelId'
       '/update/members/add',
       data: {
         if (userIds != null) 'user_ids': userIds,
-        if (groupIds != null)
-          'group_ids': groupIds,
+        if (groupIds != null) 'group_ids': groupIds,
       },
     );
     return response.data as List<dynamic>;
@@ -3265,9 +3217,7 @@ class ApiService {
     String channelId, {
     required List<String> userIds,
   }) async {
-    _traceApi(
-      'Removing members from channel: $channelId',
-    );
+    _traceApi('Removing members from channel: $channelId');
     final response = await _dio.post(
       '/api/v1/channels/$channelId'
       '/update/members/remove',
@@ -3281,9 +3231,7 @@ class ApiService {
     String channelId,
     String messageId,
   ) async {
-    _traceApi(
-      'Fetching message: $channelId/$messageId',
-    );
+    _traceApi('Fetching message: $channelId/$messageId');
     final response = await _dio.get(
       '/api/v1/channels/$channelId/messages'
       '/$messageId',
@@ -3305,10 +3253,7 @@ class ApiService {
     final response = await _dio.get(
       '/api/v1/channels/$channelId/messages'
       '/$messageId/thread',
-      queryParameters: {
-        'skip': skip,
-        'limit': limit,
-      },
+      queryParameters: {'skip': skip, 'limit': limit},
     );
     final data = response.data;
     if (data is List) {
@@ -3340,9 +3285,7 @@ class ApiService {
     String channelId, {
     int page = 1,
   }) async {
-    _traceApi(
-      'Fetching pinned messages: $channelId',
-    );
+    _traceApi('Fetching pinned messages: $channelId');
     final response = await _dio.get(
       '/api/v1/channels/$channelId/messages'
       '/pinned',
@@ -3372,15 +3315,204 @@ class ApiService {
   }
 
   // Chat streaming with conversation context
-  // Track cancellable streaming requests by messageId for stop parity
-  final Map<String, CancelToken> _streamCancelTokens = {};
+  // Track cancellable streaming requests by messageId for stop parity.
+  // Widened from Map<String, CancelToken> to support both legacy CancelToken
+  // cancellation and new abort-handle cancellation from sendMessageSession.
+  final Map<String, Future<void> Function()> _streamCancelActions = {};
 
-  // Send message using WebSocket-only streaming.
-  // Matches OpenWebUI web client behavior when session_id + chat_id + message_id are provided:
-  // - HTTP POST returns JSON with task_id (no SSE streaming)
-  // - All content and metadata delivered via WebSocket events
-  // - Events: chat:completion, chat:message:delta, status, source, follow_ups, etc.
-  // Returns a record with (stream, messageId, sessionId, socketSessionId, isBackgroundFlow)
+  // -----------------------------------------------------------------------
+  // Payload construction (shared by legacy and new transport-aware path)
+  // -----------------------------------------------------------------------
+
+  /// Builds the JSON payload for a chat completion request matching the
+  /// OpenWebUI request shape.
+  ///
+  /// Both [_sendMessageLegacy] and [sendMessageSession] delegate here so
+  /// the wire format stays in sync.
+  Map<String, dynamic> _buildChatCompletionPayload({
+    required List<Map<String, dynamic>> messages,
+    required String model,
+    required String messageId,
+    required String sessionId,
+    String? conversationId,
+    List<String>? toolIds,
+    List<String>? filterIds,
+    bool enableWebSearch = false,
+    bool enableImageGeneration = false,
+    Map<String, dynamic>? modelItem,
+    List<Map<String, dynamic>>? toolServers,
+    Map<String, dynamic>? backgroundTasks,
+    Map<String, dynamic>? userSettings,
+    String? parentMessageId,
+  }) {
+    // Process messages to match OpenWebUI format
+    final processedMessages = messages.map((message) {
+      final role = message['role'] as String;
+      final content = message['content'];
+      final rawFiles = message['files'];
+      final files = rawFiles is List
+          ? rawFiles.whereType<Map<String, dynamic>>().toList()
+          : <Map<String, dynamic>>[];
+
+      final isContentArray = content is List;
+      final hasImages =
+          files.isNotEmpty && files.any((file) => file['type'] == 'image');
+
+      if (isContentArray) {
+        return {'role': role, 'content': content};
+      } else if (hasImages && role == 'user') {
+        final imageFiles = files
+            .where((file) => file['type'] == 'image')
+            .toList();
+        final contentText = content is String ? content : '';
+        final contentArray = <Map<String, dynamic>>[
+          {'type': 'text', 'text': contentText},
+        ];
+        for (final file in imageFiles) {
+          contentArray.add({
+            'type': 'image_url',
+            'image_url': {'url': file['url']},
+          });
+        }
+        return {'role': role, 'content': contentArray};
+      } else {
+        final contentText = content is String ? content : '';
+        return {'role': role, 'content': contentText};
+      }
+    }).toList();
+
+    // Separate non-image files from messages
+    final allFiles = <Map<String, dynamic>>[];
+    for (final message in messages) {
+      final rawFiles = message['files'];
+      if (rawFiles is List) {
+        final files = rawFiles.whereType<Map<String, dynamic>>().toList();
+        final nonImageFiles = files
+            .where((file) => file['type'] != 'image')
+            .toList();
+        allFiles.addAll(nonImageFiles);
+      }
+    }
+
+    // Build request data
+    final data = <String, dynamic>{
+      'stream': true,
+      'model': model,
+      'messages': processedMessages,
+    };
+
+    if (conversationId != null) {
+      data['chat_id'] = conversationId;
+    }
+
+    // Request usage statistics if model supports it (issue #274)
+    final supportsUsage =
+        modelItem?['capabilities']?['usage'] == true ||
+        (modelItem?['info'] as Map?)?['meta']?['capabilities']?['usage'] ==
+            true;
+    if (supportsUsage) {
+      data['stream_options'] = {'include_usage': true};
+    }
+
+    // Feature flags via 'features' object (not top-level params).
+    // See: https://github.com/cogwheel0/conduit/issues/271
+    final uiMemorySettings = userSettings?['ui'] as Map<String, dynamic>?;
+    final bool memoryEnabled = uiMemorySettings?['memory'] == true;
+
+    if (enableWebSearch || enableImageGeneration || memoryEnabled) {
+      data['features'] = {
+        'web_search': enableWebSearch,
+        'image_generation': enableImageGeneration,
+        'code_interpreter': false,
+        'memory': memoryEnabled,
+      };
+      if (enableWebSearch) {
+        _traceApi('Web search enabled in streaming request');
+      }
+      if (enableImageGeneration) {
+        _traceApi('Image generation enabled in streaming request');
+      }
+      if (memoryEnabled) {
+        _traceApi('Memory enabled in streaming request (from user settings)');
+      }
+    }
+
+    data['id'] = messageId;
+
+    // Add filter_ids if provided (Open-WebUI toggle filters)
+    if (filterIds != null && filterIds.isNotEmpty) {
+      data['filter_ids'] = filterIds;
+      _traceApi('Including filter_ids in streaming request: $filterIds');
+    }
+
+    // Add tool_ids if provided
+    if (toolIds != null && toolIds.isNotEmpty) {
+      data['tool_ids'] = toolIds;
+      _traceApi('Including tool_ids in streaming request: $toolIds');
+
+      try {
+        final userParams = userSettings?['params'] as Map<String, dynamic>?;
+        final functionCallingMode = userParams?['function_calling'] as String?;
+        if (functionCallingMode != null) {
+          final params =
+              (data['params'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+          params['function_calling'] = functionCallingMode;
+          data['params'] = params;
+          _traceApi(
+            'Set params.function_calling = $functionCallingMode '
+            '(from user settings)',
+          );
+        } else {
+          _traceApi(
+            'No function_calling preference in user settings, '
+            'backend will use default mode',
+          );
+        }
+      } catch (_) {
+        // Non-fatal; continue without setting function_calling mode
+      }
+    }
+
+    if (toolServers != null && toolServers.isNotEmpty) {
+      data['tool_servers'] = toolServers;
+      _traceApi('Including tool_servers in request (${toolServers.length})');
+    }
+
+    if (allFiles.isNotEmpty) {
+      data['files'] = allFiles;
+      _traceApi('Including non-image files in request: ${allFiles.length}');
+    }
+
+    // Attach identifiers
+    data['session_id'] = sessionId;
+    data['id'] = messageId;
+    if (conversationId != null) {
+      data['chat_id'] = conversationId;
+    }
+    if (parentMessageId != null) {
+      data['parent_id'] = parentMessageId;
+    }
+
+    // Always include parent_message as empty object to prevent NoneType
+    // error in OWUI 0.6.42+.
+    // See: https://github.com/cogwheel0/conduit/issues/311
+    data['parent_message'] = <String, dynamic>{};
+
+    if (backgroundTasks != null && backgroundTasks.isNotEmpty) {
+      data['background_tasks'] = backgroundTasks;
+    }
+
+    return data;
+  }
+
+  // -----------------------------------------------------------------------
+  // Legacy sendMessage (WebSocket-only path)
+  // -----------------------------------------------------------------------
+
+  /// The original WebSocket-only streaming path.
+  ///
+  /// Preserved verbatim so existing callers continue to work while the new
+  /// transport-aware [sendMessageSession] is being rolled out.
   ({
     Stream<String> stream,
     String messageId,
@@ -3388,7 +3520,7 @@ class ApiService {
     String? socketSessionId,
     bool isBackgroundFlow,
   })
-  sendMessage({
+  _sendMessageLegacy({
     required List<Map<String, dynamic>> messages,
     required String model,
     String? conversationId,
@@ -3417,209 +3549,35 @@ class ApiService {
         ? sessionIdOverride
         : const Uuid().v4().substring(0, 20);
 
-    // NOTE: Previously used to branch for Gemini-specific handling; not needed now.
-
-    // Process messages to match OpenWebUI format
-    final processedMessages = messages.map((message) {
-      final role = message['role'] as String;
-      final content = message['content'];
-      // Safely cast files list - may be List<dynamic> from spread operations
-      final rawFiles = message['files'];
-      final files = rawFiles is List
-          ? rawFiles.whereType<Map<String, dynamic>>().toList()
-          : <Map<String, dynamic>>[];
-
-      final isContentArray = content is List;
-      final hasImages =
-          files.isNotEmpty && files.any((file) => file['type'] == 'image');
-
-      if (isContentArray) {
-        return {'role': role, 'content': content};
-      } else if (hasImages && role == 'user') {
-        final imageFiles = files
-            .where((file) => file['type'] == 'image')
-            .toList();
-        final contentText = content is String ? content : '';
-        final contentArray = <Map<String, dynamic>>[
-          {'type': 'text', 'text': contentText},
-        ];
-
-        for (final file in imageFiles) {
-          contentArray.add({
-            'type': 'image_url',
-            'image_url': {'url': file['url']},
-          });
-        }
-        return {'role': role, 'content': contentArray};
-      } else {
-        final contentText = content is String ? content : '';
-        return {'role': role, 'content': contentText};
-      }
-    }).toList();
-
-    // Separate files from messages
-    final allFiles = <Map<String, dynamic>>[];
-    for (final message in messages) {
-      // Safely cast files list - may be List<dynamic> from spread operations
-      final rawFiles = message['files'];
-      if (rawFiles is List) {
-        final files = rawFiles.whereType<Map<String, dynamic>>().toList();
-        final nonImageFiles = files
-            .where((file) => file['type'] != 'image')
-            .toList();
-        allFiles.addAll(nonImageFiles);
-      }
-    }
-
     final bool hasBackgroundTasksPayload =
         backgroundTasks != null && backgroundTasks.isNotEmpty;
 
-    // Build request data. Always request streamed responses so the backend can
-    // forward deltas over WebSocket when running in background task mode.
-    final data = <String, dynamic>{
-      'stream': true,
-      'model': model,
-      'messages': processedMessages,
-    };
-
-    // Add only essential parameters
-    if (conversationId != null) {
-      data['chat_id'] = conversationId;
-    }
-
-    // Request usage statistics if model supports it (issue #274)
-    // Matches OpenWebUI: only sends stream_options when model.info.meta.capabilities.usage is true
-    final supportsUsage =
-        modelItem?['capabilities']?['usage'] == true ||
-        (modelItem?['info'] as Map?)?['meta']?['capabilities']?['usage'] ==
-            true;
-    if (supportsUsage) {
-      data['stream_options'] = {'include_usage': true};
-    }
-
-    // Add feature flags via 'features' object only (not as top-level params).
-    // Top-level 'web_search'/'image_generation' params are not recognized by
-    // OpenAI and cause errors when forwarded. Open WebUI expects these in the
-    // 'features' object which is properly handled by the middleware.
-    // See: https://github.com/cogwheel0/conduit/issues/271
-
-    // Check if memory is enabled in user's OpenWebUI settings
-    // This syncs with the user's preference from the web interface
-    // Memory setting is stored in ui.memory (matches OpenWebUI web client)
-    final uiMemorySettings = userSettings?['ui'] as Map<String, dynamic>?;
-    final bool memoryEnabled = uiMemorySettings?['memory'] == true;
-
-    if (enableWebSearch || enableImageGeneration || memoryEnabled) {
-      data['features'] = {
-        'web_search': enableWebSearch,
-        'image_generation': enableImageGeneration,
-        'code_interpreter': false,
-        'memory': memoryEnabled,
-      };
-      if (enableWebSearch) {
-        _traceApi('Web search enabled in streaming request');
-      }
-      if (enableImageGeneration) {
-        _traceApi('Image generation enabled in streaming request');
-      }
-      if (memoryEnabled) {
-        _traceApi('Memory enabled in streaming request (from user settings)');
-      }
-    }
-
-    data['id'] = messageId;
-
-    // No default reasoning parameters included; providers handle thinking UIs natively.
-
-    // Add filter_ids if provided (Open-WebUI toggle filters)
-    if (filterIds != null && filterIds.isNotEmpty) {
-      data['filter_ids'] = filterIds;
-      _traceApi('Including filter_ids in streaming request: $filterIds');
-    }
-
-    // Add tool_ids if provided (Open-WebUI expects tool_ids as array of strings)
-    if (toolIds != null && toolIds.isNotEmpty) {
-      data['tool_ids'] = toolIds;
-      _traceApi('Including tool_ids in streaming request: $toolIds');
-
-      // Respect user's function_calling preference from backend settings
-      // If not set, backend will default to 'default' mode (safer, more compatible)
-      try {
-        final userParams = userSettings?['params'] as Map<String, dynamic>?;
-        final functionCallingMode = userParams?['function_calling'] as String?;
-
-        if (functionCallingMode != null) {
-          final params =
-              (data['params'] as Map<String, dynamic>?) ?? <String, dynamic>{};
-          params['function_calling'] = functionCallingMode;
-          data['params'] = params;
-          _traceApi(
-            'Set params.function_calling = $functionCallingMode (from user settings)',
-          );
-        } else {
-          _traceApi(
-            'No function_calling preference in user settings, backend will use default mode',
-          );
-        }
-      } catch (_) {
-        // Non-fatal; continue without setting function_calling mode
-      }
-    }
-
-    // Include tool_servers if provided (for native function calling with OpenAPI servers)
-    if (toolServers != null && toolServers.isNotEmpty) {
-      data['tool_servers'] = toolServers;
-      _traceApi('Including tool_servers in request (${toolServers.length})');
-    }
-
-    // Include non-image files at the top level as expected by Open WebUI
-    if (allFiles.isNotEmpty) {
-      data['files'] = allFiles;
-      _traceApi('Including non-image files in request: ${allFiles.length}');
-    }
+    final data = _buildChatCompletionPayload(
+      messages: messages,
+      model: model,
+      messageId: messageId,
+      sessionId: sessionId,
+      conversationId: conversationId,
+      toolIds: toolIds,
+      filterIds: filterIds,
+      enableWebSearch: enableWebSearch,
+      enableImageGeneration: enableImageGeneration,
+      modelItem: modelItem,
+      toolServers: toolServers,
+      backgroundTasks: backgroundTasks,
+      userSettings: userSettings,
+      parentMessageId: parentMessageId,
+    );
 
     _traceApi('Preparing WebSocket-only chat request');
     _traceApi('Model: $model');
-    _traceApi('Message count: ${processedMessages.length}');
-
-    // Debug the data being sent
     _traceApi('Request data keys (pre-dispatch): ${data.keys.toList()}');
-    _traceApi('Has background_tasks: ${data.containsKey('background_tasks')}');
-    _traceApi('Has session_id: ${data.containsKey('session_id')}');
-    _traceApi('background_tasks value: ${data['background_tasks']}');
-    _traceApi('session_id value: ${data['session_id']}');
-    _traceApi('id value: ${data['id']}');
-
     _traceApi(
       'Request features: hasBackgroundTasks=$hasBackgroundTasksPayload, '
       'tools=${toolIds?.isNotEmpty == true}, '
       'webSearch=$enableWebSearch, imageGen=$enableImageGeneration, '
       'toolServers=${toolServers?.isNotEmpty == true}',
     );
-
-    // Attach identifiers to trigger background task processing on the server
-    data['session_id'] = sessionId;
-    data['id'] = messageId;
-    if (conversationId != null) {
-      data['chat_id'] = conversationId;
-    }
-    // Include parent_id for proper message linking (required since OpenWebUI 0.6.41)
-    // This links the assistant response to the user message it's responding to
-    if (parentMessageId != null) {
-      data['parent_id'] = parentMessageId;
-    }
-
-    // Always include parent_message as empty object to prevent NoneType error in OWUI 0.6.42+
-    // The server code does: parent_message.get("files", []) which fails if parent_message is None
-    // See: https://github.com/cogwheel0/conduit/issues/311
-    data['parent_message'] = <String, dynamic>{};
-
-    // Attach background_tasks if provided
-    if (backgroundTasks != null && backgroundTasks.isNotEmpty) {
-      data['background_tasks'] = backgroundTasks;
-    }
-
-    // Extra diagnostics to confirm dynamic-channel payload
     _traceApi('Background flow payload keys: ${data.keys.toList()}');
     _traceApi('Using session_id: $sessionId');
     _traceApi('Using message id: $messageId');
@@ -3627,17 +3585,18 @@ class ApiService {
       'Has tool_ids: ${data.containsKey('tool_ids')} -> ${data['tool_ids']}',
     );
     _traceApi('Has background_tasks: ${data.containsKey('background_tasks')}');
-
     _traceApi('Initiating WebSocket-only chat request');
     _traceApi('Posting to /api/chat/completions');
 
     // Create a cancel token for this request
     final cancelToken = CancelToken();
-    _streamCancelTokens[messageId] = cancelToken;
+    _streamCancelActions[messageId] = () async {
+      if (!cancelToken.isCancelled) {
+        cancelToken.cancel('User cancelled');
+      }
+    };
 
     // Send HTTP request to initiate chat task
-    // With session_id + chat_id + message_id, the server returns a task_id
-    // and all streaming happens via WebSocket events (not SSE)
     () async {
       try {
         final resp = await _dio.post(
@@ -3669,7 +3628,6 @@ class ApiService {
           }
         }
 
-        // Close HTTP stream controller - WebSocket handles all content delivery
         if (!streamController.isClosed) {
           streamController.close();
         }
@@ -3690,12 +3648,8 @@ class ApiService {
           streamController.close();
         }
       }
-      // Note: Don't remove cancel token here - it should remain until WebSocket
-      // streaming finishes so Stop button can cancel the active generation.
-      // Token is removed by clearStreamCancelToken() when streaming completes.
     }();
 
-    // Determine if this is actually a background flow based on the request payload
     final bool isBackgroundFlow =
         hasBackgroundTasksPayload ||
         (toolIds != null && toolIds.isNotEmpty) ||
@@ -3710,6 +3664,454 @@ class ApiService {
       socketSessionId: socketSessionId,
       isBackgroundFlow: isBackgroundFlow,
     );
+  }
+
+  /// Deprecated wrapper that delegates to [_sendMessageLegacy].
+  ///
+  /// All new code should use [sendMessageSession] instead.
+  @Deprecated('Use sendMessageSession() for transport-aware completions')
+  ({
+    Stream<String> stream,
+    String messageId,
+    String sessionId,
+    String? socketSessionId,
+    bool isBackgroundFlow,
+  })
+  sendMessage({
+    required List<Map<String, dynamic>> messages,
+    required String model,
+    String? conversationId,
+    List<String>? toolIds,
+    List<String>? filterIds,
+    bool enableWebSearch = false,
+    bool enableImageGeneration = false,
+    Map<String, dynamic>? modelItem,
+    String? sessionIdOverride,
+    String? socketSessionId,
+    List<Map<String, dynamic>>? toolServers,
+    Map<String, dynamic>? backgroundTasks,
+    String? responseMessageId,
+    Map<String, dynamic>? userSettings,
+    String? parentMessageId,
+  }) {
+    return _sendMessageLegacy(
+      messages: messages,
+      model: model,
+      conversationId: conversationId,
+      toolIds: toolIds,
+      filterIds: filterIds,
+      enableWebSearch: enableWebSearch,
+      enableImageGeneration: enableImageGeneration,
+      modelItem: modelItem,
+      sessionIdOverride: sessionIdOverride,
+      socketSessionId: socketSessionId,
+      toolServers: toolServers,
+      backgroundTasks: backgroundTasks,
+      responseMessageId: responseMessageId,
+      userSettings: userSettings,
+      parentMessageId: parentMessageId,
+    );
+  }
+
+  // -----------------------------------------------------------------------
+  // Transport-aware sendMessageSession
+  // -----------------------------------------------------------------------
+
+  /// Posts a chat completion request and classifies the server's response
+  /// into a typed [ChatCompletionSession].
+  ///
+  /// Unlike the legacy [sendMessage], this method inspects the actual HTTP
+  /// response to determine the transport mode (httpStream, taskSocket, or
+  /// jsonCompletion) rather than always assuming WebSocket delivery.
+  Future<ChatCompletionSession> sendMessageSession({
+    required List<Map<String, dynamic>> messages,
+    required String model,
+    String? conversationId,
+    List<String>? toolIds,
+    List<String>? filterIds,
+    bool enableWebSearch = false,
+    bool enableImageGeneration = false,
+    Map<String, dynamic>? modelItem,
+    String? sessionIdOverride,
+    List<Map<String, dynamic>>? toolServers,
+    Map<String, dynamic>? backgroundTasks,
+    String? responseMessageId,
+    Map<String, dynamic>? userSettings,
+    String? parentMessageId,
+  }) async {
+    // Generate unique IDs
+    final messageId =
+        (responseMessageId != null && responseMessageId.isNotEmpty)
+        ? responseMessageId
+        : const Uuid().v4();
+    final sessionId =
+        (sessionIdOverride != null && sessionIdOverride.isNotEmpty)
+        ? sessionIdOverride
+        : const Uuid().v4().substring(0, 20);
+
+    final data = _buildChatCompletionPayload(
+      messages: messages,
+      model: model,
+      messageId: messageId,
+      sessionId: sessionId,
+      conversationId: conversationId,
+      toolIds: toolIds,
+      filterIds: filterIds,
+      enableWebSearch: enableWebSearch,
+      enableImageGeneration: enableImageGeneration,
+      modelItem: modelItem,
+      toolServers: toolServers,
+      backgroundTasks: backgroundTasks,
+      userSettings: userSettings,
+      parentMessageId: parentMessageId,
+    );
+
+    _traceApi('sendMessageSession: posting to /api/chat/completions');
+
+    final cancelToken = CancelToken();
+    Future<void> abort() async {
+      if (!cancelToken.isCancelled) {
+        cancelToken.cancel('User cancelled');
+      }
+    }
+
+    _streamCancelActions[messageId] = abort;
+
+    final resp = await _dio.post<ResponseBody>(
+      '/api/chat/completions',
+      data: data,
+      options: Options(
+        responseType: ResponseType.stream,
+        // Accept all non-5xx so we can inspect error bodies ourselves.
+        validateStatus: (status) => status != null && status < 600,
+      ),
+      cancelToken: cancelToken,
+    );
+
+    final status = resp.statusCode ?? 0;
+
+    // Surface structured errors before transport binding.
+    if (status < 200 || status >= 300) {
+      final error = await _decodeChatCompletionError(resp);
+      throw Exception('Chat completion failed ($status): $error');
+    }
+
+    return classifyChatCompletionResponse(
+      resp,
+      messageId: messageId,
+      sessionId: sessionId,
+      conversationId: conversationId,
+      abort: abort,
+    );
+  }
+
+  // -----------------------------------------------------------------------
+  // Response classification
+  // -----------------------------------------------------------------------
+
+  /// Inspects a streamed [Response] from `/api/chat/completions` and
+  /// returns a typed [ChatCompletionSession].
+  ///
+  /// Classification precedence:
+  /// 1. `application/json` content-type → buffer, parse, check `task_id`
+  /// 2. Body sniffing (handles missing / misleading content-type):
+  ///    - `data:` prefix → httpStream (with replay stream)
+  ///    - Valid JSON → taskSocket or jsonCompletion depending on `task_id`
+  /// 3. `text/event-stream` content-type → httpStream
+  /// 4. Else → [StateError]
+  @visibleForTesting
+  Future<ChatCompletionSession> classifyChatCompletionResponse(
+    Response<ResponseBody> resp, {
+    required String messageId,
+    required String sessionId,
+    String? conversationId,
+    required Future<void> Function() abort,
+  }) async {
+    final ct = resp.headers.value('content-type') ?? '';
+    final isJsonCt = ct.contains('application/json');
+    final isEventStreamCt = ct.contains('text/event-stream');
+
+    _traceApi(
+      'classifyChatCompletionResponse: content-type=$ct, '
+      'status=${resp.statusCode}',
+    );
+
+    final bodyStream = resp.data!.stream;
+
+    // ------------------------------------------------------------------
+    // 1. Explicit application/json → buffer fully and classify
+    // ------------------------------------------------------------------
+    if (isJsonCt) {
+      final json = await _requireJsonMap(bodyStream);
+      return _classifyJsonBody(
+        json,
+        messageId: messageId,
+        sessionId: sessionId,
+        conversationId: conversationId,
+        abort: abort,
+      );
+    }
+
+    // ------------------------------------------------------------------
+    // 2. Sniff the body (handles missing or misleading headers)
+    // ------------------------------------------------------------------
+    final sniffResult = await _sniffChatCompletionBody(bodyStream);
+
+    switch (sniffResult) {
+      case _SniffSse(:final buffered, :final rest):
+        _traceApi('classifyChatCompletionResponse → httpStream (body sniff)');
+        return ChatCompletionSession.httpStream(
+          messageId: messageId,
+          sessionId: sessionId,
+          conversationId: conversationId,
+          byteStream: _replayStream(buffered, rest),
+          abort: abort,
+        );
+
+      case _SniffJson(:final json):
+        return _classifyJsonBody(
+          json,
+          messageId: messageId,
+          sessionId: sessionId,
+          conversationId: conversationId,
+          abort: abort,
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // 3. Fall back to content-type header
+    // ------------------------------------------------------------------
+    // ignore: dead_code
+    if (isEventStreamCt) {
+      _traceApi('classifyChatCompletionResponse → httpStream (content-type)');
+      return ChatCompletionSession.httpStream(
+        messageId: messageId,
+        sessionId: sessionId,
+        conversationId: conversationId,
+        byteStream: bodyStream,
+        abort: abort,
+      );
+    }
+
+    throw StateError(
+      'Unable to classify chat completion response '
+      '(content-type=$ct)',
+    );
+  }
+
+  /// Classifies a fully-parsed JSON body as taskSocket or jsonCompletion.
+  ChatCompletionSession _classifyJsonBody(
+    Map<String, dynamic> json, {
+    required String messageId,
+    required String sessionId,
+    String? conversationId,
+    required Future<void> Function() abort,
+  }) {
+    if (json['task_id'] != null) {
+      _traceApi(
+        'classifyChatCompletionResponse → taskSocket '
+        '(task_id=${json['task_id']})',
+      );
+      return ChatCompletionSession.taskSocket(
+        messageId: messageId,
+        sessionId: sessionId,
+        conversationId: conversationId,
+        taskId: json['task_id'].toString(),
+        abort: abort,
+      );
+    }
+
+    _traceApi('classifyChatCompletionResponse → jsonCompletion');
+    return ChatCompletionSession.jsonCompletion(
+      messageId: messageId,
+      sessionId: sessionId,
+      conversationId: conversationId,
+      jsonPayload: json,
+    );
+  }
+
+  // -----------------------------------------------------------------------
+  // Internal helpers for response classification
+  // -----------------------------------------------------------------------
+
+  /// Attempts to decode a non-2xx response body into a human-readable
+  /// error string.
+  Future<String> _decodeChatCompletionError(Response<ResponseBody> resp) async {
+    try {
+      final bytes = await _collectBytes(resp.data!.stream);
+      final text = utf8.decode(bytes, allowMalformed: true);
+      final json = _tryParseJsonMap(text);
+      if (json != null) {
+        return json['error']?.toString() ?? json['detail']?.toString() ?? text;
+      }
+      return text;
+    } catch (_) {
+      return 'status ${resp.statusCode}';
+    }
+  }
+
+  /// Buffers the full stream into a single JSON map or throws.
+  Future<Map<String, dynamic>> _requireJsonMap(Stream<List<int>> stream) async {
+    final bytes = await _collectBytes(stream);
+    final text = utf8.decode(bytes, allowMalformed: true);
+    final decoded = jsonDecode(text);
+    if (decoded is Map<String, dynamic>) {
+      return decoded;
+    }
+    throw FormatException('Expected JSON object, got ${decoded.runtimeType}');
+  }
+
+  /// Tries to parse [text] as a JSON map, returning `null` on failure.
+  Map<String, dynamic>? _tryParseJsonMap(String text) {
+    try {
+      final decoded = jsonDecode(text);
+      if (decoded is Map<String, dynamic>) {
+        return decoded;
+      }
+    } on FormatException catch (_) {
+      // Incomplete or malformed JSON.
+    }
+    return null;
+  }
+
+  /// Collects all bytes from [stream] into a single list.
+  Future<List<int>> _collectBytes(Stream<List<int>> stream) async {
+    final chunks = <List<int>>[];
+    await for (final chunk in stream) {
+      chunks.add(chunk);
+    }
+    if (chunks.isEmpty) return const [];
+    if (chunks.length == 1) return chunks.first;
+    final total = chunks.fold<int>(0, (s, c) => s + c.length);
+    final result = Uint8List(total);
+    var offset = 0;
+    for (final chunk in chunks) {
+      result.setRange(offset, offset + chunk.length, chunk);
+      offset += chunk.length;
+    }
+    return result;
+  }
+
+  /// Sniffs the first bytes of the body stream to determine whether it
+  /// looks like SSE data or a JSON object.
+  ///
+  /// Returns a sealed [_SniffResult] so callers can pattern-match.
+  Future<_SniffResult> _sniffChatCompletionBody(
+    Stream<List<int>> stream,
+  ) async {
+    final buffered = <List<int>>[];
+    final completer = Completer<_SniffResult>();
+    late StreamSubscription<List<int>> sub;
+
+    sub = stream.listen(
+      (chunk) {
+        buffered.add(chunk);
+        final textSoFar = utf8.decode(
+          buffered.expand((c) => c).toList(),
+          allowMalformed: true,
+        );
+
+        // Check for SSE data prefix
+        if (textSoFar.trimLeft().startsWith('data:')) {
+          sub.pause();
+          completer.complete(_SniffSse(buffered: buffered, rest: sub));
+          return;
+        }
+
+        // Check for valid JSON
+        final json = _tryParseJsonMap(textSoFar.trim());
+        if (json != null) {
+          sub.cancel();
+          completer.complete(_SniffJson(json: json));
+          return;
+        }
+      },
+      onDone: () {
+        if (!completer.isCompleted) {
+          // Try one last time to parse the full buffered content as JSON
+          final text = utf8.decode(
+            buffered.expand((c) => c).toList(),
+            allowMalformed: true,
+          );
+          final json = _tryParseJsonMap(text.trim());
+          if (json != null) {
+            completer.complete(_SniffJson(json: json));
+          } else if (text.trimLeft().startsWith('data:')) {
+            // Can't replay a done stream, but classify it correctly.
+            completer.complete(_SniffSse(buffered: buffered, rest: null));
+          } else {
+            completer.completeError(
+              StateError('Unable to classify chat completion response body'),
+            );
+          }
+        }
+      },
+      onError: (Object e) {
+        if (!completer.isCompleted) {
+          completer.completeError(e);
+        }
+      },
+    );
+
+    return completer.future;
+  }
+
+  /// Reconstructs a byte stream from buffered chunks and an optional
+  /// remaining subscription.
+  Stream<List<int>> _replayStream(
+    List<List<int>> buffered,
+    StreamSubscription<List<int>>? rest,
+  ) async* {
+    for (final chunk in buffered) {
+      yield chunk;
+    }
+    if (rest != null) {
+      final controller = StreamController<List<int>>();
+      rest
+        ..onData(controller.add)
+        ..onDone(controller.close)
+        ..onError(controller.addError);
+      rest.resume();
+      yield* controller.stream;
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // @visibleForTesting helpers
+  // -----------------------------------------------------------------------
+
+  /// Exposes [_buildChatCompletionPayload] for unit tests.
+  @visibleForTesting
+  Map<String, dynamic> buildChatCompletionPayloadForTest({
+    required List<Map<String, dynamic>> messages,
+    required String model,
+    required String messageId,
+    required String sessionId,
+    String? conversationId,
+  }) {
+    return _buildChatCompletionPayload(
+      messages: messages,
+      model: model,
+      messageId: messageId,
+      sessionId: sessionId,
+      conversationId: conversationId,
+    );
+  }
+
+  /// Registers a cancel action for testing the widened cancel map.
+  @visibleForTesting
+  void registerLegacyCancelActionForTest(
+    String messageId,
+    Future<void> Function() action,
+  ) {
+    _streamCancelActions[messageId] = action;
+  }
+
+  /// Returns whether a cancel action is registered for the given
+  /// [messageId]. Useful in tests to verify cleanup.
+  @visibleForTesting
+  bool hasCancelActionForTest(String messageId) {
+    return _streamCancelActions.containsKey(messageId);
   }
 
   // === Tasks control (parity with Web client) ===
@@ -3737,21 +4139,25 @@ class ApiService {
   // Cancel an active streaming message by its messageId (client-side abort)
   void cancelStreamingMessage(String messageId) {
     try {
-      final token = _streamCancelTokens.remove(messageId);
-      if (token != null && !token.isCancelled) {
-        token.cancel('User cancelled');
+      final action = _streamCancelActions.remove(messageId);
+      if (action != null) {
+        action();
       }
     } catch (_) {}
   }
 
-  /// Clears the cancel token for a message when streaming completes normally.
+  /// Clears the cancel action for a message when streaming completes normally.
   /// Called by streaming_helper when finishStreaming is invoked.
   void clearStreamCancelToken(String messageId) {
-    _streamCancelTokens.remove(messageId);
+    _streamCancelActions.remove(messageId);
   }
 
   // File upload for RAG
-  Future<String> uploadFile(String filePath, String fileName, {String? contentType}) async {
+  Future<String> uploadFile(
+    String filePath,
+    String fileName, {
+    String? contentType,
+  }) async {
     _traceApi('Starting file upload: $fileName from $filePath');
 
     try {
@@ -3949,10 +4355,7 @@ class ApiService {
     _traceApi('Archiving all chats in bulk');
     final response = await _dio.post(
       '/api/v1/chats/archive/all',
-      data: {
-        'exclude_ids': ?excludeIds,
-        'before_date': ?beforeDate,
-      },
+      data: {'exclude_ids': ?excludeIds, 'before_date': ?beforeDate},
     );
     return response.data as Map<String, dynamic>;
   }
@@ -4240,11 +4643,7 @@ class ApiService {
     );
     final response = await _dio.post(
       '/api/v1/chats/batch',
-      data: {
-        'chat_ids': chatIds,
-        'operation': operation,
-        'params': ?params,
-      },
+      data: {'chat_ids': chatIds, 'operation': operation, 'params': ?params},
     );
     return response.data as Map<String, dynamic>;
   }
@@ -4299,10 +4698,7 @@ class ApiService {
     _traceApi('Creating chat from template: $templateId');
     final response = await _dio.post(
       '/api/v1/chats/templates/$templateId/create',
-      data: {
-        'variables': ?variables,
-        'title': ?title,
-      },
+      data: {'variables': ?variables, 'title': ?title},
     );
     final json = await _workerManager
         .schedule<Map<String, dynamic>, Map<String, dynamic>>(

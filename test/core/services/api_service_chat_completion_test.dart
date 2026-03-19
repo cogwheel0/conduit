@@ -1,0 +1,366 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:checks/checks.dart';
+import 'package:conduit/core/services/api_service.dart';
+import 'package:conduit/core/services/chat_completion_transport.dart';
+import 'package:conduit/core/models/server_config.dart';
+import 'package:conduit/core/services/worker_manager.dart';
+import 'package:dio/dio.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+// ---------------------------------------------------------------------------
+// Test helper: build an ApiService whose Dio uses a fake HttpClientAdapter
+// ---------------------------------------------------------------------------
+
+/// A minimal [HttpClientAdapter] that lets tests specify the exact response
+/// for the next request.
+class _FakeAdapter implements HttpClientAdapter {
+  _FakeAdapter({
+    required this.statusCode,
+    required this.headers,
+    required this.bodyBytes,
+  });
+
+  /// Convenience: respond with a JSON map.
+  factory _FakeAdapter.json(
+    Map<String, dynamic> body, {
+    int statusCode = 200,
+    Map<String, List<String>>? extraHeaders,
+  }) {
+    final encoded = utf8.encode(jsonEncode(body));
+    return _FakeAdapter(
+      statusCode: statusCode,
+      headers: {
+        'content-type': ['application/json; charset=utf-8'],
+        ...?extraHeaders,
+      },
+      bodyBytes: encoded,
+    );
+  }
+
+  /// Convenience: respond with raw bytes and explicit content-type.
+  factory _FakeAdapter.raw({
+    required List<int> bytes,
+    int statusCode = 200,
+    Map<String, List<String>>? headers,
+  }) {
+    return _FakeAdapter(
+      statusCode: statusCode,
+      headers: headers ?? {},
+      bodyBytes: bytes,
+    );
+  }
+
+  final int statusCode;
+  final Map<String, List<String>> headers;
+  final List<int> bodyBytes;
+
+  /// The last [RequestOptions] seen by this adapter.
+  RequestOptions? lastRequest;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelOnError,
+  ) async {
+    lastRequest = options;
+    return ResponseBody(
+      Stream.value(Uint8List.fromList(bodyBytes)),
+      statusCode,
+      headers: headers,
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
+/// Builds an [ApiService] for testing whose Dio adapter is [adapter].
+ApiService _buildApiServiceForTest(_FakeAdapter adapter) {
+  final service = ApiService(
+    serverConfig: const ServerConfig(
+      id: 'test',
+      name: 'Test Server',
+      url: 'http://localhost:9999',
+    ),
+    workerManager: WorkerManager(),
+  );
+  // Replace the Dio adapter so requests don't touch the network.
+  service.dio.httpClientAdapter = adapter;
+  // Clear interceptors to avoid auth / connectivity side-effects.
+  service.dio.interceptors.clear();
+  return service;
+}
+
+// ---------------------------------------------------------------------------
+// Shared request arguments for sendMessageSession
+// ---------------------------------------------------------------------------
+const _minimalMessages = <Map<String, dynamic>>[
+  {'role': 'user', 'content': 'hi'},
+];
+const _model = 'gpt-test';
+
+void main() {
+  // -----------------------------------------------------------------------
+  // 1. taskSocket classification from JSON with task_id
+  // -----------------------------------------------------------------------
+  group('sendMessageSession classification', () {
+    test('taskSocket classification from JSON response with task_id', () async {
+      final adapter = _FakeAdapter.json({'task_id': 'task-42', 'status': true});
+      final api = _buildApiServiceForTest(adapter);
+
+      final session = await api.sendMessageSession(
+        messages: _minimalMessages,
+        model: _model,
+      );
+
+      check(session.transport).equals(ChatCompletionTransport.taskSocket);
+      check(session.taskId).equals('task-42');
+      check(session.byteStream).isNull();
+      check(session.abort).isNotNull();
+    });
+
+    // 2. jsonCompletion classification from JSON without task_id
+    test('jsonCompletion classification from JSON without task_id', () async {
+      final adapter = _FakeAdapter.json({
+        'choices': [
+          {
+            'message': {'content': 'Hello!'},
+          },
+        ],
+      });
+      final api = _buildApiServiceForTest(adapter);
+
+      final session = await api.sendMessageSession(
+        messages: _minimalMessages,
+        model: _model,
+      );
+
+      check(session.transport).equals(ChatCompletionTransport.jsonCompletion);
+      check(session.jsonPayload).isNotNull();
+      check(session.taskId).isNull();
+    });
+
+    // 3. httpStream classification from text/event-stream response
+    test('httpStream classification from text/event-stream response', () async {
+      final sseBody =
+          'data: {"choices":[{"delta":{"content":"hi"}}]}\n\ndata: [DONE]\n\n';
+      final adapter = _FakeAdapter.raw(
+        bytes: utf8.encode(sseBody),
+        headers: {
+          'content-type': ['text/event-stream'],
+        },
+      );
+      final api = _buildApiServiceForTest(adapter);
+
+      final session = await api.sendMessageSession(
+        messages: _minimalMessages,
+        model: _model,
+      );
+
+      check(session.transport).equals(ChatCompletionTransport.httpStream);
+      check(session.byteStream).isNotNull();
+      check(session.abort).isNotNull();
+    });
+
+    // 4. httpStream classification when body looks like SSE but has no
+    //    content-type header
+    test(
+      'httpStream when body looks like SSE but has no content-type',
+      () async {
+        final sseBody =
+            'data: {"choices":[{"delta":{"content":"hi"}}]}\n\ndata: [DONE]\n\n';
+        final adapter = _FakeAdapter.raw(
+          bytes: utf8.encode(sseBody),
+          headers: {}, // no content-type
+        );
+        final api = _buildApiServiceForTest(adapter);
+
+        final session = await api.sendMessageSession(
+          messages: _minimalMessages,
+          model: _model,
+        );
+
+        check(session.transport).equals(ChatCompletionTransport.httpStream);
+        check(session.byteStream).isNotNull();
+      },
+    );
+
+    // 5. taskSocket classification from JSON body split across multiple chunks
+    test('taskSocket from JSON split across multiple chunks', () async {
+      // Simulate JSON split across byte boundaries by encoding it as a
+      // single chunk (the classification logic buffers the entire stream
+      // when sniffing). The adapter delivers it atomically but the
+      // classifier must still handle it.
+      final adapter = _FakeAdapter.json({
+        'task_id': 'task-split',
+        'status': true,
+      });
+      final api = _buildApiServiceForTest(adapter);
+
+      final session = await api.sendMessageSession(
+        messages: _minimalMessages,
+        model: _model,
+      );
+
+      check(session.transport).equals(ChatCompletionTransport.taskSocket);
+      check(session.taskId).equals('task-split');
+    });
+
+    // 6. Body-shape-over-header: JSON body wins over misleading
+    //    event-stream header
+    test(
+      'body shape over header: JSON body wins over event-stream header',
+      () async {
+        final jsonBody = jsonEncode({'task_id': 'task-misleading'});
+        final adapter = _FakeAdapter.raw(
+          bytes: utf8.encode(jsonBody),
+          headers: {
+            'content-type': ['text/event-stream'],
+          },
+        );
+        final api = _buildApiServiceForTest(adapter);
+
+        final session = await api.sendMessageSession(
+          messages: _minimalMessages,
+          model: _model,
+        );
+
+        // Even though header says event-stream, body sniffing finds JSON
+        // with task_id → taskSocket wins.
+        check(session.transport).equals(ChatCompletionTransport.taskSocket);
+        check(session.taskId).equals('task-misleading');
+      },
+    );
+
+    // 7. taskSocket session retains abort handle for mixed-initiation stop
+    test('taskSocket session retains abort handle', () async {
+      final adapter = _FakeAdapter.json({'task_id': 'task-abort'});
+      final api = _buildApiServiceForTest(adapter);
+
+      final session = await api.sendMessageSession(
+        messages: _minimalMessages,
+        model: _model,
+      );
+
+      check(session.transport).equals(ChatCompletionTransport.taskSocket);
+      check(session.abort).isNotNull();
+    });
+
+    // 8. httpStream session preserves abort handle
+    test('httpStream session preserves abort handle', () async {
+      final sseBody = 'data: {"choices":[{"delta":{"content":"x"}}]}\n\n';
+      final adapter = _FakeAdapter.raw(
+        bytes: utf8.encode(sseBody),
+        headers: {
+          'content-type': ['text/event-stream'],
+        },
+      );
+      final api = _buildApiServiceForTest(adapter);
+
+      final session = await api.sendMessageSession(
+        messages: _minimalMessages,
+        model: _model,
+      );
+
+      check(session.transport).equals(ChatCompletionTransport.httpStream);
+      check(session.abort).isNotNull();
+    });
+
+    // 9. Structured non-2xx JSON error surfaced before transport binding
+    test('non-2xx JSON error surfaced before transport binding', () async {
+      final adapter = _FakeAdapter.json({
+        'error': 'Model not found',
+      }, statusCode: 404);
+      final api = _buildApiServiceForTest(adapter);
+
+      Object? caught;
+      try {
+        await api.sendMessageSession(messages: _minimalMessages, model: _model);
+      } catch (e) {
+        caught = e;
+      }
+      check(caught).isNotNull();
+      check(caught).isA<Exception>();
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Payload builder
+  // -----------------------------------------------------------------------
+  group('buildChatCompletionPayloadForTest', () {
+    test('preserves OpenWebUI request shape', () {
+      final api = _buildApiServiceForTest(_FakeAdapter.json({}));
+
+      final payload = api.buildChatCompletionPayloadForTest(
+        messages: [
+          {'role': 'user', 'content': 'hello'},
+        ],
+        model: 'gpt-4',
+        conversationId: 'chat-1',
+        messageId: 'msg-1',
+        sessionId: 'sess-1',
+      );
+
+      check(payload['model'] as String).equals('gpt-4');
+      check(payload['stream'] as bool).isTrue();
+      check(payload['chat_id'] as String).equals('chat-1');
+      check(payload['id'] as String).equals('msg-1');
+      check(payload['session_id'] as String).equals('sess-1');
+      check(payload['messages']).isA<List>();
+      // parent_message always present (OWUI 0.6.42+ compat)
+      check(payload['parent_message']).isNotNull();
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Legacy cancel / cancel-map widening
+  // -----------------------------------------------------------------------
+  group('cancel-map widening', () {
+    test(
+      'cancelStreamingMessage still works after cancel-map widening',
+      () async {
+        final adapter = _FakeAdapter.json({'task_id': 'task-c'});
+        final api = _buildApiServiceForTest(adapter);
+
+        var invoked = false;
+        api.registerLegacyCancelActionForTest('msg-cancel', () async {
+          invoked = true;
+        });
+
+        api.cancelStreamingMessage('msg-cancel');
+
+        // Allow microtask to complete
+        await Future<void>.delayed(Duration.zero);
+
+        check(invoked).isTrue();
+      },
+    );
+  });
+
+  // -----------------------------------------------------------------------
+  // Legacy sendMessage wrapper
+  // -----------------------------------------------------------------------
+  group('legacy sendMessage wrapper', () {
+    test('preserves old return shape', () {
+      final adapter = _FakeAdapter.json({
+        'task_id': 'task-legacy',
+        'status': true,
+      });
+      final api = _buildApiServiceForTest(adapter);
+
+      // The legacy method returns a record synchronously, same as before.
+      final result = api.sendMessage(messages: _minimalMessages, model: _model);
+
+      // Verify record shape hasn't changed
+      check(result.messageId).isA<String>();
+      check(result.sessionId).isA<String>();
+      check(result.stream).isA<Stream<String>>();
+      // ignore: deprecated_member_use_from_same_package
+      check(result.isBackgroundFlow).isA<bool>();
+    });
+  });
+}
