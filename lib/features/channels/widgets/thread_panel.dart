@@ -7,7 +7,8 @@ import '../../../core/models/channel_message.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/utils/model_icon_utils.dart';
-import '../../../core/utils/user_avatar_utils.dart';
+import '../../../core/utils/user_avatar_utils.dart'
+    show resolveUserProfileImageUrl;
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/model_avatar.dart';
 import '../../../shared/widgets/user_avatar.dart';
@@ -269,9 +270,9 @@ class _ParentMessageTile extends StatelessWidget {
     }
     return UserAvatar(
       size: 28,
-      imageUrl: resolveUserAvatarUrlForUser(
+      imageUrl: resolveUserProfileImageUrl(
         api,
-        message.user,
+        message.user?.profileImageUrl,
       ),
       fallbackText: message.userName,
     );
@@ -334,9 +335,9 @@ class _ThreadReplies extends StatelessWidget {
                 UserAvatar(
                   size: 24,
                   imageUrl:
-                      resolveUserAvatarUrlForUser(
+                      resolveUserProfileImageUrl(
                     api,
-                    message.user,
+                    message.user?.profileImageUrl,
                   ),
                   fallbackText:
                       message.userName,

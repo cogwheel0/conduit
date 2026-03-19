@@ -1143,9 +1143,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
           message.meta!['model_id'] as String?;
       return buildModelAvatarUrl(api, modelId);
     }
-    return resolveUserAvatarUrlForUser(
+    return resolveUserProfileImageUrl(
       api,
-      message.user,
+      message.user?.profileImageUrl,
     );
   }
 
