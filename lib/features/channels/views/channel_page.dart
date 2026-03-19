@@ -41,6 +41,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   final ScrollController _scrollController = ScrollController();
   bool _isSending = false;
   bool _isLoadingMore = false;
+  String? _editingMessageId;
+  final TextEditingController _editController =
+      TextEditingController();
 
   @override
   void initState() {
@@ -54,6 +57,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
 
   @override
   void dispose() {
+    _editController.dispose();
     _scrollController
       ..removeListener(_onScroll)
       ..dispose();
@@ -312,19 +316,78 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   }
 
   // ---------------------------------------------------------------------------
+  // Message editing
+  // ---------------------------------------------------------------------------
+
+  void _startEditingMessage(ChannelMessage message) {
+    setState(() {
+      _editingMessageId = message.id;
+      _editController.text = message.content;
+    });
+  }
+
+  void _cancelEditing() {
+    setState(() {
+      _editingMessageId = null;
+      _editController.clear();
+    });
+  }
+
+  Future<void> _submitEdit(ChannelMessage message) async {
+    final newContent = _editController.text.trim();
+    if (newContent.isEmpty ||
+        newContent == message.content) {
+      _cancelEditing();
+      return;
+    }
+
+    final api = ref.read(apiServiceProvider);
+    if (api == null) return;
+
+    try {
+      final json = await api.updateChannelMessage(
+        widget.channelId,
+        message.id,
+        content: newContent,
+      );
+      if (!mounted) return;
+      final updated = ChannelMessage.fromJson(json);
+      ref
+          .read(
+            channelMessagesProvider(widget.channelId)
+                .notifier,
+          )
+          .updateMessage(updated);
+    } catch (e, st) {
+      developer.log(
+        'Failed to edit message',
+        name: 'ChannelPage',
+        error: e,
+        stackTrace: st,
+      );
+    }
+    if (mounted) _cancelEditing();
+  }
+
+  // ---------------------------------------------------------------------------
   // Bottom sheets
   // ---------------------------------------------------------------------------
 
   void _showMessageActions(ChannelMessage message) {
     final l10n = AppLocalizations.of(context);
     final theme = context.conduitTheme;
+    final currentUserId =
+        ref.read(currentUserProvider).value?.id;
+    final isOwn = message.userId == currentUserId;
 
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: theme.surfaceContainer,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(
-          top: Radius.circular(AppBorderRadius.bottomSheet),
+          top: Radius.circular(
+            AppBorderRadius.bottomSheet,
+          ),
         ),
       ),
       builder: (ctx) => SafeArea(
@@ -332,13 +395,30 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: const Icon(Icons.emoji_emotions_outlined),
-              title: Text(l10n?.channelMessageReact ?? 'React'),
+              leading: const Icon(
+                Icons.emoji_emotions_outlined,
+              ),
+              title: Text(
+                l10n?.channelMessageReact ?? 'React',
+              ),
               onTap: () {
                 Navigator.pop(ctx);
                 _showEmojiPicker(message);
               },
             ),
+            if (isOwn)
+              ListTile(
+                leading: const Icon(
+                  Icons.edit_outlined,
+                ),
+                title: Text(
+                  l10n?.channelMessageEdit ?? 'Edit',
+                ),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _startEditingMessage(message);
+                },
+              ),
             ListTile(
               leading: Icon(
                 Icons.delete_outline,
@@ -713,7 +793,13 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         return _MessageBubble(
           message: message,
           currentUserId: currentUserId,
-          onLongPress: () => _showMessageActions(message),
+          isEditing:
+              _editingMessageId == message.id,
+          editController: _editController,
+          onSubmitEdit: () => _submitEdit(message),
+          onCancelEdit: _cancelEditing,
+          onLongPress: () =>
+              _showMessageActions(message),
           onReactionTap: (emoji) =>
               _toggleReaction(message, emoji),
         );
@@ -784,12 +870,20 @@ class _MessageBubble extends StatelessWidget {
   const _MessageBubble({
     required this.message,
     required this.currentUserId,
+    required this.isEditing,
+    this.editController,
+    this.onSubmitEdit,
+    this.onCancelEdit,
     required this.onLongPress,
     required this.onReactionTap,
   });
 
   final ChannelMessage message;
   final String? currentUserId;
+  final bool isEditing;
+  final TextEditingController? editController;
+  final VoidCallback? onSubmitEdit;
+  final VoidCallback? onCancelEdit;
   final VoidCallback onLongPress;
   final ValueChanged<String> onReactionTap;
 
@@ -818,14 +912,61 @@ class _MessageBubble extends StatelessWidget {
                 children: [
                   _buildHeader(theme, timestamp),
                   const SizedBox(height: Spacing.xxs),
-                  Text(
-                    message.content,
-                    style: TextStyle(
-                      color: theme.textPrimary,
-                      fontSize: 14,
-                      height: 1.4,
+                  if (isEditing)
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: editController,
+                            autofocus: true,
+                            style: TextStyle(
+                              color: theme.textPrimary,
+                              fontSize: 14,
+                            ),
+                            decoration: InputDecoration(
+                              isDense: true,
+                              contentPadding:
+                                  const EdgeInsets
+                                      .symmetric(
+                                horizontal: Spacing.sm,
+                                vertical: Spacing.xs,
+                              ),
+                              border:
+                                  OutlineInputBorder(
+                                borderRadius:
+                                    BorderRadius
+                                        .circular(8),
+                              ),
+                            ),
+                            onSubmitted: (_) =>
+                                onSubmitEdit?.call(),
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(
+                            Icons.check,
+                            size: 18,
+                          ),
+                          onPressed: onSubmitEdit,
+                        ),
+                        IconButton(
+                          icon: const Icon(
+                            Icons.close,
+                            size: 18,
+                          ),
+                          onPressed: onCancelEdit,
+                        ),
+                      ],
+                    )
+                  else
+                    Text(
+                      message.content,
+                      style: TextStyle(
+                        color: theme.textPrimary,
+                        fontSize: 14,
+                        height: 1.4,
+                      ),
                     ),
-                  ),
                   if (message.reactions.isNotEmpty)
                     _buildReactions(context, theme),
                 ],
