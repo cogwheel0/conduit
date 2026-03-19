@@ -877,12 +877,10 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
                 onTap: _showMemberList,
                 child: FloatingAppBarPill(
                   isCircular: true,
-                  child: Text(
-                    '${channel!.userCount}',
-                    style: TextStyle(
-                      color: theme.textPrimary,
-                      fontSize: 13,
-                    ),
+                  child: Icon(
+                    Icons.people_outline,
+                    size: IconSize.appBar,
+                    color: theme.textPrimary,
                   ),
                 ),
               ),
