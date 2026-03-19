@@ -108,7 +108,13 @@ class _ThreadPanelState
           Expanded(
             child: threadAsync.when(
               data: (messages) => _ThreadReplies(
-                messages: messages,
+                messages: messages
+                    .where(
+                      (m) =>
+                          m.id !=
+                          widget.parentMessage.id,
+                    )
+                    .toList(),
                 theme: theme,
               ),
               loading: () => const Center(
