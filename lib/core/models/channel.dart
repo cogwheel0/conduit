@@ -23,13 +23,13 @@ sealed class Channel with _$Channel {
   factory Channel.fromJson(Map<String, dynamic> json) =>
       _$ChannelFromJson(json);
 
-  /// Converts the [createdAt] epoch (seconds) to a [DateTime].
+  /// Converts the nanosecond epoch timestamp to [DateTime].
   DateTime? get createdDateTime => createdAt != null
-      ? DateTime.fromMillisecondsSinceEpoch(createdAt! * 1000)
+      ? DateTime.fromMicrosecondsSinceEpoch(createdAt! ~/ 1000)
       : null;
 
-  /// Converts the [updatedAt] epoch (seconds) to a [DateTime].
+  /// Converts the nanosecond epoch timestamp to [DateTime].
   DateTime? get updatedDateTime => updatedAt != null
-      ? DateTime.fromMillisecondsSinceEpoch(updatedAt! * 1000)
+      ? DateTime.fromMicrosecondsSinceEpoch(updatedAt! ~/ 1000)
       : null;
 }

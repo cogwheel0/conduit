@@ -30,12 +30,14 @@ sealed class ChannelMessage with _$ChannelMessage {
   /// Profile image URL from the embedded user object.
   String? get userProfileImage => user?.profileImageUrl;
 
+  /// Converts the nanosecond epoch timestamp to [DateTime].
   DateTime? get createdDateTime => createdAt != null
-      ? DateTime.fromMillisecondsSinceEpoch(createdAt! * 1000)
+      ? DateTime.fromMicrosecondsSinceEpoch(createdAt! ~/ 1000)
       : null;
 
+  /// Converts the nanosecond epoch timestamp to [DateTime].
   DateTime? get updatedDateTime => updatedAt != null
-      ? DateTime.fromMillisecondsSinceEpoch(updatedAt! * 1000)
+      ? DateTime.fromMicrosecondsSinceEpoch(updatedAt! ~/ 1000)
       : null;
 }
 
