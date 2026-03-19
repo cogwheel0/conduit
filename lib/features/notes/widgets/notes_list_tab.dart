@@ -113,7 +113,7 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
               ),
               const SizedBox(width: 8),
               FloatingAppBarIconButton(
-                icon: UiUtils.addIcon,
+                icon: UiUtils.newNoteIcon,
                 onTap: _createNote,
               ),
             ],

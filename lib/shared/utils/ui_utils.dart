@@ -46,6 +46,21 @@ class UiUtils {
   static IconData get addIcon =>
       platformIcon(ios: CupertinoIcons.plus_circle, android: Icons.add);
 
+  static IconData get newChatIcon => platformIcon(
+    ios: CupertinoIcons.chat_bubble,
+    android: Icons.chat_bubble_outline,
+  );
+
+  static IconData get newNoteIcon => platformIcon(
+    ios: CupertinoIcons.doc_text,
+    android: Icons.note_add_outlined,
+  );
+
+  static IconData get newChannelIcon => platformIcon(
+    ios: CupertinoIcons.number,
+    android: Icons.tag,
+  );
+
   static IconData get attachIcon =>
       platformIcon(ios: CupertinoIcons.paperclip, android: Icons.attach_file);
 

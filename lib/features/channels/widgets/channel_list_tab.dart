@@ -185,7 +185,7 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
               ),
               const SizedBox(width: 8),
               FloatingAppBarIconButton(
-                icon: UiUtils.addIcon,
+                icon: UiUtils.newChannelIcon,
                 onTap: _showCreateChannelDialog,
               ),
             ],

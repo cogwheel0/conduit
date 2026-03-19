@@ -830,8 +830,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                           context,
                           Padding(
                             padding: const EdgeInsets.symmetric(
-                              horizontal: Spacing.sm,
-                              vertical: Spacing.xs,
+                              horizontal: Spacing.md,
+                              vertical: Spacing.sm,
                             ),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
@@ -889,14 +889,14 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                                                     focusNode: _titleFocusNode,
                                                     enabled:
                                                         !_isGeneratingTitle,
-                                                    style: AppTypography
-                                                        .headlineSmallStyle
-                                                        .copyWith(
-                                                          color: conduitTheme
-                                                              .textPrimary,
-                                                          fontWeight:
-                                                              FontWeight.w600,
-                                                        ),
+                                                    style: TextStyle(
+                                                      color: conduitTheme
+                                                          .textPrimary,
+                                                      fontSize: AppTypography
+                                                          .bodySmall,
+                                                      fontWeight:
+                                                          FontWeight.w500,
+                                                    ),
                                                     placeholder: l10n.untitled,
                                                     textAlign: TextAlign.center,
                                                     textCapitalization:
@@ -917,18 +917,19 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                                                         )
                                                         .copyWith(
                                                           hintStyle:
-                                                              AppTypography
-                                                                  .headlineSmallStyle
-                                                                  .copyWith(
+                                                              TextStyle(
                                                                     color: conduitTheme
                                                                         .textSecondary
                                                                         .withValues(
                                                                           alpha:
                                                                               0.6,
                                                                         ),
+                                                                    fontSize:
+                                                                        AppTypography
+                                                                            .bodySmall,
                                                                     fontWeight:
                                                                         FontWeight
-                                                                            .w600,
+                                                                            .w500,
                                                                   ),
                                                           contentPadding:
                                                               EdgeInsets.zero,
@@ -948,9 +949,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                                                             .isEmpty
                                                         ? l10n.untitled
                                                         : _titleController.text,
-                                                    style: AppTypography
-                                                        .headlineSmallStyle
-                                                        .copyWith(
+                                                    style: TextStyle(
                                                           color:
                                                               _titleController
                                                                   .text
@@ -963,8 +962,11 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                                                                     )
                                                               : conduitTheme
                                                                     .textPrimary,
+                                                          fontSize:
+                                                              AppTypography
+                                                                  .bodySmall,
                                                           fontWeight:
-                                                              FontWeight.w600,
+                                                              FontWeight.w500,
                                                         ),
                                                   ),
                                                 ),
