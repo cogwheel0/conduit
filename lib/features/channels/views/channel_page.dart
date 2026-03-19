@@ -1,14 +1,18 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
 
 import '../../../core/models/channel.dart';
 import '../../../core/models/channel_message.dart';
+import '../../../core/models/prompt.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../shared/theme/conduit_input_styles.dart';
@@ -16,6 +20,9 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
+import '../../chat/widgets/composer_overflow_menu.dart';
+import '../../chat/widgets/prompt_suggestion_overlay.dart';
+import '../../prompts/providers/prompts_providers.dart';
 import '../../navigation/widgets/sidebar_page.dart';
 import '../providers/channel_providers.dart';
 import '../providers/channel_socket_handler.dart';
@@ -34,6 +41,8 @@ class ChannelPage extends ConsumerStatefulWidget {
 }
 
 class _ChannelPageState extends ConsumerState<ChannelPage> {
+  static final _promptBoundary = RegExp(r'\s');
+
   final ScrollController _scrollController = ScrollController();
   final TextEditingController _messageController =
       TextEditingController();
@@ -41,9 +50,16 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   bool _isSending = false;
   bool _isLoadingMore = false;
 
+  // Prompt command overlay state (@, /, #)
+  bool _showPromptOverlay = false;
+  String _currentPromptCommand = '';
+  TextRange _currentPromptRange = TextRange.empty;
+  int _promptSelectionIndex = 0;
+
   @override
   void initState() {
     super.initState();
+    _messageController.addListener(_handleComposerChanged);
     _scrollController.addListener(_onScroll);
     _loadChannel();
     ref
@@ -56,7 +72,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     _scrollController
       ..removeListener(_onScroll)
       ..dispose();
-    _messageController.dispose();
+    _messageController
+      ..removeListener(_handleComposerChanged)
+      ..dispose();
     _inputFocusNode.dispose();
     try {
       ref.read(channelSocketHandlerProvider.notifier).unsubscribe();
@@ -507,94 +525,28 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
 
     return Scaffold(
       backgroundColor: theme.surfaceBackground,
-      appBar: AppBar(
-        backgroundColor: theme.surfaceBackground,
-        elevation: Elevation.none,
-        surfaceTintColor: Colors.transparent,
-        leading: IconButton(
-          icon: Icon(
-            Platform.isIOS
-                ? Icons.arrow_back_ios_new
-                : Icons.arrow_back,
-            color: theme.textPrimary,
-          ),
-          onPressed: () {
+      extendBodyBehindAppBar: true,
+      appBar: FloatingAppBar(
+        leading: FloatingAppBarBackButton(
+          onTap: () {
             ref.read(activeChannelProvider.notifier).clear();
             NavigationService.router.go(Routes.chat);
           },
         ),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              channel?.name ?? '',
-              style: TextStyle(
-                color: theme.textPrimary,
-                fontWeight: FontWeight.w600,
-                fontSize: 16,
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
-            if (channel != null &&
-                channel.description.isNotEmpty)
-              Text(
-                channel.description,
-                style: TextStyle(
-                  color: theme.textSecondary,
-                  fontSize: 12,
-                ),
-                overflow: TextOverflow.ellipsis,
-                maxLines: 1,
-              ),
-          ],
+        title: FloatingAppBarTitle(
+          text: channel?.name ?? '',
+          icon: channel?.isPrivate == true
+              ? Icons.lock_outlined
+              : Icons.tag,
         ),
         actions: [
-          PopupMenuButton<String>(
-            icon: Icon(
-              Icons.more_vert,
-              color: theme.textPrimary,
+          Padding(
+            padding: const EdgeInsets.only(
+              right: Spacing.inputPadding,
             ),
-            color: theme.surfaceContainer,
-            onSelected: (value) {
-              switch (value) {
-                case 'edit':
-                  if (channel != null) _editChannel(channel);
-                case 'leave':
-                  _leaveChannel();
-                case 'delete':
-                  _deleteChannel();
-              }
-            },
-            itemBuilder: (ctx) => [
-              PopupMenuItem(
-                value: 'edit',
-                child:
-                    Text(l10n?.channelEdit ?? 'Edit Channel'),
-              ),
-              PopupMenuItem(
-                value: 'leave',
-                child: Text(
-                  l10n?.channelLeave ?? 'Leave Channel',
-                ),
-              ),
-              PopupMenuItem(
-                value: 'delete',
-                child: Text(
-                  l10n?.channelDelete ?? 'Delete Channel',
-                  style: TextStyle(color: theme.error),
-                ),
-              ),
-            ],
+            child: _buildMoreMenuButton(channel, theme, l10n),
           ),
         ],
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(1),
-          child: Divider(
-            height: 1,
-            thickness: 1,
-            color: theme.dividerColor,
-          ),
-        ),
       ),
       body: Column(
         children: [
@@ -673,12 +625,222 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     );
   }
 
+  Widget _buildMoreMenuButton(
+    Channel? channel,
+    ConduitThemeExtension theme,
+    AppLocalizations? l10n,
+  ) {
+    return PopupMenuButton<String>(
+      color: theme.surfaceContainer,
+      onSelected: (value) {
+        switch (value) {
+          case 'edit':
+            if (channel != null) _editChannel(channel);
+          case 'leave':
+            _leaveChannel();
+          case 'delete':
+            _deleteChannel();
+        }
+      },
+      itemBuilder: (ctx) => [
+        PopupMenuItem(
+          value: 'edit',
+          child: Text(
+            l10n?.channelEdit ?? 'Edit Channel',
+          ),
+        ),
+        PopupMenuItem(
+          value: 'leave',
+          child: Text(
+            l10n?.channelLeave ?? 'Leave Channel',
+          ),
+        ),
+        PopupMenuItem(
+          value: 'delete',
+          child: Text(
+            l10n?.channelDelete ?? 'Delete Channel',
+            style: TextStyle(color: theme.error),
+          ),
+        ),
+      ],
+      child: FloatingAppBarPill(
+        isCircular: true,
+        child: Icon(
+          Platform.isIOS
+              ? CupertinoIcons.ellipsis_vertical
+              : Icons.more_vert,
+          color: theme.textPrimary,
+          size: IconSize.appBar,
+        ),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Prompt command detection (@, /, #)
+  // ---------------------------------------------------------------------------
+
+  void _handleComposerChanged() {
+    final text = _messageController.text;
+    final selection = _messageController.selection;
+    setState(() {}); // rebuild for hasText
+
+    if (!selection.isValid || !selection.isCollapsed) {
+      if (_showPromptOverlay) {
+        setState(() => _showPromptOverlay = false);
+      }
+      return;
+    }
+
+    final match = _resolvePromptCommand(text, selection);
+    if (match != null) {
+      final (command, start, end) = match;
+      if (command != _currentPromptCommand) {
+        setState(() {
+          _showPromptOverlay = true;
+          _currentPromptCommand = command;
+          _currentPromptRange = TextRange(start: start, end: end);
+          _promptSelectionIndex = 0;
+        });
+        // Lazy-load prompts list when '/' typed.
+        if (command.startsWith('/')) {
+          ref.read(promptsListProvider.future);
+        }
+      } else {
+        _currentPromptRange = TextRange(start: start, end: end);
+      }
+    } else if (_showPromptOverlay) {
+      setState(() {
+        _showPromptOverlay = false;
+        _currentPromptCommand = '';
+        _currentPromptRange = TextRange.empty;
+      });
+    }
+  }
+
+  (String, int, int)? _resolvePromptCommand(
+    String text,
+    TextSelection selection,
+  ) {
+    final cursor = selection.baseOffset;
+    if (cursor <= 0 || cursor > text.length) return null;
+
+    var start = cursor - 1;
+    while (start >= 0 && !_promptBoundary.hasMatch(text[start])) {
+      start--;
+    }
+    start++;
+
+    if (start >= cursor) return null;
+    final candidate = text.substring(start, cursor);
+    if (candidate.isEmpty) return null;
+    final trigger = candidate[0];
+    if (trigger != '/' && trigger != '#') return null;
+
+    return (candidate, start, cursor);
+  }
+
+  void _applyPrompt(Prompt prompt) {
+    final content = prompt.content;
+    final text = _messageController.text;
+    final range = _currentPromptRange;
+
+    final before = text.substring(0, range.start);
+    final after = text.substring(range.end);
+    final newText = '$before$content$after';
+    final newCursor = before.length + content.length;
+
+    _messageController.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(offset: newCursor),
+    );
+
+    setState(() {
+      _showPromptOverlay = false;
+      _currentPromptCommand = '';
+      _currentPromptRange = TextRange.empty;
+    });
+  }
+
+  List<Prompt> _filterPrompts(List<Prompt> prompts) {
+    if (_currentPromptCommand.length <= 1) return prompts;
+    final query = _currentPromptCommand.substring(1).toLowerCase();
+    return prompts
+        .where(
+          (p) =>
+              p.command.toLowerCase().contains(query) ||
+              p.title.toLowerCase().contains(query),
+        )
+        .toList();
+  }
+
+  void _movePromptSelection(int delta) {
+    setState(() {
+      _promptSelectionIndex =
+          (_promptSelectionIndex + delta).clamp(0, 99);
+    });
+  }
+
+  void _hidePromptOverlay() {
+    setState(() {
+      _showPromptOverlay = false;
+      _currentPromptCommand = '';
+      _currentPromptRange = TextRange.empty;
+    });
+  }
+
+  void _handleOverlayKeyEvent(KeyEvent event) {
+    if (event is! KeyDownEvent) return;
+    if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+      _movePromptSelection(1);
+    } else if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+      _movePromptSelection(-1);
+    } else if (event.logicalKey == LogicalKeyboardKey.escape) {
+      _hidePromptOverlay();
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Overflow sheet (plus button)
+  // ---------------------------------------------------------------------------
+
+  void _showOverflowSheet() {
+    HapticFeedback.selectionClick();
+    final prevCanRequest = _inputFocusNode.canRequestFocus;
+    final wasFocused = _inputFocusNode.hasFocus;
+    _inputFocusNode.canRequestFocus = false;
+    try {
+      FocusScope.of(context).unfocus();
+      SystemChannels.textInput.invokeMethod('TextInput.hide');
+    } catch (_) {}
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => const ComposerOverflowSheet(),
+    ).whenComplete(() {
+      if (mounted) {
+        _inputFocusNode.canRequestFocus = prevCanRequest;
+        if (wasFocused) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            _inputFocusNode.requestFocus();
+          });
+        }
+      }
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Input bar
+  // ---------------------------------------------------------------------------
+
   Widget _buildInputBar(ConduitThemeExtension theme) {
     final bottomPadding =
         MediaQuery.of(context).viewPadding.bottom;
     final hasText = _messageController.text.trim().isNotEmpty;
-    final enabled = hasText && !_isSending;
-
+    final sendEnabled = hasText && !_isSending;
     final shellRadius = BorderRadius.circular(
       AppBorderRadius.round,
     );
@@ -690,66 +852,222 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         Spacing.screenPadding,
         bottomPadding + Spacing.md,
       ),
-      child: Container(
-        decoration: BoxDecoration(
-          color: theme.surfaceContainerHighest,
-          borderRadius: shellRadius,
-          border: Border.all(
-            color: theme.cardBorder,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Prompt suggestion overlay
+          if (_showPromptOverlay &&
+              _currentPromptCommand.startsWith('/'))
+            Padding(
+              padding: const EdgeInsets.only(bottom: Spacing.xs),
+              child: PromptSuggestionOverlay(
+                filteredPrompts: _filterPrompts,
+                selectionIndex: _promptSelectionIndex,
+                onPromptSelected: _applyPrompt,
+              ),
+            ),
+          // Composer shell
+          _buildComposerShell(
+            theme: theme,
+            borderRadius: shellRadius,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                // Plus / overflow button
+                Padding(
+                  padding: const EdgeInsets.only(
+                    bottom: Spacing.xs,
+                  ),
+                  child: _buildComposerIconButton(
+                    theme: theme,
+                    onPressed: _showOverflowSheet,
+                    size: 36.0,
+                    child: Icon(
+                      Platform.isIOS
+                          ? CupertinoIcons.add
+                          : Icons.add,
+                      size: IconSize.large,
+                      color: theme.textPrimary.withValues(
+                        alpha: Alpha.strong,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: Spacing.xs),
+                // Text field
+                Expanded(
+                  child: KeyboardListener(
+                    focusNode: FocusNode(skipTraversal: true),
+                    onKeyEvent: _showPromptOverlay
+                        ? _handleOverlayKeyEvent
+                        : null,
+                    child: _buildComposerTextField(theme),
+                  ),
+                ),
+                const SizedBox(width: Spacing.xs),
+                // Send button
+                Padding(
+                  padding: const EdgeInsets.only(
+                    bottom: Spacing.xs,
+                  ),
+                  child: _buildSendButton(
+                    theme,
+                    enabled: sendEnabled,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildComposerShell({
+    required ConduitThemeExtension theme,
+    required BorderRadius borderRadius,
+    required Widget child,
+  }) {
+    if (!kIsWeb && Platform.isIOS) {
+      return AdaptiveBlurView(
+        blurStyle: BlurStyle.systemUltraThinMaterial,
+        borderRadius: borderRadius,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            Spacing.md, 0, Spacing.md, 0,
+          ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(
+              minHeight: TouchTarget.input,
+            ),
+            child: Center(child: child),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.surfaceContainerHighest,
+        borderRadius: borderRadius,
+        border: Border.all(
+          color: theme.cardBorder,
+          width: BorderWidth.thin,
+        ),
+      ),
+      padding: const EdgeInsets.fromLTRB(
+        Spacing.md, 0, Spacing.md, 0,
+      ),
+      constraints: const BoxConstraints(
+        minHeight: TouchTarget.input,
+      ),
+      alignment: Alignment.center,
+      child: child,
+    );
+  }
+
+  Widget _buildComposerTextField(ConduitThemeExtension theme) {
+    final textStyle = AppTypography.chatMessageStyle.copyWith(
+      color: theme.inputText,
+    );
+    const contentPadding = EdgeInsets.symmetric(
+      vertical: Spacing.xs,
+    );
+    const hint = 'Message...';
+
+    if (!kIsWeb && Platform.isIOS) {
+      return CupertinoTextField(
+        controller: _messageController,
+        focusNode: _inputFocusNode,
+        style: textStyle,
+        placeholder: hint,
+        placeholderStyle: textStyle.copyWith(
+          color: theme.inputPlaceholder,
+        ),
+        decoration: const BoxDecoration(),
+        padding: contentPadding,
+        textCapitalization: TextCapitalization.sentences,
+        textInputAction: TextInputAction.newline,
+        keyboardType: TextInputType.multiline,
+        minLines: 1,
+        maxLines: null,
+        keyboardAppearance:
+            Theme.of(context).brightness,
+        onSubmitted: (_) => _sendMessage(),
+      );
+    }
+
+    return TextField(
+      controller: _messageController,
+      focusNode: _inputFocusNode,
+      style: textStyle,
+      decoration: context.conduitInputStyles.borderless(
+        hint: hint,
+      ).copyWith(
+        contentPadding: contentPadding,
+        isDense: true,
+      ),
+      textCapitalization: TextCapitalization.sentences,
+      textInputAction: TextInputAction.newline,
+      keyboardType: TextInputType.multiline,
+      minLines: 1,
+      maxLines: null,
+      onSubmitted: (_) => _sendMessage(),
+    );
+  }
+
+  Widget _buildComposerIconButton({
+    required ConduitThemeExtension theme,
+    required VoidCallback? onPressed,
+    required Widget child,
+    required double size,
+    bool isProminent = false,
+    Color? color,
+  }) {
+    final effectiveColor = color ?? theme.buttonPrimary;
+
+    if (!kIsWeb && Platform.isIOS) {
+      return AdaptiveButton.child(
+        onPressed: onPressed,
+        enabled: onPressed != null,
+        style: isProminent
+            ? AdaptiveButtonStyle.prominentGlass
+            : AdaptiveButtonStyle.glass,
+        color: effectiveColor,
+        size: size > 40
+            ? AdaptiveButtonSize.large
+            : AdaptiveButtonSize.medium,
+        minSize: Size(size, size),
+        padding: EdgeInsets.zero,
+        borderRadius: BorderRadius.circular(size),
+        useSmoothRectangleBorder: false,
+        child: child,
+      );
+    }
+
+    final bgColor = isProminent
+        ? effectiveColor
+        : theme.surfaceContainerHighest;
+    final borderColor = isProminent
+        ? effectiveColor
+        : theme.cardBorder;
+
+    return SizedBox(
+      width: size,
+      height: size,
+      child: Material(
+        color: bgColor,
+        shape: CircleBorder(
+          side: BorderSide(
+            color: borderColor,
             width: BorderWidth.thin,
           ),
         ),
-        padding: EdgeInsets.fromLTRB(
-          Spacing.md,
-          0,
-          Spacing.md,
-          0,
-        ),
-        constraints: const BoxConstraints(
-          minHeight: TouchTarget.input,
-        ),
-        alignment: Alignment.center,
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _messageController,
-                focusNode: _inputFocusNode,
-                style: AppTypography.chatMessageStyle.copyWith(
-                  color: theme.inputText,
-                ),
-                decoration:
-                    context.conduitInputStyles.borderless(
-                  hint: 'Message...',
-                ).copyWith(
-                  contentPadding:
-                      const EdgeInsets.symmetric(
-                    vertical: Spacing.xs,
-                  ),
-                  isDense: true,
-                ),
-                textCapitalization:
-                    TextCapitalization.sentences,
-                textInputAction: TextInputAction.newline,
-                keyboardType: TextInputType.multiline,
-                minLines: 1,
-                maxLines: null,
-                onChanged: (_) => setState(() {}),
-                onSubmitted: (_) => _sendMessage(),
-              ),
-            ),
-            const SizedBox(width: Spacing.xs),
-            Padding(
-              padding: const EdgeInsets.only(
-                bottom: Spacing.xs,
-              ),
-              child: _buildSendButton(
-                theme,
-                enabled: enabled,
-              ),
-            ),
-          ],
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onPressed,
+          customBorder: const CircleBorder(),
+          child: Center(child: child),
         ),
       ),
     );
@@ -760,34 +1078,19 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     required bool enabled,
   }) {
     const double size = 36.0;
+    final iconColor = enabled
+        ? theme.buttonPrimaryText
+        : theme.textPrimary.withValues(alpha: Alpha.disabled);
 
-    return SizedBox(
-      width: size,
-      height: size,
-      child: Material(
-        color: theme.buttonPrimary,
-        shape: CircleBorder(
-          side: BorderSide(
-            color: theme.buttonPrimary,
-            width: BorderWidth.thin,
-          ),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: enabled ? _sendMessage : null,
-          customBorder: const CircleBorder(),
-          child: Center(
-            child: Icon(
-              CupertinoIcons.arrow_up,
-              size: IconSize.large,
-              color: enabled
-                  ? theme.buttonPrimaryText
-                  : theme.textPrimary.withValues(
-                      alpha: Alpha.disabled,
-                    ),
-            ),
-          ),
-        ),
+    return _buildComposerIconButton(
+      theme: theme,
+      onPressed: enabled ? _sendMessage : null,
+      size: size,
+      isProminent: true,
+      child: Icon(
+        CupertinoIcons.arrow_up,
+        size: IconSize.large,
+        color: iconColor,
       ),
     );
   }

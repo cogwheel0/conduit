@@ -6,6 +6,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import '../../../core/models/channel.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../core/services/navigation_service.dart';
@@ -138,20 +139,15 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-              child: TextField(
+              child: ConduitGlassSearchField(
                 controller: _searchController,
+                hintText: 'Search channels...',
                 onChanged: _onSearchChanged,
-                decoration: InputDecoration(
-                  hintText: 'Search channels...',
-                  prefixIcon: const Icon(Icons.search, size: 20),
-                  isDense: true,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                  filled: true,
-                  fillColor: theme.surfaceContainer,
-                ),
+                query: _query,
+                onClear: () {
+                  _searchController.clear();
+                  _onSearchChanged('');
+                },
               ),
             ),
             Expanded(

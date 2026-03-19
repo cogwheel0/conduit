@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import '../../../core/models/note.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../providers/notes_providers.dart';
 
@@ -78,20 +79,15 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-              child: TextField(
+              child: ConduitGlassSearchField(
                 controller: _searchController,
+                hintText: 'Search notes...',
                 onChanged: _onSearchChanged,
-                decoration: InputDecoration(
-                  hintText: 'Search notes...',
-                  prefixIcon: const Icon(Icons.search, size: 20),
-                  isDense: true,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                  filled: true,
-                  fillColor: theme.surfaceContainer,
-                ),
+                query: _query,
+                onClear: () {
+                  _searchController.clear();
+                  _onSearchChanged('');
+                },
               ),
             ),
             Expanded(
