@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:developer' as developer;
 
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -18,6 +19,7 @@ part 'channel_socket_handler.g.dart';
 class ChannelSocketHandler extends _$ChannelSocketHandler {
   String? _activeChannelId;
   SocketEventSubscription? _subscription;
+  final Map<String, Timer> _typingTimers = {};
 
   @override
   void build() {
@@ -55,6 +57,15 @@ class ChannelSocketHandler extends _$ChannelSocketHandler {
     _subscription?.dispose();
     _subscription = null;
     _activeChannelId = null;
+
+    // Clear typing indicators.
+    for (final timer in _typingTimers.values) {
+      timer.cancel();
+    }
+    _typingTimers.clear();
+    ref
+        .read(channelTypingUsersProvider.notifier)
+        .clear();
   }
 
   /// Emits a read-status update to the server via socket.
@@ -217,15 +228,44 @@ class ChannelSocketHandler extends _$ChannelSocketHandler {
 
   /// Handles a typing indicator event.
   ///
-  /// Will be connected to a ChannelTypingUsers
-  /// provider in Task 11.
+  /// Adds the user to [ChannelTypingUsers] and sets a
+  /// 5-second auto-clear timer. Ignores events from the
+  /// current user.
   void _handleTyping(Map<String, dynamic> event) {
     final userData = event['user'];
-    if (userData is Map<String, dynamic>) {
-      developer.log(
-        'Typing: ${userData['name']}',
-        name: 'channel_socket',
+    if (userData is! Map<String, dynamic>) return;
+
+    final userId = userData['id'] as String?;
+    final userName =
+        userData['name'] as String? ?? '';
+    if (userId == null) return;
+
+    // Don't show typing for self.
+    final currentUserId =
+        ref.read(currentUserProvider).value?.id;
+    if (userId == currentUserId) return;
+
+    final envelope = event['data'];
+    final isTyping =
+        envelope is Map && envelope['typing'] == true;
+
+    final typingNotifier =
+        ref.read(channelTypingUsersProvider.notifier);
+
+    if (isTyping) {
+      typingNotifier.setTyping(userId, userName);
+      _typingTimers[userId]?.cancel();
+      _typingTimers[userId] = Timer(
+        const Duration(seconds: 5),
+        () {
+          typingNotifier.clearTyping(userId);
+          _typingTimers.remove(userId);
+        },
       );
+    } else {
+      typingNotifier.clearTyping(userId);
+      _typingTimers[userId]?.cancel();
+      _typingTimers.remove(userId);
     }
   }
 }

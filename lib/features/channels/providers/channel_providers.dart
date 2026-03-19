@@ -131,6 +131,31 @@ class ChannelMessages extends _$ChannelMessages {
   }
 }
 
+/// Tracks users currently typing in the active channel.
+///
+/// Maps user ID to display name. Entries are added when a
+/// `typing` socket event arrives and removed after a timeout.
+@Riverpod(keepAlive: true)
+class ChannelTypingUsers extends _$ChannelTypingUsers {
+  @override
+  Map<String, String> build() => {};
+
+  /// Marks a user as typing.
+  void setTyping(String userId, String userName) {
+    state = {...state, userId: userName};
+  }
+
+  /// Clears typing status for a user.
+  void clearTyping(String userId) {
+    final copy = Map<String, String>.from(state);
+    copy.remove(userId);
+    state = copy;
+  }
+
+  /// Clears all typing users (e.g., on channel switch).
+  void clear() => state = {};
+}
+
 /// Fetches member list for a channel (first page).
 @riverpod
 Future<Map<String, dynamic>> channelMembers(

@@ -38,12 +38,14 @@ class ChannelPage extends ConsumerStatefulWidget {
 }
 
 class _ChannelPageState extends ConsumerState<ChannelPage> {
-  final ScrollController _scrollController = ScrollController();
+  final ScrollController _scrollController =
+      ScrollController();
   bool _isSending = false;
   bool _isLoadingMore = false;
   String? _editingMessageId;
   final TextEditingController _editController =
       TextEditingController();
+  Timer? _typingTimer;
 
   @override
   void initState() {
@@ -57,6 +59,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
 
   @override
   void dispose() {
+    _typingTimer?.cancel();
     _editController.dispose();
     _scrollController
       ..removeListener(_onScroll)
@@ -782,11 +785,41 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
               ),
             ),
           ),
+          Consumer(
+            builder: (context, ref, _) {
+              final typingUsers =
+                  ref.watch(channelTypingUsersProvider);
+              if (typingUsers.isEmpty) {
+                return const SizedBox.shrink();
+              }
+              final names =
+                  typingUsers.values.toList();
+              final text = names.length == 1
+                  ? '${names.first} is typing...'
+                  : '${names.join(", ")} '
+                      'are typing...';
+              return Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: Spacing.md,
+                  vertical: Spacing.xxs,
+                ),
+                child: Text(
+                  text,
+                  style: TextStyle(
+                    color: theme.textSecondary,
+                    fontSize: 12,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              );
+            },
+          ),
           RepaintBoundary(
             child: ModernChatInput(
               onSendMessage: _sendMessage,
               placeholder: 'Type here...',
-              overflowButtonBuilder: _buildAttachmentButton,
+              overflowButtonBuilder:
+                  _buildAttachmentButton,
             ),
           ),
         ],
