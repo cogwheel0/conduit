@@ -98,11 +98,10 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
       ),
     );
 
+    // Don't dispose controllers here — the dialog's exit animation
+    // may still reference them. They'll be GC'd with the dialog tree.
     final name = nameController.text.trim();
     final description = descController.text.trim();
-
-    nameController.dispose();
-    descController.dispose();
 
     if (result != true || !mounted) return;
     if (name.isEmpty) return;

@@ -373,11 +373,10 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       ),
     );
 
+    // Don't dispose controllers here — the dialog's exit animation
+    // may still reference them. They'll be GC'd with the dialog tree.
     final newName = nameController.text.trim();
     final newDesc = descController.text.trim();
-
-    nameController.dispose();
-    descController.dispose();
 
     if (saved != true) return;
 
