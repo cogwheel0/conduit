@@ -6,6 +6,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import '../../../core/models/channel.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
@@ -126,6 +127,12 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
     }
   }
 
+  /// Extracts the active channel ID from the current route location.
+  String? _activeChannelId(String location) {
+    final match = RegExp(r'^/channel/(.+)$').firstMatch(location);
+    return match?.group(1);
+  }
+
   @override
   Widget build(BuildContext context) {
     super.build(context);
@@ -133,21 +140,37 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
     final l10n = AppLocalizations.of(context)!;
     final channelsAsync = ref.watch(channelsListProvider);
 
-    return Stack(
-      children: [
-        Column(
+    return ListenableBuilder(
+      listenable: NavigationService.router.routeInformationProvider,
+      builder: (context, _) {
+        final location = NavigationService.router
+            .routeInformationProvider.value.uri.path;
+        final activeId = _activeChannelId(location);
+
+        return Column(
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-              child: ConduitGlassSearchField(
-                controller: _searchController,
-                hintText: 'Search channels...',
-                onChanged: _onSearchChanged,
-                query: _query,
-                onClear: () {
-                  _searchController.clear();
-                  _onSearchChanged('');
-                },
+              child: Row(
+                children: [
+                  Expanded(
+                    child: ConduitGlassSearchField(
+                      controller: _searchController,
+                      hintText: 'Search channels...',
+                      onChanged: _onSearchChanged,
+                      query: _query,
+                      onClear: () {
+                        _searchController.clear();
+                        _onSearchChanged('');
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  FloatingAppBarIconButton(
+                    icon: UiUtils.addIcon,
+                    onTap: _showCreateChannelDialog,
+                  ),
+                ],
               ),
             ),
             Expanded(
@@ -157,7 +180,8 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
                       ? channels
                       : channels
                           .where(
-                            (c) => c.name.toLowerCase().contains(_query),
+                            (c) =>
+                                c.name.toLowerCase().contains(_query),
                           )
                           .toList();
 
@@ -179,11 +203,13 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
                     },
                     child: ListView.builder(
                       itemCount: filtered.length,
-                      padding: const EdgeInsets.only(bottom: 80),
+                      padding: EdgeInsets.zero,
                       itemBuilder: (context, index) {
+                        final ch = filtered[index];
                         return _ChannelTile(
-                          channel: filtered[index],
-                          onTap: () => _onChannelTap(filtered[index]),
+                          channel: ch,
+                          selected: ch.id == activeId,
+                          onTap: () => _onChannelTap(ch),
                         );
                       },
                     ),
@@ -209,25 +235,21 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
               ),
             ),
           ],
-        ),
-        Positioned(
-          right: 16,
-          bottom: 16,
-          child: FloatingActionButton(
-            heroTag: 'channels_fab',
-            onPressed: _showCreateChannelDialog,
-            child: const Icon(Icons.add),
-          ),
-        ),
-      ],
+        );
+      },
     );
   }
 }
 
 class _ChannelTile extends ConsumerWidget {
-  const _ChannelTile({required this.channel, required this.onTap});
+  const _ChannelTile({
+    required this.channel,
+    required this.selected,
+    required this.onTap,
+  });
 
   final Channel channel;
+  final bool selected;
   final VoidCallback onTap;
 
   @override
@@ -238,46 +260,102 @@ class _ChannelTile extends ConsumerWidget {
     );
     final unread = unreadAsync.asData?.value ?? 0;
 
-    return ListTile(
-      leading: Icon(
-        channel.isPrivate ? Icons.lock_outlined : Icons.tag,
-        color: theme.textSecondary,
+    final background = selected
+        ? Color.alphaBlend(
+            theme.buttonPrimary.withValues(alpha: 0.1),
+            theme.surfaceContainer,
+          )
+        : theme.surfaceContainer;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        decoration: BoxDecoration(
+          color: background,
+          borderRadius: BorderRadius.circular(AppBorderRadius.md),
+        ),
+        child: Material(
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(AppBorderRadius.md),
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(AppBorderRadius.md),
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                children: [
+                  Icon(
+                    channel.isPrivate
+                        ? Icons.lock_outlined
+                        : Icons.tag,
+                    color: selected
+                        ? theme.textPrimary
+                        : theme.textSecondary,
+                    size: IconSize.listItem,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          channel.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTypography.bodyMediumStyle.copyWith(
+                            color: selected
+                                ? theme.textPrimary
+                                : theme.textSecondary,
+                            fontWeight: selected
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                          ),
+                        ),
+                        if (channel.description.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            channel.description,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTypography.bodySmallStyle.copyWith(
+                              color: theme.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  if (unread > 0) ...[
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.primary,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        unread > 99 ? '99+' : '$unread',
+                        style: TextStyle(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onPrimary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
-      title: Text(
-        channel.name,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      subtitle: channel.description.isNotEmpty
-          ? Text(
-              channel.description,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: theme.textSecondary),
-            )
-          : null,
-      trailing: unread > 0
-          ? Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 8,
-                vertical: 2,
-              ),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primary,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(
-                unread > 99 ? '99+' : '$unread',
-                style: TextStyle(
-                  color:
-                      Theme.of(context).colorScheme.onPrimary,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            )
-          : null,
-      onTap: onTap,
     );
   }
 }

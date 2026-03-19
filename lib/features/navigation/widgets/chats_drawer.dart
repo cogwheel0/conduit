@@ -24,6 +24,7 @@ import '../../../core/utils/user_display_name.dart';
 import '../../../core/utils/user_avatar_utils.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/widgets/user_avatar.dart';
+import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../../core/models/model.dart';
@@ -260,18 +261,48 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
   }
 
   Widget _buildFloatingSearchField(BuildContext context) {
-    return ConduitGlassSearchField(
-      controller: _searchController,
-      focusNode: _searchFocusNode,
-      hintText: AppLocalizations.of(context)!.searchConversations,
-      onChanged: (_) => _onSearchChanged(),
-      query: _query,
-      onClear: () {
-        _searchController.clear();
-        setState(() => _query = '');
-        _searchFocusNode.unfocus();
-      },
+    return Row(
+      children: [
+        Expanded(
+          child: ConduitGlassSearchField(
+            controller: _searchController,
+            focusNode: _searchFocusNode,
+            hintText: AppLocalizations.of(context)!.searchConversations,
+            onChanged: (_) => _onSearchChanged(),
+            query: _query,
+            onClear: () {
+              _searchController.clear();
+              setState(() => _query = '');
+              _searchFocusNode.unfocus();
+            },
+          ),
+        ),
+        const SizedBox(width: 8),
+        FloatingAppBarIconButton(
+          icon: UiUtils.addIcon,
+          onTap: _startNewChat,
+        ),
+      ],
     );
+  }
+
+  void _startNewChat() {
+    HapticFeedback.selectionClick();
+    ref.read(chat.chatMessagesProvider.notifier).clearMessages();
+    ref.read(activeConversationProvider.notifier).clear();
+    ref.read(contextAttachmentsProvider.notifier).clear();
+    chat.restoreDefaultModel(ref);
+
+    NavigationService.router.go(Routes.chat);
+
+    if (mounted) {
+      ResponsiveDrawerLayout.of(context)?.close();
+    }
+
+    final settings = ref.read(appSettingsProvider);
+    ref
+        .read(temporaryChatEnabledProvider.notifier)
+        .set(settings.temporaryChatByDefault);
   }
 
   Widget _buildConversationList(BuildContext context) {
@@ -1657,6 +1688,10 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
 
       // Clear any pending folder selection when selecting an existing conversation
       container.read(pendingFolderIdProvider.notifier).clear();
+
+      // Navigate to chat route (needed when sidebar is open from
+      // a non-chat page like notes editor or channel page).
+      NavigationService.router.go(Routes.chat);
 
       // Close the slide drawer for faster perceived performance
       // (only on mobile; keep tablet drawer unless user toggles it)

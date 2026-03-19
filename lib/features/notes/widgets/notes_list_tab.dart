@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/models/note.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../providers/notes_providers.dart';
@@ -38,13 +38,8 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
   }
 
   Future<void> _onNoteTap(Note note) async {
+    NavigationService.router.go('/notes/${note.id}');
     ResponsiveDrawerLayout.of(context)?.close();
-    if (mounted) {
-      context.goNamed(
-        RouteNames.noteEditor,
-        pathParameters: {'id': note.id},
-      );
-    }
   }
 
   Future<void> _createNote() async {
@@ -55,12 +50,15 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
         .read(noteCreatorProvider.notifier)
         .createNote(title: defaultTitle);
     if (note != null && mounted) {
+      NavigationService.router.go('/notes/${note.id}');
       ResponsiveDrawerLayout.of(context)?.close();
-      context.goNamed(
-        RouteNames.noteEditor,
-        pathParameters: {'id': note.id},
-      );
     }
+  }
+
+  /// Extracts the active note ID from the current route location.
+  String? _activeNoteId(String location) {
+    final match = RegExp(r'^/notes/(.+)$').firstMatch(location);
+    return match?.group(1);
   }
 
   @override
@@ -73,21 +71,37 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
             ref.watch(filteredNotesProvider(_query)),
           );
 
-    return Stack(
-      children: [
-        Column(
+    return ListenableBuilder(
+      listenable: NavigationService.router.routeInformationProvider,
+      builder: (context, _) {
+        final location = NavigationService.router
+            .routeInformationProvider.value.uri.path;
+        final activeId = _activeNoteId(location);
+
+        return Column(
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-              child: ConduitGlassSearchField(
-                controller: _searchController,
-                hintText: 'Search notes...',
-                onChanged: _onSearchChanged,
-                query: _query,
-                onClear: () {
-                  _searchController.clear();
-                  _onSearchChanged('');
-                },
+              child: Row(
+                children: [
+                  Expanded(
+                    child: ConduitGlassSearchField(
+                      controller: _searchController,
+                      hintText: 'Search notes...',
+                      onChanged: _onSearchChanged,
+                      query: _query,
+                      onClear: () {
+                        _searchController.clear();
+                        _onSearchChanged('');
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  FloatingAppBarIconButton(
+                    icon: UiUtils.addIcon,
+                    onTap: _createNote,
+                  ),
+                ],
               ),
             ),
             Expanded(
@@ -96,7 +110,9 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
                   if (noteList.isEmpty) {
                     return Center(
                       child: Text(
-                        _query.isEmpty ? 'No notes yet' : 'No matching notes',
+                        _query.isEmpty
+                            ? 'No notes yet'
+                            : 'No matching notes',
                         style: TextStyle(color: theme.textSecondary),
                       ),
                     );
@@ -104,15 +120,18 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
                   return RefreshIndicator(
                     onRefresh: () async {
                       HapticFeedback.lightImpact();
-                      await ref.read(notesListProvider.notifier).refresh();
+                      await ref
+                          .read(notesListProvider.notifier)
+                          .refresh();
                     },
                     child: ListView.builder(
                       itemCount: noteList.length,
-                      padding: const EdgeInsets.only(bottom: 80),
+                      padding: EdgeInsets.zero,
                       itemBuilder: (context, index) {
                         final note = noteList[index];
                         return _NoteListTile(
                           note: note,
+                          selected: note.id == activeId,
                           onTap: () => _onNoteTap(note),
                         );
                       },
@@ -126,25 +145,21 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
               ),
             ),
           ],
-        ),
-        Positioned(
-          right: 16,
-          bottom: 16,
-          child: FloatingActionButton(
-            heroTag: 'notes_fab',
-            onPressed: _createNote,
-            child: const Icon(Icons.add),
-          ),
-        ),
-      ],
+        );
+      },
     );
   }
 }
 
 class _NoteListTile extends StatelessWidget {
-  const _NoteListTile({required this.note, required this.onTap});
+  const _NoteListTile({
+    required this.note,
+    required this.selected,
+    required this.onTap,
+  });
 
   final Note note;
+  final bool selected;
   final VoidCallback onTap;
 
   @override
@@ -156,22 +171,75 @@ class _NoteListTile extends StatelessWidget {
         : '';
     final timeAgo = _formatTime(note.updatedDateTime);
 
-    return ListTile(
-      leading: Icon(Icons.note_outlined, color: theme.textSecondary),
-      title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
-      subtitle: preview.isNotEmpty
-          ? Text(
-              preview,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: theme.textSecondary),
-            )
-          : null,
-      trailing: Text(
-        timeAgo,
-        style: TextStyle(fontSize: 12, color: theme.textSecondary),
+    final background = selected
+        ? Color.alphaBlend(
+            theme.buttonPrimary.withValues(alpha: 0.1),
+            theme.surfaceContainer,
+          )
+        : theme.surfaceContainer;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        decoration: BoxDecoration(
+          color: background,
+          borderRadius: BorderRadius.circular(AppBorderRadius.md),
+        ),
+        child: Material(
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(AppBorderRadius.md),
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(AppBorderRadius.md),
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTypography.bodyMediumStyle.copyWith(
+                            color: theme.textPrimary,
+                            fontWeight: selected
+                                ? FontWeight.w700
+                                : FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        timeAgo,
+                        style: AppTypography.bodySmallStyle.copyWith(
+                          color: theme.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (preview.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      preview,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.bodySmallStyle.copyWith(
+                        color: theme.textSecondary,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
-      onTap: onTap,
     );
   }
 

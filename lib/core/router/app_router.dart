@@ -298,7 +298,7 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         if (noteId == null || noteId.isEmpty) {
           return const NotesListPage();
         }
-        return NoteEditorPage(noteId: noteId);
+        return NoteEditorPage(key: ValueKey(noteId), noteId: noteId);
       },
     ),
     GoRoute(
