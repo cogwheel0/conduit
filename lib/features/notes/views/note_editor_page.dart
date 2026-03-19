@@ -757,7 +757,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     final l10n = AppLocalizations.of(context)!;
 
     return PreferredSize(
-      preferredSize: const Size.fromHeight(kToolbarHeight + 40),
+      preferredSize: const Size.fromHeight(kTextTabBarHeight + 40),
       child: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
@@ -778,7 +778,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
             children: [
               // App bar row with back button, title, and menu
               SizedBox(
-                height: kToolbarHeight,
+                height: kTextTabBarHeight,
                 child: Row(
                   children: [
                     // Leading (hamburger menu)
@@ -1203,8 +1203,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final topPadding = MediaQuery.of(context).padding.top;
-    // App bar height: kToolbarHeight + metadata bar (~40)
-    final appBarHeight = kToolbarHeight + 40;
+    // App bar height: kTextTabBarHeight + metadata bar (~40)
+    final appBarHeight = kTextTabBarHeight + 40;
 
     // Get attached files
     final files = _note?.data.files ?? [];

@@ -50,7 +50,7 @@ class AppCustomizationPage extends ConsumerWidget {
     final languageLabel = _resolveLanguageLabel(context, currentLanguageCode);
     final activeTheme = ref.watch(appThemePaletteProvider);
     final canPop = ModalRoute.of(context)?.canPop ?? false;
-    final topPadding = MediaQuery.of(context).padding.top + kToolbarHeight + 24;
+    final topPadding = MediaQuery.of(context).padding.top + kTextTabBarHeight + 24;
 
     return Scaffold(
       backgroundColor: context.conduitTheme.surfaceBackground,

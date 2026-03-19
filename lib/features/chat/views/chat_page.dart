@@ -869,7 +869,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         return;
       }
       final topPadding =
-          MediaQuery.of(context).padding.top + kToolbarHeight + Spacing.md;
+          MediaQuery.of(context).padding.top + kTextTabBarHeight + Spacing.md;
       final viewportHeight = MediaQuery.of(context).size.height;
       // alignment places the widget at (alignment * viewport) from the top
       final alignment =
@@ -1090,7 +1090,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     // AnimatedSwitcher attaching the same controller twice.
     // Add top padding for floating app bar, bottom padding for floating input.
     final topPadding =
-        MediaQuery.of(context).padding.top + kToolbarHeight + Spacing.md;
+        MediaQuery.of(context).padding.top + kTextTabBarHeight + Spacing.md;
     final bottomPadding = Spacing.lg + _inputHeight;
     return CustomScrollView(
       key: const ValueKey('loading_messages'),
@@ -1266,7 +1266,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
     // Add top padding for floating app bar, bottom padding for floating input.
     final topPadding =
-        MediaQuery.of(context).padding.top + kToolbarHeight + Spacing.md;
+        MediaQuery.of(context).padding.top + kTextTabBarHeight + Spacing.md;
     final bottomPadding = Spacing.lg + _inputHeight;
 
     // Check if any message is currently streaming
@@ -1586,7 +1586,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
     // Add top padding for floating app bar, bottom padding for floating input.
     final topPadding =
-        MediaQuery.of(context).padding.top + kToolbarHeight + Spacing.md;
+        MediaQuery.of(context).padding.top + kTextTabBarHeight + Spacing.md;
     final bottomPadding = _inputHeight;
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -1865,7 +1865,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   elevation: Elevation.none,
                   surfaceTintColor: Colors.transparent,
                   shadowColor: Colors.transparent,
-                  toolbarHeight: kToolbarHeight + 8,
+                  toolbarHeight: kTextTabBarHeight,
                   centerTitle: false,
                   titleSpacing: Spacing.sm,
                   leadingWidth: 44 + Spacing.inputPadding + Spacing.xs,
@@ -2315,7 +2315,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                           // Position indicator below the floating app bar
                           edgeOffset:
                               MediaQuery.of(context).padding.top +
-                              kToolbarHeight,
+                              kTextTabBarHeight,
                           onRefresh: () async {
                             // Reload active conversation messages from server
                             final api = ref.read(apiServiceProvider);
@@ -2452,7 +2452,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                           child: Container(
                             height:
                                 MediaQuery.of(context).padding.top +
-                                kToolbarHeight +
+                                kTextTabBarHeight +
                                 Spacing.xl,
                             decoration: BoxDecoration(
                               gradient: LinearGradient(

@@ -47,18 +47,18 @@ class UiUtils {
       platformIcon(ios: CupertinoIcons.plus_circle, android: Icons.add);
 
   static IconData get newChatIcon => platformIcon(
-    ios: CupertinoIcons.chat_bubble,
-    android: Icons.chat_bubble_outline,
+    ios: CupertinoIcons.plus,
+    android: Icons.add,
   );
 
   static IconData get newNoteIcon => platformIcon(
-    ios: CupertinoIcons.doc_text,
-    android: Icons.note_add_outlined,
+    ios: CupertinoIcons.plus,
+    android: Icons.add,
   );
 
   static IconData get newChannelIcon => platformIcon(
-    ios: CupertinoIcons.number,
-    android: Icons.tag,
+    ios: CupertinoIcons.plus,
+    android: Icons.add,
   );
 
   static IconData get attachIcon =>

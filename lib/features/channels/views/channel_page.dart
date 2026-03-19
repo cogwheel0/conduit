@@ -1018,7 +1018,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
               child: Padding(
                 padding: EdgeInsets.only(
                   top: MediaQuery.of(context).padding.top +
-                      kToolbarHeight,
+                      kTextTabBarHeight,
                 ),
                 child: ThreadPanel(
                   channelId: widget.channelId,
