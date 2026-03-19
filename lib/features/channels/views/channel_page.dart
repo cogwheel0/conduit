@@ -370,6 +370,38 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   }
 
   // ---------------------------------------------------------------------------
+  // Pin / unpin
+  // ---------------------------------------------------------------------------
+
+  Future<void> _togglePin(ChannelMessage message) async {
+    final api = ref.read(apiServiceProvider);
+    if (api == null) return;
+
+    try {
+      final json = await api.pinMessage(
+        widget.channelId,
+        message.id,
+        isPinned: !message.isPinned,
+      );
+      if (json == null || !mounted) return;
+      final updated = ChannelMessage.fromJson(json);
+      ref
+          .read(
+            channelMessagesProvider(widget.channelId)
+                .notifier,
+          )
+          .updateMessage(updated);
+    } catch (e, st) {
+      developer.log(
+        'Failed to toggle pin',
+        name: 'ChannelPage',
+        error: e,
+        stackTrace: st,
+      );
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Bottom sheets
   // ---------------------------------------------------------------------------
 
@@ -404,6 +436,18 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
               onTap: () {
                 Navigator.pop(ctx);
                 _showEmojiPicker(message);
+              },
+            ),
+            ListTile(
+              leading: const Icon(
+                Icons.push_pin_outlined,
+              ),
+              title: Text(
+                message.isPinned ? 'Unpin' : 'Pin',
+              ),
+              onTap: () {
+                Navigator.pop(ctx);
+                _togglePin(message);
               },
             ),
             if (isOwn)
@@ -912,6 +956,29 @@ class _MessageBubble extends StatelessWidget {
                 children: [
                   _buildHeader(theme, timestamp),
                   const SizedBox(height: Spacing.xxs),
+                  if (message.isPinned)
+                    Padding(
+                      padding: const EdgeInsets.only(
+                        bottom: Spacing.xxs,
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.push_pin,
+                            size: 12,
+                            color: theme.textSecondary,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Pinned',
+                            style: TextStyle(
+                              color: theme.textSecondary,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   if (isEditing)
                     Row(
                       children: [
