@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../providers/sidebar_providers.dart';
+import '../../notes/widgets/notes_list_tab.dart';
 import 'chats_drawer.dart';
 
 /// Full-page tabbed sidebar with Chats, Notes, and Channels tabs.
@@ -96,8 +97,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
             physics: const NeverScrollableScrollPhysics(),
             children: const [
               ChatsDrawer(),
-              // Task 6 will add NotesListTab.
-              Center(child: Text('Notes')),
+              NotesListTab(),
               // Task 9 will add ChannelListTab.
               Center(child: Text('Channels')),
             ],
