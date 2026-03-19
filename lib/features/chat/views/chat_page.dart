@@ -2076,7 +2076,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                                             IconSize.xs +
                                             Spacing.xs +
                                             12)
-                                        .clamp(132.0, maxPillWidth)
+                                        .clamp(0.0, maxPillWidth)
                                         .toDouble();
 
                                 modelPill = AdaptiveButton.child(
