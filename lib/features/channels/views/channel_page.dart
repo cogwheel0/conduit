@@ -831,36 +831,44 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         ),
         title: Align(
           alignment: Alignment.centerLeft,
-          child: FloatingAppBarPill(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: Spacing.sm,
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    channel?.isPrivate == true
-                        ? Icons.lock_outlined
-                        : Icons.tag,
-                    size: IconSize.appBar,
-                    color: theme.textPrimary,
-                  ),
-                  const SizedBox(width: 4),
-                  Flexible(
-                    child: Text(
-                      channel?.name ?? '',
-                      style: TextStyle(
-                        color: theme.textPrimary,
-                        fontSize:
-                            AppTypography.bodySmall,
-                        fontWeight: FontWeight.w500,
-                      ),
-                      overflow:
-                          TextOverflow.ellipsis,
+          child: Padding(
+            padding: const EdgeInsets.only(
+              left: Spacing.sm,
+            ),
+            child: FloatingAppBarPill(
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(
+                  horizontal: Spacing.md,
+                  vertical: Spacing.sm,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      channel?.isPrivate == true
+                          ? Icons.lock_outlined
+                          : Icons.tag,
+                      size: IconSize.appBar,
+                      color: theme.textPrimary,
                     ),
-                  ),
-                ],
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Text(
+                        channel?.name ?? '',
+                        style: TextStyle(
+                          color: theme.textPrimary,
+                          fontSize: AppTypography
+                              .bodySmall,
+                          fontWeight:
+                              FontWeight.w500,
+                        ),
+                        overflow:
+                            TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
