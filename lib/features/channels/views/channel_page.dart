@@ -1222,6 +1222,17 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
 // Message bubble
 // ---------------------------------------------------------------------------
 
+/// Regex that matches OpenWebUI mention tags:
+/// `<@M:model_id|Label>` or `<@U:user_id|Name>`.
+final _mentionRegex = RegExp(r'<@[A-Z]:[^|>]+\|([^>]+)>');
+
+/// Strips OpenWebUI mention markup, keeping only the label.
+String _stripMentions(String content) =>
+    content.replaceAllMapped(
+      _mentionRegex,
+      (m) => '@${m.group(1)}',
+    );
+
 /// Renders a single channel message with avatar, metadata,
 /// content, and reaction chips.
 class _MessageBubble extends StatelessWidget {
@@ -1419,7 +1430,7 @@ class _MessageBubble extends StatelessWidget {
                     )
                   else
                     Text(
-                      message.content,
+                      _stripMentions(message.content),
                       style: TextStyle(
                         color: theme.textPrimary,
                         fontSize: 14,
@@ -1461,13 +1472,42 @@ class _MessageBubble extends StatelessWidget {
     );
   }
 
+  /// Whether this message was sent by a model (has
+  /// model_id in meta).
+  bool get _isModelMessage =>
+      message.meta?['model_id'] != null;
+
+  /// Display name: model name if model message, else user.
+  String get _displayName {
+    if (_isModelMessage) {
+      return message.meta!['model_name'] as String? ??
+          message.meta!['model_id'] as String? ??
+          'Model';
+    }
+    return message.userName;
+  }
+
   Widget _buildAvatar(ConduitThemeExtension theme) {
+    // Model messages: show a robot-style icon.
+    if (_isModelMessage) {
+      return CircleAvatar(
+        radius: 18,
+        backgroundColor: theme.buttonSecondary,
+        child: Icon(
+          Icons.smart_toy_outlined,
+          size: 18,
+          color: theme.textPrimary,
+        ),
+      );
+    }
+
     final profileImage = message.userProfileImage;
     final initial = message.userName.isNotEmpty
         ? message.userName[0].toUpperCase()
         : '?';
 
-    if (profileImage != null && profileImage.isNotEmpty) {
+    if (profileImage != null &&
+        profileImage.isNotEmpty) {
       return CircleAvatar(
         radius: 18,
         backgroundImage: NetworkImage(profileImage),
@@ -1497,7 +1537,7 @@ class _MessageBubble extends StatelessWidget {
       children: [
         Flexible(
           child: Text(
-            message.userName,
+            _displayName,
             style: TextStyle(
               color: theme.textPrimary,
               fontWeight: FontWeight.w600,
