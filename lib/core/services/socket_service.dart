@@ -352,6 +352,11 @@ class SocketService with WidgetsBindingObserver {
     }
   }
 
+  /// Emits an event with the given [data] to the server.
+  void emit(String event, dynamic data) {
+    _socket?.emit(event, data);
+  }
+
   // Subscribe to an arbitrary socket.io event (used for dynamic tool channels)
   void onEvent(String eventName, void Function(dynamic data) handler) {
     _socket?.on(eventName, handler);
