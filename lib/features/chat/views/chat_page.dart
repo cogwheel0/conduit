@@ -14,7 +14,6 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
 
 import '../../../shared/widgets/responsive_drawer_layout.dart';
-import '../../navigation/widgets/sidebar_page.dart';
 import 'dart:async';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/settings_service.dart';
@@ -1855,43 +1854,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             }
           }
         },
-        child: Builder(
-          builder: (outerCtx) {
-            final size = MediaQuery.of(outerCtx).size;
-            final isTablet = size.shortestSide >= 600;
-            final maxFraction = isTablet ? 0.42 : 1.0;
-            final edgeFraction = isTablet ? 0.36 : 0.50; // large phone edge
-            final scrim = Platform.isIOS
-                ? context.colorTokens.scrimMedium
-                : context.colorTokens.scrimStrong;
-
-            return ResponsiveDrawerLayout(
-              maxFraction: maxFraction,
-              edgeFraction: edgeFraction,
-              settleFraction: 0.06, // even gentler settle for instant open feel
-              scrimColor: scrim,
-              pushContent: true,
-              contentScaleDelta: 0.0,
-              tabletDrawerWidth: 320.0,
-              onOpenStart: () {
-                // Suppress composer auto-focus once we unfocus for the drawer
-                try {
-                  ref
-                      .read(composerAutofocusEnabledProvider.notifier)
-                      .set(false);
-                } catch (_) {}
-              },
-              drawer: Container(
-                color: context.sidebarTheme.background,
-                child: SafeArea(
-                  top: true,
-                  bottom: true,
-                  left: false,
-                  right: false,
-                  child: const SidebarPage(),
-                ),
-              ),
-              child: Scaffold(
+        child: Scaffold(
                 backgroundColor: context.conduitTheme.surfaceBackground,
                 // Replace Scaffold drawer with a tunable slide drawer for gentler snap behavior.
                 drawerEnableOpenDragGesture: false,
@@ -2568,10 +2531,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                     ],
                   ),
                 ),
-              ), // Scaffold inside ResponsiveDrawerLayout
-            );
-          },
-        ),
+              ), // Scaffold
       ), // PopScope
     ); // ErrorBoundary
   }

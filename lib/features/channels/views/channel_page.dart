@@ -25,7 +25,6 @@ import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../../chat/services/file_attachment_service.dart';
 import '../../chat/widgets/modern_chat_input.dart';
-import '../../navigation/widgets/sidebar_page.dart';
 import '../providers/channel_providers.dart';
 import '../providers/channel_socket_handler.dart';
 import '../utils/mention_utils.dart';
@@ -778,33 +777,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
-    final isTablet =
-        MediaQuery.of(context).size.shortestSide >= 600;
-
-    final scrim = Platform.isIOS
-        ? context.colorTokens.scrimMedium
-        : context.colorTokens.scrimStrong;
-
-    return ResponsiveDrawerLayout(
-      maxFraction: isTablet ? 0.42 : 1.0,
-      edgeFraction: isTablet ? 0.36 : 0.50,
-      settleFraction: 0.06,
-      scrimColor: scrim,
-      pushContent: true,
-      contentScaleDelta: 0.0,
-      tabletDrawerWidth: 320.0,
-      drawer: Container(
-        color: theme.surfaceBackground,
-        child: const SafeArea(
-          top: true,
-          bottom: true,
-          left: false,
-          right: false,
-          child: SidebarPage(),
-        ),
-      ),
-      child: _buildScaffold(context, theme),
-    );
+    return _buildScaffold(context, theme);
   }
 
   Widget _buildScaffold(

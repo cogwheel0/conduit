@@ -66,7 +66,11 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
 
   Future<void> _onNoteTap(Note note) async {
     NavigationService.router.go('/notes/${note.id}');
-    ResponsiveDrawerLayout.of(context)?.close();
+    final isTablet =
+        MediaQuery.of(context).size.shortestSide >= 600;
+    if (!isTablet) {
+      ResponsiveDrawerLayout.of(context)?.close();
+    }
   }
 
   Future<void> _createNote() async {
@@ -78,7 +82,11 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
         .createNote(title: defaultTitle);
     if (note != null && mounted) {
       NavigationService.router.go('/notes/${note.id}');
-      ResponsiveDrawerLayout.of(context)?.close();
+      final isTablet =
+          MediaQuery.of(context).size.shortestSide >= 600;
+      if (!isTablet) {
+        ResponsiveDrawerLayout.of(context)?.close();
+      }
     }
   }
 

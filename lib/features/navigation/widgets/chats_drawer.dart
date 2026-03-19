@@ -296,7 +296,11 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     NavigationService.router.go(Routes.chat);
 
     if (mounted) {
-      ResponsiveDrawerLayout.of(context)?.close();
+      final isTablet =
+          MediaQuery.of(context).size.shortestSide >= 600;
+      if (!isTablet) {
+        ResponsiveDrawerLayout.of(context)?.close();
+      }
     }
 
     final settings = ref.read(appSettingsProvider);

@@ -21,7 +21,6 @@ import '../../../shared/utils/glass_colors.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
-import '../../navigation/widgets/sidebar_page.dart';
 import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
@@ -730,48 +729,23 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       return const AdaptiveScaffold();
     }
 
-    final isTablet =
-        MediaQuery.of(context).size.shortestSide >= 600;
-    final scrim = Platform.isIOS
-        ? context.colorTokens.scrimMedium
-        : context.colorTokens.scrimStrong;
-
-    return ResponsiveDrawerLayout(
-      maxFraction: isTablet ? 0.42 : 1.0,
-      edgeFraction: isTablet ? 0.36 : 0.50,
-      settleFraction: 0.06,
-      scrimColor: scrim,
-      pushContent: true,
-      contentScaleDelta: 0.0,
-      tabletDrawerWidth: 320.0,
-      drawer: Container(
-        color: context.conduitTheme.surfaceBackground,
-        child: const SafeArea(
-          top: true,
-          bottom: true,
-          left: false,
-          right: false,
-          child: SidebarPage(),
-        ),
-      ),
-      child: ErrorBoundary(
-        child: Scaffold(
-          backgroundColor: context.conduitTheme.surfaceBackground,
-          extendBodyBehindAppBar: true,
-          appBar: _buildAppBar(context),
-          body: Stack(
-            children: [
-              Positioned.fill(child: _buildMainContent(context)),
-              if (!_isLoading && _note != null)
-                Positioned(
-                  left: Spacing.md,
-                  right: Spacing.md,
-                  bottom: Spacing.md +
-                      MediaQuery.of(context).padding.bottom,
-                  child: _buildFloatingActionsRow(context),
-                ),
-            ],
-          ),
+    return ErrorBoundary(
+      child: Scaffold(
+        backgroundColor: context.conduitTheme.surfaceBackground,
+        extendBodyBehindAppBar: true,
+        appBar: _buildAppBar(context),
+        body: Stack(
+          children: [
+            Positioned.fill(child: _buildMainContent(context)),
+            if (!_isLoading && _note != null)
+              Positioned(
+                left: Spacing.md,
+                right: Spacing.md,
+                bottom: Spacing.md +
+                    MediaQuery.of(context).padding.bottom,
+                child: _buildFloatingActionsRow(context),
+              ),
+          ],
         ),
       ),
     );

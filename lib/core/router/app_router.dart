@@ -18,6 +18,7 @@ import '../../features/auth/views/proxy_auth_page.dart';
 import '../../features/auth/views/server_connection_page.dart';
 import '../../features/auth/views/sso_auth_page.dart';
 import '../../features/chat/views/chat_page.dart';
+import '../../shared/widgets/drawer_shell_page.dart';
 import '../../features/navigation/views/splash_launcher_page.dart';
 import '../../features/notes/views/notes_list_page.dart';
 import '../../features/channels/views/channel_page.dart';
@@ -216,10 +217,37 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       name: RouteNames.splash,
       builder: (context, state) => const SplashLauncherPage(),
     ),
-    GoRoute(
-      path: Routes.chat,
-      name: RouteNames.chat,
-      builder: (context, state) => const ChatPage(),
+    // ShellRoute keeps the drawer/sidebar mounted across page navigations
+    // so it doesn't reload on tablets when switching between chat, channels,
+    // and notes.
+    ShellRoute(
+      builder: (context, state, child) => DrawerShellPage(child: child),
+      routes: [
+        GoRoute(
+          path: Routes.chat,
+          name: RouteNames.chat,
+          builder: (context, state) => const ChatPage(),
+        ),
+        GoRoute(
+          path: Routes.noteEditor,
+          name: RouteNames.noteEditor,
+          builder: (context, state) {
+            final noteId = state.pathParameters['id'];
+            if (noteId == null || noteId.isEmpty) {
+              return const NotesListPage();
+            }
+            return NoteEditorPage(key: ValueKey(noteId), noteId: noteId);
+          },
+        ),
+        GoRoute(
+          path: Routes.channel,
+          name: RouteNames.channel,
+          builder: (context, state) {
+            final channelId = state.pathParameters['id']!;
+            return ChannelPage(channelId: channelId);
+          },
+        ),
+      ],
     ),
     GoRoute(
       path: Routes.login,
@@ -289,25 +317,6 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       path: Routes.notes,
       name: RouteNames.notes,
       builder: (context, state) => const NotesListPage(),
-    ),
-    GoRoute(
-      path: Routes.noteEditor,
-      name: RouteNames.noteEditor,
-      builder: (context, state) {
-        final noteId = state.pathParameters['id'];
-        if (noteId == null || noteId.isEmpty) {
-          return const NotesListPage();
-        }
-        return NoteEditorPage(key: ValueKey(noteId), noteId: noteId);
-      },
-    ),
-    GoRoute(
-      path: Routes.channel,
-      name: RouteNames.channel,
-      builder: (context, state) {
-        final channelId = state.pathParameters['id']!;
-        return ChannelPage(channelId: channelId);
-      },
     ),
   ];
 

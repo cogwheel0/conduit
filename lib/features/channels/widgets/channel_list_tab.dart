@@ -66,7 +66,11 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
   }
 
   void _onChannelTap(Channel channel) {
-    ResponsiveDrawerLayout.of(context)?.close();
+    final isTablet =
+        MediaQuery.of(context).size.shortestSide >= 600;
+    if (!isTablet) {
+      ResponsiveDrawerLayout.of(context)?.close();
+    }
     NavigationService.router.go('/channel/${channel.id}');
   }
 
