@@ -833,9 +833,10 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
               padding: const EdgeInsets.only(
                 right: Spacing.xs,
               ),
-              child: GestureDetector(
-                onTap: _showMemberList,
-                child: FloatingAppBarPill(
+              child: FloatingAppBarPill(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _showMemberList,
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
