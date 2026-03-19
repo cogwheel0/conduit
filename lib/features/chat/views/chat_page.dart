@@ -14,7 +14,6 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
 
 import '../../../shared/widgets/responsive_drawer_layout.dart';
-import '../../navigation/widgets/chats_drawer.dart';
 import '../../navigation/widgets/sidebar_page.dart';
 import 'dart:async';
 import '../../../core/providers/app_providers.dart';

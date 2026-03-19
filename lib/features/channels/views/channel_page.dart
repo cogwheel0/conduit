@@ -788,7 +788,7 @@ class _MessageBubble extends StatelessWidget {
       return CircleAvatar(
         radius: 18,
         backgroundImage: NetworkImage(profileImage),
-        onBackgroundImageError: (_, __) {},
+        onBackgroundImageError: (e, s) {},
       );
     }
 
