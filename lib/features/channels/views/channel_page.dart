@@ -818,20 +818,52 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       backgroundColor: theme.surfaceBackground,
       extendBodyBehindAppBar: true,
       appBar: FloatingAppBar(
+        balanceLeading: false,
         leading: Builder(
           builder: (ctx) => FloatingAppBarIconButton(
             icon: Platform.isIOS
                 ? CupertinoIcons.line_horizontal_3
                 : Icons.menu,
             onTap: () =>
-                ResponsiveDrawerLayout.of(ctx)?.toggle(),
+                ResponsiveDrawerLayout.of(ctx)
+                    ?.toggle(),
           ),
         ),
-        title: FloatingAppBarTitle(
-          text: channel?.name ?? '',
-          icon: channel?.isPrivate == true
-              ? Icons.lock_outlined
-              : Icons.tag,
+        title: Align(
+          alignment: Alignment.centerLeft,
+          child: FloatingAppBarPill(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: Spacing.sm,
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    channel?.isPrivate == true
+                        ? Icons.lock_outlined
+                        : Icons.tag,
+                    size: IconSize.appBar,
+                    color: theme.textPrimary,
+                  ),
+                  const SizedBox(width: 4),
+                  Flexible(
+                    child: Text(
+                      channel?.name ?? '',
+                      style: TextStyle(
+                        color: theme.textPrimary,
+                        fontSize:
+                            AppTypography.bodySmall,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      overflow:
+                          TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ),
         actions: [
           if (channel?.userCount != null)
@@ -839,27 +871,18 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
               padding: const EdgeInsets.only(
                 right: Spacing.xs,
               ),
-              child: FloatingAppBarPill(
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: _showMemberList,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.people_outline,
-                        size: IconSize.appBar,
-                        color: theme.textPrimary,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        '${channel!.userCount}',
-                        style: TextStyle(
-                          color: theme.textPrimary,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ],
+              child: GestureDetector(
+                behavior:
+                    HitTestBehavior.opaque,
+                onTap: _showMemberList,
+                child: FloatingAppBarPill(
+                  isCircular: true,
+                  child: Text(
+                    '${channel!.userCount}',
+                    style: TextStyle(
+                      color: theme.textPrimary,
+                      fontSize: 13,
+                    ),
                   ),
                 ),
               ),
