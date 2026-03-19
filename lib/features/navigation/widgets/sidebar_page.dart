@@ -1,3 +1,4 @@
+import 'package:conduit/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -64,15 +65,17 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
                 onPressed: () {
                   ResponsiveDrawerLayout.of(context)?.close();
                 },
-                tooltip: 'Close sidebar',
+                tooltip: AppLocalizations.of(context)!.closeSidebar,
               ),
               Expanded(
                 child: TabBar(
                   controller: _tabController,
-                  tabs: const [
-                    Tab(text: 'Chats'),
-                    Tab(text: 'Notes'),
-                    Tab(text: 'Channels'),
+                  tabs: [
+                    Tab(text: AppLocalizations.of(context)!.sidebarChatsTab),
+                    Tab(text: AppLocalizations.of(context)!.sidebarNotesTab),
+                    Tab(
+                      text: AppLocalizations.of(context)!.sidebarChannelsTab,
+                    ),
                   ],
                   labelColor: theme.colorScheme.primary,
                   unselectedLabelColor:
