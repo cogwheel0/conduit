@@ -493,11 +493,11 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         : context.colorTokens.scrimStrong;
 
     return ResponsiveDrawerLayout(
-      maxFraction: isTablet ? 0.42 : 1.0,
+      maxFraction: isTablet ? 0.42 : 0.84,
       edgeFraction: isTablet ? 0.36 : 0.50,
       settleFraction: 0.06,
       scrimColor: scrim,
-      pushContent: isTablet,
+      pushContent: true,
       contentScaleDelta: 0.0,
       tabletDrawerWidth: 320.0,
       drawer: Container(
@@ -527,11 +527,14 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       backgroundColor: theme.surfaceBackground,
       extendBodyBehindAppBar: true,
       appBar: FloatingAppBar(
-        leading: FloatingAppBarBackButton(
-          onTap: () {
-            ref.read(activeChannelProvider.notifier).clear();
-            NavigationService.router.go(Routes.chat);
-          },
+        leading: Builder(
+          builder: (ctx) => FloatingAppBarIconButton(
+            icon: Platform.isIOS
+                ? CupertinoIcons.line_horizontal_3
+                : Icons.menu,
+            onTap: () =>
+                ResponsiveDrawerLayout.of(ctx)?.toggle(),
+          ),
         ),
         title: FloatingAppBarTitle(
           text: channel?.name ?? '',

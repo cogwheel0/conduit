@@ -20,6 +20,8 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/glass_colors.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/responsive_drawer_layout.dart';
+import '../../navigation/widgets/sidebar_page.dart';
 import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
@@ -255,13 +257,6 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       message: message,
       type: AdaptiveSnackBarType.error,
     );
-  }
-
-  Future<bool> _onWillPop() async {
-    if (_hasChanges) {
-      await _saveNote(showFeedback: false);
-    }
-    return true;
   }
 
   Future<void> _deleteNote() async {
@@ -727,37 +722,60 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       return const AdaptiveScaffold();
     }
 
-    return PopScope(
-      // Only allow immediate pop when there are no unsaved changes.
-      // When there are changes, we intercept, save first, then pop manually.
-      canPop: !_hasChanges,
-      onPopInvokedWithResult: (didPop, result) async {
-        if (didPop) return; // Already popped, nothing to do
-        // Capture navigator before async gap
-        final navigator = Navigator.of(context);
-        // Save changes before allowing pop
-        await _saveNote(showFeedback: false);
-        if (!mounted) return;
-        navigator.pop();
-      },
-      child: ErrorBoundary(
-        child: Scaffold(
-          backgroundColor: context.conduitTheme.surfaceBackground,
-          extendBodyBehindAppBar: true,
-          appBar: _buildAppBar(context),
-          body: Stack(
-            children: [
-              // Main content - scrolls behind floating elements
-              Positioned.fill(child: _buildMainContent(context)),
-              // Floating action buttons
-              if (!_isLoading && _note != null)
-                Positioned(
-                  left: Spacing.md,
-                  right: Spacing.md,
-                  bottom: Spacing.md + MediaQuery.of(context).padding.bottom,
-                  child: _buildFloatingActionsRow(context),
-                ),
-            ],
+    final isTablet =
+        MediaQuery.of(context).size.shortestSide >= 600;
+    final scrim = Platform.isIOS
+        ? context.colorTokens.scrimMedium
+        : context.colorTokens.scrimStrong;
+
+    return ResponsiveDrawerLayout(
+      maxFraction: isTablet ? 0.42 : 0.84,
+      edgeFraction: isTablet ? 0.36 : 0.50,
+      settleFraction: 0.06,
+      scrimColor: scrim,
+      pushContent: true,
+      contentScaleDelta: 0.0,
+      tabletDrawerWidth: 320.0,
+      drawer: Container(
+        color: context.conduitTheme.surfaceBackground,
+        child: const SafeArea(
+          top: true,
+          bottom: true,
+          left: false,
+          right: false,
+          child: SidebarPage(),
+        ),
+      ),
+      child: PopScope(
+        // Only allow immediate pop when there are no unsaved changes.
+        // When there are changes, we intercept, save first, then pop
+        // manually.
+        canPop: !_hasChanges,
+        onPopInvokedWithResult: (didPop, result) async {
+          if (didPop) return;
+          final navigator = Navigator.of(context);
+          await _saveNote(showFeedback: false);
+          if (!mounted) return;
+          navigator.pop();
+        },
+        child: ErrorBoundary(
+          child: Scaffold(
+            backgroundColor: context.conduitTheme.surfaceBackground,
+            extendBodyBehindAppBar: true,
+            appBar: _buildAppBar(context),
+            body: Stack(
+              children: [
+                Positioned.fill(child: _buildMainContent(context)),
+                if (!_isLoading && _note != null)
+                  Positioned(
+                    left: Spacing.md,
+                    right: Spacing.md,
+                    bottom: Spacing.md +
+                        MediaQuery.of(context).padding.bottom,
+                    child: _buildFloatingActionsRow(context),
+                  ),
+              ],
+            ),
           ),
         ),
       ),
@@ -794,30 +812,18 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                 height: kToolbarHeight,
                 child: Row(
                   children: [
-                    // Leading (back button)
+                    // Leading (hamburger menu)
                     Padding(
                       padding: const EdgeInsets.only(
                         left: Spacing.inputPadding,
                       ),
                       child: Center(
-                        child: GestureDetector(
-                          onTap: () async {
-                            final navigator = Navigator.of(context);
-                            await _onWillPop();
-                            if (!mounted) return;
-                            navigator.pop();
-                          },
-                          child: _buildAppBarPill(
-                            context,
-                            Icon(
-                              UiUtils.platformIcon(
-                                ios: CupertinoIcons.back,
-                                android: Icons.arrow_back,
-                              ),
-                              color: conduitTheme.textPrimary,
-                              size: IconSize.appBar,
-                            ),
-                            isCircular: true,
+                        child: Builder(
+                          builder: (ctx) => FloatingAppBarIconButton(
+                            icon: UiUtils.menuIcon,
+                            onTap: () =>
+                                ResponsiveDrawerLayout.of(ctx)
+                                    ?.toggle(),
                           ),
                         ),
                       ),
