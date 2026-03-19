@@ -12,12 +12,17 @@ import 'package:conduit/l10n/app_localizations.dart';
 import '../../../core/models/channel.dart';
 import '../../../core/models/channel_message.dart';
 import '../../../core/providers/app_providers.dart';
+import '../../../core/services/api_service.dart';
 import '../../../core/services/navigation_service.dart';
+import '../../../core/utils/model_icon_utils.dart';
+import '../../../core/utils/user_avatar_utils.dart';
 import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/model_avatar.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
+import '../../../shared/widgets/user_avatar.dart';
 import '../../chat/services/file_attachment_service.dart';
 import '../../chat/widgets/modern_chat_input.dart';
 import '../../navigation/widgets/sidebar_page.dart';
@@ -1015,7 +1020,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       );
     }
 
-    final currentUserId = ref.watch(currentUserProvider).value?.id;
+    final currentUserId =
+        ref.watch(currentUserProvider).value?.id;
+    final api = ref.read(apiServiceProvider);
 
     return ListView.builder(
       controller: _scrollController,
@@ -1023,9 +1030,11 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       padding: const EdgeInsets.symmetric(
         vertical: Spacing.sm,
       ),
-      itemCount: messages.length + (_isLoadingMore ? 1 : 0),
+      itemCount:
+          messages.length + (_isLoadingMore ? 1 : 0),
       itemBuilder: (context, index) {
-        if (_isLoadingMore && index == messages.length) {
+        if (_isLoadingMore &&
+            index == messages.length) {
           return const Padding(
             padding: EdgeInsets.all(Spacing.md),
             child: Center(
@@ -1040,13 +1049,17 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
           );
         }
         final message = messages[index];
+        final avatarUrl =
+            _resolveAvatarUrl(api, message);
         return _MessageBubble(
           message: message,
+          avatarUrl: avatarUrl,
           currentUserId: currentUserId,
           isEditing:
               _editingMessageId == message.id,
           editController: _editController,
-          onSubmitEdit: () => _submitEdit(message),
+          onSubmitEdit: () =>
+              _submitEdit(message),
           onCancelEdit: _cancelEditing,
           onLongPress: () =>
               _showMessageActions(message),
@@ -1057,6 +1070,26 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
               : null,
         );
       },
+    );
+  }
+
+  /// Resolves the avatar URL for a channel message.
+  ///
+  /// For model responses, builds the model profile image
+  /// URL. For user messages, resolves the user's profile
+  /// image URL.
+  String? _resolveAvatarUrl(
+    ApiService? api,
+    ChannelMessage message,
+  ) {
+    if (isModelMessage(message)) {
+      final modelId =
+          message.meta!['model_id'] as String?;
+      return buildModelAvatarUrl(api, modelId);
+    }
+    return resolveUserAvatarUrlForUser(
+      api,
+      message.user,
     );
   }
 
@@ -1228,6 +1261,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
 class _MessageBubble extends StatelessWidget {
   const _MessageBubble({
     required this.message,
+    this.avatarUrl,
     required this.currentUserId,
     required this.isEditing,
     this.editController,
@@ -1239,6 +1273,7 @@ class _MessageBubble extends StatelessWidget {
   });
 
   final ChannelMessage message;
+  final String? avatarUrl;
   final String? currentUserId;
   final bool isEditing;
   final TextEditingController? editController;
@@ -1469,45 +1504,20 @@ class _MessageBubble extends StatelessWidget {
     );
   }
 
+  static const double _avatarSize = 28;
+
   Widget _buildAvatar(ConduitThemeExtension theme) {
-    // Model messages: show a robot-style icon.
     if (isModelMessage(message)) {
-      return CircleAvatar(
-        radius: 18,
-        backgroundColor: theme.buttonSecondary,
-        child: Icon(
-          Icons.smart_toy_outlined,
-          size: 18,
-          color: theme.textPrimary,
-        ),
+      return ModelAvatar(
+        size: _avatarSize,
+        imageUrl: avatarUrl,
+        label: messageDisplayName(message),
       );
     }
-
-    final profileImage = message.userProfileImage;
-    final initial = message.userName.isNotEmpty
-        ? message.userName[0].toUpperCase()
-        : '?';
-
-    if (profileImage != null &&
-        profileImage.isNotEmpty) {
-      return CircleAvatar(
-        radius: 18,
-        backgroundImage: NetworkImage(profileImage),
-        onBackgroundImageError: (e, s) {},
-      );
-    }
-
-    return CircleAvatar(
-      radius: 18,
-      backgroundColor: theme.buttonSecondary,
-      child: Text(
-        initial,
-        style: TextStyle(
-          color: theme.textPrimary,
-          fontWeight: FontWeight.w600,
-          fontSize: 14,
-        ),
-      ),
+    return UserAvatar(
+      size: _avatarSize,
+      imageUrl: avatarUrl,
+      fallbackText: message.userName,
     );
   }
 

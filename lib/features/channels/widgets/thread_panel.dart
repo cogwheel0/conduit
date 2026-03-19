@@ -5,7 +5,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/channel_message.dart';
 import '../../../core/providers/app_providers.dart';
+import '../../../core/services/api_service.dart';
+import '../../../core/utils/model_icon_utils.dart';
+import '../../../core/utils/user_avatar_utils.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/widgets/model_avatar.dart';
+import '../../../shared/widgets/user_avatar.dart';
 import '../../chat/widgets/modern_chat_input.dart';
 import '../providers/channel_providers.dart';
 import '../utils/mention_utils.dart';
@@ -79,6 +84,7 @@ class _ThreadPanelState
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
+    final api = ref.read(apiServiceProvider);
     final threadAsync = ref.watch(
       threadMessagesProvider(
         widget.channelId,
@@ -102,6 +108,7 @@ class _ThreadPanelState
           const Divider(height: 1),
           _ParentMessageTile(
             message: widget.parentMessage,
+            api: api,
             theme: theme,
           ),
           const Divider(height: 1),
@@ -115,6 +122,7 @@ class _ThreadPanelState
                           widget.parentMessage.id,
                     )
                     .toList(),
+                api: api,
                 theme: theme,
               ),
               loading: () => const Center(
@@ -186,10 +194,12 @@ class _ThreadHeader extends StatelessWidget {
 class _ParentMessageTile extends StatelessWidget {
   const _ParentMessageTile({
     required this.message,
+    this.api,
     required this.theme,
   });
 
   final ChannelMessage message;
+  final ApiService? api;
   final ConduitThemeExtension theme;
 
   @override
@@ -199,7 +209,7 @@ class _ParentMessageTile extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildAvatar(theme),
+          _buildAvatar(),
           const SizedBox(width: Spacing.sm),
           Expanded(
             child: Column(
@@ -239,32 +249,24 @@ class _ParentMessageTile extends StatelessWidget {
     );
   }
 
-  Widget _buildAvatar(ConduitThemeExtension theme) {
+  Widget _buildAvatar() {
     if (isModelMessage(message)) {
-      return CircleAvatar(
-        radius: 16,
-        backgroundColor: theme.buttonSecondary,
-        child: Icon(
-          Icons.smart_toy_outlined,
-          size: 16,
-          color: theme.textPrimary,
-        ),
+      final modelId =
+          message.meta!['model_id'] as String?;
+      return ModelAvatar(
+        size: 28,
+        imageUrl:
+            buildModelAvatarUrl(api, modelId),
+        label: messageDisplayName(message),
       );
     }
-    final initial = message.userName.isNotEmpty
-        ? message.userName[0].toUpperCase()
-        : '?';
-    return CircleAvatar(
-      radius: 16,
-      backgroundColor: theme.buttonSecondary,
-      child: Text(
-        initial,
-        style: TextStyle(
-          color: theme.textPrimary,
-          fontWeight: FontWeight.w600,
-          fontSize: 12,
-        ),
+    return UserAvatar(
+      size: 28,
+      imageUrl: resolveUserAvatarUrlForUser(
+        api,
+        message.user,
       ),
+      fallbackText: message.userName,
     );
   }
 }
@@ -273,10 +275,12 @@ class _ParentMessageTile extends StatelessWidget {
 class _ThreadReplies extends StatelessWidget {
   const _ThreadReplies({
     required this.messages,
+    this.api,
     required this.theme,
   });
 
   final List<ChannelMessage> messages;
+  final ApiService? api;
   final ConduitThemeExtension theme;
 
   @override
@@ -299,7 +303,6 @@ class _ThreadReplies extends StatelessWidget {
       itemCount: messages.length,
       itemBuilder: (context, index) {
         final message = messages[index];
-        final isModel = isModelMessage(message);
         return Padding(
           padding: const EdgeInsets.symmetric(
             horizontal: Spacing.md,
@@ -309,33 +312,27 @@ class _ThreadReplies extends StatelessWidget {
             crossAxisAlignment:
                 CrossAxisAlignment.start,
             children: [
-              if (isModel)
-                CircleAvatar(
-                  radius: 14,
-                  backgroundColor:
-                      theme.buttonSecondary,
-                  child: Icon(
-                    Icons.smart_toy_outlined,
-                    size: 14,
-                    color: theme.textPrimary,
+              if (isModelMessage(message))
+                ModelAvatar(
+                  size: 24,
+                  imageUrl: buildModelAvatarUrl(
+                    api,
+                    message.meta?['model_id']
+                        as String?,
                   ),
+                  label:
+                      messageDisplayName(message),
                 )
               else
-                CircleAvatar(
-                  radius: 14,
-                  backgroundColor:
-                      theme.buttonSecondary,
-                  child: Text(
-                    message.userName.isNotEmpty
-                        ? message.userName[0]
-                            .toUpperCase()
-                        : '?',
-                    style: TextStyle(
-                      color: theme.textPrimary,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 10,
-                    ),
+                UserAvatar(
+                  size: 24,
+                  imageUrl:
+                      resolveUserAvatarUrlForUser(
+                    api,
+                    message.user,
                   ),
+                  fallbackText:
+                      message.userName,
                 ),
               const SizedBox(width: Spacing.sm),
               Expanded(
