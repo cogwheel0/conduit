@@ -1051,9 +1051,30 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         final message = messages[index];
         final avatarUrl =
             _resolveAvatarUrl(api, message);
+
+        // Determine the effective sender ID for
+        // grouping consecutive messages. Model
+        // messages use meta.model_id as the key.
+        String? senderOf(ChannelMessage m) {
+          if (isModelMessage(m)) {
+            return m.meta?['model_id'] as String?;
+          }
+          return m.userId;
+        }
+
+        // In a reversed list, index+1 is the
+        // message visually above. Show profile
+        // only on the first message of a group.
+        final prevIndex = index + 1;
+        final showProfile = prevIndex >=
+                messages.length ||
+            senderOf(messages[prevIndex]) !=
+                senderOf(message);
+
         return _MessageBubble(
           message: message,
           avatarUrl: avatarUrl,
+          showProfile: showProfile,
           currentUserId: currentUserId,
           isEditing:
               _editingMessageId == message.id,
@@ -1262,6 +1283,7 @@ class _MessageBubble extends StatelessWidget {
   const _MessageBubble({
     required this.message,
     this.avatarUrl,
+    this.showProfile = true,
     required this.currentUserId,
     required this.isEditing,
     this.editController,
@@ -1274,6 +1296,11 @@ class _MessageBubble extends StatelessWidget {
 
   final ChannelMessage message;
   final String? avatarUrl;
+
+  /// Whether to show the avatar and sender name.
+  /// False for consecutive messages from the same
+  /// sender.
+  final bool showProfile;
   final String? currentUserId;
   final bool isEditing;
   final TextEditingController? editController;
@@ -1292,22 +1319,32 @@ class _MessageBubble extends StatelessWidget {
     return InkWell(
       onLongPress: onLongPress,
       child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: Spacing.md,
-          vertical: Spacing.xs,
+        padding: EdgeInsets.only(
+          left: Spacing.md,
+          right: Spacing.md,
+          top: showProfile ? Spacing.sm : 1,
+          bottom: 1,
         ),
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment:
+              CrossAxisAlignment.start,
           children: [
-            _buildAvatar(theme),
+            if (showProfile)
+              _buildAvatar(theme)
+            else
+              SizedBox(width: _avatarSize),
             const SizedBox(width: Spacing.sm),
             Expanded(
               child: Column(
                 crossAxisAlignment:
                     CrossAxisAlignment.start,
                 children: [
-                  _buildHeader(theme, timestamp),
-                  const SizedBox(height: Spacing.xxs),
+                  if (showProfile) ...[
+                    _buildHeader(theme, timestamp),
+                    const SizedBox(
+                      height: Spacing.xxs,
+                    ),
+                  ],
                   if (message.replyToMessage != null)
                     Container(
                       margin: const EdgeInsets.only(
