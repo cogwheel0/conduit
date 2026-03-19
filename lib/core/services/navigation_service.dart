@@ -79,6 +79,10 @@ class NavigationService {
     return result;
   }
 
+  static void navigateToChannel(String channelId) {
+    router.go('/channel/$channelId');
+  }
+
   static Future<void> navigateToChat() => navigateTo(Routes.chat);
   static Future<void> navigateToLogin() => navigateTo(Routes.serverConnection);
   static Future<void> navigateToProfile() => navigateTo(Routes.profile);
@@ -107,6 +111,7 @@ class Routes {
   static const String appCustomization = '/profile/customization';
   static const String notes = '/notes';
   static const String noteEditor = '/notes/:id';
+  static const String channel = '/channel/:id';
 }
 
 /// Friendly names for GoRouter routes to support context.pushNamed.
@@ -123,4 +128,5 @@ class RouteNames {
   static const String appCustomization = 'app-customization';
   static const String notes = 'notes';
   static const String noteEditor = 'note-editor';
+  static const String channel = 'channel';
 }

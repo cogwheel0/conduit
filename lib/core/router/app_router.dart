@@ -20,6 +20,7 @@ import '../../features/auth/views/sso_auth_page.dart';
 import '../../features/chat/views/chat_page.dart';
 import '../../features/navigation/views/splash_launcher_page.dart';
 import '../../features/notes/views/notes_list_page.dart';
+import '../../features/channels/views/channel_page.dart';
 import '../../features/notes/views/note_editor_page.dart';
 import '../../features/profile/views/app_customization_page.dart';
 import '../../features/profile/views/profile_page.dart';
@@ -298,6 +299,14 @@ final goRouterProvider = Provider<GoRouter>((ref) {
           return const NotesListPage();
         }
         return NoteEditorPage(noteId: noteId);
+      },
+    ),
+    GoRoute(
+      path: Routes.channel,
+      name: RouteNames.channel,
+      builder: (context, state) {
+        final channelId = state.pathParameters['id']!;
+        return ChannelPage(channelId: channelId);
       },
     ),
   ];
