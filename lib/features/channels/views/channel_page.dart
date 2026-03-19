@@ -1390,18 +1390,30 @@ class _MessageBubble extends StatelessWidget {
                         bottom: Spacing.xxs,
                       ),
                       child: Row(
+                        mainAxisSize:
+                            MainAxisSize.min,
                         children: [
                           Icon(
-                            Icons.push_pin,
-                            size: 12,
-                            color: theme.textSecondary,
+                            Icons.push_pin_outlined,
+                            size: 14,
+                            color: theme.textPrimary
+                                .withValues(
+                              alpha: 0.6,
+                            ),
                           ),
                           const SizedBox(width: 4),
                           Text(
                             'Pinned',
                             style: TextStyle(
-                              color: theme.textSecondary,
-                              fontSize: 11,
+                              fontSize:
+                                  AppTypography
+                                      .bodyMedium,
+                              color: theme
+                                  .textPrimary
+                                  .withValues(
+                                alpha: 0.6,
+                              ),
+                              height: 1.3,
                             ),
                           ),
                         ],
@@ -1476,20 +1488,40 @@ class _MessageBubble extends StatelessWidget {
                         top: Spacing.xxs,
                       ),
                       child: GestureDetector(
+                        behavior:
+                            HitTestBehavior.opaque,
                         onTap: onThreadTap,
-                        child: Text(
-                          '${message.replyCount} '
-                          '${message.replyCount == 1
-                              ? "reply"
-                              : "replies"}',
-                          style: TextStyle(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .primary,
-                            fontSize: 12,
-                            fontWeight:
-                                FontWeight.w500,
-                          ),
+                        child: Row(
+                          mainAxisSize:
+                              MainAxisSize.min,
+                          children: [
+                            Text(
+                              '${message.replyCount} '
+                              '${message.replyCount == 1 ? "reply" : "replies"}',
+                              style: TextStyle(
+                                fontSize:
+                                    AppTypography
+                                        .bodyMedium,
+                                color: theme
+                                    .textPrimary
+                                    .withValues(
+                                  alpha: 0.6,
+                                ),
+                                height: 1.3,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            Icon(
+                              Icons
+                                  .chevron_right_rounded,
+                              size: 16,
+                              color: theme
+                                  .textPrimary
+                                  .withValues(
+                                alpha: 0.6,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
