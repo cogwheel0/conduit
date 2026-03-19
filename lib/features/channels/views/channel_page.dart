@@ -87,9 +87,15 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     super.initState();
     _scrollController.addListener(_onScroll);
     _loadChannel();
-    ref
-        .read(channelSocketHandlerProvider.notifier)
-        .subscribe(widget.channelId);
+    // Defer subscribe to after the build phase — unsubscribe
+    // clears ChannelTypingUsers state which is not allowed
+    // during initState.
+    Future(() {
+      if (!mounted) return;
+      ref
+          .read(channelSocketHandlerProvider.notifier)
+          .subscribe(widget.channelId);
+    });
   }
 
   @override
