@@ -928,6 +928,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
                     ),
                   ),
                 ),
+                const SizedBox(height: Spacing.sm),
                 Consumer(
                   builder: (context, ref, _) {
                     final typingUsers = ref.watch(
@@ -962,11 +963,10 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
                 ),
                 if (_replyToMessage != null)
                   Container(
-                    padding: const EdgeInsets.only(
-                      left: Spacing.md,
-                      right: Spacing.md,
-                      top: Spacing.md,
-                      bottom: Spacing.sm,
+                    padding:
+                        const EdgeInsets.symmetric(
+                      horizontal: Spacing.md,
+                      vertical: Spacing.sm,
                     ),
                     color: theme.surfaceContainer,
                     child: Row(
