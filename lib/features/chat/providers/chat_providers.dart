@@ -13,7 +13,6 @@ import '../../../core/models/conversation.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/conversation_delta_listener.dart';
 import '../../../core/services/settings_service.dart';
-import '../../../core/services/streaming_helper.dart';
 import '../../../core/services/streaming_response_controller.dart';
 import '../../../core/services/worker_manager.dart';
 import '../../../core/utils/debug_logger.dart';
@@ -22,6 +21,7 @@ import '../models/chat_context_attachment.dart';
 import '../providers/context_attachments_provider.dart';
 import '../../../shared/services/tasks/task_queue.dart';
 import '../../tools/providers/tools_providers.dart';
+import '../services/chat_transport_dispatch.dart';
 import '../services/reviewer_mode_service.dart';
 
 part 'chat_providers.g.dart';
@@ -412,8 +412,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
                   .firstOrNull;
 
               if (serverVersion != null) {
-                final serverHasContent =
-                    serverVersion.content.trim().isNotEmpty;
+                final serverHasContent = serverVersion.content
+                    .trim()
+                    .isNotEmpty;
 
                 // Since tasksDone already guarantees tasks genuinely completed,
                 // server content should be the final version. Adopt if the
@@ -537,7 +538,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
   }
 
-  void setMessageStream(StreamingResponseController controller) {
+  void setMessageStream(StreamingResponseController? controller) {
     _cancelMessageStream();
     _messageStream = controller;
   }
@@ -782,8 +783,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       return;
     }
     final lastMessage = state.last;
-    if (lastMessage.role != 'assistant' ||
-        !lastMessage.isStreaming) {
+    if (lastMessage.role != 'assistant' || !lastMessage.isStreaming) {
       _streamingSyncTimer?.cancel();
       _streamingSyncTimer = null;
       return;
@@ -910,16 +910,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
         ref
             .read(conversationsProvider.notifier)
-            .upsertConversation(
-              updatedSummary.copyWith(messages: const []),
-            );
+            .upsertConversation(updatedSummary.copyWith(messages: const []));
       }
     }
 
     // Skip server cache refresh for temporary chats
-    if (!isTemporaryChat(
-      ref.read(activeConversationProvider)?.id,
-    )) {
+    if (!isTemporaryChat(ref.read(activeConversationProvider)?.id)) {
       try {
         refreshConversationsCache(ref);
       } catch (_) {}
@@ -979,9 +975,7 @@ Future<String> _preseedAssistantAndPersist(
   try {
     final api = ref.read(apiServiceProvider);
     final activeConv = ref.read(activeConversationProvider);
-    if (api != null &&
-        activeConv != null &&
-        !isTemporaryChat(activeConv.id)) {
+    if (api != null && activeConv != null && !isTemporaryChat(activeConv.id)) {
       final resolvedSystemPrompt =
           (systemPrompt != null && systemPrompt.trim().isNotEmpty)
           ? systemPrompt.trim()
@@ -1584,44 +1578,9 @@ Future<void> regenerateMessage(
       'info': selectedModel.metadata?['info'],
     };
 
-    // WebSocket-only streaming requires socket connection
+    // Socket is optional — only needed for taskSocket transport.
     final socketService = ref.read(socketServiceProvider);
-    if (socketService == null) {
-      // No socket service available
-      ref.read(chatMessagesProvider.notifier).updateLastMessageWithFunction((
-        m,
-      ) {
-        return m.copyWith(
-          content: 'Connection not available. Please try again later.',
-          isStreaming: false,
-        );
-      });
-      return;
-    }
-
-    // Ensure socket is connected (with 10s timeout)
-    if (!socketService.isConnected) {
-      final connected = await socketService.ensureConnected(
-        timeout: const Duration(seconds: 10),
-      );
-      if (!connected) {
-        ref.read(chatMessagesProvider.notifier).updateLastMessageWithFunction((
-          m,
-        ) {
-          return m.copyWith(
-            content:
-                'Unable to connect to server. Please check your connection and try again.',
-            isStreaming: false,
-          );
-        });
-        return;
-      }
-    }
-
-    final socketSessionId = socketService.sessionId;
-    final bool wantSessionBinding =
-        socketService.isConnected &&
-        (socketSessionId != null && socketSessionId.isNotEmpty);
+    final socketSessionId = socketService?.sessionId;
 
     // Resolve tool servers from user settings (if any)
     List<Map<String, dynamic>>? toolServers;
@@ -1673,14 +1632,8 @@ Future<void> regenerateMessage(
       }
     }
 
-    // Dispatch using unified send pipeline (background tools flow)
-    final bool isBackgroundFlowPre =
-        isBackgroundToolsFlowPre ||
-        isBackgroundWebSearchPre ||
-        imageGenerationEnabled;
-    final bool passSocketSession =
-        wantSessionBinding && (isBackgroundFlowPre || bgTasks.isNotEmpty);
-    final response = api!.sendMessage(
+    // Use transport-aware session dispatch
+    final session = await api!.sendMessageSession(
       messages: conversationMessages,
       model: selectedModel.id,
       conversationId: activeConversation.id,
@@ -1689,36 +1642,13 @@ Future<void> regenerateMessage(
       enableWebSearch: webSearchEnabled,
       enableImageGeneration: imageGenerationEnabled,
       modelItem: modelItem,
-      sessionIdOverride: passSocketSession ? socketSessionId : null,
-      socketSessionId: socketSessionId,
+      sessionIdOverride: socketSessionId,
       toolServers: toolServers,
       backgroundTasks: bgTasks,
       responseMessageId: assistantMessageId,
       userSettings: userSettingsData,
       parentMessageId: lastUserMessageId,
     );
-
-    final stream = response.stream;
-    final sessionId = response.sessionId;
-    final effectiveSessionId =
-        response.socketSessionId ?? socketSessionId ?? sessionId;
-
-    final bool isBackgroundFlow = response.isBackgroundFlow;
-    try {
-      ref.read(chatMessagesProvider.notifier).updateLastMessageWithFunction((
-        m,
-      ) {
-        final mergedMeta = {
-          if (m.metadata != null) ...m.metadata!,
-          'backgroundFlow': isBackgroundFlow,
-          if (isBackgroundWebSearchPre) 'webSearchFlow': true,
-          if (imageGenerationEnabled) 'imageGenerationFlow': true,
-        };
-        return m.copyWith(metadata: mergedMeta);
-      });
-    } catch (_) {}
-
-    final registerDeltaListener = createConversationDeltaRegistrar(ref);
 
     // Check if model uses reasoning based on common naming patterns
     final modelLower = selectedModel.id.toLowerCase();
@@ -1729,92 +1659,35 @@ Future<void> regenerateMessage(
         modelLower.contains('reasoning') ||
         modelLower.contains('think');
 
-    final activeStream = attachUnifiedChunkedStreaming(
-      stream: stream,
-      webSearchEnabled: webSearchEnabled,
+    final bool isBackgroundFlow =
+        isBackgroundToolsFlowPre ||
+        isBackgroundWebSearchPre ||
+        imageGenerationEnabled ||
+        bgTasks.isNotEmpty;
+
+    final registerDeltaListener = createConversationDeltaRegistrar(ref);
+
+    await dispatchChatTransport(
+      ref: ref,
+      session: session,
       assistantMessageId: assistantMessageId,
       modelId: selectedModel.id,
       modelItem: modelItem,
-      sessionId: effectiveSessionId,
       activeConversationId: activeConversation.id,
       api: api!,
       socketService: socketService,
       workerManager: ref.read(workerManagerProvider),
-      registerDeltaListener: registerDeltaListener,
-      appendToLastMessage: (c) =>
-          ref.read(chatMessagesProvider.notifier).appendToLastMessage(c),
-      replaceLastMessageContent: (c) =>
-          ref.read(chatMessagesProvider.notifier).replaceLastMessageContent(c),
-      updateLastMessageWith: (updater) => ref
-          .read(chatMessagesProvider.notifier)
-          .updateLastMessageWithFunction(updater),
-      appendStatusUpdate: (messageId, update) => ref
-          .read(chatMessagesProvider.notifier)
-          .appendStatusUpdate(messageId, update),
-      setFollowUps: (messageId, followUps) => ref
-          .read(chatMessagesProvider.notifier)
-          .setFollowUps(messageId, followUps),
-      upsertCodeExecution: (messageId, execution) => ref
-          .read(chatMessagesProvider.notifier)
-          .upsertCodeExecution(messageId, execution),
-      appendSourceReference: (messageId, reference) => ref
-          .read(chatMessagesProvider.notifier)
-          .appendSourceReference(messageId, reference),
-      updateMessageById: (messageId, updater) => ref
-          .read(chatMessagesProvider.notifier)
-          .updateMessageById(messageId, updater),
+      webSearchEnabled: webSearchEnabled,
+      imageGenerationEnabled: imageGenerationEnabled,
+      isBackgroundFlow: isBackgroundFlow,
       modelUsesReasoning: modelUsesReasoning,
       toolsEnabled:
           selectedToolIds.isNotEmpty ||
           (toolServers != null && toolServers.isNotEmpty) ||
           imageGenerationEnabled,
-      onChatTitleUpdated: (newTitle) {
-        final active = ref.read(activeConversationProvider);
-        if (active == null || isTemporaryChat(active.id)) return;
-        ref
-            .read(activeConversationProvider.notifier)
-            .set(active.copyWith(title: newTitle));
-        ref
-            .read(conversationsProvider.notifier)
-            .updateConversation(
-              active.id,
-              (conversation) => conversation.copyWith(
-                title: newTitle,
-                updatedAt: DateTime.now(),
-              ),
-            );
-        refreshConversationsCache(ref);
-      },
-      onChatTagsUpdated: () {
-        final active = ref.read(activeConversationProvider);
-        if (active == null || isTemporaryChat(active.id)) return;
-        refreshConversationsCache(ref);
-        final api = ref.read(apiServiceProvider);
-        if (api != null) {
-          Future.microtask(() async {
-            try {
-              final refreshed = await api.getConversation(active.id);
-              ref.read(activeConversationProvider.notifier).set(refreshed);
-              ref
-                  .read(conversationsProvider.notifier)
-                  .upsertConversation(refreshed.copyWith(messages: const []));
-            } catch (_) {}
-          });
-        }
-      },
-      finishStreaming: () =>
-          ref.read(chatMessagesProvider.notifier).finishStreaming(),
-      getMessages: () => ref.read(chatMessagesProvider),
-      flushStreamingBuffer: () => ref
-          .read(chatMessagesProvider.notifier)
-          .syncStreamingBuffer(),
+      isTemporary: isTemporary,
+      registerDeltaListener: registerDeltaListener,
     );
-    ref.read(chatMessagesProvider.notifier)
-      ..setMessageStream(activeStream.controller)
-      ..setSocketSubscriptions(
-        activeStream.socketSubscriptions,
-        onDispose: activeStream.disposeWatchdog,
-      );
     return;
   } catch (e) {
     rethrow;
@@ -1992,8 +1865,7 @@ Future<void> _sendMessageInternal(
 
     if (isTemporary) {
       // Temporary chat: use local ID, skip server creation entirely
-      final socketId =
-          ref.read(socketServiceProvider)?.sessionId ?? 'unknown';
+      final socketId = ref.read(socketServiceProvider)?.sessionId ?? 'unknown';
       final localConversation = Conversation(
         id: 'local:${socketId}_${const Uuid().v4()}',
         title: 'New Chat',
@@ -2051,7 +1923,9 @@ Future<void> _sendMessageInternal(
             messages: currentMessages,
             folderId: serverConversation.folderId ?? pendingFolderId,
           );
-          ref.read(activeConversationProvider.notifier).set(updatedConversation);
+          ref
+              .read(activeConversationProvider.notifier)
+              .set(updatedConversation);
           activeConversation = updatedConversation;
 
           ref
@@ -2219,8 +2093,7 @@ Future<void> _sendMessageInternal(
     // Sync conversation state to ensure WebUI can load conversation history
     try {
       final activeConvForSeed = ref.read(activeConversationProvider);
-      if (activeConvForSeed != null &&
-          !isTemporaryChat(activeConvForSeed.id)) {
+      if (activeConvForSeed != null && !isTemporaryChat(activeConvForSeed.id)) {
         final msgsForSeed = ref.read(chatMessagesProvider);
         await api.syncConversationMessages(
           activeConvForSeed.id,
@@ -2331,47 +2204,9 @@ Future<void> _sendMessageInternal(
       'info': selectedModel.metadata?['info'],
     };
 
-    // WebSocket-only streaming requires socket connection.
-    // Wait for connection with timeout before proceeding.
+    // Socket is optional — only needed for taskSocket transport.
     final socketService = ref.read(socketServiceProvider);
-    if (socketService == null) {
-      // No socket service available at all
-      ref.read(chatMessagesProvider.notifier).updateLastMessageWithFunction((
-        m,
-      ) {
-        return m.copyWith(
-          content: 'Connection not available. Please try again later.',
-          isStreaming: false,
-        );
-      });
-      return;
-    }
-
-    // Ensure socket is connected (with 10s timeout for initial connection)
-    if (!socketService.isConnected) {
-      final connected = await socketService.ensureConnected(
-        timeout: const Duration(seconds: 10),
-      );
-      if (!connected) {
-        // Socket connection failed - cannot stream without it
-        ref.read(chatMessagesProvider.notifier).updateLastMessageWithFunction((
-          m,
-        ) {
-          return m.copyWith(
-            content:
-                'Unable to connect to server. Please check your connection and try again.',
-            isStreaming: false,
-          );
-        });
-        return;
-      }
-    }
-
-    // Socket is now connected - resolve session for background tasks parity
-    final socketSessionId = socketService.sessionId;
-    final bool wantSessionBinding =
-        socketService.isConnected &&
-        (socketSessionId != null && socketSessionId.isNotEmpty);
+    final socketSessionId = socketService?.sessionId;
 
     // Resolve tool servers from user settings (if any)
     List<Map<String, dynamic>>? toolServers;
@@ -2408,9 +2243,8 @@ Future<void> _sendMessageInternal(
       if (shouldGenerateTitle) 'title_generation': true,
       if (shouldGenerateTitle) 'tags_generation': true,
       'follow_up_generation': true,
-      if (webSearchEnabled) 'web_search': true, // enable bg web search
-      if (imageGenerationEnabled)
-        'image_generation': true, // enable bg image flow
+      if (webSearchEnabled) 'web_search': true,
+      if (imageGenerationEnabled) 'image_generation': true,
     };
 
     // Determine if we need background task flow (tools/tool servers or web search)
@@ -2428,57 +2262,23 @@ Future<void> _sendMessageInternal(
       }
     }
 
-    final bool shouldBindSession =
-        wantSessionBinding &&
-        (isBackgroundToolsFlowPre ||
-            isBackgroundWebSearchPre ||
-            imageGenerationEnabled ||
-            bgTasks.isNotEmpty);
-
-    final response = await api.sendMessage(
+    // Use transport-aware session dispatch
+    final session = await api.sendMessageSession(
       messages: conversationMessages,
       model: selectedModel.id,
       conversationId: activeConversation?.id,
       toolIds: toolIdsForApi,
       filterIds: filterIdsForApi,
       enableWebSearch: webSearchEnabled,
-      // Enable image generation on the server when requested
       enableImageGeneration: imageGenerationEnabled,
       modelItem: modelItem,
-      // Bind to Socket session whenever available so the server can push
-      // streaming updates to this client (improves first-turn streaming).
-      sessionIdOverride: shouldBindSession ? socketSessionId : null,
-      socketSessionId: socketSessionId,
+      sessionIdOverride: socketSessionId,
       toolServers: toolServers,
       backgroundTasks: bgTasks,
       responseMessageId: assistantMessageId,
       userSettings: userSettingsData,
       parentMessageId: lastUserMessageId,
     );
-
-    final stream = response.stream;
-    final sessionId = response.sessionId;
-    final effectiveSessionId =
-        response.socketSessionId ?? socketSessionId ?? sessionId;
-
-    // Use unified streaming helper for WebSocket handling
-    final bool isBackgroundFlow = response.isBackgroundFlow;
-
-    try {
-      ref.read(chatMessagesProvider.notifier).updateLastMessageWithFunction((
-        m,
-      ) {
-        final mergedMeta = {
-          if (m.metadata != null) ...m.metadata!,
-          'backgroundFlow': isBackgroundFlow,
-          if (isBackgroundWebSearchPre) 'webSearchFlow': true,
-          if (imageGenerationEnabled) 'imageGenerationFlow': true,
-        };
-        return m.copyWith(metadata: mergedMeta);
-      });
-    } catch (_) {}
-
-    final registerDeltaListener = createConversationDeltaRegistrar(ref);
 
     // Check if model uses reasoning based on common naming patterns
     final modelLower2 = selectedModel.id.toLowerCase();
@@ -2489,93 +2289,35 @@ Future<void> _sendMessageInternal(
         modelLower2.contains('reasoning') ||
         modelLower2.contains('think');
 
-    final activeStream = attachUnifiedChunkedStreaming(
-      stream: stream,
-      webSearchEnabled: webSearchEnabled,
+    final bool isBackgroundFlow =
+        isBackgroundToolsFlowPre ||
+        isBackgroundWebSearchPre ||
+        imageGenerationEnabled ||
+        bgTasks.isNotEmpty;
+
+    final registerDeltaListener = createConversationDeltaRegistrar(ref);
+
+    await dispatchChatTransport(
+      ref: ref,
+      session: session,
       assistantMessageId: assistantMessageId,
       modelId: selectedModel.id,
       modelItem: modelItem,
-      sessionId: effectiveSessionId,
       activeConversationId: activeConversation?.id,
-      api: api!,
+      api: api,
       socketService: socketService,
       workerManager: ref.read(workerManagerProvider),
-      registerDeltaListener: registerDeltaListener,
-      appendToLastMessage: (c) =>
-          ref.read(chatMessagesProvider.notifier).appendToLastMessage(c),
-      replaceLastMessageContent: (c) =>
-          ref.read(chatMessagesProvider.notifier).replaceLastMessageContent(c),
-      updateLastMessageWith: (updater) => ref
-          .read(chatMessagesProvider.notifier)
-          .updateLastMessageWithFunction(updater),
-      appendStatusUpdate: (messageId, update) => ref
-          .read(chatMessagesProvider.notifier)
-          .appendStatusUpdate(messageId, update),
-      setFollowUps: (messageId, followUps) => ref
-          .read(chatMessagesProvider.notifier)
-          .setFollowUps(messageId, followUps),
-      upsertCodeExecution: (messageId, execution) => ref
-          .read(chatMessagesProvider.notifier)
-          .upsertCodeExecution(messageId, execution),
-      appendSourceReference: (messageId, reference) => ref
-          .read(chatMessagesProvider.notifier)
-          .appendSourceReference(messageId, reference),
-      updateMessageById: (messageId, updater) => ref
-          .read(chatMessagesProvider.notifier)
-          .updateMessageById(messageId, updater),
+      webSearchEnabled: webSearchEnabled,
+      imageGenerationEnabled: imageGenerationEnabled,
+      isBackgroundFlow: isBackgroundFlow,
       modelUsesReasoning: modelUsesReasoning2,
       toolsEnabled:
           (toolIdsForApi != null && toolIdsForApi.isNotEmpty) ||
           (toolServers != null && toolServers.isNotEmpty) ||
           imageGenerationEnabled,
-      onChatTitleUpdated: (newTitle) {
-        final active = ref.read(activeConversationProvider);
-        if (active == null || isTemporaryChat(active.id)) return;
-        ref
-            .read(activeConversationProvider.notifier)
-            .set(active.copyWith(title: newTitle));
-        ref
-            .read(conversationsProvider.notifier)
-            .updateConversation(
-              active.id,
-              (conversation) => conversation.copyWith(
-                title: newTitle,
-                updatedAt: DateTime.now(),
-              ),
-            );
-        refreshConversationsCache(ref);
-      },
-      onChatTagsUpdated: () {
-        final active = ref.read(activeConversationProvider);
-        if (active == null || isTemporaryChat(active.id)) return;
-        refreshConversationsCache(ref);
-        final api = ref.read(apiServiceProvider);
-        if (api != null) {
-          Future.microtask(() async {
-            try {
-              final refreshed = await api.getConversation(active.id);
-              ref.read(activeConversationProvider.notifier).set(refreshed);
-              ref
-                  .read(conversationsProvider.notifier)
-                  .upsertConversation(refreshed.copyWith(messages: const []));
-            } catch (_) {}
-          });
-        }
-      },
-      finishStreaming: () =>
-          ref.read(chatMessagesProvider.notifier).finishStreaming(),
-      getMessages: () => ref.read(chatMessagesProvider),
-      flushStreamingBuffer: () => ref
-          .read(chatMessagesProvider.notifier)
-          .syncStreamingBuffer(),
+      isTemporary: isTemporary,
+      registerDeltaListener: registerDeltaListener,
     );
-
-    ref.read(chatMessagesProvider.notifier)
-      ..setMessageStream(activeStream.controller)
-      ..setSocketSubscriptions(
-        activeStream.socketSubscriptions,
-        onDispose: activeStream.disposeWatchdog,
-      );
 
     // Clear context attachments after successfully initiating the message send.
     // This prevents stale attachments from being included in subsequent messages.
@@ -2943,18 +2685,20 @@ final stopGenerationProvider = Provider<void Function()>((ref) {
       if (messages.isNotEmpty &&
           messages.last.role == 'assistant' &&
           messages.last.isStreaming) {
-        final lastId = messages.last.id;
-
-        // Cancel the network stream if active
         final api = ref.read(apiServiceProvider);
-        api?.cancelStreamingMessage(lastId);
+
+        // Use transport-aware stop which inspects message metadata to
+        // choose the right cancellation path (abort handle, task stop, or
+        // both).
+        stopActiveTransport(messages.last, api);
 
         // Cancel local stream subscription to stop propagating further chunks
         ref.read(chatMessagesProvider.notifier).cancelActiveMessageStream();
       }
     } catch (_) {}
 
-    // Best-effort: stop any background tasks associated with this chat (parity with web)
+    // Best-effort: stop any background tasks associated with this chat
+    // (parity with web) — covers tasks not tracked via message metadata.
     try {
       final api = ref.read(apiServiceProvider);
       final activeConv = ref.read(activeConversationProvider);
