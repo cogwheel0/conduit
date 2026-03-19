@@ -82,7 +82,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
         .createNote(title: defaultTitle);
 
     if (note != null && mounted) {
-      context.pushNamed(RouteNames.noteEditor, pathParameters: {'id': note.id});
+      context.goNamed(RouteNames.noteEditor, pathParameters: {'id': note.id});
     }
   }
 
@@ -402,7 +402,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
               overlayColor: WidgetStateProperty.resolveWith(overlayForStates),
               onTap: () {
                 HapticFeedback.selectionClick();
-                context.pushNamed(
+                context.goNamed(
                   RouteNames.noteEditor,
                   pathParameters: {'id': note.id},
                 );

@@ -40,7 +40,7 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
   Future<void> _onNoteTap(Note note) async {
     ResponsiveDrawerLayout.of(context)?.close();
     if (mounted) {
-      context.pushNamed(
+      context.goNamed(
         RouteNames.noteEditor,
         pathParameters: {'id': note.id},
       );
@@ -56,7 +56,7 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
         .createNote(title: defaultTitle);
     if (note != null && mounted) {
       ResponsiveDrawerLayout.of(context)?.close();
-      context.pushNamed(
+      context.goNamed(
         RouteNames.noteEditor,
         pathParameters: {'id': note.id},
       );

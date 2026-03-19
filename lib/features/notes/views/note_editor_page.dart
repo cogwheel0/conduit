@@ -279,7 +279,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
           .read(noteDeleterProvider.notifier)
           .deleteNote(widget.noteId);
       if (success && mounted) {
-        Navigator.of(context).pop();
+        context.go('/chat');
       }
     }
   }
@@ -746,36 +746,23 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
           child: SidebarPage(),
         ),
       ),
-      child: PopScope(
-        // Only allow immediate pop when there are no unsaved changes.
-        // When there are changes, we intercept, save first, then pop
-        // manually.
-        canPop: !_hasChanges,
-        onPopInvokedWithResult: (didPop, result) async {
-          if (didPop) return;
-          final navigator = Navigator.of(context);
-          await _saveNote(showFeedback: false);
-          if (!mounted) return;
-          navigator.pop();
-        },
-        child: ErrorBoundary(
-          child: Scaffold(
-            backgroundColor: context.conduitTheme.surfaceBackground,
-            extendBodyBehindAppBar: true,
-            appBar: _buildAppBar(context),
-            body: Stack(
-              children: [
-                Positioned.fill(child: _buildMainContent(context)),
-                if (!_isLoading && _note != null)
-                  Positioned(
-                    left: Spacing.md,
-                    right: Spacing.md,
-                    bottom: Spacing.md +
-                        MediaQuery.of(context).padding.bottom,
-                    child: _buildFloatingActionsRow(context),
-                  ),
-              ],
-            ),
+      child: ErrorBoundary(
+        child: Scaffold(
+          backgroundColor: context.conduitTheme.surfaceBackground,
+          extendBodyBehindAppBar: true,
+          appBar: _buildAppBar(context),
+          body: Stack(
+            children: [
+              Positioned.fill(child: _buildMainContent(context)),
+              if (!_isLoading && _note != null)
+                Positioned(
+                  left: Spacing.md,
+                  right: Spacing.md,
+                  bottom: Spacing.md +
+                      MediaQuery.of(context).padding.bottom,
+                  child: _buildFloatingActionsRow(context),
+                ),
+            ],
           ),
         ),
       ),
