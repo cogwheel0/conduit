@@ -1379,9 +1379,10 @@ class _MessageBubble extends StatelessWidget {
                           child: TextField(
                             controller: editController,
                             autofocus: true,
-                            style: TextStyle(
+                            style: AppTypography
+                                .chatMessageStyle
+                                .copyWith(
                               color: theme.textPrimary,
-                              fontSize: 14,
                             ),
                             decoration: InputDecoration(
                               isDense: true,
@@ -1422,10 +1423,10 @@ class _MessageBubble extends StatelessWidget {
                     RichText(
                       text: buildMentionSpan(
                         content: message.content,
-                        baseStyle: TextStyle(
+                        baseStyle:
+                            AppTypography.chatMessageStyle
+                                .copyWith(
                           color: theme.textPrimary,
-                          fontSize: 14,
-                          height: 1.4,
                         ),
                         mentionColor:
                             Theme.of(context)
@@ -1520,9 +1521,10 @@ class _MessageBubble extends StatelessWidget {
           child: Text(
             messageDisplayName(message),
             style: TextStyle(
-              color: theme.textPrimary,
-              fontWeight: FontWeight.w600,
-              fontSize: 13,
+              color: theme.textSecondary,
+              fontWeight: FontWeight.w500,
+              fontSize: AppTypography.bodySmall,
+              letterSpacing: 0.1,
             ),
             overflow: TextOverflow.ellipsis,
           ),
@@ -1532,7 +1534,7 @@ class _MessageBubble extends StatelessWidget {
           timestamp,
           style: TextStyle(
             color: theme.textSecondary,
-            fontSize: 11,
+            fontSize: AppTypography.labelSmall,
           ),
         ),
       ],

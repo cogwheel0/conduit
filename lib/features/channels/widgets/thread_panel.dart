@@ -209,18 +209,21 @@ class _ParentMessageTile extends StatelessWidget {
                 Text(
                   messageDisplayName(message),
                   style: TextStyle(
-                    color: theme.textPrimary,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 13,
+                    color: theme.textSecondary,
+                    fontWeight: FontWeight.w500,
+                    fontSize:
+                        AppTypography.bodySmall,
+                    letterSpacing: 0.1,
                   ),
                 ),
                 const SizedBox(height: Spacing.xxs),
                 RichText(
                   text: buildMentionSpan(
                     content: message.content,
-                    baseStyle: TextStyle(
+                    baseStyle: AppTypography
+                        .chatMessageStyle
+                        .copyWith(
                       color: theme.textPrimary,
-                      fontSize: 14,
                     ),
                     mentionColor:
                         Theme.of(context)
@@ -343,18 +346,21 @@ class _ThreadReplies extends StatelessWidget {
                     Text(
                       messageDisplayName(message),
                       style: TextStyle(
-                        color: theme.textPrimary,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 12,
+                        color: theme.textSecondary,
+                        fontWeight: FontWeight.w500,
+                        fontSize:
+                            AppTypography.bodySmall,
+                        letterSpacing: 0.1,
                       ),
                     ),
                     const SizedBox(height: 2),
                     RichText(
                       text: buildMentionSpan(
                         content: message.content,
-                        baseStyle: TextStyle(
+                        baseStyle: AppTypography
+                            .chatMessageStyle
+                            .copyWith(
                           color: theme.textPrimary,
-                          fontSize: 13,
                         ),
                         mentionColor:
                             Theme.of(context)
