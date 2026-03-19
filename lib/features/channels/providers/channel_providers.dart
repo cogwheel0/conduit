@@ -156,6 +156,70 @@ class ChannelTypingUsers extends _$ChannelTypingUsers {
   void clear() => state = {};
 }
 
+/// Fetches thread replies for a parent message.
+@riverpod
+class ThreadMessages extends _$ThreadMessages {
+  static const int _pageSize = 50;
+  bool _hasMore = true;
+
+  @override
+  Future<List<ChannelMessage>> build(
+    String channelId,
+    String parentMessageId,
+  ) async {
+    _hasMore = true;
+    final api = ref.watch(apiServiceProvider);
+    if (api == null) return [];
+    final raw = await api.getMessageThread(
+      channelId,
+      parentMessageId,
+      limit: _pageSize,
+    );
+    final messages = raw
+        .map(
+          (json) => ChannelMessage.fromJson(json),
+        )
+        .toList();
+    if (messages.length < _pageSize) {
+      _hasMore = false;
+    }
+    return messages;
+  }
+
+  /// Whether more thread replies are available.
+  bool get hasMore => _hasMore;
+
+  /// Loads older thread replies.
+  Future<void> loadMore() async {
+    if (!_hasMore) return;
+    final current = state.value ?? [];
+    if (current.isEmpty) return;
+    final api = ref.read(apiServiceProvider);
+    if (api == null) return;
+    final raw = await api.getMessageThread(
+      channelId,
+      parentMessageId,
+      skip: current.length,
+      limit: _pageSize,
+    );
+    final older = raw
+        .map(
+          (json) => ChannelMessage.fromJson(json),
+        )
+        .toList();
+    if (older.length < _pageSize) _hasMore = false;
+    if (!ref.mounted) return;
+    state = AsyncValue.data([...current, ...older]);
+  }
+
+  /// Prepends a new reply to the thread.
+  void prependMessage(ChannelMessage message) {
+    final current = state.value ?? [];
+    if (current.any((m) => m.id == message.id)) return;
+    state = AsyncValue.data([message, ...current]);
+  }
+}
+
 /// Fetches member list for a channel (first page).
 @riverpod
 Future<Map<String, dynamic>> channelMembers(

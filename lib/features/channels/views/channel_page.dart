@@ -23,6 +23,7 @@ import '../../chat/widgets/modern_chat_input.dart';
 import '../../navigation/widgets/sidebar_page.dart';
 import '../providers/channel_providers.dart';
 import '../providers/channel_socket_handler.dart';
+import '../widgets/thread_panel.dart';
 
 /// Full-screen view for a single channel with messaging,
 /// reactions, and channel management actions.
@@ -47,6 +48,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       TextEditingController();
   Timer? _typingTimer;
   ChannelMessage? _replyToMessage;
+  ChannelMessage? _threadParent;
 
   void _setReplyTo(ChannelMessage message) {
     setState(() => _replyToMessage = message);
@@ -54,6 +56,30 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
 
   void _clearReplyTo() {
     setState(() => _replyToMessage = null);
+  }
+
+  void _openThread(ChannelMessage message) {
+    final isTablet =
+        MediaQuery.of(context).size.shortestSide >=
+            600;
+    if (isTablet) {
+      setState(() => _threadParent = message);
+    } else {
+      showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        builder: (ctx) => SizedBox(
+          height: MediaQuery.of(ctx).size.height *
+              0.85,
+          child: ThreadPanel(
+            channelId: widget.channelId,
+            parentMessage: message,
+            onClose: () => Navigator.pop(ctx),
+          ),
+        ),
+      );
+    }
   }
 
   @override
@@ -464,6 +490,22 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
                 _setReplyTo(message);
               },
             ),
+            if (message.parentId == null)
+              ListTile(
+                leading: const Icon(
+                  Icons.forum_outlined,
+                ),
+                title: Text(
+                  'Thread'
+                  '${message.replyCount > 0
+                      ? " (${message.replyCount})"
+                      : ""}',
+                ),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _openThread(message);
+                },
+              ),
             ListTile(
               leading: const Icon(
                 Icons.push_pin_outlined,
@@ -788,103 +830,134 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
           ),
         ],
       ),
-      body: Column(
+      body: Row(
         children: [
           Expanded(
-            child: messagesAsync.when(
-              data: (messages) => _buildMessageList(
-                messages,
-                theme,
-                l10n,
-              ),
-              loading: () => const Center(
-                child: CircularProgressIndicator(),
-              ),
-              error: (error, _) => Center(
-                child: Text(
-                  error.toString(),
-                  style: TextStyle(color: theme.error),
-                ),
-              ),
-            ),
-          ),
-          Consumer(
-            builder: (context, ref, _) {
-              final typingUsers =
-                  ref.watch(channelTypingUsersProvider);
-              if (typingUsers.isEmpty) {
-                return const SizedBox.shrink();
-              }
-              final names =
-                  typingUsers.values.toList();
-              final text = names.length == 1
-                  ? '${names.first} is typing...'
-                  : '${names.join(", ")} '
-                      'are typing...';
-              return Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: Spacing.md,
-                  vertical: Spacing.xxs,
-                ),
-                child: Text(
-                  text,
-                  style: TextStyle(
-                    color: theme.textSecondary,
-                    fontSize: 12,
-                    fontStyle: FontStyle.italic,
-                  ),
-                ),
-              );
-            },
-          ),
-          if (_replyToMessage != null)
-            Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: Spacing.md,
-                vertical: Spacing.sm,
-              ),
-              color: theme.surfaceContainer,
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.reply,
-                    size: 16,
-                    color: theme.textSecondary,
-                  ),
-                  const SizedBox(width: Spacing.sm),
-                  Expanded(
-                    child: Text(
-                      'Replying to '
-                      '${_replyToMessage!.userName}',
-                      style: TextStyle(
-                        color: theme.textSecondary,
-                        fontSize: 13,
+            child: Column(
+              children: [
+                Expanded(
+                  child: messagesAsync.when(
+                    data: (messages) =>
+                        _buildMessageList(
+                      messages,
+                      theme,
+                      l10n,
+                    ),
+                    loading: () => const Center(
+                      child:
+                          CircularProgressIndicator(),
+                    ),
+                    error: (error, _) => Center(
+                      child: Text(
+                        error.toString(),
+                        style: TextStyle(
+                          color: theme.error,
+                        ),
                       ),
-                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  IconButton(
-                    icon: Icon(
-                      Icons.close,
-                      size: 16,
-                      color: theme.textSecondary,
+                ),
+                Consumer(
+                  builder: (context, ref, _) {
+                    final typingUsers = ref.watch(
+                      channelTypingUsersProvider,
+                    );
+                    if (typingUsers.isEmpty) {
+                      return const SizedBox.shrink();
+                    }
+                    final names =
+                        typingUsers.values.toList();
+                    final text = names.length == 1
+                        ? '${names.first} '
+                            'is typing...'
+                        : '${names.join(", ")} '
+                            'are typing...';
+                    return Padding(
+                      padding:
+                          const EdgeInsets.symmetric(
+                        horizontal: Spacing.md,
+                        vertical: Spacing.xxs,
+                      ),
+                      child: Text(
+                        text,
+                        style: TextStyle(
+                          color: theme.textSecondary,
+                          fontSize: 12,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                if (_replyToMessage != null)
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(
+                      horizontal: Spacing.md,
+                      vertical: Spacing.sm,
                     ),
-                    onPressed: _clearReplyTo,
-                    padding: EdgeInsets.zero,
-                    constraints:
-                        const BoxConstraints(),
+                    color: theme.surfaceContainer,
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.reply,
+                          size: 16,
+                          color: theme.textSecondary,
+                        ),
+                        const SizedBox(
+                          width: Spacing.sm,
+                        ),
+                        Expanded(
+                          child: Text(
+                            'Replying to '
+                            '${_replyToMessage!
+                                .userName}',
+                            style: TextStyle(
+                              color:
+                                  theme.textSecondary,
+                              fontSize: 13,
+                            ),
+                            overflow:
+                                TextOverflow.ellipsis,
+                          ),
+                        ),
+                        IconButton(
+                          icon: Icon(
+                            Icons.close,
+                            size: 16,
+                            color:
+                                theme.textSecondary,
+                          ),
+                          onPressed: _clearReplyTo,
+                          padding: EdgeInsets.zero,
+                          constraints:
+                              const BoxConstraints(),
+                        ),
+                      ],
+                    ),
                   ),
-                ],
-              ),
-            ),
-          RepaintBoundary(
-            child: ModernChatInput(
-              onSendMessage: _sendMessage,
-              placeholder: 'Type here...',
-              overflowButtonBuilder:
-                  _buildAttachmentButton,
+                RepaintBoundary(
+                  child: ModernChatInput(
+                    onSendMessage: _sendMessage,
+                    placeholder: 'Type here...',
+                    overflowButtonBuilder:
+                        _buildAttachmentButton,
+                  ),
+                ),
+              ],
             ),
           ),
+          if (_threadParent != null)
+            SizedBox(
+              width: 320,
+              child: ThreadPanel(
+                channelId: widget.channelId,
+                parentMessage: _threadParent!,
+                onClose: () => setState(
+                  () => _threadParent = null,
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -942,6 +1015,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
               _showMessageActions(message),
           onReactionTap: (emoji) =>
               _toggleReaction(message, emoji),
+          onThreadTap: message.parentId == null
+              ? () => _openThread(message)
+              : null,
         );
       },
     );
@@ -1016,6 +1092,7 @@ class _MessageBubble extends StatelessWidget {
     this.onCancelEdit,
     required this.onLongPress,
     required this.onReactionTap,
+    this.onThreadTap,
   });
 
   final ChannelMessage message;
@@ -1026,6 +1103,7 @@ class _MessageBubble extends StatelessWidget {
   final VoidCallback? onCancelEdit;
   final VoidCallback onLongPress;
   final ValueChanged<String> onReactionTap;
+  final VoidCallback? onThreadTap;
 
   @override
   Widget build(BuildContext context) {
@@ -1204,6 +1282,30 @@ class _MessageBubble extends StatelessWidget {
                         color: theme.textPrimary,
                         fontSize: 14,
                         height: 1.4,
+                      ),
+                    ),
+                  if (message.replyCount > 0 &&
+                      onThreadTap != null)
+                    Padding(
+                      padding: const EdgeInsets.only(
+                        top: Spacing.xxs,
+                      ),
+                      child: GestureDetector(
+                        onTap: onThreadTap,
+                        child: Text(
+                          '${message.replyCount} '
+                          '${message.replyCount == 1
+                              ? "reply"
+                              : "replies"}',
+                          style: TextStyle(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .primary,
+                            fontSize: 12,
+                            fontWeight:
+                                FontWeight.w500,
+                          ),
+                        ),
                       ),
                     ),
                   if (message.reactions.isNotEmpty)
