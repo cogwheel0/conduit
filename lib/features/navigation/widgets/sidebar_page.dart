@@ -3,9 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/providers/app_providers.dart';
-import '../../../shared/utils/ui_utils.dart';
-import '../../../shared/widgets/conduit_components.dart';
-import '../../../shared/widgets/responsive_drawer_layout.dart';
+import '../../../shared/theme/theme_extensions.dart';
 import '../providers/sidebar_providers.dart';
 import '../../channels/widgets/channel_list_tab.dart';
 import '../../notes/widgets/notes_list_tab.dart';
@@ -81,7 +79,6 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final notesEnabled = ref.watch(notesFeatureEnabledProvider);
     _rebuildTabController(notesEnabled);
 
@@ -98,34 +95,23 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
       const ChannelListTab(),
     ];
 
+    final conduitTheme = context.conduitTheme;
+
     return Column(
       children: [
-        // Header: close button + tab bar
-        Padding(
-          padding: const EdgeInsets.only(top: 8),
-          child: Row(
-            children: [
-              Padding(
-                padding: const EdgeInsets.only(left: 8),
-                child: FloatingAppBarIconButton(
-                  icon: UiUtils.closeIcon,
-                  onTap: () =>
-                      ResponsiveDrawerLayout.of(context)?.close(),
-                ),
-              ),
-              Expanded(
-                child: TabBar(
-                  controller: _tabController,
-                  tabs: tabs,
-                  labelColor: theme.colorScheme.primary,
-                  unselectedLabelColor:
-                      theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                  indicatorColor: theme.colorScheme.primary,
-                ),
-              ),
-              const SizedBox(width: 52), // Balance the close button
-            ],
+        // Tab bar
+        TabBar(
+          controller: _tabController,
+          tabs: tabs,
+          labelColor: conduitTheme.textPrimary,
+          unselectedLabelColor: conduitTheme.textSecondary,
+          labelStyle: AppTypography.bodySmallStyle.copyWith(
+            fontWeight: FontWeight.w600,
           ),
+          unselectedLabelStyle: AppTypography.bodySmallStyle,
+          indicatorColor: conduitTheme.textPrimary,
+          indicatorWeight: BorderWidth.thick,
+          dividerHeight: 0,
         ),
         // Tab bodies
         Expanded(

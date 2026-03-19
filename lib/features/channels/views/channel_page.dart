@@ -493,7 +493,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         : context.colorTokens.scrimStrong;
 
     return ResponsiveDrawerLayout(
-      maxFraction: isTablet ? 0.42 : 0.84,
+      maxFraction: isTablet ? 0.42 : 1.0,
       edgeFraction: isTablet ? 0.36 : 0.50,
       settleFraction: 0.06,
       scrimColor: scrim,
