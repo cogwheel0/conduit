@@ -11,12 +11,14 @@ import '../../core/models/socket_event.dart';
 import '../../core/services/socket_service.dart';
 import '../../core/utils/tool_calls_parser.dart';
 import 'background_streaming_handler.dart';
+import 'chat_completion_transport.dart';
 import 'navigation_service.dart';
 import 'conversation_delta_listener.dart';
 import '../../shared/widgets/themed_dialogs.dart';
 import '../../shared/theme/theme_extensions.dart';
 import '../utils/debug_logger.dart';
 import '../utils/openwebui_source_parser.dart';
+import 'openwebui_stream_parser.dart';
 import 'streaming_response_controller.dart';
 import 'api_service.dart';
 import 'worker_manager.dart';
@@ -114,17 +116,21 @@ List<Map<String, dynamic>> _collectImageReferencesWorker(String content) {
   return collected;
 }
 
-class ActiveSocketStream {
-  ActiveSocketStream({
+class ActiveChatStream {
+  ActiveChatStream({
     required this.controller,
     required this.socketSubscriptions,
     required this.disposeWatchdog,
   });
 
-  final StreamingResponseController controller;
+  final StreamingResponseController? controller;
   final List<VoidCallback> socketSubscriptions;
   final VoidCallback disposeWatchdog;
 }
+
+/// Backwards-compatibility alias.
+@Deprecated('Use ActiveChatStream instead')
+typedef ActiveSocketStream = ActiveChatStream;
 
 /// Helper to handle reconnect recovery asynchronously with proper error handling.
 /// Extracted to avoid async callback in Timer which silently drops the Future.
@@ -180,8 +186,8 @@ Future<void> _handleReconnectRecovery({
 /// This attaches WebSocket event handlers and manages background search/image-gen
 /// UI updates. It operates via callbacks to avoid tight coupling with provider files
 /// for easier reuse and testing.
-ActiveSocketStream attachUnifiedChunkedStreaming({
-  required Stream<String> stream,
+ActiveChatStream attachUnifiedChunkedStreaming({
+  required ChatCompletionSession session,
   required bool webSearchEnabled,
   required String assistantMessageId,
   required String modelId,
@@ -266,29 +272,10 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
     finishStreaming();
   }
 
-  // Controller for forwarding data to StreamingResponseController
-  // With WebSocket-only streaming, the HTTP stream closes immediately after returning task_id.
-  // All actual content comes via WebSocket events, so we don't need persistent stream tracking.
-  final persistentController = StreamController<String>.broadcast();
-
-  // Subscribe to HTTP stream (mainly for error handling - content comes via WebSocket)
-  final httpSubscription = stream.listen(
-    (data) {
-      // Forward any HTTP stream data (rare with WebSocket-only)
-      persistentController.add(data);
-    },
-    onDone: () {
-      DebugLogger.stream(
-        'HTTP stream completed - WebSocket handles content delivery',
-      );
-      // Close the controller to trigger StreamingResponseController.onComplete
-      // WebSocket events continue independently via socket subscriptions
-      if (!persistentController.isClosed) {
-        persistentController.close();
-      }
-    },
-    onError: persistentController.addError,
-  );
+  // For taskSocket transport, we still need a StreamController so the
+  // StreamingResponseController can manage the stream lifecycle.
+  // For httpStream/jsonCompletion, these are unused.
+  StreamSubscription<dynamic>? httpSubscription;
 
   // Socket subscriptions list - starts empty so non-socket flows can finish via onComplete.
   // HTTP subscription is tracked separately and cleaned up in disposeSocketSubscriptions.
@@ -452,9 +439,9 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
   int imageCollectionRequestId = 0;
 
   void disposeSocketSubscriptions() {
-    // Cancel HTTP subscription
+    // Cancel HTTP subscription (if any — only taskSocket path creates one)
     try {
-      httpSubscription.cancel();
+      httpSubscription?.cancel();
     } catch (_) {}
 
     // Cancel socket subscriptions
@@ -1011,31 +998,28 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
                 if (chatId != null &&
                     chatId.isNotEmpty &&
                     !isTemporaryChat(chatId)) {
-                  Future.delayed(
-                    const Duration(seconds: 2),
-                    () async {
-                      if (hasFinished) {
-                        // Already finished via another path
-                        return;
-                      }
-                      try {
-                        final result = await pollServerForMessage();
-                        if (result != null && result.content.isNotEmpty) {
-                          replaceLastMessageContent(result.content);
-                          if (result.followUps.isNotEmpty) {
-                            setFollowUps(assistantMessageId, result.followUps);
-                          }
+                  Future.delayed(const Duration(seconds: 2), () async {
+                    if (hasFinished) {
+                      // Already finished via another path
+                      return;
+                    }
+                    try {
+                      final result = await pollServerForMessage();
+                      if (result != null && result.content.isNotEmpty) {
+                        replaceLastMessageContent(result.content);
+                        if (result.followUps.isNotEmpty) {
+                          setFollowUps(assistantMessageId, result.followUps);
                         }
-                      } catch (e) {
-                        DebugLogger.log(
-                          'Server recovery failed: $e',
-                          scope: 'streaming/helper',
-                        );
-                      } finally {
-                        wrappedFinishStreaming();
                       }
-                    },
-                  );
+                    } catch (e) {
+                      DebugLogger.log(
+                        'Server recovery failed: $e',
+                        scope: 'streaming/helper',
+                      );
+                    } finally {
+                      wrappedFinishStreaming();
+                    }
+                  });
                   return;
                 }
               }
@@ -1521,119 +1505,324 @@ ActiveSocketStream attachUnifiedChunkedStreaming({
     socketSubscriptions.add(channelSub.dispose);
   }
 
-  final controller = StreamingResponseController(
-    stream: persistentController.stream,
-    onChunk: (chunk) {
-      var effectiveChunk = chunk;
-      if (webSearchEnabled && !isSearching) {
-        if (chunk.contains('[SEARCHING]') ||
-            chunk.contains('Searching the web') ||
-            chunk.contains('web search')) {
-          isSearching = true;
-          updateLastMessageWith(
-            (message) => message.copyWith(
-              content: '🔍 Searching the web...',
-              metadata: {'webSearchActive': true},
-            ),
+  // -----------------------------------------------------------------------
+  // Transport dispatch
+  // -----------------------------------------------------------------------
+
+  StreamingResponseController? streamController;
+
+  switch (session.transport) {
+    case ChatCompletionTransport.httpStream:
+      // Parse the SSE byte stream directly via the typed parser.
+      bool receivedDone = false;
+      final sub = parseOpenWebUIStream(session.byteStream!).listen(
+        (update) {
+          try {
+            switch (update) {
+              case OpenWebUIContentDelta(:final content):
+                appendToLastMessage(content);
+                updateImagesFromCurrentContent();
+
+              case OpenWebUIUsageUpdate(:final usage):
+                updateLastMessageWith((m) => m.copyWith(usage: usage));
+
+              case OpenWebUISourcesUpdate(:final sources):
+                final parsed = parseOpenWebUISourceList(sources);
+                for (final source in parsed) {
+                  appendSourceReference(assistantMessageId, source);
+                }
+
+              case OpenWebUISelectedModelUpdate(:final selectedModelId):
+                updateLastMessageWith(
+                  (m) => m.copyWith(
+                    metadata: {
+                      ...?m.metadata,
+                      'selectedModelId': selectedModelId,
+                    },
+                  ),
+                );
+
+              case OpenWebUIErrorUpdate(:final error):
+                updateLastMessageWith(
+                  (m) => m.copyWith(
+                    error: ChatMessageError(
+                      content: error['message']?.toString(),
+                    ),
+                  ),
+                );
+
+              case OpenWebUIStreamDone():
+                receivedDone = true;
+                wrappedFinishStreaming();
+            }
+          } catch (e) {
+            DebugLogger.error(
+              'httpStream update handler error',
+              scope: 'streaming/helper',
+              error: e,
+            );
+          }
+        },
+        onError: (Object error, StackTrace stackTrace) {
+          DebugLogger.error(
+            'httpStream parse error',
+            scope: 'streaming/helper',
+            error: error,
           );
-          return; // Don't append this chunk
-        }
-      }
+          wrappedFinishStreaming();
+        },
+        onDone: () {
+          // Stream ended. If we already received [DONE], nothing to do.
+          if (receivedDone || hasFinished) return;
 
-      if (isSearching &&
-          (chunk.contains('[/SEARCHING]') ||
-              chunk.contains('Search complete'))) {
-        isSearching = false;
-        updateLastMessageWith(
-          (message) => message.copyWith(metadata: {'webSearchActive': false}),
-        );
-        effectiveChunk = effectiveChunk
-            .replaceAll('[SEARCHING]', '')
-            .replaceAll('[/SEARCHING]', '');
-      }
+          DebugLogger.log(
+            'httpStream ended without [DONE] - attempting recovery',
+            scope: 'streaming/helper',
+          );
 
-      if (effectiveChunk.trim().isNotEmpty) {
-        appendToLastMessage(effectiveChunk);
-        updateImagesFromCurrentContent();
-      }
-    },
-    onComplete: () {
-      // HTTP stream completed.
-      // With WebSocket-based streaming, HTTP closes immediately after returning task_id.
-      // All actual content comes via WebSocket events, so we should NOT finish streaming
-      // here if socket subscriptions are active - the socket done:true event will finish it.
-      DebugLogger.log(
-        'HTTP stream complete '
-        '(socketSubs=${socketSubscriptions.length}, socketConnected=${socketService?.isConnected})',
-        scope: 'streaming/helper',
+          // Try to recover from server state.
+          unawaited(
+            (() async {
+              try {
+                final result = await pollServerForMessage();
+                if (hasFinished) return;
+
+                if (result != null) {
+                  final applied = applyServerContent(
+                    result.content,
+                    result.followUps,
+                    finishIfDone: true,
+                    isDone: result.isDone,
+                    source: 'httpStream premature-end recovery',
+                  );
+                  if (applied) {
+                    syncImages();
+                    return; // applyServerContent calls wrappedFinishStreaming
+                  }
+                }
+              } catch (e) {
+                DebugLogger.log(
+                  'httpStream recovery poll failed: $e',
+                  scope: 'streaming/helper',
+                );
+              }
+              // If recovery didn't finish streaming, finish now.
+              wrappedFinishStreaming();
+            })(),
+          );
+        },
       );
+      socketSubscriptions.add(() {
+        sub.cancel();
+      });
 
-      // Only finish streaming if no socket subscriptions are active.
-      // If sockets are active, they will handle the completion via done:true event.
-      if (socketSubscriptions.isEmpty) {
-        DebugLogger.log(
-          'No socket subscriptions - finishing streaming on HTTP complete',
-          scope: 'streaming/helper',
-        );
-        wrappedFinishStreaming();
-        Future.microtask(refreshConversationSnapshot);
+    case ChatCompletionTransport.taskSocket:
+      // For task/socket streaming the HTTP response body is typically empty
+      // or very short (just the task_id JSON). We set up a
+      // StreamController + StreamingResponseController so the existing
+      // onComplete / onChunk / onError wiring is preserved.
+      final pc = StreamController<String>.broadcast();
+
+      // If there's a byteStream from the HTTP response, forward it.
+      if (session.byteStream != null) {
+        httpSubscription = session.byteStream!
+            .transform(utf8.decoder)
+            .listen(
+              (data) => pc.add(data),
+              onDone: () {
+                DebugLogger.stream(
+                  'taskSocket HTTP stream completed '
+                  '- WebSocket handles content delivery',
+                );
+                if (!pc.isClosed) {
+                  pc.close();
+                }
+              },
+              onError: pc.addError,
+            );
       } else {
-        DebugLogger.log(
-          'Socket subscriptions active - waiting for socket done signal',
-          scope: 'streaming/helper',
-        );
+        // No byte stream to forward — close the controller immediately so
+        // the StreamingResponseController treats the HTTP side as complete.
+        Future.microtask(() {
+          if (!pc.isClosed) pc.close();
+        });
       }
-    },
-    onError: (error, stackTrace) async {
-      DebugLogger.error(
-        'Stream error occurred',
-        scope: 'streaming/helper',
-        error: error,
-        data: {
-          'conversationId': activeConversationId,
-          'messageId': assistantMessageId,
-          'modelId': modelId,
+
+      streamController = StreamingResponseController(
+        stream: pc.stream,
+        onChunk: (chunk) {
+          var effectiveChunk = chunk;
+          if (webSearchEnabled && !isSearching) {
+            if (chunk.contains('[SEARCHING]') ||
+                chunk.contains('Searching the web') ||
+                chunk.contains('web search')) {
+              isSearching = true;
+              updateLastMessageWith(
+                (message) => message.copyWith(
+                  content: '🔍 Searching the web...',
+                  metadata: {'webSearchActive': true},
+                ),
+              );
+              return;
+            }
+          }
+
+          if (isSearching &&
+              (chunk.contains('[/SEARCHING]') ||
+                  chunk.contains('Search complete'))) {
+            isSearching = false;
+            updateLastMessageWith(
+              (message) =>
+                  message.copyWith(metadata: {'webSearchActive': false}),
+            );
+            effectiveChunk = effectiveChunk
+                .replaceAll('[SEARCHING]', '')
+                .replaceAll('[/SEARCHING]', '');
+          }
+
+          if (effectiveChunk.trim().isNotEmpty) {
+            appendToLastMessage(effectiveChunk);
+            updateImagesFromCurrentContent();
+          }
+        },
+        onComplete: () {
+          DebugLogger.log(
+            'taskSocket HTTP stream complete '
+            '(socketSubs=${socketSubscriptions.length}, '
+            'socketConnected=${socketService?.isConnected})',
+            scope: 'streaming/helper',
+          );
+
+          if (socketSubscriptions.isEmpty) {
+            DebugLogger.log(
+              'No socket subscriptions - finishing streaming on HTTP complete',
+              scope: 'streaming/helper',
+            );
+            wrappedFinishStreaming();
+            Future.microtask(refreshConversationSnapshot);
+          } else {
+            DebugLogger.log(
+              'Socket subscriptions active '
+              '- waiting for socket done signal',
+              scope: 'streaming/helper',
+            );
+          }
+        },
+        onError: (error, stackTrace) async {
+          DebugLogger.error(
+            'taskSocket stream error',
+            scope: 'streaming/helper',
+            error: error,
+            data: {
+              'conversationId': activeConversationId,
+              'messageId': assistantMessageId,
+              'modelId': modelId,
+            },
+          );
+
+          final errorText = error.toString();
+          final isRecoverable =
+              error is! FormatException &&
+              (errorText.contains('SocketException') ||
+                  errorText.contains('TimeoutException') ||
+                  errorText.contains('HandshakeException'));
+
+          if (isRecoverable && socketService != null) {
+            try {
+              final connected = await socketService.ensureConnected(
+                timeout: const Duration(seconds: 5),
+              );
+              if (connected) {
+                DebugLogger.log(
+                  'Socket recovery successful',
+                  scope: 'streaming/helper',
+                );
+                return;
+              }
+            } catch (e) {
+              DebugLogger.log(
+                'Socket recovery failed: $e',
+                scope: 'streaming/helper',
+              );
+            }
+          }
+
+          disposeSocketSubscriptions();
+          wrappedFinishStreaming();
+          Future.microtask(refreshConversationSnapshot);
         },
       );
 
-      // Check if this is a recoverable error (network issues, etc.)
-      final errorText = error.toString();
-      final isRecoverable =
-          error is! FormatException &&
-          (errorText.contains('SocketException') ||
-              errorText.contains('TimeoutException') ||
-              errorText.contains('HandshakeException'));
-
-      if (isRecoverable && socketService != null) {
-        // Try to recover via socket connection if available
+    case ChatCompletionTransport.jsonCompletion:
+      // Non-streamed: apply the JSON payload immediately.
+      Future.microtask(() {
         try {
-          final connected = await socketService.ensureConnected(
-            timeout: const Duration(seconds: 5),
-          );
+          final payload = session.jsonPayload ?? const <String, dynamic>{};
 
-          if (connected) {
-            DebugLogger.log(
-              'Socket recovery successful',
-              scope: 'streaming/helper',
+          // Apply error if present
+          if (payload['error'] != null) {
+            final error = payload['error'];
+            final errorMap = error is Map<String, dynamic>
+                ? error
+                : <String, dynamic>{'message': error.toString()};
+            updateLastMessageWith(
+              (m) => m.copyWith(
+                error: ChatMessageError(
+                  content: errorMap['message']?.toString(),
+                ),
+              ),
             );
+            wrappedFinishStreaming();
             return;
           }
+
+          // Extract content from choices
+          final choices = payload['choices'];
+          if (choices is List && choices.isNotEmpty) {
+            final firstChoice = choices.first;
+            if (firstChoice is Map<String, dynamic>) {
+              final message = firstChoice['message'];
+              if (message is Map<String, dynamic>) {
+                final content = message['content']?.toString() ?? '';
+                if (content.isNotEmpty) {
+                  replaceLastMessageContent(content);
+                }
+              }
+            }
+          }
+
+          // Apply usage
+          final usage = payload['usage'];
+          if (usage is Map<String, dynamic> && usage.isNotEmpty) {
+            updateLastMessageWith((m) => m.copyWith(usage: usage));
+          }
+
+          // Apply sources
+          final rawSources = payload['sources'];
+          if (rawSources != null) {
+            final normalizedSources = _normalizeSourcesPayload(rawSources);
+            if (normalizedSources != null && normalizedSources.isNotEmpty) {
+              final parsedSources = parseOpenWebUISourceList(normalizedSources);
+              for (final source in parsedSources) {
+                appendSourceReference(assistantMessageId, source);
+              }
+            }
+          }
+
+          wrappedFinishStreaming();
         } catch (e) {
-          DebugLogger.log(
-            'Socket recovery failed: $e',
+          DebugLogger.error(
+            'jsonCompletion processing error',
             scope: 'streaming/helper',
+            error: e,
           );
+          wrappedFinishStreaming();
         }
-      }
+      });
+  }
 
-      disposeSocketSubscriptions();
-      wrappedFinishStreaming();
-      Future.microtask(refreshConversationSnapshot);
-    },
-  );
-
-  return ActiveSocketStream(
-    controller: controller,
+  return ActiveChatStream(
+    controller: streamController,
     socketSubscriptions: socketSubscriptions,
     disposeWatchdog: () {},
   );
