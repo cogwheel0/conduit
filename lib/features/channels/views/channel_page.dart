@@ -962,10 +962,11 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
                 ),
                 if (_replyToMessage != null)
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(
-                      horizontal: Spacing.md,
-                      vertical: Spacing.sm,
+                    padding: const EdgeInsets.only(
+                      left: Spacing.md,
+                      right: Spacing.md,
+                      top: Spacing.md,
+                      bottom: Spacing.sm,
                     ),
                     color: theme.surfaceContainer,
                     child: Row(
