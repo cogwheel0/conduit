@@ -90,6 +90,24 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   }
 
   @override
+  void didUpdateWidget(covariant ChannelPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.channelId != oldWidget.channelId) {
+      _threadParent = null;
+      _replyToMessage = null;
+      _loadChannel();
+      // Defer subscribe — unsubscribe clears ChannelTypingUsers
+      // state which is not allowed during the build phase.
+      Future(() {
+        if (!mounted) return;
+        ref
+            .read(channelSocketHandlerProvider.notifier)
+            .subscribe(widget.channelId);
+      });
+    }
+  }
+
+  @override
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
@@ -997,14 +1015,20 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
           if (_threadParent != null)
             SizedBox(
               width: 320,
-              child: ThreadPanel(
-                channelId: widget.channelId,
-                parentMessage: _threadParent!,
-                onClose: () => setState(
-                  () => _threadParent = null,
+              child: Padding(
+                padding: EdgeInsets.only(
+                  top: MediaQuery.of(context).padding.top +
+                      kToolbarHeight,
                 ),
-                overflowButtonBuilder:
-                    _buildAttachmentButton,
+                child: ThreadPanel(
+                  channelId: widget.channelId,
+                  parentMessage: _threadParent!,
+                  onClose: () => setState(
+                    () => _threadParent = null,
+                  ),
+                  overflowButtonBuilder:
+                      _buildAttachmentButton,
+                ),
               ),
             ),
         ],
