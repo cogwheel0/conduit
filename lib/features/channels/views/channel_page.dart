@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 import 'dart:io' show Platform;
 
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
@@ -75,8 +76,13 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       if (!mounted) return;
       final channel = Channel.fromJson(json);
       ref.read(activeChannelProvider.notifier).set(channel);
-    } catch (_) {
-      // Channel details will fall back to provider state.
+    } catch (e, s) {
+      developer.log(
+        'Failed to load channel details',
+        name: 'ChannelPage',
+        error: e,
+        stackTrace: s,
+      );
     }
   }
 
@@ -116,21 +122,36 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
 
     setState(() => _isSending = true);
     try {
+      final tempId = DateTime.now()
+          .microsecondsSinceEpoch
+          .toString();
       final json = await api.postChannelMessage(
         widget.channelId,
         content: content,
+        tempId: tempId,
       );
       if (!mounted) return;
       final message = ChannelMessage.fromJson(json);
       ref
-          .read(channelMessagesProvider(widget.channelId).notifier)
+          .read(
+            channelMessagesProvider(widget.channelId)
+                .notifier,
+          )
           .prependMessage(message);
-    } catch (_) {
+    } catch (e, s) {
+      developer.log(
+        'Failed to send channel message',
+        name: 'ChannelPage',
+        error: e,
+        stackTrace: s,
+      );
       if (!mounted) return;
       final l10n = AppLocalizations.of(context);
       if (l10n != null) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l10n.channelSendError)),
+          SnackBar(
+            content: Text(l10n.channelSendError),
+          ),
         );
       }
     } finally {
@@ -238,60 +259,28 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     );
 
     try {
+      // The API returns bool; the socket handler will
+      // re-fetch the message with updated reactions.
       if (existing) {
         await api.removeMessageReaction(
           widget.channelId,
           message.id,
           emoji,
         );
-        if (!mounted) return;
-        // Remove the current user from the matching
-        // reaction group and drop the group if empty.
-        final updated = message.copyWith(
-          reactions: message.reactions
-              .map((r) {
-                if (r.name != emoji) return r;
-                final filtered = r.users
-                    .where(
-                      (u) =>
-                          u['user_id'] != currentUserId &&
-                          u['id'] != currentUserId,
-                    )
-                    .toList();
-                return r.copyWith(
-                  users: filtered,
-                  count: filtered.length,
-                );
-              })
-              .where((r) => r.count > 0)
-              .toList(),
-        );
-        ref
-            .read(
-              channelMessagesProvider(widget.channelId)
-                  .notifier,
-            )
-            .updateMessage(updated);
       } else {
-        final json = await api.addMessageReaction(
+        await api.addMessageReaction(
           widget.channelId,
           message.id,
           emoji,
         );
-        if (!mounted) return;
-        final reaction = MessageReaction.fromJson(json);
-        final updated = message.copyWith(
-          reactions: [...message.reactions, reaction],
-        );
-        ref
-            .read(
-              channelMessagesProvider(widget.channelId)
-                  .notifier,
-            )
-            .updateMessage(updated);
       }
-    } catch (_) {
-      // Silently ignore reaction failures.
+    } catch (e, s) {
+      developer.log(
+        'Failed to toggle reaction',
+        name: 'ChannelPage',
+        error: e,
+        stackTrace: s,
+      );
     }
   }
 
@@ -309,8 +298,13 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
             channelMessagesProvider(widget.channelId).notifier,
           )
           .removeMessage(message.id);
-    } catch (_) {
-      // Silently ignore deletion failures.
+    } catch (e, s) {
+      developer.log(
+        'Failed to delete message',
+        name: 'ChannelPage',
+        error: e,
+        stackTrace: s,
+      );
     }
   }
 
@@ -492,8 +486,13 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       ref
           .read(channelsListProvider.notifier)
           .updateChannel(updated);
-    } catch (_) {
-      // Silently ignore update failures.
+    } catch (e, s) {
+      developer.log(
+        'Failed to update channel',
+        name: 'ChannelPage',
+        error: e,
+        stackTrace: s,
+      );
     }
   }
 
@@ -511,15 +510,23 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     if (api == null) return;
 
     try {
-      await api.leaveChannel(widget.channelId);
+      await api.updateMemberActiveStatus(
+        widget.channelId,
+        isActive: false,
+      );
       if (!mounted) return;
       ref
           .read(channelsListProvider.notifier)
           .removeChannel(widget.channelId);
       ref.read(activeChannelProvider.notifier).clear();
       NavigationService.router.go(Routes.chat);
-    } catch (_) {
-      // Silently ignore leave failures.
+    } catch (e, s) {
+      developer.log(
+        'Failed to leave channel',
+        name: 'ChannelPage',
+        error: e,
+        stackTrace: s,
+      );
     }
   }
 
@@ -545,8 +552,13 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
           .removeChannel(widget.channelId);
       ref.read(activeChannelProvider.notifier).clear();
       NavigationService.router.go(Routes.chat);
-    } catch (_) {
-      // Silently ignore delete failures.
+    } catch (e, s) {
+      developer.log(
+        'Failed to delete channel',
+        name: 'ChannelPage',
+        error: e,
+        stackTrace: s,
+      );
     }
   }
 
