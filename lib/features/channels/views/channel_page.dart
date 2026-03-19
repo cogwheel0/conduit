@@ -592,6 +592,8 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       );
     }
 
+    final currentUserId = ref.watch(currentUserProvider).value?.id;
+
     return ListView.builder(
       controller: _scrollController,
       reverse: true,
@@ -615,8 +617,6 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
           );
         }
         final message = messages[index];
-        final currentUserId =
-            ref.read(currentUserProvider).value?.id;
         return _MessageBubble(
           message: message,
           currentUserId: currentUserId,
@@ -976,7 +976,8 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     const contentPadding = EdgeInsets.symmetric(
       vertical: Spacing.xs,
     );
-    const hint = 'Message...';
+    final hint = AppLocalizations.of(context)?.channelMessageHint
+        ?? 'Message...';
 
     if (!kIsWeb && Platform.isIOS) {
       return CupertinoTextField(

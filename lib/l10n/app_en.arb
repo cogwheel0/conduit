@@ -2109,5 +2109,27 @@
   "channelDeleted": "This channel has been deleted",
   "@channelDeleted": {
     "description": "Snackbar message when a viewed channel is deleted"
+  },
+  "searchChannels": "Search channels...",
+  "@searchChannels": {
+    "description": "Hint text for the channel search field"
+  },
+  "channelCreateError": "Failed to create channel",
+  "@channelCreateError": {
+    "description": "Snackbar message when channel creation fails"
+  },
+  "channelMessageHint": "Message...",
+  "@channelMessageHint": {
+    "description": "Hint text for the channel message input field"
+  },
+  "audioUploadError": "Failed to upload audio: {error}",
+  "@audioUploadError": {
+    "description": "Error message when audio upload fails",
+    "placeholders": {
+      "error": {
+        "type": "String",
+        "description": "The error message"
+      }
+    }
   }
 }

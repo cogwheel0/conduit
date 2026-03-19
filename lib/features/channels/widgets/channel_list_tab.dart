@@ -23,16 +23,42 @@ class ChannelListTab extends ConsumerStatefulWidget {
 
 class _ChannelListTabState extends ConsumerState<ChannelListTab>
     with AutomaticKeepAliveClientMixin {
+  static final _channelRoutePattern = RegExp(r'^/channel/(.+)$');
+
   final TextEditingController _searchController = TextEditingController();
   String _query = '';
+  String? _activeChannelId;
 
   @override
   bool get wantKeepAlive => true;
 
   @override
+  void initState() {
+    super.initState();
+    _activeChannelId = _parseChannelId(_currentPath);
+    NavigationService.router.routeInformationProvider
+        .addListener(_onRouteChanged);
+  }
+
+  @override
   void dispose() {
+    NavigationService.router.routeInformationProvider
+        .removeListener(_onRouteChanged);
     _searchController.dispose();
     super.dispose();
+  }
+
+  String get _currentPath =>
+      NavigationService.router.routeInformationProvider.value.uri.path;
+
+  static String? _parseChannelId(String location) =>
+      _channelRoutePattern.firstMatch(location)?.group(1);
+
+  void _onRouteChanged() {
+    final newId = _parseChannelId(_currentPath);
+    if (newId != _activeChannelId) {
+      setState(() => _activeChannelId = newId);
+    }
   }
 
   void _onSearchChanged(String value) {
@@ -121,16 +147,14 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to create channel')),
+          SnackBar(
+            content: Text(
+              AppLocalizations.of(context)!.channelCreateError,
+            ),
+          ),
         );
       }
     }
-  }
-
-  /// Extracts the active channel ID from the current route location.
-  String? _activeChannelId(String location) {
-    final match = RegExp(r'^/channel/(.+)$').firstMatch(location);
-    return match?.group(1);
   }
 
   @override
@@ -140,103 +164,94 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
     final l10n = AppLocalizations.of(context)!;
     final channelsAsync = ref.watch(channelsListProvider);
 
-    return ListenableBuilder(
-      listenable: NavigationService.router.routeInformationProvider,
-      builder: (context, _) {
-        final location = NavigationService.router
-            .routeInformationProvider.value.uri.path;
-        final activeId = _activeChannelId(location);
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: ConduitGlassSearchField(
+                  controller: _searchController,
+                  hintText: l10n.searchChannels,
+                  onChanged: _onSearchChanged,
+                  query: _query,
+                  onClear: () {
+                    _searchController.clear();
+                    _onSearchChanged('');
+                  },
+                ),
+              ),
+              const SizedBox(width: 8),
+              FloatingAppBarIconButton(
+                icon: UiUtils.addIcon,
+                onTap: _showCreateChannelDialog,
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: channelsAsync.when(
+            data: (channels) {
+              final filtered = _query.isEmpty
+                  ? channels
+                  : channels
+                      .where(
+                        (c) =>
+                            c.name.toLowerCase().contains(_query),
+                      )
+                      .toList();
 
-        return Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: ConduitGlassSearchField(
-                      controller: _searchController,
-                      hintText: 'Search channels...',
-                      onChanged: _onSearchChanged,
-                      query: _query,
-                      onClear: () {
-                        _searchController.clear();
-                        _onSearchChanged('');
-                      },
-                    ),
+              if (filtered.isEmpty) {
+                return Center(
+                  child: Text(
+                    l10n.channelEmptyState,
+                    style: TextStyle(color: theme.textSecondary),
                   ),
-                  const SizedBox(width: 8),
-                  FloatingAppBarIconButton(
-                    icon: UiUtils.addIcon,
-                    onTap: _showCreateChannelDialog,
+                );
+              }
+
+              return RefreshIndicator(
+                onRefresh: () async {
+                  HapticFeedback.lightImpact();
+                  await ref
+                      .read(channelsListProvider.notifier)
+                      .refresh();
+                },
+                child: ListView.builder(
+                  itemCount: filtered.length,
+                  padding: EdgeInsets.zero,
+                  itemBuilder: (context, index) {
+                    final ch = filtered[index];
+                    return _ChannelTile(
+                      channel: ch,
+                      selected: ch.id == _activeChannelId,
+                      onTap: () => _onChannelTap(ch),
+                    );
+                  },
+                ),
+              );
+            },
+            loading: () =>
+                const Center(child: CircularProgressIndicator()),
+            error: (err, _) => Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(l10n.channelLoadError),
+                  const SizedBox(height: 8),
+                  TextButton(
+                    onPressed: () => ref
+                        .read(channelsListProvider.notifier)
+                        .refresh(),
+                    child: Text(l10n.retry),
                   ),
                 ],
               ),
             ),
-            Expanded(
-              child: channelsAsync.when(
-                data: (channels) {
-                  final filtered = _query.isEmpty
-                      ? channels
-                      : channels
-                          .where(
-                            (c) =>
-                                c.name.toLowerCase().contains(_query),
-                          )
-                          .toList();
-
-                  if (filtered.isEmpty) {
-                    return Center(
-                      child: Text(
-                        l10n.channelEmptyState,
-                        style: TextStyle(color: theme.textSecondary),
-                      ),
-                    );
-                  }
-
-                  return RefreshIndicator(
-                    onRefresh: () async {
-                      HapticFeedback.lightImpact();
-                      await ref
-                          .read(channelsListProvider.notifier)
-                          .refresh();
-                    },
-                    child: ListView.builder(
-                      itemCount: filtered.length,
-                      padding: EdgeInsets.zero,
-                      itemBuilder: (context, index) {
-                        final ch = filtered[index];
-                        return _ChannelTile(
-                          channel: ch,
-                          selected: ch.id == activeId,
-                          onTap: () => _onChannelTap(ch),
-                        );
-                      },
-                    ),
-                  );
-                },
-                loading: () =>
-                    const Center(child: CircularProgressIndicator()),
-                error: (err, _) => Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(l10n.channelLoadError),
-                      const SizedBox(height: 8),
-                      TextButton(
-                        onPressed: () => ref
-                            .read(channelsListProvider.notifier)
-                            .refresh(),
-                        child: const Text('Retry'),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ],
-        );
-      },
+          ),
+        ),
+      ],
     );
   }
 }

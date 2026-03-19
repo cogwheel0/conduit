@@ -1,3 +1,4 @@
+import 'package:conduit/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -21,16 +22,42 @@ class NotesListTab extends ConsumerStatefulWidget {
 
 class _NotesListTabState extends ConsumerState<NotesListTab>
     with AutomaticKeepAliveClientMixin {
+  static final _noteRoutePattern = RegExp(r'^/notes/(.+)$');
+
   final TextEditingController _searchController = TextEditingController();
   String _query = '';
+  String? _activeNoteId;
 
   @override
   bool get wantKeepAlive => true;
 
   @override
+  void initState() {
+    super.initState();
+    _activeNoteId = _parseNoteId(_currentPath);
+    NavigationService.router.routeInformationProvider
+        .addListener(_onRouteChanged);
+  }
+
+  @override
   void dispose() {
+    NavigationService.router.routeInformationProvider
+        .removeListener(_onRouteChanged);
     _searchController.dispose();
     super.dispose();
+  }
+
+  String get _currentPath =>
+      NavigationService.router.routeInformationProvider.value.uri.path;
+
+  static String? _parseNoteId(String location) =>
+      _noteRoutePattern.firstMatch(location)?.group(1);
+
+  void _onRouteChanged() {
+    final newId = _parseNoteId(_currentPath);
+    if (newId != _activeNoteId) {
+      setState(() => _activeNoteId = newId);
+    }
   }
 
   void _onSearchChanged(String value) {
@@ -55,98 +82,84 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
     }
   }
 
-  /// Extracts the active note ID from the current route location.
-  String? _activeNoteId(String location) {
-    final match = RegExp(r'^/notes/(.+)$').firstMatch(location);
-    return match?.group(1);
-  }
-
   @override
   Widget build(BuildContext context) {
     super.build(context);
     final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
     final notes = _query.isEmpty
         ? ref.watch(notesListProvider)
         : AsyncValue.data(
             ref.watch(filteredNotesProvider(_query)),
           );
 
-    return ListenableBuilder(
-      listenable: NavigationService.router.routeInformationProvider,
-      builder: (context, _) {
-        final location = NavigationService.router
-            .routeInformationProvider.value.uri.path;
-        final activeId = _activeNoteId(location);
-
-        return Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: ConduitGlassSearchField(
-                      controller: _searchController,
-                      hintText: 'Search notes...',
-                      onChanged: _onSearchChanged,
-                      query: _query,
-                      onClear: () {
-                        _searchController.clear();
-                        _onSearchChanged('');
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  FloatingAppBarIconButton(
-                    icon: UiUtils.addIcon,
-                    onTap: _createNote,
-                  ),
-                ],
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: ConduitGlassSearchField(
+                  controller: _searchController,
+                  hintText: l10n.searchNotes,
+                  onChanged: _onSearchChanged,
+                  query: _query,
+                  onClear: () {
+                    _searchController.clear();
+                    _onSearchChanged('');
+                  },
+                ),
               ),
-            ),
-            Expanded(
-              child: notes.when(
-                data: (noteList) {
-                  if (noteList.isEmpty) {
-                    return Center(
-                      child: Text(
-                        _query.isEmpty
-                            ? 'No notes yet'
-                            : 'No matching notes',
-                        style: TextStyle(color: theme.textSecondary),
-                      ),
-                    );
-                  }
-                  return RefreshIndicator(
-                    onRefresh: () async {
-                      HapticFeedback.lightImpact();
-                      await ref
-                          .read(notesListProvider.notifier)
-                          .refresh();
-                    },
-                    child: ListView.builder(
-                      itemCount: noteList.length,
-                      padding: EdgeInsets.zero,
-                      itemBuilder: (context, index) {
-                        final note = noteList[index];
-                        return _NoteListTile(
-                          note: note,
-                          selected: note.id == activeId,
-                          onTap: () => _onNoteTap(note),
-                        );
-                      },
-                    ),
-                  );
+              const SizedBox(width: 8),
+              FloatingAppBarIconButton(
+                icon: UiUtils.addIcon,
+                onTap: _createNote,
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: notes.when(
+            data: (noteList) {
+              if (noteList.isEmpty) {
+                return Center(
+                  child: Text(
+                    _query.isEmpty
+                        ? l10n.noNotesYet
+                        : l10n.noNotesFound,
+                    style: TextStyle(color: theme.textSecondary),
+                  ),
+                );
+              }
+              return RefreshIndicator(
+                onRefresh: () async {
+                  HapticFeedback.lightImpact();
+                  await ref
+                      .read(notesListProvider.notifier)
+                      .refresh();
                 },
-                loading: () =>
-                    const Center(child: CircularProgressIndicator()),
-                error: (err, _) =>
-                    const Center(child: Text('Failed to load notes')),
-              ),
-            ),
-          ],
-        );
-      },
+                child: ListView.builder(
+                  itemCount: noteList.length,
+                  padding: EdgeInsets.zero,
+                  itemBuilder: (context, index) {
+                    final note = noteList[index];
+                    return _NoteListTile(
+                      note: note,
+                      selected: note.id == _activeNoteId,
+                      onTap: () => _onNoteTap(note),
+                    );
+                  },
+                ),
+              );
+            },
+            loading: () =>
+                const Center(child: CircularProgressIndicator()),
+            error: (err, _) =>
+                Center(child: Text(l10n.failedToLoadNotes)),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -165,7 +178,8 @@ class _NoteListTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
-    final title = note.title.isEmpty ? 'Untitled' : note.title;
+    final l10n = AppLocalizations.of(context)!;
+    final title = note.title.isEmpty ? l10n.untitled : note.title;
     final preview = note.markdownContent.isNotEmpty
         ? note.markdownContent.replaceAll('\n', ' ').trim()
         : '';

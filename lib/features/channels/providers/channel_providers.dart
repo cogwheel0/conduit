@@ -145,7 +145,7 @@ Future<List<Map<String, dynamic>>> channelMembers(
 }
 
 /// Fetches unread count for a channel.
-@riverpod
+@Riverpod(keepAlive: true)
 Future<int> channelUnreadCount(
   Ref ref,
   String channelId,

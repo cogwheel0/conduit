@@ -63,10 +63,15 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   StreamSubscription<String>? _voiceSub;
   String _voiceBaseText = '';
 
-  int get _wordCount {
+  static final _whitespacePattern = RegExp(r'\s+');
+  static final _boldPattern = RegExp(r'\*\*(.+?)\*\*');
+  static final _italicPattern = RegExp(r'\*(.+?)\*');
+  int _cachedWordCount = 0;
+
+  void _updateWordCount() {
     final text = _contentController.text.trim();
-    if (text.isEmpty) return 0;
-    return text.split(RegExp(r'\s+')).length;
+    _cachedWordCount =
+        text.isEmpty ? 0 : text.split(_whitespacePattern).length;
   }
 
   int get _charCount => _contentController.text.length;
@@ -145,6 +150,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     if (hasRealChanges) {
       _debounceSave();
     }
+    _updateWordCount();
   }
 
   void _debounceSave() {
@@ -228,11 +234,11 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
           // markdown formatting replacements on the escaped text.
           var text = _escapeHtml(p);
           text = text.replaceAllMapped(
-            RegExp(r'\*\*(.+?)\*\*'),
+            _boldPattern,
             (m) => '<strong>${m.group(1)!}</strong>',
           );
           text = text.replaceAllMapped(
-            RegExp(r'\*(.+?)\*'),
+            _italicPattern,
             (m) => '<em>${m.group(1)!}</em>',
           );
           return '<p>$text</p>';
@@ -689,7 +695,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     } catch (e) {
       if (mounted) {
         setState(() => _isUploadingAudio = false);
-        _showError('Failed to upload audio: $e');
+        _showError(
+          AppLocalizations.of(context)!.audioUploadError(e.toString()),
+        );
       }
     }
   }
@@ -1114,7 +1122,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
             icon: Platform.isIOS
                 ? CupertinoIcons.doc_text
                 : Icons.article_rounded,
-            label: l10n.wordCount(_wordCount),
+            label: l10n.wordCount(_cachedWordCount),
           ),
           _buildMetadataSeparator(context),
           _buildMetadataChip(
