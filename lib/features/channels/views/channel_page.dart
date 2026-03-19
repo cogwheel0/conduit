@@ -76,6 +76,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       if (!mounted) return;
       final channel = Channel.fromJson(json);
       ref.read(activeChannelProvider.notifier).set(channel);
+      ref
+          .read(channelSocketHandlerProvider.notifier)
+          .emitLastReadAt(widget.channelId);
     } catch (e, s) {
       developer.log(
         'Failed to load channel details',
