@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -673,52 +674,119 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   }
 
   Widget _buildInputBar(ConduitThemeExtension theme) {
-    return SafeArea(
-      top: false,
+    final bottomPadding =
+        MediaQuery.of(context).viewPadding.bottom;
+    final hasText = _messageController.text.trim().isNotEmpty;
+    final enabled = hasText && !_isSending;
+
+    final shellRadius = BorderRadius.circular(
+      AppBorderRadius.round,
+    );
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        Spacing.screenPadding,
+        0,
+        Spacing.screenPadding,
+        bottomPadding + Spacing.md,
+      ),
       child: Container(
         decoration: BoxDecoration(
-          color: theme.surfaceBackground,
-          border: Border(
-            top: BorderSide(
-              color: theme.dividerColor,
-              width: 1,
-            ),
+          color: theme.surfaceContainerHighest,
+          borderRadius: shellRadius,
+          border: Border.all(
+            color: theme.cardBorder,
+            width: BorderWidth.thin,
           ),
         ),
-        padding: const EdgeInsets.symmetric(
-          horizontal: Spacing.sm,
-          vertical: Spacing.sm,
+        padding: EdgeInsets.fromLTRB(
+          Spacing.md,
+          0,
+          Spacing.md,
+          0,
         ),
+        constraints: const BoxConstraints(
+          minHeight: TouchTarget.input,
+        ),
+        alignment: Alignment.center,
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             Expanded(
               child: TextField(
                 controller: _messageController,
                 focusNode: _inputFocusNode,
-                style: TextStyle(color: theme.textPrimary),
+                style: AppTypography.chatMessageStyle.copyWith(
+                  color: theme.inputText,
+                ),
                 decoration:
-                    context.conduitInputStyles.standard(
+                    context.conduitInputStyles.borderless(
                   hint: 'Message...',
+                ).copyWith(
+                  contentPadding:
+                      const EdgeInsets.symmetric(
+                    vertical: Spacing.xs,
+                  ),
+                  isDense: true,
                 ),
                 textCapitalization:
                     TextCapitalization.sentences,
-                textInputAction: TextInputAction.send,
+                textInputAction: TextInputAction.newline,
+                keyboardType: TextInputType.multiline,
                 minLines: 1,
-                maxLines: 4,
+                maxLines: null,
+                onChanged: (_) => setState(() {}),
                 onSubmitted: (_) => _sendMessage(),
               ),
             ),
-            const SizedBox(width: Spacing.sm),
-            IconButton(
-              onPressed: _isSending ? null : _sendMessage,
-              icon: Icon(
-                Icons.send,
-                color: _isSending
-                    ? theme.textDisabled
-                    : Theme.of(context).colorScheme.primary,
+            const SizedBox(width: Spacing.xs),
+            Padding(
+              padding: const EdgeInsets.only(
+                bottom: Spacing.xs,
+              ),
+              child: _buildSendButton(
+                theme,
+                enabled: enabled,
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSendButton(
+    ConduitThemeExtension theme, {
+    required bool enabled,
+  }) {
+    const double size = 36.0;
+
+    return SizedBox(
+      width: size,
+      height: size,
+      child: Material(
+        color: theme.buttonPrimary,
+        shape: CircleBorder(
+          side: BorderSide(
+            color: theme.buttonPrimary,
+            width: BorderWidth.thin,
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: enabled ? _sendMessage : null,
+          customBorder: const CircleBorder(),
+          child: Center(
+            child: Icon(
+              CupertinoIcons.arrow_up,
+              size: IconSize.large,
+              color: enabled
+                  ? theme.buttonPrimaryText
+                  : theme.textPrimary.withValues(
+                      alpha: Alpha.disabled,
+                    ),
+            ),
+          ),
         ),
       ),
     );
