@@ -228,7 +228,13 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     if (currentUserId == null) return;
 
     final existing = message.reactions.any(
-      (r) => r.emoji == emoji && r.userId == currentUserId,
+      (r) =>
+          r.name == emoji &&
+          r.users.any(
+            (u) =>
+                u['user_id'] == currentUserId ||
+                u['id'] == currentUserId,
+          ),
     );
 
     try {
@@ -239,13 +245,25 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
           emoji,
         );
         if (!mounted) return;
+        // Remove the current user from the matching
+        // reaction group and drop the group if empty.
         final updated = message.copyWith(
           reactions: message.reactions
-              .where(
-                (r) =>
-                    !(r.emoji == emoji &&
-                        r.userId == currentUserId),
-              )
+              .map((r) {
+                if (r.name != emoji) return r;
+                final filtered = r.users
+                    .where(
+                      (u) =>
+                          u['user_id'] != currentUserId &&
+                          u['id'] != currentUserId,
+                    )
+                    .toList();
+                return r.copyWith(
+                  users: filtered,
+                  count: filtered.length,
+                );
+              })
+              .where((r) => r.count > 0)
               .toList(),
         );
         ref
@@ -865,17 +883,6 @@ class _MessageBubble extends StatelessWidget {
     BuildContext context,
     ConduitThemeExtension theme,
   ) {
-    final grouped = <String, int>{};
-    final userReacted = <String, bool>{};
-
-    for (final reaction in message.reactions) {
-      grouped[reaction.emoji] =
-          (grouped[reaction.emoji] ?? 0) + 1;
-      if (reaction.userId == currentUserId) {
-        userReacted[reaction.emoji] = true;
-      }
-    }
-
     final primaryColor =
         Theme.of(context).colorScheme.primary;
 
@@ -884,12 +891,15 @@ class _MessageBubble extends StatelessWidget {
       child: Wrap(
         spacing: Spacing.xs,
         runSpacing: Spacing.xs,
-        children: grouped.entries.map((entry) {
-          final isActive =
-              userReacted[entry.key] == true;
+        children: message.reactions.map((reaction) {
+          final isActive = reaction.users.any(
+            (u) =>
+                u['user_id'] == currentUserId ||
+                u['id'] == currentUserId,
+          );
           return ActionChip(
             label: Text(
-              '${entry.key} ${entry.value}',
+              '${reaction.name} ${reaction.count}',
               style: const TextStyle(fontSize: 12),
             ),
             backgroundColor: isActive
@@ -909,7 +919,8 @@ class _MessageBubble extends StatelessWidget {
             visualDensity: VisualDensity.compact,
             materialTapTargetSize:
                 MaterialTapTargetSize.shrinkWrap,
-            onPressed: () => onReactionTap(entry.key),
+            onPressed: () =>
+                onReactionTap(reaction.name),
           );
         }).toList(),
       ),
