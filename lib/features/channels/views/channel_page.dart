@@ -1027,8 +1027,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     return ListView.builder(
       controller: _scrollController,
       reverse: true,
-      padding: const EdgeInsets.symmetric(
-        vertical: Spacing.sm,
+      padding: const EdgeInsets.only(
+        top: Spacing.md,
+        bottom: Spacing.sm,
       ),
       itemCount:
           messages.length + (_isLoadingMore ? 1 : 0),
