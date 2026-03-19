@@ -289,7 +289,7 @@ class _ThreadReplies extends StatelessWidget {
       );
     }
     return ListView.builder(
-      reverse: true,
+      reverse: false,
       padding: const EdgeInsets.symmetric(
         vertical: Spacing.sm,
       ),
