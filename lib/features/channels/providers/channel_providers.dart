@@ -107,8 +107,12 @@ class ChannelMessages extends _$ChannelMessages {
   }
 
   /// Prepends a new message (from send or socket event).
+  ///
+  /// Deduplicates by ID to prevent double-insertion when the
+  /// local send response and the socket event both arrive.
   void prependMessage(ChannelMessage message) {
     final current = state.value ?? [];
+    if (current.any((m) => m.id == message.id)) return;
     state = AsyncValue.data([message, ...current]);
   }
 

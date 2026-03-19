@@ -2,6 +2,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/providers/app_providers.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../providers/sidebar_providers.dart';
 import '../../channels/widgets/channel_list_tab.dart';
@@ -13,6 +14,9 @@ import 'chats_drawer.dart';
 /// Replaces the single-purpose [ChatsDrawer] as the drawer content
 /// in [ResponsiveDrawerLayout]. Tab selection is persisted via
 /// [sidebarActiveTabProvider].
+///
+/// When the notes feature is disabled via [notesFeatureEnabledProvider],
+/// the Notes tab is hidden and only Chats and Channels are shown.
 class SidebarPage extends ConsumerStatefulWidget {
   const SidebarPage({super.key});
 
@@ -22,14 +26,18 @@ class SidebarPage extends ConsumerStatefulWidget {
 
 class _SidebarPageState extends ConsumerState<SidebarPage>
     with SingleTickerProviderStateMixin {
-  late final TabController _tabController;
+  late TabController _tabController;
+  bool _notesEnabled = true;
 
   @override
   void initState() {
     super.initState();
-    final initialIndex = ref.read(sidebarActiveTabProvider);
+    _notesEnabled = ref.read(notesFeatureEnabledProvider);
+    final tabCount = _notesEnabled ? 3 : 2;
+    final initialIndex =
+        ref.read(sidebarActiveTabProvider).clamp(0, tabCount - 1);
     _tabController = TabController(
-      length: 3,
+      length: tabCount,
       vsync: this,
       initialIndex: initialIndex,
     );
@@ -44,6 +52,24 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
     }
   }
 
+  /// Rebuilds the [TabController] when the notes feature flag changes.
+  void _rebuildTabController(bool notesEnabled) {
+    if (notesEnabled == _notesEnabled) return;
+    _tabController.removeListener(_onTabChanged);
+    _tabController.dispose();
+
+    _notesEnabled = notesEnabled;
+    final tabCount = _notesEnabled ? 3 : 2;
+    final currentIndex =
+        ref.read(sidebarActiveTabProvider).clamp(0, tabCount - 1);
+    _tabController = TabController(
+      length: tabCount,
+      vsync: this,
+      initialIndex: currentIndex,
+    );
+    _tabController.addListener(_onTabChanged);
+  }
+
   @override
   void dispose() {
     _tabController.removeListener(_onTabChanged);
@@ -54,6 +80,21 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final notesEnabled = ref.watch(notesFeatureEnabledProvider);
+    _rebuildTabController(notesEnabled);
+
+    final tabs = <Tab>[
+      Tab(text: AppLocalizations.of(context)!.sidebarChatsTab),
+      if (notesEnabled)
+        Tab(text: AppLocalizations.of(context)!.sidebarNotesTab),
+      Tab(text: AppLocalizations.of(context)!.sidebarChannelsTab),
+    ];
+
+    final bodies = <Widget>[
+      const ChatsDrawer(),
+      if (notesEnabled) const NotesListTab(),
+      const ChannelListTab(),
+    ];
 
     return Column(
       children: [
@@ -72,13 +113,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
               Expanded(
                 child: TabBar(
                   controller: _tabController,
-                  tabs: [
-                    Tab(text: AppLocalizations.of(context)!.sidebarChatsTab),
-                    Tab(text: AppLocalizations.of(context)!.sidebarNotesTab),
-                    Tab(
-                      text: AppLocalizations.of(context)!.sidebarChannelsTab,
-                    ),
-                  ],
+                  tabs: tabs,
                   labelColor: theme.colorScheme.primary,
                   unselectedLabelColor:
                       theme.colorScheme.onSurface.withValues(alpha: 0.6),
@@ -96,11 +131,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
             // Disable swipe between tabs — conflicts with drawer
             // close gesture at full width.
             physics: const NeverScrollableScrollPhysics(),
-            children: const [
-              ChatsDrawer(),
-              NotesListTab(),
-              ChannelListTab(),
-            ],
+            children: bodies,
           ),
         ),
       ],

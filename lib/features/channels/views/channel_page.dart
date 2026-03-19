@@ -57,7 +57,13 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       ..dispose();
     _messageController.dispose();
     _inputFocusNode.dispose();
-    ref.read(channelSocketHandlerProvider.notifier).unsubscribe();
+    try {
+      ref.read(channelSocketHandlerProvider.notifier).unsubscribe();
+    } catch (_) {
+      // Provider may already be disposed during hot reload or
+      // container teardown — the keepAlive notifier's own
+      // ref.onDispose will clean up in that case.
+    }
     super.dispose();
   }
 
@@ -464,10 +470,15 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     final isTablet =
         MediaQuery.of(context).size.shortestSide >= 600;
 
+    final scrim = Platform.isIOS
+        ? context.colorTokens.scrimMedium
+        : context.colorTokens.scrimStrong;
+
     return ResponsiveDrawerLayout(
       maxFraction: isTablet ? 0.42 : 1.0,
       edgeFraction: isTablet ? 0.36 : 0.50,
       settleFraction: 0.06,
+      scrimColor: scrim,
       pushContent: isTablet,
       contentScaleDelta: 0.0,
       tabletDrawerWidth: 320.0,

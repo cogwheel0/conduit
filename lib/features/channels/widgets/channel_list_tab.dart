@@ -98,8 +98,13 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
       ),
     );
 
-    if (result != true || !mounted) return;
     final name = nameController.text.trim();
+    final description = descController.text.trim();
+
+    nameController.dispose();
+    descController.dispose();
+
+    if (result != true || !mounted) return;
     if (name.isEmpty) return;
 
     try {
@@ -107,7 +112,7 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
       if (api == null) return;
       final json = await api.createChannel(
         name: name,
-        description: descController.text.trim(),
+        description: description,
         isPrivate: isPrivate,
       );
       final channel = Channel.fromJson(json);
@@ -224,15 +229,19 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
   }
 }
 
-class _ChannelTile extends StatelessWidget {
+class _ChannelTile extends ConsumerWidget {
   const _ChannelTile({required this.channel, required this.onTap});
 
   final Channel channel;
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = context.conduitTheme;
+    final unreadAsync = ref.watch(
+      channelUnreadCountProvider(channel.id),
+    );
+    final unread = unreadAsync.asData?.value ?? 0;
 
     return ListTile(
       leading: Icon(
@@ -250,6 +259,27 @@ class _ChannelTile extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(color: theme.textSecondary),
+            )
+          : null,
+      trailing: unread > 0
+          ? Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 8,
+                vertical: 2,
+              ),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primary,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                unread > 99 ? '99+' : '$unread',
+                style: TextStyle(
+                  color:
+                      Theme.of(context).colorScheme.onPrimary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             )
           : null,
       onTap: onTap,
