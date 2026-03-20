@@ -314,6 +314,39 @@ void main() {
       // parent_message always present (OWUI 0.6.42+ compat)
       check(payload['parent_message']).isNotNull();
     });
+
+    test('includes features with image_generation when enabled', () {
+      final api = _buildApiServiceForTest(_FakeAdapter.json({}));
+
+      final payload = api.buildChatCompletionPayloadForTest(
+        messages: [
+          {'role': 'user', 'content': 'draw a cat'},
+        ],
+        model: 'gpt-4',
+        messageId: 'msg-img',
+        sessionId: 'sess-img',
+        enableImageGeneration: true,
+      );
+
+      check(payload).has((p) => p['features'], 'features').isNotNull();
+      final features = payload['features'] as Map<String, dynamic>;
+      check(features['image_generation'] as bool).isTrue();
+    });
+
+    test('omits features key when no feature flags are active', () {
+      final api = _buildApiServiceForTest(_FakeAdapter.json({}));
+
+      final payload = api.buildChatCompletionPayloadForTest(
+        messages: [
+          {'role': 'user', 'content': 'hello'},
+        ],
+        model: 'gpt-4',
+        messageId: 'msg-plain',
+        sessionId: 'sess-plain',
+      );
+
+      check(payload.containsKey('features')).isFalse();
+    });
   });
 
   // -----------------------------------------------------------------------

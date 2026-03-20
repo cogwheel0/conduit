@@ -4088,6 +4088,8 @@ class ApiService {
     required String messageId,
     required String sessionId,
     String? conversationId,
+    bool enableWebSearch = false,
+    bool enableImageGeneration = false,
   }) {
     return _buildChatCompletionPayload(
       messages: messages,
@@ -4095,6 +4097,8 @@ class ApiService {
       messageId: messageId,
       sessionId: sessionId,
       conversationId: conversationId,
+      enableWebSearch: enableWebSearch,
+      enableImageGeneration: enableImageGeneration,
     );
   }
 
