@@ -2614,6 +2614,18 @@ Future<void> cloneConversation(WidgetRef ref, String conversationId) async {
   }
 }
 
+/// Whether [message] is an assistant message whose normalized [files]
+/// contain at least one image entry (`type == 'image'`).
+///
+/// Used by the regeneration path to decide whether to force
+/// `imageGenerationEnabled` during replay.
+bool assistantHasNormalizedImageFiles(ChatMessage message) {
+  if (message.role != 'assistant') return false;
+  final files = message.files;
+  if (files == null || files.isEmpty) return false;
+  return files.any((f) => f['type'] == 'image');
+}
+
 // Regenerate last message
 final regenerateLastMessageProvider = Provider<Future<void> Function()>((ref) {
   return () async {
@@ -2628,8 +2640,7 @@ final regenerateLastMessageProvider = Provider<Future<void> Function()>((ref) {
         : null;
     final bool lastAssistantHadImages =
         lastAssistantMessage != null &&
-        lastAssistantMessage.role == 'assistant' &&
-        (lastAssistantMessage.files?.any((f) => f['type'] == 'image') == true);
+        assistantHasNormalizedImageFiles(lastAssistantMessage);
     for (int i = messages.length - 2; i >= 0 && i < messages.length; i--) {
       if (i >= 0 && messages[i].role == 'user') {
         lastUserMessage = messages[i];
