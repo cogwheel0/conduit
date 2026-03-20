@@ -2132,7 +2132,7 @@ final webSearchAvailableProvider = Provider<bool>((ref) {
       if (features is Map<String, dynamic>) {
         final value = features['web_search'];
         if (value is bool) return value;
-        if (value is String) return value.toLowerCase() == 'true';
+        if (value is String) return value.toLowerCase() != 'false';
       }
       // No explicit permission — default to available. Open WebUI defaults
       // web_search to true and the server will ignore the flag if the feature
