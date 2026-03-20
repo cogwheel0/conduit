@@ -407,17 +407,14 @@ void main() {
       check(assistantMessages.length).equals(1);
     });
 
-    test('current send-path removes placeholder and adds replacement '
-        '(documents existing behavior for migration)', () async {
-      // This test documents the CURRENT behavior of the send path
-      // error handling. After Task 5 implementation, this test should
-      // be updated to match the new in-place conversion behavior.
+    test('send-path converts placeholder in-place on error '
+        '(preserves ID and any attached files)', () async {
       final container = _regenContainer();
       addTearDown(container.dispose);
 
       final notifier = container.read(chatMessagesProvider.notifier);
 
-      // Setup: user + assistant placeholder
+      // Setup: user + assistant placeholder with pre-attached files
       notifier.addMessage(_userMsg(id: 'u-1'));
       const placeholderId = 'asst-placeholder';
       notifier.addMessage(
@@ -427,28 +424,32 @@ void main() {
           content: '',
           timestamp: DateTime.now(),
           isStreaming: true,
+          files: const [
+            {'type': 'image', 'url': '/api/v1/files/a/content'},
+          ],
         ),
       );
 
-      // Simulate current error handling: remove last, add new error
-      notifier.removeLastMessage();
-      notifier.addMessage(
-        ChatMessage(
-          id: 'error-replacement',
-          role: 'assistant',
-          content: '',
-          timestamp: DateTime.now(),
+      // Simulate the new in-place error conversion pattern
+      notifier.updateLastMessageWithFunction(
+        (m) => m.copyWith(
           isStreaming: false,
-          error: const ChatMessageError(content: 'Something went wrong'),
+          error: const ChatMessageError(
+            content: 'Transport setup failed',
+          ),
         ),
       );
 
       final messages = container.read(chatMessagesProvider);
-      // Current behavior: placeholder is gone, replacement is there
+      // Same placeholder ID preserved
       check(messages.length).equals(2);
-      // The id changed — this is the UNDESIRED behavior
-      check(messages.last.id).equals('error-replacement');
-      check(messages.last.id).not((it) => it.equals(placeholderId));
+      check(messages.last.id).equals(placeholderId);
+      // Error state set
+      check(messages.last.isStreaming).equals(false);
+      check(messages.last.error).isNotNull();
+      // Pre-attached files survived
+      check(messages.last.files).isNotNull();
+      check(messages.last.files!.length).equals(1);
     });
   });
 
