@@ -66,9 +66,7 @@ class ConduitMarkdownStyle {
   /// [context].
   ///
   /// This is the recommended way to create an instance.
-  factory ConduitMarkdownStyle.fromTheme(
-    BuildContext context,
-  ) {
+  factory ConduitMarkdownStyle.fromTheme(BuildContext context) {
     final theme = context.conduitTheme;
     final typo = theme.typography;
     final tokens = theme.tokens;
@@ -141,15 +139,9 @@ class ConduitMarkdownStyle {
         color: theme.textSecondary,
         height: 1.5,
       ),
-      codeSpan: monoBase.copyWith(
-        color: codeSpanText,
-      ),
-      codeBlock: monoBase.copyWith(
-        color: theme.codeText,
-      ),
-      blockquoteText: bodyStyle.copyWith(
-        color: theme.textSecondary,
-      ),
+      codeSpan: monoBase.copyWith(color: codeSpanText),
+      codeBlock: monoBase.copyWith(color: theme.codeText),
+      blockquoteText: bodyStyle.copyWith(color: theme.textSecondary),
       tableHeader: TextStyle(
         fontSize: AppTypography.bodySmall,
         fontWeight: FontWeight.w600,
@@ -163,14 +155,14 @@ class ConduitMarkdownStyle {
         height: 1.4,
       ),
 
-      // -- Spacing (chat-optimized, tight) --
-      paragraphSpacing: Spacing.xs,
-      headingTopSpacing: Spacing.sm,
-      headingBottomSpacing: Spacing.xs,
-      listItemSpacing: Spacing.xxs,
-      codeBlockSpacing: Spacing.xs,
-      blockquoteSpacing: Spacing.xs,
-      tableSpacing: Spacing.xs,
+      // -- Spacing (screenshot-matched, readable) --
+      paragraphSpacing: Spacing.md,
+      headingTopSpacing: Spacing.md,
+      headingBottomSpacing: Spacing.sm,
+      listItemSpacing: Spacing.sm,
+      codeBlockSpacing: Spacing.md,
+      blockquoteSpacing: Spacing.md,
+      tableSpacing: Spacing.md,
 
       // -- Colors --
       codeSpanTextColor: codeSpanText,
