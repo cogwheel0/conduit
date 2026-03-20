@@ -1270,25 +1270,14 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         // Alias for files event used by web client
         try {
           final files = _extractFilesFromResult(payload['files'] ?? payload);
-          if (files.isNotEmpty) {
-            final msgs = getMessages();
-            if (msgs.isNotEmpty && msgs.last.role == 'assistant') {
-              final existing = msgs.last.files ?? <Map<String, dynamic>>[];
-              final seen = <String>{
-                for (final f in existing)
-                  if (f['url'] is String) (f['url'] as String) else '',
-              }..removeWhere((e) => e.isEmpty);
-              final merged = <Map<String, dynamic>>[...existing];
-              for (final f in files) {
-                final url = f['url'] as String?;
-                if (url != null && url.isNotEmpty && !seen.contains(url)) {
-                  merged.add({'type': 'image', 'url': url});
-                  seen.add(url);
-                }
-              }
-              if (merged.length != existing.length) {
-                updateLastMessageWith((m) => m.copyWith(files: merged));
-              }
+          final msgs = getMessages();
+          if (msgs.isNotEmpty && msgs.last.role == 'assistant') {
+            final merged = _mergeNormalizedFiles(
+              incoming: files,
+              existing: msgs.last.files ?? <Map<String, dynamic>>[],
+            );
+            if (merged != null) {
+              updateLastMessageWith((m) => m.copyWith(files: merged));
             }
           }
         } catch (_) {}
@@ -1340,25 +1329,14 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         // Handle raw files event (image generation results)
         try {
           final files = _extractFilesFromResult(payload);
-          if (files.isNotEmpty) {
-            final msgs = getMessages();
-            if (msgs.isNotEmpty && msgs.last.role == 'assistant') {
-              final existing = msgs.last.files ?? <Map<String, dynamic>>[];
-              final seen = <String>{
-                for (final f in existing)
-                  if (f['url'] is String) (f['url'] as String) else '',
-              }..removeWhere((e) => e.isEmpty);
-              final merged = <Map<String, dynamic>>[...existing];
-              for (final f in files) {
-                final url = f['url'] as String?;
-                if (url != null && url.isNotEmpty && !seen.contains(url)) {
-                  merged.add({'type': 'image', 'url': url});
-                  seen.add(url);
-                }
-              }
-              if (merged.length != existing.length) {
-                updateLastMessageWith((m) => m.copyWith(files: merged));
-              }
+          final msgs = getMessages();
+          if (msgs.isNotEmpty && msgs.last.role == 'assistant') {
+            final merged = _mergeNormalizedFiles(
+              incoming: files,
+              existing: msgs.last.files ?? <Map<String, dynamic>>[],
+            );
+            if (merged != null) {
+              updateLastMessageWith((m) => m.copyWith(files: merged));
             }
           }
         } catch (_) {}
@@ -1826,6 +1804,33 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     socketSubscriptions: socketSubscriptions,
     disposeWatchdog: () {},
   );
+}
+
+/// Normalizes incoming file payloads and merges them with existing files
+/// on the assistant message, deduplicating by URL.
+///
+/// Returns the merged list if new files were added, or `null` if no
+/// update is needed (all files were duplicates or empty).
+List<Map<String, dynamic>>? _mergeNormalizedFiles({
+  required List<Map<String, dynamic>> incoming,
+  required List<Map<String, dynamic>> existing,
+}) {
+  if (incoming.isEmpty) return null;
+
+  final seen = <String>{
+    for (final f in existing)
+      if (f['url'] is String) f['url'] as String,
+  };
+
+  final merged = <Map<String, dynamic>>[...existing];
+  for (final f in incoming) {
+    final url = f['url'] as String?;
+    if (url != null && url.isNotEmpty && seen.add(url)) {
+      merged.add({'type': 'image', 'url': url});
+    }
+  }
+
+  return merged.length != existing.length ? merged : null;
 }
 
 List<Map<String, dynamic>> _extractFilesFromResult(dynamic resp) {

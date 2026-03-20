@@ -2614,24 +2614,26 @@ class ApiService {
   Future<dynamic> generateImage({
     required String prompt,
     String? model,
-    int? width,
-    int? height,
+    String? size,
+    int? n,
     int? steps,
-    double? guidance,
+    String? negativePrompt,
   }) async {
     final promptPreview = prompt.length > 50 ? prompt.substring(0, 50) : prompt;
     _traceApi('Generating image with prompt: $promptPreview...');
     try {
+      final data = <String, dynamic>{'prompt': prompt};
+      if (model != null) data['model'] = model;
+      if (size != null) data['size'] = size;
+      if (n != null) data['n'] = n;
+      if (steps != null) data['steps'] = steps;
+      if (negativePrompt != null) {
+        data['negative_prompt'] = negativePrompt;
+      }
+
       final response = await _dio.post(
         '/api/v1/images/generations',
-        data: {
-          'prompt': prompt,
-          'model': ?model,
-          'width': ?width,
-          'height': ?height,
-          'steps': ?steps,
-          'guidance': ?guidance,
-        },
+        data: data,
       );
       return response.data;
     } on DioException catch (e) {
@@ -4088,6 +4090,8 @@ class ApiService {
     required String messageId,
     required String sessionId,
     String? conversationId,
+    bool enableWebSearch = false,
+    bool enableImageGeneration = false,
   }) {
     return _buildChatCompletionPayload(
       messages: messages,
@@ -4095,6 +4099,8 @@ class ApiService {
       messageId: messageId,
       sessionId: sessionId,
       conversationId: conversationId,
+      enableWebSearch: enableWebSearch,
+      enableImageGeneration: enableImageGeneration,
     );
   }
 

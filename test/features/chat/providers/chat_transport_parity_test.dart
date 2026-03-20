@@ -3,13 +3,16 @@ import 'dart:convert';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/models/chat_message.dart';
+import 'package:conduit/core/models/socket_event.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/chat_completion_transport.dart';
+import 'package:conduit/core/services/conversation_delta_listener.dart';
 import 'package:conduit/core/services/streaming_helper.dart';
 import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/features/chat/services/chat_transport_dispatch.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 // ---------------------------------------------------------------------------
@@ -182,6 +185,7 @@ ActiveChatStream _attach({
   String assistantMessageId = 'msg-1',
   String sessionId = 'sess-1',
   String? activeConversationId = 'conv-1',
+  RegisterConversationDeltaListener? registerDeltaListener,
 }) {
   return attachUnifiedChunkedStreaming(
     session: session,
@@ -194,6 +198,7 @@ ActiveChatStream _attach({
     api: api ?? _buildFakeApi(),
     socketService: null,
     workerManager: workerManager ?? WorkerManager(maxConcurrentTasks: 1),
+    registerDeltaListener: registerDeltaListener,
     appendToLastMessage: log.appendToLastMessage,
     replaceLastMessageContent: log.replaceLastMessageContent,
     updateLastMessageWith: log.updateLastMessageWith,
@@ -206,6 +211,37 @@ ActiveChatStream _attach({
     getMessages: log.getMessages,
     flushStreamingBuffer: log.flushStreamingBuffer,
   );
+}
+
+// ---------------------------------------------------------------------------
+// Socket event injection helper
+// ---------------------------------------------------------------------------
+
+/// Captures delta listener callbacks for injecting socket events in tests.
+class _FakeDeltaRegistrar {
+  ConversationDeltaDataCallback? _chatHandler;
+
+  RegisterConversationDeltaListener get registrar =>
+      ({
+        required ConversationDeltaRequest request,
+        required ConversationDeltaDataCallback onDelta,
+        required ConversationDeltaErrorCallback onError,
+      }) {
+        if (request.source == ConversationDeltaSource.chat) {
+          _chatHandler = onDelta;
+        }
+        return () {};
+      };
+
+  void emitChatEvent(String type, dynamic payload, {String? messageId}) {
+    final raw = <String, dynamic>{
+      'data': {'type': type, 'data': payload},
+      if (messageId != null) 'message_id': messageId,
+    };
+    _chatHandler?.call(
+      ConversationDelta(source: ConversationDeltaSource.chat, raw: raw),
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -480,5 +516,145 @@ void main() {
       check(meta).not((it) => it.containsKey('taskId'));
       check(meta).not((it) => it.containsKey('hasActiveAbortHandle'));
     });
+  });
+
+  // =========================================================================
+  // Transport metadata survives image/status patches
+  // =========================================================================
+  group('transport metadata coexistence with image patches', () {
+    // -------------------------------------------------------------------
+    // 10. Image file patch preserves transport metadata
+    // -------------------------------------------------------------------
+    test('image file patch preserves transport metadata', () async {
+      // Start with transport metadata already present (simulating
+      // writeTransportMetadata having been called)
+      final log = _CallbackLog(
+        initialMessages: _fakeStreamingMessages(
+          metadata: {'transport': 'taskSocket', 'taskId': 'task-abc'},
+        ),
+      );
+      final registrar = _FakeDeltaRegistrar();
+
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-abc',
+        ),
+        log: log,
+        registerDeltaListener: registrar.registrar,
+      );
+
+      await pumpMicrotasks();
+
+      // Image files arrive via socket
+      registrar.emitChatEvent('chat:message:files', {
+        'files': [
+          {'url': 'https://example.com/gen.png'},
+        ],
+      });
+
+      await pumpMicrotasks();
+
+      final lastMsg = log.messages.last;
+      // Files should be present
+      check(lastMsg.files).isNotNull();
+      check(lastMsg.files!.length).equals(1);
+      // Transport metadata must survive the file patch
+      check(lastMsg.metadata).isNotNull();
+      check(lastMsg.metadata!['transport']).equals('taskSocket');
+      check(lastMsg.metadata!['taskId']).equals('task-abc');
+    });
+
+    // -------------------------------------------------------------------
+    // 11. Status patch preserves transport metadata
+    // -------------------------------------------------------------------
+    test('status patch preserves transport metadata', () async {
+      final log = _CallbackLog(
+        initialMessages: _fakeStreamingMessages(
+          metadata: {
+            'transport': 'taskSocket',
+            'taskId': 'task-xyz',
+            'hasActiveAbortHandle': true,
+          },
+        ),
+      );
+      final registrar = _FakeDeltaRegistrar();
+
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-xyz',
+        ),
+        log: log,
+        registerDeltaListener: registrar.registrar,
+      );
+
+      await pumpMicrotasks();
+
+      // Status event arrives
+      registrar.emitChatEvent('event:status', {'status': 'Processing...'});
+
+      await pumpMicrotasks();
+
+      final lastMsg = log.messages.last;
+      // Status should be in metadata
+      check(lastMsg.metadata).isNotNull();
+      check(lastMsg.metadata!['status']).equals('Processing...');
+      // Transport metadata must survive the status patch
+      check(lastMsg.metadata!['transport']).equals('taskSocket');
+      check(lastMsg.metadata!['taskId']).equals('task-xyz');
+      check(lastMsg.metadata!['hasActiveAbortHandle']).equals(true);
+    });
+
+    // -------------------------------------------------------------------
+    // 12. Sequential image + status patches preserve all metadata
+    // -------------------------------------------------------------------
+    test(
+      'sequential image then status patches preserve all metadata',
+      () async {
+        final log = _CallbackLog(
+          initialMessages: _fakeStreamingMessages(
+            metadata: {'transport': 'taskSocket', 'taskId': 'task-seq'},
+          ),
+        );
+        final registrar = _FakeDeltaRegistrar();
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-seq',
+          ),
+          log: log,
+          registerDeltaListener: registrar.registrar,
+        );
+
+        await pumpMicrotasks();
+
+        // Files first
+        registrar.emitChatEvent('files', [
+          {'url': 'https://example.com/seq.png'},
+        ]);
+
+        await pumpMicrotasks();
+
+        // Status second
+        registrar.emitChatEvent('event:status', {'status': 'Done generating'});
+
+        await pumpMicrotasks();
+
+        final lastMsg = log.messages.last;
+        // Files
+        check(lastMsg.files).isNotNull();
+        check(lastMsg.files!.length).equals(1);
+        // Status
+        check(lastMsg.metadata!['status']).equals('Done generating');
+        // Transport (must survive both patches)
+        check(lastMsg.metadata!['transport']).equals('taskSocket');
+        check(lastMsg.metadata!['taskId']).equals('task-seq');
+      },
+    );
   });
 }

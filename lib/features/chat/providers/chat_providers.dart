@@ -2327,80 +2327,57 @@ Future<void> _sendMessageInternal(
 
     return;
   } catch (e) {
-    // Handle error - remove the assistant message placeholder
-    ref.read(chatMessagesProvider.notifier).removeLastMessage();
+    // Convert the assistant placeholder in-place to an error-state
+    // message. This preserves the placeholder's ID and any files that
+    // may have arrived before the error, matching OpenWebUI's same-slot
+    // failure semantics.
+    final errorContent = _errorContentForException(e);
 
-    // Add user-friendly error message instead of rethrowing
-    if (e.toString().contains('400')) {
-      final errorMessage = ChatMessage(
-        id: const Uuid().v4(),
-        role: 'assistant',
-        content: '',
-        timestamp: DateTime.now(),
-        isStreaming: false,
-        error: const ChatMessageError(
-          content:
-              'There was an issue with the message format. This might be '
-              'because the image attachment couldn\'t be processed, the request '
-              'format is incompatible with the selected model, or the message '
-              'contains unsupported content. Please try sending the message '
-              'again, or try without attachments.',
+    if (e.toString().contains('401') || e.toString().contains('403')) {
+      // Authentication errors - clear auth state and redirect to login.
+      // Still convert the placeholder so the UI is consistent.
+      ref.read(chatMessagesProvider.notifier).updateLastMessageWithFunction(
+        (m) => m.copyWith(
+          isStreaming: false,
+          error: ChatMessageError(content: errorContent),
         ),
       );
-      ref.read(chatMessagesProvider.notifier).addMessage(errorMessage);
-    } else if (e.toString().contains('401') || e.toString().contains('403')) {
-      // Authentication errors - clear auth state and redirect to login
       ref.invalidate(authStateManagerProvider);
-    } else if (e.toString().contains('500')) {
-      final errorMessage = ChatMessage(
-        id: const Uuid().v4(),
-        role: 'assistant',
-        content: '',
-        timestamp: DateTime.now(),
-        isStreaming: false,
-        error: const ChatMessageError(
-          content:
-              'Unable to connect to the AI model. The server returned an '
-              'error (500). This is typically a server-side issue. Please try '
-              'again or contact your administrator.',
-        ),
-      );
-      ref.read(chatMessagesProvider.notifier).addMessage(errorMessage);
-    } else if (e.toString().contains('404')) {
-      DebugLogger.log(
-        'Model or endpoint not found (404)',
-        scope: 'chat/providers',
-      );
-      final errorMessage = ChatMessage(
-        id: const Uuid().v4(),
-        role: 'assistant',
-        content: '',
-        timestamp: DateTime.now(),
-        isStreaming: false,
-        error: const ChatMessageError(
-          content:
-              'The selected AI model doesn\'t seem to be available. '
-              'Please try selecting a different model or check with your '
-              'administrator.',
-        ),
-      );
-      ref.read(chatMessagesProvider.notifier).addMessage(errorMessage);
     } else {
-      // For other errors, provide a generic message and rethrow
-      final errorMessage = ChatMessage(
-        id: const Uuid().v4(),
-        role: 'assistant',
-        content: '',
-        timestamp: DateTime.now(),
-        isStreaming: false,
-        error: const ChatMessageError(
-          content:
-              'An unexpected error occurred while processing your request. '
-              'Please try again or check your connection.',
+      ref.read(chatMessagesProvider.notifier).updateLastMessageWithFunction(
+        (m) => m.copyWith(
+          isStreaming: false,
+          error: ChatMessageError(content: errorContent),
         ),
       );
-      ref.read(chatMessagesProvider.notifier).addMessage(errorMessage);
     }
+  }
+}
+
+/// Returns a user-friendly error description based on the exception.
+String _errorContentForException(Object e) {
+  final msg = e.toString();
+  if (msg.contains('400')) {
+    return 'There was an issue with the message format. This might be '
+        'because the image attachment couldn\'t be processed, the request '
+        'format is incompatible with the selected model, or the message '
+        'contains unsupported content. Please try sending the message '
+        'again, or try without attachments.';
+  } else if (msg.contains('500')) {
+    return 'Unable to connect to the AI model. The server returned an '
+        'error (500). This is typically a server-side issue. Please try '
+        'again or contact your administrator.';
+  } else if (msg.contains('404')) {
+    DebugLogger.log(
+      'Model or endpoint not found (404)',
+      scope: 'chat/providers',
+    );
+    return 'The selected AI model doesn\'t seem to be available. '
+        'Please try selecting a different model or check with your '
+        'administrator.';
+  } else {
+    return 'An unexpected error occurred while processing your request. '
+        'Please try again or check your connection.';
   }
 }
 
@@ -2614,6 +2591,18 @@ Future<void> cloneConversation(WidgetRef ref, String conversationId) async {
   }
 }
 
+/// Whether [message] is an assistant message whose normalized [files]
+/// contain at least one image entry (`type == 'image'`).
+///
+/// Used by the regeneration path to decide whether to force
+/// `imageGenerationEnabled` during replay.
+bool assistantHasNormalizedImageFiles(ChatMessage message) {
+  if (message.role != 'assistant') return false;
+  final files = message.files;
+  if (files == null || files.isEmpty) return false;
+  return files.any((f) => f['type'] == 'image');
+}
+
 // Regenerate last message
 final regenerateLastMessageProvider = Provider<Future<void> Function()>((ref) {
   return () async {
@@ -2628,8 +2617,7 @@ final regenerateLastMessageProvider = Provider<Future<void> Function()>((ref) {
         : null;
     final bool lastAssistantHadImages =
         lastAssistantMessage != null &&
-        lastAssistantMessage.role == 'assistant' &&
-        (lastAssistantMessage.files?.any((f) => f['type'] == 'image') == true);
+        assistantHasNormalizedImageFiles(lastAssistantMessage);
     for (int i = messages.length - 2; i >= 0 && i < messages.length; i--) {
       if (i >= 0 && messages[i].role == 'user') {
         lastUserMessage = messages[i];
