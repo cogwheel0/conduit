@@ -328,9 +328,12 @@ void main() {
         enableImageGeneration: true,
       );
 
-      check(payload).has((p) => p['features'], 'features').isNotNull();
-      final features = payload['features'] as Map<String, dynamic>;
-      check(features['image_generation'] as bool).isTrue();
+      check(payload['features']).isA<Map<String, dynamic>>().deepEquals({
+        'web_search': false,
+        'image_generation': true,
+        'code_interpreter': false,
+        'memory': false,
+      });
     });
 
     test('omits features key when no feature flags are active', () {
@@ -372,6 +375,59 @@ void main() {
         check(invoked).isTrue();
       },
     );
+  });
+
+  // -----------------------------------------------------------------------
+  // generateImage API contract
+  // -----------------------------------------------------------------------
+  group('generateImage', () {
+    test('POST body uses only OpenWebUI-compatible keys', () async {
+      final adapter = _FakeAdapter.json({
+        'images': [
+          {'url': 'https://example.com/img.png'},
+        ],
+      });
+      final api = _buildApiServiceForTest(adapter);
+
+      await api.generateImage(
+        prompt: 'a sunset over mountains',
+        model: 'dall-e-3',
+        size: '1024x1024',
+        n: 2,
+        steps: 30,
+        negativePrompt: 'blurry',
+      );
+
+      final request = adapter.lastRequest!;
+      check(request.path).equals('/api/v1/images/generations');
+
+      final body = request.data as Map<String, dynamic>;
+      check(body['prompt'] as String).equals('a sunset over mountains');
+      check(body['model'] as String).equals('dall-e-3');
+      check(body['size'] as String).equals('1024x1024');
+      check(body['n'] as int).equals(2);
+      check(body['steps'] as int).equals(30);
+      check(body['negative_prompt'] as String).equals('blurry');
+
+      // Must NOT contain non-OpenWebUI keys
+      check(body.containsKey('width')).isFalse();
+      check(body.containsKey('height')).isFalse();
+      check(body.containsKey('guidance')).isFalse();
+    });
+
+    test('omits optional keys when not provided', () async {
+      final adapter = _FakeAdapter.json({
+        'images': [
+          {'url': 'https://example.com/img.png'},
+        ],
+      });
+      final api = _buildApiServiceForTest(adapter);
+
+      await api.generateImage(prompt: 'a cat');
+
+      final body = adapter.lastRequest!.data as Map<String, dynamic>;
+      check(body.keys.toList()).deepEquals(['prompt']);
+    });
   });
 
   // -----------------------------------------------------------------------
