@@ -3,12 +3,15 @@ import 'dart:convert';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/models/chat_message.dart';
+import 'package:conduit/core/models/socket_event.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/chat_completion_transport.dart';
+import 'package:conduit/core/services/conversation_delta_listener.dart';
 import 'package:conduit/core/services/streaming_helper.dart';
 import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/core/models/server_config.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 // ---------------------------------------------------------------------------
@@ -206,6 +209,7 @@ ActiveChatStream _attach({
   String modelId = 'test-model',
   String sessionId = 'sess-1',
   String? activeConversationId = 'conv-1',
+  RegisterConversationDeltaListener? registerDeltaListener,
 }) {
   return attachUnifiedChunkedStreaming(
     session: session,
@@ -218,6 +222,7 @@ ActiveChatStream _attach({
     api: api ?? _buildFakeApi(),
     socketService: null,
     workerManager: workerManager ?? _fakeWorkerManager(),
+    registerDeltaListener: registerDeltaListener,
     appendToLastMessage: log.appendToLastMessage,
     replaceLastMessageContent: log.replaceLastMessageContent,
     updateLastMessageWith: log.updateLastMessageWith,
@@ -230,6 +235,45 @@ ActiveChatStream _attach({
     getMessages: log.getMessages,
     flushStreamingBuffer: log.flushStreamingBuffer,
   );
+}
+
+// ---------------------------------------------------------------------------
+// Socket event injection helper
+// ---------------------------------------------------------------------------
+
+/// A fake [RegisterConversationDeltaListener] that captures the onDelta
+/// callbacks so tests can inject socket events directly.
+class FakeDeltaRegistrar {
+  ConversationDeltaDataCallback? _chatHandler;
+  ConversationDeltaDataCallback? _channelHandler;
+
+  RegisterConversationDeltaListener get registrar =>
+      ({
+        required ConversationDeltaRequest request,
+        required ConversationDeltaDataCallback onDelta,
+        required ConversationDeltaErrorCallback onError,
+      }) {
+        if (request.source == ConversationDeltaSource.chat) {
+          _chatHandler = onDelta;
+        } else {
+          _channelHandler = onDelta;
+        }
+        return () {};
+      };
+
+  /// Injects a socket chat event with the given [type] and [payload].
+  ///
+  /// [payload] can be a Map, List, or any other type — matching
+  /// the flexibility of real socket events.
+  void emitChatEvent(String type, dynamic payload, {String? messageId}) {
+    final raw = <String, dynamic>{
+      'data': {'type': type, 'data': payload},
+      if (messageId != null) 'message_id': messageId,
+    };
+    _chatHandler?.call(
+      ConversationDelta(source: ConversationDeltaSource.chat, raw: raw),
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -739,6 +783,233 @@ void main() {
         disposeWatchdog: () {},
       );
       check(stream.socketSubscriptions).isEmpty();
+    });
+  });
+
+  // =========================================================================
+  // Socket event image normalization tests
+  // =========================================================================
+  group('socket event image normalization', () {
+    // -----------------------------------------------------------------------
+    // 11. chat:message:files normalizes and dedupes image URLs
+    // -----------------------------------------------------------------------
+    test('chat:message:files normalizes and dedupes image URLs', () async {
+      final log = _CallbackLog();
+      final registrar = FakeDeltaRegistrar();
+
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        registerDeltaListener: registrar.registrar,
+      );
+
+      await pumpMicrotasks();
+
+      // Send duplicate image URLs via chat:message:files
+      registrar.emitChatEvent('chat:message:files', {
+        'files': [
+          {'url': 'https://example.com/img1.png', 'type': 'image'},
+          {'url': 'https://example.com/img2.png', 'type': 'file'},
+          {'url': 'https://example.com/img1.png', 'type': 'image'},
+        ],
+      });
+
+      await pumpMicrotasks();
+
+      final lastMsg = log.messages.last;
+      check(lastMsg.files).isNotNull();
+      // Should have exactly 2 images (deduplicated), both normalized
+      // to {type: 'image', url: ...}
+      check(lastMsg.files!.length).equals(2);
+      check(
+        lastMsg.files![0],
+      ).deepEquals({'type': 'image', 'url': 'https://example.com/img1.png'});
+      check(
+        lastMsg.files![1],
+      ).deepEquals({'type': 'image', 'url': 'https://example.com/img2.png'});
+    });
+
+    // -----------------------------------------------------------------------
+    // 11b. 'files' event also normalizes and dedupes
+    // -----------------------------------------------------------------------
+    test('files event normalizes and dedupes image URLs', () async {
+      final log = _CallbackLog();
+      final registrar = FakeDeltaRegistrar();
+
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        registerDeltaListener: registrar.registrar,
+      );
+
+      await pumpMicrotasks();
+
+      // Send files via the 'files' event type (raw payload, not
+      // nested under 'files' key)
+      registrar.emitChatEvent('files', [
+        {'url': 'https://example.com/a.png'},
+        {'url': 'https://example.com/b.png'},
+        {'url': 'https://example.com/a.png'},
+      ]);
+
+      await pumpMicrotasks();
+
+      final lastMsg = log.messages.last;
+      check(lastMsg.files).isNotNull();
+      check(lastMsg.files!.length).equals(2);
+      check(
+        lastMsg.files![0],
+      ).deepEquals({'type': 'image', 'url': 'https://example.com/a.png'});
+      check(
+        lastMsg.files![1],
+      ).deepEquals({'type': 'image', 'url': 'https://example.com/b.png'});
+    });
+
+    // -----------------------------------------------------------------------
+    // 11c. Both event types merge correctly in sequence
+    // -----------------------------------------------------------------------
+    test('chat:message:files then files event merges without dupes', () async {
+      final log = _CallbackLog();
+      final registrar = FakeDeltaRegistrar();
+
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        registerDeltaListener: registrar.registrar,
+      );
+
+      await pumpMicrotasks();
+
+      // First batch via chat:message:files
+      registrar.emitChatEvent('chat:message:files', {
+        'files': [
+          {'url': 'https://example.com/first.png'},
+        ],
+      });
+
+      await pumpMicrotasks();
+
+      // Second batch via files event (includes a dupe)
+      registrar.emitChatEvent('files', [
+        {'url': 'https://example.com/first.png'},
+        {'url': 'https://example.com/second.png'},
+      ]);
+
+      await pumpMicrotasks();
+
+      final lastMsg = log.messages.last;
+      check(lastMsg.files).isNotNull();
+      // first.png should only appear once
+      check(lastMsg.files!.length).equals(2);
+      final urls = lastMsg.files!.map((f) => f['url']).toList();
+      check(urls).deepEquals([
+        'https://example.com/first.png',
+        'https://example.com/second.png',
+      ]);
+    });
+
+    // -----------------------------------------------------------------------
+    // 12. Status event before files — both land on same assistant message
+    // -----------------------------------------------------------------------
+    test('status event before files — both land on same message', () async {
+      final log = _CallbackLog();
+      final registrar = FakeDeltaRegistrar();
+
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        registerDeltaListener: registrar.registrar,
+      );
+
+      await pumpMicrotasks();
+
+      // Status arrives first
+      registrar.emitChatEvent('event:status', {
+        'status': 'Generating image...',
+      });
+
+      await pumpMicrotasks();
+
+      // Then files arrive
+      registrar.emitChatEvent('files', {
+        'files': [
+          {'url': 'https://example.com/gen.png'},
+        ],
+      });
+
+      await pumpMicrotasks();
+
+      final lastMsg = log.messages.last;
+      // Status should have been applied
+      check(lastMsg.metadata).isNotNull();
+      check(lastMsg.metadata!['status']).equals('Generating image...');
+      // Files should also be present
+      check(lastMsg.files).isNotNull();
+      check(lastMsg.files!.length).equals(1);
+      check(lastMsg.files![0]['url']).equals('https://example.com/gen.png');
+    });
+
+    // -----------------------------------------------------------------------
+    // 13. Partial success then terminal failure — files remain, error visible
+    // -----------------------------------------------------------------------
+    test('files remain on message after terminal error', () async {
+      final log = _CallbackLog();
+      final registrar = FakeDeltaRegistrar();
+
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        registerDeltaListener: registrar.registrar,
+      );
+
+      await pumpMicrotasks();
+
+      // Files arrive first (partial success)
+      registrar.emitChatEvent('chat:message:files', {
+        'files': [
+          {'url': 'https://example.com/partial.png'},
+        ],
+      });
+
+      await pumpMicrotasks();
+
+      // Then terminal error
+      registrar.emitChatEvent('chat:message:error', {
+        'error': {'content': 'Generation failed halfway'},
+      });
+
+      await pumpMicrotasks();
+
+      final lastMsg = log.messages.last;
+      // Files from the partial success must still be present
+      check(lastMsg.files).isNotNull();
+      check(lastMsg.files!.length).equals(1);
+      check(lastMsg.files![0]['url']).equals('https://example.com/partial.png');
+      // Error must be recorded
+      check(lastMsg.error).isNotNull();
+      check(lastMsg.error!.content).equals('Generation failed halfway');
+      // Streaming should have ended
+      check(lastMsg.isStreaming).isFalse();
     });
   });
 }
