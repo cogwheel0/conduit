@@ -39,16 +39,13 @@ class ThreadPanel extends ConsumerStatefulWidget {
   final VoidCallback onClose;
 
   /// Builder for the overflow (+) attachment button.
-  final Widget Function(double size)?
-      overflowButtonBuilder;
+  final Widget Function(double size)? overflowButtonBuilder;
 
   @override
-  ConsumerState<ThreadPanel> createState() =>
-      _ThreadPanelState();
+  ConsumerState<ThreadPanel> createState() => _ThreadPanelState();
 }
 
-class _ThreadPanelState
-    extends ConsumerState<ThreadPanel> {
+class _ThreadPanelState extends ConsumerState<ThreadPanel> {
   bool _isSending = false;
 
   Future<void> _sendReply(String text) async {
@@ -92,25 +89,17 @@ class _ThreadPanelState
     final theme = context.conduitTheme;
     final api = ref.read(apiServiceProvider);
     final threadAsync = ref.watch(
-      threadMessagesProvider(
-        widget.channelId,
-        widget.parentMessage.id,
-      ),
+      threadMessagesProvider(widget.channelId, widget.parentMessage.id),
     );
 
     return Container(
       decoration: BoxDecoration(
         color: theme.surfaceBackground,
-        border: Border(
-          left: BorderSide(color: theme.dividerColor),
-        ),
+        border: Border(left: BorderSide(color: theme.dividerColor)),
       ),
       child: Column(
         children: [
-          _ThreadHeader(
-            theme: theme,
-            onClose: widget.onClose,
-          ),
+          _ThreadHeader(theme: theme, onClose: widget.onClose),
           const Divider(height: 1),
           _ParentMessageTile(
             message: widget.parentMessage,
@@ -122,34 +111,27 @@ class _ThreadPanelState
             child: threadAsync.when(
               data: (messages) => _ThreadReplies(
                 messages: messages
-                    .where(
-                      (m) =>
-                          m.id !=
-                          widget.parentMessage.id,
-                    )
+                    .where((m) => m.id != widget.parentMessage.id)
                     .toList(),
                 api: api,
                 theme: theme,
               ),
-              loading: () => const Center(
-                child: CircularProgressIndicator(),
-              ),
+              loading: () => const Center(child: CircularProgressIndicator()),
               error: (e, _) => Center(
-                child: Text(
-                  e.toString(),
-                  style: TextStyle(
-                    color: theme.error,
-                  ),
-                ),
+                child: Text(e.toString(), style: TextStyle(color: theme.error)),
               ),
             ),
           ),
           RepaintBoundary(
-            child: ModernChatInput(
-              onSendMessage: _sendReply,
-              placeholder: 'Reply...',
-              overflowButtonBuilder:
-                  widget.overflowButtonBuilder,
+            child: Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).viewInsets.bottom,
+              ),
+              child: ModernChatInput(
+                onSendMessage: _sendReply,
+                placeholder: 'Reply...',
+                overflowButtonBuilder: widget.overflowButtonBuilder,
+              ),
             ),
           ),
         ],
@@ -160,10 +142,7 @@ class _ThreadPanelState
 
 /// Header row with "Thread" title and a close button.
 class _ThreadHeader extends StatelessWidget {
-  const _ThreadHeader({
-    required this.theme,
-    required this.onClose,
-  });
+  const _ThreadHeader({required this.theme, required this.onClose});
 
   final ConduitThemeExtension theme;
   final VoidCallback onClose;
@@ -184,11 +163,7 @@ class _ThreadHeader extends StatelessWidget {
           ),
           const Spacer(),
           IconButton(
-            icon: Icon(
-              Icons.close,
-              color: theme.textSecondary,
-              size: 20,
-            ),
+            icon: Icon(Icons.close, color: theme.textSecondary, size: 20),
             onPressed: onClose,
           ),
         ],
@@ -221,16 +196,14 @@ class _ParentMessageTile extends StatelessWidget {
           const SizedBox(width: Spacing.sm),
           Expanded(
             child: Column(
-              crossAxisAlignment:
-                  CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   messageDisplayName(message),
                   style: TextStyle(
                     color: theme.textSecondary,
                     fontWeight: FontWeight.w500,
-                    fontSize:
-                        AppTypography.bodySmall,
+                    fontSize: AppTypography.bodySmall,
                     letterSpacing: 0.1,
                   ),
                 ),
@@ -238,15 +211,10 @@ class _ParentMessageTile extends StatelessWidget {
                 RichText(
                   text: buildMentionSpan(
                     content: message.content,
-                    baseStyle: AppTypography
-                        .chatMessageStyle
-                        .copyWith(
+                    baseStyle: AppTypography.chatMessageStyle.copyWith(
                       color: theme.textPrimary,
                     ),
-                    mentionColor:
-                        Theme.of(context)
-                            .colorScheme
-                            .primary,
+                    mentionColor: Theme.of(context).colorScheme.primary,
                   ),
                 ),
               ],
@@ -259,21 +227,16 @@ class _ParentMessageTile extends StatelessWidget {
 
   Widget _buildAvatar() {
     if (isModelMessage(message)) {
-      final modelId =
-          message.meta!['model_id'] as String?;
+      final modelId = message.meta!['model_id'] as String?;
       return ModelAvatar(
         size: 28,
-        imageUrl:
-            buildModelAvatarUrl(api, modelId),
+        imageUrl: buildModelAvatarUrl(api, modelId),
         label: messageDisplayName(message),
       );
     }
     return UserAvatar(
       size: 28,
-      imageUrl: resolveUserProfileImageUrl(
-        api,
-        message.user?.profileImageUrl,
-      ),
+      imageUrl: resolveUserProfileImageUrl(api, message.user?.profileImageUrl),
       fallbackText: message.userName,
     );
   }
@@ -281,11 +244,7 @@ class _ParentMessageTile extends StatelessWidget {
 
 /// Scrollable list of thread replies.
 class _ThreadReplies extends StatelessWidget {
-  const _ThreadReplies({
-    required this.messages,
-    this.api,
-    required this.theme,
-  });
+  const _ThreadReplies({required this.messages, this.api, required this.theme});
 
   final List<ChannelMessage> messages;
   final ApiService? api;
@@ -297,17 +256,13 @@ class _ThreadReplies extends StatelessWidget {
       return Center(
         child: Text(
           'No replies yet',
-          style: TextStyle(
-            color: theme.textSecondary,
-          ),
+          style: TextStyle(color: theme.textSecondary),
         ),
       );
     }
     return ListView.builder(
       reverse: false,
-      padding: const EdgeInsets.symmetric(
-        vertical: Spacing.sm,
-      ),
+      padding: const EdgeInsets.symmetric(vertical: Spacing.sm),
       itemCount: messages.length,
       itemBuilder: (context, index) {
         final message = messages[index];
@@ -317,44 +272,37 @@ class _ThreadReplies extends StatelessWidget {
             vertical: Spacing.xs,
           ),
           child: Row(
-            crossAxisAlignment:
-                CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if (isModelMessage(message))
                 ModelAvatar(
                   size: 24,
                   imageUrl: buildModelAvatarUrl(
                     api,
-                    message.meta?['model_id']
-                        as String?,
+                    message.meta?['model_id'] as String?,
                   ),
-                  label:
-                      messageDisplayName(message),
+                  label: messageDisplayName(message),
                 )
               else
                 UserAvatar(
                   size: 24,
-                  imageUrl:
-                      resolveUserProfileImageUrl(
+                  imageUrl: resolveUserProfileImageUrl(
                     api,
                     message.user?.profileImageUrl,
                   ),
-                  fallbackText:
-                      message.userName,
+                  fallbackText: message.userName,
                 ),
               const SizedBox(width: Spacing.sm),
               Expanded(
                 child: Column(
-                  crossAxisAlignment:
-                      CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       messageDisplayName(message),
                       style: TextStyle(
                         color: theme.textSecondary,
                         fontWeight: FontWeight.w500,
-                        fontSize:
-                            AppTypography.bodySmall,
+                        fontSize: AppTypography.bodySmall,
                         letterSpacing: 0.1,
                       ),
                     ),
@@ -362,15 +310,10 @@ class _ThreadReplies extends StatelessWidget {
                     RichText(
                       text: buildMentionSpan(
                         content: message.content,
-                        baseStyle: AppTypography
-                            .chatMessageStyle
-                            .copyWith(
+                        baseStyle: AppTypography.chatMessageStyle.copyWith(
                           color: theme.textPrimary,
                         ),
-                        mentionColor:
-                            Theme.of(context)
-                                .colorScheme
-                                .primary,
+                        mentionColor: Theme.of(context).colorScheme.primary,
                       ),
                     ),
                   ],

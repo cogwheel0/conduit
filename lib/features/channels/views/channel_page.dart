@@ -44,13 +44,11 @@ class ChannelPage extends ConsumerStatefulWidget {
 }
 
 class _ChannelPageState extends ConsumerState<ChannelPage> {
-  final ScrollController _scrollController =
-      ScrollController();
+  final ScrollController _scrollController = ScrollController();
   bool _isSending = false;
   bool _isLoadingMore = false;
   String? _editingMessageId;
-  final TextEditingController _editController =
-      TextEditingController();
+  final TextEditingController _editController = TextEditingController();
   Timer? _typingTimer;
   ChannelMessage? _replyToMessage;
   ChannelMessage? _threadParent;
@@ -64,9 +62,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   }
 
   void _openThread(ChannelMessage message) {
-    final isTablet =
-        MediaQuery.of(context).size.shortestSide >=
-            600;
+    final isTablet = MediaQuery.of(context).size.shortestSide >= 600;
     if (isTablet) {
       setState(() => _threadParent = message);
     } else {
@@ -75,14 +71,12 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         isScrollControlled: true,
         useSafeArea: true,
         builder: (ctx) => SizedBox(
-          height: MediaQuery.of(ctx).size.height *
-              0.85,
+          height: MediaQuery.of(ctx).size.height * 0.85,
           child: ThreadPanel(
             channelId: widget.channelId,
             parentMessage: message,
             onClose: () => Navigator.pop(ctx),
-            overflowButtonBuilder:
-                _buildAttachmentButton,
+            overflowButtonBuilder: _buildAttachmentButton,
           ),
         ),
       );
@@ -198,9 +192,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
 
     setState(() => _isSending = true);
     try {
-      final tempId = DateTime.now()
-          .microsecondsSinceEpoch
-          .toString();
+      final tempId = DateTime.now().microsecondsSinceEpoch.toString();
       final json = await api.postChannelMessage(
         widget.channelId,
         content: content,
@@ -210,10 +202,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       if (!mounted) return;
       final message = ChannelMessage.fromJson(json);
       ref
-          .read(
-            channelMessagesProvider(widget.channelId)
-                .notifier,
-          )
+          .read(channelMessagesProvider(widget.channelId).notifier)
           .prependMessage(message);
       _clearReplyTo();
     } catch (e, s) {
@@ -226,11 +215,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       if (!mounted) return;
       final l10n = AppLocalizations.of(context);
       if (l10n != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(l10n.channelSendError),
-          ),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(l10n.channelSendError)));
       }
     } finally {
       if (mounted) setState(() => _isSending = false);
@@ -252,45 +239,33 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         AdaptivePopupMenuItem<String>(
           value: 'file',
           label: l10n?.file ?? 'File',
-          icon: Platform.isIOS
-              ? CupertinoIcons.doc
-              : Icons.attach_file,
+          icon: Platform.isIOS ? CupertinoIcons.doc : Icons.attach_file,
         ),
         AdaptivePopupMenuItem<String>(
           value: 'photo',
           label: l10n?.photo ?? 'Photo',
-          icon: Platform.isIOS
-              ? CupertinoIcons.photo
-              : Icons.image,
+          icon: Platform.isIOS ? CupertinoIcons.photo : Icons.image,
         ),
         AdaptivePopupMenuItem<String>(
           value: 'camera',
           label: l10n?.camera ?? 'Camera',
-          icon: Platform.isIOS
-              ? CupertinoIcons.camera
-              : Icons.camera_alt,
+          icon: Platform.isIOS ? CupertinoIcons.camera : Icons.camera_alt,
         ),
       ],
-      onSelected: (index, entry) => _handleAttachmentAction(
-        entry.value as String,
-      ),
+      onSelected: (index, entry) =>
+          _handleAttachmentAction(entry.value as String),
       child: Container(
         width: size,
         height: size,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           color: theme.surfaceContainerHighest,
-          border: Border.all(
-            color: theme.cardBorder,
-            width: BorderWidth.thin,
-          ),
+          border: Border.all(color: theme.cardBorder, width: BorderWidth.thin),
         ),
         child: Icon(
           Platform.isIOS ? CupertinoIcons.add : Icons.add,
           size: IconSize.large,
-          color: theme.textPrimary.withValues(
-            alpha: Alpha.strong,
-          ),
+          color: theme.textPrimary.withValues(alpha: Alpha.strong),
         ),
       ),
     );
@@ -316,23 +291,17 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   // Reactions
   // ---------------------------------------------------------------------------
 
-  Future<void> _toggleReaction(
-    ChannelMessage message,
-    String emoji,
-  ) async {
+  Future<void> _toggleReaction(ChannelMessage message, String emoji) async {
     final api = ref.read(apiServiceProvider);
     if (api == null) return;
-    final currentUserId =
-        ref.read(currentUserProvider).value?.id;
+    final currentUserId = ref.read(currentUserProvider).value?.id;
     if (currentUserId == null) return;
 
     final existing = message.reactions.any(
       (r) =>
           r.name == emoji &&
           r.users.any(
-            (u) =>
-                u['user_id'] == currentUserId ||
-                u['id'] == currentUserId,
+            (u) => u['user_id'] == currentUserId || u['id'] == currentUserId,
           ),
     );
 
@@ -340,17 +309,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       // The API returns bool; the socket handler will
       // re-fetch the message with updated reactions.
       if (existing) {
-        await api.removeMessageReaction(
-          widget.channelId,
-          message.id,
-          emoji,
-        );
+        await api.removeMessageReaction(widget.channelId, message.id, emoji);
       } else {
-        await api.addMessageReaction(
-          widget.channelId,
-          message.id,
-          emoji,
-        );
+        await api.addMessageReaction(widget.channelId, message.id, emoji);
       }
     } catch (e, s) {
       developer.log(
@@ -366,15 +327,10 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     final api = ref.read(apiServiceProvider);
     if (api == null) return;
     try {
-      await api.deleteChannelMessage(
-        widget.channelId,
-        message.id,
-      );
+      await api.deleteChannelMessage(widget.channelId, message.id);
       if (!mounted) return;
       ref
-          .read(
-            channelMessagesProvider(widget.channelId).notifier,
-          )
+          .read(channelMessagesProvider(widget.channelId).notifier)
           .removeMessage(message.id);
     } catch (e, s) {
       developer.log(
@@ -406,8 +362,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
 
   Future<void> _submitEdit(ChannelMessage message) async {
     final newContent = _editController.text.trim();
-    if (newContent.isEmpty ||
-        newContent == message.content) {
+    if (newContent.isEmpty || newContent == message.content) {
       _cancelEditing();
       return;
     }
@@ -424,10 +379,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       if (!mounted) return;
       final updated = ChannelMessage.fromJson(json);
       ref
-          .read(
-            channelMessagesProvider(widget.channelId)
-                .notifier,
-          )
+          .read(channelMessagesProvider(widget.channelId).notifier)
           .updateMessage(updated);
     } catch (e, st) {
       developer.log(
@@ -457,10 +409,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       if (json == null || !mounted) return;
       final updated = ChannelMessage.fromJson(json);
       ref
-          .read(
-            channelMessagesProvider(widget.channelId)
-                .notifier,
-          )
+          .read(channelMessagesProvider(widget.channelId).notifier)
           .updateMessage(updated);
     } catch (e, st) {
       developer.log(
@@ -479,8 +428,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   void _showMessageActions(ChannelMessage message) {
     final l10n = AppLocalizations.of(context);
     final theme = context.conduitTheme;
-    final currentUserId =
-        ref.read(currentUserProvider).value?.id;
+    final currentUserId = ref.read(currentUserProvider).value?.id;
     final isOwn = message.userId == currentUserId;
 
     showModalBottomSheet<void>(
@@ -488,9 +436,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       backgroundColor: theme.surfaceContainer,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(
-          top: Radius.circular(
-            AppBorderRadius.bottomSheet,
-          ),
+          top: Radius.circular(AppBorderRadius.bottomSheet),
         ),
       ),
       builder: (ctx) => SafeArea(
@@ -498,24 +444,16 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: const Icon(
-                Icons.emoji_emotions_outlined,
-              ),
-              title: Text(
-                l10n?.channelMessageReact ?? 'React',
-              ),
+              leading: const Icon(Icons.emoji_emotions_outlined),
+              title: Text(l10n?.channelMessageReact ?? 'React'),
               onTap: () {
                 Navigator.pop(ctx);
                 _showEmojiPicker(message);
               },
             ),
             ListTile(
-              leading: const Icon(
-                Icons.reply_outlined,
-              ),
-              title: Text(
-                l10n?.channelMessageReply ?? 'Reply',
-              ),
+              leading: const Icon(Icons.reply_outlined),
+              title: Text(l10n?.channelMessageReply ?? 'Reply'),
               onTap: () {
                 Navigator.pop(ctx);
                 _setReplyTo(message);
@@ -523,14 +461,10 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
             ),
             if (message.parentId == null)
               ListTile(
-                leading: const Icon(
-                  Icons.forum_outlined,
-                ),
+                leading: const Icon(Icons.forum_outlined),
                 title: Text(
                   'Thread'
-                  '${message.replyCount > 0
-                      ? " (${message.replyCount})"
-                      : ""}',
+                  '${message.replyCount > 0 ? " (${message.replyCount})" : ""}',
                 ),
                 onTap: () {
                   Navigator.pop(ctx);
@@ -538,12 +472,8 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
                 },
               ),
             ListTile(
-              leading: const Icon(
-                Icons.push_pin_outlined,
-              ),
-              title: Text(
-                message.isPinned ? 'Unpin' : 'Pin',
-              ),
+              leading: const Icon(Icons.push_pin_outlined),
+              title: Text(message.isPinned ? 'Unpin' : 'Pin'),
               onTap: () {
                 Navigator.pop(ctx);
                 _togglePin(message);
@@ -551,22 +481,15 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
             ),
             if (isOwn)
               ListTile(
-                leading: const Icon(
-                  Icons.edit_outlined,
-                ),
-                title: Text(
-                  l10n?.channelMessageEdit ?? 'Edit',
-                ),
+                leading: const Icon(Icons.edit_outlined),
+                title: Text(l10n?.channelMessageEdit ?? 'Edit'),
                 onTap: () {
                   Navigator.pop(ctx);
                   _startEditingMessage(message);
                 },
               ),
             ListTile(
-              leading: Icon(
-                Icons.delete_outline,
-                color: theme.error,
-              ),
+              leading: Icon(Icons.delete_outline, color: theme.error),
               title: Text(
                 l10n?.channelMessageDelete ?? 'Delete',
                 style: TextStyle(color: theme.error),
@@ -606,19 +529,14 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
             alignment: WrapAlignment.center,
             children: emojis.map((emoji) {
               return InkWell(
-                borderRadius: BorderRadius.circular(
-                  AppBorderRadius.round,
-                ),
+                borderRadius: BorderRadius.circular(AppBorderRadius.round),
                 onTap: () {
                   Navigator.pop(ctx);
                   _toggleReaction(message, emoji);
                 },
                 child: Padding(
                   padding: const EdgeInsets.all(Spacing.sm),
-                  child: Text(
-                    emoji,
-                    style: const TextStyle(fontSize: 28),
-                  ),
+                  child: Text(emoji, style: const TextStyle(fontSize: 28)),
                 ),
               );
             }).toList(),
@@ -636,10 +554,8 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     final l10n = AppLocalizations.of(context);
     final theme = context.conduitTheme;
 
-    final nameController =
-        TextEditingController(text: channel.name);
-    final descController =
-        TextEditingController(text: channel.description);
+    final nameController = TextEditingController(text: channel.name);
+    final descController = TextEditingController(text: channel.description);
 
     final saved = await showDialog<bool>(
       context: context,
@@ -662,8 +578,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
               controller: descController,
               style: TextStyle(color: theme.textPrimary),
               decoration: context.conduitInputStyles.underline(
-                hint: l10n?.channelDescription ??
-                    'Description',
+                hint: l10n?.channelDescription ?? 'Description',
               ),
               maxLines: 3,
               minLines: 1,
@@ -692,8 +607,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     if (saved != true) return;
 
     if (newName.isEmpty) return;
-    if (newName == channel.name &&
-        newDesc == channel.description) {
+    if (newName == channel.name && newDesc == channel.description) {
       return;
     }
 
@@ -709,9 +623,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       if (!mounted) return;
       final updated = Channel.fromJson(json);
       ref.read(activeChannelProvider.notifier).set(updated);
-      ref
-          .read(channelsListProvider.notifier)
-          .updateChannel(updated);
+      ref.read(channelsListProvider.notifier).updateChannel(updated);
     } catch (e, s) {
       developer.log(
         'Failed to update channel',
@@ -727,8 +639,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     final confirmed = await ThemedDialogs.confirm(
       context,
       title: l10n?.channelLeave ?? 'Leave Channel',
-      message: l10n?.channelLeaveConfirm ??
-          'Leave this channel?',
+      message: l10n?.channelLeaveConfirm ?? 'Leave this channel?',
     );
     if (!confirmed || !mounted) return;
 
@@ -736,14 +647,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     if (api == null) return;
 
     try {
-      await api.updateMemberActiveStatus(
-        widget.channelId,
-        isActive: false,
-      );
+      await api.updateMemberActiveStatus(widget.channelId, isActive: false);
       if (!mounted) return;
-      ref
-          .read(channelsListProvider.notifier)
-          .removeChannel(widget.channelId);
+      ref.read(channelsListProvider.notifier).removeChannel(widget.channelId);
       ref.read(activeChannelProvider.notifier).clear();
       NavigationService.router.go(Routes.chat);
     } catch (e, s) {
@@ -761,7 +667,8 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     final confirmed = await ThemedDialogs.confirm(
       context,
       title: l10n?.channelDelete ?? 'Delete Channel',
-      message: l10n?.channelDeleteConfirm ??
+      message:
+          l10n?.channelDeleteConfirm ??
           'Delete this channel? This cannot be undone.',
       isDestructive: true,
     );
@@ -773,9 +680,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     try {
       await api.deleteChannel(widget.channelId);
       if (!mounted) return;
-      ref
-          .read(channelsListProvider.notifier)
-          .removeChannel(widget.channelId);
+      ref.read(channelsListProvider.notifier).removeChannel(widget.channelId);
       ref.read(activeChannelProvider.notifier).clear();
       NavigationService.router.go(Routes.chat);
     } catch (e, s) {
@@ -798,14 +703,10 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     return _buildScaffold(context, theme);
   }
 
-  Widget _buildScaffold(
-    BuildContext context,
-    ConduitThemeExtension theme,
-  ) {
+  Widget _buildScaffold(BuildContext context, ConduitThemeExtension theme) {
     final l10n = AppLocalizations.of(context);
     final channel = ref.watch(activeChannelProvider);
-    final messagesAsync =
-        ref.watch(channelMessagesProvider(widget.channelId));
+    final messagesAsync = ref.watch(channelMessagesProvider(widget.channelId));
 
     return Scaffold(
       backgroundColor: theme.surfaceBackground,
@@ -817,21 +718,16 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
             icon: Platform.isIOS
                 ? CupertinoIcons.line_horizontal_3
                 : Icons.menu,
-            onTap: () =>
-                ResponsiveDrawerLayout.of(ctx)
-                    ?.toggle(),
+            onTap: () => ResponsiveDrawerLayout.of(ctx)?.toggle(),
           ),
         ),
         title: Align(
           alignment: Alignment.centerLeft,
           child: Padding(
-            padding: const EdgeInsets.only(
-              left: Spacing.sm,
-            ),
+            padding: const EdgeInsets.only(left: Spacing.sm),
             child: FloatingAppBarPill(
               child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(
+                padding: const EdgeInsets.symmetric(
                   horizontal: Spacing.md,
                   vertical: Spacing.sm,
                 ),
@@ -851,13 +747,10 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
                         channel?.name ?? '',
                         style: TextStyle(
                           color: theme.textPrimary,
-                          fontSize: AppTypography
-                              .bodySmall,
-                          fontWeight:
-                              FontWeight.w500,
+                          fontSize: AppTypography.bodySmall,
+                          fontWeight: FontWeight.w500,
                         ),
-                        overflow:
-                            TextOverflow.ellipsis,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                   ],
@@ -869,12 +762,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         actions: [
           if (channel?.userCount != null)
             Padding(
-              padding: const EdgeInsets.only(
-                right: Spacing.xs,
-              ),
+              padding: const EdgeInsets.only(right: Spacing.xs),
               child: GestureDetector(
-                behavior:
-                    HitTestBehavior.opaque,
+                behavior: HitTestBehavior.opaque,
                 onTap: _showMemberList,
                 child: FloatingAppBarPill(
                   isCircular: true,
@@ -887,9 +777,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
               ),
             ),
           Padding(
-            padding: const EdgeInsets.only(
-              right: Spacing.inputPadding,
-            ),
+            padding: const EdgeInsets.only(right: Spacing.inputPadding),
             child: _buildMoreMenuButton(channel, theme, l10n),
           ),
         ],
@@ -902,21 +790,13 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
                 Expanded(
                   child: messagesAsync.when(
                     data: (messages) =>
-                        _buildMessageList(
-                      messages,
-                      theme,
-                      l10n,
-                    ),
-                    loading: () => const Center(
-                      child:
-                          CircularProgressIndicator(),
-                    ),
+                        _buildMessageList(messages, theme, l10n),
+                    loading: () =>
+                        const Center(child: CircularProgressIndicator()),
                     error: (error, _) => Center(
                       child: Text(
                         error.toString(),
-                        style: TextStyle(
-                          color: theme.error,
-                        ),
+                        style: TextStyle(color: theme.error),
                       ),
                     ),
                   ),
@@ -924,22 +804,18 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
                 const SizedBox(height: Spacing.sm),
                 Consumer(
                   builder: (context, ref, _) {
-                    final typingUsers = ref.watch(
-                      channelTypingUsersProvider,
-                    );
+                    final typingUsers = ref.watch(channelTypingUsersProvider);
                     if (typingUsers.isEmpty) {
                       return const SizedBox.shrink();
                     }
-                    final names =
-                        typingUsers.values.toList();
+                    final names = typingUsers.values.toList();
                     final text = names.length == 1
                         ? '${names.first} '
-                            'is typing...'
+                              'is typing...'
                         : '${names.join(", ")} '
-                            'are typing...';
+                              'are typing...';
                     return Padding(
-                      padding:
-                          const EdgeInsets.symmetric(
+                      padding: const EdgeInsets.symmetric(
                         horizontal: Spacing.md,
                         vertical: Spacing.xxs,
                       ),
@@ -956,47 +832,35 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
                 ),
                 if (_replyToMessage != null)
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(
+                    padding: const EdgeInsets.symmetric(
                       horizontal: Spacing.md,
                       vertical: Spacing.sm,
                     ),
                     color: theme.surfaceContainer,
                     child: Row(
                       children: [
-                        Icon(
-                          Icons.reply,
-                          size: 16,
-                          color: theme.textSecondary,
-                        ),
-                        const SizedBox(
-                          width: Spacing.sm,
-                        ),
+                        Icon(Icons.reply, size: 16, color: theme.textSecondary),
+                        const SizedBox(width: Spacing.sm),
                         Expanded(
                           child: Text(
                             'Replying to '
-                            '${_replyToMessage!
-                                .userName}',
+                            '${_replyToMessage!.userName}',
                             style: TextStyle(
-                              color:
-                                  theme.textSecondary,
+                              color: theme.textSecondary,
                               fontSize: 13,
                             ),
-                            overflow:
-                                TextOverflow.ellipsis,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
                         IconButton(
                           icon: Icon(
                             Icons.close,
                             size: 16,
-                            color:
-                                theme.textSecondary,
+                            color: theme.textSecondary,
                           ),
                           onPressed: _clearReplyTo,
                           padding: EdgeInsets.zero,
-                          constraints:
-                              const BoxConstraints(),
+                          constraints: const BoxConstraints(),
                         ),
                       ],
                     ),
@@ -1005,8 +869,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
                   child: ModernChatInput(
                     onSendMessage: _sendMessage,
                     placeholder: 'Type here...',
-                    overflowButtonBuilder:
-                        _buildAttachmentButton,
+                    overflowButtonBuilder: _buildAttachmentButton,
                   ),
                 ),
               ],
@@ -1017,17 +880,13 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
               width: 320,
               child: Padding(
                 padding: EdgeInsets.only(
-                  top: MediaQuery.of(context).padding.top +
-                      kTextTabBarHeight,
+                  top: MediaQuery.of(context).padding.top + kTextTabBarHeight,
                 ),
                 child: ThreadPanel(
                   channelId: widget.channelId,
                   parentMessage: _threadParent!,
-                  onClose: () => setState(
-                    () => _threadParent = null,
-                  ),
-                  overflowButtonBuilder:
-                      _buildAttachmentButton,
+                  onClose: () => setState(() => _threadParent = null),
+                  overflowButtonBuilder: _buildAttachmentButton,
                 ),
               ),
             ),
@@ -1044,45 +903,35 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     if (messages.isEmpty) {
       return Center(
         child: Text(
-          l10n?.channelNoMessages ??
-              'No messages yet. Start the conversation!',
+          l10n?.channelNoMessages ?? 'No messages yet. Start the conversation!',
           style: TextStyle(color: theme.textSecondary),
         ),
       );
     }
 
-    final currentUserId =
-        ref.watch(currentUserProvider).value?.id;
+    final currentUserId = ref.watch(currentUserProvider).value?.id;
     final api = ref.read(apiServiceProvider);
 
     return ListView.builder(
       controller: _scrollController,
       reverse: true,
-      padding: const EdgeInsets.only(
-        top: Spacing.md,
-        bottom: Spacing.sm,
-      ),
-      itemCount:
-          messages.length + (_isLoadingMore ? 1 : 0),
+      padding: const EdgeInsets.only(top: Spacing.md, bottom: Spacing.sm),
+      itemCount: messages.length + (_isLoadingMore ? 1 : 0),
       itemBuilder: (context, index) {
-        if (_isLoadingMore &&
-            index == messages.length) {
+        if (_isLoadingMore && index == messages.length) {
           return const Padding(
             padding: EdgeInsets.all(Spacing.md),
             child: Center(
               child: SizedBox(
                 width: 24,
                 height: 24,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                ),
+                child: CircularProgressIndicator(strokeWidth: 2),
               ),
             ),
           );
         }
         final message = messages[index];
-        final avatarUrl =
-            _resolveAvatarUrl(api, message);
+        final avatarUrl = _resolveAvatarUrl(api, message);
 
         // Determine the effective sender ID for
         // grouping consecutive messages. Model
@@ -1098,26 +947,21 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         // message visually above. Show profile
         // only on the first message of a group.
         final prevIndex = index + 1;
-        final showProfile = prevIndex >=
-                messages.length ||
-            senderOf(messages[prevIndex]) !=
-                senderOf(message);
+        final showProfile =
+            prevIndex >= messages.length ||
+            senderOf(messages[prevIndex]) != senderOf(message);
 
         return _MessageBubble(
           message: message,
           avatarUrl: avatarUrl,
           showProfile: showProfile,
           currentUserId: currentUserId,
-          isEditing:
-              _editingMessageId == message.id,
+          isEditing: _editingMessageId == message.id,
           editController: _editController,
-          onSubmitEdit: () =>
-              _submitEdit(message),
+          onSubmitEdit: () => _submitEdit(message),
           onCancelEdit: _cancelEditing,
-          onLongPress: () =>
-              _showMessageActions(message),
-          onReactionTap: (emoji) =>
-              _toggleReaction(message, emoji),
+          onLongPress: () => _showMessageActions(message),
+          onReactionTap: (emoji) => _toggleReaction(message, emoji),
           onThreadTap: message.parentId == null
               ? () => _openThread(message)
               : null,
@@ -1131,19 +975,12 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   /// For model responses, builds the model profile image
   /// URL. For user messages, resolves the user's profile
   /// image URL.
-  String? _resolveAvatarUrl(
-    ApiService? api,
-    ChannelMessage message,
-  ) {
+  String? _resolveAvatarUrl(ApiService? api, ChannelMessage message) {
     if (isModelMessage(message)) {
-      final modelId =
-          message.meta!['model_id'] as String?;
+      final modelId = message.meta!['model_id'] as String?;
       return buildModelAvatarUrl(api, modelId);
     }
-    return resolveUserProfileImageUrl(
-      api,
-      message.user?.profileImageUrl,
-    );
+    return resolveUserProfileImageUrl(api, message.user?.profileImageUrl);
   }
 
   Future<void> _showMemberList() async {
@@ -1152,39 +989,29 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     final theme = context.conduitTheme;
 
     try {
-      final result = await api.getChannelMembers(
-        widget.channelId,
-      );
+      final result = await api.getChannelMembers(widget.channelId);
       if (!mounted) return;
-      final users =
-          (result['users'] as List<dynamic>?) ?? [];
-      final total =
-          (result['total'] as int?) ?? users.length;
+      final users = (result['users'] as List<dynamic>?) ?? [];
+      final total = (result['total'] as int?) ?? users.length;
 
       showModalBottomSheet<void>(
         context: context,
         backgroundColor: theme.surfaceContainer,
         shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(
-            top: Radius.circular(
-              AppBorderRadius.bottomSheet,
-            ),
+            top: Radius.circular(AppBorderRadius.bottomSheet),
           ),
         ),
         builder: (ctx) => SafeArea(
           child: ConstrainedBox(
             constraints: BoxConstraints(
-              maxHeight:
-                  MediaQuery.of(ctx).size.height *
-                      0.6,
+              maxHeight: MediaQuery.of(ctx).size.height * 0.6,
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Padding(
-                  padding: const EdgeInsets.all(
-                    Spacing.md,
-                  ),
+                  padding: const EdgeInsets.all(Spacing.md),
                   child: Text(
                     'Members ($total)',
                     style: TextStyle(
@@ -1200,35 +1027,26 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
                     shrinkWrap: true,
                     itemCount: users.length,
                     itemBuilder: (ctx, index) {
-                      final u = users[index]
-                          as Map<String, dynamic>;
-                      final name =
-                          u['name'] as String? ??
-                              'Unknown';
-                      final role =
-                          u['role'] as String? ?? '';
+                      final u = users[index] as Map<String, dynamic>;
+                      final name = u['name'] as String? ?? 'Unknown';
+                      final role = u['role'] as String? ?? '';
                       return ListTile(
                         leading: CircleAvatar(
                           radius: 16,
                           child: Text(
                             name[0].toUpperCase(),
-                            style: const TextStyle(
-                              fontSize: 12,
-                            ),
+                            style: const TextStyle(fontSize: 12),
                           ),
                         ),
                         title: Text(
                           name,
-                          style: TextStyle(
-                            color: theme.textPrimary,
-                          ),
+                          style: TextStyle(color: theme.textPrimary),
                         ),
                         subtitle: role.isNotEmpty
                             ? Text(
                                 role,
                                 style: TextStyle(
-                                  color: theme
-                                      .textSecondary,
+                                  color: theme.textSecondary,
                                   fontSize: 12,
                                 ),
                               )
@@ -1272,15 +1090,11 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       itemBuilder: (ctx) => [
         PopupMenuItem(
           value: 'edit',
-          child: Text(
-            l10n?.channelEdit ?? 'Edit Channel',
-          ),
+          child: Text(l10n?.channelEdit ?? 'Edit Channel'),
         ),
         PopupMenuItem(
           value: 'leave',
-          child: Text(
-            l10n?.channelLeave ?? 'Leave Channel',
-          ),
+          child: Text(l10n?.channelLeave ?? 'Leave Channel'),
         ),
         PopupMenuItem(
           value: 'delete',
@@ -1293,16 +1107,13 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       child: FloatingAppBarPill(
         isCircular: true,
         child: Icon(
-          Platform.isIOS
-              ? CupertinoIcons.ellipsis_vertical
-              : Icons.more_vert,
+          Platform.isIOS ? CupertinoIcons.ellipsis_vertical : Icons.more_vert,
           color: theme.textPrimary,
           size: IconSize.appBar,
         ),
       ),
     );
   }
-
 }
 
 // ---------------------------------------------------------------------------
@@ -1345,8 +1156,7 @@ class _MessageBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
-    final timestamp =
-        _formatTimestamp(message.createdDateTime);
+    final timestamp = _formatTimestamp(message.createdDateTime);
 
     return InkWell(
       onLongPress: onLongPress,
@@ -1358,8 +1168,7 @@ class _MessageBubble extends StatelessWidget {
           bottom: 1,
         ),
         child: Row(
-          crossAxisAlignment:
-              CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (showProfile)
               _buildAvatar(theme)
@@ -1368,58 +1177,41 @@ class _MessageBubble extends StatelessWidget {
             const SizedBox(width: Spacing.sm),
             Expanded(
               child: Column(
-                crossAxisAlignment:
-                    CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   if (showProfile) ...[
                     _buildHeader(theme, timestamp),
-                    const SizedBox(
-                      height: Spacing.xxs,
-                    ),
+                    const SizedBox(height: Spacing.xxs),
                   ],
                   if (message.replyToMessage != null)
                     Container(
-                      margin: const EdgeInsets.only(
-                        bottom: Spacing.xxs,
-                      ),
-                      padding: const EdgeInsets.only(
-                        left: Spacing.sm,
-                      ),
+                      margin: const EdgeInsets.only(bottom: Spacing.xxs),
+                      padding: const EdgeInsets.only(left: Spacing.sm),
                       decoration: BoxDecoration(
                         border: Border(
                           left: BorderSide(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .primary,
+                            color: Theme.of(context).colorScheme.primary,
                             width: 2,
                           ),
                         ),
                       ),
                       child: Column(
-                        crossAxisAlignment:
-                            CrossAxisAlignment.start,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            message.replyToMessage!
-                                .userName,
+                            message.replyToMessage!.userName,
                             style: TextStyle(
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .primary,
+                              color: Theme.of(context).colorScheme.primary,
                               fontSize: 11,
-                              fontWeight:
-                                  FontWeight.w600,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                           Text(
-                            message
-                                .replyToMessage!.content,
+                            message.replyToMessage!.content,
                             maxLines: 2,
-                            overflow:
-                                TextOverflow.ellipsis,
+                            overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              color:
-                                  theme.textSecondary,
+                              color: theme.textSecondary,
                               fontSize: 11,
                             ),
                           ),
@@ -1428,18 +1220,12 @@ class _MessageBubble extends StatelessWidget {
                     )
                   else if (message.replyToId != null)
                     Container(
-                      margin: const EdgeInsets.only(
-                        bottom: Spacing.xxs,
-                      ),
-                      padding: const EdgeInsets.only(
-                        left: Spacing.sm,
-                      ),
+                      margin: const EdgeInsets.only(bottom: Spacing.xxs),
+                      padding: const EdgeInsets.only(left: Spacing.sm),
                       decoration: BoxDecoration(
                         border: Border(
                           left: BorderSide(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .primary,
+                            color: Theme.of(context).colorScheme.primary,
                             width: 2,
                           ),
                         ),
@@ -1455,33 +1241,21 @@ class _MessageBubble extends StatelessWidget {
                     ),
                   if (message.isPinned)
                     Padding(
-                      padding: const EdgeInsets.only(
-                        bottom: Spacing.xxs,
-                      ),
+                      padding: const EdgeInsets.only(bottom: Spacing.xxs),
                       child: Row(
-                        mainAxisSize:
-                            MainAxisSize.min,
+                        mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(
                             Icons.push_pin_outlined,
                             size: 14,
-                            color: theme.textPrimary
-                                .withValues(
-                              alpha: 0.6,
-                            ),
+                            color: theme.textPrimary.withValues(alpha: 0.6),
                           ),
                           const SizedBox(width: 4),
                           Text(
                             'Pinned',
                             style: TextStyle(
-                              fontSize:
-                                  AppTypography
-                                      .bodyMedium,
-                              color: theme
-                                  .textPrimary
-                                  .withValues(
-                                alpha: 0.6,
-                              ),
+                              fontSize: AppTypography.bodyMedium,
+                              color: theme.textPrimary.withValues(alpha: 0.6),
                               height: 1.3,
                             ),
                           ),
@@ -1495,42 +1269,28 @@ class _MessageBubble extends StatelessWidget {
                           child: TextField(
                             controller: editController,
                             autofocus: true,
-                            style: AppTypography
-                                .chatMessageStyle
-                                .copyWith(
+                            style: AppTypography.chatMessageStyle.copyWith(
                               color: theme.textPrimary,
                             ),
                             decoration: InputDecoration(
                               isDense: true,
-                              contentPadding:
-                                  const EdgeInsets
-                                      .symmetric(
+                              contentPadding: const EdgeInsets.symmetric(
                                 horizontal: Spacing.sm,
                                 vertical: Spacing.xs,
                               ),
-                              border:
-                                  OutlineInputBorder(
-                                borderRadius:
-                                    BorderRadius
-                                        .circular(8),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
                               ),
                             ),
-                            onSubmitted: (_) =>
-                                onSubmitEdit?.call(),
+                            onSubmitted: (_) => onSubmitEdit?.call(),
                           ),
                         ),
                         IconButton(
-                          icon: const Icon(
-                            Icons.check,
-                            size: 18,
-                          ),
+                          icon: const Icon(Icons.check, size: 18),
                           onPressed: onSubmitEdit,
                         ),
                         IconButton(
-                          icon: const Icon(
-                            Icons.close,
-                            size: 18,
-                          ),
+                          icon: const Icon(Icons.close, size: 18),
                           onPressed: onCancelEdit,
                         ),
                       ],
@@ -1539,56 +1299,35 @@ class _MessageBubble extends StatelessWidget {
                     RichText(
                       text: buildMentionSpan(
                         content: message.content,
-                        baseStyle:
-                            AppTypography.chatMessageStyle
-                                .copyWith(
+                        baseStyle: AppTypography.chatMessageStyle.copyWith(
                           color: theme.textPrimary,
                         ),
-                        mentionColor:
-                            Theme.of(context)
-                                .colorScheme
-                                .primary,
+                        mentionColor: Theme.of(context).colorScheme.primary,
                       ),
                     ),
-                  if (message.replyCount > 0 &&
-                      onThreadTap != null)
+                  if (message.replyCount > 0 && onThreadTap != null)
                     Padding(
-                      padding: const EdgeInsets.only(
-                        top: Spacing.xxs,
-                      ),
+                      padding: const EdgeInsets.only(top: Spacing.xxs),
                       child: GestureDetector(
-                        behavior:
-                            HitTestBehavior.opaque,
+                        behavior: HitTestBehavior.opaque,
                         onTap: onThreadTap,
                         child: Row(
-                          mainAxisSize:
-                              MainAxisSize.min,
+                          mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(
                               '${message.replyCount} '
                               '${message.replyCount == 1 ? "reply" : "replies"}',
                               style: TextStyle(
-                                fontSize:
-                                    AppTypography
-                                        .bodyMedium,
-                                color: theme
-                                    .textPrimary
-                                    .withValues(
-                                  alpha: 0.6,
-                                ),
+                                fontSize: AppTypography.bodyMedium,
+                                color: theme.textPrimary.withValues(alpha: 0.6),
                                 height: 1.3,
                               ),
                             ),
                             const SizedBox(width: 4),
                             Icon(
-                              Icons
-                                  .chevron_right_rounded,
+                              Icons.chevron_right_rounded,
                               size: 16,
-                              color: theme
-                                  .textPrimary
-                                  .withValues(
-                                alpha: 0.6,
-                              ),
+                              color: theme.textPrimary.withValues(alpha: 0.6),
                             ),
                           ],
                         ),
@@ -1622,10 +1361,7 @@ class _MessageBubble extends StatelessWidget {
     );
   }
 
-  Widget _buildHeader(
-    ConduitThemeExtension theme,
-    String timestamp,
-  ) {
+  Widget _buildHeader(ConduitThemeExtension theme, String timestamp) {
     return Row(
       children: [
         Flexible(
@@ -1652,12 +1388,8 @@ class _MessageBubble extends StatelessWidget {
     );
   }
 
-  Widget _buildReactions(
-    BuildContext context,
-    ConduitThemeExtension theme,
-  ) {
-    final primaryColor =
-        Theme.of(context).colorScheme.primary;
+  Widget _buildReactions(BuildContext context, ConduitThemeExtension theme) {
+    final primaryColor = Theme.of(context).colorScheme.primary;
 
     return Padding(
       padding: const EdgeInsets.only(top: Spacing.xs),
@@ -1666,9 +1398,7 @@ class _MessageBubble extends StatelessWidget {
         runSpacing: Spacing.xs,
         children: message.reactions.map((reaction) {
           final isActive = reaction.users.any(
-            (u) =>
-                u['user_id'] == currentUserId ||
-                u['id'] == currentUserId,
+            (u) => u['user_id'] == currentUserId || u['id'] == currentUserId,
           );
           return ActionChip(
             label: Text(
@@ -1684,16 +1414,12 @@ class _MessageBubble extends StatelessWidget {
                   : theme.dividerColor,
             ),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(
-                AppBorderRadius.chip,
-              ),
+              borderRadius: BorderRadius.circular(AppBorderRadius.chip),
             ),
             padding: EdgeInsets.zero,
             visualDensity: VisualDensity.compact,
-            materialTapTargetSize:
-                MaterialTapTargetSize.shrinkWrap,
-            onPressed: () =>
-                onReactionTap(reaction.name),
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            onPressed: () => onReactionTap(reaction.name),
           );
         }).toList(),
       ),
