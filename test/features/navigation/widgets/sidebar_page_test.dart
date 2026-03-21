@@ -31,11 +31,11 @@ void main() {
 
       expect(find.byType(TabBarView), findsNothing);
 
-      final chatsLayer = tester.widget<AnimatedOpacity>(
-        _layerAnimatedOpacityFinder(_SidebarTabLayer.chats),
+      final chatsLayer = tester.widget<Opacity>(
+        _layerOpacityFinder(_SidebarTabLayer.chats),
       );
-      final channelsLayer = tester.widget<AnimatedOpacity>(
-        _layerAnimatedOpacityFinder(_SidebarTabLayer.channels),
+      final channelsLayer = tester.widget<Opacity>(
+        _layerOpacityFinder(_SidebarTabLayer.channels),
       );
 
       expect(chatsLayer.opacity, 1);
@@ -55,8 +55,8 @@ void main() {
       );
       await tester.pump();
 
-      final notesLayer = tester.widget<AnimatedOpacity>(
-        _layerAnimatedOpacityFinder(_SidebarTabLayer.notes),
+      final notesLayer = tester.widget<Opacity>(
+        _layerOpacityFinder(_SidebarTabLayer.notes),
       );
 
       expect(notesLayer.opacity, 1);
@@ -71,11 +71,11 @@ void main() {
 
       await tester.pumpWidget(_buildSidebarHarness(controllers: controllers));
 
-      final notesLayer = tester.widget<AnimatedOpacity>(
-        _layerAnimatedOpacityFinder(_SidebarTabLayer.notes),
+      final notesLayer = tester.widget<Opacity>(
+        _layerOpacityFinder(_SidebarTabLayer.notes),
       );
-      final chatsLayer = tester.widget<AnimatedOpacity>(
-        _layerAnimatedOpacityFinder(_SidebarTabLayer.chats),
+      final chatsLayer = tester.widget<Opacity>(
+        _layerOpacityFinder(_SidebarTabLayer.chats),
       );
 
       expect(notesLayer.opacity, 1);
@@ -93,8 +93,8 @@ void main() {
 
       await tester.pumpWidget(_buildSidebarHarness(controllers: controllers));
 
-      final channelsLayer = tester.widget<AnimatedOpacity>(
-        _layerAnimatedOpacityFinder(_SidebarTabLayer.channels),
+      final channelsLayer = tester.widget<Opacity>(
+        _layerOpacityFinder(_SidebarTabLayer.channels),
       );
 
       expect(channelsLayer.opacity, 1);
@@ -116,8 +116,8 @@ void main() {
     controllers.notesNotifier.setEnabled(false);
     await tester.pump();
 
-    final channelsLayer = tester.widget<AnimatedOpacity>(
-      _layerAnimatedOpacityFinder(_SidebarTabLayer.channels),
+    final channelsLayer = tester.widget<Opacity>(
+      _layerOpacityFinder(_SidebarTabLayer.channels),
     );
 
     expect(channelsLayer.opacity, 1);
@@ -203,7 +203,7 @@ enum _SidebarTabLayer { chats, notes, channels }
 Finder _layerRootFinder(_SidebarTabLayer layer) =>
     find.byKey(ValueKey<String>('sidebar-tab-layer-${layer.name}'));
 
-Finder _layerAnimatedOpacityFinder(_SidebarTabLayer layer) {
+Finder _layerOpacityFinder(_SidebarTabLayer layer) {
   final childType = switch (layer) {
     _SidebarTabLayer.chats => ChatsDrawer,
     _SidebarTabLayer.notes => NotesListTab,
@@ -213,8 +213,7 @@ Finder _layerAnimatedOpacityFinder(_SidebarTabLayer layer) {
   return find.descendant(
     of: _layerRootFinder(layer),
     matching: find.byWidgetPredicate(
-      (widget) =>
-          widget is AnimatedOpacity && widget.child.runtimeType == childType,
+      (widget) => widget is Opacity && widget.child.runtimeType == childType,
     ),
   );
 }

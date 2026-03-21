@@ -203,10 +203,8 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
                             excluding: index != activeIndex,
                             child: ExcludeSemantics(
                               excluding: index != activeIndex,
-                              child: AnimatedOpacity(
+                              child: Opacity(
                                 opacity: index == activeIndex ? 1 : 0,
-                                duration: const Duration(milliseconds: 180),
-                                curve: Curves.easeOut,
                                 child: tabDefinitions[index].body,
                               ),
                             ),
