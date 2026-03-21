@@ -2243,7 +2243,7 @@ class ApiService {
       'model': model,
       'messages': formattedMessages,
       'chat_id': chatId,
-      if (sessionId != null) 'session_id': sessionId,
+      'session_id': ?sessionId,
       'id': messageId,
     };
 
@@ -2949,14 +2949,14 @@ class ApiService {
       '/api/v1/channels/create',
       data: {
         'name': name,
-        if (type != null) 'type': type,
-        if (description != null) 'description': description,
-        if (isPrivate != null) 'is_private': isPrivate,
-        if (data != null) 'data': data,
-        if (meta != null) 'meta': meta,
-        if (accessGrants != null) 'access_grants': accessGrants,
-        if (groupIds != null) 'group_ids': groupIds,
-        if (userIds != null) 'user_ids': userIds,
+        'type': ?type,
+        'description': ?description,
+        'is_private': ?isPrivate,
+        'data': ?data,
+        'meta': ?meta,
+        'access_grants': ?accessGrants,
+        'group_ids': ?groupIds,
+        'user_ids': ?userIds,
       },
     );
     return response.data as Map<String, dynamic>;
@@ -2981,12 +2981,12 @@ class ApiService {
     final response = await _dio.post(
       '/api/v1/channels/$channelId/update',
       data: {
-        if (name != null) 'name': name,
-        if (description != null) 'description': description,
-        if (isPrivate != null) 'is_private': isPrivate,
-        if (data != null) 'data': data,
-        if (meta != null) 'meta': meta,
-        if (accessGrants != null) 'access_grants': accessGrants,
+        'name': ?name,
+        'description': ?description,
+        'is_private': ?isPrivate,
+        'data': ?data,
+        'meta': ?meta,
+        'access_grants': ?accessGrants,
       },
     );
     return response.data as Map<String, dynamic>;
@@ -3049,11 +3049,11 @@ class ApiService {
       '/api/v1/channels/$channelId/messages/post',
       data: {
         'content': content,
-        if (tempId != null) 'temp_id': tempId,
-        if (replyToId != null) 'reply_to_id': replyToId,
-        if (parentId != null) 'parent_id': parentId,
-        if (data != null) 'data': data,
-        if (meta != null) 'meta': meta,
+        'temp_id': ?tempId,
+        'reply_to_id': ?replyToId,
+        'parent_id': ?parentId,
+        'data': ?data,
+        'meta': ?meta,
       },
     );
     return response.data as Map<String, dynamic>;
@@ -3075,8 +3075,8 @@ class ApiService {
       '/$messageId/update',
       data: {
         'content': content,
-        if (data != null) 'data': data,
-        if (meta != null) 'meta': meta,
+        'data': ?data,
+        'meta': ?meta,
       },
     );
     return response.data as Map<String, dynamic>;
@@ -3159,8 +3159,8 @@ class ApiService {
       '/api/v1/channels/$channelId'
       '/update/members/add',
       data: {
-        if (userIds != null) 'user_ids': userIds,
-        if (groupIds != null) 'group_ids': groupIds,
+        'user_ids': ?userIds,
+        'group_ids': ?groupIds,
       },
     );
     return response.data as List<dynamic>;

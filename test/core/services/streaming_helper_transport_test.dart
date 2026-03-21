@@ -3,7 +3,6 @@ import 'dart:convert';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/models/chat_message.dart';
-import 'package:conduit/core/models/socket_event.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/chat_completion_transport.dart';
 import 'package:conduit/core/services/socket_service.dart';
@@ -11,7 +10,6 @@ import 'package:conduit/core/services/streaming_helper.dart';
 import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/core/models/server_config.dart';
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 // ---------------------------------------------------------------------------
@@ -250,7 +248,7 @@ class FakeSocketInjector {
   void emitChatEvent(String type, dynamic payload, {String? messageId}) {
     final raw = <String, dynamic>{
       'data': {'type': type, 'data': payload},
-      if (messageId != null) 'message_id': messageId,
+      'message_id': ?messageId,
     };
     _handler?.call(raw, null);
   }

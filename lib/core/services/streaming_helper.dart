@@ -7,7 +7,6 @@ import 'package:flutter/material.dart';
 
 import '../../core/models/chat_message.dart';
 import '../../core/providers/app_providers.dart' show isTemporaryChat;
-import '../../core/models/socket_event.dart';
 import '../../core/services/socket_service.dart';
 import '../../core/utils/tool_calls_parser.dart';
 import 'background_streaming_handler.dart';
@@ -395,45 +394,43 @@ ActiveChatStream attachUnifiedChunkedStreaming({
 
   if (hasSocketSignals) {
     // Handle socket reconnection - update session IDs and check for missed events
-    if (socketService != null) {
-      StreamSubscription<void>? reconnectSub;
-      Timer? reconnectDelayTimer;
+    StreamSubscription<void>? reconnectSub;
+    Timer? reconnectDelayTimer;
 
-      reconnectSub = socketService.onReconnect.listen((_) {
-        DebugLogger.log(
-          'Socket reconnected - updating session ID',
-          scope: 'streaming/helper',
+    reconnectSub = socketService.onReconnect.listen((_) {
+      DebugLogger.log(
+        'Socket reconnected - updating session ID',
+        scope: 'streaming/helper',
+      );
+
+      // Update handler registrations with new session ID (issue #172 fix)
+      final newSessionId = socketService.sessionId;
+      final convId = activeConversationId;
+      if (newSessionId != null && convId != null && convId.isNotEmpty) {
+        socketService.updateSessionIdForConversation(convId, newSessionId);
+      }
+
+      // Brief delay then check server for missed completion
+      reconnectDelayTimer?.cancel();
+      reconnectDelayTimer = Timer(const Duration(milliseconds: 500), () {
+        // Wrap async work in unawaited to handle errors properly
+        unawaited(
+          _handleReconnectRecovery(
+            hasFinished: () => hasFinished,
+            getMessages: getMessages,
+            pollServerForMessage: pollServerForMessage,
+            applyServerContent: applyServerContent,
+            syncImages: syncImages,
+          ),
         );
-
-        // Update handler registrations with new session ID (issue #172 fix)
-        final newSessionId = socketService.sessionId;
-        final convId = activeConversationId;
-        if (newSessionId != null && convId != null && convId.isNotEmpty) {
-          socketService.updateSessionIdForConversation(convId, newSessionId);
-        }
-
-        // Brief delay then check server for missed completion
-        reconnectDelayTimer?.cancel();
-        reconnectDelayTimer = Timer(const Duration(milliseconds: 500), () {
-          // Wrap async work in unawaited to handle errors properly
-          unawaited(
-            _handleReconnectRecovery(
-              hasFinished: () => hasFinished,
-              getMessages: getMessages,
-              pollServerForMessage: pollServerForMessage,
-              applyServerContent: applyServerContent,
-              syncImages: syncImages,
-            ),
-          );
-        });
       });
+    });
 
-      socketSubscriptions.add(() {
-        reconnectDelayTimer?.cancel();
-        reconnectSub?.cancel();
-      });
+    socketSubscriptions.add(() {
+      reconnectDelayTimer?.cancel();
+      reconnectSub?.cancel();
+    });
     }
-  }
 
   Timer? imageCollectionDebounce;
   String? pendingImageContent;
@@ -633,7 +630,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   /// 1. POST to `/api/chat/completed` with the full message list
   /// 2. Merge any filter-modified messages back into local state
   /// 3. Sync the conversation to persist the (potentially modified) content
-  void _sendChatCompletedAndSync() {
+  void sendChatCompletedAndSync() {
     unawaited(
       Future(() async {
         try {
@@ -708,12 +705,12 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   }
 
   void channelLineHandlerFactory(String channel) {
-    void _onChannelDone() {
+    void onChannelDone() {
       try {
         socketService?.offEvent(channel);
       } catch (_) {}
       if (!isTemporaryChat(activeConversationId)) {
-        _sendChatCompletedAndSync();
+        sendChatCompletedAndSync();
       }
       wrappedFinishStreaming();
     }
@@ -724,13 +721,13 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           final s = line.trim();
           // Enhanced completion detection matching OpenWebUI patterns
           if (s == '[DONE]' || s == 'DONE' || s == 'data: [DONE]') {
-            _onChannelDone();
+            onChannelDone();
             return;
           }
           if (s.startsWith('data:')) {
             final dataStr = s.substring(5).trim();
             if (dataStr == '[DONE]') {
-              _onChannelDone();
+              onChannelDone();
               return;
             }
             try {
@@ -1024,7 +1021,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             }
             try {
               if (!isTemporaryChat(activeConversationId)) {
-                _sendChatCompletedAndSync();
+                sendChatCompletedAndSync();
               }
             } catch (_) {
               // Non-critical - continue if sync fails

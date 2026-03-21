@@ -2141,8 +2141,8 @@ Future<void> _sendMessageInternal(
       try {
         final userData = ref.read(currentUserProvider);
         if (userData is AsyncData) {
-          userName = (userData as AsyncData).value?.name ?? 'User';
-          userEmail = (userData as AsyncData).value?.email ?? '';
+          userName = (userData).value?.name ?? 'User';
+          userEmail = (userData).value?.email ?? '';
         }
       } catch (_) {}
       try {
@@ -2200,7 +2200,7 @@ Future<void> _sendMessageInternal(
     // Start buffering socket events for this chat BEFORE sending the HTTP
     // request. The backend may emit events (especially for fast pipe models)
     // before dispatchChatTransport registers the streaming handler.
-    final chatIdForBuffer = activeConversation?.id;
+    chatIdForBuffer = activeConversation?.id;
     if (chatIdForBuffer != null) {
       socketService?.startBuffering(chatIdForBuffer);
     }
@@ -2275,12 +2275,6 @@ Future<void> _sendMessageInternal(
     return;
   } catch (e, st) {
     // Clean up buffering on error
-    if (chatIdForBuffer != null) {
-      try {
-        ref.read(socketServiceProvider)?.stopBuffering(chatIdForBuffer!);
-      } catch (_) {}
-    }
-    // Log the actual exception so we can diagnose issues.
     DebugLogger.error(
       '_sendMessageInternal failed: $e',
       scope: 'chat/providers',

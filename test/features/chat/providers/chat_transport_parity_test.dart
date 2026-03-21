@@ -6,14 +6,30 @@ import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/core/models/socket_event.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/chat_completion_transport.dart';
-import 'package:conduit/core/services/conversation_delta_listener.dart';
 import 'package:conduit/core/services/streaming_helper.dart';
 import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/features/chat/services/chat_transport_dispatch.dart';
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+// ---------------------------------------------------------------------------
+// Local typedefs for socket delta listener (not yet in production code)
+// ---------------------------------------------------------------------------
+
+/// Callback invoked when a conversation delta arrives.
+typedef ConversationDeltaDataCallback = void Function(ConversationDelta delta);
+
+/// Callback invoked on delta listener errors.
+typedef ConversationDeltaErrorCallback = void Function(Object error);
+
+/// Registers a delta listener and returns a dispose function.
+typedef RegisterConversationDeltaListener =
+    void Function() Function({
+      required ConversationDeltaRequest request,
+      required ConversationDeltaDataCallback onDelta,
+      required ConversationDeltaErrorCallback onError,
+    });
 
 // ---------------------------------------------------------------------------
 // Fake helpers
@@ -185,6 +201,7 @@ ActiveChatStream _attach({
   String assistantMessageId = 'msg-1',
   String sessionId = 'sess-1',
   String? activeConversationId = 'conv-1',
+  // ignore: unused_parameter – kept for future delta-listener wiring
   RegisterConversationDeltaListener? registerDeltaListener,
 }) {
   return attachUnifiedChunkedStreaming(
@@ -198,15 +215,14 @@ ActiveChatStream _attach({
     api: api ?? _buildFakeApi(),
     socketService: null,
     workerManager: workerManager ?? WorkerManager(maxConcurrentTasks: 1),
-    registerDeltaListener: registerDeltaListener,
     appendToLastMessage: log.appendToLastMessage,
     replaceLastMessageContent: log.replaceLastMessageContent,
     updateLastMessageWith: log.updateLastMessageWith,
-    appendStatusUpdate: (_, __) {},
-    setFollowUps: (_, __) {},
-    upsertCodeExecution: (_, __) {},
-    appendSourceReference: (_, __) {},
-    updateMessageById: (_, __) {},
+    appendStatusUpdate: (_, _) {},
+    setFollowUps: (_, _) {},
+    upsertCodeExecution: (_, _) {},
+    appendSourceReference: (_, _) {},
+    updateMessageById: (_, _) {},
     finishStreaming: log.finishStreaming,
     getMessages: log.getMessages,
     flushStreamingBuffer: log.flushStreamingBuffer,
@@ -236,7 +252,7 @@ class _FakeDeltaRegistrar {
   void emitChatEvent(String type, dynamic payload, {String? messageId}) {
     final raw = <String, dynamic>{
       'data': {'type': type, 'data': payload},
-      if (messageId != null) 'message_id': messageId,
+      'message_id': ?messageId,
     };
     _chatHandler?.call(
       ConversationDelta(source: ConversationDeltaSource.chat, raw: raw),
@@ -443,6 +459,7 @@ void main() {
     // 7. httpStream session writes correct transport metadata
     // -------------------------------------------------------------------
     test('writes httpStream transport metadata', () {
+      // ignore: unused_local_variable – kept for parity with other tests
       final log = _CallbackLog();
 
       // Simulate writeTransportMetadata by manually applying the updaters
