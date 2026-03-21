@@ -27,6 +27,7 @@ part 'voice_call_controller.g.dart';
 @Riverpod(keepAlive: true)
 class VoiceCallController extends _$VoiceCallController {
   static const int _maxEmptyTranscriptRestarts = 4;
+  static const int _maxNonSpeakableFinalizationAttempts = 2;
   static const int _emptyTranscriptBaseDelayMs = 250;
   static const int _emptyTranscriptMaxDelayMs = 2000;
   static const Duration _responseInactivityTimeout = Duration(seconds: 4);
@@ -59,10 +60,12 @@ class VoiceCallController extends _$VoiceCallController {
   bool _listeningSuspendedForSpeech = false;
   int _enqueuedSentenceCount = 0;
   int _emptyTranscriptRestartAttempts = 0;
+  int _nonSpeakableFinalizationAttempts = 0;
   DateTime? _listeningStartedAt;
 
   final ListQueue<String> _speechQueue = ListQueue<String>();
   final Set<CallPauseReason> _pauseReasons = <CallPauseReason>{};
+  final Set<String> _ignoredAssistantMessageIds = <String>{};
 
   late final VoiceInputEngine _input;
   late final VoiceOutputEngine _output;
@@ -524,9 +527,12 @@ class VoiceCallController extends _$VoiceCallController {
     _assistantResponseFinalized = false;
     _enqueuedSentenceCount = 0;
     _speechQueue.clear();
+    _nonSpeakableFinalizationAttempts = 0;
 
     final selectedToolIds = ref.read(selectedToolIdsProvider);
-    sendMessageFromService(ref, text, null, selectedToolIds);
+    final sendFuture = sendMessageFromService(ref, text, null, selectedToolIds);
+    _seedActiveAssistantMessageId();
+    unawaited(sendFuture);
 
     _armResponseWatchdog(token);
 
@@ -553,23 +559,19 @@ class VoiceCallController extends _$VoiceCallController {
         return;
       }
 
-      final assistant = conversation.messages
-          .where(
-            (message) =>
-                message.role == 'assistant' &&
-                message.content.trim().isNotEmpty,
-          )
-          .toList();
-      if (assistant.isEmpty) {
+      final activeAssistantId = _activeAssistantMessageId?.trim();
+      final assistant = _resolvePolledAssistantMessage(
+        messages: conversation.messages,
+        activeAssistantId: activeAssistantId,
+      );
+      if (assistant == null) {
         return;
       }
 
-      final content = assistant.last.content;
+      final content = assistant.content;
       _accumulatedResponse = content;
       state = state.copyWith(response: content);
-      _assistantResponseFinalized = true;
-      _processSpeakableSegments(isFinalChunk: true);
-      _maybeResumeListeningAfterSpeech(token);
+      _maybeFinalizeAssistantResponse(token);
     } catch (error) {
       developer.log(
         'Response watchdog poll failed: $error',
@@ -596,8 +598,8 @@ class VoiceCallController extends _$VoiceCallController {
       return;
     }
     final messageId = event['message_id']?.toString();
-    if (messageId != null && messageId.isNotEmpty) {
-      _handleAssistantMessageStart(messageId);
+    if (!_shouldProcessAssistantMessage(messageId)) {
+      return;
     }
 
     _armResponseWatchdog(_sessionToken);
@@ -612,11 +614,7 @@ class VoiceCallController extends _$VoiceCallController {
         _processSpeakableSegments(isFinalChunk: doneFlag);
       }
       if (doneFlag) {
-        _responseWatchdog?.cancel();
-        _responseWatchdog = null;
-        _assistantResponseFinalized = true;
-        _processSpeakableSegments(isFinalChunk: true);
-        _maybeResumeListeningAfterSpeech(_sessionToken);
+        _maybeFinalizeAssistantResponse(_sessionToken);
       }
     }
 
@@ -637,21 +635,13 @@ class VoiceCallController extends _$VoiceCallController {
         }
 
         if (finishReason == 'stop' || finishReason == 'length') {
-          _responseWatchdog?.cancel();
-          _responseWatchdog = null;
-          _assistantResponseFinalized = true;
-          _processSpeakableSegments(isFinalChunk: true);
-          _maybeResumeListeningAfterSpeech(_sessionToken);
+          _maybeFinalizeAssistantResponse(_sessionToken);
         }
       }
     }
 
     if (doneFlag && !_assistantResponseFinalized) {
-      _responseWatchdog?.cancel();
-      _responseWatchdog = null;
-      _assistantResponseFinalized = true;
-      _processSpeakableSegments(isFinalChunk: true);
-      _maybeResumeListeningAfterSpeech(_sessionToken);
+      _maybeFinalizeAssistantResponse(_sessionToken);
     }
   }
 
@@ -671,7 +661,7 @@ class VoiceCallController extends _$VoiceCallController {
       }
 
       // Flush whatever we have if stream completion markers were missed.
-      if (_accumulatedResponse.trim().isNotEmpty) {
+      if (_hasSpeakableAssistantResponse) {
         _assistantResponseFinalized = true;
         _processSpeakableSegments(isFinalChunk: true);
         _maybeResumeListeningAfterSpeech(token);
@@ -721,24 +711,113 @@ class VoiceCallController extends _$VoiceCallController {
     }
   }
 
-  void _handleAssistantMessageStart(String messageId) {
-    if (_activeAssistantMessageId == messageId) {
-      return;
+  bool _shouldProcessAssistantMessage(String? messageId) {
+    final normalizedId = messageId?.trim();
+    if (normalizedId == null || normalizedId.isEmpty) {
+      return true;
     }
 
-    // Message IDs can appear late or fluctuate across non-content socket
-    // events. We only bind the first completion message id per user turn.
-    if (_activeAssistantMessageId == null) {
-      _activeAssistantMessageId = messageId;
-      return;
+    if (_ignoredAssistantMessageIds.contains(normalizedId)) {
+      return false;
+    }
+
+    if (_assistantResponseFinalized) {
+      return false;
+    }
+
+    final activeId = _activeAssistantMessageId;
+    if (activeId == null || activeId.isEmpty) {
+      _activeAssistantMessageId = normalizedId;
+      return true;
+    }
+
+    if (activeId == normalizedId) {
+      return true;
     }
 
     developer.log(
-      'Ignoring assistant message_id switch ${_activeAssistantMessageId!} -> '
-      '$messageId within active turn',
+      'Ignoring assistant message_id switch $activeId -> $normalizedId '
+      'within active turn',
       name: 'voice_call_controller',
       level: 800,
     );
+    return false;
+  }
+
+  void _seedActiveAssistantMessageId() {
+    final messages = ref.read(chatMessagesProvider);
+    for (var i = messages.length - 1; i >= 0; i--) {
+      final message = messages[i];
+      if (message.role == 'assistant') {
+        _activeAssistantMessageId = message.id;
+        return;
+      }
+    }
+  }
+
+  bool get _hasSpeakableAssistantResponse =>
+      ConduitMarkdownPreprocessor.toPlainText(
+        _accumulatedResponse,
+      ).trim().isNotEmpty;
+
+  void _retireActiveAssistantMessage() {
+    final retiredAssistantId = _activeAssistantMessageId?.trim();
+    if (retiredAssistantId != null && retiredAssistantId.isNotEmpty) {
+      _ignoredAssistantMessageIds.add(retiredAssistantId);
+    }
+  }
+
+  void _maybeFinalizeAssistantResponse(int token) {
+    if (_hasSpeakableAssistantResponse) {
+      _nonSpeakableFinalizationAttempts = 0;
+      _responseWatchdog?.cancel();
+      _responseWatchdog = null;
+      _assistantResponseFinalized = true;
+      _retireActiveAssistantMessage();
+      _processSpeakableSegments(isFinalChunk: true);
+      _maybeResumeListeningAfterSpeech(token);
+      return;
+    }
+
+    _nonSpeakableFinalizationAttempts++;
+    _assistantResponseFinalized = false;
+    if (_nonSpeakableFinalizationAttempts >
+        _maxNonSpeakableFinalizationAttempts) {
+      _responseWatchdog?.cancel();
+      _responseWatchdog = null;
+      _assistantResponseFinalized = true;
+      _retireActiveAssistantMessage();
+      _nonSpeakableFinalizationAttempts = 0;
+      _maybeResumeListeningAfterSpeech(token);
+      return;
+    }
+
+    if (state.phase != CallPhase.thinking) {
+      _setPhase(CallPhase.thinking);
+    }
+    _armResponseWatchdog(token);
+  }
+
+  dynamic _resolvePolledAssistantMessage({
+    required Iterable<dynamic> messages,
+    required String? activeAssistantId,
+  }) {
+    if (activeAssistantId != null && activeAssistantId.isNotEmpty) {
+      for (final message in messages.toList().reversed) {
+        if (message.role == 'assistant' && message.id == activeAssistantId) {
+          return message;
+        }
+      }
+      return null;
+    }
+
+    for (final message in messages.toList().reversed) {
+      if (message.role == 'assistant' && message.content.trim().isNotEmpty) {
+        return message;
+      }
+    }
+
+    return null;
   }
 
   void _enqueueSpeechChunk(String chunk) {
@@ -1058,9 +1137,11 @@ class VoiceCallController extends _$VoiceCallController {
     _listeningSuspendedForSpeech = false;
     _enqueuedSentenceCount = 0;
     _emptyTranscriptRestartAttempts = 0;
+    _nonSpeakableFinalizationAttempts = 0;
     _listeningStartedAt = null;
     _speechQueue.clear();
     _pauseReasons.clear();
+    _ignoredAssistantMessageIds.clear();
     _transportSessionId = null;
     _boundConversationId = null;
   }

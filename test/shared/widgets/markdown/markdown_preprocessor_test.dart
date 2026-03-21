@@ -9,15 +9,13 @@ void main() {
     });
 
     test('CRLF is converted to LF', () {
-      final result =
-          ConduitMarkdownPreprocessor.normalize('hello\r\nworld');
+      final result = ConduitMarkdownPreprocessor.normalize('hello\r\nworld');
       check(result).not((s) => s.contains('\r'));
       check(result).contains('hello\nworld');
     });
 
     test('auto-closes unmatched fence (odd count)', () {
-      final result =
-          ConduitMarkdownPreprocessor.normalize('```python\ncode');
+      final result = ConduitMarkdownPreprocessor.normalize('```python\ncode');
       check(result).endsWith('```');
       // Should have exactly 2 fences now (even)
       final fenceCount = RegExp(r'```').allMatches(result).length;
@@ -57,16 +55,13 @@ void main() {
     });
 
     test('fixes numeric heading by inserting ZWNJ after dot', () {
-      final result =
-          ConduitMarkdownPreprocessor.normalize('### 1. First');
+      final result = ConduitMarkdownPreprocessor.normalize('### 1. First');
       // Should insert \u200C between the dot and space.
       check(result).contains('1.\u200C');
     });
 
     test('fixes Setext heading false positive', () {
-      final result = ConduitMarkdownPreprocessor.normalize(
-        '**Bold**\n---',
-      );
+      final result = ConduitMarkdownPreprocessor.normalize('**Bold**\n---');
       // Should add a blank line between the bold text and the dashes.
       check(result).contains('**Bold**\n\n');
     });
@@ -87,22 +82,17 @@ void main() {
       check(result).contains('after');
     });
 
-    test(
-      'removes <details type="reasoning">...</details> blocks',
-      () {
-        final result = ConduitMarkdownPreprocessor.sanitize(
-          'before<details type="reasoning">hidden</details>after',
-        );
-        check(result).not((s) => s.contains('hidden'));
-        check(result).contains('before');
-        check(result).contains('after');
-      },
-    );
+    test('removes <details type="reasoning">...</details> blocks', () {
+      final result = ConduitMarkdownPreprocessor.sanitize(
+        'before<details type="reasoning">hidden</details>after',
+      );
+      check(result).not((s) => s.contains('hidden'));
+      check(result).contains('before');
+      check(result).contains('after');
+    });
 
     test('collapses 3+ newlines to double newline', () {
-      final result = ConduitMarkdownPreprocessor.sanitize(
-        'a\n\n\n\nb',
-      );
+      final result = ConduitMarkdownPreprocessor.sanitize('a\n\n\n\nb');
       check(result).equals('a\n\nb');
     });
   });
@@ -178,9 +168,7 @@ void main() {
     });
 
     test('strips > blockquote markers', () {
-      final result = ConduitMarkdownPreprocessor.toPlainText(
-        '> quoted text',
-      );
+      final result = ConduitMarkdownPreprocessor.toPlainText('> quoted text');
       check(result).contains('quoted text');
       check(result).not((s) => s.startsWith('>'));
     });
@@ -193,6 +181,36 @@ void main() {
       check(result).not((s) => s.contains('<b>'));
     });
 
+    test('removes tool call details from spoken text', () {
+      final result = ConduitMarkdownPreprocessor.toPlainText(
+        'Before <details type="tool_calls" done="true" '
+        'name="search"><summary>Tool Executed</summary></details> after',
+      );
+      check(result).contains('Before');
+      check(result).contains('after');
+      check(result).not((s) => s.contains('Tool Executed'));
+    });
+
+    test('removes extended reasoning blocks from spoken text', () {
+      final result = ConduitMarkdownPreprocessor.toPlainText(
+        'Start <reason>internal chain of thought</reason> '
+        '<details><summary>Thinking</summary>private notes</details> end',
+      );
+      check(result).contains('Start');
+      check(result).contains('end');
+      check(result).not((s) => s.contains('chain of thought'));
+      check(result).not((s) => s.contains('Thinking'));
+      check(result).not((s) => s.contains('private notes'));
+    });
+
+    test('preserves generic details content in sanitize', () {
+      final result = ConduitMarkdownPreprocessor.sanitize(
+        'before <details><summary>Thinking about dinner</summary>menu</details> after',
+      );
+      check(result).contains('Thinking about dinner');
+      check(result).contains('menu');
+    });
+
     test('normalizes whitespace', () {
       final result = ConduitMarkdownPreprocessor.toPlainText(
         'hello   world\n\nnew  paragraph',
@@ -203,16 +221,14 @@ void main() {
 
   group('ConduitMarkdownPreprocessor.softenInlineCode', () {
     test('short input returned unchanged', () {
-      final result =
-          ConduitMarkdownPreprocessor.softenInlineCode('short');
+      final result = ConduitMarkdownPreprocessor.softenInlineCode('short');
       check(result).equals('short');
     });
 
     test('inserts ZWSP every chunkSize chars for long input', () {
       // Default chunkSize is 24.
       final input = 'a' * 48;
-      final result =
-          ConduitMarkdownPreprocessor.softenInlineCode(input);
+      final result = ConduitMarkdownPreprocessor.softenInlineCode(input);
       // Should have ZWSP at positions 24 and 48.
       check(result).contains('\u200B');
       check(result.length).equals(48 + 2);
@@ -220,8 +236,7 @@ void main() {
 
     test('custom chunkSize works', () {
       final input = 'abcdefghij'; // length 10
-      final result =
-          ConduitMarkdownPreprocessor.softenInlineCode(
+      final result = ConduitMarkdownPreprocessor.softenInlineCode(
         input,
         chunkSize: 5,
       );

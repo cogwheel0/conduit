@@ -26,8 +26,7 @@ class ConduitMarkdownPreprocessor {
     multiLine: true,
   );
   static final _dedentCloseRegex = RegExp(r'^[ \t]+```\s*$', multiLine: true);
-  static final _inlineClosingRegex =
-      RegExp(r'([^\r\n`])```(?=\s*(?:\r?\n|$))');
+  static final _inlineClosingRegex = RegExp(r'([^\r\n`])```(?=\s*(?:\r?\n|$))');
   static final _labelThenDashRegex = RegExp(
     r'^(\*\*[^\n*]+\*\*.*)\n(\s*-{3,}\s*$)',
     multiLine: true,
@@ -37,14 +36,26 @@ class ConduitMarkdownPreprocessor {
     multiLine: true,
   );
   static final _fenceAtBolRegex = RegExp(r'^\s*```', multiLine: true);
-  static final _linkWithTrailingSpaces =
-      RegExp(r'\[[^\]]+\]\([^\)]+\)\s{2,}$');
+  static final _linkWithTrailingSpaces = RegExp(r'\[[^\]]+\]\([^\)]+\)\s{2,}$');
   static final _multipleNewlines = RegExp(r'\n{3,}');
 
   /// Combined pattern for all reasoning/thinking blocks.
   static final _reasoningBlocks = RegExp(
     r'<details\s+type="(?:reasoning|code_interpreter)"[^>]*>[\s\S]*?</details>|'
-    r'<(?:think|thinking|reasoning)(?:\s[^>]*)?>[\s\S]*?</(?:think|thinking|reasoning)>',
+    r'<(?:think|thinking|reasoning|reason|thought|Thought)(?:\s[^>]*)?>[\s\S]*?</(?:think|thinking|reasoning|reason|thought|Thought)>|'
+    r'<\|begin_of_thought\|>[\s\S]*?<\|end_of_thought\|>|'
+    r'◁think▷[\s\S]*?◁/think▷',
+    multiLine: true,
+    dotAll: true,
+  );
+  static final _ttsReasoningDetailsBlocks = RegExp(
+    r'<details\b[^>]*>\s*<summary>\s*(?:Thought|Thinking|Reasoning)(?:\.{3}|…)?\s*</summary>[\s\S]*?</details>',
+    multiLine: true,
+    dotAll: true,
+    caseSensitive: false,
+  );
+  static final _toolCallBlocks = RegExp(
+    r'<details\s+type="tool_calls"[^>]*>[\s\S]*?</details>',
     multiLine: true,
     dotAll: true,
   );
@@ -67,25 +78,32 @@ class ConduitMarkdownPreprocessor {
   // Single underscore italic: only when surrounded by spaces (not in identifiers)
   static final _italicUnderscore = RegExp(r'(?:^|\s)_([^_\s]+)_(?=\s|$)');
   static final _heading = RegExp(r'^#{1,6}\s+', multiLine: true);
-  static final _listMarker = RegExp(r'^[\s]*(?:[-*+]|\d+\.)\s+', multiLine: true);
+  static final _listMarker = RegExp(
+    r'^[\s]*(?:[-*+]|\d+\.)\s+',
+    multiLine: true,
+  );
   static final _blockquote = RegExp(r'^>\s*', multiLine: true);
-  static final _horizontalRule = RegExp(r'^[\s]*[-*_]{3,}[\s]*$', multiLine: true);
+  static final _horizontalRule = RegExp(
+    r'^[\s]*[-*_]{3,}[\s]*$',
+    multiLine: true,
+  );
   static final _htmlTag = RegExp(r'<[^>]+>');
+
   /// Comprehensive emoji pattern for TTS cleanup.
   static final _emoji = RegExp(
-    r'[\u{1F600}-\u{1F64F}]|'  // Emoticons
-    r'[\u{1F300}-\u{1F5FF}]|'  // Misc Symbols and Pictographs
-    r'[\u{1F680}-\u{1F6FF}]|'  // Transport and Map
-    r'[\u{1F1E0}-\u{1F1FF}]|'  // Flags
-    r'[\u{2600}-\u{26FF}]|'    // Misc symbols
-    r'[\u{2700}-\u{27BF}]|'    // Dingbats
-    r'[\u{1F900}-\u{1F9FF}]|'  // Supplemental Symbols
-    r'[\u{1FA00}-\u{1FA6F}]|'  // Chess, cards
-    r'[\u{1FA70}-\u{1FAFF}]|'  // Symbols Extended-A
-    r'[\u{FE00}-\u{FE0F}]|'    // Variation Selectors
-    r'[\u{1F018}-\u{1F270}]|'  // Various
-    r'[\u{238C}-\u{2454}]|'    // Misc Technical
-    r'[\u{20D0}-\u{20FF}]',    // Combining Diacritical Marks
+    r'[\u{1F600}-\u{1F64F}]|' // Emoticons
+    r'[\u{1F300}-\u{1F5FF}]|' // Misc Symbols and Pictographs
+    r'[\u{1F680}-\u{1F6FF}]|' // Transport and Map
+    r'[\u{1F1E0}-\u{1F1FF}]|' // Flags
+    r'[\u{2600}-\u{26FF}]|' // Misc symbols
+    r'[\u{2700}-\u{27BF}]|' // Dingbats
+    r'[\u{1F900}-\u{1F9FF}]|' // Supplemental Symbols
+    r'[\u{1FA00}-\u{1FA6F}]|' // Chess, cards
+    r'[\u{1FA70}-\u{1FAFF}]|' // Symbols Extended-A
+    r'[\u{FE00}-\u{FE0F}]|' // Variation Selectors
+    r'[\u{1F018}-\u{1F270}]|' // Various
+    r'[\u{238C}-\u{2454}]|' // Misc Technical
+    r'[\u{20D0}-\u{20FF}]', // Combining Diacritical Marks
     unicode: true,
   );
   static final _whitespace = RegExp(r'\s+');
@@ -149,6 +167,8 @@ class ConduitMarkdownPreprocessor {
     if (input.trim().isEmpty) return '';
 
     return sanitize(input)
+        .replaceAll(_ttsReasoningDetailsBlocks, '')
+        .replaceAll(_toolCallBlocks, '')
         .replaceAll(_codeBlock, '') // Remove code blocks
         .replaceAllMapped(_inlineCode, (m) => m[1] ?? '') // Keep code text
         .replaceAll(_image, '') // Remove images
@@ -246,8 +266,9 @@ class ConduitMarkdownPreprocessor {
     final refLabels = document.linkReferences.keys.toSet();
     if (refLabels.isEmpty) return input;
 
-    final labelPatterns =
-        refLabels.map((label) => RegExp.escape(label)).join('|');
+    final labelPatterns = refLabels
+        .map((label) => RegExp.escape(label))
+        .join('|');
 
     final refDefRegex = RegExp(
       r'^[ ]{0,3}\[(?:' +

@@ -10,6 +10,12 @@ import 'package:conduit/features/chat/voice_call/infrastructure/call_permission_
 import 'package:conduit/features/chat/voice_call/infrastructure/native_call_surface_callkit.dart';
 import 'package:conduit/features/chat/voice_call/infrastructure/voice_input_engine_speech.dart';
 import 'package:conduit/features/chat/voice_call/infrastructure/voice_output_engine_tts.dart';
+import 'package:conduit/core/models/chat_message.dart';
+import 'package:conduit/core/models/conversation.dart';
+import 'package:conduit/core/providers/app_providers.dart';
+import 'package:conduit/core/services/api_service.dart';
+import 'package:conduit/core/models/server_config.dart';
+import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/core/services/settings_service.dart';
 import 'package:conduit/features/chat/services/text_to_speech_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -155,6 +161,257 @@ void main() {
       },
     );
 
+    test(
+      'ignores completion events for a different assistant message id',
+      () async {
+        final fakeTransport = _FakeTransport();
+        final container = _buildContainer(fakeTransport: fakeTransport);
+        addTearDown(container.dispose);
+
+        final notifier = container.read(voiceCallControllerProvider.notifier);
+        await notifier.start(startNewConversation: false);
+
+        fakeTransport.emitChatEvent({
+          'message_id': 'assistant-msg-1',
+          'data': {
+            'type': 'chat:completion',
+            'data': {'content': 'Current reply', 'done': false},
+          },
+        });
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+
+        fakeTransport.emitChatEvent({
+          'message_id': 'assistant-msg-2',
+          'data': {
+            'type': 'chat:completion',
+            'data': {'content': 'Old reply', 'done': true},
+          },
+        });
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+
+        expect(
+          container.read(voiceCallControllerProvider).response,
+          'Current reply',
+        );
+      },
+    );
+
+    test(
+      'tool-only completions stay in thinking until a speakable reply arrives',
+      () async {
+        final fakeOutput = _FakeOutput();
+        final fakeTransport = _FakeTransport();
+        final container = _buildContainer(
+          fakeOutput: fakeOutput,
+          fakeTransport: fakeTransport,
+        );
+        addTearDown(container.dispose);
+
+        final notifier = container.read(voiceCallControllerProvider.notifier);
+        await notifier.start(startNewConversation: false);
+
+        notifier.state = container
+            .read(voiceCallControllerProvider)
+            .copyWith(phase: CallPhase.thinking);
+
+        fakeTransport.emitChatEvent({
+          'message_id': 'assistant-msg-1',
+          'data': {
+            'type': 'chat:completion',
+            'data': {
+              'content':
+                  '<details type="tool_calls" done="true" '
+                  'name="search"><summary>Tool Executed</summary></details>',
+              'done': true,
+            },
+          },
+        });
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+
+        expect(
+          container.read(voiceCallControllerProvider).phase,
+          CallPhase.thinking,
+        );
+        expect(fakeOutput.spokenTexts, isEmpty);
+      },
+    );
+
+    test('watchdog poll prefers the active assistant message id', () async {
+      final fakeTransport = _FakeTransport();
+      final fakeApi = _FakeApiService(
+        conversation: _conversationWithMessages([
+          _assistantMessage(id: 'assistant-msg-1', content: 'Fresh reply'),
+          _assistantMessage(id: 'assistant-msg-2', content: 'Older reply'),
+        ]),
+      );
+      final container = _buildContainer(
+        fakeTransport: fakeTransport,
+        apiService: fakeApi,
+        activeConversation: _conversationWithMessages(const []),
+      );
+      addTearDown(container.dispose);
+
+      final notifier = container.read(voiceCallControllerProvider.notifier);
+      await notifier.start(startNewConversation: false);
+
+      fakeTransport.emitChatEvent({
+        'message_id': 'assistant-msg-1',
+        'data': {
+          'type': 'chat:completion',
+          'data': {'content': '', 'done': true},
+        },
+      });
+
+      await Future<void>.delayed(const Duration(seconds: 5));
+
+      expect(
+        container.read(voiceCallControllerProvider).response,
+        'Fresh reply',
+      );
+    });
+
+    test(
+      'watchdog resumes listening after repeated non-speakable completions',
+      () async {
+        final fakeTransport = _FakeTransport();
+        final fakeApi = _FakeApiService(
+          conversation: _conversationWithMessages([
+            _assistantMessage(
+              id: 'assistant-msg-1',
+              content:
+                  '<details type="tool_calls" done="true" '
+                  'name="search"><summary>Tool Executed</summary></details>',
+            ),
+          ]),
+        );
+        final fakeInput = _FakeInput();
+        final container = _buildContainer(
+          fakeInput: fakeInput,
+          fakeTransport: fakeTransport,
+          apiService: fakeApi,
+          activeConversation: _conversationWithMessages(const []),
+        );
+        addTearDown(container.dispose);
+
+        final notifier = container.read(voiceCallControllerProvider.notifier);
+        await notifier.start(startNewConversation: false);
+
+        fakeTransport.emitChatEvent({
+          'message_id': 'assistant-msg-1',
+          'data': {
+            'type': 'chat:completion',
+            'data': {'content': '', 'done': true},
+          },
+        });
+
+        await Future<void>.delayed(const Duration(seconds: 9));
+
+        expect(
+          container.read(voiceCallControllerProvider).phase,
+          CallPhase.listening,
+        );
+        expect(fakeInput.beginListeningCalls, greaterThanOrEqualTo(2));
+      },
+    );
+
+    test(
+      'late events from an abandoned non-speakable turn are ignored',
+      () async {
+        final fakeTransport = _FakeTransport();
+        final fakeApi = _FakeApiService(
+          conversation: _conversationWithMessages([
+            _assistantMessage(
+              id: 'assistant-msg-1',
+              content:
+                  '<details type="tool_calls" done="true" '
+                  'name="search"><summary>Tool Executed</summary></details>',
+            ),
+          ]),
+        );
+        final fakeOutput = _FakeOutput();
+        final container = _buildContainer(
+          fakeTransport: fakeTransport,
+          fakeOutput: fakeOutput,
+          apiService: fakeApi,
+          activeConversation: _conversationWithMessages(const []),
+        );
+        addTearDown(container.dispose);
+
+        final notifier = container.read(voiceCallControllerProvider.notifier);
+        await notifier.start(startNewConversation: false);
+
+        fakeTransport.emitChatEvent({
+          'message_id': 'assistant-msg-1',
+          'data': {
+            'type': 'chat:completion',
+            'data': {'content': '', 'done': true},
+          },
+        });
+
+        await Future<void>.delayed(const Duration(seconds: 9));
+
+        fakeTransport.emitChatEvent({
+          'message_id': 'assistant-msg-1',
+          'data': {
+            'type': 'chat:completion',
+            'data': {'content': 'Delayed stale reply.', 'done': true},
+          },
+        });
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+
+        expect(
+          container.read(voiceCallControllerProvider).response,
+          isNot('Delayed stale reply.'),
+        );
+        expect(fakeOutput.spokenTexts, isEmpty);
+        expect(
+          container.read(voiceCallControllerProvider).phase,
+          CallPhase.listening,
+        );
+      },
+    );
+
+    test('late events after a spoken reply are ignored', () async {
+      final fakeTransport = _FakeTransport();
+      final fakeOutput = _FakeOutput();
+      final container = _buildContainer(
+        fakeTransport: fakeTransport,
+        fakeOutput: fakeOutput,
+      );
+      addTearDown(container.dispose);
+
+      final notifier = container.read(voiceCallControllerProvider.notifier);
+      await notifier.start(startNewConversation: false);
+
+      fakeTransport.emitChatEvent({
+        'message_id': 'assistant-msg-1',
+        'data': {
+          'type': 'chat:completion',
+          'data': {'content': 'Fresh reply.', 'done': true},
+        },
+      });
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      fakeTransport.emitChatEvent({
+        'message_id': 'assistant-msg-1',
+        'data': {
+          'type': 'chat:completion',
+          'data': {'content': 'Delayed stale reply.', 'done': true},
+        },
+      });
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+
+      expect(
+        container.read(voiceCallControllerProvider).response,
+        'Fresh reply.',
+      );
+      expect(fakeOutput.spokenTexts, ['Fresh reply.']);
+      expect(
+        container.read(voiceCallControllerProvider).phase,
+        CallPhase.listening,
+      );
+    });
+
     test('speaks all queued chunks sequentially', () async {
       final fakeOutput = _FakeOutput();
       final fakeTransport = _FakeTransport();
@@ -190,6 +447,8 @@ ProviderContainer _buildContainer({
   _FakeBackgroundPolicy? fakeBackground,
   _FakeAudioSession? fakeAudio,
   _FakePermissionOrchestrator? fakePermissions,
+  ApiService? apiService,
+  Conversation? activeConversation,
 }) {
   return ProviderContainer(
     overrides: [
@@ -210,8 +469,21 @@ ProviderContainer _buildContainer({
       callPermissionOrchestratorProvider.overrideWithValue(
         fakePermissions ?? _FakePermissionOrchestrator(),
       ),
+      apiServiceProvider.overrideWithValue(apiService),
+      activeConversationProvider.overrideWith(
+        () => _TestActiveConversationNotifier(activeConversation),
+      ),
     ],
   );
+}
+
+class _TestActiveConversationNotifier extends ActiveConversationNotifier {
+  _TestActiveConversationNotifier(this._conversation);
+
+  final Conversation? _conversation;
+
+  @override
+  Conversation? build() => _conversation;
 }
 
 class _FakeInput implements VoiceInputEngine {
@@ -369,6 +641,25 @@ class _FakeTransport implements VoiceAssistantTransport {
   }
 }
 
+class _FakeApiService extends ApiService {
+  _FakeApiService({required this.conversation})
+    : super(
+        serverConfig: const ServerConfig(
+          id: 'test',
+          name: 'Test',
+          url: 'http://localhost:0',
+        ),
+        workerManager: WorkerManager(),
+      );
+
+  final Conversation conversation;
+
+  @override
+  Future<Conversation> getConversation(String conversationId) async {
+    return conversation;
+  }
+}
+
 class _FakeCallSurface implements NativeCallSurface {
   @override
   bool get isAvailable => false;
@@ -455,3 +746,22 @@ class _FakePermissionOrchestrator implements CallPermissionOrchestrator {
 }
 
 Future<void> _noopDispose() async {}
+
+Conversation _conversationWithMessages(List<ChatMessage> messages) {
+  return Conversation(
+    id: 'conv-1',
+    title: 'Voice call test',
+    createdAt: DateTime(2026),
+    updatedAt: DateTime(2026),
+    messages: messages,
+  );
+}
+
+ChatMessage _assistantMessage({required String id, required String content}) {
+  return ChatMessage(
+    id: id,
+    role: 'assistant',
+    content: content,
+    timestamp: DateTime(2026),
+  );
+}
