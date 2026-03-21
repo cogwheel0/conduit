@@ -267,7 +267,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     // (e.g. @GPT-4 → <@M:gpt-4|GPT-4>) before sending.
     final wireText = _controller.toWireFormat().trim();
 
-    PlatformUtils.lightHaptic();
     widget.onSendMessage(wireText);
     _controller.clearMentions();
     _controller.clear();
@@ -654,8 +653,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   List<Model> _filterModels(List<Model> models) {
     if (models.isEmpty) return const <Model>[];
     final String query = _currentPromptCommand.toLowerCase().trim();
-    final String searchQuery =
-        query.startsWith('@') ? query.substring(1) : query;
+    final String searchQuery = query.startsWith('@')
+        ? query.substring(1)
+        : query;
 
     if (searchQuery.isEmpty) return models;
 
@@ -1028,9 +1028,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         context,
         context.conduitTheme.cardBackground,
         context.conduitTheme.cardBorder.withValues(
-          alpha: Theme.of(context).brightness == Brightness.dark
-              ? 0.6
-              : 0.4,
+          alpha: Theme.of(context).brightness == Brightness.dark ? 0.6 : 0.4,
         ),
       );
     }
@@ -1748,7 +1746,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 return CupertinoTextField(
                   controller: _controller,
                   focusNode: _focusNode,
-                  placeholder: widget.placeholder ??
+                  placeholder:
+                      widget.placeholder ??
                       AppLocalizations.of(context)!.messageHintText,
                   placeholderStyle: baseChatStyle.copyWith(
                     color: animatedPlaceholder,
@@ -1820,7 +1819,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 ),
                 decoration: context.conduitInputStyles
                     .borderless(
-                      hint: widget.placeholder ??
+                      hint:
+                          widget.placeholder ??
                           AppLocalizations.of(context)!.messageHintText,
                     )
                     .copyWith(
@@ -2002,7 +2002,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     if (hasText) {
       final onPressed = enabled
           ? () {
-              PlatformUtils.lightHaptic();
               _sendMessage();
             }
           : null;

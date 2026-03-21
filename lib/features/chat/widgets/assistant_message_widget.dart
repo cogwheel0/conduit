@@ -24,6 +24,8 @@ import 'package:url_launcher/url_launcher_string.dart';
 import '../providers/chat_providers.dart'
     show sendMessageWithContainer, streamingContentProvider;
 import '../../../core/utils/debug_logger.dart';
+import '../../../core/services/platform_service.dart';
+import '../../../core/services/settings_service.dart';
 import 'sources/openwebui_sources.dart';
 import '../providers/assistant_response_builder_provider.dart';
 import '../../../core/services/worker_manager.dart';
@@ -89,6 +91,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   int _activeVersionIndex = -1;
   String? _lastStreamingContent;
   bool _hasAnimated = false;
+
+  /// Guards the triple-haptic so it fires only once per streaming session.
+  bool _hasTriggeredContentHaptic = false;
   ProviderSubscription<String?>? _streamingContentSub;
 
   // Streaming fade-in animation state
@@ -154,6 +159,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       _lastStreamingContent = null;
       _lastFullyParsedContent = '';
       _hasAnimated = false;
+      _hasTriggeredContentHaptic = false;
       _fadeController.reset();
       _slideController.reset();
       _chunkFadeController.value = 1.0;
@@ -170,6 +176,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         !widget.isStreaming &&
         oldWidget.message.id == widget.message.id) {
       _chunkFadeController.value = 1.0;
+      _hasTriggeredContentHaptic = false;
+      // Haptic: streaming finished
+      _streamingHaptic(HapticType.medium);
     }
 
     // Re-parse sections when message content changes
@@ -196,8 +205,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   Future<void> _reparseSections([String? overrideContent]) async {
     final raw0 = _activeVersionIndex >= 0
-        ? (widget.message.versions[_activeVersionIndex]
-                  .content as String?) ??
+        ? (widget.message.versions[_activeVersionIndex].content as String?) ??
               ''
         : (overrideContent ?? widget.message.content ?? '');
     // Strip any leftover placeholders from content before parsing
@@ -332,6 +340,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         setState(() {
           _allowTypingIndicator = true;
         });
+        // Haptic: typing indicator appeared
+        _streamingHaptic(HapticType.light);
       });
     } else if (_allowTypingIndicator) {
       if (mounted) {
@@ -484,27 +494,31 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           children.add(const SizedBox(height: Spacing.sm));
           firstToolSpacerAdded = true;
         }
-        children.add(ToolCallTile(
-          toolCall: seg.toolCall!,
-          isStreaming: widget.isStreaming,
-        ));
+        children.add(
+          ToolCallTile(
+            toolCall: seg.toolCall!,
+            isStreaming: widget.isStreaming,
+          ),
+        );
       } else if (seg.isReasoning && seg.reasoning != null) {
-        children.add(ReasoningTile(
-          reasoning: seg.reasoning!,
-          index: idx,
-          onExpand: (i) =>
-              setState(() => _expandedReasoning.add(i)),
-          onCollapse: (i) {
-            if (mounted) {
-              setState(() => _expandedReasoning.remove(i));
-            }
-          },
-        ));
+        children.add(
+          ReasoningTile(
+            reasoning: seg.reasoning!,
+            index: idx,
+            onExpand: (i) => setState(() => _expandedReasoning.add(i)),
+            onCollapse: (i) {
+              if (mounted) {
+                setState(() => _expandedReasoning.remove(i));
+              }
+            },
+          ),
+        );
       } else if ((seg.text ?? '').trim().isNotEmpty) {
         // No extra spacing needed - reasoning/tool tiles have bottom padding
         final markdownWidget = _buildEnhancedMarkdownContent(seg.text!);
         // Wrap the last text segment with fade-in overlay during streaming
-        final isLastTextSeg = widget.isStreaming &&
+        final isLastTextSeg =
+            widget.isStreaming &&
             _segments.skip(idx + 1).every((s) => !s.isText);
         children.add(
           isLastTextSeg
@@ -689,12 +703,45 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   void _onStreamingChunk(int previousLength, int newLength) {
     if (newLength <= previousLength) return;
 
+    // Haptic: triple-tap when main content first arrives
+    if (previousLength == 0 && !_hasTriggeredContentHaptic) {
+      _hasTriggeredContentHaptic = true;
+      _tripleHaptic();
+    }
+
     // Respect reduced motion preference
     if (MediaQuery.of(context).disableAnimations) {
       _chunkFadeController.value = 1.0;
     } else {
       _chunkFadeController.forward(from: 0.0);
     }
+  }
+
+  /// Fires a single haptic impulse if the user has haptics enabled.
+  void _streamingHaptic(HapticType type) {
+    final enabled = ref.read(hapticEnabledProvider);
+    PlatformService.hapticFeedbackWithSettings(
+      type: type,
+      hapticEnabled: enabled,
+    );
+  }
+
+  /// Fires three distinct haptic taps to signal content arrival.
+  ///
+  /// Each tap is spaced 150ms apart so the user perceives three
+  /// separate impulses rather than a single buzz.
+  void _tripleHaptic() {
+    final enabled = ref.read(hapticEnabledProvider);
+    if (!enabled) return;
+    PlatformService.hapticFeedback(type: HapticType.medium);
+    Future.delayed(const Duration(milliseconds: 150), () {
+      if (!mounted) return;
+      PlatformService.hapticFeedback(type: HapticType.medium);
+    });
+    Future.delayed(const Duration(milliseconds: 300), () {
+      if (!mounted) return;
+      PlatformService.hapticFeedback(type: HapticType.medium);
+    });
   }
 
   /// Subscribes to [streamingContentProvider] only while this message is
@@ -705,16 +752,15 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     _streamingContentSub = null;
 
     if (widget.isStreaming) {
-      _streamingContentSub = ref.listenManual(
-        streamingContentProvider,
-        (prev, next) {
-          if (next != null && next != _lastStreamingContent) {
-            _lastStreamingContent = next;
-            unawaited(_reparseSections(next));
-          }
-        },
-        fireImmediately: true,
-      );
+      _streamingContentSub = ref.listenManual(streamingContentProvider, (
+        prev,
+        next,
+      ) {
+        if (next != null && next != _lastStreamingContent) {
+          _lastStreamingContent = next;
+          unawaited(_reparseSections(next));
+        }
+      }, fireImmediately: true);
     }
   }
 
@@ -753,124 +799,123 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final hasSources = widget.message.sources.isNotEmpty;
 
     final content = Container(
-          width: double.infinity,
-          margin: const EdgeInsets.only(
-            bottom: 16,
-            left: Spacing.xs,
-            right: Spacing.xs,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Cached AI Name and Avatar to prevent flashing
-              _cachedAvatar ?? const SizedBox.shrink(),
+      width: double.infinity,
+      margin: const EdgeInsets.only(
+        bottom: 16,
+        left: Spacing.xs,
+        right: Spacing.xs,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Cached AI Name and Avatar to prevent flashing
+          _cachedAvatar ?? const SizedBox.shrink(),
 
-              // Reasoning blocks are now rendered inline where they appear
+          // Reasoning blocks are now rendered inline where they appear
 
-              // Documentation-style content without heavy bubble; premium markdown
-              SizedBox(
-                width: double.infinity,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Display attachments - prioritize files array over attachmentIds to avoid duplication
-                    if (activeFiles != null && activeFiles.isNotEmpty) ...[
-                      _buildFilesFromArray(),
-                      const SizedBox(height: Spacing.md),
-                    ] else if (widget.message.attachmentIds != null &&
-                        widget.message.attachmentIds!.isNotEmpty) ...[
-                      _buildAttachmentItems(),
-                      const SizedBox(height: Spacing.md),
-                    ],
-
-                    if (hasStatusTimeline) ...[
-                      StreamingStatusWidget(
-                        updates: visibleStatusHistory,
-                        isStreaming: widget.isStreaming,
-                      ),
-                      const SizedBox(height: Spacing.xs),
-                    ],
-
-                    // Tool calls are rendered inline via segmented content
-                    // Smoothly crossfade between typing indicator and content
-                    AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 220),
-                      switchInCurve: Curves.easeOutCubic,
-                      switchOutCurve: Curves.easeInCubic,
-                      transitionBuilder: (child, anim) {
-                        final fade = CurvedAnimation(
-                          parent: anim,
-                          curve: Curves.easeOutCubic,
-                          reverseCurve: Curves.easeInCubic,
-                        );
-                        final size = CurvedAnimation(
-                          parent: anim,
-                          curve: Curves.easeOutCubic,
-                          reverseCurve: Curves.easeInCubic,
-                        );
-                        return FadeTransition(
-                          opacity: fade,
-                          child: SizeTransition(
-                            sizeFactor: size,
-                            axisAlignment: -1.0, // collapse/expand from top
-                            child: child,
-                          ),
-                        );
-                      },
-                      child:
-                          (_allowTypingIndicator && _shouldShowTypingIndicator)
-                          ? KeyedSubtree(
-                              key: const ValueKey('typing'),
-                              child: _buildTypingIndicator(),
-                            )
-                          : KeyedSubtree(
-                              key: const ValueKey('content'),
-                              child: _buildSegmentedContent(),
-                            ),
-                    ),
-
-                    // Display error banner if message or active version has an error
-                    if (_getActiveError() != null) ...[
-                      const SizedBox(height: Spacing.sm),
-                      _buildErrorBanner(_getActiveError()!),
-                    ],
-
-                    if (hasCodeExecutions) ...[
-                      const SizedBox(height: Spacing.md),
-                      CodeExecutionListView(
-                        executions: widget.message.codeExecutions,
-                      ),
-                    ],
-
-                    if (hasSources) ...[
-                      const SizedBox(height: Spacing.xs),
-                      OpenWebUISourcesWidget(
-                        sources: widget.message.sources,
-                        messageId: widget.message.id,
-                      ),
-                    ],
-
-                    // Version switcher moved inline with action buttons below
-                  ],
-                ),
-              ),
-
-              // Action buttons below the message content (only after streaming completes)
-              if (!widget.isStreaming) ...[
-                const SizedBox(height: Spacing.sm),
-                _buildActionButtons(),
-                if (hasFollowUps) ...[
+          // Documentation-style content without heavy bubble; premium markdown
+          SizedBox(
+            width: double.infinity,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Display attachments - prioritize files array over attachmentIds to avoid duplication
+                if (activeFiles != null && activeFiles.isNotEmpty) ...[
+                  _buildFilesFromArray(),
                   const SizedBox(height: Spacing.md),
-                  FollowUpSuggestionBar(
-                    suggestions: widget.message.followUps,
-                    onSelected: _handleFollowUpTap,
-                    isBusy: widget.isStreaming,
+                ] else if (widget.message.attachmentIds != null &&
+                    widget.message.attachmentIds!.isNotEmpty) ...[
+                  _buildAttachmentItems(),
+                  const SizedBox(height: Spacing.md),
+                ],
+
+                if (hasStatusTimeline) ...[
+                  StreamingStatusWidget(
+                    updates: visibleStatusHistory,
+                    isStreaming: widget.isStreaming,
+                  ),
+                  const SizedBox(height: Spacing.xs),
+                ],
+
+                // Tool calls are rendered inline via segmented content
+                // Smoothly crossfade between typing indicator and content
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 220),
+                  switchInCurve: Curves.easeOutCubic,
+                  switchOutCurve: Curves.easeInCubic,
+                  transitionBuilder: (child, anim) {
+                    final fade = CurvedAnimation(
+                      parent: anim,
+                      curve: Curves.easeOutCubic,
+                      reverseCurve: Curves.easeInCubic,
+                    );
+                    final size = CurvedAnimation(
+                      parent: anim,
+                      curve: Curves.easeOutCubic,
+                      reverseCurve: Curves.easeInCubic,
+                    );
+                    return FadeTransition(
+                      opacity: fade,
+                      child: SizeTransition(
+                        sizeFactor: size,
+                        axisAlignment: -1.0, // collapse/expand from top
+                        child: child,
+                      ),
+                    );
+                  },
+                  child: (_allowTypingIndicator && _shouldShowTypingIndicator)
+                      ? KeyedSubtree(
+                          key: const ValueKey('typing'),
+                          child: _buildTypingIndicator(),
+                        )
+                      : KeyedSubtree(
+                          key: const ValueKey('content'),
+                          child: _buildSegmentedContent(),
+                        ),
+                ),
+
+                // Display error banner if message or active version has an error
+                if (_getActiveError() != null) ...[
+                  const SizedBox(height: Spacing.sm),
+                  _buildErrorBanner(_getActiveError()!),
+                ],
+
+                if (hasCodeExecutions) ...[
+                  const SizedBox(height: Spacing.md),
+                  CodeExecutionListView(
+                    executions: widget.message.codeExecutions,
                   ),
                 ],
+
+                if (hasSources) ...[
+                  const SizedBox(height: Spacing.xs),
+                  OpenWebUISourcesWidget(
+                    sources: widget.message.sources,
+                    messageId: widget.message.id,
+                  ),
+                ],
+
+                // Version switcher moved inline with action buttons below
               ],
-            ],
+            ),
           ),
-        );
+
+          // Action buttons below the message content (only after streaming completes)
+          if (!widget.isStreaming) ...[
+            const SizedBox(height: Spacing.sm),
+            _buildActionButtons(),
+            if (hasFollowUps) ...[
+              const SizedBox(height: Spacing.md),
+              FollowUpSuggestionBar(
+                suggestions: widget.message.followUps,
+                onSelected: _handleFollowUpTap,
+                isBusy: widget.isStreaming,
+              ),
+            ],
+          ],
+        ],
+      ),
+    );
 
     // Animate on first appearance only, not on every streaming rebuild
     if (!_hasAnimated) {
@@ -882,15 +927,13 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     return FadeTransition(
       opacity: _fadeController,
       child: SlideTransition(
-        position: Tween<Offset>(
-          begin: const Offset(0, 0.1),
-          end: Offset.zero,
-        ).animate(
-          CurvedAnimation(
-            parent: _slideController,
-            curve: Curves.easeOutCubic,
-          ),
-        ),
+        position: Tween<Offset>(begin: const Offset(0, 0.1), end: Offset.zero)
+            .animate(
+              CurvedAnimation(
+                parent: _slideController,
+                curve: Curves.easeOutCubic,
+              ),
+            ),
         child: content,
       ),
     );
@@ -1319,8 +1362,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         : Icons.stop;
     final IconData ttsIcon = showStopState ? stopIcon : listenIcon;
     final String ttsLabel = showStopState ? l10n.ttsStop : l10n.ttsListen;
-    final String ttsSfSymbol =
-        showStopState ? 'stop.fill' : 'speaker.wave.2.fill';
+    final String ttsSfSymbol = showStopState
+        ? 'stop.fill'
+        : 'speaker.wave.2.fill';
 
     return Wrap(
       spacing: 8,
@@ -1344,7 +1388,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         if (widget.message.versions.isNotEmpty && !widget.isStreaming) ...[
           // Inline version toggle: Prev [1/n] Next
           ChatActionButton(
-            icon: Platform.isIOS ? CupertinoIcons.chevron_left : Icons.chevron_left,
+            icon: Platform.isIOS
+                ? CupertinoIcons.chevron_left
+                : Icons.chevron_left,
             label: l10n.previousLabel,
             sfSymbol: 'chevron.left',
             onTap: () {
@@ -1364,7 +1410,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
             isCompact: true,
           ),
           ChatActionButton(
-            icon: Platform.isIOS ? CupertinoIcons.chevron_right : Icons.chevron_right,
+            icon: Platform.isIOS
+                ? CupertinoIcons.chevron_right
+                : Icons.chevron_right,
             label: l10n.nextLabel,
             sfSymbol: 'chevron.right',
             onTap: () {
@@ -1424,7 +1472,6 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       sfSymbol: sfSymbol,
     );
   }
-
 }
 
 String _buildTtsPlainTextWorker(Map<String, dynamic> payload) {
