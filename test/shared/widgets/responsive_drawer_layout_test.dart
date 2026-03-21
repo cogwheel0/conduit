@@ -57,12 +57,12 @@ Future<void> _recordPlatformCallsDuring(
   }
 }
 
-Iterable<_RecordedPlatformCall> _selectionHapticCalls(
+Iterable<_RecordedPlatformCall> _settleHapticCalls(
   List<_RecordedPlatformCall> calls,
 ) => calls.where(
   (call) =>
       call.method == 'HapticFeedback.vibrate' &&
-      call.arguments == 'HapticFeedbackType.selectionClick',
+      call.arguments == 'HapticFeedbackType.mediumImpact',
 );
 
 Widget _buildHarness({
@@ -111,7 +111,7 @@ void main() {
     });
 
     expect(layoutKey.currentState!.isOpen, isTrue);
-    expect(_selectionHapticCalls(calls), hasLength(1));
+    expect(_settleHapticCalls(calls), hasLength(1));
   });
 
   testWidgets(
@@ -134,7 +134,7 @@ void main() {
       });
 
       expect(layoutKey.currentState!.isOpen, isFalse);
-      expect(_selectionHapticCalls(calls), hasLength(1));
+      expect(_settleHapticCalls(calls), hasLength(1));
     },
   );
 
@@ -144,7 +144,7 @@ void main() {
       await tester.pumpAndSettle();
     });
 
-    expect(_selectionHapticCalls(calls), isEmpty);
+    expect(_settleHapticCalls(calls), isEmpty);
   });
 
   testWidgets('rebuild and resize at a settled endpoint fire zero haptics', (
@@ -174,7 +174,7 @@ void main() {
       await tester.pump();
     });
 
-    expect(_selectionHapticCalls(calls), isEmpty);
+    expect(_settleHapticCalls(calls), isEmpty);
   });
 
   testWidgets('programmatic open fires one selection haptic on settle', (
@@ -192,7 +192,7 @@ void main() {
     });
 
     expect(layoutKey.currentState!.isOpen, isTrue);
-    expect(_selectionHapticCalls(calls), hasLength(1));
+    expect(_settleHapticCalls(calls), hasLength(1));
   });
 
   testWidgets('programmatic close fires one selection haptic on settle', (
@@ -212,7 +212,7 @@ void main() {
     });
 
     expect(layoutKey.currentState!.isOpen, isFalse);
-    expect(_selectionHapticCalls(calls), hasLength(1));
+    expect(_settleHapticCalls(calls), hasLength(1));
   });
 
   testWidgets('open when already open fires zero haptics', (tester) async {
@@ -229,7 +229,7 @@ void main() {
       await tester.pumpAndSettle();
     });
 
-    expect(_selectionHapticCalls(calls), isEmpty);
+    expect(_settleHapticCalls(calls), isEmpty);
   });
 
   testWidgets('close when already closed fires zero haptics', (tester) async {
@@ -244,7 +244,7 @@ void main() {
       await tester.pumpAndSettle();
     });
 
-    expect(_selectionHapticCalls(calls), isEmpty);
+    expect(_settleHapticCalls(calls), isEmpty);
   });
 
   testWidgets('same endpoint repeat settle does not double fire', (
@@ -268,7 +268,7 @@ void main() {
     });
 
     expect(layoutKey.currentState!.isOpen, isTrue);
-    expect(_selectionHapticCalls(calls), hasLength(1));
+    expect(_settleHapticCalls(calls), hasLength(1));
   });
 
   testWidgets(
@@ -291,12 +291,12 @@ void main() {
         await tester.pump();
 
         expect(layoutKey.currentState!.isOpen, isFalse);
-        expect(_selectionHapticCalls(calls), isEmpty);
+        expect(_settleHapticCalls(calls), isEmpty);
 
         await tester.pumpAndSettle();
 
         expect(layoutKey.currentState!.isOpen, isTrue);
-        expect(_selectionHapticCalls(calls), hasLength(1));
+        expect(_settleHapticCalls(calls), hasLength(1));
       });
     },
   );
@@ -331,7 +331,7 @@ void main() {
     });
 
     expect(layoutKey.currentState!.isOpen, isTrue);
-    expect(_selectionHapticCalls(calls), hasLength(1));
+    expect(_settleHapticCalls(calls), hasLength(1));
   });
 
   testWidgets('interrupted reversed settle emits no abandoned haptic', (
@@ -352,7 +352,7 @@ void main() {
     });
 
     expect(layoutKey.currentState!.isOpen, isFalse);
-    expect(_selectionHapticCalls(calls), isEmpty);
+    expect(_settleHapticCalls(calls), isEmpty);
   });
 
   testWidgets('tablet layout emits zero mobile settle haptics', (tester) async {
@@ -370,6 +370,6 @@ void main() {
       await tester.pumpAndSettle();
     });
 
-    expect(_selectionHapticCalls(calls), isEmpty);
+    expect(_settleHapticCalls(calls), isEmpty);
   });
 }

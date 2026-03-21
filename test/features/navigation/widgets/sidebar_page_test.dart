@@ -174,6 +174,103 @@ void main() {
     expect(inactiveSemantics.excluding, isTrue);
   });
 
+  testWidgets('renders pill tab bar instead of TabBar', (tester) async {
+    final controllers = _SidebarHarnessControllers();
+    await tester.pumpWidget(_buildSidebarHarness(controllers: controllers));
+
+    expect(find.byType(TabBar), findsNothing);
+    expect(
+      find.byKey(const ValueKey<String>('sidebar-pill-tab-bar')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('sidebar-tab-selector-chats')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('sidebar-tab-selector-notes')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('sidebar-tab-selector-channels')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('pill tab bar tapping switches active tab', (tester) async {
+    final controllers = _SidebarHarnessControllers();
+    await tester.pumpWidget(_buildSidebarHarness(controllers: controllers));
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('sidebar-tab-selector-channels')),
+    );
+    await tester.pumpAndSettle();
+
+    final channelsLayer = tester.widget<Opacity>(
+      _layerOpacityFinder(_SidebarTabLayer.channels),
+    );
+    expect(channelsLayer.opacity, 1);
+
+    final chatsLayer = tester.widget<Opacity>(
+      _layerOpacityFinder(_SidebarTabLayer.chats),
+    );
+    expect(chatsLayer.opacity, 0);
+  });
+
+  testWidgets('pill tab bar provides tab semantics', (tester) async {
+    final controllers = _SidebarHarnessControllers();
+    await tester.pumpWidget(_buildSidebarHarness(controllers: controllers));
+
+    final pillBar = find.byKey(const ValueKey<String>('sidebar-pill-tab-bar'));
+
+    final containerSemantics = tester.widget<Semantics>(
+      find.descendant(
+        of: pillBar,
+        matching: find.byWidgetPredicate(
+          (widget) =>
+              widget is Semantics &&
+              widget.container &&
+              widget.properties.label == 'Tab bar',
+        ),
+      ),
+    );
+    expect(containerSemantics, isNotNull);
+
+    final activeSelectorFinder = find.byKey(
+      const ValueKey<String>('sidebar-tab-selector-chats'),
+    );
+    final activeTabSemantics = tester.widget<Semantics>(
+      find.descendant(
+        of: activeSelectorFinder,
+        matching: find.byWidgetPredicate(
+          (widget) =>
+              widget is Semantics &&
+              widget.properties.label == 'Chats' &&
+              widget.properties.selected == true &&
+              widget.properties.button == true,
+        ),
+      ),
+    );
+    expect(activeTabSemantics, isNotNull);
+
+    final inactiveSelectorFinder = find.byKey(
+      const ValueKey<String>('sidebar-tab-selector-channels'),
+    );
+    final inactiveTabSemantics = tester.widget<Semantics>(
+      find.descendant(
+        of: inactiveSelectorFinder,
+        matching: find.byWidgetPredicate(
+          (widget) =>
+              widget is Semantics &&
+              widget.properties.label == 'Channels' &&
+              widget.properties.selected == false &&
+              widget.properties.button == true,
+        ),
+      ),
+    );
+    expect(inactiveTabSemantics, isNotNull);
+  });
+
   testWidgets('channel layer state survives notes toggle', (tester) async {
     final controllers = _SidebarHarnessControllers();
 

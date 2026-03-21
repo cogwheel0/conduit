@@ -184,7 +184,7 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
 
     _pendingSettledEndpoint = null;
     _lastSettledEndpoint = endpoint;
-    HapticFeedback.selectionClick();
+    HapticFeedback.mediumImpact();
   }
 
   void open({double velocity = 0.0}) {

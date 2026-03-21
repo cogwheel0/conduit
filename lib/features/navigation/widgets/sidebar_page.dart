@@ -29,6 +29,121 @@ class _SidebarTabDefinition {
       ValueKey<String>('sidebar-tab-layer-${id.name}');
 }
 
+class _SidebarPillTabBar extends StatelessWidget {
+  const _SidebarPillTabBar({
+    required this.tabController,
+    required this.tabDefinitions,
+    required this.theme,
+  });
+
+  final TabController tabController;
+  final List<_SidebarTabDefinition> tabDefinitions;
+  final ConduitThemeExtension theme;
+
+  Widget _buildSlidingPill(double tabWidth) {
+    final pillDecoration = BoxDecoration(
+      color: theme.textPrimary.withValues(alpha: 0.12),
+      borderRadius: BorderRadius.circular(7),
+    );
+
+    final animation = tabController.animation;
+    if (animation == null) {
+      return Positioned(
+        left: tabController.index * tabWidth,
+        top: 0,
+        bottom: 0,
+        width: tabWidth,
+        child: DecoratedBox(decoration: pillDecoration),
+      );
+    }
+
+    return AnimatedBuilder(
+      animation: animation,
+      builder: (context, _) {
+        final left = animation.value * tabWidth;
+
+        return Positioned(
+          left: left,
+          top: 0,
+          bottom: 0,
+          width: tabWidth,
+          child: DecoratedBox(decoration: pillDecoration),
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final tabCount = tabDefinitions.length;
+
+    return Container(
+      key: const ValueKey<String>('sidebar-pill-tab-bar'),
+      height: 46,
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+      decoration: BoxDecoration(
+        color: theme.surfaceContainer,
+        borderRadius: BorderRadius.circular(9),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final tabWidth = constraints.maxWidth / tabCount;
+
+          return Stack(
+            children: [
+              _buildSlidingPill(tabWidth),
+              Semantics(
+                container: true,
+                label: 'Tab bar',
+                child: Row(
+                  children: [
+                    for (var i = 0; i < tabCount; i++)
+                      Expanded(
+                        child: GestureDetector(
+                          key: tabDefinitions[i].selectorKey,
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () => tabController.animateTo(i),
+                          child: AnimatedBuilder(
+                            animation: tabController,
+                            builder: (context, _) {
+                              final isActive = tabController.index == i;
+                              return Semantics(
+                                label: tabDefinitions[i].label,
+                                selected: isActive,
+                                button: true,
+                                child: Center(
+                                  child: Text(
+                                    tabDefinitions[i].label,
+                                    style: AppTypography.bodySmallStyle
+                                        .copyWith(
+                                          fontWeight: isActive
+                                              ? FontWeight.w600
+                                              : FontWeight.normal,
+                                          color: isActive
+                                              ? theme.textPrimary
+                                              : theme.textSecondary,
+                                        ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
 /// Full-page tabbed sidebar with Chats, Notes, and Channels tabs.
 ///
 /// Replaces the single-purpose [ChatsDrawer] as the drawer content
@@ -163,22 +278,10 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
 
     return Column(
       children: [
-        // Tab bar
-        TabBar(
-          controller: _tabController,
-          tabs: [
-            for (final tabDefinition in tabDefinitions)
-              Tab(key: tabDefinition.selectorKey, text: tabDefinition.label),
-          ],
-          labelColor: conduitTheme.textPrimary,
-          unselectedLabelColor: conduitTheme.textSecondary,
-          labelStyle: AppTypography.bodySmallStyle.copyWith(
-            fontWeight: FontWeight.w600,
-          ),
-          unselectedLabelStyle: AppTypography.bodySmallStyle,
-          indicatorColor: conduitTheme.textPrimary,
-          indicatorWeight: BorderWidth.thick,
-          dividerHeight: 0,
+        _SidebarPillTabBar(
+          tabController: _tabController,
+          tabDefinitions: tabDefinitions,
+          theme: conduitTheme,
         ),
         Expanded(
           child: AnimatedBuilder(
