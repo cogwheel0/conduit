@@ -1135,7 +1135,6 @@ class AuthStateManager extends _$AuthStateManager {
       ref.invalidate(defaultModelProvider);
       ref.invalidate(backendConfigProvider);
       ref.invalidate(socketServiceManagerProvider);
-      ref.invalidate(conversationDeltaStreamProvider);
 
       // Update state
       _update(

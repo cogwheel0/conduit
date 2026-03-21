@@ -872,8 +872,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           MediaQuery.of(context).padding.top + kTextTabBarHeight + Spacing.md;
       final viewportHeight = MediaQuery.of(context).size.height;
       // alignment places the widget at (alignment * viewport) from the top
-      final alignment =
-          viewportHeight > 0 ? (topPadding / viewportHeight) : 0.0;
+      final alignment = viewportHeight > 0
+          ? (topPadding / viewportHeight)
+          : 0.0;
       Scrollable.ensureVisible(
         ctx,
         alignment: alignment,
@@ -1101,9 +1102,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       slivers: [
         SliverPadding(
           padding: EdgeInsets.fromLTRB(
-            Spacing.lg,
+            Spacing.inputPadding,
             topPadding,
-            Spacing.lg,
+            Spacing.inputPadding,
             bottomPadding,
           ),
           sliver: SliverList(
@@ -1231,18 +1232,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted || !_scrollController.hasClients) return;
           _scrollController.jumpTo(
-            targetOffset.clamp(
-              0.0,
-              _scrollController.position.maxScrollExtent,
-            ),
+            targetOffset.clamp(0.0, _scrollController.position.maxScrollExtent),
           );
         });
       } else {
         _scrollController.jumpTo(
-          targetOffset.clamp(
-            0.0,
-            _scrollController.position.maxScrollExtent,
-          ),
+          targetOffset.clamp(0.0, _scrollController.position.maxScrollExtent),
         );
       }
     }
@@ -1352,9 +1347,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         slivers: [
           SliverPadding(
             padding: EdgeInsets.fromLTRB(
-              Spacing.lg,
+              Spacing.inputPadding,
               topPadding,
-              Spacing.lg,
+              Spacing.inputPadding,
               bottomPadding,
             ),
             sliver: OptimizedSliverList<ChatMessage>(
@@ -1414,7 +1409,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 if (isUser) {
                   // Wrap the pinned user message with a key for
                   // Scrollable.ensureVisible to target.
-                  final isPinTarget = _wantsPinToTop &&
+                  final isPinTarget =
+                      _wantsPinToTop &&
                       message.role == 'user' &&
                       index == messages.length - 2 &&
                       messages.last.isStreaming;
@@ -1473,9 +1469,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           // message can be scrolled to the top of the viewport.
           if (_wantsPinToTop)
             SliverToBoxAdapter(
-              child: SizedBox(
-                height: MediaQuery.of(context).size.height,
-              ),
+              child: SizedBox(height: MediaQuery.of(context).size.height),
             ),
         ],
       ),
@@ -1690,8 +1684,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       // Save outgoing conversation's scroll position
       final outgoingId = _lastConversationId;
       if (outgoingId != null && _scrollController.hasClients) {
-        _savedScrollOffsets[outgoingId] =
-            _scrollController.position.pixels;
+        _savedScrollOffsets[outgoingId] = _scrollController.position.pixels;
       }
 
       _lastConversationId = conversationId;
@@ -1751,8 +1744,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           // transitions to scroll-following like ChatGPT.
           final position = _scrollController.position;
           final phantomHeight = MediaQuery.of(context).size.height;
-          final actualMaxExtent =
-              position.maxScrollExtent - phantomHeight;
+          final actualMaxExtent = position.maxScrollExtent - phantomHeight;
           if (actualMaxExtent > 0) {
             // Preserve _pinnedStreamingId so the pin-to-top detection
             // guard at line ~1244 doesn't re-trigger on the next rebuild.
@@ -1855,683 +1847,642 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           }
         },
         child: Scaffold(
-                backgroundColor: context.conduitTheme.surfaceBackground,
-                // Replace Scaffold drawer with a tunable slide drawer for gentler snap behavior.
-                drawerEnableOpenDragGesture: false,
-                drawerDragStartBehavior: DragStartBehavior.down,
-                extendBodyBehindAppBar: true,
-                appBar: AppBar(
-                  backgroundColor: Colors.transparent,
-                  elevation: Elevation.none,
-                  surfaceTintColor: Colors.transparent,
-                  shadowColor: Colors.transparent,
-                  toolbarHeight: kTextTabBarHeight,
-                  centerTitle: false,
-                  titleSpacing: Spacing.sm,
-                  leadingWidth: 44 + Spacing.inputPadding + Spacing.xs,
-                  leading: _isSelectionMode
-                      ? Padding(
-                          padding: const EdgeInsets.only(
-                            left: Spacing.inputPadding,
-                          ),
-                          child: Center(
-                            child: _buildAppBarIconButton(
-                              context: context,
-                              onPressed: _clearSelection,
-                              fallbackIcon: Platform.isIOS
-                                  ? CupertinoIcons.xmark
-                                  : Icons.close,
-                              sfSymbol: 'xmark',
-                              color: context.conduitTheme.textPrimary,
-                            ),
-                          ),
-                        )
-                      : Builder(
-                          builder: (ctx) => Padding(
-                            padding: const EdgeInsets.only(
-                              left: Spacing.inputPadding,
-                            ),
-                            child: Center(
-                              child: _buildAppBarIconButton(
-                                context: ctx,
-                                onPressed: () {
-                                  final layout = ResponsiveDrawerLayout.of(ctx);
-                                  if (layout == null) return;
-
-                                  final isDrawerOpen = layout.isOpen;
-                                  if (!isDrawerOpen) {
-                                    try {
-                                      ref
-                                          .read(
-                                            composerAutofocusEnabledProvider
-                                                .notifier,
-                                          )
-                                          .set(false);
-                                      FocusManager.instance.primaryFocus
-                                          ?.unfocus();
-                                      SystemChannels.textInput.invokeMethod(
-                                        'TextInput.hide',
-                                      );
-                                    } catch (_) {}
-                                  }
-                                  layout.toggle();
-                                },
-                                fallbackIcon: Platform.isIOS
-                                    ? CupertinoIcons.line_horizontal_3
-                                    : Icons.menu,
-                                sfSymbol: 'line.3.horizontal',
-                                color: context.conduitTheme.textPrimary,
-                              ),
-                            ),
-                          ),
-                        ),
-                  title: _isSelectionMode
-                      ? _buildAppBarPill(
-                          context: context,
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: Spacing.md,
-                              vertical: Spacing.sm,
-                            ),
-                            child: Text(
-                              '${_selectedMessageIds.length} selected',
-                              style: AppTypography.headlineSmallStyle.copyWith(
-                                color: context.conduitTheme.textPrimary,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ),
-                        )
-                      : LayoutBuilder(
-                          builder: (context, constraints) {
-                            // Build model selector pill
-                            // Show skeleton when loading, actual model selector otherwise
-                            final Widget modelPill;
-                            if (isLoadingConversation) {
-                              // Show skeleton pill while loading conversation
-                              modelPill = _buildAppBarPill(
-                                context: context,
-                                child: ConstrainedBox(
-                                  constraints: const BoxConstraints(
-                                    minHeight: 44,
-                                  ),
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: Spacing.sm,
-                                    ),
-                                    child: Center(
-                                      widthFactor: 1,
-                                      child: ConduitLoading.skeleton(
-                                        width: 80,
-                                        height: 14,
-                                        borderRadius: BorderRadius.circular(
-                                          AppBorderRadius.sm,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              );
-                            } else {
-                              Future<void> openModelSelector() async {
-                                final modelsAsync = ref.read(modelsProvider);
-
-                                if (modelsAsync.isLoading) {
-                                  try {
-                                    final models = await ref.read(
-                                      modelsProvider.future,
-                                    );
-                                    if (!mounted) return;
-                                    // ignore: use_build_context_synchronously
-                                    _showModelDropdown(context, ref, models);
-                                  } catch (e) {
-                                    DebugLogger.error(
-                                      'model-load-failed',
-                                      scope: 'chat/model-selector',
-                                      error: e,
-                                    );
-                                  }
-                                } else if (modelsAsync.hasValue) {
-                                  _showModelDropdown(
-                                    context,
-                                    ref,
-                                    modelsAsync.value!,
-                                  );
-                                } else if (modelsAsync.hasError) {
-                                  try {
-                                    ref.invalidate(modelsProvider);
-                                    final models = await ref.read(
-                                      modelsProvider.future,
-                                    );
-                                    if (!mounted) return;
-                                    // ignore: use_build_context_synchronously
-                                    _showModelDropdown(context, ref, models);
-                                  } catch (e) {
-                                    DebugLogger.error(
-                                      'model-refresh-failed',
-                                      scope: 'chat/model-selector',
-                                      error: e,
-                                    );
-                                  }
-                                }
-                              }
-
-                              final maxPillWidth =
-                                  (constraints.maxWidth - Spacing.xxl)
-                                      .clamp(140.0, 300.0)
-                                      .toDouble();
-
-                              if (PlatformInfo.isIOS26OrHigher()) {
-                                final textPainter = TextPainter(
-                                  text: TextSpan(
-                                    text: modelLabel,
-                                    style: modelTextStyle,
-                                  ),
-                                  maxLines: 1,
-                                  textScaler: MediaQuery.textScalerOf(context),
-                                  textDirection: Directionality.of(context),
-                                )..layout(maxWidth: maxPillWidth);
-
-                                final targetPillWidth =
-                                    (textPainter.width +
-                                            10 +
-                                            Spacing.xs +
-                                            IconSize.xs +
-                                            Spacing.xs +
-                                            12)
-                                        .clamp(0.0, maxPillWidth)
-                                        .toDouble();
-
-                                modelPill = AdaptiveButton.child(
-                                  onPressed: () {
-                                    openModelSelector();
-                                  },
-                                  style: AdaptiveButtonStyle.glass,
-                                  size: AdaptiveButtonSize.large,
-                                  minSize: Size(targetPillWidth, 44),
-                                  useSmoothRectangleBorder: false,
-                                  child: Padding(
-                                    padding: const EdgeInsets.only(
-                                      left: 10,
-                                      right: Spacing.xs,
-                                    ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Flexible(
-                                          child: MiddleEllipsisText(
-                                            modelLabel,
-                                            style: modelTextStyle,
-                                            textAlign: TextAlign.center,
-                                            semanticsLabel: modelLabel,
-                                          ),
-                                        ),
-                                        const SizedBox(width: Spacing.xs),
-                                        Icon(
-                                          CupertinoIcons.chevron_down,
-                                          color: context
-                                              .conduitTheme
-                                              .iconSecondary,
-                                          size: IconSize.small,
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                );
-                              } else {
-                                modelPill = GestureDetector(
-                                  onTap: openModelSelector,
-                                  child: _buildAppBarPill(
-                                    context: context,
-                                    child: ConstrainedBox(
-                                      constraints: const BoxConstraints(
-                                        minHeight: 44,
-                                      ),
-                                      child: Padding(
-                                        padding: const EdgeInsets.only(
-                                          left: 12.0,
-                                          right: Spacing.sm,
-                                        ),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            ConstrainedBox(
-                                              constraints: BoxConstraints(
-                                                maxWidth:
-                                                    constraints.maxWidth -
-                                                    Spacing.xxl,
-                                              ),
-                                              child: MiddleEllipsisText(
-                                                modelLabel,
-                                                style: modelTextStyle,
-                                                textAlign: TextAlign.center,
-                                                semanticsLabel: modelLabel,
-                                              ),
-                                            ),
-                                            const SizedBox(width: Spacing.xs),
-                                            Icon(
-                                              Platform.isIOS
-                                                  ? CupertinoIcons.chevron_down
-                                                  : Icons.keyboard_arrow_down,
-                                              color: context
-                                                  .conduitTheme
-                                                  .iconSecondary,
-                                              size: IconSize.medium,
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                );
-                              }
-                            }
-
-                            return Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                AnimatedSwitcher(
-                                  duration: const Duration(milliseconds: 200),
-                                  switchInCurve: Curves.easeOut,
-                                  switchOutCurve: Curves.easeIn,
-                                  child: KeyedSubtree(
-                                    key: ValueKey(
-                                      isLoadingConversation
-                                          ? 'model-loading'
-                                          : 'model-$modelLabel',
-                                    ),
-                                    child: modelPill,
-                                  ),
-                                ),
-                                if (isReviewerMode)
-                                  Padding(
-                                    padding: const EdgeInsets.only(
-                                      top: Spacing.xs,
-                                    ),
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: Spacing.sm,
-                                        vertical: 1.0,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: context.conduitTheme.success
-                                            .withValues(alpha: 0.1),
-                                        borderRadius: BorderRadius.circular(
-                                          AppBorderRadius.badge,
-                                        ),
-                                        border: Border.all(
-                                          color: context.conduitTheme.success
-                                              .withValues(alpha: 0.3),
-                                          width: BorderWidth.thin,
-                                        ),
-                                      ),
-                                      child: Text(
-                                        'REVIEWER MODE',
-                                        style: AppTypography.captionStyle
-                                            .copyWith(
-                                              color:
-                                                  context.conduitTheme.success,
-                                              fontWeight: FontWeight.w600,
-                                              fontSize: 9,
-                                            ),
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            );
-                          },
-                        ),
-                  actions: [
-                    if (!_isSelectionMode) ...[
-                      // Temporary chat toggle / Save chat button
-                      // Shows save when temporary + has messages,
-                      // otherwise shows the toggle
-                      Consumer(
-                        builder: (context, ref, _) {
-                          final isTemporary = ref.watch(
-                            temporaryChatEnabledProvider,
-                          );
-                          final activeConversation = ref.watch(
-                            activeConversationProvider,
-                          );
-                          final hasMessages = ref
-                              .watch(chatMessagesProvider)
-                              .isNotEmpty;
-
-                          final showToggle =
-                              activeConversation == null ||
-                              isTemporaryChat(activeConversation.id);
-
-                          if (!showToggle) {
-                            return const SizedBox.shrink();
-                          }
-
-                          // Show save button when temporary
-                          // chat has messages
-                          if (isTemporary &&
-                              hasMessages &&
-                              activeConversation != null) {
-                            return AdaptiveTooltip(
-                              message: AppLocalizations.of(context)!.saveChat,
-                              child: _buildAppBarIconButton(
-                                context: context,
-                                onPressed: _saveTemporaryChat,
-                                fallbackIcon: Platform.isIOS
-                                    ? CupertinoIcons.arrow_down_doc
-                                    : Icons.save_alt,
-                                sfSymbol: 'square.and.arrow.down',
-                                color: context.conduitTheme.textPrimary,
-                              ),
-                            );
-                          }
-
-                          // Show toggle button
-                          return AdaptiveTooltip(
-                            message: isTemporary
-                                ? AppLocalizations.of(
-                                    context,
-                                  )!.temporaryChatTooltip
-                                : AppLocalizations.of(context)!.temporaryChat,
-                            child: _buildAppBarIconButton(
-                              context: context,
-                              onPressed: () {
-                                HapticFeedback.selectionClick();
-                                final current = ref.read(
-                                  temporaryChatEnabledProvider,
-                                );
-                                ref
-                                    .read(temporaryChatEnabledProvider.notifier)
-                                    .set(!current);
-                              },
-                              fallbackIcon: isTemporary
-                                  ? (Platform.isIOS
-                                        ? CupertinoIcons.eye_slash
-                                        : Icons.visibility_off)
-                                  : (Platform.isIOS
-                                        ? CupertinoIcons.eye
-                                        : Icons.visibility_outlined),
-                              sfSymbol: isTemporary ? 'eye.slash' : 'eye',
-                              color: isTemporary
-                                  ? Colors.blue
-                                  : context.conduitTheme.textPrimary,
-                            ),
-                          );
-                        },
+          backgroundColor: context.conduitTheme.surfaceBackground,
+          // Replace Scaffold drawer with a tunable slide drawer for gentler snap behavior.
+          drawerEnableOpenDragGesture: false,
+          drawerDragStartBehavior: DragStartBehavior.down,
+          extendBodyBehindAppBar: true,
+          appBar: AppBar(
+            backgroundColor: Colors.transparent,
+            elevation: Elevation.none,
+            surfaceTintColor: Colors.transparent,
+            shadowColor: Colors.transparent,
+            toolbarHeight: kTextTabBarHeight,
+            centerTitle: false,
+            titleSpacing: Spacing.sm,
+            leadingWidth: 44 + Spacing.inputPadding + Spacing.xs,
+            leading: _isSelectionMode
+                ? Padding(
+                    padding: const EdgeInsets.only(left: Spacing.inputPadding),
+                    child: Center(
+                      child: _buildAppBarIconButton(
+                        context: context,
+                        onPressed: _clearSelection,
+                        fallbackIcon: Platform.isIOS
+                            ? CupertinoIcons.xmark
+                            : Icons.close,
+                        sfSymbol: 'xmark',
+                        color: context.conduitTheme.textPrimary,
                       ),
-                      const SizedBox(width: Spacing.sm),
-                      Padding(
-                        padding: const EdgeInsets.only(
-                          right: Spacing.inputPadding,
-                        ),
-                        child: AdaptiveTooltip(
-                          message: AppLocalizations.of(context)!.newChat,
-                          child: _buildAppBarIconButton(
-                            context: context,
-                            onPressed: _handleNewChat,
-                            fallbackIcon: Platform.isIOS
-                                ? CupertinoIcons.create
-                                : Icons.add_comment,
-                            sfSymbol: 'square.and.pencil',
-                            color: context.conduitTheme.textPrimary,
-                          ),
-                        ),
+                    ),
+                  )
+                : Builder(
+                    builder: (ctx) => Padding(
+                      padding: const EdgeInsets.only(
+                        left: Spacing.inputPadding,
                       ),
-                    ] else ...[
-                      Padding(
-                        padding: const EdgeInsets.only(
-                          right: Spacing.inputPadding,
-                        ),
+                      child: Center(
                         child: _buildAppBarIconButton(
-                          context: context,
-                          onPressed: _deleteSelectedMessages,
-                          fallbackIcon: Platform.isIOS
-                              ? CupertinoIcons.delete
-                              : Icons.delete,
-                          sfSymbol: 'trash',
-                          color: context.conduitTheme.error,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-                body: GestureDetector(
-                  behavior: HitTestBehavior.translucent,
-                  onTap: () {
-                    try {
-                      ref
-                          .read(composerAutofocusEnabledProvider.notifier)
-                          .set(false);
-                    } catch (_) {}
-                    FocusManager.instance.primaryFocus?.unfocus();
-                    try {
-                      SystemChannels.textInput.invokeMethod('TextInput.hide');
-                    } catch (_) {}
-                  },
-                  child: Stack(
-                    children: [
-                      // Messages Area fills entire space with pull-to-refresh
-                      Positioned.fill(
-                        child: ConduitRefreshIndicator(
-                          // Position indicator below the floating app bar
-                          edgeOffset:
-                              MediaQuery.of(context).padding.top +
-                              kTextTabBarHeight,
-                          onRefresh: () async {
-                            // Reload active conversation messages from server
-                            final api = ref.read(apiServiceProvider);
-                            final active = ref.read(activeConversationProvider);
-                            if (api != null && active != null) {
-                              try {
-                                final full = await api.getConversation(
-                                  active.id,
-                                );
-                                ref
-                                    .read(activeConversationProvider.notifier)
-                                    .set(full);
-                              } catch (e) {
-                                DebugLogger.log(
-                                  'Failed to refresh conversation: $e',
-                                  scope: 'chat/page',
-                                );
-                              }
-                            }
+                          context: ctx,
+                          onPressed: () {
+                            final layout = ResponsiveDrawerLayout.of(ctx);
+                            if (layout == null) return;
 
-                            // Also refresh the conversations list to reconcile missed events
-                            // and keep timestamps/order in sync with the server.
-                            try {
-                              refreshConversationsCache(ref);
-                              // Best-effort await to stabilize UI; ignore errors.
-                              await ref.read(conversationsProvider.future);
-                            } catch (_) {}
-
-                            // Add small delay for better UX feedback
-                            await Future.delayed(
-                              const Duration(milliseconds: 300),
-                            );
-                          },
-                          child: GestureDetector(
-                            behavior: HitTestBehavior.opaque,
-                            onTap: () {
+                            final isDrawerOpen = layout.isOpen;
+                            if (!isDrawerOpen) {
                               try {
                                 ref
                                     .read(
                                       composerAutofocusEnabledProvider.notifier,
                                     )
                                     .set(false);
-                              } catch (_) {}
-                              FocusManager.instance.primaryFocus?.unfocus();
-                              try {
+                                FocusManager.instance.primaryFocus?.unfocus();
                                 SystemChannels.textInput.invokeMethod(
                                   'TextInput.hide',
                                 );
                               } catch (_) {}
-                            },
-                            child: RepaintBoundary(
-                              child: _buildMessagesList(theme),
-                            ),
-                          ),
+                            }
+                            layout.toggle();
+                          },
+                          fallbackIcon: Platform.isIOS
+                              ? CupertinoIcons.line_horizontal_3
+                              : Icons.menu,
+                          sfSymbol: 'line.3.horizontal',
+                          color: context.conduitTheme.textPrimary,
                         ),
                       ),
-
-                      // Floating input area with attachments and blur background
-                      Positioned(
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        child: RepaintBoundary(
-                          child: MeasureSize(
-                            onChange: (size) {
-                              if (mounted) {
-                                setState(() {
-                                  _inputHeight = size.height;
-                                });
-                              }
-                            },
-                            child: Container(
-                              decoration: BoxDecoration(
-                                // Gradient fade from transparent to solid background
-                                gradient: LinearGradient(
-                                  begin: Alignment.topCenter,
-                                  end: Alignment.bottomCenter,
-                                  stops: const [0.0, 0.4, 1.0],
-                                  colors: [
-                                    theme.scaffoldBackgroundColor.withValues(
-                                      alpha: 0.0,
-                                    ),
-                                    theme.scaffoldBackgroundColor.withValues(
-                                      alpha: 0.85,
-                                    ),
-                                    theme.scaffoldBackgroundColor,
-                                  ],
+                    ),
+                  ),
+            title: _isSelectionMode
+                ? _buildAppBarPill(
+                    context: context,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: Spacing.md,
+                        vertical: Spacing.sm,
+                      ),
+                      child: Text(
+                        '${_selectedMessageIds.length} selected',
+                        style: AppTypography.headlineSmallStyle.copyWith(
+                          color: context.conduitTheme.textPrimary,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  )
+                : LayoutBuilder(
+                    builder: (context, constraints) {
+                      // Build model selector pill
+                      // Show skeleton when loading, actual model selector otherwise
+                      final Widget modelPill;
+                      if (isLoadingConversation) {
+                        // Show skeleton pill while loading conversation
+                        modelPill = _buildAppBarPill(
+                          context: context,
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(minHeight: 44),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: Spacing.sm,
+                              ),
+                              child: Center(
+                                widthFactor: 1,
+                                child: ConduitLoading.skeleton(
+                                  width: 80,
+                                  height: 14,
+                                  borderRadius: BorderRadius.circular(
+                                    AppBorderRadius.sm,
+                                  ),
                                 ),
                               ),
-                              child: Column(
+                            ),
+                          ),
+                        );
+                      } else {
+                        Future<void> openModelSelector() async {
+                          final modelsAsync = ref.read(modelsProvider);
+
+                          if (modelsAsync.isLoading) {
+                            try {
+                              final models = await ref.read(
+                                modelsProvider.future,
+                              );
+                              if (!mounted) return;
+                              // ignore: use_build_context_synchronously
+                              _showModelDropdown(context, ref, models);
+                            } catch (e) {
+                              DebugLogger.error(
+                                'model-load-failed',
+                                scope: 'chat/model-selector',
+                                error: e,
+                              );
+                            }
+                          } else if (modelsAsync.hasValue) {
+                            _showModelDropdown(
+                              context,
+                              ref,
+                              modelsAsync.value!,
+                            );
+                          } else if (modelsAsync.hasError) {
+                            try {
+                              ref.invalidate(modelsProvider);
+                              final models = await ref.read(
+                                modelsProvider.future,
+                              );
+                              if (!mounted) return;
+                              // ignore: use_build_context_synchronously
+                              _showModelDropdown(context, ref, models);
+                            } catch (e) {
+                              DebugLogger.error(
+                                'model-refresh-failed',
+                                scope: 'chat/model-selector',
+                                error: e,
+                              );
+                            }
+                          }
+                        }
+
+                        final maxPillWidth =
+                            (constraints.maxWidth - Spacing.xxl)
+                                .clamp(140.0, 300.0)
+                                .toDouble();
+
+                        if (PlatformInfo.isIOS26OrHigher()) {
+                          final textPainter = TextPainter(
+                            text: TextSpan(
+                              text: modelLabel,
+                              style: modelTextStyle,
+                            ),
+                            maxLines: 1,
+                            textScaler: MediaQuery.textScalerOf(context),
+                            textDirection: Directionality.of(context),
+                          )..layout(maxWidth: maxPillWidth);
+
+                          final targetPillWidth =
+                              (textPainter.width +
+                                      10 +
+                                      Spacing.xs +
+                                      IconSize.xs +
+                                      Spacing.xs +
+                                      12)
+                                  .clamp(0.0, maxPillWidth)
+                                  .toDouble();
+
+                          modelPill = AdaptiveButton.child(
+                            onPressed: () {
+                              openModelSelector();
+                            },
+                            style: AdaptiveButtonStyle.glass,
+                            size: AdaptiveButtonSize.large,
+                            minSize: Size(targetPillWidth, 44),
+                            useSmoothRectangleBorder: false,
+                            child: Padding(
+                              padding: const EdgeInsets.only(
+                                left: 10,
+                                right: Spacing.xs,
+                              ),
+                              child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  // Top padding for gradient fade area
-                                  const SizedBox(height: Spacing.xl),
-                                  // File attachments
-                                  const FileAttachmentWidget(),
-                                  const ContextAttachmentWidget(),
-                                  // RepaintBoundary prevents BackdropFilter
-                                  // (AdaptiveBlurView) from going blank when
-                                  // a modal sheet scrolls over it.
-                                  RepaintBoundary(
-                                    child: ModernChatInput(
-                                      onSendMessage: (text) =>
-                                          _handleMessageSend(
-                                            text,
-                                            selectedModel,
-                                          ),
-                                      onVoiceInput: null,
-                                      onVoiceCall: _handleVoiceCall,
-                                      onFileAttachment: _handleFileAttachment,
-                                      onImageAttachment: _handleImageAttachment,
-                                      onCameraCapture: () =>
-                                          _handleImageAttachment(
-                                            fromCamera: true,
-                                          ),
-                                      onWebAttachment: _promptAttachWebpage,
-                                      onPastedAttachments:
-                                          _handlePastedAttachments,
+                                  Flexible(
+                                    child: MiddleEllipsisText(
+                                      modelLabel,
+                                      style: modelTextStyle,
+                                      textAlign: TextAlign.center,
+                                      semanticsLabel: modelLabel,
                                     ),
+                                  ),
+                                  const SizedBox(width: Spacing.xs),
+                                  Icon(
+                                    CupertinoIcons.chevron_down,
+                                    color: context.conduitTheme.iconSecondary,
+                                    size: IconSize.small,
                                   ),
                                 ],
                               ),
                             ),
-                          ),
-                        ),
-                      ),
-
-                      // Floating app bar gradient overlay
-                      Positioned(
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        child: IgnorePointer(
-                          child: Container(
-                            height:
-                                MediaQuery.of(context).padding.top +
-                                kTextTabBarHeight +
-                                Spacing.xl,
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                                stops: const [0.0, 0.4, 1.0],
-                                colors: [
-                                  theme.scaffoldBackgroundColor,
-                                  theme.scaffoldBackgroundColor.withValues(
-                                    alpha: 0.85,
-                                  ),
-                                  theme.scaffoldBackgroundColor.withValues(
-                                    alpha: 0.0,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-
-                      // Floating Scroll to Bottom Button with smooth appear/disappear
-                      Positioned(
-                        bottom: (_inputHeight > 0)
-                            ? _inputHeight
-                            : (Spacing.xxl + Spacing.xxxl),
-                        left: 0,
-                        right: 0,
-                        child: AnimatedSwitcher(
-                          duration: AnimationDuration.microInteraction,
-                          switchInCurve: AnimationCurves.microInteraction,
-                          switchOutCurve: AnimationCurves.microInteraction,
-                          transitionBuilder: (child, animation) {
-                            final slideAnimation = Tween<Offset>(
-                              begin: const Offset(0, 0.15),
-                              end: Offset.zero,
-                            ).animate(animation);
-                            return FadeTransition(
-                              opacity: animation,
-                              child: SlideTransition(
-                                position: slideAnimation,
-                                child: child,
-                              ),
-                            );
-                          },
-                          child:
-                              (_showScrollToBottom &&
-                                  !_wantsPinToTop &&
-                                  !keyboardVisible &&
-                                  canScroll &&
-                                  ref.watch(chatMessagesProvider).isNotEmpty)
-                              ? Center(
-                                  key: const ValueKey(
-                                    'scroll_to_bottom_visible',
-                                  ),
-                                  child: AdaptiveTooltip(
-                                    message:
-                                        _userPausedAutoScroll &&
-                                            isStreamingAnyMessage
-                                        ? 'Resume auto-scroll'
-                                        : 'Scroll to bottom',
-                                    child: _buildScrollToBottomButton(
-                                      context,
-                                      isResuming:
-                                          _userPausedAutoScroll &&
-                                          isStreamingAnyMessage,
-                                    ),
-                                  ),
-                                )
-                              : const SizedBox.shrink(
-                                  key: ValueKey('scroll_to_bottom_hidden'),
+                          );
+                        } else {
+                          modelPill = GestureDetector(
+                            onTap: openModelSelector,
+                            child: _buildAppBarPill(
+                              context: context,
+                              child: ConstrainedBox(
+                                constraints: const BoxConstraints(
+                                  minHeight: 44,
                                 ),
+                                child: Padding(
+                                  padding: const EdgeInsets.only(
+                                    left: 12.0,
+                                    right: Spacing.sm,
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      ConstrainedBox(
+                                        constraints: BoxConstraints(
+                                          maxWidth:
+                                              constraints.maxWidth -
+                                              Spacing.xxl,
+                                        ),
+                                        child: MiddleEllipsisText(
+                                          modelLabel,
+                                          style: modelTextStyle,
+                                          textAlign: TextAlign.center,
+                                          semanticsLabel: modelLabel,
+                                        ),
+                                      ),
+                                      const SizedBox(width: Spacing.xs),
+                                      Icon(
+                                        Platform.isIOS
+                                            ? CupertinoIcons.chevron_down
+                                            : Icons.keyboard_arrow_down,
+                                        color:
+                                            context.conduitTheme.iconSecondary,
+                                        size: IconSize.medium,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        }
+                      }
+
+                      return Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 200),
+                            switchInCurve: Curves.easeOut,
+                            switchOutCurve: Curves.easeIn,
+                            child: KeyedSubtree(
+                              key: ValueKey(
+                                isLoadingConversation
+                                    ? 'model-loading'
+                                    : 'model-$modelLabel',
+                              ),
+                              child: modelPill,
+                            ),
+                          ),
+                          if (isReviewerMode)
+                            Padding(
+                              padding: const EdgeInsets.only(top: Spacing.xs),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: Spacing.sm,
+                                  vertical: 1.0,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: context.conduitTheme.success
+                                      .withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(
+                                    AppBorderRadius.badge,
+                                  ),
+                                  border: Border.all(
+                                    color: context.conduitTheme.success
+                                        .withValues(alpha: 0.3),
+                                    width: BorderWidth.thin,
+                                  ),
+                                ),
+                                child: Text(
+                                  'REVIEWER MODE',
+                                  style: AppTypography.captionStyle.copyWith(
+                                    color: context.conduitTheme.success,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 9,
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      );
+                    },
+                  ),
+            actions: [
+              if (!_isSelectionMode) ...[
+                // Temporary chat toggle / Save chat button
+                // Shows save when temporary + has messages,
+                // otherwise shows the toggle
+                Consumer(
+                  builder: (context, ref, _) {
+                    final isTemporary = ref.watch(temporaryChatEnabledProvider);
+                    final activeConversation = ref.watch(
+                      activeConversationProvider,
+                    );
+                    final hasMessages = ref
+                        .watch(chatMessagesProvider)
+                        .isNotEmpty;
+
+                    final showToggle =
+                        activeConversation == null ||
+                        isTemporaryChat(activeConversation.id);
+
+                    if (!showToggle) {
+                      return const SizedBox.shrink();
+                    }
+
+                    // Show save button when temporary
+                    // chat has messages
+                    if (isTemporary &&
+                        hasMessages &&
+                        activeConversation != null) {
+                      return AdaptiveTooltip(
+                        message: AppLocalizations.of(context)!.saveChat,
+                        child: _buildAppBarIconButton(
+                          context: context,
+                          onPressed: _saveTemporaryChat,
+                          fallbackIcon: Platform.isIOS
+                              ? CupertinoIcons.arrow_down_doc
+                              : Icons.save_alt,
+                          sfSymbol: 'square.and.arrow.down',
+                          color: context.conduitTheme.textPrimary,
                         ),
+                      );
+                    }
+
+                    // Show toggle button
+                    return AdaptiveTooltip(
+                      message: isTemporary
+                          ? AppLocalizations.of(context)!.temporaryChatTooltip
+                          : AppLocalizations.of(context)!.temporaryChat,
+                      child: _buildAppBarIconButton(
+                        context: context,
+                        onPressed: () {
+                          HapticFeedback.selectionClick();
+                          final current = ref.read(
+                            temporaryChatEnabledProvider,
+                          );
+                          ref
+                              .read(temporaryChatEnabledProvider.notifier)
+                              .set(!current);
+                        },
+                        fallbackIcon: isTemporary
+                            ? (Platform.isIOS
+                                  ? CupertinoIcons.eye_slash
+                                  : Icons.visibility_off)
+                            : (Platform.isIOS
+                                  ? CupertinoIcons.eye
+                                  : Icons.visibility_outlined),
+                        sfSymbol: isTemporary ? 'eye.slash' : 'eye',
+                        color: isTemporary
+                            ? Colors.blue
+                            : context.conduitTheme.textPrimary,
                       ),
-                      // Edge overlay removed; rely on native interactive drawer drag
-                    ],
+                    );
+                  },
+                ),
+                const SizedBox(width: Spacing.sm),
+                Padding(
+                  padding: const EdgeInsets.only(right: Spacing.inputPadding),
+                  child: AdaptiveTooltip(
+                    message: AppLocalizations.of(context)!.newChat,
+                    child: _buildAppBarIconButton(
+                      context: context,
+                      onPressed: _handleNewChat,
+                      fallbackIcon: Platform.isIOS
+                          ? CupertinoIcons.create
+                          : Icons.add_comment,
+                      sfSymbol: 'square.and.pencil',
+                      color: context.conduitTheme.textPrimary,
+                    ),
                   ),
                 ),
-              ), // Scaffold
+              ] else ...[
+                Padding(
+                  padding: const EdgeInsets.only(right: Spacing.inputPadding),
+                  child: _buildAppBarIconButton(
+                    context: context,
+                    onPressed: _deleteSelectedMessages,
+                    fallbackIcon: Platform.isIOS
+                        ? CupertinoIcons.delete
+                        : Icons.delete,
+                    sfSymbol: 'trash',
+                    color: context.conduitTheme.error,
+                  ),
+                ),
+              ],
+            ],
+          ),
+          body: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onTap: () {
+              try {
+                ref.read(composerAutofocusEnabledProvider.notifier).set(false);
+              } catch (_) {}
+              FocusManager.instance.primaryFocus?.unfocus();
+              try {
+                SystemChannels.textInput.invokeMethod('TextInput.hide');
+              } catch (_) {}
+            },
+            child: Stack(
+              children: [
+                // Messages Area fills entire space with pull-to-refresh
+                Positioned.fill(
+                  child: ConduitRefreshIndicator(
+                    // Position indicator below the floating app bar
+                    edgeOffset:
+                        MediaQuery.of(context).padding.top + kTextTabBarHeight,
+                    onRefresh: () async {
+                      // Reload active conversation messages from server
+                      final api = ref.read(apiServiceProvider);
+                      final active = ref.read(activeConversationProvider);
+                      if (api != null && active != null) {
+                        try {
+                          final full = await api.getConversation(active.id);
+                          ref
+                              .read(activeConversationProvider.notifier)
+                              .set(full);
+                        } catch (e) {
+                          DebugLogger.log(
+                            'Failed to refresh conversation: $e',
+                            scope: 'chat/page',
+                          );
+                        }
+                      }
+
+                      // Also refresh the conversations list to reconcile missed events
+                      // and keep timestamps/order in sync with the server.
+                      try {
+                        refreshConversationsCache(ref);
+                        // Best-effort await to stabilize UI; ignore errors.
+                        await ref.read(conversationsProvider.future);
+                      } catch (_) {}
+
+                      // Add small delay for better UX feedback
+                      await Future.delayed(const Duration(milliseconds: 300));
+                    },
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () {
+                        try {
+                          ref
+                              .read(composerAutofocusEnabledProvider.notifier)
+                              .set(false);
+                        } catch (_) {}
+                        FocusManager.instance.primaryFocus?.unfocus();
+                        try {
+                          SystemChannels.textInput.invokeMethod(
+                            'TextInput.hide',
+                          );
+                        } catch (_) {}
+                      },
+                      child: RepaintBoundary(child: _buildMessagesList(theme)),
+                    ),
+                  ),
+                ),
+
+                // Floating input area with attachments and blur background
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: RepaintBoundary(
+                    child: MeasureSize(
+                      onChange: (size) {
+                        if (mounted) {
+                          setState(() {
+                            _inputHeight = size.height;
+                          });
+                        }
+                      },
+                      child: Container(
+                        decoration: BoxDecoration(
+                          // Gradient fade from transparent to solid background
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            stops: const [0.0, 0.4, 1.0],
+                            colors: [
+                              theme.scaffoldBackgroundColor.withValues(
+                                alpha: 0.0,
+                              ),
+                              theme.scaffoldBackgroundColor.withValues(
+                                alpha: 0.85,
+                              ),
+                              theme.scaffoldBackgroundColor,
+                            ],
+                          ),
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            // Top padding for gradient fade area
+                            const SizedBox(height: Spacing.xl),
+                            // File attachments
+                            const FileAttachmentWidget(),
+                            const ContextAttachmentWidget(),
+                            // RepaintBoundary prevents BackdropFilter
+                            // (AdaptiveBlurView) from going blank when
+                            // a modal sheet scrolls over it.
+                            RepaintBoundary(
+                              child: ModernChatInput(
+                                onSendMessage: (text) =>
+                                    _handleMessageSend(text, selectedModel),
+                                onVoiceInput: null,
+                                onVoiceCall: _handleVoiceCall,
+                                onFileAttachment: _handleFileAttachment,
+                                onImageAttachment: _handleImageAttachment,
+                                onCameraCapture: () =>
+                                    _handleImageAttachment(fromCamera: true),
+                                onWebAttachment: _promptAttachWebpage,
+                                onPastedAttachments: _handlePastedAttachments,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+
+                // Floating app bar gradient overlay
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: IgnorePointer(
+                    child: Container(
+                      height:
+                          MediaQuery.of(context).padding.top +
+                          kTextTabBarHeight +
+                          Spacing.xl,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          stops: const [0.0, 0.4, 1.0],
+                          colors: [
+                            theme.scaffoldBackgroundColor,
+                            theme.scaffoldBackgroundColor.withValues(
+                              alpha: 0.85,
+                            ),
+                            theme.scaffoldBackgroundColor.withValues(
+                              alpha: 0.0,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+
+                // Floating Scroll to Bottom Button with smooth appear/disappear
+                Positioned(
+                  bottom: (_inputHeight > 0)
+                      ? _inputHeight
+                      : (Spacing.xxl + Spacing.xxxl),
+                  left: 0,
+                  right: 0,
+                  child: AnimatedSwitcher(
+                    duration: AnimationDuration.microInteraction,
+                    switchInCurve: AnimationCurves.microInteraction,
+                    switchOutCurve: AnimationCurves.microInteraction,
+                    transitionBuilder: (child, animation) {
+                      final slideAnimation = Tween<Offset>(
+                        begin: const Offset(0, 0.15),
+                        end: Offset.zero,
+                      ).animate(animation);
+                      return FadeTransition(
+                        opacity: animation,
+                        child: SlideTransition(
+                          position: slideAnimation,
+                          child: child,
+                        ),
+                      );
+                    },
+                    child:
+                        (_showScrollToBottom &&
+                            !_wantsPinToTop &&
+                            !keyboardVisible &&
+                            canScroll &&
+                            ref.watch(chatMessagesProvider).isNotEmpty)
+                        ? Center(
+                            key: const ValueKey('scroll_to_bottom_visible'),
+                            child: AdaptiveTooltip(
+                              message:
+                                  _userPausedAutoScroll && isStreamingAnyMessage
+                                  ? 'Resume auto-scroll'
+                                  : 'Scroll to bottom',
+                              child: _buildScrollToBottomButton(
+                                context,
+                                isResuming:
+                                    _userPausedAutoScroll &&
+                                    isStreamingAnyMessage,
+                              ),
+                            ),
+                          )
+                        : const SizedBox.shrink(
+                            key: ValueKey('scroll_to_bottom_hidden'),
+                          ),
+                  ),
+                ),
+                // Edge overlay removed; rely on native interactive drawer drag
+              ],
+            ),
+          ),
+        ), // Scaffold
       ), // PopScope
     ); // ErrorBoundary
   }

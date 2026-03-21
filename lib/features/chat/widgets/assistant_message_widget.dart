@@ -800,11 +800,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
     final content = Container(
       width: double.infinity,
-      margin: const EdgeInsets.only(
-        bottom: 16,
-        left: Spacing.xs,
-        right: Spacing.xs,
-      ),
+      margin: const EdgeInsets.only(bottom: 16, right: Spacing.xs),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -844,23 +840,13 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
                   switchInCurve: Curves.easeOutCubic,
                   switchOutCurve: Curves.easeInCubic,
                   transitionBuilder: (child, anim) {
-                    final fade = CurvedAnimation(
-                      parent: anim,
-                      curve: Curves.easeOutCubic,
-                      reverseCurve: Curves.easeInCubic,
-                    );
-                    final size = CurvedAnimation(
-                      parent: anim,
-                      curve: Curves.easeOutCubic,
-                      reverseCurve: Curves.easeInCubic,
-                    );
                     return FadeTransition(
-                      opacity: fade,
-                      child: SizeTransition(
-                        sizeFactor: size,
-                        axisAlignment: -1.0, // collapse/expand from top
-                        child: child,
+                      opacity: CurvedAnimation(
+                        parent: anim,
+                        curve: Curves.easeOutCubic,
+                        reverseCurve: Curves.easeInCubic,
                       ),
+                      child: child,
                     );
                   },
                   child: (_allowTypingIndicator && _shouldShowTypingIndicator)

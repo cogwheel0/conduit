@@ -6,7 +6,7 @@ import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/core/models/socket_event.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/chat_completion_transport.dart';
-import 'package:conduit/core/services/conversation_delta_listener.dart';
+import 'package:conduit/core/services/socket_service.dart';
 import 'package:conduit/core/services/streaming_helper.dart';
 import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/core/models/server_config.dart';
@@ -209,7 +209,7 @@ ActiveChatStream _attach({
   String modelId = 'test-model',
   String sessionId = 'sess-1',
   String? activeConversationId = 'conv-1',
-  RegisterConversationDeltaListener? registerDeltaListener,
+  SocketService? socketService,
 }) {
   return attachUnifiedChunkedStreaming(
     session: session,
@@ -220,9 +220,8 @@ ActiveChatStream _attach({
     sessionId: sessionId,
     activeConversationId: activeConversationId,
     api: api ?? _buildFakeApi(),
-    socketService: null,
+    socketService: socketService,
     workerManager: workerManager ?? _fakeWorkerManager(),
-    registerDeltaListener: registerDeltaListener,
     appendToLastMessage: log.appendToLastMessage,
     replaceLastMessageContent: log.replaceLastMessageContent,
     updateLastMessageWith: log.updateLastMessageWith,
@@ -241,39 +240,68 @@ ActiveChatStream _attach({
 // Socket event injection helper
 // ---------------------------------------------------------------------------
 
-/// A fake [RegisterConversationDeltaListener] that captures the onDelta
-/// callbacks so tests can inject socket events directly.
-class FakeDeltaRegistrar {
-  ConversationDeltaDataCallback? _chatHandler;
-  ConversationDeltaDataCallback? _channelHandler;
-
-  RegisterConversationDeltaListener get registrar =>
-      ({
-        required ConversationDeltaRequest request,
-        required ConversationDeltaDataCallback onDelta,
-        required ConversationDeltaErrorCallback onError,
-      }) {
-        if (request.source == ConversationDeltaSource.chat) {
-          _chatHandler = onDelta;
-        } else {
-          _channelHandler = onDelta;
-        }
-        return () {};
-      };
+/// Captures the chat event handler from attachUnifiedChunkedStreaming so
+/// tests can inject socket events directly. Works with the mock
+/// SocketService below.
+class FakeSocketInjector {
+  void Function(Map<String, dynamic>, void Function(dynamic)?)? _handler;
 
   /// Injects a socket chat event with the given [type] and [payload].
-  ///
-  /// [payload] can be a Map, List, or any other type — matching
-  /// the flexibility of real socket events.
   void emitChatEvent(String type, dynamic payload, {String? messageId}) {
     final raw = <String, dynamic>{
       'data': {'type': type, 'data': payload},
       if (messageId != null) 'message_id': messageId,
     };
-    _chatHandler?.call(
-      ConversationDelta(source: ConversationDeltaSource.chat, raw: raw),
+    _handler?.call(raw, null);
+  }
+}
+
+/// Minimal mock SocketService that routes addChatEventHandler to a
+/// [FakeSocketInjector] so tests can inject events without a real socket.
+class _MockSocketService implements SocketService {
+  _MockSocketService(this._injector);
+  final FakeSocketInjector _injector;
+
+  @override
+  SocketEventSubscription addChatEventHandler({
+    String? conversationId,
+    String? sessionId,
+    bool requireFocus = true,
+    required SocketChatEventHandler handler,
+  }) {
+    _injector._handler = handler;
+    return SocketEventSubscription(
+      () => _injector._handler = null,
+      handlerId: 'test',
     );
   }
+
+  @override
+  SocketEventSubscription addChannelEventHandler({
+    String? conversationId,
+    String? sessionId,
+    bool requireFocus = true,
+    required SocketChatEventHandler handler,
+  }) => SocketEventSubscription(() {}, handlerId: 'test-ch');
+
+  @override
+  Stream<void> get onReconnect => const Stream.empty();
+
+  @override
+  bool get isConnected => true;
+
+  @override
+  String? get sessionId => 'test-session';
+
+  @override
+  void onEvent(String eventName, void Function(dynamic) handler) {}
+
+  @override
+  void offEvent(String eventName) {}
+
+  // Stubs for remaining SocketService interface
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
 }
 
 // ---------------------------------------------------------------------------
@@ -795,7 +823,7 @@ void main() {
     // -----------------------------------------------------------------------
     test('chat:message:files normalizes and dedupes image URLs', () async {
       final log = _CallbackLog();
-      final registrar = FakeDeltaRegistrar();
+      final registrar = FakeSocketInjector();
 
       _attach(
         session: ChatCompletionSession.taskSocket(
@@ -804,7 +832,7 @@ void main() {
           taskId: 'task-1',
         ),
         log: log,
-        registerDeltaListener: registrar.registrar,
+        socketService: _MockSocketService(registrar),
       );
 
       await pumpMicrotasks();
@@ -838,7 +866,7 @@ void main() {
     // -----------------------------------------------------------------------
     test('files event normalizes and dedupes image URLs', () async {
       final log = _CallbackLog();
-      final registrar = FakeDeltaRegistrar();
+      final registrar = FakeSocketInjector();
 
       _attach(
         session: ChatCompletionSession.taskSocket(
@@ -847,7 +875,7 @@ void main() {
           taskId: 'task-1',
         ),
         log: log,
-        registerDeltaListener: registrar.registrar,
+        socketService: _MockSocketService(registrar),
       );
 
       await pumpMicrotasks();
@@ -878,7 +906,7 @@ void main() {
     // -----------------------------------------------------------------------
     test('chat:message:files then files event merges without dupes', () async {
       final log = _CallbackLog();
-      final registrar = FakeDeltaRegistrar();
+      final registrar = FakeSocketInjector();
 
       _attach(
         session: ChatCompletionSession.taskSocket(
@@ -887,7 +915,7 @@ void main() {
           taskId: 'task-1',
         ),
         log: log,
-        registerDeltaListener: registrar.registrar,
+        socketService: _MockSocketService(registrar),
       );
 
       await pumpMicrotasks();
@@ -925,7 +953,7 @@ void main() {
     // -----------------------------------------------------------------------
     test('status event before files — both land on same message', () async {
       final log = _CallbackLog();
-      final registrar = FakeDeltaRegistrar();
+      final registrar = FakeSocketInjector();
 
       _attach(
         session: ChatCompletionSession.taskSocket(
@@ -934,7 +962,7 @@ void main() {
           taskId: 'task-1',
         ),
         log: log,
-        registerDeltaListener: registrar.registrar,
+        socketService: _MockSocketService(registrar),
       );
 
       await pumpMicrotasks();
@@ -970,7 +998,7 @@ void main() {
     // -----------------------------------------------------------------------
     test('files remain on message after terminal error', () async {
       final log = _CallbackLog();
-      final registrar = FakeDeltaRegistrar();
+      final registrar = FakeSocketInjector();
 
       _attach(
         session: ChatCompletionSession.taskSocket(
@@ -979,7 +1007,7 @@ void main() {
           taskId: 'task-1',
         ),
         log: log,
-        registerDeltaListener: registrar.registrar,
+        socketService: _MockSocketService(registrar),
       );
 
       await pumpMicrotasks();

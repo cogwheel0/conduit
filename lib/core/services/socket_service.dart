@@ -706,6 +706,7 @@ class SocketService with WidgetsBindingObserver {
     final chatId = map['chat_id']?.toString();
     final channelId = _extractChannelId(map);
 
+    bool delivered = false;
     for (final registration in List<_ChatEventRegistration>.from(
       _chatEventHandlers.values,
     )) {
@@ -723,10 +724,10 @@ class SocketService with WidgetsBindingObserver {
       try {
         registration.handler(map, ackFn);
       } catch (_) {}
-      return; // Delivered to first matching handler
+      delivered = true;
     }
-    // Buffer event if we're pre-buffering for this chat_id
-    if (chatId != null && _eventBuffer.containsKey(chatId)) {
+    // Buffer event if no handler matched and we're pre-buffering
+    if (!delivered && chatId != null && _eventBuffer.containsKey(chatId)) {
       _eventBuffer[chatId]!.add((Map<String, dynamic>.from(map), ackFn));
     }
   }

@@ -11,7 +11,7 @@ import '../../../core/auth/auth_state_manager.dart';
 import '../../../core/models/chat_message.dart';
 import '../../../core/models/conversation.dart';
 import '../../../core/providers/app_providers.dart';
-import '../../../core/services/conversation_delta_listener.dart';
+
 import '../../../core/services/settings_service.dart';
 import '../../../core/services/streaming_response_controller.dart';
 import '../../../core/services/worker_manager.dart';
@@ -1614,8 +1614,6 @@ Future<void> regenerateMessage(
         imageGenerationEnabled ||
         bgTasks.isNotEmpty;
 
-    final registerDeltaListener = createConversationDeltaRegistrar(ref);
-
     await dispatchChatTransport(
       ref: ref,
       session: session,
@@ -1635,7 +1633,6 @@ Future<void> regenerateMessage(
           (toolServers != null && toolServers.isNotEmpty) ||
           imageGenerationEnabled,
       isTemporary: isTemporary,
-      registerDeltaListener: registerDeltaListener,
       filterIds: selectedFilterIds.isNotEmpty ? selectedFilterIds : null,
     );
     return;
@@ -2242,8 +2239,6 @@ Future<void> _sendMessageInternal(
         imageGenerationEnabled ||
         bgTasks.isNotEmpty;
 
-    final registerDeltaListener = createConversationDeltaRegistrar(ref);
-
     await dispatchChatTransport(
       ref: ref,
       session: session,
@@ -2263,7 +2258,6 @@ Future<void> _sendMessageInternal(
           (toolServers != null && toolServers.isNotEmpty) ||
           imageGenerationEnabled,
       isTemporary: isTemporary,
-      registerDeltaListener: registerDeltaListener,
       filterIds: filterIdsForApi,
     );
 

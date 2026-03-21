@@ -91,17 +91,13 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
     final imageFiles = allFiles
         .where(
           (file) =>
-              file is Map &&
-              isImageFile(file) &&
-              getFileUrl(file) != null,
+              file is Map && isImageFile(file) && getFileUrl(file) != null,
         )
         .toList();
     final nonImageFiles = allFiles
         .where(
           (file) =>
-              file is Map &&
-              !isImageFile(file) &&
-              getFileUrl(file) != null,
+              file is Map && !isImageFile(file) && getFileUrl(file) != null,
         )
         .toList();
 
@@ -497,17 +493,15 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
     // Check length first (O(1)) to short-circuit before scanning for newlines
     final content = widget.message.content;
     final isMultiline = content.length > 50 || content.contains('\n');
-    final bubbleRadius = isMultiline ? AppBorderRadius.xl : AppBorderRadius.pill;
+    final bubbleRadius = isMultiline
+        ? AppBorderRadius.xl
+        : AppBorderRadius.pill;
 
     return ConduitContextMenu(
       actions: _buildMessageActions(context),
       child: Container(
         width: double.infinity,
-        margin: const EdgeInsets.only(
-          bottom: Spacing.md,
-          left: Spacing.xxxl,
-          right: Spacing.xs,
-        ),
+        margin: const EdgeInsets.only(bottom: Spacing.md, left: Spacing.xxxl),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
@@ -566,23 +560,17 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
                                     child: AdaptiveTextField(
                                       controller: _editController,
                                       maxLines: null,
-                                      style: AppTypography
-                                          .chatMessageStyle
-                                          .copyWith(
-                                            color: inlineEditTextColor,
-                                          ),
-                                      onSubmitted: (_) =>
-                                          _saveInlineEdit(),
+                                      style: AppTypography.chatMessageStyle
+                                          .copyWith(color: inlineEditTextColor),
+                                      onSubmitted: (_) => _saveInlineEdit(),
                                       padding: EdgeInsets.zero,
                                       cupertinoDecoration:
                                           const BoxDecoration(),
-                                      decoration: context
-                                          .conduitInputStyles
+                                      decoration: context.conduitInputStyles
                                           .borderless()
                                           .copyWith(
                                             isCollapsed: true,
-                                            contentPadding:
-                                                EdgeInsets.zero,
+                                            contentPadding: EdgeInsets.zero,
                                           ),
                                     ),
                                   ),

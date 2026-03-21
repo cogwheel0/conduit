@@ -11,7 +11,7 @@ import '../../../core/providers/app_providers.dart'
         refreshConversationsCache;
 import '../../../core/services/api_service.dart';
 import '../../../core/services/chat_completion_transport.dart';
-import '../../../core/services/conversation_delta_listener.dart';
+
 import '../../../core/services/socket_service.dart';
 import '../../../core/services/streaming_helper.dart';
 import '../../../core/services/worker_manager.dart';
@@ -194,7 +194,6 @@ Future<void> dispatchChatTransport({
   required bool modelUsesReasoning,
   required bool toolsEnabled,
   required bool isTemporary,
-  RegisterConversationDeltaListener? registerDeltaListener,
   List<String>? filterIds,
 }) async {
   // 1. Write transport + flow metadata onto assistant message
@@ -241,7 +240,6 @@ Future<void> dispatchChatTransport({
     api: api,
     socketService: socketService,
     workerManager: workerManager,
-    registerDeltaListener: registerDeltaListener,
     filterIds: filterIds,
     appendToLastMessage: (c) =>
         ref.read(chatMessagesProvider.notifier).appendToLastMessage(c),

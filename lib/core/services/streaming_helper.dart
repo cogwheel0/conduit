@@ -13,7 +13,7 @@ import '../../core/utils/tool_calls_parser.dart';
 import 'background_streaming_handler.dart';
 import 'chat_completion_transport.dart';
 import 'navigation_service.dart';
-import 'conversation_delta_listener.dart';
+
 import '../../shared/widgets/themed_dialogs.dart';
 import '../../shared/theme/theme_extensions.dart';
 import '../utils/debug_logger.dart';
@@ -196,7 +196,6 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   required ApiService api,
   required SocketService? socketService,
   required WorkerManager workerManager,
-  RegisterConversationDeltaListener? registerDeltaListener,
 
   /// Filter IDs for the outlet filter pass in chatCompleted.
   List<String>? filterIds,
@@ -286,8 +285,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   // Socket subscriptions list - starts empty so non-socket flows can finish via onComplete.
   // HTTP subscription is tracked separately and cleaned up in disposeSocketSubscriptions.
   final socketSubscriptions = <VoidCallback>[];
-  final hasSocketSignals =
-      socketService != null || registerDeltaListener != null;
+  final hasSocketSignals = socketService != null;
 
   // Reference to image sync function - initialized to no-op, reassigned after definition.
   // Must not be `late` to avoid LateInitializationError if callbacks fire early.
@@ -1535,37 +1533,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     } catch (_) {}
   }
 
-  // Drain any buffered events BEFORE registering handlers. The
-  // registerDeltaListener path internally calls addChatEventHandler (via
-  // Riverpod stream provider), which would consume the buffer into an
-  // async pipeline where events get lost. By draining first, we can
-  // replay them synchronously through chatHandler.
-  List<(Map<String, dynamic>, void Function(dynamic)?)>? earlyEvents;
-  if (activeConversationId != null && socketService != null) {
-    earlyEvents = socketService.drainBuffer(activeConversationId);
-  }
-
-  if (registerDeltaListener != null) {
-    final chatDisposer = registerDeltaListener(
-      request: ConversationDeltaRequest.chat(
-        conversationId: activeConversationId,
-        sessionId: sessionId,
-        requireFocus: false,
-      ),
-      onDelta: (event) {
-        chatHandler(event.raw, event.ack);
-      },
-      onError: (error, stackTrace) {
-        DebugLogger.error(
-          'Chat delta listener error',
-          scope: 'streaming/helper',
-          error: error,
-          stackTrace: stackTrace,
-        );
-      },
-    );
-    socketSubscriptions.add(chatDisposer);
-  } else if (socketService != null) {
+  // Register socket handlers directly. Events buffered before registration
+  // are replayed synchronously via addChatEventHandler's built-in replay.
+  if (socketService != null) {
     final chatSub = socketService.addChatEventHandler(
       conversationId: activeConversationId,
       sessionId: sessionId,
@@ -1573,28 +1543,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       handler: chatHandler,
     );
     socketSubscriptions.add(chatSub.dispose);
-  }
-  if (registerDeltaListener != null) {
-    final channelDisposer = registerDeltaListener(
-      request: ConversationDeltaRequest.channel(
-        conversationId: activeConversationId,
-        sessionId: sessionId,
-        requireFocus: false,
-      ),
-      onDelta: (event) {
-        channelEventsHandler(event.raw, event.ack);
-      },
-      onError: (error, stackTrace) {
-        DebugLogger.error(
-          'Channel delta listener error',
-          scope: 'streaming/helper',
-          error: error,
-          stackTrace: stackTrace,
-        );
-      },
-    );
-    socketSubscriptions.add(channelDisposer);
-  } else if (socketService != null) {
+
     final channelSub = socketService.addChannelEventHandler(
       conversationId: activeConversationId,
       sessionId: sessionId,
@@ -1602,22 +1551,6 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       handler: channelEventsHandler,
     );
     socketSubscriptions.add(channelSub.dispose);
-  }
-
-  // Replay any events that were buffered before handler registration.
-  // This must happen AFTER all handlers are registered (above) so the
-  // chatHandler and channelEventsHandler are ready to process them.
-  if (earlyEvents != null && earlyEvents.isNotEmpty) {
-    DebugLogger.log(
-      'Replaying ${earlyEvents.length} early-buffered events '
-      'for $activeConversationId',
-      scope: 'streaming/helper',
-    );
-    for (final (map, ackFn) in earlyEvents) {
-      try {
-        chatHandler(map, ackFn);
-      } catch (_) {}
-    }
   }
 
   // -----------------------------------------------------------------------
