@@ -1286,14 +1286,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         _scrollToUserMessage();
       }
     }
-    // End pin-to-top when streaming completes
-    if (!isStreaming && _wantsPinToTop) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _endPinToTop();
-      });
-    }
-    // Clear the pinned ID when streaming ends so the next message
-    // can activate pin-to-top fresh.
+    // Don't end pin-to-top when streaming completes. For long responses,
+    // pin-to-top was already ended mid-stream by the viewport-fill
+    // transition in the streamingContentProvider listener. If it's still
+    // active here, the response was short -- keep the phantom sliver so
+    // the view doesn't jump down. It dismisses on user scroll, new
+    // message, or conversation switch.
+    //
+    // Clear the pinned ID so the next message can activate pin-to-top.
     if (!isStreaming && _pinnedStreamingId != null) {
       _pinnedStreamingId = null;
     }
@@ -1325,6 +1325,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             if (_wantsPinToTop) {
               _endPinToTop(instant: true);
             }
+          } else if (!isStreaming && _wantsPinToTop) {
+            // User scrolled after streaming ended with a short response;
+            // smoothly remove the phantom sliver.
+            _endPinToTop();
           }
         }
         // Re-enable auto-scroll when user scrolls to bottom
