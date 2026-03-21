@@ -9,6 +9,26 @@ import '../../channels/widgets/channel_list_tab.dart';
 import '../../notes/widgets/notes_list_tab.dart';
 import 'chats_drawer.dart';
 
+enum _SidebarTabId { chats, notes, channels }
+
+class _SidebarTabDefinition {
+  const _SidebarTabDefinition({
+    required this.id,
+    required this.label,
+    required this.body,
+  });
+
+  final _SidebarTabId id;
+  final String label;
+  final Widget body;
+
+  ValueKey<String> get selectorKey =>
+      ValueKey<String>('sidebar-tab-selector-${id.name}');
+
+  ValueKey<String> get layerKey =>
+      ValueKey<String>('sidebar-tab-layer-${id.name}');
+}
+
 /// Full-page tabbed sidebar with Chats, Notes, and Channels tabs.
 ///
 /// Replaces the single-purpose [ChatsDrawer] as the drawer content
@@ -25,53 +45,93 @@ class SidebarPage extends ConsumerStatefulWidget {
 }
 
 class _SidebarPageState extends ConsumerState<SidebarPage>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late TabController _tabController;
   bool _notesEnabled = true;
+  ProviderSubscription<bool>? _notesEnabledSubscription;
+
+  int _clampIndex(int tabCount) {
+    final persistedIndex = ref.read(sidebarActiveTabProvider);
+    return persistedIndex.clamp(0, tabCount - 1);
+  }
+
+  void _schedulePersistedIndexSync(int index) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+
+      final persistedIndex = ref.read(sidebarActiveTabProvider);
+      if (persistedIndex != index) {
+        ref.read(sidebarActiveTabProvider.notifier).set(index);
+      }
+    });
+  }
+
+  int _resolveIndex(int tabCount) {
+    final persistedIndex = ref.read(sidebarActiveTabProvider);
+    final clampedIndex = _clampIndex(tabCount);
+    if (clampedIndex != persistedIndex) {
+      _schedulePersistedIndexSync(clampedIndex);
+    }
+    return clampedIndex;
+  }
 
   @override
   void initState() {
     super.initState();
     _notesEnabled = ref.read(notesFeatureEnabledProvider);
     final tabCount = _notesEnabled ? 3 : 2;
-    final initialIndex =
-        ref.read(sidebarActiveTabProvider).clamp(0, tabCount - 1);
+    final initialIndex = _resolveIndex(tabCount);
     _tabController = TabController(
       length: tabCount,
       vsync: this,
       initialIndex: initialIndex,
     );
     _tabController.addListener(_onTabChanged);
+    _notesEnabledSubscription = ref.listenManual<bool>(
+      notesFeatureEnabledProvider,
+      (previous, next) {
+        if (next != _notesEnabled) {
+          _rebuildTabController(next);
+        }
+      },
+    );
   }
 
   void _onTabChanged() {
-    if (!_tabController.indexIsChanging) {
-      ref.read(sidebarActiveTabProvider.notifier).set(
-            _tabController.index,
-          );
+    final persistedIndex = ref.read(sidebarActiveTabProvider);
+    if (persistedIndex != _tabController.index) {
+      ref.read(sidebarActiveTabProvider.notifier).set(_tabController.index);
     }
   }
 
   /// Rebuilds the [TabController] when the notes feature flag changes.
   void _rebuildTabController(bool notesEnabled) {
     if (notesEnabled == _notesEnabled) return;
-    _tabController.removeListener(_onTabChanged);
-    _tabController.dispose();
 
-    _notesEnabled = notesEnabled;
-    final tabCount = _notesEnabled ? 3 : 2;
-    final currentIndex =
-        ref.read(sidebarActiveTabProvider).clamp(0, tabCount - 1);
-    _tabController = TabController(
-      length: tabCount,
+    final previousController = _tabController;
+    previousController.removeListener(_onTabChanged);
+    final resolvedTabCount = notesEnabled ? 3 : 2;
+    final currentIndex = _resolveIndex(resolvedTabCount);
+    final nextController = TabController(
+      length: resolvedTabCount,
       vsync: this,
       initialIndex: currentIndex,
     );
-    _tabController.addListener(_onTabChanged);
+    nextController.addListener(_onTabChanged);
+
+    setState(() {
+      _notesEnabled = notesEnabled;
+      _tabController = nextController;
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      previousController.dispose();
+    });
   }
 
   @override
   void dispose() {
+    _notesEnabledSubscription?.close();
     _tabController.removeListener(_onTabChanged);
     _tabController.dispose();
     super.dispose();
@@ -79,20 +139,24 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
 
   @override
   Widget build(BuildContext context) {
-    final notesEnabled = ref.watch(notesFeatureEnabledProvider);
-    _rebuildTabController(notesEnabled);
-
-    final tabs = <Tab>[
-      Tab(text: AppLocalizations.of(context)!.sidebarChatsTab),
-      if (notesEnabled)
-        Tab(text: AppLocalizations.of(context)!.sidebarNotesTab),
-      Tab(text: AppLocalizations.of(context)!.sidebarChannelsTab),
-    ];
-
-    final bodies = <Widget>[
-      const ChatsDrawer(),
-      if (notesEnabled) const NotesListTab(),
-      const ChannelListTab(),
+    final localizations = AppLocalizations.of(context)!;
+    final tabDefinitions = <_SidebarTabDefinition>[
+      _SidebarTabDefinition(
+        id: _SidebarTabId.chats,
+        label: localizations.sidebarChatsTab,
+        body: const ChatsDrawer(),
+      ),
+      if (_notesEnabled)
+        _SidebarTabDefinition(
+          id: _SidebarTabId.notes,
+          label: localizations.sidebarNotesTab,
+          body: const NotesListTab(),
+        ),
+      _SidebarTabDefinition(
+        id: _SidebarTabId.channels,
+        label: localizations.sidebarChannelsTab,
+        body: const ChannelListTab(),
+      ),
     ];
 
     final conduitTheme = context.conduitTheme;
@@ -102,7 +166,10 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
         // Tab bar
         TabBar(
           controller: _tabController,
-          tabs: tabs,
+          tabs: [
+            for (final tabDefinition in tabDefinitions)
+              Tab(key: tabDefinition.selectorKey, text: tabDefinition.label),
+          ],
           labelColor: conduitTheme.textPrimary,
           unselectedLabelColor: conduitTheme.textSecondary,
           labelStyle: AppTypography.bodySmallStyle.copyWith(
@@ -113,14 +180,43 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
           indicatorWeight: BorderWidth.thick,
           dividerHeight: 0,
         ),
-        // Tab bodies
         Expanded(
-          child: TabBarView(
-            controller: _tabController,
-            // Disable swipe between tabs — conflicts with drawer
-            // close gesture at full width.
-            physics: const NeverScrollableScrollPhysics(),
-            children: bodies,
+          child: AnimatedBuilder(
+            animation: _tabController,
+            builder: (context, _) {
+              final activeIndex = _tabController.index.clamp(
+                0,
+                tabDefinitions.length - 1,
+              );
+
+              return Stack(
+                fit: StackFit.expand,
+                children: [
+                  for (var index = 0; index < tabDefinitions.length; index++)
+                    KeyedSubtree(
+                      key: tabDefinitions[index].layerKey,
+                      child: IgnorePointer(
+                        ignoring: index != activeIndex,
+                        child: TickerMode(
+                          enabled: index == activeIndex,
+                          child: ExcludeFocus(
+                            excluding: index != activeIndex,
+                            child: ExcludeSemantics(
+                              excluding: index != activeIndex,
+                              child: AnimatedOpacity(
+                                opacity: index == activeIndex ? 1 : 0,
+                                duration: const Duration(milliseconds: 180),
+                                curve: Curves.easeOut,
+                                child: tabDefinitions[index].body,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
           ),
         ),
       ],
