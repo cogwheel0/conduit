@@ -171,38 +171,7 @@ class _MinimalStatusRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final description = _resolveStatusDescription(update);
-
-    if (hasDetails) {
-      return AssistantDetailHeader(title: description, showShimmer: isPending);
-    }
-
-    return _buildStatusText(context, description, isPending);
-  }
-
-  Widget _buildStatusText(
-    BuildContext context,
-    String description,
-    bool isPending,
-  ) {
-    final theme = context.conduitTheme;
-    final baseColor = theme.textPrimary.withValues(alpha: 0.8);
-    final baseStyle = TextStyle(
-      fontSize: AppTypography.bodySmall,
-      color: baseColor,
-      height: 1.3,
-    );
-
-    if (!isPending) {
-      return Text(description, style: baseStyle, maxLines: 1);
-    }
-
-    // Shimmer effect for pending state
-    return Text(description, style: baseStyle, maxLines: 1)
-        .animate(onPlay: (controller) => controller.repeat())
-        .shimmer(
-          duration: 1500.ms,
-          color: theme.shimmerHighlight.withValues(alpha: 0.6),
-        );
+    return AssistantDetailHeader(title: description, showShimmer: isPending);
   }
 }
 

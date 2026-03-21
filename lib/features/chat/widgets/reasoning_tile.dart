@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/markdown/streaming_markdown_widget.dart';
 import '../../../core/utils/reasoning_parser.dart';
@@ -190,41 +189,12 @@ class ReasoningTile extends StatelessWidget {
 class _ReasoningHeader extends StatelessWidget {
   final String title;
   final bool showShimmer;
-  final bool hasContent;
 
-  const _ReasoningHeader({
-    required this.title,
-    required this.showShimmer,
-    required this.hasContent,
-  });
+  const _ReasoningHeader({required this.title, required this.showShimmer});
 
   @override
-  Widget build(BuildContext context) {
-    // When there's reasoning content to expand, show the tappable header
-    // with chevron (AssistantDetailHeader). Otherwise, use the same plain
-    // text + shimmer style as streaming status updates for consistency.
-    if (hasContent) {
-      return AssistantDetailHeader(title: title, showShimmer: showShimmer);
-    }
-
-    final theme = context.conduitTheme;
-    final baseStyle = TextStyle(
-      fontSize: AppTypography.bodySmall,
-      color: theme.textPrimary.withValues(alpha: 0.8),
-      height: 1.3,
-    );
-
-    if (!showShimmer) {
-      return Text(title, style: baseStyle, maxLines: 1);
-    }
-
-    return Text(title, style: baseStyle, maxLines: 1)
-        .animate(onPlay: (controller) => controller.repeat())
-        .shimmer(
-          duration: 1500.ms,
-          color: theme.shimmerHighlight.withValues(alpha: 0.6),
-        );
-  }
+  Widget build(BuildContext context) =>
+      AssistantDetailHeader(title: title, showShimmer: showShimmer);
 }
 
 Future<void> _launchUri(String url) async {
