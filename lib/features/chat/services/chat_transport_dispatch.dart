@@ -3,6 +3,7 @@ import 'dart:async';
 import '../../../core/models/chat_message.dart';
 import '../../../core/providers/app_providers.dart'
     show
+        activeChatIdsProvider,
         activeConversationProvider,
         apiServiceProvider,
         conversationsProvider,
@@ -194,6 +195,7 @@ Future<void> dispatchChatTransport({
   required bool toolsEnabled,
   required bool isTemporary,
   RegisterConversationDeltaListener? registerDeltaListener,
+  List<String>? filterIds,
 }) async {
   // 1. Write transport + flow metadata onto assistant message
   writeTransportMetadata(ref: ref, session: session);
@@ -222,7 +224,9 @@ Future<void> dispatchChatTransport({
   // 3. Configure remote task monitoring
   configureRemoteTaskMonitoring(ref: ref, session: session);
 
-  // 4. Build the effective session ID for socket event matching
+  // 4. Build the effective session ID for socket event matching.
+  // Prefer the live socket session ID over the one stored in the session
+  // (the latter may be null when the socket was disconnected at send time).
   final effectiveSessionId = socketService?.sessionId ?? session.sessionId;
 
   // 5. Attach streaming
@@ -238,6 +242,7 @@ Future<void> dispatchChatTransport({
     socketService: socketService,
     workerManager: workerManager,
     registerDeltaListener: registerDeltaListener,
+    filterIds: filterIds,
     appendToLastMessage: (c) =>
         ref.read(chatMessagesProvider.notifier).appendToLastMessage(c),
     replaceLastMessageContent: (c) =>
@@ -294,6 +299,14 @@ Future<void> dispatchChatTransport({
                 .upsertConversation(refreshed.copyWith(messages: const []));
           } catch (_) {}
         });
+      }
+    },
+    onChatActiveChanged: (chatId, active) {
+      if (chatId == null || chatId.isEmpty) return;
+      if (active) {
+        ref.read(activeChatIdsProvider.notifier).setActive(chatId);
+      } else {
+        ref.read(activeChatIdsProvider.notifier).setInactive(chatId);
       }
     },
     finishStreaming: () =>

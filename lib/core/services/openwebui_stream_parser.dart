@@ -14,6 +14,28 @@ final class OpenWebUIContentDelta extends OpenWebUIStreamUpdate {
   final String content;
 }
 
+/// A reasoning/thinking content delta from a streamed completion chunk.
+///
+/// This corresponds to `delta.reasoning_content` in the OpenAI-compatible
+/// format, used by models that expose chain-of-thought reasoning tokens.
+final class OpenWebUIReasoningDelta extends OpenWebUIStreamUpdate {
+  const OpenWebUIReasoningDelta(this.content);
+
+  /// The incremental reasoning text from this chunk.
+  final String content;
+}
+
+/// Structured output items from the backend middleware.
+///
+/// The `output` array contains OR-aligned items such as message, reasoning,
+/// code_interpreter, function_call, and function_call_output.
+final class OpenWebUIOutputUpdate extends OpenWebUIStreamUpdate {
+  const OpenWebUIOutputUpdate(this.output);
+
+  /// List of output item maps.
+  final List<dynamic> output;
+}
+
 /// Token usage statistics from a completion chunk.
 final class OpenWebUIUsageUpdate extends OpenWebUIStreamUpdate {
   const OpenWebUIUsageUpdate(this.usage);
@@ -141,6 +163,12 @@ Stream<OpenWebUIStreamUpdate> _parseFrameData(String data) async* {
     return;
   }
 
+  // Structured output items from the backend middleware.
+  final output = parsed['output'];
+  if (output is List && output.isNotEmpty) {
+    yield OpenWebUIOutputUpdate(output);
+  }
+
   final choices = parsed['choices'];
   if (choices is! List || choices.isEmpty) return;
 
@@ -149,6 +177,12 @@ Stream<OpenWebUIStreamUpdate> _parseFrameData(String data) async* {
 
   final delta = firstChoice['delta'];
   if (delta is! Map<String, dynamic>) return;
+
+  // Reasoning/thinking content (chain-of-thought tokens).
+  final reasoning = delta['reasoning_content']?.toString() ?? '';
+  if (reasoning.isNotEmpty) {
+    yield OpenWebUIReasoningDelta(reasoning);
+  }
 
   final content = delta['content']?.toString() ?? '';
   if (content.isNotEmpty) {

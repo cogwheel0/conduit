@@ -88,6 +88,36 @@ class SocketService with WidgetsBindingObserver {
   final Map<String, _ChannelEventRegistration> _channelEventHandlers = {};
   int _handlerSeed = 0;
 
+  // ---------------------------------------------------------------------------
+  // Event buffering for timing races
+  // ---------------------------------------------------------------------------
+  // The backend may emit socket events before the streaming handler registers.
+  // This buffer captures events for a specific chat_id and replays them when
+  // a handler is added. Mirrors OpenWebUI's approach of registering global
+  // listeners before sending the HTTP request.
+
+  final Map<String, List<(Map<String, dynamic>, void Function(dynamic)?)>>
+  _eventBuffer = {};
+
+  /// Start buffering events for a chat_id. Call this BEFORE sending the
+  /// HTTP request so events that arrive early aren't lost.
+  void startBuffering(String chatId) {
+    _eventBuffer[chatId] = [];
+  }
+
+  /// Stop buffering and discard any remaining events for a chat_id.
+  void stopBuffering(String chatId) {
+    _eventBuffer.remove(chatId);
+  }
+
+  /// Remove and return all buffered events for a chat_id.
+  /// Used when the buffer needs to be replayed outside of addChatEventHandler.
+  List<(Map<String, dynamic>, void Function(dynamic)?)>? drainBuffer(
+    String chatId,
+  ) {
+    return _eventBuffer.remove(chatId);
+  }
+
   /// Stream controller that emits when a socket reconnection occurs.
   /// Listeners can use this to sync state after a reconnect.
   final _reconnectController = StreamController<void>.broadcast();
@@ -258,6 +288,24 @@ class SocketService with WidgetsBindingObserver {
       requireFocus: requireFocus,
       handler: handler,
     );
+
+    // Replay buffered events for this conversation. This handles the timing
+    // race where the backend emits events before the handler is registered.
+    if (conversationId != null && _eventBuffer.containsKey(conversationId)) {
+      final buffered = _eventBuffer.remove(conversationId)!;
+      if (buffered.isNotEmpty) {
+        DebugLogger.log(
+          'Replaying ${buffered.length} buffered events for $conversationId',
+          scope: 'socket/dispatch',
+        );
+        for (final (map, ackFn) in buffered) {
+          try {
+            handler(map, ackFn);
+          } catch (_) {}
+        }
+      }
+    }
+
     return SocketEventSubscription(
       () => _chatEventHandlers.remove(id),
       handlerId: id,
@@ -636,10 +684,24 @@ class SocketService with WidgetsBindingObserver {
   }
 
   void _handleChatEvent(dynamic data, [dynamic ack]) {
-    final map = _coerceToMap(data);
+    // For sio.call() events, the Dart socket.io client may deliver the
+    // payload as a List with the ack callback as the last element.
+    // Extract both the map and the ack from the list.
+    dynamic effectiveAck = ack;
+    dynamic effectiveData = data;
+    if (data is List && data.isNotEmpty) {
+      if (data.last is Function) {
+        effectiveAck ??= data.last;
+        effectiveData = data.length == 2
+            ? data.first
+            : data.sublist(0, data.length - 1);
+      }
+    }
+
+    final map = _coerceToMap(effectiveData);
     if (map == null) return;
 
-    final ackFn = _wrapAck(ack);
+    final ackFn = _wrapAck(effectiveAck);
     final sessionId = _extractSessionId(map);
     final chatId = map['chat_id']?.toString();
     final channelId = _extractChannelId(map);
@@ -661,14 +723,31 @@ class SocketService with WidgetsBindingObserver {
       try {
         registration.handler(map, ackFn);
       } catch (_) {}
+      return; // Delivered to first matching handler
+    }
+    // Buffer event if we're pre-buffering for this chat_id
+    if (chatId != null && _eventBuffer.containsKey(chatId)) {
+      _eventBuffer[chatId]!.add((Map<String, dynamic>.from(map), ackFn));
     }
   }
 
   void _handleChannelEvent(dynamic data, [dynamic ack]) {
-    final map = _coerceToMap(data);
+    // Same List/ack extraction as _handleChatEvent
+    dynamic effectiveAck = ack;
+    dynamic effectiveData = data;
+    if (data is List && data.isNotEmpty) {
+      if (data.last is Function) {
+        effectiveAck ??= data.last;
+        effectiveData = data.length == 2
+            ? data.first
+            : data.sublist(0, data.length - 1);
+      }
+    }
+
+    final map = _coerceToMap(effectiveData);
     if (map == null) return;
 
-    final ackFn = _wrapAck(ack);
+    final ackFn = _wrapAck(effectiveAck);
     final sessionId = _extractSessionId(map);
     final chatId = map['chat_id']?.toString();
     final channelId = _extractChannelId(map);
@@ -744,6 +823,13 @@ class SocketService with WidgetsBindingObserver {
     }
     if (data is Map) {
       return Map<String, dynamic>.from(data);
+    }
+    // socket.io may wrap event data in a List (e.g. from sio.call() or
+    // when the server emits multiple arguments). Extract the first Map.
+    if (data is List && data.isNotEmpty) {
+      final first = data.first;
+      if (first is Map<String, dynamic>) return first;
+      if (first is Map) return Map<String, dynamic>.from(first);
     }
     return null;
   }

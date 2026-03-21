@@ -131,6 +131,16 @@ sealed class Model with _$Model {
       mergedMetadata['profile_image_url'] = profileImage;
     }
 
+    // Preserve fields critical for backend routing (pipe models, actions,
+    // ownership). Without these, pipe models can't be routed correctly.
+    if (json['pipe'] != null) mergedMetadata['pipe'] = json['pipe'];
+    if (json['actions'] != null) mergedMetadata['actions'] = json['actions'];
+    if (json['owned_by'] != null) mergedMetadata['owned_by'] = json['owned_by'];
+    if (json['object'] != null) mergedMetadata['object'] = json['object'];
+    if (json['has_user_valves'] != null) {
+      mergedMetadata['has_user_valves'] = json['has_user_valves'];
+    }
+
     if (metaSection != null) {
       final existing =
           (mergedMetadata['meta'] as Map<String, dynamic>?) ?? const {};
@@ -227,6 +237,12 @@ sealed class Model with _$Model {
       'architecture': capabilities?['architecture'],
       'toolIds': toolIds,
       'filters': filters?.map((f) => f.toJson()).toList(),
+      // Preserve routing-critical fields for pipe models
+      if (metadata?['pipe'] != null) 'pipe': metadata!['pipe'],
+      if (metadata?['actions'] != null) 'actions': metadata!['actions'],
+      if (metadata?['owned_by'] != null) 'owned_by': metadata!['owned_by'],
+      if (metadata?['has_user_valves'] != null)
+        'has_user_valves': metadata!['has_user_valves'],
     };
     data.removeWhere((_, value) => value == null);
     return data;

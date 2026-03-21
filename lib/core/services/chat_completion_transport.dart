@@ -13,7 +13,7 @@ final class ChatCompletionSession {
   const ChatCompletionSession._({
     required this.transport,
     required this.messageId,
-    required this.sessionId,
+    this.sessionId,
     this.conversationId,
     this.taskId,
     this.byteStream,
@@ -24,7 +24,7 @@ final class ChatCompletionSession {
   /// Direct HTTP streamed completion.
   factory ChatCompletionSession.httpStream({
     required String messageId,
-    required String sessionId,
+    String? sessionId,
     String? conversationId,
     required Stream<List<int>> byteStream,
     required Future<void> Function() abort,
@@ -40,7 +40,7 @@ final class ChatCompletionSession {
   /// Task/socket-based completion where content arrives via WebSocket events.
   factory ChatCompletionSession.taskSocket({
     required String messageId,
-    required String sessionId,
+    String? sessionId,
     String? conversationId,
     required String taskId,
     Future<void> Function()? abort,
@@ -56,7 +56,7 @@ final class ChatCompletionSession {
   /// Direct JSON completion (non-streamed).
   factory ChatCompletionSession.jsonCompletion({
     required String messageId,
-    required String sessionId,
+    String? sessionId,
     String? conversationId,
     required Map<String, dynamic> jsonPayload,
   }) => ChatCompletionSession._(
@@ -73,8 +73,9 @@ final class ChatCompletionSession {
   /// The assistant message ID for this completion.
   final String messageId;
 
-  /// The session ID used for this request.
-  final String sessionId;
+  /// The socket session ID used for this request, or `null` when the socket
+  /// was not connected at request time (httpStream fallback).
+  final String? sessionId;
 
   /// The conversation (chat) ID, if available.
   final String? conversationId;

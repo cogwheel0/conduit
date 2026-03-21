@@ -26,8 +26,6 @@ import '../services/reviewer_mode_service.dart';
 
 part 'chat_providers.g.dart';
 
-const bool kSocketVerboseLogging = false;
-
 // Chat messages for current conversation
 final chatMessagesProvider =
     NotifierProvider<ChatMessagesNotifier, List<ChatMessage>>(
@@ -958,10 +956,9 @@ Future<String> _preseedAssistantAndPersist(
           last.id == assistantMessageId &&
           last.role == 'assistant' &&
           !last.isStreaming) {
-        ref
-            .read(chatMessagesProvider.notifier)
+        (ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier)
             .updateLastMessageWithFunction(
-              (m) => m.copyWith(isStreaming: true),
+              (ChatMessage m) => m.copyWith(isStreaming: true),
             );
       }
     } catch (_) {}
@@ -1344,10 +1341,6 @@ Future<void> regenerateMessage(
 
     // Helpers defined above
 
-    // Reviewer mode: no immediate tool preview (no tool context)
-
-    // Reviewer mode: no immediate tool preview (no tool context)
-
     // Use canned response for regeneration
     final responseText = ReviewerModeService.generateResponse(
       userMessage: userMessageContent,
@@ -1466,10 +1459,10 @@ Future<void> regenerateMessage(
             usage: prev.usage,
             error: prev.error, // Preserve error in version snapshot
           );
-          ref
-              .read(chatMessagesProvider.notifier)
+          (ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier)
               .updateLastMessageWithFunction(
-                (m) => m.copyWith(versions: [...m.versions, snapshot]),
+                (ChatMessage m) =>
+                    m.copyWith(versions: [...m.versions, snapshot]),
               );
         }
       }
@@ -1481,102 +1474,7 @@ Future<void> regenerateMessage(
         ref.read(webSearchAvailableProvider);
     final imageGenerationEnabled = ref.read(imageGenerationEnabledProvider);
 
-    // Model metadata for completion notifications
-    final supportedParams =
-        selectedModel.supportedParameters ??
-        [
-          'max_tokens',
-          'tool_choice',
-          'tools',
-          'response_format',
-          'structured_outputs',
-        ];
-    final modelItem = {
-      'id': selectedModel.id,
-      'canonical_slug': selectedModel.id,
-      'hugging_face_id': '',
-      'name': selectedModel.name,
-      'created': 1754089419,
-      'description':
-          selectedModel.description ??
-          'This is a cloaked model provided to the community to gather feedback. This is an improved version of [Horizon Alpha](/openrouter/horizon-alpha)\n\nNote: It\'s free to use during this testing period, and prompts and completions are logged by the model creator for feedback and training.',
-      'context_length': 256000,
-      'architecture': {
-        'modality': 'text+image->text',
-        'input_modalities': ['image', 'text'],
-        'output_modalities': ['text'],
-        'tokenizer': 'Other',
-        'instruct_type': null,
-      },
-      'pricing': {
-        'prompt': '0',
-        'completion': '0',
-        'request': '0',
-        'image': '0',
-        'audio': '0',
-        'web_search': '0',
-        'internal_reasoning': '0',
-      },
-      'top_provider': {
-        'context_length': 256000,
-        'max_completion_tokens': 128000,
-        'is_moderated': false,
-      },
-      'per_request_limits': null,
-      'supported_parameters': supportedParams,
-      'connection_type': 'external',
-      'owned_by': 'openai',
-      'openai': {
-        'id': selectedModel.id,
-        'canonical_slug': selectedModel.id,
-        'hugging_face_id': '',
-        'name': selectedModel.name,
-        'created': 1754089419,
-        'description':
-            selectedModel.description ??
-            'This is a cloaked model provided to the community to gather feedback. This is an improved version of [Horizon Alpha](/openrout'
-                'er/horizon-alpha)\n\nNote: It\'s free to use during this testing period, and prompts and completions are logged by the model creator for feedback and training.',
-        'context_length': 256000,
-        'architecture': {
-          'modality': 'text+image->text',
-          'input_modalities': ['image', 'text'],
-          'output_modalities': ['text'],
-          'tokenizer': 'Other',
-          'instruct_type': null,
-        },
-        'pricing': {
-          'prompt': '0',
-          'completion': '0',
-          'request': '0',
-          'image': '0',
-          'audio': '0',
-          'web_search': '0',
-          'internal_reasoning': '0',
-        },
-        'top_provider': {
-          'context_length': 256000,
-          'max_completion_tokens': 128000,
-          'is_moderated': false,
-        },
-        'per_request_limits': null,
-        'supported_parameters': [
-          'max_tokens',
-          'tool_choice',
-          'tools',
-          'response_format',
-          'structured_outputs',
-        ],
-        'connection_type': 'external',
-      },
-      'urlIdx': 0,
-      'actions': <dynamic>[],
-      'filters': <dynamic>[],
-      'tags': <dynamic>[],
-      // Include capabilities from the actual model for usage stats support
-      'capabilities': selectedModel.capabilities,
-      // Include info/metadata for usage capability detection
-      'info': selectedModel.metadata?['info'],
-    };
+    final modelItem = _buildLocalModelItem(selectedModel);
 
     // Socket is optional — only needed for taskSocket transport.
     final socketService = ref.read(socketServiceProvider);
@@ -1632,6 +1530,55 @@ Future<void> regenerateMessage(
       }
     }
 
+    // Build template variables (same as _sendMessageInternal)
+    Map<String, dynamic>? promptVars2;
+    Map<String, dynamic>? parentMsgMap;
+    try {
+      final now2 = DateTime.now();
+      promptVars2 = <String, dynamic>{
+        '{{USER_NAME}}': 'User',
+        '{{USER_EMAIL}}': '',
+        '{{CURRENT_DATETIME}}': now2.toIso8601String(),
+        '{{CURRENT_DATE}}':
+            '${now2.year}-${now2.month.toString().padLeft(2, '0')}-${now2.day.toString().padLeft(2, '0')}',
+        '{{CURRENT_TIME}}':
+            '${now2.hour.toString().padLeft(2, '0')}:${now2.minute.toString().padLeft(2, '0')}',
+        '{{CURRENT_WEEKDAY}}': [
+          'Monday',
+          'Tuesday',
+          'Wednesday',
+          'Thursday',
+          'Friday',
+          'Saturday',
+          'Sunday',
+        ][now2.weekday - 1],
+        '{{CURRENT_TIMEZONE}}': now2.timeZoneName,
+        '{{USER_LANGUAGE}}': 'en',
+      };
+    } catch (_) {}
+
+    // Build parent message map
+    try {
+      if (lastUserMessageId != null) {
+        for (final m in messages) {
+          if (m.id == lastUserMessageId) {
+            parentMsgMap = {
+              'id': m.id,
+              'role': m.role,
+              'content': m.content,
+              if (m.files != null) 'files': m.files,
+              'timestamp': m.timestamp.millisecondsSinceEpoch ~/ 1000,
+            };
+            break;
+          }
+        }
+      }
+    } catch (_) {}
+
+    // Start buffering socket events before sending to avoid timing races
+    final regenSocketService = ref.read(socketServiceProvider);
+    regenSocketService?.startBuffering(activeConversation.id);
+
     // Use transport-aware session dispatch
     final session = await api!.sendMessageSession(
       messages: conversationMessages,
@@ -1648,6 +1595,8 @@ Future<void> regenerateMessage(
       responseMessageId: assistantMessageId,
       userSettings: userSettingsData,
       parentMessageId: lastUserMessageId,
+      parentMessage: parentMsgMap,
+      variables: promptVars2,
     );
 
     // Check if model uses reasoning based on common naming patterns
@@ -1687,6 +1636,7 @@ Future<void> regenerateMessage(
           imageGenerationEnabled,
       isTemporary: isTemporary,
       registerDeltaListener: registerDeltaListener,
+      filterIds: selectedFilterIds.isNotEmpty ? selectedFilterIds : null,
     );
     return;
   } catch (e) {
@@ -2087,6 +2037,7 @@ Future<void> _sendMessageInternal(
       ? selectedFilterIds
       : null;
 
+  String? chatIdForBuffer;
   try {
     // Assistant placeholder was already added above (after user message)
     // to show typing indicator immediately. Sync conversation state to server.
@@ -2105,104 +2056,7 @@ Future<void> _sendMessageInternal(
     } catch (_) {
       // Non-critical - continue if sync fails
     }
-    // Use the model's actual supported parameters if available
-    final supportedParams =
-        selectedModel.supportedParameters ??
-        [
-          'max_tokens',
-          'tool_choice',
-          'tools',
-          'response_format',
-          'structured_outputs',
-        ];
-
-    // Create comprehensive model item matching OpenWebUI format exactly
-    final modelItem = {
-      'id': selectedModel.id,
-      'canonical_slug': selectedModel.id,
-      'hugging_face_id': '',
-      'name': selectedModel.name,
-      'created': 1754089419, // Use example timestamp for consistency
-      'description':
-          selectedModel.description ??
-          'This is a cloaked model provided to the community to gather feedback. This is an improved version of [Horizon Alpha](/openrouter/horizon-alpha)\n\nNote: It\'s free to use during this testing period, and prompts and completions are logged by the model creator for feedback and training.',
-      'context_length': 256000,
-      'architecture': {
-        'modality': 'text+image->text',
-        'input_modalities': ['image', 'text'],
-        'output_modalities': ['text'],
-        'tokenizer': 'Other',
-        'instruct_type': null,
-      },
-      'pricing': {
-        'prompt': '0',
-        'completion': '0',
-        'request': '0',
-        'image': '0',
-        'audio': '0',
-        'web_search': '0',
-        'internal_reasoning': '0',
-      },
-      'top_provider': {
-        'context_length': 256000,
-        'max_completion_tokens': 128000,
-        'is_moderated': false,
-      },
-      'per_request_limits': null,
-      'supported_parameters': supportedParams,
-      'connection_type': 'external',
-      'owned_by': 'openai',
-      'openai': {
-        'id': selectedModel.id,
-        'canonical_slug': selectedModel.id,
-        'hugging_face_id': '',
-        'name': selectedModel.name,
-        'created': 1754089419,
-        'description':
-            selectedModel.description ??
-            'This is a cloaked model provided to the community to gather feedback. This is an improved version of [Horizon Alpha](/openrout'
-                'er/horizon-alpha)\n\nNote: It\'s free to use during this testing period, and prompts and completions are logged by the model creator for feedback and training.',
-        'context_length': 256000,
-        'architecture': {
-          'modality': 'text+image->text',
-          'input_modalities': ['image', 'text'],
-          'output_modalities': ['text'],
-          'tokenizer': 'Other',
-          'instruct_type': null,
-        },
-        'pricing': {
-          'prompt': '0',
-          'completion': '0',
-          'request': '0',
-          'image': '0',
-          'audio': '0',
-          'web_search': '0',
-          'internal_reasoning': '0',
-        },
-        'top_provider': {
-          'context_length': 256000,
-          'max_completion_tokens': 128000,
-          'is_moderated': false,
-        },
-        'per_request_limits': null,
-        'supported_parameters': [
-          'max_tokens',
-          'tool_choice',
-          'tools',
-          'response_format',
-          'structured_outputs',
-        ],
-        'connection_type': 'external',
-      },
-      'urlIdx': 0,
-      'actions': <dynamic>[],
-      'filters': <dynamic>[],
-      'tags': <dynamic>[],
-      // Include capabilities from the actual model for usage stats support
-      'capabilities': selectedModel.capabilities,
-      // Include info/metadata for usage capability detection
-      'info': selectedModel.metadata?['info'],
-    };
+    final modelItem = _buildLocalModelItem(selectedModel);
 
     // Socket is optional — only needed for taskSocket transport.
     final socketService = ref.read(socketServiceProvider);
@@ -2239,12 +2093,25 @@ Future<void> _sendMessageInternal(
     }
 
     // Match web client: request background follow-ups always; title/tags on first turn
+    // Respect user settings for auto-generation (mirrors OpenWebUI's
+    // $settings?.title?.auto, $settings?.autoTags, $settings?.autoFollowUps)
+    bool autoTitle = true;
+    bool autoTags = true;
+    bool autoFollowUps = true;
+    try {
+      final uiMap = userSettingsData?['ui'];
+      if (uiMap is Map) {
+        final titleMap = uiMap['title'];
+        if (titleMap is Map && titleMap['auto'] == false) autoTitle = false;
+        if (uiMap['autoTags'] == false) autoTags = false;
+        if (uiMap['autoFollowUps'] == false) autoFollowUps = false;
+      }
+    } catch (_) {}
+
     final bgTasks = <String, dynamic>{
-      if (shouldGenerateTitle) 'title_generation': true,
-      if (shouldGenerateTitle) 'tags_generation': true,
-      'follow_up_generation': true,
-      if (webSearchEnabled) 'web_search': true,
-      if (imageGenerationEnabled) 'image_generation': true,
+      if (shouldGenerateTitle && autoTitle) 'title_generation': true,
+      if (shouldGenerateTitle && autoTags) 'tags_generation': true,
+      if (autoFollowUps) 'follow_up_generation': true,
     };
 
     // Determine if we need background task flow (tools/tool servers or web search)
@@ -2263,6 +2130,84 @@ Future<void> _sendMessageInternal(
     }
 
     // Use transport-aware session dispatch
+    // Build template variables for prompt substitution (matches OpenWebUI's
+    // getPromptVariables). The backend replaces {{USER_NAME}} etc. in system
+    // prompts and tool descriptions.
+    Map<String, dynamic>? promptVariables;
+    Map<String, dynamic>? parentMessageMap;
+    try {
+      final now = DateTime.now();
+      // Read user and locale through dynamic ref — safe operations
+      String userName = 'User';
+      String userEmail = '';
+      String userLanguage = 'en';
+      try {
+        final userData = ref.read(currentUserProvider);
+        if (userData is AsyncData) {
+          userName = (userData as AsyncData).value?.name ?? 'User';
+          userEmail = (userData as AsyncData).value?.email ?? '';
+        }
+      } catch (_) {}
+      try {
+        final dynamic locale = ref.read(appLocaleProvider);
+        if (locale != null) {
+          userLanguage = locale.toLanguageTag()?.toString() ?? 'en';
+        }
+      } catch (_) {}
+      promptVariables = <String, dynamic>{
+        '{{USER_NAME}}': userName,
+        '{{USER_EMAIL}}': userEmail,
+        '{{CURRENT_DATETIME}}': now.toIso8601String(),
+        '{{CURRENT_DATE}}':
+            '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}',
+        '{{CURRENT_TIME}}':
+            '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}',
+        '{{CURRENT_WEEKDAY}}': [
+          'Monday',
+          'Tuesday',
+          'Wednesday',
+          'Thursday',
+          'Friday',
+          'Saturday',
+          'Sunday',
+        ][now.weekday - 1],
+        '{{CURRENT_TIMEZONE}}': now.timeZoneName,
+        '{{USER_LANGUAGE}}': userLanguage,
+      };
+    } catch (e) {
+      DebugLogger.error(
+        'Failed to build prompt variables: $e',
+        scope: 'chat/providers',
+        error: e,
+      );
+    }
+
+    // Build the parent (user) message object so the backend has full context.
+    try {
+      if (lastUserMessageId != null) {
+        for (final m in messages) {
+          if (m.id == lastUserMessageId) {
+            parentMessageMap = {
+              'id': m.id,
+              'role': m.role,
+              'content': m.content,
+              if (m.files != null) 'files': m.files,
+              'timestamp': m.timestamp.millisecondsSinceEpoch ~/ 1000,
+            };
+            break;
+          }
+        }
+      }
+    } catch (_) {}
+
+    // Start buffering socket events for this chat BEFORE sending the HTTP
+    // request. The backend may emit events (especially for fast pipe models)
+    // before dispatchChatTransport registers the streaming handler.
+    final chatIdForBuffer = activeConversation?.id;
+    if (chatIdForBuffer != null) {
+      socketService?.startBuffering(chatIdForBuffer);
+    }
+
     final session = await api.sendMessageSession(
       messages: conversationMessages,
       model: selectedModel.id,
@@ -2278,6 +2223,8 @@ Future<void> _sendMessageInternal(
       responseMessageId: assistantMessageId,
       userSettings: userSettingsData,
       parentMessageId: lastUserMessageId,
+      parentMessage: parentMessageMap,
+      variables: promptVariables,
     );
 
     // Check if model uses reasoning based on common naming patterns
@@ -2317,6 +2264,7 @@ Future<void> _sendMessageInternal(
           imageGenerationEnabled,
       isTemporary: isTemporary,
       registerDeltaListener: registerDeltaListener,
+      filterIds: filterIdsForApi,
     );
 
     // Clear context attachments after successfully initiating the message send.
@@ -2325,27 +2273,49 @@ Future<void> _sendMessageInternal(
       ref.read(contextAttachmentsProvider.notifier).clear();
     } catch (_) {}
 
+    // Stop buffering -- handler was registered and replayed any buffered events
+    if (chatIdForBuffer != null) {
+      socketService?.stopBuffering(chatIdForBuffer);
+    }
+
     return;
-  } catch (e) {
+  } catch (e, st) {
+    // Clean up buffering on error
+    if (chatIdForBuffer != null) {
+      try {
+        ref.read(socketServiceProvider)?.stopBuffering(chatIdForBuffer!);
+      } catch (_) {}
+    }
+    // Log the actual exception so we can diagnose issues.
+    DebugLogger.error(
+      '_sendMessageInternal failed: $e',
+      scope: 'chat/providers',
+      error: e,
+      stackTrace: st,
+    );
     // Convert the assistant placeholder in-place to an error-state
     // message. This preserves the placeholder's ID and any files that
     // may have arrived before the error, matching OpenWebUI's same-slot
     // failure semantics.
     final errorContent = _errorContentForException(e);
 
+    // Explicit ChatMessage type on closures is required because `ref` is
+    // `dynamic` — without it Dart infers (dynamic) => dynamic at runtime.
+    final ChatMessagesNotifier notifier =
+        ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
     if (e.toString().contains('401') || e.toString().contains('403')) {
       // Authentication errors - clear auth state and redirect to login.
       // Still convert the placeholder so the UI is consistent.
-      ref.read(chatMessagesProvider.notifier).updateLastMessageWithFunction(
-        (m) => m.copyWith(
+      notifier.updateLastMessageWithFunction(
+        (ChatMessage m) => m.copyWith(
           isStreaming: false,
           error: ChatMessageError(content: errorContent),
         ),
       );
       ref.invalidate(authStateManagerProvider);
     } else {
-      ref.read(chatMessagesProvider.notifier).updateLastMessageWithFunction(
-        (m) => m.copyWith(
+      notifier.updateLastMessageWithFunction(
+        (ChatMessage m) => m.copyWith(
           isStreaming: false,
           error: ChatMessageError(content: errorContent),
         ),
@@ -2912,4 +2882,40 @@ List<Map<String, dynamic>> _convertOpenApiToToolPayload(
     });
   });
   return tools;
+}
+
+/// Builds the `model_item` map from real server model data.
+///
+/// Includes routing-critical fields (`pipe`, `actions`, `owned_by`, etc.)
+/// preserved during model parsing. The backend uses these for pipe routing,
+/// filter resolution, and action dispatch.
+Map<String, dynamic> _buildLocalModelItem(dynamic selectedModel) {
+  final meta = selectedModel.metadata as Map<String, dynamic>?;
+  return {
+    'id': selectedModel.id,
+    'name': selectedModel.name,
+    'supported_parameters':
+        selectedModel.supportedParameters ??
+        [
+          'max_tokens',
+          'tool_choice',
+          'tools',
+          'response_format',
+          'structured_outputs',
+        ],
+    'capabilities': selectedModel.capabilities,
+    'info': meta?['info'],
+    // Routing-critical fields for pipe models
+    if (meta?['pipe'] != null) 'pipe': meta!['pipe'],
+    if (meta?['actions'] != null) 'actions': meta!['actions'],
+    if (meta?['owned_by'] != null) 'owned_by': meta!['owned_by'],
+    if (meta?['object'] != null) 'object': meta!['object'],
+    if (meta?['has_user_valves'] != null)
+      'has_user_valves': meta!['has_user_valves'],
+    // Include filters for outlet filter routing
+    if (selectedModel.filters != null)
+      'filters': (selectedModel.filters as List)
+          .map((f) => f.toJson())
+          .toList(),
+  };
 }

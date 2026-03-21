@@ -132,5 +132,76 @@ void main() {
 
       check(updates).isEmpty();
     });
+
+    test('parses reasoning_content delta', () async {
+      final updates = await parseOpenWebUIStream(
+        Stream<List<int>>.fromIterable([
+          utf8.encode(
+            'data: {"choices":[{"delta":{"reasoning_content":"thinking..."}}]}\n\n',
+          ),
+          utf8.encode('data: {"choices":[{"delta":{"content":"result"}}]}\n\n'),
+          utf8.encode('data: [DONE]\n\n'),
+        ]),
+      ).toList();
+
+      check(updates).has((it) => it.length, 'length').equals(3);
+      check(updates[0])
+          .isA<OpenWebUIReasoningDelta>()
+          .has((u) => u.content, 'content')
+          .equals('thinking...');
+      check(updates[1])
+          .isA<OpenWebUIContentDelta>()
+          .has((u) => u.content, 'content')
+          .equals('result');
+      check(updates[2]).isA<OpenWebUIStreamDone>();
+    });
+
+    test('parses output array from stream chunk', () async {
+      final outputJson = jsonEncode([
+        {
+          'type': 'message',
+          'id': 'msg_001',
+          'status': 'in_progress',
+          'role': 'assistant',
+          'content': [
+            {'type': 'output_text', 'text': 'hello'},
+          ],
+        },
+      ]);
+      final updates = await parseOpenWebUIStream(
+        Stream<List<int>>.fromIterable([
+          utf8.encode('data: {"output":$outputJson}\n\n'),
+          utf8.encode('data: [DONE]\n\n'),
+        ]),
+      ).toList();
+
+      check(updates).has((it) => it.length, 'length').equals(2);
+      check(updates[0])
+          .isA<OpenWebUIOutputUpdate>()
+          .has((u) => u.output.length, 'output.length')
+          .equals(1);
+      check(updates[1]).isA<OpenWebUIStreamDone>();
+    });
+
+    test('parses both reasoning_content and content in same delta', () async {
+      final updates = await parseOpenWebUIStream(
+        Stream<List<int>>.fromIterable([
+          utf8.encode(
+            'data: {"choices":[{"delta":{"reasoning_content":"think","content":"say"}}]}\n\n',
+          ),
+        ]),
+      ).toList();
+
+      // Both should be emitted since the delta contains both fields.
+      check(updates).has((it) => it.length, 'length').equals(2);
+      check(updates[0])
+          .isA<OpenWebUIReasoningDelta>()
+          .has((u) => u.content, 'content')
+          .equals('think');
+      check(updates[1])
+          .isA<OpenWebUIContentDelta>()
+          .has((u) => u.content, 'content')
+          .equals('say');
+    });
   });
 }

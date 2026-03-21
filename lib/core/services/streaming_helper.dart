@@ -128,10 +128,6 @@ class ActiveChatStream {
   final VoidCallback disposeWatchdog;
 }
 
-/// Backwards-compatibility alias.
-@Deprecated('Use ActiveChatStream instead')
-typedef ActiveSocketStream = ActiveChatStream;
-
 /// Helper to handle reconnect recovery asynchronously with proper error handling.
 /// Extracted to avoid async callback in Timer which silently drops the Future.
 Future<void> _handleReconnectRecovery({
@@ -192,12 +188,18 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   required String assistantMessageId,
   required String modelId,
   required Map<String, dynamic> modelItem,
-  required String sessionId,
+
+  /// The socket session ID for event matching. Null when the socket was
+  /// not connected at request time (httpStream fallback).
+  String? sessionId,
   required String? activeConversationId,
   required ApiService api,
   required SocketService? socketService,
   required WorkerManager workerManager,
   RegisterConversationDeltaListener? registerDeltaListener,
+
+  /// Filter IDs for the outlet filter pass in chatCompleted.
+  List<String>? filterIds,
   // Message update callbacks
   required void Function(String) appendToLastMessage,
   required void Function(String) replaceLastMessageContent,
@@ -217,6 +219,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   updateMessageById,
   void Function(String newTitle)? onChatTitleUpdated,
   void Function()? onChatTagsUpdated,
+
+  /// Called when a `chat:active` event is received, indicating a background
+  /// task has started (active=true) or completed (active=false).
+  void Function(String? chatId, bool active)? onChatActiveChanged,
   required void Function() finishStreaming,
   required List<ChatMessage> Function() getMessages,
 
@@ -622,53 +628,111 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     }
   }
 
+  /// Sends the chatCompleted notification to the backend, processes the
+  /// response for outlet filter modifications, then syncs the conversation.
+  ///
+  /// Mirrors OpenWebUI's `chatCompletedHandler` in Chat.svelte:
+  /// 1. POST to `/api/chat/completed` with the full message list
+  /// 2. Merge any filter-modified messages back into local state
+  /// 3. Sync the conversation to persist the (potentially modified) content
+  void _sendChatCompletedAndSync() {
+    unawaited(
+      Future(() async {
+        try {
+          // Build message list for the completed notification
+          final currentMessages = getMessages();
+          final messagesForCompleted = currentMessages.map((m) {
+            final msgMap = <String, dynamic>{
+              'id': m.id,
+              'role': m.role,
+              'content': m.content,
+              'timestamp': m.timestamp.millisecondsSinceEpoch ~/ 1000,
+            };
+            if (m.role == 'assistant' && m.usage != null) {
+              msgMap['usage'] = m.usage;
+            }
+            if (m.sources.isNotEmpty) {
+              msgMap['sources'] = m.sources.map((s) => s.toJson()).toList();
+            }
+            return msgMap;
+          }).toList();
+
+          // 1. Send chatCompleted and AWAIT the response (outlet filters may
+          //    modify messages). OpenWebUI awaits this before saving.
+          final completedResp = await api.sendChatCompleted(
+            chatId: activeConversationId ?? '',
+            messageId: assistantMessageId,
+            messages: messagesForCompleted,
+            model: modelId,
+            modelItem: modelItem,
+            sessionId: sessionId,
+            filterIds: filterIds,
+          );
+
+          // 2. Apply outlet filter modifications if any.
+          // OpenWebUI does a full object spread; we merge all returned fields.
+          final modifiedMsgs = completedResp?['messages'];
+          if (modifiedMsgs is List) {
+            for (final msg in modifiedMsgs) {
+              if (msg is! Map) continue;
+              final id = msg['id']?.toString();
+              if (id == null) continue;
+              updateMessageById(id, (current) {
+                final newContent = msg['content']?.toString();
+                if (newContent == null) return current;
+                if (current.content == newContent) return current;
+                // Preserve original content before filter modification
+                final meta = <String, dynamic>{
+                  ...?current.metadata,
+                  'originalContent': current.content,
+                };
+                return current.copyWith(content: newContent, metadata: meta);
+              });
+            }
+          }
+        } catch (_) {}
+
+        // 3. Sync conversation to persist (potentially modified) content.
+        // Runs AFTER chatCompleted so filter changes are included.
+        try {
+          final chatId = activeConversationId;
+          if (chatId != null && chatId.isNotEmpty) {
+            final updatedMessages = getMessages();
+            await api.syncConversationMessages(
+              chatId,
+              updatedMessages,
+              model: modelId,
+            );
+          }
+        } catch (_) {}
+      }),
+    );
+  }
+
   void channelLineHandlerFactory(String channel) {
+    void _onChannelDone() {
+      try {
+        socketService?.offEvent(channel);
+      } catch (_) {}
+      if (!isTemporaryChat(activeConversationId)) {
+        _sendChatCompletedAndSync();
+      }
+      wrappedFinishStreaming();
+    }
+
     void handler(dynamic line) {
       try {
         if (line is String) {
           final s = line.trim();
           // Enhanced completion detection matching OpenWebUI patterns
           if (s == '[DONE]' || s == 'DONE' || s == 'data: [DONE]') {
-            try {
-              socketService?.offEvent(channel);
-            } catch (_) {}
-            if (!isTemporaryChat(activeConversationId)) {
-              try {
-                // Fire and forget
-                // ignore: unawaited_futures
-                api.sendChatCompleted(
-                  chatId: activeConversationId ?? '',
-                  messageId: assistantMessageId,
-                  messages: const [],
-                  model: modelId,
-                  modelItem: modelItem,
-                  sessionId: sessionId,
-                );
-              } catch (_) {}
-            }
-            wrappedFinishStreaming();
+            _onChannelDone();
             return;
           }
           if (s.startsWith('data:')) {
             final dataStr = s.substring(5).trim();
             if (dataStr == '[DONE]') {
-              try {
-                socketService?.offEvent(channel);
-              } catch (_) {}
-              if (!isTemporaryChat(activeConversationId)) {
-                try {
-                  // ignore: unawaited_futures
-                  api.sendChatCompleted(
-                    chatId: activeConversationId ?? '',
-                    messageId: assistantMessageId,
-                    messages: const [],
-                    model: modelId,
-                    modelItem: modelItem,
-                    sessionId: sessionId,
-                  );
-                } catch (_) {}
-              }
-              wrappedFinishStreaming();
+              _onChannelDone();
               return;
             }
             try {
@@ -768,15 +832,6 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       if (data == null) return;
       final type = data['type'];
 
-      // Basic logging to see if chat events are being received
-      if (type != null &&
-          (type.toString().contains('follow') ||
-              type == 'chat:message:follow_ups')) {
-        DebugLogger.log(
-          'Chat event received: $type',
-          scope: 'streaming/helper',
-        );
-      }
       final payload = data['data'];
       final messageId = ev['message_id']?.toString();
 
@@ -789,6 +844,40 @@ ActiveChatStream attachUnifiedChunkedStreaming({
 
       if (type == 'chat:completion' && payload != null) {
         if (payload is Map<String, dynamic>) {
+          // Store the structured output[] array from the backend middleware.
+          // This contains OR-aligned items (message, reasoning,
+          // code_interpreter, function_call, function_call_output).
+          final outputItems = payload['output'];
+          if (outputItems is List && outputItems.isNotEmpty) {
+            final targetId = _resolveTargetMessageId(messageId, getMessages);
+            if (targetId != null) {
+              updateMessageById(targetId, (current) {
+                return current.copyWith(
+                  output: outputItems.whereType<Map<String, dynamic>>().toList(
+                    growable: false,
+                  ),
+                );
+              });
+            }
+          }
+
+          // Capture the selected_model_id for arena/routing flows.
+          final selectedModelId = payload['selected_model_id']?.toString();
+          if (selectedModelId != null && selectedModelId.isNotEmpty) {
+            final targetId = _resolveTargetMessageId(messageId, getMessages);
+            if (targetId != null) {
+              updateMessageById(targetId, (current) {
+                return current.copyWith(
+                  metadata: {
+                    ...?current.metadata,
+                    'selectedModelId': selectedModelId,
+                    'arena': true,
+                  },
+                );
+              });
+            }
+          }
+
           // Capture usage statistics whenever they appear (issue #274)
           // Usage may come in a separate payload before the done:true payload
           final usageData = payload['usage'];
@@ -928,48 +1017,16 @@ ActiveChatStream attachUnifiedChunkedStreaming({
               );
               return;
             }
+            // The done payload may carry a title (OpenWebUI includes
+            // the auto-generated chat title in the final completion
+            // event). Surface it the same way as a chat:title event.
+            final doneTitle = payload['title'];
+            if (doneTitle is String && doneTitle.isNotEmpty) {
+              onChatTitleUpdated?.call(doneTitle);
+            }
             try {
-              // Get current messages to send with usage data (issue #274)
-              final currentMessages = getMessages();
-              final messagesForCompleted = currentMessages.map((m) {
-                final msgMap = <String, dynamic>{
-                  'id': m.id,
-                  'role': m.role,
-                  'content': m.content,
-                  'timestamp': m.timestamp.millisecondsSinceEpoch ~/ 1000,
-                };
-                if (m.role == 'assistant' && m.usage != null) {
-                  msgMap['usage'] = m.usage;
-                }
-                if (m.sources.isNotEmpty) {
-                  msgMap['sources'] = m.sources.map((s) => s.toJson()).toList();
-                }
-                return msgMap;
-              }).toList();
-
               if (!isTemporaryChat(activeConversationId)) {
-                // Send chatCompleted to run any filters/actions
-                // ignore: unawaited_futures
-                api.sendChatCompleted(
-                  chatId: activeConversationId ?? '',
-                  messageId: assistantMessageId,
-                  messages: messagesForCompleted,
-                  model: modelId,
-                  modelItem: modelItem,
-                  sessionId: sessionId,
-                );
-
-                // Sync conversation to persist usage data (issue #274)
-                // chatCompleted doesn't persist - syncConversationMessages does
-                final chatId = activeConversationId;
-                if (chatId != null && chatId.isNotEmpty) {
-                  // ignore: unawaited_futures
-                  api.syncConversationMessages(
-                    chatId,
-                    currentMessages,
-                    model: modelId,
-                  );
-                }
+                _sendChatCompletedAndSync();
               }
             } catch (_) {
               // Non-critical - continue if sync fails
@@ -1171,16 +1228,15 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           }
         }
       } else if (type == 'execute' && payload != null) {
+        // The backend sends JavaScript code for the web client to eval.
+        // Flutter can't execute JS, so we return null (not an error object)
+        // to let the pipe/function continue with its default behavior.
         if (ack != null) {
-          final map = _asStringMap(payload);
-          final description = map?['description']?.toString();
-          final errorMsg = description?.isNotEmpty == true
-              ? description!
-              : 'Client-side execute events are not supported.';
           try {
-            ack({'error': errorMsg});
+            // Return empty string result (mimics JS code evaluating to
+            // undefined). Returning null or {error:...} causes pipes to abort.
+            ack('');
           } catch (_) {}
-          _showSocketNotification('warning', errorMsg);
         }
       } else if (type == 'input' && payload != null) {
         if (ack != null) {
@@ -1281,6 +1337,61 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             }
           }
         } catch (_) {}
+      } else if ((type == 'chat:message:embeds' || type == 'embeds') &&
+          payload != null) {
+        // Rich UI embed objects attached to this message (e.g. HTML tool
+        // results). Mirrors OpenWebUI's Chat.svelte handler.
+        try {
+          final embeds = payload['embeds'];
+          if (embeds is List && embeds.isNotEmpty) {
+            final targetId = _resolveTargetMessageId(messageId, getMessages);
+            if (targetId != null) {
+              updateMessageById(targetId, (current) {
+                final existing = current.embeds ?? <Map<String, dynamic>>[];
+                final merged = <Map<String, dynamic>>[
+                  ...existing,
+                  ...embeds.whereType<Map<String, dynamic>>(),
+                ];
+                return current.copyWith(embeds: merged);
+              });
+            }
+          }
+        } catch (_) {}
+      } else if (type == 'chat:message:favorite' && payload != null) {
+        // Favorite/unfavorite toggle from the server.
+        try {
+          final favorite = payload['favorite'];
+          if (favorite is bool) {
+            final targetId = _resolveTargetMessageId(messageId, getMessages);
+            if (targetId != null) {
+              updateMessageById(targetId, (current) {
+                return current.copyWith(
+                  metadata: {...?current.metadata, 'favorite': favorite},
+                );
+              });
+            }
+          }
+        } catch (_) {}
+      } else if (type == 'chat:active' && payload != null) {
+        // Task lifecycle indicator: {active: true} when a background task
+        // starts and {active: false} when it completes. Used by the sidebar
+        // in OpenWebUI to show activity indicators.
+        // We propagate via onChatActiveChanged if provided.
+        try {
+          final active = payload['active'];
+          if (active is bool) {
+            onChatActiveChanged?.call(activeConversationId, active);
+          }
+        } catch (_) {}
+      } else if (type == 'execute:python' && payload != null) {
+        // Pyodide code execution request. Flutter can't run Python,
+        // so return an empty result (not an error) to let the pipe
+        // continue with its default behavior.
+        if (ack != null) {
+          try {
+            ack({'stdout': '', 'stderr': '', 'result': null});
+          } catch (_) {}
+        }
       } else if (type == 'request:chat:completion' && payload != null) {
         final channel = payload['channel'];
         if (channel is String && channel.isNotEmpty) {
@@ -1424,6 +1535,16 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     } catch (_) {}
   }
 
+  // Drain any buffered events BEFORE registering handlers. The
+  // registerDeltaListener path internally calls addChatEventHandler (via
+  // Riverpod stream provider), which would consume the buffer into an
+  // async pipeline where events get lost. By draining first, we can
+  // replay them synchronously through chatHandler.
+  List<(Map<String, dynamic>, void Function(dynamic)?)>? earlyEvents;
+  if (activeConversationId != null && socketService != null) {
+    earlyEvents = socketService.drainBuffer(activeConversationId);
+  }
+
   if (registerDeltaListener != null) {
     final chatDisposer = registerDeltaListener(
       request: ConversationDeltaRequest.chat(
@@ -1483,6 +1604,22 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     socketSubscriptions.add(channelSub.dispose);
   }
 
+  // Replay any events that were buffered before handler registration.
+  // This must happen AFTER all handlers are registered (above) so the
+  // chatHandler and channelEventsHandler are ready to process them.
+  if (earlyEvents != null && earlyEvents.isNotEmpty) {
+    DebugLogger.log(
+      'Replaying ${earlyEvents.length} early-buffered events '
+      'for $activeConversationId',
+      scope: 'streaming/helper',
+    );
+    for (final (map, ackFn) in earlyEvents) {
+      try {
+        chatHandler(map, ackFn);
+      } catch (_) {}
+    }
+  }
+
   // -----------------------------------------------------------------------
   // Transport dispatch
   // -----------------------------------------------------------------------
@@ -1493,13 +1630,44 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     case ChatCompletionTransport.httpStream:
       // Parse the SSE byte stream directly via the typed parser.
       bool receivedDone = false;
+      // Track whether we're inside a reasoning block so we can wrap
+      // raw `reasoning_content` deltas in `<think>` tags for the
+      // ReasoningParser. The taskSocket transport doesn't need this
+      // because the backend middleware serializes reasoning into
+      // `<details type="reasoning">` HTML before emitting via socket.
+      bool inReasoningBlock = false;
       final sub = parseOpenWebUIStream(session.byteStream!).listen(
         (update) {
           try {
             switch (update) {
               case OpenWebUIContentDelta(:final content):
+                // Close any open reasoning block before regular content.
+                if (inReasoningBlock) {
+                  inReasoningBlock = false;
+                  appendToLastMessage('\n</think>\n');
+                }
                 appendToLastMessage(content);
                 updateImagesFromCurrentContent();
+
+              case OpenWebUIReasoningDelta(:final content):
+                // Wrap raw reasoning_content in <think> tags so the
+                // ReasoningParser renders it as a collapsible thinking
+                // tile instead of regular text.
+                if (!inReasoningBlock) {
+                  inReasoningBlock = true;
+                  appendToLastMessage('\n<think>\n');
+                }
+                appendToLastMessage(content);
+
+              case OpenWebUIOutputUpdate(:final output):
+                // Store structured output items from backend middleware.
+                updateLastMessageWith(
+                  (m) => m.copyWith(
+                    output: output.whereType<Map<String, dynamic>>().toList(
+                      growable: false,
+                    ),
+                  ),
+                );
 
               case OpenWebUIUsageUpdate(:final usage):
                 updateLastMessageWith((m) => m.copyWith(usage: usage));
@@ -1516,6 +1684,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                     metadata: {
                       ...?m.metadata,
                       'selectedModelId': selectedModelId,
+                      'arena': true,
                     },
                   ),
                 );
@@ -1530,6 +1699,11 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                 );
 
               case OpenWebUIStreamDone():
+                // Close any open reasoning block before finishing.
+                if (inReasoningBlock) {
+                  inReasoningBlock = false;
+                  appendToLastMessage('\n</think>\n');
+                }
                 receivedDone = true;
                 wrappedFinishStreaming();
             }

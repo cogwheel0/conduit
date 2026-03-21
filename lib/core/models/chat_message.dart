@@ -18,6 +18,12 @@ sealed class ChatMessage with _$ChatMessage {
     @Default(false) bool isStreaming,
     List<String>? attachmentIds,
     List<Map<String, dynamic>>? files, // For generated images
+    /// OR-aligned structured output items from the backend middleware.
+    /// Each item has a `type` (message, reasoning, code_interpreter, etc.).
+    List<Map<String, dynamic>>? output,
+
+    /// Rich UI embed objects attached to this message.
+    List<Map<String, dynamic>>? embeds,
     Map<String, dynamic>? metadata,
     @Default(<ChatStatusUpdate>[]) List<ChatStatusUpdate> statusHistory,
     @Default(<String>[]) List<String> followUps,
@@ -36,7 +42,10 @@ sealed class ChatMessage with _$ChatMessage {
     @Default(<ChatMessageVersion>[])
     List<ChatMessageVersion> versions,
     // Error information from OpenWebUI (stored separately from content)
-    @JsonKey(fromJson: _chatMessageErrorFromJson, toJson: _chatMessageErrorToJson)
+    @JsonKey(
+      fromJson: _chatMessageErrorFromJson,
+      toJson: _chatMessageErrorToJson,
+    )
     ChatMessageError? error,
   }) = _ChatMessage;
 
@@ -125,6 +134,8 @@ abstract class ChatMessageVersion with _$ChatMessageVersion {
     required DateTime timestamp,
     String? model,
     List<Map<String, dynamic>>? files,
+    List<Map<String, dynamic>>? output,
+    List<Map<String, dynamic>>? embeds,
     @JsonKey(
       name: 'sources',
       fromJson: _sourceRefsFromJson,
@@ -136,7 +147,10 @@ abstract class ChatMessageVersion with _$ChatMessageVersion {
     @Default(<ChatCodeExecution>[]) List<ChatCodeExecution> codeExecutions,
     Map<String, dynamic>? usage,
     // Error information preserved from the original message
-    @JsonKey(fromJson: _chatMessageErrorFromJson, toJson: _chatMessageErrorToJson)
+    @JsonKey(
+      fromJson: _chatMessageErrorFromJson,
+      toJson: _chatMessageErrorToJson,
+    )
     ChatMessageError? error,
   }) = _ChatMessageVersion;
 

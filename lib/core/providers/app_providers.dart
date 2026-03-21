@@ -1517,8 +1517,7 @@ class TemporaryChatEnabled extends _$TemporaryChatEnabled {
 }
 
 /// Returns true if the given conversation ID represents a temporary chat.
-bool isTemporaryChat(String? id) =>
-    id != null && id.startsWith('local:');
+bool isTemporaryChat(String? id) => id != null && id.startsWith('local:');
 
 final activeConversationProvider =
     NotifierProvider<ActiveConversationNotifier, Conversation?>(
@@ -2569,6 +2568,36 @@ Future<Model?> selectCachedModel(
       stackTrace: stackTrace,
     );
     return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Active chats tracking (mirrors OpenWebUI Sidebar.svelte activeChatIds)
+// ---------------------------------------------------------------------------
+
+/// Tracks the set of chat IDs that have an active background task running.
+///
+/// Updated via `chat:active` socket events emitted by the backend when a
+/// chat processing task starts (`active: true`) or completes (`active: false`).
+@Riverpod(keepAlive: true)
+class ActiveChatIds extends _$ActiveChatIds {
+  @override
+  Set<String> build() => const <String>{};
+
+  /// Mark a chat as active (background task running).
+  void setActive(String chatId) {
+    state = {...state, chatId};
+  }
+
+  /// Mark a chat as inactive (background task completed).
+  void setInactive(String chatId) {
+    final next = {...state}..remove(chatId);
+    state = next;
+  }
+
+  /// Bulk-initialize from a server response.
+  void setAll(Set<String> chatIds) {
+    state = chatIds;
   }
 }
 

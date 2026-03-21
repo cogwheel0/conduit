@@ -332,7 +332,6 @@ void main() {
         'web_search': false,
         'image_generation': true,
         'code_interpreter': false,
-        'memory': false,
       });
     });
 
@@ -427,29 +426,6 @@ void main() {
 
       final body = adapter.lastRequest!.data as Map<String, dynamic>;
       check(body.keys.toList()).deepEquals(['prompt']);
-    });
-  });
-
-  // -----------------------------------------------------------------------
-  // Legacy sendMessage wrapper
-  // -----------------------------------------------------------------------
-  group('legacy sendMessage wrapper', () {
-    test('preserves old return shape', () {
-      final adapter = _FakeAdapter.json({
-        'task_id': 'task-legacy',
-        'status': true,
-      });
-      final api = _buildApiServiceForTest(adapter);
-
-      // The legacy method returns a record synchronously, same as before.
-      final result = api.sendMessage(messages: _minimalMessages, model: _model);
-
-      // Verify record shape hasn't changed
-      check(result.messageId).isA<String>();
-      check(result.sessionId).isA<String>();
-      check(result.stream).isA<Stream<String>>();
-      // ignore: deprecated_member_use_from_same_package
-      check(result.isBackgroundFlow).isA<bool>();
     });
   });
 }

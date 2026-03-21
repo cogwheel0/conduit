@@ -5,7 +5,6 @@ import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http_parser/http_parser.dart';
-// Removed legacy websocket/socket.io imports
 import 'package:uuid/uuid.dart';
 import 'chat_completion_transport.dart';
 import '../models/backend_config.dart';
@@ -212,8 +211,6 @@ class ApiService {
   final ServerConfig serverConfig;
   final WorkerManager _workerManager;
   late final ApiAuthInterceptor _authInterceptor;
-  // Removed legacy websocket/socket.io fields
-
   // Public getter for dio instance
   Dio get dio => _dio;
 
@@ -290,22 +287,6 @@ class ApiService {
         },
       ),
     );
-
-    // 5. Custom debug interceptor to log exactly what we're sending
-    if (kDebugMode) {
-      _dio.interceptors.add(
-        InterceptorsWrapper(
-          onRequest: (options, handler) {
-            handler.next(options);
-          },
-        ),
-      );
-
-      // LogInterceptor removed - was exposing sensitive data and creating verbose logs
-      // We now use custom interceptors with secure logging via DebugLogger
-    }
-
-    // Validation interceptor fully removed
   }
 
   void updateAuthToken(String? token) {
@@ -553,12 +534,6 @@ class ApiService {
   /// Verifies this is actually an OpenWebUI server by checking the /api/config
   /// endpoint for OpenWebUI-specific fields (version, status, features).
   ///
-  /// Returns `true` if the server appears to be a valid OpenWebUI instance.
-  Future<bool> verifyIsOpenWebUIServer() async {
-    final config = await verifyAndGetConfig();
-    return config != null;
-  }
-
   /// Verifies this is an OpenWebUI server and returns the backend config.
   ///
   /// Returns `BackendConfig` if the server is valid, `null` otherwise.
@@ -590,38 +565,6 @@ class ApiService {
     } catch (e) {
       return null;
     }
-  }
-
-  // Enhanced health check with model availability
-  Future<Map<String, dynamic>> checkServerStatus() async {
-    final result = <String, dynamic>{
-      'healthy': false,
-      'modelsAvailable': false,
-      'modelCount': 0,
-      'error': null,
-    };
-
-    try {
-      // Check basic health
-      final healthResponse = await _dio.get('/health');
-      result['healthy'] = healthResponse.statusCode == 200;
-
-      if (result['healthy']) {
-        // Check model availability
-        try {
-          final modelsResponse = await _dio.get('/api/models');
-          final models = modelsResponse.data['data'] as List?;
-          result['modelsAvailable'] = models != null && models.isNotEmpty;
-          result['modelCount'] = models?.length ?? 0;
-        } catch (e) {
-          result['modelsAvailable'] = false;
-        }
-      }
-    } catch (e) {
-      result['error'] = e.toString();
-    }
-
-    return result;
   }
 
   Future<BackendConfig?> getBackendConfig() async {
@@ -2259,7 +2202,11 @@ class ApiService {
   /// Notify backend that chat streaming is complete.
   /// This triggers any configured filters/actions on the backend.
   /// Matches OpenWebUI's chatCompletedHandler in Chat.svelte.
-  Future<void> sendChatCompleted({
+  ///
+  /// Returns the response body which may contain modified messages from
+  /// outlet filters. The caller should merge these back into the local
+  /// message state (OpenWebUI does this to apply filter-modified content).
+  Future<Map<String, dynamic>?> sendChatCompleted({
     required String chatId,
     required String messageId,
     required List<Map<String, dynamic>> messages,
@@ -2296,7 +2243,7 @@ class ApiService {
       'model': model,
       'messages': formattedMessages,
       'chat_id': chatId,
-      'session_id': sessionId ?? const Uuid().v4().substring(0, 20),
+      if (sessionId != null) 'session_id': sessionId,
       'id': messageId,
     };
 
@@ -2311,7 +2258,7 @@ class ApiService {
     }
 
     try {
-      await _dio.post(
+      final resp = await _dio.post(
         '/api/chat/completed',
         data: requestData,
         options: Options(
@@ -2319,8 +2266,13 @@ class ApiService {
           receiveTimeout: const Duration(seconds: 10),
         ),
       );
+      if (resp.data is Map<String, dynamic>) {
+        return resp.data as Map<String, dynamic>;
+      }
+      return null;
     } catch (_) {
       // Non-critical - filters/actions may not be configured
+      return null;
     }
   }
 
@@ -3335,17 +3287,22 @@ class ApiService {
     required List<Map<String, dynamic>> messages,
     required String model,
     required String messageId,
-    required String sessionId,
+    String? sessionId,
     String? conversationId,
     List<String>? toolIds,
     List<String>? filterIds,
+    List<String>? skillIds,
     bool enableWebSearch = false,
     bool enableImageGeneration = false,
+    bool enableCodeInterpreter = false,
+    bool isVoiceMode = false,
     Map<String, dynamic>? modelItem,
     List<Map<String, dynamic>>? toolServers,
     Map<String, dynamic>? backgroundTasks,
     Map<String, dynamic>? userSettings,
     String? parentMessageId,
+    Map<String, dynamic>? parentMessage,
+    Map<String, dynamic>? variables,
   }) {
     // Process messages to match OpenWebUI format
     final processedMessages = messages.map((message) {
@@ -3403,10 +3360,6 @@ class ApiService {
       'messages': processedMessages,
     };
 
-    if (conversationId != null) {
-      data['chat_id'] = conversationId;
-    }
-
     // Request usage statistics if model supports it (issue #274)
     final supportsUsage =
         modelItem?['capabilities']?['usage'] == true ||
@@ -3416,35 +3369,86 @@ class ApiService {
       data['stream_options'] = {'include_usage': true};
     }
 
+    // Forward user model params (temperature, top_p, top_k, seed, etc.)
+    // Mirrors OpenWebUI's: { ...$settings?.params, ...params, stop: getStopTokens() }
+    try {
+      final raw = userSettings?['params'];
+      final userParams = raw is Map ? Map<String, dynamic>.from(raw) : null;
+      if (userParams != null && userParams.isNotEmpty) {
+        final params =
+            (data['params'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+        params.addAll(userParams);
+        // Normalize stop tokens: split comma-separated string into list
+        final rawStop = params['stop'];
+        if (rawStop is String && rawStop.isNotEmpty) {
+          params['stop'] = rawStop
+              .split(',')
+              .map((s) => s.trim())
+              .where((s) => s.isNotEmpty)
+              .toList();
+        }
+        // Remove empty/null stop so the backend uses its own defaults
+        if (params['stop'] is List && (params['stop'] as List).isEmpty) {
+          params.remove('stop');
+        }
+        data['params'] = params;
+      }
+    } catch (_) {
+      // Non-critical: proceed without user params
+    }
+
+    // Include model_item with real server routing data (pipe, actions,
+    // filters, etc.). This is critical for pipe models which need
+    // model_item.pipe to be routed to the pipe function on the backend.
+    if (modelItem != null) {
+      data['model_item'] = modelItem;
+    }
+
     // Feature flags via 'features' object (not top-level params).
     // See: https://github.com/cogwheel0/conduit/issues/271
     final uiMemorySettings = userSettings?['ui'] as Map<String, dynamic>?;
     final bool memoryEnabled = uiMemorySettings?['memory'] == true;
 
-    if (enableWebSearch || enableImageGeneration || memoryEnabled) {
-      data['features'] = {
-        'web_search': enableWebSearch,
-        'image_generation': enableImageGeneration,
-        'code_interpreter': false,
-        'memory': memoryEnabled,
-      };
+    // Always send features when any flag is active (mirrors OpenWebUI's
+    // getFeatures() which always returns the object).
+    final features = <String, dynamic>{
+      'web_search': enableWebSearch,
+      'image_generation': enableImageGeneration,
+      'code_interpreter': enableCodeInterpreter,
+    };
+    if (isVoiceMode) features['voice'] = true;
+    if (memoryEnabled) features['memory'] = true;
+    if (features.values.any((v) => v == true)) {
+      data['features'] = features;
       if (enableWebSearch) {
         _traceApi('Web search enabled in streaming request');
       }
       if (enableImageGeneration) {
         _traceApi('Image generation enabled in streaming request');
       }
+      if (enableCodeInterpreter) {
+        _traceApi('Code interpreter enabled in streaming request');
+      }
       if (memoryEnabled) {
         _traceApi('Memory enabled in streaming request (from user settings)');
       }
     }
 
-    data['id'] = messageId;
+    // Template variables for prompt substitution ({{USER_NAME}}, etc.)
+    if (variables != null && variables.isNotEmpty) {
+      data['variables'] = variables;
+    }
 
     // Add filter_ids if provided (Open-WebUI toggle filters)
     if (filterIds != null && filterIds.isNotEmpty) {
       data['filter_ids'] = filterIds;
       _traceApi('Including filter_ids in streaming request: $filterIds');
+    }
+
+    // Add skill_ids if provided (extracted from @-mentions in the message)
+    if (skillIds != null && skillIds.isNotEmpty) {
+      data['skill_ids'] = skillIds;
+      _traceApi('Including skill_ids in streaming request: $skillIds');
     }
 
     // Add tool_ids if provided
@@ -3485,8 +3489,12 @@ class ApiService {
       _traceApi('Including non-image files in request: ${allFiles.length}');
     }
 
-    // Attach identifiers
-    data['session_id'] = sessionId;
+    // Attach identifiers — only include session_id when a real socket
+    // connection exists. Omitting it makes the backend return SSE directly
+    // instead of creating an async task that emits to a dead session.
+    if (sessionId != null) {
+      data['session_id'] = sessionId;
+    }
     data['id'] = messageId;
     if (conversationId != null) {
       data['chat_id'] = conversationId;
@@ -3495,224 +3503,25 @@ class ApiService {
       data['parent_id'] = parentMessageId;
     }
 
-    // Always include parent_message as empty object to prevent NoneType
-    // error in OWUI 0.6.42+.
+    // Include the full parent (user) message so the backend has context
+    // for filters and pipelines. Falls back to an empty object to prevent
+    // NoneType error in OWUI 0.6.42+.
     // See: https://github.com/cogwheel0/conduit/issues/311
-    data['parent_message'] = <String, dynamic>{};
+    data['parent_message'] = parentMessage ?? <String, dynamic>{};
 
     if (backgroundTasks != null && backgroundTasks.isNotEmpty) {
       data['background_tasks'] = backgroundTasks;
     }
 
+    // Diagnostic: log the full payload for pipe model debugging
+    _traceApi(
+      'Payload keys: ${data.keys.toList()}, '
+      'has model_item: ${data.containsKey('model_item')}, '
+      'has pipe: ${(data['model_item'] as Map?)?['pipe']}, '
+      'has session_id: ${data.containsKey('session_id')}',
+    );
+
     return data;
-  }
-
-  // -----------------------------------------------------------------------
-  // Legacy sendMessage (WebSocket-only path)
-  // -----------------------------------------------------------------------
-
-  /// The original WebSocket-only streaming path.
-  ///
-  /// Preserved verbatim so existing callers continue to work while the new
-  /// transport-aware [sendMessageSession] is being rolled out.
-  ({
-    Stream<String> stream,
-    String messageId,
-    String sessionId,
-    String? socketSessionId,
-    bool isBackgroundFlow,
-  })
-  _sendMessageLegacy({
-    required List<Map<String, dynamic>> messages,
-    required String model,
-    String? conversationId,
-    List<String>? toolIds,
-    List<String>? filterIds,
-    bool enableWebSearch = false,
-    bool enableImageGeneration = false,
-    Map<String, dynamic>? modelItem,
-    String? sessionIdOverride,
-    String? socketSessionId,
-    List<Map<String, dynamic>>? toolServers,
-    Map<String, dynamic>? backgroundTasks,
-    String? responseMessageId,
-    Map<String, dynamic>? userSettings,
-    String? parentMessageId,
-  }) {
-    final streamController = StreamController<String>();
-
-    // Generate unique IDs
-    final messageId =
-        (responseMessageId != null && responseMessageId.isNotEmpty)
-        ? responseMessageId
-        : const Uuid().v4();
-    final sessionId =
-        (sessionIdOverride != null && sessionIdOverride.isNotEmpty)
-        ? sessionIdOverride
-        : const Uuid().v4().substring(0, 20);
-
-    final bool hasBackgroundTasksPayload =
-        backgroundTasks != null && backgroundTasks.isNotEmpty;
-
-    final data = _buildChatCompletionPayload(
-      messages: messages,
-      model: model,
-      messageId: messageId,
-      sessionId: sessionId,
-      conversationId: conversationId,
-      toolIds: toolIds,
-      filterIds: filterIds,
-      enableWebSearch: enableWebSearch,
-      enableImageGeneration: enableImageGeneration,
-      modelItem: modelItem,
-      toolServers: toolServers,
-      backgroundTasks: backgroundTasks,
-      userSettings: userSettings,
-      parentMessageId: parentMessageId,
-    );
-
-    _traceApi('Preparing WebSocket-only chat request');
-    _traceApi('Model: $model');
-    _traceApi('Request data keys (pre-dispatch): ${data.keys.toList()}');
-    _traceApi(
-      'Request features: hasBackgroundTasks=$hasBackgroundTasksPayload, '
-      'tools=${toolIds?.isNotEmpty == true}, '
-      'webSearch=$enableWebSearch, imageGen=$enableImageGeneration, '
-      'toolServers=${toolServers?.isNotEmpty == true}',
-    );
-    _traceApi('Background flow payload keys: ${data.keys.toList()}');
-    _traceApi('Using session_id: $sessionId');
-    _traceApi('Using message id: $messageId');
-    _traceApi(
-      'Has tool_ids: ${data.containsKey('tool_ids')} -> ${data['tool_ids']}',
-    );
-    _traceApi('Has background_tasks: ${data.containsKey('background_tasks')}');
-    _traceApi('Initiating WebSocket-only chat request');
-    _traceApi('Posting to /api/chat/completions');
-
-    // Create a cancel token for this request
-    final cancelToken = CancelToken();
-    _streamCancelActions[messageId] = () async {
-      if (!cancelToken.isCancelled) {
-        cancelToken.cancel('User cancelled');
-      }
-    };
-
-    // Send HTTP request to initiate chat task
-    () async {
-      try {
-        final resp = await _dio.post(
-          '/api/chat/completions',
-          data: data,
-          options: Options(
-            responseType: ResponseType.json,
-            receiveTimeout: const Duration(seconds: 30),
-            sendTimeout: const Duration(seconds: 30),
-          ),
-          cancelToken: cancelToken,
-        );
-
-        final respData = resp.data;
-
-        if (respData is Map) {
-          if (respData['task_id'] != null) {
-            final taskId = respData['task_id'].toString();
-            _traceApi('Background task created: $taskId');
-          } else if (respData['status'] == true) {
-            _traceApi('Chat task initiated successfully');
-          } else if (respData['error'] != null) {
-            _traceApi('Server error: ${respData['error']}');
-            if (!streamController.isClosed) {
-              streamController.addError(
-                Exception(respData['error'].toString()),
-              );
-            }
-          }
-        }
-
-        if (!streamController.isClosed) {
-          streamController.close();
-        }
-      } on DioException catch (e) {
-        if (CancelToken.isCancel(e)) {
-          _traceApi('Request cancelled for message: $messageId');
-        } else {
-          _traceApi('Request error: $e');
-          if (!streamController.isClosed) {
-            streamController.addError(e);
-            streamController.close();
-          }
-        }
-      } catch (e) {
-        _traceApi('Unexpected error: $e');
-        if (!streamController.isClosed) {
-          streamController.addError(e);
-          streamController.close();
-        }
-      }
-    }();
-
-    final bool isBackgroundFlow =
-        hasBackgroundTasksPayload ||
-        (toolIds != null && toolIds.isNotEmpty) ||
-        (toolServers != null && toolServers.isNotEmpty) ||
-        enableWebSearch ||
-        enableImageGeneration;
-
-    return (
-      stream: streamController.stream,
-      messageId: messageId,
-      sessionId: sessionId,
-      socketSessionId: socketSessionId,
-      isBackgroundFlow: isBackgroundFlow,
-    );
-  }
-
-  /// Deprecated wrapper that delegates to [_sendMessageLegacy].
-  ///
-  /// All new code should use [sendMessageSession] instead.
-  @Deprecated('Use sendMessageSession() for transport-aware completions')
-  ({
-    Stream<String> stream,
-    String messageId,
-    String sessionId,
-    String? socketSessionId,
-    bool isBackgroundFlow,
-  })
-  sendMessage({
-    required List<Map<String, dynamic>> messages,
-    required String model,
-    String? conversationId,
-    List<String>? toolIds,
-    List<String>? filterIds,
-    bool enableWebSearch = false,
-    bool enableImageGeneration = false,
-    Map<String, dynamic>? modelItem,
-    String? sessionIdOverride,
-    String? socketSessionId,
-    List<Map<String, dynamic>>? toolServers,
-    Map<String, dynamic>? backgroundTasks,
-    String? responseMessageId,
-    Map<String, dynamic>? userSettings,
-    String? parentMessageId,
-  }) {
-    return _sendMessageLegacy(
-      messages: messages,
-      model: model,
-      conversationId: conversationId,
-      toolIds: toolIds,
-      filterIds: filterIds,
-      enableWebSearch: enableWebSearch,
-      enableImageGeneration: enableImageGeneration,
-      modelItem: modelItem,
-      sessionIdOverride: sessionIdOverride,
-      socketSessionId: socketSessionId,
-      toolServers: toolServers,
-      backgroundTasks: backgroundTasks,
-      responseMessageId: responseMessageId,
-      userSettings: userSettings,
-      parentMessageId: parentMessageId,
-    );
   }
 
   // -----------------------------------------------------------------------
@@ -3722,17 +3531,19 @@ class ApiService {
   /// Posts a chat completion request and classifies the server's response
   /// into a typed [ChatCompletionSession].
   ///
-  /// Unlike the legacy [sendMessage], this method inspects the actual HTTP
-  /// response to determine the transport mode (httpStream, taskSocket, or
-  /// jsonCompletion) rather than always assuming WebSocket delivery.
+  /// Inspects the actual HTTP response to determine the transport mode
+  /// (httpStream, taskSocket, or jsonCompletion).
   Future<ChatCompletionSession> sendMessageSession({
     required List<Map<String, dynamic>> messages,
     required String model,
     String? conversationId,
     List<String>? toolIds,
     List<String>? filterIds,
+    List<String>? skillIds,
     bool enableWebSearch = false,
     bool enableImageGeneration = false,
+    bool enableCodeInterpreter = false,
+    bool isVoiceMode = false,
     Map<String, dynamic>? modelItem,
     String? sessionIdOverride,
     List<Map<String, dynamic>>? toolServers,
@@ -3740,16 +3551,24 @@ class ApiService {
     String? responseMessageId,
     Map<String, dynamic>? userSettings,
     String? parentMessageId,
+    Map<String, dynamic>? parentMessage,
+    Map<String, dynamic>? variables,
   }) async {
     // Generate unique IDs
     final messageId =
         (responseMessageId != null && responseMessageId.isNotEmpty)
         ? responseMessageId
         : const Uuid().v4();
+    // Only use the socket session ID when a real socket connection exists.
+    // When the socket is disconnected, session_id must be null/absent so the
+    // backend falls back to returning SSE directly (httpStream transport)
+    // instead of creating an async task that emits socket events to a
+    // non-existent session. This mirrors OpenWebUI's frontend which sends
+    // `session_id: $socket?.id` (undefined when disconnected).
     final sessionId =
         (sessionIdOverride != null && sessionIdOverride.isNotEmpty)
         ? sessionIdOverride
-        : const Uuid().v4().substring(0, 20);
+        : null;
 
     final data = _buildChatCompletionPayload(
       messages: messages,
@@ -3759,16 +3578,24 @@ class ApiService {
       conversationId: conversationId,
       toolIds: toolIds,
       filterIds: filterIds,
+      skillIds: skillIds,
       enableWebSearch: enableWebSearch,
       enableImageGeneration: enableImageGeneration,
+      enableCodeInterpreter: enableCodeInterpreter,
+      isVoiceMode: isVoiceMode,
       modelItem: modelItem,
       toolServers: toolServers,
       backgroundTasks: backgroundTasks,
       userSettings: userSettings,
       parentMessageId: parentMessageId,
+      parentMessage: parentMessage,
+      variables: variables,
     );
 
-    _traceApi('sendMessageSession: posting to /api/chat/completions');
+    _traceApi(
+      'sendMessageSession: posting to /api/chat/completions '
+      '(model=$model, sessionId=$sessionId)',
+    );
 
     final cancelToken = CancelToken();
     Future<void> abort() async {
@@ -3798,13 +3625,18 @@ class ApiService {
       throw Exception('Chat completion failed ($status): $error');
     }
 
-    return classifyChatCompletionResponse(
+    final session = await classifyChatCompletionResponse(
       resp,
       messageId: messageId,
       sessionId: sessionId,
       conversationId: conversationId,
       abort: abort,
     );
+    _traceApi(
+      'sendMessageSession: transport=${session.transport.name}, '
+      'taskId=${session.taskId}, messageId=${session.messageId}',
+    );
+    return session;
   }
 
   // -----------------------------------------------------------------------
@@ -3825,7 +3657,7 @@ class ApiService {
   Future<ChatCompletionSession> classifyChatCompletionResponse(
     Response<ResponseBody> resp, {
     required String messageId,
-    required String sessionId,
+    String? sessionId,
     String? conversationId,
     required Future<void> Function() abort,
   }) async {
@@ -3905,7 +3737,7 @@ class ApiService {
   ChatCompletionSession _classifyJsonBody(
     Map<String, dynamic> json, {
     required String messageId,
-    required String sessionId,
+    String? sessionId,
     String? conversationId,
     required Future<void> Function() abort,
   }) {
