@@ -1,7 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
 import 'package:flutter/services.dart';
 import '../../shared/theme/theme_extensions.dart';
+
+enum _DrawerSettleEndpoint { open, closed }
 
 /// A responsive layout that shows a persistent drawer on tablets (side-by-side)
 /// and an overlay drawer on mobile devices.
@@ -57,6 +61,10 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
 
   /// Cached tablet state to avoid accessing context when unmounted.
   bool _cachedIsTablet = false;
+  _DrawerSettleEndpoint? _lastSettledEndpoint;
+  _DrawerSettleEndpoint? _pendingSettledEndpoint;
+  bool _isDragging = false;
+  _DrawerSettleEndpoint? _dragTerminalEndpoint;
 
   /// Spring description matching iOS navigation drawer physics.
   static final SpringDescription _spring = SpringDescription(
@@ -93,6 +101,8 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
   void initState() {
     super.initState();
     _controller = AnimationController(vsync: this, value: 0.0);
+    _lastSettledEndpoint = _settledEndpointForValue(_controller.value);
+    _controller.addStatusListener(_onControllerStatusChanged);
   }
 
   @override
@@ -129,7 +139,52 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
       target,
       unitVelocity,
     );
-    _controller.animateWith(simulation);
+    final ticker = _controller.animateWith(simulation);
+    unawaited(
+      ticker.orCancel
+          .then((_) {
+            if (!mounted) return;
+            if (target == 0.0 && !_controller.isDismissed) {
+              _controller.value = 0.0;
+            } else if (target == 1.0 && !_controller.isCompleted) {
+              _controller.value = 1.0;
+            }
+          })
+          .catchError((Object _) {}),
+    );
+  }
+
+  _DrawerSettleEndpoint? _settledEndpointForValue(double value) {
+    if (value <= 0.0) return _DrawerSettleEndpoint.closed;
+    if (value >= 1.0) return _DrawerSettleEndpoint.open;
+    return null;
+  }
+
+  void _onControllerStatusChanged(AnimationStatus status) {
+    if (mounted) {
+      _isTablet(context);
+    }
+    if (_cachedIsTablet) return;
+
+    final endpoint = switch (status) {
+      AnimationStatus.completed => _DrawerSettleEndpoint.open,
+      AnimationStatus.dismissed => _DrawerSettleEndpoint.closed,
+      _ => null,
+    };
+    if (endpoint == null) {
+      return;
+    }
+    if (_isDragging) {
+      _dragTerminalEndpoint = endpoint;
+      return;
+    }
+    if (_pendingSettledEndpoint != endpoint) {
+      return;
+    }
+
+    _pendingSettledEndpoint = null;
+    _lastSettledEndpoint = endpoint;
+    HapticFeedback.selectionClick();
   }
 
   void open({double velocity = 0.0}) {
@@ -139,6 +194,10 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
       }
       return;
     }
+    if (_controller.isCompleted) return;
+    _pendingSettledEndpoint = _lastSettledEndpoint == _DrawerSettleEndpoint.open
+        ? null
+        : _DrawerSettleEndpoint.open;
 
     try {
       widget.onOpenStart?.call();
@@ -155,6 +214,11 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
       }
       return;
     }
+    if (_controller.isDismissed) return;
+    _pendingSettledEndpoint =
+        _lastSettledEndpoint == _DrawerSettleEndpoint.closed
+        ? null
+        : _DrawerSettleEndpoint.closed;
 
     _springTo(0.0, velocity: -velocity.abs());
   }
@@ -179,9 +243,16 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
   double _dragStartControllerValue = 0.0;
   double _dragCumulativeDelta = 0.0;
 
+  void _resetDragState() {
+    _isDragging = false;
+    _dragTerminalEndpoint = null;
+  }
+
   void _onDragStart(DragStartDetails d) {
     if (_isTablet(context)) return;
 
+    _resetDragState();
+    _isDragging = true;
     if (_controller.value <= 0.001) {
       try {
         widget.onOpenStart?.call();
@@ -198,9 +269,14 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
 
     _dragCumulativeDelta += d.primaryDelta ?? 0.0;
     final next =
-        (_dragStartControllerValue + _dragCumulativeDelta / _panelWidth)
-            .clamp(0.0, 1.0);
+        (_dragStartControllerValue + _dragCumulativeDelta / _panelWidth).clamp(
+          0.0,
+          1.0,
+        );
     _controller.value = next;
+    if (_settledEndpointForValue(next) != _dragTerminalEndpoint) {
+      _dragTerminalEndpoint = null;
+    }
   }
 
   void _onDragEnd(DragEndDetails d) {
@@ -208,19 +284,35 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
 
     final vx = d.primaryVelocity ?? 0.0;
     final vMag = vx.abs();
-    if (vMag > 300.0) {
-      if (vx > 0) {
-        open(velocity: vMag);
-      } else {
-        close(velocity: vMag);
-      }
+    final endpoint = vMag > 300.0
+        ? (vx > 0.0 ? _DrawerSettleEndpoint.open : _DrawerSettleEndpoint.closed)
+        : (_controller.value >= widget.settleFraction
+              ? _DrawerSettleEndpoint.open
+              : _DrawerSettleEndpoint.closed);
+
+    _isDragging = false;
+    if (_dragTerminalEndpoint == endpoint && _lastSettledEndpoint != endpoint) {
+      _pendingSettledEndpoint = endpoint;
+      _onControllerStatusChanged(
+        endpoint == _DrawerSettleEndpoint.open
+            ? AnimationStatus.completed
+            : AnimationStatus.dismissed,
+      );
+      _dragTerminalEndpoint = null;
       return;
     }
-    if (_controller.value >= widget.settleFraction) {
+
+    _dragTerminalEndpoint = null;
+    if (endpoint == _DrawerSettleEndpoint.open) {
       open(velocity: vMag);
     } else {
       close(velocity: vMag);
     }
+  }
+
+  void _onDragCancel() {
+    if (_isTablet(context)) return;
+    _resetDragState();
   }
 
   @override
@@ -315,6 +407,7 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
             onHorizontalDragStart: _onDragStart,
             onHorizontalDragUpdate: _onDragUpdate,
             onHorizontalDragEnd: _onDragEnd,
+            onHorizontalDragCancel: _onDragCancel,
           ),
         ),
 
@@ -336,6 +429,7 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
                       onHorizontalDragStart: _onDragStart,
                       onHorizontalDragUpdate: _onDragUpdate,
                       onHorizontalDragEnd: _onDragEnd,
+                      onHorizontalDragCancel: _onDragCancel,
                       child: ColoredBox(
                         color: scrim.withValues(alpha: 0.6 * t),
                       ),
@@ -352,6 +446,7 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
                       onHorizontalDragStart: _onDragStart,
                       onHorizontalDragUpdate: _onDragUpdate,
                       onHorizontalDragEnd: _onDragEnd,
+                      onHorizontalDragCancel: _onDragCancel,
                       child: child!,
                     ),
                   ),
@@ -373,6 +468,7 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
 
   @override
   void dispose() {
+    _controller.removeStatusListener(_onControllerStatusChanged);
     _controller.dispose();
     super.dispose();
   }
