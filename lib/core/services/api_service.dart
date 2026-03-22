@@ -2928,19 +2928,43 @@ class ApiService {
   /// When the channels feature is disabled server-side (401 or 403),
   /// returns ([], false). Mirrors the getNotes() pattern.
   Future<(List<Map<String, dynamic>>, bool)> getChannels() async {
-    _traceApi('Fetching channels');
     try {
+      _traceApi('Fetching channels');
       final response = await _dio.get('/api/v1/channels/');
+      DebugLogger.log(
+        'fetch-status',
+        scope: 'api/channels',
+        data: {'code': response.statusCode},
+      );
+      DebugLogger.log('fetch-ok', scope: 'api/channels');
+
       final data = response.data;
       if (data is List) {
+        _traceApi('Found ${data.length} channels');
         return (data.cast<Map<String, dynamic>>(), true);
+      } else {
+        DebugLogger.warning(
+          'unexpected-type',
+          scope: 'api/channels',
+          data: {'type': data.runtimeType},
+        );
+        return (const <Map<String, dynamic>>[], true);
       }
-      return (const <Map<String, dynamic>>[], true);
     } on DioException catch (e) {
+      // 401/403 indicates channels feature is disabled server-side or user lacks permission
       final statusCode = e.response?.statusCode;
       if (statusCode == 401 || statusCode == 403) {
+        DebugLogger.log(
+          'feature-disabled',
+          scope: 'api/channels',
+          data: {'status': statusCode},
+        );
         return (const <Map<String, dynamic>>[], false);
       }
+      DebugLogger.error('fetch-failed', scope: 'api/channels', error: e);
+      rethrow;
+    } catch (e) {
+      DebugLogger.error('fetch-failed', scope: 'api/channels', error: e);
       rethrow;
     }
   }
