@@ -127,20 +127,26 @@ class ActiveChatStream {
   final VoidCallback disposeWatchdog;
 }
 
+typedef _ServerMessageSnapshot = ({
+  String content,
+  List<String> followUps,
+  bool isDone,
+  String? errorContent,
+});
+
 /// Helper to handle reconnect recovery asynchronously with proper error handling.
 /// Extracted to avoid async callback in Timer which silently drops the Future.
 Future<void> _handleReconnectRecovery({
   required bool Function() hasFinished,
   required List<ChatMessage> Function() getMessages,
-  required Future<({String content, List<String> followUps, bool isDone})?>
-  Function()
-  pollServerForMessage,
+  required Future<_ServerMessageSnapshot?> Function() pollServerForMessage,
   required bool Function(
     String,
     List<String>, {
     required bool finishIfDone,
     required bool isDone,
     required String source,
+    String? errorContent,
   })
   applyServerContent,
   required void Function() syncImages,
@@ -165,6 +171,7 @@ Future<void> _handleReconnectRecovery({
         finishIfDone: true,
         isDone: result.isDone,
         source: 'Reconnect recovery',
+        errorContent: result.errorContent,
       );
       if (applied) {
         syncImages();
@@ -292,9 +299,54 @@ ActiveChatStream attachUnifiedChunkedStreaming({
 
   // Shared helper to poll server for message content with exponential backoff.
   // Used by watchdog timeout and reconnection handler to recover from missed events.
-  // Returns (content, followUps, isDone) or null if fetch fails or message not found.
-  Future<({String content, List<String> followUps, bool isDone})?>
-  pollServerForMessage({int attempt = 0, int maxAttempts = 3}) async {
+  // Returns (content, followUps, isDone, errorContent) or null if fetch fails
+  // or the message is not found.
+  String? extractServerErrorContent(dynamic rawError) {
+    if (rawError == null) {
+      return null;
+    }
+    if (rawError is String && rawError.isNotEmpty) {
+      return rawError;
+    }
+    final errorMap = _asStringMap(rawError);
+    if (errorMap == null) {
+      return null;
+    }
+    final content = errorMap['content']?.toString().trim();
+    if (content != null && content.isNotEmpty) {
+      return content;
+    }
+    final message = errorMap['message']?.toString().trim();
+    if (message != null && message.isNotEmpty) {
+      return message;
+    }
+    final detail = errorMap['detail']?.toString().trim();
+    if (detail != null && detail.isNotEmpty) {
+      return detail;
+    }
+    final nestedError = _asStringMap(errorMap['error']);
+    final nestedMessage = nestedError?['message']?.toString().trim();
+    if (nestedMessage != null && nestedMessage.isNotEmpty) {
+      return nestedMessage;
+    }
+    return '';
+  }
+
+  Map<String, dynamic>? findServerMessageInList(dynamic rawMessages) {
+    if (rawMessages is! List) {
+      return null;
+    }
+    final serverMsg = rawMessages.firstWhere(
+      (m) => m is Map && m['id']?.toString() == assistantMessageId,
+      orElse: () => null,
+    );
+    return _asStringMap(serverMsg);
+  }
+
+  Future<_ServerMessageSnapshot?> pollServerForMessage({
+    int attempt = 0,
+    int maxAttempts = 3,
+  }) async {
     try {
       final chatId = activeConversationId;
       if (chatId == null || chatId.isEmpty || isTemporaryChat(chatId)) {
@@ -304,16 +356,15 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       final resp = await api.dio.get('/api/v1/chats/$chatId');
       final data = resp.data as Map<String, dynamic>?;
       final chatObj = data?['chat'] as Map<String, dynamic>?;
-      if (chatObj == null) return null;
+      if (chatObj == null && data == null) return null;
 
-      final list = chatObj['messages'];
-      if (list is! List) return null;
-
-      final serverMsg = list.firstWhere(
-        (m) => m is Map && m['id']?.toString() == assistantMessageId,
-        orElse: () => null,
-      );
-      if (serverMsg == null || serverMsg is! Map) return null;
+      final history = _asStringMap(chatObj?['history']);
+      final historyMessages = _asStringMap(history?['messages']);
+      final serverMsg =
+          _asStringMap(historyMessages?[assistantMessageId]) ??
+          findServerMessageInList(chatObj?['messages']) ??
+          findServerMessageInList(data?['messages']);
+      if (serverMsg == null) return null;
 
       // Extract content
       final serverContent = serverMsg['content'];
@@ -334,13 +385,20 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       // Use _parseFollowUpsField for consistent parsing with socket handler
       final followUpsRaw = serverMsg['followUps'] ?? serverMsg['follow_ups'];
       final followUps = _parseFollowUpsField(followUpsRaw);
+      final errorContent = extractServerErrorContent(serverMsg['error']);
 
       // Check completion status
       final isDone =
           serverMsg['done'] == true ||
+          errorContent != null ||
           (serverMsg['isStreaming'] != true && content.isNotEmpty);
 
-      return (content: content, followUps: followUps, isDone: isDone);
+      return (
+        content: content,
+        followUps: followUps,
+        isDone: isDone,
+        errorContent: errorContent,
+      );
     } catch (e) {
       DebugLogger.log(
         'Server poll failed (attempt ${attempt + 1}/$maxAttempts): $e',
@@ -369,9 +427,27 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     required bool finishIfDone,
     required bool isDone,
     required String source,
+    String? errorContent,
   }) {
     final msgs = getMessages();
     if (msgs.isEmpty || msgs.last.role != 'assistant') return false;
+
+    var applied = false;
+
+    if (errorContent != null) {
+      DebugLogger.log(
+        '$source: adopting server error',
+        scope: 'streaming/helper',
+      );
+      updateLastMessageWith(
+        (m) => m.copyWith(
+          error: errorContent.isNotEmpty
+              ? ChatMessageError(content: errorContent)
+              : const ChatMessageError(content: null),
+        ),
+      );
+      applied = true;
+    }
 
     if (content.isNotEmpty && content.length >= msgs.last.content.length) {
       DebugLogger.log(
@@ -379,6 +455,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         scope: 'streaming/helper',
       );
       replaceLastMessageContent(content);
+      applied = true;
 
       if (followUps.isNotEmpty) {
         setFollowUps(assistantMessageId, followUps);
@@ -389,7 +466,131 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       }
       return true;
     }
-    return false;
+
+    if (followUps.isNotEmpty) {
+      setFollowUps(assistantMessageId, followUps);
+      applied = true;
+    }
+
+    if (finishIfDone && isDone) {
+      wrappedFinishStreaming();
+      return true;
+    }
+
+    return applied;
+  }
+
+  bool refreshingSnapshot = false;
+  Future<void> refreshConversationSnapshot() async {
+    if (refreshingSnapshot) return;
+    final chatId = activeConversationId;
+    if (chatId == null || chatId.isEmpty || isTemporaryChat(chatId)) {
+      return;
+    }
+    refreshingSnapshot = true;
+    try {
+      final conversation = await api.getConversation(chatId);
+
+      if (conversation.title.isNotEmpty && conversation.title != 'New Chat') {
+        onChatTitleUpdated?.call(conversation.title);
+      }
+
+      if (conversation.messages.isEmpty) {
+        return;
+      }
+
+      ChatMessage? foundAssistant;
+      for (final message in conversation.messages.reversed) {
+        if (message.role == 'assistant') {
+          foundAssistant = message;
+          break;
+        }
+      }
+
+      final assistant = foundAssistant;
+      if (assistant == null) {
+        return;
+      }
+
+      setFollowUps(assistant.id, assistant.followUps);
+      updateMessageById(assistant.id, (current) {
+        // Preserve existing usage if server doesn't have it yet (issue #274)
+        // Usage is captured from streaming but may not be persisted on server
+        final effectiveUsage = assistant.usage ?? current.usage;
+        return current.copyWith(
+          followUps: List<String>.from(assistant.followUps),
+          statusHistory: assistant.statusHistory,
+          sources: assistant.sources,
+          metadata: {...?current.metadata, ...?assistant.metadata},
+          usage: effectiveUsage,
+        );
+      });
+    } catch (_) {
+      // Best-effort refresh; ignore failures.
+    } finally {
+      refreshingSnapshot = false;
+    }
+  }
+
+  bool finishFromLocalState({required bool allowContentOnlyTerminal}) {
+    flushStreamingBuffer();
+
+    final msgs = getMessages();
+    if (msgs.isEmpty || msgs.last.role != 'assistant') {
+      return false;
+    }
+
+    final last = msgs.last;
+    if (!last.isStreaming) {
+      return true;
+    }
+
+    final hasTerminalState =
+        last.error != null ||
+        (allowContentOnlyTerminal && last.content.trim().isNotEmpty);
+    if (!hasTerminalState) {
+      return false;
+    }
+
+    wrappedFinishStreaming();
+    return true;
+  }
+
+  Future<void> recoverTaskSocketTerminalState({
+    required String source,
+    bool allowContentOnlyTerminal = false,
+  }) async {
+    try {
+      final result = await pollServerForMessage();
+      if (hasFinished) {
+        return;
+      }
+
+      if (result != null) {
+        final applied = applyServerContent(
+          result.content,
+          result.followUps,
+          finishIfDone: true,
+          isDone: result.isDone,
+          source: source,
+          errorContent: result.errorContent,
+        );
+        if (applied) {
+          syncImages();
+        }
+        if (hasFinished) {
+          return;
+        }
+      }
+    } catch (e) {
+      DebugLogger.log('$source failed: $e', scope: 'streaming/helper');
+    }
+
+    if (finishFromLocalState(
+      allowContentOnlyTerminal: allowContentOnlyTerminal,
+    )) {
+      Future.microtask(refreshConversationSnapshot);
+    }
   }
 
   if (hasSocketSignals) {
@@ -430,7 +631,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       reconnectDelayTimer?.cancel();
       reconnectSub?.cancel();
     });
-    }
+  }
 
   Timer? imageCollectionDebounce;
   String? pendingImageContent;
@@ -570,58 +771,6 @@ ActiveChatStream attachUnifiedChunkedStreaming({
 
   // Bind the late reference now that updateImagesFromCurrentContent is defined
   syncImages = updateImagesFromCurrentContent;
-
-  bool refreshingSnapshot = false;
-  Future<void> refreshConversationSnapshot() async {
-    if (refreshingSnapshot) return;
-    final chatId = activeConversationId;
-    if (chatId == null || chatId.isEmpty || isTemporaryChat(chatId)) {
-      return;
-    }
-    refreshingSnapshot = true;
-    try {
-      final conversation = await api.getConversation(chatId);
-
-      if (conversation.title.isNotEmpty && conversation.title != 'New Chat') {
-        onChatTitleUpdated?.call(conversation.title);
-      }
-
-      if (conversation.messages.isEmpty) {
-        return;
-      }
-
-      ChatMessage? foundAssistant;
-      for (final message in conversation.messages.reversed) {
-        if (message.role == 'assistant') {
-          foundAssistant = message;
-          break;
-        }
-      }
-
-      final assistant = foundAssistant;
-      if (assistant == null) {
-        return;
-      }
-
-      setFollowUps(assistant.id, assistant.followUps);
-      updateMessageById(assistant.id, (current) {
-        // Preserve existing usage if server doesn't have it yet (issue #274)
-        // Usage is captured from streaming but may not be persisted on server
-        final effectiveUsage = assistant.usage ?? current.usage;
-        return current.copyWith(
-          followUps: List<String>.from(assistant.followUps),
-          statusHistory: assistant.statusHistory,
-          sources: assistant.sources,
-          metadata: {...?current.metadata, ...?assistant.metadata},
-          usage: effectiveUsage,
-        );
-      });
-    } catch (_) {
-      // Best-effort refresh; ignore failures.
-    } finally {
-      refreshingSnapshot = false;
-    }
-  }
 
   /// Sends the chatCompleted notification to the backend, processes the
   /// response for outlet filter modifications, then syncs the conversation.
@@ -1376,6 +1525,14 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           final active = payload['active'];
           if (active is bool) {
             onChatActiveChanged?.call(activeConversationId, active);
+            if (!active && !hasFinished) {
+              unawaited(
+                recoverTaskSocketTerminalState(
+                  source: 'taskSocket inactive recovery',
+                  allowContentOnlyTerminal: true,
+                ),
+              );
+            }
           }
         } catch (_) {}
       } else if (type == 'execute:python' && payload != null) {
@@ -1676,10 +1833,13 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                     finishIfDone: true,
                     isDone: result.isDone,
                     source: 'httpStream premature-end recovery',
+                    errorContent: result.errorContent,
                   );
                   if (applied) {
                     syncImages();
-                    return; // applyServerContent calls wrappedFinishStreaming
+                    if (hasFinished) {
+                      return;
+                    }
                   }
                 }
               } catch (e) {

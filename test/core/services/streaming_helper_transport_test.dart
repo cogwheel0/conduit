@@ -1037,5 +1037,51 @@ void main() {
       // Streaming should have ended
       check(lastMsg.isStreaming).isFalse();
     });
+
+    test('taskSocket inactive recovery finalizes persisted error '
+        'without socket error event', () async {
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+      final api = _buildFakeApi(
+        pollResponse: {
+          'chat': {
+            'messages': [
+              {
+                'id': 'msg-1',
+                'error': {'content': 'Persisted backend error'},
+              },
+            ],
+          },
+        },
+      );
+
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          conversationId: 'conv-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        api: api,
+        activeConversationId: 'conv-1',
+        socketService: _MockSocketService(registrar),
+      );
+
+      await pumpMicrotasks();
+
+      registrar.emitChatEvent('chat:active', {'active': false});
+
+      await pumpMicrotasks();
+      for (var i = 0; i < 5; i++) {
+        await pumpMicrotasks();
+      }
+
+      final lastMsg = log.messages.last;
+      check(lastMsg.error).isNotNull();
+      check(lastMsg.error!.content).equals('Persisted backend error');
+      check(lastMsg.isStreaming).isFalse();
+      check(log.finishCount).equals(1);
+    });
   });
 }
