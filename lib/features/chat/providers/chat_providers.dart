@@ -2291,23 +2291,20 @@ Future<void> _sendMessageInternal(
     // `dynamic` — without it Dart infers (dynamic) => dynamic at runtime.
     final ChatMessagesNotifier notifier =
         ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
+    final chatError = ChatMessageError(content: errorContent);
     if (e.toString().contains('401') || e.toString().contains('403')) {
       // Authentication errors - clear auth state and redirect to login.
       // Still convert the placeholder so the UI is consistent.
       notifier.updateLastMessageWithFunction(
-        (ChatMessage m) => m.copyWith(
-          isStreaming: false,
-          error: ChatMessageError(content: errorContent),
-        ),
+        (ChatMessage m) => m.copyWith(error: chatError),
       );
+      notifier.finishStreaming();
       ref.invalidate(authStateManagerProvider);
     } else {
       notifier.updateLastMessageWithFunction(
-        (ChatMessage m) => m.copyWith(
-          isStreaming: false,
-          error: ChatMessageError(content: errorContent),
-        ),
+        (ChatMessage m) => m.copyWith(error: chatError),
       );
+      notifier.finishStreaming();
     }
   }
 }
