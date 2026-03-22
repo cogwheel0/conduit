@@ -150,8 +150,10 @@ class _SidebarPillTabBar extends StatelessWidget {
 /// in [ResponsiveDrawerLayout]. Tab selection is persisted via
 /// [sidebarActiveTabProvider].
 ///
-/// When the notes feature is disabled via [notesFeatureEnabledProvider],
-/// the Notes tab is hidden and only Chats and Channels are shown.
+/// Notes and Channels tabs are each independently optional. When the
+/// server disables a feature (via [notesFeatureEnabledProvider] or
+/// [channelsFeatureEnabledProvider]), the corresponding tab is hidden
+/// and the [TabController] is rebuilt with the correct count.
 class SidebarPage extends ConsumerStatefulWidget {
   const SidebarPage({super.key});
 
@@ -164,6 +166,8 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
   late TabController _tabController;
   bool _notesEnabled = true;
   ProviderSubscription<bool>? _notesEnabledSubscription;
+  bool _channelsEnabled = true;
+  ProviderSubscription<bool>? _channelsEnabledSubscription;
 
   int _clampIndex(int tabCount) {
     final persistedIndex = ref.read(sidebarActiveTabProvider);
@@ -194,7 +198,8 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
   void initState() {
     super.initState();
     _notesEnabled = ref.read(notesFeatureEnabledProvider);
-    final tabCount = _notesEnabled ? 3 : 2;
+    _channelsEnabled = ref.read(channelsFeatureEnabledProvider);
+    final tabCount = 1 + (_notesEnabled ? 1 : 0) + (_channelsEnabled ? 1 : 0);
     final initialIndex = _resolveIndex(tabCount);
     _tabController = TabController(
       length: tabCount,
@@ -206,7 +211,15 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
       notesFeatureEnabledProvider,
       (previous, next) {
         if (next != _notesEnabled) {
-          _rebuildTabController(next);
+          _rebuildTabController(notesEnabled: next);
+        }
+      },
+    );
+    _channelsEnabledSubscription = ref.listenManual<bool>(
+      channelsFeatureEnabledProvider,
+      (previous, next) {
+        if (next != _channelsEnabled) {
+          _rebuildTabController(channelsEnabled: next);
         }
       },
     );
@@ -219,13 +232,23 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
     }
   }
 
-  /// Rebuilds the [TabController] when the notes feature flag changes.
-  void _rebuildTabController(bool notesEnabled) {
-    if (notesEnabled == _notesEnabled) return;
+  /// Rebuilds the [TabController] when a feature flag changes.
+  ///
+  /// Pass [notesEnabled] or [channelsEnabled] (or both) to update
+  /// the corresponding flag and recompute the tab count. The previous
+  /// [TabController] is disposed after the next frame to avoid
+  /// use-after-dispose during the rebuild.
+  void _rebuildTabController({bool? notesEnabled, bool? channelsEnabled}) {
+    final newNotes = notesEnabled ?? _notesEnabled;
+    final newChannels = channelsEnabled ?? _channelsEnabled;
+
+    if (newNotes == _notesEnabled && newChannels == _channelsEnabled) return;
 
     final previousController = _tabController;
     previousController.removeListener(_onTabChanged);
-    final resolvedTabCount = notesEnabled ? 3 : 2;
+
+    final resolvedTabCount = 1 + (newNotes ? 1 : 0) + (newChannels ? 1 : 0);
+
     final currentIndex = _resolveIndex(resolvedTabCount);
     final nextController = TabController(
       length: resolvedTabCount,
@@ -235,7 +258,8 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
     nextController.addListener(_onTabChanged);
 
     setState(() {
-      _notesEnabled = notesEnabled;
+      _notesEnabled = newNotes;
+      _channelsEnabled = newChannels;
       _tabController = nextController;
     });
 
@@ -247,6 +271,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
   @override
   void dispose() {
     _notesEnabledSubscription?.close();
+    _channelsEnabledSubscription?.close();
     _tabController.removeListener(_onTabChanged);
     _tabController.dispose();
     super.dispose();
@@ -267,11 +292,12 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
           label: localizations.sidebarNotesTab,
           body: const NotesListTab(),
         ),
-      _SidebarTabDefinition(
-        id: _SidebarTabId.channels,
-        label: localizations.sidebarChannelsTab,
-        body: const ChannelListTab(),
-      ),
+      if (_channelsEnabled)
+        _SidebarTabDefinition(
+          id: _SidebarTabId.channels,
+          label: localizations.sidebarChannelsTab,
+          body: const ChannelListTab(),
+        ),
     ];
 
     final conduitTheme = context.conduitTheme;
