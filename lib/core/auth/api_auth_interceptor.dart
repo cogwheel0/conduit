@@ -37,10 +37,14 @@ class ApiAuthInterceptor extends Interceptor {
   };
 
   // Endpoints for features that can be disabled server-side.
-  // A 403 on these indicates the feature is disabled, not an auth failure.
+  // A 401 or 403 on these indicates the feature is disabled, not an auth failure.
   static const Set<String> _featureEndpoints = {
     '/api/v1/folders/',
     '/api/v1/folders',
+    '/api/v1/notes/',
+    '/api/v1/notes',
+    '/api/v1/channels/',
+    '/api/v1/channels',
   };
 
   ApiAuthInterceptor({
@@ -88,14 +92,16 @@ class ApiAuthInterceptor extends Interceptor {
   }
 
   /// Check if endpoint is for a feature that can be disabled server-side.
-  /// A 403 on these indicates feature disabled, not an auth failure.
+  /// A 401 or 403 on these indicates feature disabled, not an auth failure.
   bool _isFeatureEndpoint(String path) {
     // Direct match for exact paths like /api/v1/folders or /api/v1/folders/
     if (_featureEndpoints.contains(path)) {
       return true;
     }
-    // Check for folder sub-paths (e.g., /api/v1/folders/{id})
-    if (path.startsWith('/api/v1/folders/')) {
+    // Check for sub-paths (e.g., /api/v1/folders/{id}, /api/v1/channels/{id})
+    if (path.startsWith('/api/v1/folders/') ||
+        path.startsWith('/api/v1/notes/') ||
+        path.startsWith('/api/v1/channels/')) {
       return true;
     }
     return false;
@@ -164,7 +170,12 @@ class ApiAuthInterceptor extends Interceptor {
       // not necessarily an expired/invalid token.
       final requiresAuth = _requiresAuth(path);
       final optionalAuth = _hasOptionalAuth(path);
-      if (requiresAuth && !optionalAuth) {
+      final isFeatureEndpoint = _isFeatureEndpoint(path);
+      if (isFeatureEndpoint) {
+        DebugLogger.auth(
+          '401 on feature endpoint $path - feature likely disabled server-side',
+        );
+      } else if (requiresAuth && !optionalAuth) {
         _notifyAuthFailure(
           '401 Unauthorized on $path - notifying app without clearing token',
         );
