@@ -13,12 +13,12 @@ class ChannelsList extends _$ChannelsList {
   Future<List<Channel>> build() async {
     final api = ref.watch(apiServiceProvider);
     if (api == null) return [];
-    final rawChannels = await api.getChannels();
-    return rawChannels
-        .map((json) => Channel.fromJson(json))
-        .toList()
-      ..sort((a, b) =>
-          (b.updatedAt ?? 0).compareTo(a.updatedAt ?? 0));
+    final (rawChannels, featureEnabled) = await api.getChannels();
+    ref
+        .read(channelsFeatureEnabledProvider.notifier)
+        .setEnabled(featureEnabled);
+    return rawChannels.map((json) => Channel.fromJson(json)).toList()
+      ..sort((a, b) => (b.updatedAt ?? 0).compareTo(a.updatedAt ?? 0));
   }
 
   Future<void> refresh() async {
@@ -33,9 +33,7 @@ class ChannelsList extends _$ChannelsList {
 
   void removeChannel(String channelId) {
     final current = state.value ?? [];
-    state = AsyncValue.data(
-      current.where((c) => c.id != channelId).toList(),
-    );
+    state = AsyncValue.data(current.where((c) => c.id != channelId).toList());
   }
 
   void updateChannel(Channel updated) {
@@ -125,9 +123,7 @@ class ChannelMessages extends _$ChannelMessages {
   /// Removes a message from the list.
   void removeMessage(String messageId) {
     final current = state.value ?? [];
-    state = AsyncValue.data(
-      current.where((m) => m.id != messageId).toList(),
-    );
+    state = AsyncValue.data(current.where((m) => m.id != messageId).toList());
   }
 }
 
@@ -175,11 +171,7 @@ class ThreadMessages extends _$ThreadMessages {
       parentMessageId,
       limit: _pageSize,
     );
-    final messages = raw
-        .map(
-          (json) => ChannelMessage.fromJson(json),
-        )
-        .toList();
+    final messages = raw.map((json) => ChannelMessage.fromJson(json)).toList();
     if (messages.length < _pageSize) {
       _hasMore = false;
     }
@@ -202,11 +194,7 @@ class ThreadMessages extends _$ThreadMessages {
       skip: current.length,
       limit: _pageSize,
     );
-    final older = raw
-        .map(
-          (json) => ChannelMessage.fromJson(json),
-        )
-        .toList();
+    final older = raw.map((json) => ChannelMessage.fromJson(json)).toList();
     if (older.length < _pageSize) _hasMore = false;
     if (!ref.mounted) return;
     state = AsyncValue.data([...current, ...older]);
@@ -222,10 +210,7 @@ class ThreadMessages extends _$ThreadMessages {
 
 /// Fetches member list for a channel (first page).
 @riverpod
-Future<Map<String, dynamic>> channelMembers(
-  Ref ref,
-  String channelId,
-) async {
+Future<Map<String, dynamic>> channelMembers(Ref ref, String channelId) async {
   final api = ref.watch(apiServiceProvider);
   if (api == null) {
     return {'users': <dynamic>[], 'total': 0};
