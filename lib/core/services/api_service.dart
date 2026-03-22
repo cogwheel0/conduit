@@ -2923,14 +2923,26 @@ class ApiService {
   }
 
   // Team Collaboration
-  Future<List<Map<String, dynamic>>> getChannels() async {
+
+  /// Returns a record with (channels data, feature enabled flag).
+  /// When the channels feature is disabled server-side (401 or 403),
+  /// returns ([], false). Mirrors the getNotes() pattern.
+  Future<(List<Map<String, dynamic>>, bool)> getChannels() async {
     _traceApi('Fetching channels');
-    final response = await _dio.get('/api/v1/channels/');
-    final data = response.data;
-    if (data is List) {
-      return data.cast<Map<String, dynamic>>();
+    try {
+      final response = await _dio.get('/api/v1/channels/');
+      final data = response.data;
+      if (data is List) {
+        return (data.cast<Map<String, dynamic>>(), true);
+      }
+      return (const <Map<String, dynamic>>[], true);
+    } on DioException catch (e) {
+      final statusCode = e.response?.statusCode;
+      if (statusCode == 401 || statusCode == 403) {
+        return (const <Map<String, dynamic>>[], false);
+      }
+      rethrow;
     }
-    return [];
   }
 
   Future<Map<String, dynamic>> createChannel({
@@ -3073,11 +3085,7 @@ class ApiService {
     final response = await _dio.post(
       '/api/v1/channels/$channelId/messages'
       '/$messageId/update',
-      data: {
-        'content': content,
-        'data': ?data,
-        'meta': ?meta,
-      },
+      data: {'content': content, 'data': ?data, 'meta': ?meta},
     );
     return response.data as Map<String, dynamic>;
   }
@@ -3158,10 +3166,7 @@ class ApiService {
     final response = await _dio.post(
       '/api/v1/channels/$channelId'
       '/update/members/add',
-      data: {
-        'user_ids': ?userIds,
-        'group_ids': ?groupIds,
-      },
+      data: {'user_ids': ?userIds, 'group_ids': ?groupIds},
     );
     return response.data as List<dynamic>;
   }

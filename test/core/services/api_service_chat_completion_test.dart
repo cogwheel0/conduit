@@ -428,4 +428,70 @@ void main() {
       check(body.keys.toList()).deepEquals(['prompt']);
     });
   });
+
+  group('getChannels feature flag', () {
+    test('200 with list → returns (channels, true)', () async {
+      final adapter = _FakeAdapter(
+        statusCode: 200,
+        headers: {
+          'content-type': ['application/json; charset=utf-8'],
+        },
+        bodyBytes: utf8.encode(
+          '[{"id":"ch1","name":"general","updated_at":0}]',
+        ),
+      );
+      final api = _buildApiServiceForTest(adapter);
+
+      final (channels, enabled) = await api.getChannels();
+
+      check(channels).length.equals(1);
+      check(channels.first['id']).equals('ch1');
+      check(enabled).isTrue();
+    });
+
+    test('403 → returns ([], false)', () async {
+      final adapter = _FakeAdapter(
+        statusCode: 403,
+        headers: {
+          'content-type': ['application/json; charset=utf-8'],
+        },
+        bodyBytes: utf8.encode('{"detail":"Not allowed"}'),
+      );
+      final api = _buildApiServiceForTest(adapter);
+
+      final (channels, enabled) = await api.getChannels();
+
+      check(channels).isEmpty();
+      check(enabled).isFalse();
+    });
+
+    test('401 → returns ([], false)', () async {
+      final adapter = _FakeAdapter(
+        statusCode: 401,
+        headers: {
+          'content-type': ['application/json; charset=utf-8'],
+        },
+        bodyBytes: utf8.encode('{"detail":"Unauthorized"}'),
+      );
+      final api = _buildApiServiceForTest(adapter);
+
+      final (channels, enabled) = await api.getChannels();
+
+      check(channels).isEmpty();
+      check(enabled).isFalse();
+    });
+
+    test('500 → rethrows DioException', () async {
+      final adapter = _FakeAdapter(
+        statusCode: 500,
+        headers: {
+          'content-type': ['application/json; charset=utf-8'],
+        },
+        bodyBytes: utf8.encode('{"detail":"Server error"}'),
+      );
+      final api = _buildApiServiceForTest(adapter);
+
+      await check(api.getChannels()).throws<DioException>();
+    });
+  });
 }
