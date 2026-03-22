@@ -2082,6 +2082,22 @@ class NotesFeatureEnabledNotifier extends Notifier<bool> {
   }
 }
 
+/// Tracks whether the Channels feature is enabled on the server.
+/// Set to false when the server returns 401 or 403 for the channels endpoint.
+final channelsFeatureEnabledProvider =
+    NotifierProvider<ChannelsFeatureEnabledNotifier, bool>(
+      ChannelsFeatureEnabledNotifier.new,
+    );
+
+class ChannelsFeatureEnabledNotifier extends Notifier<bool> {
+  @override
+  bool build() => true;
+
+  void setEnabled(bool enabled) {
+    state = enabled;
+  }
+}
+
 // Folders provider
 @Riverpod(keepAlive: true)
 class Folders extends _$Folders {
