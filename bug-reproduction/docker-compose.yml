@@ -1,0 +1,85 @@
+---
+# Conduit proxy auth bug reproduction environment
+# Reproduces: _cookiesCaptured set before JWT token exists when Open-WebUI uses OIDC via Authelia
+#
+# Stack:
+#   Caddy        → reverse proxy with forwardAuth to Authelia
+#   Authelia     → OIDC provider + forwardAuth gate (file users, SQLite, no Redis/LDAP)
+#   Open-WebUI   → protected app, OIDC configured against Authelia
+#
+# Hosts required in /etc/hosts (run setup.sh to add automatically):
+#   127.0.0.1  auth.localtest.me
+#   127.0.0.1  chat.localtest.me
+
+services:
+
+  caddy:
+    image: caddy:latest
+    container_name: conduit-repro-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - repro
+    depends_on:
+      - authelia
+      - openwebui
+
+  authelia:
+    image: authelia/authelia:latest
+    container_name: conduit-repro-authelia
+    restart: unless-stopped
+    environment:
+      AUTHELIA_IDENTITY_VALIDATION_RESET_PASSWORD_JWT_SECRET: "an-insecure-jwt-secret-for-local-testing-only"
+      AUTHELIA_SESSION_SECRET: "an-insecure-session-secret-for-local-testing-only"
+      AUTHELIA_STORAGE_ENCRYPTION_KEY: "an-insecure-encryption-key-for-local-testing"
+      AUTHELIA_LOG_LEVEL: debug
+    volumes:
+      - ./authelia:/config
+      - authelia_data:/data
+    networks:
+      - repro
+
+  openwebui:
+    image: ghcr.io/open-webui/open-webui:latest
+    container_name: conduit-repro-openwebui
+    restart: unless-stopped
+    environment:
+      WEBUI_URL: "https://chat.localtest.me"
+      WEBUI_NAME: "Conduit Bug Repro"
+      # Disable local login — force OIDC only (mirrors the real-world setup)
+      ENABLE_LOGIN_FORM: "false"
+      ENABLE_OLLAMA_API: "false"
+      # OIDC via Authelia
+      ENABLE_OAUTH_SIGNUP: "true"
+      OAUTH_PROVIDER_NAME: "Local Authelia Login"
+      OAUTH_CLIENT_ID: "open-webui"
+      OAUTH_CLIENT_SECRET: "insecure-client-secret-for-local-testing"
+      OAUTH_SCOPES: "openid email profile"
+      OAUTH_CODE_CHALLENGE_METHOD: "S256"
+      OPENID_PROVIDER_URL: "https://auth.localtest.me/.well-known/openid-configuration"
+      OAUTH_MERGE_ACCOUNTS_BY_EMAIL: "true"
+      # Cookie settings
+      WEBUI_SESSION_COOKIE_SAME_SITE: "none"
+      WEBUI_SESSION_COOKIE_SECURE: "true"
+      WEBUI_AUTH_COOKIE_SAME_SITE: "none"
+      WEBUI_AUTH_COOKIE_SECURE: "true"
+    volumes:
+      - openwebui_data:/app/backend/data
+    networks:
+      - repro
+
+networks:
+  repro:
+    driver: bridge
+
+volumes:
+  caddy_data:
+  caddy_config:
+  authelia_data:
+  openwebui_data:

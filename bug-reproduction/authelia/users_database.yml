@@ -1,0 +1,11 @@
+---
+# File-based users for Conduit bug reproduction
+# Username: testuser  Password: testpassword
+# Hash generated with: authelia crypto hash generate argon2 --password testpassword
+users:
+  testuser:
+    displayname: "Test User"
+    password: 'REPLACE_WITH_HASHED_PASSWORD'
+    email: testuser@localtest.me
+    groups:
+      - users

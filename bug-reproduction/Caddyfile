@@ -1,0 +1,28 @@
+# Caddyfile for Conduit bug reproduction
+# Serves auth.localtest.me (Authelia) and chat.localtest.me (Open-WebUI behind forwardAuth)
+#
+# localtest.me is a public DNS wildcard that resolves to 127.0.0.1 — no /etc/hosts needed.
+# Caddy uses its internal CA for TLS; trust the root cert or accept the browser warning.
+
+{
+  # Use internal CA (self-signed) — avoids needing ACME/Let's Encrypt for local testing
+  local_certs
+  log {
+    level DEBUG
+  }
+}
+
+# Authelia itself
+auth.localtest.me {
+  reverse_proxy authelia:9091
+}
+
+# Open-WebUI — protected by Authelia forwardAuth
+chat.localtest.me {
+  forward_auth authelia:9091 {
+    uri /api/authz/forward-auth
+    copy_headers Remote-User Remote-Groups Remote-Name Remote-Email
+  }
+
+  reverse_proxy openwebui:8080
+}
