@@ -120,36 +120,36 @@ Color mix(Color a, Color b, double amount) {
 class TweakcnThemes {
   static final TweakcnThemeVariant _conduitLight = TweakcnThemeVariant(
     background: const Color(0xFFFFFFFF), // background
-    foreground: const Color(0xFF0D0D0D), // onBackground
+    foreground: const Color(0xFF000000), // onBackground
     card: const Color(0xFFF4F4F4), // surface
-    cardForeground: const Color(0xFF0D0D0D), // onSurface
+    cardForeground: const Color(0xFF000000), // onSurface
     popover: const Color(0xFFFFFFFF), // background
-    popoverForeground: const Color(0xFF0D0D0D), // onSurface
-    primary: const Color(0xFF0D0D0D), // primary
+    popoverForeground: const Color(0xFF000000), // onSurface
+    primary: const Color(0xFF000000), // primary
     primaryForeground: const Color(0xFFFFFFFF), // onPrimary
     secondary: const Color(0xFFF4F4F4), // secondary
-    secondaryForeground: const Color(0xFF0D0D0D), // onSecondary
+    secondaryForeground: const Color(0xFF000000), // onSecondary
     muted: const Color(0xFFF4F4F4), // surface
     mutedForeground: const Color(0xFF6E6E80), // onSurfaceVariant
     accent: const Color(0xFFECECEC), // surfaceVariant
-    accentForeground: const Color(0xFF0D0D0D), // onSurface
+    accentForeground: const Color(0xFF000000), // onSurface
     destructive: const Color(0xFFEF4444), // error
     destructiveForeground: const Color(0xFFFFFFFF), // onError
     border: const Color(0xFFE5E5E5), // outlineVariant
     input: const Color(0xFFE5E5E5), // outlineVariant
     ring: const Color(0xFF8E8EA0), // outline
     sidebarBackground: const Color(0xFFF4F4F4), // surface
-    sidebarForeground: const Color(0xFF0D0D0D), // onSurface
-    sidebarPrimary: const Color(0xFF0D0D0D), // primary
+    sidebarForeground: const Color(0xFF000000), // onSurface
+    sidebarPrimary: const Color(0xFF000000), // primary
     sidebarPrimaryForeground: const Color(0xFFFFFFFF), // onPrimary
     sidebarAccent: const Color(0xFFECECEC), // surfaceVariant
-    sidebarAccentForeground: const Color(0xFF0D0D0D), // onSurface
+    sidebarAccentForeground: const Color(0xFF000000), // onSurface
     sidebarBorder: const Color(0xFFE5E5E5), // outlineVariant
     sidebarRing: const Color(0xFF8E8EA0), // outline
     success: const Color(0xFF10A37F), // success / tertiary
     successForeground: const Color(0xFFFFFFFF), // onTertiary
     warning: const Color(0xFFF59E0B), // warning
-    warningForeground: const Color(0xFF0D0D0D), // onBackground
+    warningForeground: const Color(0xFF000000), // onBackground
     info: const Color(0xFF10A37F), // tertiary (reuse as info)
     infoForeground: const Color(0xFFFFFFFF), // onTertiary
     radius: 10,
@@ -191,14 +191,14 @@ class TweakcnThemes {
   );
 
   static final TweakcnThemeVariant _conduitDark = TweakcnThemeVariant(
-    background: const Color(0xFF0D0D0D), // background
+    background: const Color(0xFF000000), // background
     foreground: const Color(0xFFECECEC), // onBackground
     card: const Color(0xFF141414), // surface
     cardForeground: const Color(0xFFECECEC), // onSurface
     popover: const Color(0xFF1A1A1A), // surfaceVariant
     popoverForeground: const Color(0xFFECECEC), // onSurface
     primary: const Color(0xFFECECEC), // primary
-    primaryForeground: const Color(0xFF0D0D0D), // onPrimary
+    primaryForeground: const Color(0xFF000000), // onPrimary
     secondary: const Color(0xFF1A1A1A), // secondary
     secondaryForeground: const Color(0xFFECECEC), // onSecondary
     muted: const Color(0xFF1A1A1A), // surfaceVariant
@@ -210,10 +210,10 @@ class TweakcnThemes {
     border: const Color(0xFF1E1E1E), // outlineVariant
     input: const Color(0xFF1E1E1E), // outlineVariant
     ring: const Color(0xFF6E6E80), // outline
-    sidebarBackground: const Color(0xFF0D0D0D), // background
+    sidebarBackground: const Color(0xFF000000), // background
     sidebarForeground: const Color(0xFFECECEC), // onSurface
     sidebarPrimary: const Color(0xFFECECEC), // primary
-    sidebarPrimaryForeground: const Color(0xFF0D0D0D), // onPrimary
+    sidebarPrimaryForeground: const Color(0xFF000000), // onPrimary
     sidebarAccent: const Color(0xFF1A1A1A), // surfaceVariant
     sidebarAccentForeground: const Color(0xFFECECEC), // onSurface
     sidebarBorder: const Color(0xFF1E1E1E), // outlineVariant
@@ -807,7 +807,7 @@ class TweakcnThemes {
     light: _conduitLight,
     dark: _conduitDark,
     preview: const <Color>[
-      Color(0xFF0D0D0D), // primary
+      Color(0xFF000000), // primary
       Color(0xFF10A37F), // tertiary / accent
       Color(0xFFF4F4F4), // surface
     ],
