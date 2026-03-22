@@ -23,7 +23,9 @@ class ChannelsList extends _$ChannelsList {
 
   Future<void> refresh() async {
     state = const AsyncValue.loading();
-    state = await AsyncValue.guard(() => build());
+    final result = await AsyncValue.guard(() => build());
+    if (!ref.mounted) return;
+    state = result;
   }
 
   void addChannel(Channel channel) {

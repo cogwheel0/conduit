@@ -2067,7 +2067,7 @@ class FoldersFeatureEnabledNotifier extends Notifier<bool> {
 }
 
 /// Tracks whether the notes feature is enabled on the server.
-/// When the server returns 403 for notes endpoint, this becomes false.
+/// Set to false when the server returns 401 or 403 for the notes endpoint.
 final notesFeatureEnabledProvider =
     NotifierProvider<NotesFeatureEnabledNotifier, bool>(
       NotesFeatureEnabledNotifier.new,
