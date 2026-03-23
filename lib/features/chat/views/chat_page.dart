@@ -8,9 +8,12 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/glass_colors.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:super_sliver_list/super_sliver_list.dart';
 import 'dart:io' show Platform;
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart' show kIsWeb;
 
 import '../../../shared/widgets/responsive_drawer_layout.dart';
@@ -55,6 +58,7 @@ class ChatPage extends ConsumerStatefulWidget {
 
 class _ChatPageState extends ConsumerState<ChatPage> {
   final ScrollController _scrollController = ScrollController();
+  final ListController _messageListController = ListController();
   bool _showScrollToBottom = false;
   bool _isSelectionMode = false;
   final Set<String> _selectedMessageIds = <String>{};
@@ -76,6 +80,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   String? _pinnedStreamingId; // tracks which streaming msg triggered pin
   String? _cachedGreetingName;
   bool _greetingReady = false;
+  final _extentPrecalculationPolicy = _ChatExtentPrecalculationPolicy();
 
   String _formatModelDisplayName(String name) {
     return name.trim();
@@ -312,6 +317,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   @override
   void dispose() {
+    _messageListController.dispose();
     _scrollController.dispose();
     _scrollDebounceTimer?.cancel();
     super.dispose();
@@ -753,29 +759,79 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if (_scrollDebounceTimer?.isActive == true) return;
 
     _scrollDebounceTimer = Timer(const Duration(milliseconds: 80), () {
-      if (!mounted || _isDeactivated || !_scrollController.hasClients) return;
+      _updateScrollToBottomVisibility();
+    });
+  }
 
-      final maxScroll = _scrollController.position.maxScrollExtent;
-      final distanceFromBottom = _distanceFromBottom();
+  void _updateScrollToBottomVisibility() {
+    if (!mounted || _isDeactivated || !_scrollController.hasClients) return;
 
-      const double showThreshold = 300.0;
-      const double hideThreshold = 150.0;
+    final maxScroll = _scrollController.position.maxScrollExtent;
+    final distanceFromBottom = _distanceFromBottom();
+    final isStreaming = ref.read(isChatStreamingProvider);
 
-      final bool farFromBottom = distanceFromBottom > showThreshold;
-      final bool nearBottom = distanceFromBottom <= hideThreshold;
-      final bool hasScrollableContent =
-          maxScroll.isFinite && maxScroll > showThreshold;
+    const double showThreshold = 300.0;
+    const double hideThreshold = 150.0;
 
-      final bool showButton = _showScrollToBottom
+    final bool farFromBottom = distanceFromBottom > showThreshold;
+    final bool nearBottom = distanceFromBottom <= hideThreshold;
+    final bool hasScrollableContent =
+        maxScroll.isFinite && maxScroll > showThreshold;
+
+    final bool showButton;
+    if (isStreaming && _userPausedAutoScroll) {
+      showButton = hasScrollableContent && !_wantsPinToTop;
+    } else {
+      showButton = _showScrollToBottom
           ? !nearBottom && hasScrollableContent
           : farFromBottom && hasScrollableContent;
+    }
 
-      if (showButton != _showScrollToBottom && mounted && !_isDeactivated) {
-        setState(() {
-          _showScrollToBottom = showButton;
-        });
-      }
+    if (showButton != _showScrollToBottom) {
+      setState(() {
+        _showScrollToBottom = showButton;
+      });
+    }
+  }
+
+  void _invalidateStreamingMessageExtent() {
+    if (!_messageListController.isAttached) {
+      return;
+    }
+    if (_messageListController.isLocked) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _invalidateStreamingMessageExtent();
+        }
+      });
+      return;
+    }
+
+    final messages = ref.read(chatMessagesProvider);
+    if (messages.isEmpty) {
+      return;
+    }
+
+    final lastIndex = messages.length - 1;
+    final lastMessage = messages[lastIndex];
+    if (lastMessage.role != 'assistant' || !lastMessage.isStreaming) {
+      return;
+    }
+
+    _messageListController.invalidateExtent(lastIndex);
+  }
+
+  void _pauseStreamingFollow() {
+    if (_userPausedAutoScroll) {
+      return;
+    }
+    setState(() {
+      _userPausedAutoScroll = true;
     });
+    if (_wantsPinToTop) {
+      _endPinToTop(instant: true, preserveStreamingId: true);
+    }
+    _updateScrollToBottomVisibility();
   }
 
   double _distanceFromBottom() {
@@ -811,9 +867,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   /// continues to follow from the bottom.
   void _userScrollToBottom() {
     if (_wantsPinToTop) {
-      final streamingId = _pinnedStreamingId;
-      _endPinToTop(instant: true);
-      _pinnedStreamingId = streamingId;
+      _endPinToTop(instant: true, preserveStreamingId: true);
     }
     if (_userPausedAutoScroll) {
       _userPausedAutoScroll = false;
@@ -848,36 +902,51 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
   }
 
-  /// Scrolls the pinned user message to the top of the visible viewport
-  /// (just below the floating app bar). Uses an instant jump to avoid
-  /// competing with per-chunk scroll updates during streaming.
+  /// Scrolls the pending user message near the top of the viewport.
   ///
-  /// If the target widget isn't built yet (off-screen due to lazy list),
-  /// scrolls to the bottom first to trigger its layout, then retries.
-  void _scrollToUserMessage([int retries = 0]) {
+  /// Uses the sliver list controller so the target item can be positioned even
+  /// when it has not been built yet.
+  void _scrollToUserMessage() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final ctx = _pinnedUserMessageKey.currentContext;
-      if (ctx == null) {
-        if (retries < 3 && _scrollController.hasClients) {
-          // Widget not built yet (off-screen). Jump to bottom to
-          // trigger layout of the target message, then retry with
-          // smooth ensureVisible on the next frame.
-          _scrollToBottom(smooth: false);
-          _scrollToUserMessage(retries + 1);
-        }
+      if (!mounted || !_scrollController.hasClients) {
         return;
       }
+
+      final messages = ref.read(chatMessagesProvider);
+      final targetIndex = messages.length - 2;
+      if (targetIndex < 0 || targetIndex >= messages.length) {
+        return;
+      }
+
       final topPadding =
           MediaQuery.of(context).padding.top + kTextTabBarHeight + Spacing.md;
       final viewportHeight = MediaQuery.of(context).size.height;
-      // alignment places the widget at (alignment * viewport) from the top
       final alignment = viewportHeight > 0
           ? (topPadding / viewportHeight)
           : 0.0;
+      if (_messageListController.isAttached) {
+        _messageListController.jumpToItem(
+          index: targetIndex,
+          scrollController: _scrollController,
+          alignment: alignment.clamp(0.0, 1.0),
+        );
+        return;
+      }
+
+      final ctx = _pinnedUserMessageKey.currentContext;
+      if (ctx == null) {
+        _scrollToBottom(smooth: false);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            _scrollToUserMessage();
+          }
+        });
+        return;
+      }
+
       Scrollable.ensureVisible(
         ctx,
-        alignment: alignment,
+        alignment: alignment.clamp(0.0, 1.0),
         duration: const Duration(milliseconds: 300),
         curve: Curves.easeOut,
       );
@@ -891,12 +960,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   /// When [instant] is true (e.g. during streaming), uses jumpTo to
   /// avoid competing with per-chunk scroll updates. When false (e.g.
   /// streaming just completed), animates smoothly.
-  void _endPinToTop({bool instant = false}) {
+  void _endPinToTop({bool instant = false, bool preserveStreamingId = false}) {
     if (!_wantsPinToTop || !mounted || _endPinToTopInFlight) return;
     if (!_scrollController.hasClients) {
       setState(() {
         _wantsPinToTop = false;
-        _pinnedStreamingId = null;
+        if (!preserveStreamingId) {
+          _pinnedStreamingId = null;
+        }
       });
       return;
     }
@@ -918,7 +989,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       }
       setState(() {
         _wantsPinToTop = false;
-        _pinnedStreamingId = null;
+        if (!preserveStreamingId) {
+          _pinnedStreamingId = null;
+        }
       });
     } else {
       // Animate to valid position, then remove padding
@@ -934,7 +1007,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             if (mounted) {
               setState(() {
                 _wantsPinToTop = false;
-                _pinnedStreamingId = null;
+                if (!preserveStreamingId) {
+                  _pinnedStreamingId = null;
+                }
               });
             }
           });
@@ -1268,7 +1343,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final isStreaming = messages.any((msg) => msg.isStreaming);
 
     // Pin-to-top: detect new streaming response and scroll user message to top
-    if (isStreaming && messages.length >= 2) {
+    if (isStreaming && !_userPausedAutoScroll && messages.length >= 2) {
       final lastMsg = messages.last;
       // Only trigger pin-to-top when the message before the streaming
       // assistant is a user message (excludes regeneration where an
@@ -1307,24 +1382,27 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
     return NotificationListener<ScrollNotification>(
       onNotification: (notification) {
-        // Detect user-initiated scroll (drag gesture)
-        if (notification is ScrollStartNotification &&
-            notification.dragDetails != null) {
+        final isTouchDragStart =
+            notification is ScrollStartNotification &&
+            notification.dragDetails != null;
+        final isTouchDragUpdate =
+            notification is ScrollUpdateNotification &&
+            notification.dragDetails != null;
+        final isUserDirectionalScroll =
+            notification is UserScrollNotification &&
+            notification.direction != ScrollDirection.idle;
+
+        // Detect user-initiated scrolling early enough to stop the streaming
+        // follow path before the next chunk snaps the viewport back down.
+        if (isTouchDragStart || isTouchDragUpdate || isUserDirectionalScroll) {
           // Dismiss native platform keyboard on drag (mirrors
           // keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag
           // which only affects Flutter's text input system).
           try {
             ref.read(composerAutofocusEnabledProvider.notifier).set(false);
           } catch (_) {}
-          // User started dragging - pause auto-scroll during generation
-          if (isStreaming && !_userPausedAutoScroll) {
-            setState(() {
-              _userPausedAutoScroll = true;
-            });
-            // End pin-to-top when user scrolls away during streaming
-            if (_wantsPinToTop) {
-              _endPinToTop(instant: true);
-            }
+          if (isStreaming) {
+            _pauseStreamingFollow();
           } else if (!isStreaming && _wantsPinToTop) {
             // User scrolled after streaming ended with a short response;
             // smoothly remove the phantom sliver.
@@ -1334,7 +1412,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         // Re-enable auto-scroll when user scrolls to bottom
         if (notification is ScrollEndNotification) {
           final distanceFromBottom = _distanceFromBottom();
-          if (distanceFromBottom <= 5 && _userPausedAutoScroll) {
+          if (!isStreaming &&
+              distanceFromBottom <= 5 &&
+              _userPausedAutoScroll) {
             setState(() {
               _userPausedAutoScroll = false;
             });
@@ -1358,6 +1438,22 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             ),
             sliver: OptimizedSliverList<ChatMessage>(
               items: messages,
+              listController: _messageListController,
+              extentEstimation: (index, crossAxisExtent) {
+                if (index == null || index >= messages.length) {
+                  return _estimateChatMessageExtent(
+                    null,
+                    crossAxisExtent,
+                    countAsPagination:
+                        index != null && index >= messages.length,
+                  );
+                }
+                return _estimateChatMessageExtent(
+                  messages[index],
+                  crossAxisExtent,
+                );
+              },
+              extentPrecalculationPolicy: _extentPrecalculationPolicy,
               itemBuilder: (context, message, index) {
                 final isUser = message.role == 'user';
                 final isStreaming = message.isStreaming;
@@ -1411,8 +1507,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
                 // Use documentation style for assistant messages, bubble for user messages
                 if (isUser) {
-                  // Wrap the pinned user message with a key for
-                  // Scrollable.ensureVisible to target.
                   final isPinTarget =
                       _wantsPinToTop &&
                       message.role == 'user' &&
@@ -1737,34 +1831,26 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     // but streamingContentProvider updates per-chunk, so listening here
     // ensures smooth scroll tracking during streaming.
     ref.listen(streamingContentProvider, (_, _) {
-      if (_userPausedAutoScroll) return;
+      _invalidateStreamingMessageExtent();
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || !_scrollController.hasClients) return;
-        if (_userPausedAutoScroll) return;
 
         if (_wantsPinToTop) {
-          // During pin-to-top, end it once the actual content (excluding
-          // the phantom sliver) has grown past the viewport so the view
-          // transitions to scroll-following like ChatGPT.
-          final position = _scrollController.position;
-          final phantomHeight = MediaQuery.of(context).size.height;
-          final actualMaxExtent = position.maxScrollExtent - phantomHeight;
-          if (actualMaxExtent > 0) {
-            // Preserve _pinnedStreamingId so the pin-to-top detection
-            // guard at line ~1244 doesn't re-trigger on the next rebuild.
-            final streamingId = _pinnedStreamingId;
-            _endPinToTop(instant: true);
-            _pinnedStreamingId = streamingId;
+          // End pin-to-top on the first real streamed update. Keeping the
+          // phantom sliver around longer causes blank space and fights with
+          // manual scrolling during streaming.
+          _endPinToTop(instant: true, preserveStreamingId: true);
+          if (!_userPausedAutoScroll) {
             _scrollToBottom(smooth: false);
           }
+          _updateScrollToBottomVisibility();
           return;
         }
 
-        const keepPinnedThreshold = 60.0;
-        final dist = _distanceFromBottom();
-        if (dist > 0 && dist <= keepPinnedThreshold) {
+        if (!_userPausedAutoScroll) {
           _scrollToBottom(smooth: false);
         }
+        _updateScrollToBottomVisibility();
       });
     });
 
@@ -2540,6 +2626,87 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         _clearSelection();
       }
     });
+  }
+}
+
+double _estimateChatMessageExtent(
+  ChatMessage? message,
+  double crossAxisExtent, {
+  bool countAsPagination = false,
+}) {
+  if (countAsPagination) {
+    return 72;
+  }
+
+  if (message == null) {
+    return 180;
+  }
+
+  final isArchivedAssistant =
+      message.role == 'assistant' &&
+      message.metadata?['archivedVariant'] == true;
+  if (isArchivedAssistant) {
+    return 0;
+  }
+
+  final width = crossAxisExtent.clamp(280.0, 960.0);
+  final contentLength = message.content.trim().length;
+  final charsPerLine = (width / (message.role == 'user' ? 7.8 : 7.0)).clamp(
+    26.0,
+    96.0,
+  );
+  final estimatedLineCount = math.max(1, (contentLength / charsPerLine).ceil());
+
+  var estimate = message.role == 'user' ? 84.0 : 132.0;
+  estimate += estimatedLineCount * 22.0;
+
+  if (message.isStreaming) {
+    estimate += 56.0;
+  }
+  if (message.error != null) {
+    estimate += 64.0;
+  }
+  if (message.files != null && message.files!.isNotEmpty) {
+    estimate += 180.0;
+  }
+  if (message.sources.isNotEmpty) {
+    estimate += 68.0;
+  }
+  if (message.followUps.isNotEmpty && message.role == 'assistant') {
+    estimate += 92.0;
+  }
+  if (message.statusHistory.isNotEmpty) {
+    estimate += math.min(message.statusHistory.length, 4) * 32.0;
+  }
+  if (message.codeExecutions.isNotEmpty) {
+    estimate += math.min(message.codeExecutions.length, 2) * 180.0;
+  }
+  if (message.output != null && message.output!.isNotEmpty) {
+    estimate += math.min(message.output!.length, 3) * 72.0;
+  }
+
+  return estimate.clamp(84.0, 2400.0);
+}
+
+class _ChatExtentPrecalculationPolicy extends ExtentPrecalculationPolicy {
+  @override
+  bool shouldPrecalculateExtents(ExtentPrecalculationContext context) {
+    if (context.numberOfItems == 0 ||
+        context.numberOfItemsWithEstimatedExtent == 0) {
+      return false;
+    }
+
+    if (context.numberOfItems <= 48) {
+      return true;
+    }
+
+    if (context.numberOfItems <= 120) {
+      final remainingFraction =
+          context.numberOfItemsWithEstimatedExtent / context.numberOfItems;
+      return remainingFraction >= 0.25;
+    }
+
+    return false;
   }
 }
 

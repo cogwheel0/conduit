@@ -69,8 +69,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
   void _updateWordCount() {
     final text = _contentController.text.trim();
-    _cachedWordCount =
-        text.isEmpty ? 0 : text.split(_whitespacePattern).length;
+    _cachedWordCount = text.isEmpty ? 0 : text.split(_whitespacePattern).length;
   }
 
   int get _charCount => _contentController.text.length;
@@ -741,8 +740,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
               Positioned(
                 left: Spacing.md,
                 right: Spacing.md,
-                bottom: Spacing.md +
-                    MediaQuery.of(context).padding.bottom,
+                bottom: Spacing.md + MediaQuery.of(context).padding.bottom,
                 child: _buildFloatingActionsRow(context),
               ),
           ],
@@ -791,8 +789,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                           builder: (ctx) => FloatingAppBarIconButton(
                             icon: UiUtils.menuIcon,
                             onTap: () =>
-                                ResponsiveDrawerLayout.of(ctx)
-                                    ?.toggle(),
+                                ResponsiveDrawerLayout.of(ctx)?.toggle(),
                           ),
                         ),
                       ),
@@ -890,21 +887,18 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                                                           hint: l10n.untitled,
                                                         )
                                                         .copyWith(
-                                                          hintStyle:
-                                                              TextStyle(
-                                                                    color: conduitTheme
-                                                                        .textSecondary
-                                                                        .withValues(
-                                                                          alpha:
-                                                                              0.6,
-                                                                        ),
-                                                                    fontSize:
-                                                                        AppTypography
-                                                                            .bodySmall,
-                                                                    fontWeight:
-                                                                        FontWeight
-                                                                            .w500,
-                                                                  ),
+                                                          hintStyle: TextStyle(
+                                                            color: conduitTheme
+                                                                .textSecondary
+                                                                .withValues(
+                                                                  alpha: 0.6,
+                                                                ),
+                                                            fontSize:
+                                                                AppTypography
+                                                                    .bodySmall,
+                                                            fontWeight:
+                                                                FontWeight.w500,
+                                                          ),
                                                           contentPadding:
                                                               EdgeInsets.zero,
                                                           isDense: true,
@@ -924,24 +918,22 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                                                         ? l10n.untitled
                                                         : _titleController.text,
                                                     style: TextStyle(
-                                                          color:
-                                                              _titleController
-                                                                  .text
-                                                                  .isEmpty
-                                                              ? conduitTheme
-                                                                    .textSecondary
-                                                                    .withValues(
-                                                                      alpha:
-                                                                          0.6,
-                                                                    )
-                                                              : conduitTheme
-                                                                    .textPrimary,
-                                                          fontSize:
-                                                              AppTypography
-                                                                  .bodySmall,
-                                                          fontWeight:
-                                                              FontWeight.w500,
-                                                        ),
+                                                      color:
+                                                          _titleController
+                                                              .text
+                                                              .isEmpty
+                                                          ? conduitTheme
+                                                                .textSecondary
+                                                                .withValues(
+                                                                  alpha: 0.6,
+                                                                )
+                                                          : conduitTheme
+                                                                .textPrimary,
+                                                      fontSize: AppTypography
+                                                          .bodySmall,
+                                                      fontWeight:
+                                                          FontWeight.w500,
+                                                    ),
                                                   ),
                                                 ),
                                             ],
@@ -1124,10 +1116,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       decoration: BoxDecoration(
         color: theme.surfaceContainerHighest,
         borderRadius: borderRadius,
-        border: Border.all(
-          color: theme.cardBorder,
-          width: BorderWidth.thin,
-        ),
+        border: Border.all(color: theme.cardBorder, width: BorderWidth.thin),
       ),
       child: content,
     );
@@ -1250,12 +1239,10 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
               decoration: context.conduitInputStyles
                   .borderless(hint: l10n.writeNote)
                   .copyWith(
-                    hintStyle:
-                        AppTypography.bodyLargeStyle.copyWith(
-                          color: theme.textSecondary
-                              .withValues(alpha: 0.35),
-                          height: 1.8,
-                        ),
+                    hintStyle: AppTypography.bodyLargeStyle.copyWith(
+                      color: theme.textSecondary.withValues(alpha: 0.35),
+                      height: 1.8,
+                    ),
                     contentPadding: EdgeInsets.zero,
                   ),
             ),
@@ -1399,89 +1386,100 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     bool showMenu = false,
   }) {
     final l10n = AppLocalizations.of(context)!;
+    final button = _buildAdaptiveFloatingButton(
+      context,
+      icon: icon,
+      onPressed: onPressed,
+      isLoading: isLoading,
+      color: color,
+    );
+
+    if (showMenu) {
+      return AdaptiveTooltip(
+        message: tooltip,
+        child: Semantics(
+          button: true,
+          label: tooltip,
+          child: AdaptivePopupMenuButton.widget<String>(
+            items: [
+              AdaptivePopupMenuItem<String>(
+                label: l10n.enhanceNote,
+                value: 'enhance',
+                icon: Platform.isIOS
+                    ? 'wand.and.stars'
+                    : Icons.auto_fix_high_rounded,
+              ),
+              AdaptivePopupMenuItem<String>(
+                label: l10n.generateTitle,
+                value: 'title',
+                icon: Platform.isIOS ? 'textformat' : Icons.title_rounded,
+              ),
+            ],
+            onSelected: (_, entry) {
+              switch (entry.value) {
+                case 'enhance':
+                  _enhanceContent();
+                case 'title':
+                  _generateTitle();
+              }
+            },
+            buttonStyle: PopupButtonStyle.glass,
+            child: IgnorePointer(child: button),
+          ),
+        ),
+      );
+    }
+
+    return Semantics(
+      button: true,
+      label: tooltip,
+      enabled: onPressed != null,
+      child: AdaptiveTooltip(message: tooltip, child: button),
+    );
+  }
+
+  Widget _buildAdaptiveFloatingButton(
+    BuildContext context, {
+    required IconData icon,
+    required VoidCallback? onPressed,
+    required bool isLoading,
+    Color? color,
+  }) {
     final glassLabel = (!kIsWeb && Platform.isIOS)
         ? GlassColors.label(context)
         : context.conduitTheme.textPrimary;
-
     final borderRadius = BorderRadius.circular(AppBorderRadius.floatingButton);
-    final buttonContent = SizedBox(
-      width: TouchTarget.button,
-      height: TouchTarget.button,
-      child: isLoading
-          ? Center(
-              child: SizedBox(
-                width: IconSize.md,
-                height: IconSize.md,
-                child: CircularProgressIndicator(
-                  strokeWidth: BorderWidth.medium,
-                  valueColor: AlwaysStoppedAnimation(glassLabel),
+
+    return AdaptiveButton.child(
+      onPressed: onPressed,
+      enabled: onPressed != null,
+      color: color,
+      style: color == null
+          ? AdaptiveButtonStyle.glass
+          : AdaptiveButtonStyle.prominentGlass,
+      size: AdaptiveButtonSize.large,
+      minSize: const Size(TouchTarget.button, TouchTarget.button),
+      padding: EdgeInsets.zero,
+      borderRadius: borderRadius,
+      useSmoothRectangleBorder: false,
+      child: SizedBox(
+        width: TouchTarget.button,
+        height: TouchTarget.button,
+        child: Center(
+          child: isLoading
+              ? SizedBox(
+                  width: IconSize.md,
+                  height: IconSize.md,
+                  child: CircularProgressIndicator(
+                    strokeWidth: BorderWidth.medium,
+                    valueColor: AlwaysStoppedAnimation(glassLabel),
+                  ),
+                )
+              : Icon(
+                  icon,
+                  color: color == null ? glassLabel : Colors.white,
+                  size: IconSize.lg,
                 ),
-              ),
-            )
-          : Icon(icon, color: color ?? glassLabel, size: IconSize.lg),
-    );
-
-    final Widget buttonChild;
-    if (!kIsWeb && Platform.isIOS) {
-      buttonChild = AdaptiveBlurView(
-        blurStyle: BlurStyle.systemUltraThinMaterial,
-        borderRadius: borderRadius,
-        child: buttonContent,
-      );
-    } else {
-      final theme = context.conduitTheme;
-      buttonChild = Container(
-        decoration: BoxDecoration(
-          color: theme.surfaceContainerHighest,
-          borderRadius: borderRadius,
-          border: Border.all(
-            color: theme.cardBorder,
-            width: BorderWidth.thin,
-          ),
-        ),
-        child: buttonContent,
-      );
-    }
-
-    if (showMenu) {
-      return AdaptivePopupMenuButton.widget<String>(
-        items: [
-          AdaptivePopupMenuItem<String>(
-            label: l10n.enhanceNote,
-            value: 'enhance',
-            icon: Platform.isIOS
-                ? 'wand.and.stars'
-                : Icons.auto_fix_high_rounded,
-          ),
-          AdaptivePopupMenuItem<String>(
-            label: l10n.generateTitle,
-            value: 'title',
-            icon: Platform.isIOS ? 'textformat' : Icons.title_rounded,
-          ),
-        ],
-        onSelected: (_, entry) {
-          switch (entry.value) {
-            case 'enhance':
-              _enhanceContent();
-            case 'title':
-              _generateTitle();
-          }
-        },
-        buttonStyle: PopupButtonStyle.glass,
-        child: buttonChild,
-      );
-    }
-
-    return AdaptiveTooltip(
-      message: tooltip,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onPressed,
-          customBorder: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppBorderRadius.floatingButton),
-          ),
-          child: buttonChild,
         ),
       ),
     );

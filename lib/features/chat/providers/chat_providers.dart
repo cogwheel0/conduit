@@ -822,25 +822,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _touchStreamingActivity();
   }
 
-  void finishStreaming() {
-    // Sync final buffer content to state before clearing
-    _syncStreamingBufferToState();
-    _streamingBuffer = null;
-    _streamingSyncTimer?.cancel();
-    _streamingSyncTimer = null;
-    _clearStreamingContent();
-
-    if (state.isEmpty) {
-      _messageStream = null;
-      return;
-    }
-
-    final lastMessage = state.last;
-    if (lastMessage.role != 'assistant' || !lastMessage.isStreaming) {
-      _messageStream = null;
-      return;
-    }
-
+  ChatMessage _buildCompletedAssistantMessage(ChatMessage lastMessage) {
     final cleaned = _stripStreamingPlaceholders(lastMessage.content);
 
     var updatedLast = lastMessage.copyWith(
@@ -874,10 +856,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       }
     }
 
-    state = [...state.sublist(0, state.length - 1), updatedLast];
-    _messageStream = null;
-    _stopRemoteTaskMonitor();
+    return updatedLast;
+  }
 
+  void _syncConversationStateAfterStreamingUpdate() {
     final activeConversation = ref.read(activeConversationProvider);
     if (activeConversation != null) {
       final updatedActive = activeConversation.copyWith(
@@ -918,6 +900,52 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         refreshConversationsCache(ref);
       } catch (_) {}
     }
+  }
+
+  void _completeStreamingMessage({required bool releaseTransport}) {
+    // Sync final buffer content to state before clearing
+    _syncStreamingBufferToState();
+    _streamingBuffer = null;
+    _streamingSyncTimer?.cancel();
+    _streamingSyncTimer = null;
+    _clearStreamingContent();
+
+    if (state.isEmpty) {
+      if (releaseTransport) {
+        _messageStream = null;
+        _stopRemoteTaskMonitor();
+      }
+      return;
+    }
+
+    final lastMessage = state.last;
+    if (lastMessage.role != 'assistant' || !lastMessage.isStreaming) {
+      if (releaseTransport) {
+        _messageStream = null;
+        _stopRemoteTaskMonitor();
+      }
+      return;
+    }
+
+    state = [
+      ...state.sublist(0, state.length - 1),
+      _buildCompletedAssistantMessage(lastMessage),
+    ];
+
+    if (releaseTransport) {
+      _messageStream = null;
+      _stopRemoteTaskMonitor();
+    }
+
+    _syncConversationStateAfterStreamingUpdate();
+  }
+
+  void completeStreamingUi() {
+    _completeStreamingMessage(releaseTransport: false);
+  }
+
+  void finishStreaming() {
+    _completeStreamingMessage(releaseTransport: true);
   }
 }
 
@@ -1647,8 +1675,9 @@ Future<void> sendMessage(
   String message,
   List<String>? attachments, [
   List<String>? toolIds,
+  bool isVoiceMode = false,
 ]) async {
-  await _sendMessageInternal(ref, message, attachments, toolIds);
+  await _sendMessageInternal(ref, message, attachments, toolIds, isVoiceMode);
 }
 
 // Service-friendly wrapper (accepts generic Ref)
@@ -1657,8 +1686,9 @@ Future<void> sendMessageFromService(
   String message,
   List<String>? attachments, [
   List<String>? toolIds,
+  bool isVoiceMode = false,
 ]) async {
-  await _sendMessageInternal(ref, message, attachments, toolIds);
+  await _sendMessageInternal(ref, message, attachments, toolIds, isVoiceMode);
 }
 
 Future<void> sendMessageWithContainer(
@@ -1666,8 +1696,15 @@ Future<void> sendMessageWithContainer(
   String message,
   List<String>? attachments, [
   List<String>? toolIds,
+  bool isVoiceMode = false,
 ]) async {
-  await _sendMessageInternal(container, message, attachments, toolIds);
+  await _sendMessageInternal(
+    container,
+    message,
+    attachments,
+    toolIds,
+    isVoiceMode,
+  );
 }
 
 // Internal send message implementation
@@ -1676,6 +1713,7 @@ Future<void> _sendMessageInternal(
   String message,
   List<String>? attachments, [
   List<String>? toolIds,
+  bool isVoiceMode = false,
 ]) async {
   final reviewerMode = ref.read(reviewerModeProvider);
   final api = ref.read(apiServiceProvider);
@@ -2213,6 +2251,7 @@ Future<void> _sendMessageInternal(
       filterIds: filterIdsForApi,
       enableWebSearch: webSearchEnabled,
       enableImageGeneration: imageGenerationEnabled,
+      isVoiceMode: isVoiceMode,
       modelItem: modelItem,
       sessionIdOverride: socketSessionId,
       toolServers: toolServers,

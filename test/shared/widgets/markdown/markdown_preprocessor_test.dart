@@ -219,6 +219,60 @@ void main() {
     });
   });
 
+  group('ConduitMarkdownPreprocessor.cleanText', () {
+    test('whitespace-only returns empty', () {
+      check(ConduitMarkdownPreprocessor.cleanText('   ')).equals('');
+    });
+
+    test('preserves details until caller strips them like OpenWebUI', () {
+      final result = ConduitMarkdownPreprocessor.cleanText(
+        'Before <details><summary>Hidden</summary>tool output</details> after',
+      );
+      check(result).contains('Before');
+      check(result).contains('after');
+      check(
+        result,
+      ).contains('<details><summary>Hidden</summary>tool output</details>');
+    });
+
+    test('preserves generic html content to mirror OpenWebUI', () {
+      final result = ConduitMarkdownPreprocessor.cleanText(
+        'Hello <b>world</b>',
+      );
+      check(result).contains('<b>world</b>');
+    });
+
+    test('strips markdown formatting and emojis', () {
+      final result = ConduitMarkdownPreprocessor.cleanText(
+        '## **Hello** 😄\n- item\n`code`',
+      );
+      check(result).contains('Hello');
+      check(result).contains('item');
+      check(result).contains('code');
+      check(result).not((s) => s.contains('##'));
+      check(result).not((s) => s.contains('**'));
+      check(result).not((s) => s.contains('😄'));
+    });
+
+    test('preserves newline boundaries for downstream splitting', () {
+      final result = ConduitMarkdownPreprocessor.cleanText(
+        'First paragraph\n\nSecond paragraph',
+      );
+      check(result).equals('First paragraph\nSecond paragraph');
+      check(result).contains('\n');
+    });
+  });
+
+  group('ConduitMarkdownPreprocessor.removeAllDetails', () {
+    test('removes details outside code spans', () {
+      final result = ConduitMarkdownPreprocessor.removeAllDetails(
+        'keep ```<details>code</details>``` hide <details>x</details>',
+      );
+      check(result).contains('```<details>code</details>```');
+      check(result).not((s) => s.contains(' hide <details>x</details>'));
+    });
+  });
+
   group('ConduitMarkdownPreprocessor.softenInlineCode', () {
     test('short input returned unchanged', () {
       final result = ConduitMarkdownPreprocessor.softenInlineCode('short');

@@ -561,7 +561,7 @@ class _FakeOutput implements VoiceOutputEngine {
   Future<void> initializeWithSettings(AppSettings settings) async {}
 
   @override
-  Future<void> preloadServerDefaults() async {}
+  Future<void> reloadBackendConfig() async {}
 
   @override
   Future<void> speak(String text) async {

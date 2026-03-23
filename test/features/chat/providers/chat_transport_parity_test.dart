@@ -168,6 +168,16 @@ class _CallbackLog {
     }
   }
 
+  void completeStreamingUi() {
+    if (messages.isNotEmpty && messages.last.role == 'assistant') {
+      final last = messages.last;
+      messages = [
+        ...messages.sublist(0, messages.length - 1),
+        last.copyWith(isStreaming: false),
+      ];
+    }
+  }
+
   List<ChatMessage> getMessages() => messages;
 
   void flushStreamingBuffer() {
@@ -223,6 +233,7 @@ ActiveChatStream _attach({
     upsertCodeExecution: (_, _) {},
     appendSourceReference: (_, _) {},
     updateMessageById: (_, _) {},
+    completeStreamingUi: log.completeStreamingUi,
     finishStreaming: log.finishStreaming,
     getMessages: log.getMessages,
     flushStreamingBuffer: log.flushStreamingBuffer,

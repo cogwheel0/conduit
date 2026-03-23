@@ -368,12 +368,12 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   String _buildTtsPlainTextFallback(List<String> segments, String fallback) {
     if (segments.isEmpty) {
-      return ConduitMarkdownPreprocessor.toPlainText(fallback);
+      return ConduitMarkdownPreprocessor.cleanText(fallback);
     }
 
     final buffer = StringBuffer();
     for (final segment in segments) {
-      final sanitized = ConduitMarkdownPreprocessor.toPlainText(segment);
+      final sanitized = ConduitMarkdownPreprocessor.cleanText(segment);
       if (sanitized.isEmpty) {
         continue;
       }
@@ -386,7 +386,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
     final result = buffer.toString().trim();
     if (result.isEmpty) {
-      return ConduitMarkdownPreprocessor.toPlainText(fallback);
+      return ConduitMarkdownPreprocessor.cleanText(fallback);
     }
     return result;
   }
@@ -1466,13 +1466,13 @@ String _buildTtsPlainTextWorker(Map<String, dynamic> payload) {
   final segments = rawSegments is List ? rawSegments.cast<dynamic>() : const [];
 
   if (segments.isEmpty) {
-    return ConduitMarkdownPreprocessor.toPlainText(fallback);
+    return ConduitMarkdownPreprocessor.cleanText(fallback);
   }
 
   final buffer = StringBuffer();
   for (final segment in segments) {
     if (segment is! String || segment.isEmpty) continue;
-    final sanitized = ConduitMarkdownPreprocessor.toPlainText(segment);
+    final sanitized = ConduitMarkdownPreprocessor.cleanText(segment);
     if (sanitized.isEmpty) continue;
     if (buffer.isNotEmpty) {
       buffer.writeln();
@@ -1483,7 +1483,7 @@ String _buildTtsPlainTextWorker(Map<String, dynamic> payload) {
 
   final result = buffer.toString().trim();
   if (result.isEmpty) {
-    return ConduitMarkdownPreprocessor.toPlainText(fallback);
+    return ConduitMarkdownPreprocessor.cleanText(fallback);
   }
   return result;
 }

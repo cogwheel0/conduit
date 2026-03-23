@@ -59,6 +59,12 @@ class ConduitMarkdownPreprocessor {
     multiLine: true,
     dotAll: true,
   );
+  static final _allDetailsBlocks = RegExp(
+    r'<details[^>]*>[\s\S]*?</details>',
+    multiLine: true,
+    dotAll: true,
+    caseSensitive: false,
+  );
 
   // ============================================================
   // Pre-compiled Patterns - Plain Text (TTS)
@@ -190,6 +196,28 @@ class ConduitMarkdownPreprocessor {
         .trim();
   }
 
+  /// Cleans assistant output the way OpenWebUI does before TTS playback.
+  ///
+  /// This intentionally does less than [toPlainText]: it removes common
+  /// markdown formatting and emojis while preserving newline boundaries so
+  /// downstream chunk splitting matches OpenWebUI.
+  static String cleanText(String input) {
+    final trimmed = input.trim();
+    if (trimmed.isEmpty) return '';
+
+    return _openWebUiCleanText(trimmed).trim();
+  }
+
+  /// Removes all `<details>` blocks the way OpenWebUI does outside code spans.
+  static String removeAllDetails(String input) {
+    if (input.isEmpty) return input;
+
+    return _replaceOutsideCode(
+      input,
+      (segment) => segment.replaceAll(_allDetailsBlocks, ''),
+    );
+  }
+
   /// Breaks long inline code spans for better wrapping.
   static String softenInlineCode(String input, {int chunkSize = 24}) {
     if (input.length <= chunkSize) return input;
@@ -284,6 +312,50 @@ class ConduitMarkdownPreprocessor {
         .replaceAll(refDefRegex, '')
         .replaceAll(_multipleNewlines, '\n\n')
         .trim();
+  }
+
+  static String _openWebUiCleanText(String input) {
+    return _openWebUiRemoveFormattings(_removeEmojis(input.trim()));
+  }
+
+  static String _replaceOutsideCode(
+    String input,
+    String Function(String segment) replacer,
+  ) {
+    return input.splitMapJoin(
+      RegExp(r'```[\s\S]*?```|`[\s\S]*?`'),
+      onMatch: (match) => match[0] ?? '',
+      onNonMatch: replacer,
+    );
+  }
+
+  static String _removeEmojis(String input) {
+    return input.replaceAll(_emoji, '');
+  }
+
+  static String _openWebUiRemoveFormattings(String input) {
+    return input
+        .replaceAll(_codeBlock, '')
+        .replaceAll(RegExp(r'^\|.*\|$', multiLine: true), '')
+        .replaceAllMapped(RegExp(r'(?:\*\*|__)(.*?)(?:\*\*|__)'), (m) {
+          return m[1] ?? '';
+        })
+        .replaceAllMapped(RegExp(r'(?:[*_])(.*?)(?:[*_])'), (m) {
+          return m[1] ?? '';
+        })
+        .replaceAllMapped(_strikethrough, (m) => m[1] ?? '')
+        .replaceAllMapped(_inlineCode, (m) => m[1] ?? '')
+        .replaceAllMapped(
+          RegExp(r'!?\[([^\]]*)\](?:\([^)]+\)|\[[^\]]*\])'),
+          (m) => m[1] ?? '',
+        )
+        .replaceAll(RegExp(r'^\[[^\]]+\]:\s*.*$', multiLine: true), '')
+        .replaceAll(_heading, '')
+        .replaceAll(_listMarker, '')
+        .replaceAll(RegExp(r'^\s*>[> ]*', multiLine: true), '')
+        .replaceAll(RegExp(r'^\s*:\s+', multiLine: true), '')
+        .replaceAll(RegExp(r'\[\^[^\]]*\]'), '')
+        .replaceAll(RegExp(r'\n{2,}'), '\n');
   }
 }
 

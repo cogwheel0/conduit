@@ -85,6 +85,7 @@ dependencies:
   adaptive_platform_ui: ^0.1.103
   flutter_tex: ^5.2.6
   super_clipboard: ^0.9.1
+  super_sliver_list: ^0.4.1
   
   # Clipboard functionality is available through flutter/services (part of Flutter SDK)
 

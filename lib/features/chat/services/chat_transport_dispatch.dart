@@ -307,6 +307,8 @@ Future<void> dispatchChatTransport({
         ref.read(activeChatIdsProvider.notifier).setInactive(chatId);
       }
     },
+    completeStreamingUi: () =>
+        ref.read(chatMessagesProvider.notifier).completeStreamingUi(),
     finishStreaming: () =>
         ref.read(chatMessagesProvider.notifier).finishStreaming(),
     getMessages: () => ref.read(chatMessagesProvider),

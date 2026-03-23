@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../../../core/models/backend_config.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/services/settings_service.dart';
 import 'tts_manager.dart';
@@ -14,9 +15,15 @@ export 'tts_manager.dart' show TtsEvent, TtsPlaybackSession;
 /// to interact with TTS. It translates [TtsEvent]s from the manager into
 /// callbacks for backward compatibility.
 class TextToSpeechService {
-  TextToSpeechService({ApiService? api}) {
+  TextToSpeechService({
+    ApiService? api,
+    BackendConfig? backendConfig,
+    Future<BackendConfig?> Function()? loadBackendConfig,
+  }) : _backendConfig = backendConfig,
+       _loadBackendConfig = loadBackendConfig {
     // Set the API service on the manager
     TtsManager.instance.setApiService(api);
+    TtsManager.instance.applyBackendConfig(backendConfig);
 
     // Listen to TTS events and route to callbacks
     _eventSubscription = TtsManager.instance.events.listen(_handleEvent);
@@ -24,6 +31,8 @@ class TextToSpeechService {
 
   StreamSubscription<TtsEvent>? _eventSubscription;
   bool _initialized = false;
+  BackendConfig? _backendConfig;
+  final Future<BackendConfig?> Function()? _loadBackendConfig;
 
   // Callbacks
   VoidCallback? _onStart;
@@ -90,28 +99,31 @@ class TextToSpeechService {
     if (_initialized) {
       // Update config if already initialized
       await TtsManager.instance.updateConfig(
-        TtsConfig(
+        _buildConfig(
           voice: deviceVoice,
           serverVoice: serverVoice,
           speechRate: speechRate,
           pitch: pitch,
           volume: volume,
-          preferServer: engine == TtsEngine.server,
+          engine: engine,
         ),
       );
+      await reloadBackendConfig();
       return isAvailable;
     }
 
     final available = await TtsManager.instance.initialize(
-      config: TtsConfig(
+      config: _buildConfig(
         voice: deviceVoice,
         serverVoice: serverVoice,
         speechRate: speechRate,
         pitch: pitch,
         volume: volume,
-        preferServer: engine == TtsEngine.server,
+        engine: engine,
       ),
     );
+
+    await reloadBackendConfig();
 
     _initialized = true;
     return available;
@@ -166,7 +178,7 @@ class TextToSpeechService {
     final current = TtsManager.instance.config;
 
     await TtsManager.instance.updateConfig(
-      TtsConfig(
+      _buildConfig(
         voice: voice is _NotProvided ? current.voice : voice as String?,
         serverVoice: serverVoice is _NotProvided
             ? current.serverVoice
@@ -174,9 +186,9 @@ class TextToSpeechService {
         speechRate: speechRate ?? current.speechRate,
         pitch: pitch ?? current.pitch,
         volume: volume ?? current.volume,
-        preferServer: engine != null
-            ? engine == TtsEngine.server
-            : current.preferServer,
+        engine: engine != null
+            ? (engine == TtsEngine.server ? TtsEngine.server : TtsEngine.device)
+            : (current.preferServer ? TtsEngine.server : TtsEngine.device),
       ),
     );
   }
@@ -189,7 +201,7 @@ class TextToSpeechService {
 
     final config = TtsManager.instance.config;
     if (config.preferServer && TtsManager.instance.serverAvailable) {
-      return TtsManager.instance.getServerVoices();
+      return _getServerVoices();
     }
 
     return TtsManager.instance.getDeviceVoices();
@@ -200,9 +212,19 @@ class TextToSpeechService {
     return TtsManager.instance.splitTextForSpeech(text);
   }
 
-  /// Preloads server default voice configuration.
-  Future<void> preloadServerDefaults() async {
-    await TtsManager.instance.preloadServerDefaults();
+  /// Applies updated backend defaults from cached backend config.
+  void setBackendConfig(BackendConfig? config) {
+    _backendConfig = config;
+    TtsManager.instance.applyBackendConfig(config);
+  }
+
+  /// Reloads backend config so TTS uses current server audio settings.
+  Future<void> reloadBackendConfig() async {
+    final loader = _loadBackendConfig;
+    final config = loader != null ? await loader() : null;
+    if (config != null) {
+      setBackendConfig(config);
+    }
   }
 
   /// Synthesizes a single chunk of text to audio (server TTS only).
@@ -230,6 +252,63 @@ class TextToSpeechService {
       case TtsError(:final message):
         _onError?.call(message);
     }
+  }
+
+  TtsConfig _buildConfig({
+    required String? voice,
+    required String? serverVoice,
+    required double speechRate,
+    required double pitch,
+    required double volume,
+    required TtsEngine engine,
+  }) {
+    final current = TtsManager.instance.config;
+    return TtsConfig(
+      voice: voice,
+      serverVoice: serverVoice,
+      splitOn: _resolveSplitOn(current.splitOn),
+      speechRate: speechRate,
+      pitch: pitch,
+      volume: volume,
+      preferServer: engine == TtsEngine.server,
+    );
+  }
+
+  String _resolveSplitOn(String fallback) {
+    return switch (_backendConfig?.ttsSplitOn?.trim()) {
+      TtsManager.splitOnParagraphs => TtsManager.splitOnParagraphs,
+      TtsManager.splitOnNone => TtsManager.splitOnNone,
+      null || '' => fallback,
+      _ => TtsManager.splitOnPunctuation,
+    };
+  }
+
+  Future<List<Map<String, dynamic>>> _getServerVoices() async {
+    final voices = _backendConfig?.ttsVoices ?? const <BackendTtsVoice>[];
+    if (voices.isNotEmpty) {
+      return voices
+          .map(
+            (voice) => {
+              'id': voice.id,
+              'name': voice.name,
+              if (voice.locale != null) 'locale': voice.locale,
+            },
+          )
+          .toList(growable: false);
+    }
+
+    await reloadBackendConfig();
+    final reloadedVoices =
+        _backendConfig?.ttsVoices ?? const <BackendTtsVoice>[];
+    return reloadedVoices
+        .map(
+          (voice) => {
+            'id': voice.id,
+            'name': voice.name,
+            if (voice.locale != null) 'locale': voice.locale,
+          },
+        )
+        .toList(growable: false);
   }
 }
 

@@ -114,6 +114,7 @@ class _CallbackLog {
   final codeExecutions = <(String, ChatCodeExecution)>[];
   final sourceReferences = <(String, ChatSourceReference)>[];
   final messageByIdUpdates = <(String, ChatMessage Function(ChatMessage))>[];
+  int uiFinishCount = 0;
   int finishCount = 0;
   int flushCount = 0;
   String? updatedTitle;
@@ -186,6 +187,17 @@ class _CallbackLog {
     }
   }
 
+  void completeStreamingUi() {
+    uiFinishCount++;
+    if (messages.isNotEmpty && messages.last.role == 'assistant') {
+      final last = messages.last;
+      messages = [
+        ...messages.sublist(0, messages.length - 1),
+        last.copyWith(isStreaming: false),
+      ];
+    }
+  }
+
   List<ChatMessage> getMessages() => messages;
 
   void flushStreamingBuffer() {
@@ -228,6 +240,7 @@ ActiveChatStream _attach({
     upsertCodeExecution: log.upsertCodeExecution,
     appendSourceReference: log.appendSourceReference,
     updateMessageById: log.updateMessageById,
+    completeStreamingUi: log.completeStreamingUi,
     finishStreaming: log.finishStreaming,
     getMessages: log.getMessages,
     flushStreamingBuffer: log.flushStreamingBuffer,
@@ -372,6 +385,52 @@ void main() {
 
       // The stream should be created successfully.
       check(stream.controller).isNotNull();
+    });
+
+    test('taskSocket closes visible streaming on terminal finish_reason '
+        'before follow-ups arrive', () async {
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        socketService: _MockSocketService(registrar),
+      );
+
+      await pumpMicrotasks();
+
+      registrar.emitChatEvent('chat:completion', {
+        'choices': [
+          {
+            'delta': {'content': 'Hello there.'},
+            'finish_reason': 'stop',
+          },
+        ],
+      }, messageId: 'msg-1');
+
+      await pumpMicrotasks();
+
+      check(log.uiFinishCount).equals(1);
+      check(log.finishCount).equals(0);
+      check(log.messages.last.isStreaming).isFalse();
+      check(log.messages.last.content).equals('Hello there.');
+
+      registrar.emitChatEvent('chat:message:follow_ups', {
+        'follow_ups': ['Ask a follow-up'],
+      }, messageId: 'msg-1');
+
+      await pumpMicrotasks();
+
+      check(log.followUpUpdates.length).equals(1);
+      check(log.followUpUpdates.single.$1).equals('msg-1');
+      check(log.followUpUpdates.single.$2).deepEquals(['Ask a follow-up']);
+      check(log.uiFinishCount).equals(1);
+      check(log.finishCount).equals(0);
     });
 
     // -----------------------------------------------------------------------

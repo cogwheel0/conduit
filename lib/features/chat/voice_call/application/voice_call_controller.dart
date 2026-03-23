@@ -156,7 +156,7 @@ class VoiceCallController extends _$VoiceCallController {
 
         final settings = ref.read(appSettingsProvider);
         await _output.initializeWithSettings(settings);
-        unawaited(_output.preloadServerDefaults());
+        await _output.reloadBackendConfig();
         _output.bindHandlers(
           onStart: _handleOutputStart,
           onComplete: _handleOutputComplete,
@@ -530,7 +530,13 @@ class VoiceCallController extends _$VoiceCallController {
     _nonSpeakableFinalizationAttempts = 0;
 
     final selectedToolIds = ref.read(selectedToolIdsProvider);
-    final sendFuture = sendMessageFromService(ref, text, null, selectedToolIds);
+    final sendFuture = sendMessageFromService(
+      ref,
+      text,
+      null,
+      selectedToolIds,
+      true,
+    );
     _seedActiveAssistantMessageId();
     unawaited(sendFuture);
 
@@ -673,14 +679,14 @@ class VoiceCallController extends _$VoiceCallController {
   }
 
   void _processSpeakableSegments({required bool isFinalChunk}) {
-    final cleanText = ConduitMarkdownPreprocessor.toPlainText(
+    final speakableText = ConduitMarkdownPreprocessor.removeAllDetails(
       _accumulatedResponse,
     ).trim();
-    if (cleanText.isEmpty) {
+    if (speakableText.isEmpty) {
       return;
     }
 
-    final segments = _output.splitTextForSpeech(cleanText);
+    final segments = _output.splitTextForSpeech(speakableText);
     if (segments.isEmpty) {
       return;
     }
@@ -756,8 +762,8 @@ class VoiceCallController extends _$VoiceCallController {
   }
 
   bool get _hasSpeakableAssistantResponse =>
-      ConduitMarkdownPreprocessor.toPlainText(
-        _accumulatedResponse,
+      ConduitMarkdownPreprocessor.cleanText(
+        ConduitMarkdownPreprocessor.removeAllDetails(_accumulatedResponse),
       ).trim().isNotEmpty;
 
   void _retireActiveAssistantMessage() {
