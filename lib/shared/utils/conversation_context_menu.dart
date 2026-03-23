@@ -8,6 +8,7 @@ import 'package:conduit/shared/widgets/themed_dialogs.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:super_context_menu/super_context_menu.dart';
 // ignore: implementation_imports
@@ -322,7 +323,7 @@ Menu buildConduitMenu(List<ConduitContextMenuAction> actions) {
       return MenuAction(
         title: action.label,
         callback: () {
-          HapticFeedback.selectionClick();
+          ConduitHaptics.selectionClick();
           action.onBeforeClose?.call();
           action.onSelected();
         },
@@ -394,7 +395,7 @@ List<ConduitContextMenuAction> buildConversationActions({
           : CupertinoIcons.pin_fill,
       materialIcon: isPinned ? Icons.push_pin_outlined : Icons.push_pin_rounded,
       label: isPinned ? l10n.unpin : l10n.pin,
-      onBeforeClose: () => HapticFeedback.lightImpact(),
+      onBeforeClose: () => ConduitHaptics.lightImpact(),
       onSelected: togglePin,
     ),
     ConduitContextMenuAction(
@@ -405,14 +406,14 @@ List<ConduitContextMenuAction> buildConversationActions({
           ? Icons.unarchive_rounded
           : Icons.archive_rounded,
       label: isArchived ? l10n.unarchive : l10n.archive,
-      onBeforeClose: () => HapticFeedback.lightImpact(),
+      onBeforeClose: () => ConduitHaptics.lightImpact(),
       onSelected: toggleArchive,
     ),
     ConduitContextMenuAction(
       cupertinoIcon: CupertinoIcons.pencil,
       materialIcon: Icons.edit_rounded,
       label: l10n.rename,
-      onBeforeClose: () => HapticFeedback.selectionClick(),
+      onBeforeClose: () => ConduitHaptics.selectionClick(),
       onSelected: rename,
     ),
     ConduitContextMenuAction(
@@ -420,7 +421,7 @@ List<ConduitContextMenuAction> buildConversationActions({
       materialIcon: Icons.delete_rounded,
       label: l10n.delete,
       destructive: true,
-      onBeforeClose: () => HapticFeedback.mediumImpact(),
+      onBeforeClose: () => ConduitHaptics.mediumImpact(),
       onSelected: deleteConversation,
     ),
   ];
@@ -468,7 +469,7 @@ Future<void> _renameConversation(
     final api = ref.read(apiServiceProvider);
     if (api == null) throw Exception('No API service');
     await api.updateConversation(conversationId, title: newName);
-    HapticFeedback.selectionClick();
+    ConduitHaptics.selectionClick();
     ref
         .read(conversationsProvider.notifier)
         .updateConversation(
@@ -511,7 +512,7 @@ Future<void> _confirmAndDeleteConversation(
     final api = ref.read(apiServiceProvider);
     if (api == null) throw Exception('No API service');
     await api.deleteConversation(conversationId);
-    HapticFeedback.mediumImpact();
+    ConduitHaptics.mediumImpact();
     ref.read(conversationsProvider.notifier).removeConversation(conversationId);
     final active = ref.read(activeConversationProvider);
     if (active?.id == conversationId) {

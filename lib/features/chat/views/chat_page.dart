@@ -7,6 +7,7 @@ import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/glass_colors.dart';
 import 'package:flutter/services.dart';
+import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -2322,7 +2323,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                       child: _buildAppBarIconButton(
                         context: context,
                         onPressed: () {
-                          HapticFeedback.selectionClick();
+                          ConduitHaptics.selectionClick();
                           final current = ref.read(
                             temporaryChatEnabledProvider,
                           );

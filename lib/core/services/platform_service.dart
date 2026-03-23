@@ -1,10 +1,14 @@
+import 'dart:async';
+import 'dart:io' show Platform;
+
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/cupertino.dart';
-import 'dart:io' show Platform;
+
 import '../../shared/theme/theme_extensions.dart';
 import '../../shared/widgets/themed_dialogs.dart';
+import 'haptic_service.dart';
 
 /// Service for platform-specific features and polish
 class PlatformService {
@@ -16,11 +20,7 @@ class PlatformService {
 
   /// Provide haptic feedback appropriate for the action
   static void hapticFeedback({HapticType type = HapticType.light}) {
-    if (isIOS) {
-      _iOSHapticFeedback(type);
-    } else if (isAndroid) {
-      _androidHapticFeedback(type);
-    }
+    unawaited(_feedbackFor(type));
   }
 
   /// Provide haptic feedback respecting user preferences
@@ -33,52 +33,15 @@ class PlatformService {
     }
   }
 
-  /// iOS-specific haptic feedback
-  static void _iOSHapticFeedback(HapticType type) {
-    switch (type) {
-      case HapticType.light:
-        HapticFeedback.lightImpact();
-        break;
-      case HapticType.medium:
-        HapticFeedback.mediumImpact();
-        break;
-      case HapticType.heavy:
-        HapticFeedback.heavyImpact();
-        break;
-      case HapticType.selection:
-        HapticFeedback.selectionClick();
-        break;
-      case HapticType.success:
-        // iOS has specific success haptics in newer versions
-        HapticFeedback.lightImpact();
-        break;
-      case HapticType.warning:
-        HapticFeedback.mediumImpact();
-        break;
-      case HapticType.error:
-        HapticFeedback.heavyImpact();
-        break;
-    }
-  }
-
-  /// Android-specific haptic feedback
-  static void _androidHapticFeedback(HapticType type) {
-    switch (type) {
-      case HapticType.light:
-      case HapticType.selection:
-        HapticFeedback.lightImpact();
-        break;
-      case HapticType.medium:
-      case HapticType.success:
-        HapticFeedback.mediumImpact();
-        break;
-      case HapticType.heavy:
-      case HapticType.warning:
-      case HapticType.error:
-        HapticFeedback.heavyImpact();
-        break;
-    }
-  }
+  static Future<void> _feedbackFor(HapticType type) => switch (type) {
+    HapticType.light => ConduitHaptics.lightImpact(),
+    HapticType.medium => ConduitHaptics.mediumImpact(),
+    HapticType.heavy => ConduitHaptics.heavyImpact(),
+    HapticType.selection => ConduitHaptics.selectionClick(),
+    HapticType.success => ConduitHaptics.success(),
+    HapticType.warning => ConduitHaptics.warning(),
+    HapticType.error => ConduitHaptics.error(),
+  };
 
   /// Get platform-appropriate card elevation
   static double getPlatformCardElevation({bool isRaised = false}) {

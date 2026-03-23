@@ -6,6 +6,7 @@ import 'package:conduit/shared/widgets/responsive_drawer_layout.dart';
 
 const _mobileSize = Size(390, 844);
 const _tabletSize = Size(1024, 1366);
+const _vibrateChannel = MethodChannel('vibrate');
 
 class _RecordedPlatformCall {
   const _RecordedPlatformCall(this.method, this.arguments);
@@ -28,11 +29,16 @@ Future<List<_RecordedPlatformCall>> _recordPlatformCalls(
     calls.add(_RecordedPlatformCall(call.method, call.arguments));
     return null;
   });
+  messenger.setMockMethodCallHandler(_vibrateChannel, (call) async {
+    calls.add(_RecordedPlatformCall('vibrate:${call.method}', call.arguments));
+    return null;
+  });
 
   try {
     await action();
   } finally {
     messenger.setMockMethodCallHandler(SystemChannels.platform, null);
+    messenger.setMockMethodCallHandler(_vibrateChannel, null);
   }
 
   return calls;
@@ -49,11 +55,16 @@ Future<void> _recordPlatformCallsDuring(
     calls.add(_RecordedPlatformCall(call.method, call.arguments));
     return null;
   });
+  messenger.setMockMethodCallHandler(_vibrateChannel, (call) async {
+    calls.add(_RecordedPlatformCall('vibrate:${call.method}', call.arguments));
+    return null;
+  });
 
   try {
     await action(calls);
   } finally {
     messenger.setMockMethodCallHandler(SystemChannels.platform, null);
+    messenger.setMockMethodCallHandler(_vibrateChannel, null);
   }
 }
 
@@ -61,8 +72,9 @@ Iterable<_RecordedPlatformCall> _settleHapticCalls(
   List<_RecordedPlatformCall> calls,
 ) => calls.where(
   (call) =>
-      call.method == 'HapticFeedback.vibrate' &&
-      call.arguments == 'HapticFeedbackType.mediumImpact',
+      (call.method == 'HapticFeedback.vibrate' &&
+          call.arguments == 'HapticFeedbackType.mediumImpact') ||
+      call.method == 'vibrate:medium',
 );
 
 Widget _buildHarness({

@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:io' show Platform;
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:flutter/services.dart';
+import 'package:conduit/core/services/haptic_service.dart';
 import '../../../core/providers/app_providers.dart';
 import '../providers/chat_providers.dart';
 import '../../../shared/services/tasks/task_queue.dart';
@@ -453,14 +454,14 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
         cupertinoIcon: CupertinoIcons.pencil,
         materialIcon: Icons.edit_outlined,
         label: l10n.edit,
-        onBeforeClose: () => HapticFeedback.selectionClick(),
+        onBeforeClose: () => ConduitHaptics.selectionClick(),
         onSelected: () async => _startInlineEdit(),
       ),
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.doc_on_clipboard,
         materialIcon: Icons.content_copy,
         label: l10n.copy,
-        onBeforeClose: () => HapticFeedback.selectionClick(),
+        onBeforeClose: () => ConduitHaptics.selectionClick(),
         onSelected: () async {
           if (widget.onCopy != null) {
             widget.onCopy!();

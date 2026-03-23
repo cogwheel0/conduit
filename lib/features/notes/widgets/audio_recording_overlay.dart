@@ -6,6 +6,7 @@ import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:conduit/core/services/haptic_service.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:record/record.dart';
 
@@ -72,7 +73,7 @@ class _AudioRecordingOverlayState extends State<AudioRecordingOverlay>
 
       if (!mounted) return;
       setState(() => _isRecording = true);
-      HapticFeedback.heavyImpact();
+      ConduitHaptics.heavyImpact();
 
       // Set up stream listeners only if still mounted.
       // Each callback also checks mounted to handle rapid disposal.
@@ -110,7 +111,7 @@ class _AudioRecordingOverlayState extends State<AudioRecordingOverlay>
     if (_isProcessing || !_isRecording || !mounted) return;
 
     setState(() => _isProcessing = true);
-    HapticFeedback.mediumImpact();
+    ConduitHaptics.mediumImpact();
 
     try {
       final file = await _recordingService.stopRecording();
@@ -140,7 +141,7 @@ class _AudioRecordingOverlayState extends State<AudioRecordingOverlay>
   }
 
   Future<void> _cancelRecording() async {
-    HapticFeedback.lightImpact();
+    ConduitHaptics.lightImpact();
     await _recordingService.cancelRecording();
     if (mounted) widget.onCancel();
   }
@@ -228,10 +229,7 @@ class _AudioRecordingOverlayState extends State<AudioRecordingOverlay>
                             final scale = _isRecording
                                 ? _pulseAnimation.value + (_amplitude * 0.3)
                                 : 1.0;
-                            return Transform.scale(
-                              scale: scale,
-                              child: child,
-                            );
+                            return Transform.scale(scale: scale, child: child);
                           },
                           child: Container(
                             width: 140,
@@ -300,8 +298,8 @@ class _AudioRecordingOverlayState extends State<AudioRecordingOverlay>
                             _hasError
                                 ? l10n.microphonePermissionDenied
                                 : (_isRecording
-                                    ? l10n.recordingAudio
-                                    : l10n.preparingRecording),
+                                      ? l10n.recordingAudio
+                                      : l10n.preparingRecording),
                             key: ValueKey(_isRecording),
                             style: theme.textTheme.bodyLarge?.copyWith(
                               color: Colors.white60,
@@ -337,10 +335,9 @@ class _AudioRecordingOverlayState extends State<AudioRecordingOverlay>
                     width: double.infinity,
                     height: 56,
                     child: AdaptiveButton.child(
-                      onPressed:
-                          _isProcessing || !_isRecording || _hasError
-                              ? null
-                              : _confirmRecording,
+                      onPressed: _isProcessing || !_isRecording || _hasError
+                          ? null
+                          : _confirmRecording,
                       color: Colors.red,
                       style: AdaptiveButtonStyle.filled,
                       borderRadius: BorderRadius.circular(
@@ -353,8 +350,7 @@ class _AudioRecordingOverlayState extends State<AudioRecordingOverlay>
                               ? SizedBox(
                                   width: IconSize.md,
                                   height: IconSize.md,
-                                  child:
-                                      const CircularProgressIndicator(
+                                  child: const CircularProgressIndicator(
                                     strokeWidth: 2,
                                     color: Colors.white,
                                   ),
@@ -390,4 +386,3 @@ class _AudioRecordingOverlayState extends State<AudioRecordingOverlay>
     );
   }
 }
-

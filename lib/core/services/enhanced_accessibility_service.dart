@@ -4,6 +4,7 @@ import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter/semantics.dart';
 import '../../shared/theme/tweakcn_themes.dart';
 import '../../shared/theme/theme_extensions.dart';
@@ -408,7 +409,7 @@ class EnhancedAccessibilityService {
 
   /// Provide haptic feedback if available
   static void hapticFeedback() {
-    HapticFeedback.lightImpact();
+    ConduitHaptics.lightImpact();
   }
 
   /// Create accessible focus border

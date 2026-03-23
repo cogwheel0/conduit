@@ -1,6 +1,7 @@
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
@@ -35,14 +36,16 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
   void initState() {
     super.initState();
     _activeNoteId = _parseNoteId(_currentPath);
-    NavigationService.router.routeInformationProvider
-        .addListener(_onRouteChanged);
+    NavigationService.router.routeInformationProvider.addListener(
+      _onRouteChanged,
+    );
   }
 
   @override
   void dispose() {
-    NavigationService.router.routeInformationProvider
-        .removeListener(_onRouteChanged);
+    NavigationService.router.routeInformationProvider.removeListener(
+      _onRouteChanged,
+    );
     _searchController.dispose();
     super.dispose();
   }
@@ -66,15 +69,14 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
 
   Future<void> _onNoteTap(Note note) async {
     NavigationService.router.go('/notes/${note.id}');
-    final isTablet =
-        MediaQuery.of(context).size.shortestSide >= 600;
+    final isTablet = MediaQuery.of(context).size.shortestSide >= 600;
     if (!isTablet) {
       ResponsiveDrawerLayout.of(context)?.close();
     }
   }
 
   Future<void> _createNote() async {
-    HapticFeedback.lightImpact();
+    ConduitHaptics.lightImpact();
     final dateFormat = DateFormat('yyyy-MM-dd');
     final defaultTitle = dateFormat.format(DateTime.now());
     final note = await ref
@@ -82,8 +84,7 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
         .createNote(title: defaultTitle);
     if (note != null && mounted) {
       NavigationService.router.go('/notes/${note.id}');
-      final isTablet =
-          MediaQuery.of(context).size.shortestSide >= 600;
+      final isTablet = MediaQuery.of(context).size.shortestSide >= 600;
       if (!isTablet) {
         ResponsiveDrawerLayout.of(context)?.close();
       }
@@ -97,9 +98,7 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
     final l10n = AppLocalizations.of(context)!;
     final notes = _query.isEmpty
         ? ref.watch(notesListProvider)
-        : AsyncValue.data(
-            ref.watch(filteredNotesProvider(_query)),
-          );
+        : AsyncValue.data(ref.watch(filteredNotesProvider(_query)));
 
     return Column(
       children: [
@@ -133,19 +132,15 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
               if (noteList.isEmpty) {
                 return Center(
                   child: Text(
-                    _query.isEmpty
-                        ? l10n.noNotesYet
-                        : l10n.noNotesFound,
+                    _query.isEmpty ? l10n.noNotesYet : l10n.noNotesFound,
                     style: TextStyle(color: theme.textSecondary),
                   ),
                 );
               }
               return RefreshIndicator(
                 onRefresh: () async {
-                  HapticFeedback.lightImpact();
-                  await ref
-                      .read(notesListProvider.notifier)
-                      .refresh();
+                  ConduitHaptics.lightImpact();
+                  await ref.read(notesListProvider.notifier).refresh();
                 },
                 child: ListView.builder(
                   itemCount: noteList.length,
@@ -161,10 +156,8 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
                 ),
               );
             },
-            loading: () =>
-                const Center(child: CircularProgressIndicator()),
-            error: (err, _) =>
-                Center(child: Text(l10n.failedToLoadNotes)),
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (err, _) => Center(child: Text(l10n.failedToLoadNotes)),
           ),
         ),
       ],

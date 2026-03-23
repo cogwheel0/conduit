@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter/services.dart';
+import 'package:conduit/core/services/haptic_service.dart';
 import 'package:uuid/uuid.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 
@@ -312,10 +313,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       );
 
       // Save the server config and go directly to chat
-      await _completeAuthWithToken(
-        configWithCookies,
-        result.jwtToken!,
-      );
+      await _completeAuthWithToken(configWithCookies, result.jwtToken!);
       return;
     }
 
@@ -567,7 +565,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         // Brand icon with gradient container
         GestureDetector(
           onLongPress: () async {
-            HapticFeedback.mediumImpact();
+            ConduitHaptics.mediumImpact();
             await ref.read(reviewerModeProvider.notifier).toggle();
             if (!mounted) return;
             final enabled = ref.read(reviewerModeProvider);
@@ -712,8 +710,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
             final v = value ?? _urlController.text;
             return InputValidationService.combine([
               InputValidationService.validateRequired,
-              (val) =>
-                  InputValidationService.validateUrl(val, required: true),
+              (val) => InputValidationService.validateUrl(val, required: true),
             ])(v);
           },
           keyboardType: TextInputType.url,
@@ -725,9 +722,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
           autofillHints: const [AutofillHints.url],
           cupertinoDecoration: BoxDecoration(
             color: CupertinoColors.tertiarySystemBackground,
-            border: Border.all(
-              color: context.conduitTheme.inputBorder,
-            ),
+            border: Border.all(color: context.conduitTheme.inputBorder),
             borderRadius: BorderRadius.circular(8),
           ),
         ),
@@ -752,19 +747,15 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       decoration: BoxDecoration(
         color: theme.surfaceContainer.withValues(alpha: 0.4),
         borderRadius: BorderRadius.circular(AppBorderRadius.card),
-        border: Border.all(
-          color: theme.cardBorder,
-          width: BorderWidth.thin,
-        ),
+        border: Border.all(color: theme.cardBorder, width: BorderWidth.thin),
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
         children: [
           // Toggle header
           InkWell(
-            onTap: () => setState(
-              () => _showAdvancedSettings = !_showAdvancedSettings,
-            ),
+            onTap: () =>
+                setState(() => _showAdvancedSettings = !_showAdvancedSettings),
             child: Padding(
               padding: const EdgeInsets.symmetric(
                 horizontal: Spacing.md,
@@ -794,8 +785,9 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
                       padding: const EdgeInsets.only(right: Spacing.sm),
                       child: ConduitBadge(
                         text: '${_customHeaders.length}',
-                        backgroundColor: theme.buttonPrimary
-                            .withValues(alpha: 0.1),
+                        backgroundColor: theme.buttonPrimary.withValues(
+                          alpha: 0.1,
+                        ),
                         textColor: theme.buttonPrimary,
                         isCompact: true,
                       ),
@@ -953,14 +945,10 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
                       ),
                       keyboardType: TextInputType.text,
                       textInputAction: TextInputAction.next,
-                      onSubmitted: (_) =>
-                          _headerValueFocusNode.requestFocus(),
+                      onSubmitted: (_) => _headerValueFocusNode.requestFocus(),
                       cupertinoDecoration: BoxDecoration(
-                        color: CupertinoColors
-                            .tertiarySystemBackground,
-                        border: Border.all(
-                          color: theme.inputBorder,
-                        ),
+                        color: CupertinoColors.tertiarySystemBackground,
+                        border: Border.all(color: theme.inputBorder),
                         borderRadius: BorderRadius.circular(8),
                       ),
                     ),
@@ -978,11 +966,8 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
                       textInputAction: TextInputAction.done,
                       onSubmitted: (_) => _addCustomHeader(),
                       cupertinoDecoration: BoxDecoration(
-                        color: CupertinoColors
-                            .tertiarySystemBackground,
-                        border: Border.all(
-                          color: theme.inputBorder,
-                        ),
+                        color: CupertinoColors.tertiarySystemBackground,
+                        border: Border.all(color: theme.inputBorder),
                         borderRadius: BorderRadius.circular(8),
                       ),
                     ),
@@ -992,9 +977,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
               const SizedBox(height: Spacing.sm),
               Center(
                 child: GestureDetector(
-                  onTap: _customHeaders.length >= 10
-                      ? null
-                      : _addCustomHeader,
+                  onTap: _customHeaders.length >= 10 ? null : _addCustomHeader,
                   child: Container(
                     width: TouchTarget.minimum,
                     height: TouchTarget.minimum,
@@ -1005,9 +988,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
                       shape: BoxShape.circle,
                     ),
                     child: Icon(
-                      Platform.isIOS
-                          ? CupertinoIcons.plus
-                          : Icons.add_rounded,
+                      Platform.isIOS ? CupertinoIcons.plus : Icons.add_rounded,
                       color: _customHeaders.length >= 10
                           ? theme.textDisabled
                           : theme.buttonPrimaryText,
@@ -1096,9 +1077,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
           : AppLocalizations.of(context)!.connectToServerButton,
       icon: _isConnecting
           ? null
-          : (Platform.isIOS
-                ? CupertinoIcons.arrow_right
-                : Icons.arrow_forward),
+          : (Platform.isIOS ? CupertinoIcons.arrow_right : Icons.arrow_forward),
       onPressed: _isConnecting ? null : _connectToServer,
       isLoading: _isConnecting,
       isFullWidth: true,
@@ -1180,7 +1159,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       _headerKeyController.clear();
       _headerValueController.clear();
     });
-    HapticFeedback.lightImpact();
+    ConduitHaptics.lightImpact();
   }
 
   String? _validateHeaderKey(String key) {
@@ -1256,6 +1235,6 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     setState(() {
       _customHeaders.remove(key);
     });
-    HapticFeedback.lightImpact();
+    ConduitHaptics.lightImpact();
   }
 }
