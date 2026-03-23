@@ -228,6 +228,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   /// Called when a `chat:active` event is received, indicating a background
   /// task has started (active=true) or completed (active=false).
   void Function(String? chatId, bool active)? onChatActiveChanged,
+  required void Function() completeStreamingUi,
   required void Function() finishStreaming,
   required List<ChatMessage> Function() getMessages,
 
@@ -244,6 +245,19 @@ ActiveChatStream attachUnifiedChunkedStreaming({
 }) {
   // Track if streaming has been finished to avoid duplicate cleanup
   bool hasFinished = false;
+  bool hasCompletedStreamingUi = false;
+
+  bool isTerminalFinishReason(String? finishReason) {
+    return finishReason == 'stop' ||
+        finishReason == 'length' ||
+        finishReason == 'content_filter';
+  }
+
+  void completeVisibleStreaming() {
+    if (hasCompletedStreamingUi) return;
+    hasCompletedStreamingUi = true;
+    completeStreamingUi();
+  }
 
   // Start background execution to keep app alive during streaming (iOS/Android)
   // Uses the assistantMessageId as a unique stream identifier
@@ -265,6 +279,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   void wrappedFinishStreaming() {
     if (hasFinished) return;
     hasFinished = true;
+    hasCompletedStreamingUi = true;
     api.clearStreamCancelToken(assistantMessageId);
 
     // Stop background execution when streaming completes
@@ -988,6 +1003,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
 
       if (type == 'chat:completion' && payload != null) {
         if (payload is Map<String, dynamic>) {
+          String? terminalFinishReason;
+
           // Store the structured output[] array from the backend middleware.
           // This contains OR-aligned items (message, reasoning,
           // code_interpreter, function_call, function_call_output).
@@ -1094,6 +1111,12 @@ ActiveChatStream attachUnifiedChunkedStreaming({
               if (choices is List && choices.isNotEmpty) {
                 final choice = choices.first;
                 final delta = choice is Map ? choice['delta'] : null;
+                final finishReason = choice is Map
+                    ? choice['finish_reason']?.toString()
+                    : null;
+                if (isTerminalFinishReason(finishReason)) {
+                  terminalFinishReason = finishReason;
+                }
                 if (delta is Map) {
                   if (delta.containsKey('tool_calls')) {
                     final tc = delta['tool_calls'];
@@ -1145,6 +1168,27 @@ ActiveChatStream attachUnifiedChunkedStreaming({
               if (raw.isNotEmpty) {
                 replaceLastMessageContent(raw);
                 updateImagesFromCurrentContent();
+              }
+            }
+          }
+          if (terminalFinishReason != null && !hasFinished) {
+            flushStreamingBuffer();
+            final msgs = getMessages();
+            if (msgs.isNotEmpty && msgs.last.role == 'assistant') {
+              final last = msgs.last;
+              final hasTerminalContent =
+                  last.content.trim().isNotEmpty ||
+                  last.error != null ||
+                  (last.files?.isNotEmpty ?? false) ||
+                  last.codeExecutions.isNotEmpty ||
+                  last.sources.isNotEmpty;
+              if (hasTerminalContent) {
+                DebugLogger.log(
+                  'Terminal finish_reason=$terminalFinishReason '
+                  '- closing visible streaming state',
+                  scope: 'streaming/helper',
+                );
+                completeVisibleStreaming();
               }
             }
           }

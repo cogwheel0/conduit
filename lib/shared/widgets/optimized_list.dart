@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:super_sliver_list/super_sliver_list.dart';
+
 import 'skeleton_loader.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'conduit_loading.dart';
@@ -16,6 +18,12 @@ class OptimizedSliverList<T> extends ConsumerWidget {
   final VoidCallback? onLoadMore;
   final bool addAutomaticKeepAlives;
   final bool addRepaintBoundaries;
+  final ListController? listController;
+  final ExtentEstimationProvider? extentEstimation;
+  final ExtentPrecalculationPolicy? extentPrecalculationPolicy;
+  final bool delayPopulatingCacheArea;
+  final bool layoutKeptAliveChildren;
+  final bool useSuperSliverList;
 
   const OptimizedSliverList({
     super.key,
@@ -29,6 +37,12 @@ class OptimizedSliverList<T> extends ConsumerWidget {
     this.onLoadMore,
     this.addAutomaticKeepAlives = true,
     this.addRepaintBoundaries = true,
+    this.listController,
+    this.extentEstimation,
+    this.extentPrecalculationPolicy,
+    this.delayPopulatingCacheArea = true,
+    this.layoutKeptAliveChildren = false,
+    this.useSuperSliverList = true,
   });
 
   @override
@@ -58,38 +72,47 @@ class OptimizedSliverList<T> extends ConsumerWidget {
       );
     }
 
-    // List content
-    return SliverList(
-      delegate: SliverChildBuilderDelegate(
-        (context, index) {
-          if (index >= items.length) {
-            if (hasMore) {
-              // Trigger pagination once this placeholder is built
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                onLoadMore?.call();
-              });
-              return Container(
-                padding: const EdgeInsets.all(16.0),
-                alignment: Alignment.center,
-                child: const CircularProgressIndicator(),
-              );
-            }
-            return null;
-          }
+    NullableIndexedWidgetBuilder builder = (context, index) {
+      if (index >= items.length) {
+        if (hasMore) {
+          // Trigger pagination once this placeholder is built.
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            onLoadMore?.call();
+          });
+          return Container(
+            padding: const EdgeInsets.all(16.0),
+            alignment: Alignment.center,
+            child: const CircularProgressIndicator(),
+          );
+        }
+        return null;
+      }
 
-          final item = items[index];
-          final widget = itemBuilder(context, item, index);
+      final item = items[index];
+      return itemBuilder(context, item, index);
+    };
 
-          // Wrap in repaint boundary for perf
-          if (addRepaintBoundaries) {
-            return RepaintBoundary(child: widget);
-          }
-          return widget;
-        },
-        childCount: items.length + (hasMore ? 1 : 0),
-        addAutomaticKeepAlives: addAutomaticKeepAlives,
-        addRepaintBoundaries: addRepaintBoundaries,
-      ),
+    if (!useSuperSliverList) {
+      return SliverList(
+        delegate: SliverChildBuilderDelegate(
+          builder,
+          childCount: items.length + (hasMore ? 1 : 0),
+          addAutomaticKeepAlives: addAutomaticKeepAlives,
+          addRepaintBoundaries: addRepaintBoundaries,
+        ),
+      );
+    }
+
+    return SuperSliverList.builder(
+      itemCount: items.length + (hasMore ? 1 : 0),
+      listController: listController,
+      extentEstimation: extentEstimation,
+      extentPrecalculationPolicy: extentPrecalculationPolicy,
+      delayPopulatingCacheArea: delayPopulatingCacheArea,
+      layoutKeptAliveChildren: layoutKeptAliveChildren,
+      addAutomaticKeepAlives: addAutomaticKeepAlives,
+      addRepaintBoundaries: addRepaintBoundaries,
+      itemBuilder: builder,
     );
   }
 
