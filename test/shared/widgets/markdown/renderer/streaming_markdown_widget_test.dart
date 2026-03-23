@@ -130,10 +130,10 @@ After
     expect(find.text('Output'), findsNothing);
   });
 
-  testWidgets('renders previewable html code blocks with a live preview', (
-    tester,
-  ) async {
-    const content = '''
+  testWidgets(
+    'renders previewable html code blocks only in the preview sheet',
+    (tester) async {
+      const content = '''
 ```html
 <!DOCTYPE html>
 <html>
@@ -144,25 +144,26 @@ After
 ```
 ''';
 
-    await tester.pumpWidget(buildHarness(content));
+      await tester.pumpWidget(buildHarness(content));
 
-    expect(find.text('HTML Preview'), findsOneWidget);
-    expect(
-      find.text('Embedded content preview is unavailable in widget tests.'),
-      findsOneWidget,
-    );
-    expect(find.text('Preview'), findsOneWidget);
-    expect(find.text('html'), findsAtLeastNWidgets(1));
+      expect(find.text('Preview'), findsOneWidget);
+      expect(find.text('html'), findsAtLeastNWidgets(1));
+      expect(find.text('HTML Preview'), findsNothing);
+      expect(
+        find.text('Embedded content preview is unavailable in widget tests.'),
+        findsNothing,
+      );
 
-    await tester.tap(find.text('Preview'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.text('Preview'));
+      await tester.pumpAndSettle();
 
-    expect(find.text('HTML Preview'), findsNWidgets(2));
-    expect(
-      find.text('Embedded content preview is unavailable in widget tests.'),
-      findsNWidgets(2),
-    );
-  });
+      expect(find.text('HTML Preview'), findsOneWidget);
+      expect(
+        find.text('Embedded content preview is unavailable in widget tests.'),
+        findsOneWidget,
+      );
+    },
+  );
 
   testWidgets('renders reasoning details inline with localized summary text', (
     tester,

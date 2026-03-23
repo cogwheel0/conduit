@@ -123,17 +123,8 @@ class ConduitMarkdown {
 
   static bool shouldInlinePreviewCodeBlock(String language, String code) {
     final normalized = language.trim().toLowerCase();
-    if (normalized == 'svg' || (normalized == 'xml' && code.contains('<svg'))) {
-      return true;
-    }
-    if (normalized != 'html') {
-      return false;
-    }
-
-    final trimmed = code.trimLeft().toLowerCase();
-    return trimmed.startsWith('<!doctype html') ||
-        trimmed.startsWith('<html') ||
-        trimmed.contains('<body');
+    return normalized == 'svg' ||
+        (normalized == 'xml' && code.contains('<svg'));
   }
 
   static Widget buildInlineCodePreview(
