@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:webview_flutter_plus/webview_flutter_plus.dart';
 
 import '../theme/theme_extensions.dart';
+import 'webview_content_height.dart';
 
 const _embedDefaultHeight = 360.0;
 const _embedFallbackHeight = 160.0;
@@ -110,13 +111,7 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
                 return;
               }
               await _injectArguments(controller);
-              await _updateHeight(controller);
-              if (!mounted || requestId != _loadRequestId) {
-                return;
-              }
-              setState(() {
-                _isLoading = false;
-              });
+              _scheduleHeightUpdates(controller, requestId);
             },
           ),
         );
@@ -164,10 +159,33 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
     } catch (_) {}
   }
 
-  Future<void> _updateHeight(WebViewControllerPlus controller) async {
+  void _scheduleHeightUpdates(WebViewControllerPlus controller, int requestId) {
+    _updateHeight(controller, requestId);
+    for (final delay in <int>[60, 250, 600]) {
+      Future<void>.delayed(Duration(milliseconds: delay), () {
+        _updateHeight(controller, requestId);
+      });
+    }
+    Future<void>.delayed(const Duration(milliseconds: 900), () {
+      if (!mounted || requestId != _loadRequestId || !_isLoading) {
+        return;
+      }
+      setState(() {
+        _isLoading = false;
+      });
+    });
+  }
+
+  Future<void> _updateHeight(
+    WebViewControllerPlus controller,
+    int requestId,
+  ) async {
     try {
-      final measuredHeight = await controller.webViewHeight;
-      if (!mounted || measuredHeight <= 0) {
+      final measuredHeight = await measureWebViewContentHeight(controller);
+      if (!mounted ||
+          requestId != _loadRequestId ||
+          measuredHeight == null ||
+          measuredHeight <= 0) {
         return;
       }
       final clampedHeight = measuredHeight
@@ -175,6 +193,7 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
           .toDouble();
       setState(() {
         _height = clampedHeight;
+        _isLoading = false;
       });
     } catch (_) {}
   }

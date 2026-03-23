@@ -123,6 +123,8 @@ flutter:
     - assets/icons/
     - assets/mermaid.min.js
     - assets/chartjs.min.js
+    - assets/flutter_tex.js
+    - assets/flutter_tex.css
 
 flutter_native_splash:
   # Splash background matches the light theme; `color_dark` handles dark mode.

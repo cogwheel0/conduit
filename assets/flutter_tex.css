@@ -1,0 +1,7 @@
+/* App-level Flutter TeX overrides.
+ *
+ * The flutter_tex package loads this file before its bundled stylesheet.
+ * Keeping the file present avoids noisy 404/MIME errors from the local
+ * WebView asset server, while the package-local CSS continues to provide
+ * the actual TeX view styling.
+ */

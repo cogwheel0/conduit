@@ -14,6 +14,7 @@ import 'package:webview_flutter_plus/webview_flutter_plus.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 
 import '../web_content_embed.dart';
+import '../webview_content_height.dart';
 import '../../theme/color_tokens.dart';
 import '../../theme/theme_extensions.dart';
 import 'package:conduit/core/network/self_signed_image_cache_manager.dart';
@@ -1085,7 +1086,7 @@ class _ChartJsDiagramState extends State<ChartJsDiagram> {
     if (_controller == null || _script == null) {
       return;
     }
-    final requestId = ++_loadRequestId;
+    ++_loadRequestId;
     if (mounted) {
       setState(() {
         _height = _chartPreviewMinHeight;
@@ -1093,7 +1094,6 @@ class _ChartJsDiagramState extends State<ChartJsDiagram> {
       });
     }
     _controller!.loadHtmlString(_buildHtml(widget.htmlContent, _script!));
-    _scheduleHeightUpdates(requestId);
   }
 
   Future<void> _scheduleHeightUpdates(int requestId) async {
@@ -1103,6 +1103,14 @@ class _ChartJsDiagramState extends State<ChartJsDiagram> {
         _updateHeight(requestId);
       });
     }
+    Future<void>.delayed(const Duration(milliseconds: 900), () {
+      if (!mounted || requestId != _loadRequestId || !_isLoading) {
+        return;
+      }
+      setState(() {
+        _isLoading = false;
+      });
+    });
   }
 
   Future<void> _updateHeight(int requestId) async {
@@ -1112,8 +1120,11 @@ class _ChartJsDiagramState extends State<ChartJsDiagram> {
     }
 
     try {
-      final measuredHeight = await controller.webViewHeight;
-      if (!mounted || requestId != _loadRequestId) {
+      final measuredHeight = await measureWebViewContentHeight(controller);
+      if (!mounted ||
+          requestId != _loadRequestId ||
+          measuredHeight == null ||
+          measuredHeight <= 0) {
         return;
       }
 
@@ -1124,14 +1135,7 @@ class _ChartJsDiagramState extends State<ChartJsDiagram> {
         _height = clampedHeight;
         _isLoading = false;
       });
-    } catch (_) {
-      if (!mounted || requestId != _loadRequestId) {
-        return;
-      }
-      setState(() {
-        _isLoading = false;
-      });
-    }
+    } catch (_) {}
   }
 
   String _buildHtml(String htmlContent, String script) {
@@ -1458,7 +1462,7 @@ class _MermaidDiagramState extends State<MermaidDiagram> {
     if (_controller == null || _script == null) {
       return;
     }
-    final requestId = ++_loadRequestId;
+    ++_loadRequestId;
     if (mounted) {
       setState(() {
         _height = _mermaidPreviewMinHeight;
@@ -1468,7 +1472,6 @@ class _MermaidDiagramState extends State<MermaidDiagram> {
     _controller!.loadHtmlString(
       _buildHtml(_sanitizeMermaidCode(widget.code), _script!),
     );
-    _scheduleHeightUpdates(requestId);
   }
 
   Future<void> _scheduleHeightUpdates(int requestId) async {
@@ -1478,6 +1481,14 @@ class _MermaidDiagramState extends State<MermaidDiagram> {
         _updateHeight(requestId);
       });
     }
+    Future<void>.delayed(const Duration(milliseconds: 900), () {
+      if (!mounted || requestId != _loadRequestId || !_isLoading) {
+        return;
+      }
+      setState(() {
+        _isLoading = false;
+      });
+    });
   }
 
   Future<void> _updateHeight(int requestId) async {
@@ -1487,8 +1498,11 @@ class _MermaidDiagramState extends State<MermaidDiagram> {
     }
 
     try {
-      final measuredHeight = await controller.webViewHeight;
-      if (!mounted || requestId != _loadRequestId) {
+      final measuredHeight = await measureWebViewContentHeight(controller);
+      if (!mounted ||
+          requestId != _loadRequestId ||
+          measuredHeight == null ||
+          measuredHeight <= 0) {
         return;
       }
 
@@ -1499,14 +1513,7 @@ class _MermaidDiagramState extends State<MermaidDiagram> {
         _height = clampedHeight;
         _isLoading = false;
       });
-    } catch (_) {
-      if (!mounted || requestId != _loadRequestId) {
-        return;
-      }
-      setState(() {
-        _isLoading = false;
-      });
-    }
+    } catch (_) {}
   }
 
   String _sanitizeMermaidCode(String source) {
