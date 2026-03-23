@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/models/backend_config.dart';
 import '../../../core/services/settings_service.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
@@ -218,7 +219,7 @@ class TextToSpeechController extends Notifier<TextToSpeechState> {
     }
 
     // Prepare sentence split for highlighting
-    final cleanText = ConduitMarkdownPreprocessor.toPlainText(text);
+    final cleanText = ConduitMarkdownPreprocessor.cleanText(text);
     final sentences = _service.splitTextForSpeech(cleanText);
     final offsets = _computeOffsets(cleanText, sentences);
 
@@ -403,7 +404,25 @@ class TextToSpeechController extends Notifier<TextToSpeechState> {
 
 final textToSpeechServiceProvider = Provider<TextToSpeechService>((ref) {
   final api = ref.watch(apiServiceProvider);
-  final service = TextToSpeechService(api: api);
+  BackendConfig? readBackendConfig() {
+    return ref
+        .read(backendConfigProvider)
+        .maybeWhen(data: (value) => value, orElse: () => null);
+  }
+
+  final service = TextToSpeechService(
+    api: api,
+    backendConfig: readBackendConfig(),
+    loadBackendConfig: () async {
+      await ref.read(backendConfigProvider.notifier).refresh();
+      return readBackendConfig();
+    },
+  );
+  ref.listen(backendConfigProvider, (_, next) {
+    service.setBackendConfig(
+      next.maybeWhen(data: (value) => value, orElse: () => null),
+    );
+  });
   ref.onDispose(() {
     unawaited(service.dispose());
   });

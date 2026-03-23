@@ -84,7 +84,7 @@ abstract class VoiceOutputEngine {
 
   Future<void> initializeWithSettings(AppSettings settings);
   Future<void> updateSettings(AppSettings settings);
-  Future<void> preloadServerDefaults();
+  Future<void> reloadBackendConfig();
   List<String> splitTextForSpeech(String text);
   Future<void> speak(String text);
   Future<SpeechAudioChunk> synthesizeServerSpeechChunk(String text);

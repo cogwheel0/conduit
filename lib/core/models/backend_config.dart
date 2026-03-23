@@ -75,6 +75,34 @@ class OAuthProviders {
   };
 }
 
+/// Describes a server TTS voice exposed by the backend.
+@immutable
+class BackendTtsVoice {
+  const BackendTtsVoice({required this.id, required this.name, this.locale});
+
+  final String id;
+  final String name;
+  final String? locale;
+
+  factory BackendTtsVoice.fromJson(Map<String, dynamic> json) {
+    final id = (json['id'] ?? json['name'] ?? '').toString().trim();
+    final name = (json['name'] ?? json['id'] ?? '').toString().trim();
+    final locale = (json['locale'] ?? json['language'])?.toString().trim();
+
+    return BackendTtsVoice(
+      id: id,
+      name: name.isNotEmpty ? name : id,
+      locale: locale != null && locale.isNotEmpty ? locale : null,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    if (locale != null) 'locale': locale,
+  };
+}
+
 /// Subset of the backend `/api/config` response the app cares about.
 @immutable
 class BackendConfig {
@@ -85,6 +113,8 @@ class BackendConfig {
     this.sttProvider,
     this.ttsProvider,
     this.ttsVoice,
+    this.ttsSplitOn,
+    this.ttsVoices = const [],
     this.defaultSttLocale,
     this.audioSampleRate,
     this.audioFrameSize,
@@ -101,6 +131,8 @@ class BackendConfig {
   final String? sttProvider;
   final String? ttsProvider;
   final String? ttsVoice;
+  final String? ttsSplitOn;
+  final List<BackendTtsVoice> ttsVoices;
   final String? defaultSttLocale;
   final int? audioSampleRate;
   final int? audioFrameSize;
@@ -126,6 +158,8 @@ class BackendConfig {
     String? sttProvider,
     String? ttsProvider,
     String? ttsVoice,
+    String? ttsSplitOn,
+    List<BackendTtsVoice>? ttsVoices,
     String? defaultSttLocale,
     int? audioSampleRate,
     int? audioFrameSize,
@@ -141,6 +175,8 @@ class BackendConfig {
       sttProvider: sttProvider ?? this.sttProvider,
       ttsProvider: ttsProvider ?? this.ttsProvider,
       ttsVoice: ttsVoice ?? this.ttsVoice,
+      ttsSplitOn: ttsSplitOn ?? this.ttsSplitOn,
+      ttsVoices: ttsVoices ?? this.ttsVoices,
       defaultSttLocale: defaultSttLocale ?? this.defaultSttLocale,
       audioSampleRate: audioSampleRate ?? this.audioSampleRate,
       audioFrameSize: audioFrameSize ?? this.audioFrameSize,
@@ -178,6 +214,8 @@ class BackendConfig {
       'stt_provider': sttProvider,
       'tts_provider': ttsProvider,
       'tts_voice': ttsVoice,
+      'tts_split_on': ttsSplitOn,
+      'tts_voices': ttsVoices.map((voice) => voice.toJson()).toList(),
       'default_stt_locale': defaultSttLocale,
       'audio_sample_rate': audioSampleRate,
       'audio_frame_size': audioFrameSize,
@@ -195,6 +233,8 @@ class BackendConfig {
     String? sttProvider;
     String? ttsProvider;
     String? ttsVoice;
+    String? ttsSplitOn;
+    List<BackendTtsVoice> ttsVoices = const [];
     String? defaultSttLocale;
     int? audioSampleRate;
     int? audioFrameSize;
@@ -220,6 +260,18 @@ class BackendConfig {
     if (tts is String) ttsProvider = tts;
     final ttsVoiceValue = json['tts_voice'];
     if (ttsVoiceValue is String) ttsVoice = ttsVoiceValue;
+    final ttsSplitOnValue = json['tts_split_on'];
+    if (ttsSplitOnValue is String) ttsSplitOn = ttsSplitOnValue;
+    final ttsVoicesValue = json['tts_voices'];
+    if (ttsVoicesValue is List) {
+      ttsVoices = ttsVoicesValue
+          .whereType<Map>()
+          .map(
+            (voice) => BackendTtsVoice.fromJson(voice.cast<String, dynamic>()),
+          )
+          .where((voice) => voice.id.isNotEmpty || voice.name.isNotEmpty)
+          .toList(growable: false);
+    }
 
     final defaultLocale = json['default_stt_locale'];
     if (defaultLocale is String) defaultSttLocale = defaultLocale;
@@ -274,6 +326,21 @@ class BackendConfig {
       if (nestedVoice is String && ttsVoice == null) {
         ttsVoice = nestedVoice;
       }
+      final nestedSplitOn = features['tts_split_on'];
+      if (nestedSplitOn is String && ttsSplitOn == null) {
+        ttsSplitOn = nestedSplitOn;
+      }
+      final nestedVoices = features['tts_voices'];
+      if (nestedVoices is List && ttsVoices.isEmpty) {
+        ttsVoices = nestedVoices
+            .whereType<Map>()
+            .map(
+              (voice) =>
+                  BackendTtsVoice.fromJson(voice.cast<String, dynamic>()),
+            )
+            .where((voice) => voice.id.isNotEmpty || voice.name.isNotEmpty)
+            .toList(growable: false);
+      }
       final nestedLocale = features['default_stt_locale'];
       if (nestedLocale is String && defaultSttLocale == null) {
         defaultSttLocale = nestedLocale;
@@ -304,6 +371,8 @@ class BackendConfig {
       sttProvider: sttProvider,
       ttsProvider: ttsProvider,
       ttsVoice: ttsVoice,
+      ttsSplitOn: ttsSplitOn,
+      ttsVoices: ttsVoices,
       defaultSttLocale: defaultSttLocale,
       audioSampleRate: audioSampleRate,
       audioFrameSize: audioFrameSize,

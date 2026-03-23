@@ -6,7 +6,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:just_audio/just_audio.dart';
 
+import '../../../core/models/backend_config.dart';
 import '../../../core/services/api_service.dart';
+import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
 import '../../../shared/utils/bytes_audio_source.dart';
 
 // =============================================================================
@@ -93,6 +95,7 @@ class TtsConfig {
   const TtsConfig({
     this.voice,
     this.serverVoice,
+    this.splitOn = TtsManager.splitOnPunctuation,
     this.speechRate = 0.5,
     this.pitch = 1.0,
     this.volume = 1.0,
@@ -101,6 +104,7 @@ class TtsConfig {
 
   final String? voice;
   final String? serverVoice;
+  final String splitOn;
   final double speechRate;
   final double pitch;
   final double volume;
@@ -109,6 +113,7 @@ class TtsConfig {
   TtsConfig copyWith({
     String? voice,
     String? serverVoice,
+    String? splitOn,
     double? speechRate,
     double? pitch,
     double? volume,
@@ -117,6 +122,7 @@ class TtsConfig {
     return TtsConfig(
       voice: voice ?? this.voice,
       serverVoice: serverVoice ?? this.serverVoice,
+      splitOn: splitOn ?? this.splitOn,
       speechRate: speechRate ?? this.speechRate,
       pitch: pitch ?? this.pitch,
       volume: volume ?? this.volume,
@@ -139,10 +145,11 @@ class TtsManager {
   static const Duration _serverInitialLookaheadTimeout = Duration(
     milliseconds: 220,
   );
-  static const int _deviceMergeMinWords = 4;
-  static const int _deviceMergeMinChars = 50;
-  static const int _serverMergeMinWords = 9;
-  static const int _serverMergeMinChars = 130;
+  static const String splitOnPunctuation = 'punctuation';
+  static const String splitOnParagraphs = 'paragraphs';
+  static const String splitOnNone = 'none';
+  static const int _mergeMinWords = 4;
+  static const int _mergeMinChars = 50;
   static const double _serverPlaybackRate = 1.0;
 
   TtsManager._();
@@ -194,7 +201,6 @@ class TtsManager {
 
   // Cached server default voice
   String? _serverDefaultVoice;
-  Future<String?>? _serverDefaultVoiceFuture;
 
   /// Stream of TTS events.
   Stream<TtsEvent> get events => _eventController.stream;
@@ -236,6 +242,16 @@ class TtsManager {
     if (_playerConfigured) {
       await _player.setSpeed(_serverPlaybackRate);
     }
+  }
+
+  /// Applies backend-provided TTS defaults cached in [BackendConfig].
+  void applyBackendConfig(BackendConfig? config) {
+    if (config == null) {
+      return;
+    }
+
+    _serverDefaultVoice = config.ttsVoice?.trim();
+    _config = _config.copyWith(splitOn: _normalizeSplitOn(config.ttsSplitOn));
   }
 
   /// Initializes the TTS engine.
@@ -430,7 +446,6 @@ class TtsManager {
 
     // Reset cached voice defaults so they're refetched if needed
     _serverDefaultVoice = null;
-    _serverDefaultVoiceFuture = null;
   }
 
   /// Disposes the manager and releases resources.
@@ -444,9 +459,13 @@ class TtsManager {
 
   /// Splits text into chunks for TTS playback.
   ///
-  /// This mirrors OpenWebUI's extractSentencesForAudio implementation.
+  /// This wraps [getMessageContentParts] using OpenWebUI's default split mode.
   List<String> splitTextForSpeech(String text) {
-    // Mirrors OpenWebUI's extractSentencesForAudio behavior.
+    return getMessageContentParts(text, splitOn: _config.splitOn);
+  }
+
+  /// Mirrors OpenWebUI's `extractSentences`.
+  List<String> extractSentences(String text) {
     final codeBlocks = <String>[];
     var processed = text;
     var codeBlockIndex = 0;
@@ -459,35 +478,55 @@ class TtsManager {
       return placeholder;
     });
 
-    // Split on punctuation boundaries or newlines.
-    final sentences = processed
-        .split(RegExp(r'(?<=[.!?])\s+|\n+'))
-        .map(_cleanSpeechText)
-        .where((s) => s.isNotEmpty)
-        .toList();
+    final sentences = processed.split(RegExp(r'(?<=[.!?])\s+|\n+')).toList();
 
-    // Restore code blocks.
-    final restoredSentences = sentences
+    return sentences
         .map((sentence) {
           return sentence.replaceAllMapped(RegExp(r'\u0000(\d+)\u0000'), (m) {
             final idx = int.parse(m.group(1)!);
             return idx < codeBlocks.length ? codeBlocks[idx] : '';
           });
         })
-        .map(_cleanSpeechText)
+        .map(ConduitMarkdownPreprocessor.cleanText)
+        .where((s) => s.isNotEmpty)
+        .toList();
+  }
+
+  /// Mirrors OpenWebUI's `extractParagraphsForAudio`.
+  List<String> extractParagraphsForAudio(String text) {
+    final codeBlocks = <String>[];
+    var processed = text;
+    var codeBlockIndex = 0;
+
+    final codeBlockRegex = RegExp(r'```[\s\S]*?```', multiLine: true);
+    processed = processed.replaceAllMapped(codeBlockRegex, (match) {
+      final placeholder = '\u0000$codeBlockIndex\u0000';
+      codeBlocks.add(match.group(0)!);
+      codeBlockIndex++;
+      return placeholder;
+    });
+
+    final paragraphs = processed
+        .split(RegExp(r'\n+'))
+        .map((paragraph) {
+          return paragraph.replaceAllMapped(RegExp(r'\u0000(\d+)\u0000'), (m) {
+            final idx = int.parse(m.group(1)!);
+            return idx < codeBlocks.length ? codeBlocks[idx] : '';
+          });
+        })
+        .map(ConduitMarkdownPreprocessor.cleanText)
         .where((s) => s.isNotEmpty)
         .toList();
 
-    // Merge short fragments into previous chunk.
-    final useServerSizedChunks = _config.preferServer;
-    final mergeMinWords = useServerSizedChunks
-        ? _serverMergeMinWords
-        : _deviceMergeMinWords;
-    final mergeMinChars = useServerSizedChunks
-        ? _serverMergeMinChars
-        : _deviceMergeMinChars;
+    return paragraphs;
+  }
+
+  /// Mirrors OpenWebUI's `extractSentencesForAudio`.
+  List<String> extractSentencesForAudio(String text) {
+    final sentences = extractSentences(text);
+
     final mergedChunks = <String>[];
-    for (final sentence in restoredSentences) {
+    for (final sentence in sentences) {
       if (mergedChunks.isEmpty) {
         mergedChunks.add(sentence);
       } else {
@@ -496,7 +535,7 @@ class TtsManager {
         final wordCount = previousText.split(RegExp(r'\s+')).length;
         final charCount = previousText.length;
 
-        if (wordCount < mergeMinWords || charCount < mergeMinChars) {
+        if (wordCount < _mergeMinWords || charCount < _mergeMinChars) {
           mergedChunks[lastIndex] = '$previousText $sentence';
         } else {
           mergedChunks.add(sentence);
@@ -504,19 +543,29 @@ class TtsManager {
       }
     }
 
-    if (mergedChunks.isEmpty) {
-      final cleaned = _cleanSpeechText(text);
-      return cleaned.isEmpty ? const [] : [cleaned];
-    }
     return mergedChunks;
   }
 
-  String _cleanSpeechText(String input) {
-    final trimmed = input.trim();
-    if (trimmed.isEmpty) {
-      return '';
+  /// Mirrors OpenWebUI's `getMessageContentParts`.
+  List<String> getMessageContentParts(
+    String content, {
+    String splitOn = splitOnPunctuation,
+  }) {
+    final sanitizedContent = content.replaceAll(
+      RegExp(r'<details[^>]*>[\s\S]*?<\/details>', caseSensitive: false),
+      '',
+    );
+
+    switch (splitOn) {
+      case splitOnParagraphs:
+        return extractParagraphsForAudio(sanitizedContent);
+      case splitOnNone:
+        final cleaned = ConduitMarkdownPreprocessor.cleanText(sanitizedContent);
+        return cleaned.isEmpty ? const [] : [cleaned];
+      case splitOnPunctuation:
+      default:
+        return extractSentencesForAudio(sanitizedContent);
     }
-    return trimmed.replaceAll(RegExp(r'\s+'), ' ');
   }
 
   /// Gets available voices from the device TTS engine.
@@ -539,33 +588,12 @@ class TtsManager {
     }
   }
 
-  /// Gets available voices from the server.
-  Future<List<Map<String, dynamic>>> getServerVoices() async {
-    if (_apiService == null) return [];
-
-    try {
-      final serverVoices = await _apiService!.getAvailableServerVoices();
-      return serverVoices
-          .map((v) {
-            final id = (v['id'] ?? v['name'] ?? '').toString();
-            final name = (v['name'] ?? v['id'] ?? '').toString();
-            final locale = (v['locale'] ?? v['language'] ?? '').toString();
-            return {'id': id, 'name': name, 'locale': locale};
-          })
-          .where((e) => e['name']?.toString().trim().isNotEmpty ?? false)
-          .toList();
-    } catch (e) {
-      _emitEvent(TtsError(e.toString()));
-      return [];
-    }
-  }
-
-  /// Preloads server default voice configuration.
-  Future<void> preloadServerDefaults() async {
-    if (_apiService == null) return;
-    try {
-      await _getServerDefaultVoice();
-    } catch (_) {}
+  String _normalizeSplitOn(String? splitOn) {
+    return switch (splitOn?.trim()) {
+      splitOnParagraphs => splitOnParagraphs,
+      splitOnNone => splitOnNone,
+      _ => splitOnPunctuation,
+    };
   }
 
   /// Synthesizes a single text chunk to audio without playing it.
@@ -1069,24 +1097,8 @@ class TtsManager {
   }
 
   Future<String?> _getServerDefaultVoice() async {
-    if (_apiService == null) return null;
     if (_serverDefaultVoice != null) return _serverDefaultVoice;
-
-    if (_serverDefaultVoiceFuture != null) {
-      return _serverDefaultVoiceFuture;
-    }
-
-    _serverDefaultVoiceFuture = _apiService!.getDefaultServerVoice();
-    try {
-      final voice = await _serverDefaultVoiceFuture;
-      _serverDefaultVoice = voice?.trim();
-      return _serverDefaultVoice;
-    } catch (e) {
-      _emitEvent(TtsError(e.toString()));
-      return null;
-    } finally {
-      _serverDefaultVoiceFuture = null;
-    }
+    return null;
   }
 
   // ===========================================================================

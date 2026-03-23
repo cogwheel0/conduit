@@ -20,14 +20,51 @@ void main() {
       expect(chunks.length, 2);
     });
 
-    test('merges more aggressively for server mode', () async {
+    test('keeps OpenWebUI-sized chunks for server mode', () async {
       await TtsManager.instance.updateConfig(
         const TtsConfig(preferServer: true),
       );
 
       final chunks = TtsManager.instance.splitTextForSpeech(sampleText);
 
-      expect(chunks.length, 1);
+      expect(chunks.length, 2);
+    });
+  });
+
+  group('TtsManager getMessageContentParts', () {
+    test('supports paragraphs mode like OpenWebUI', () {
+      final chunks = TtsManager.instance.getMessageContentParts(
+        'First paragraph\n\nSecond paragraph',
+        splitOn: TtsManager.splitOnParagraphs,
+      );
+
+      expect(chunks, ['First paragraph', 'Second paragraph']);
+    });
+
+    test('supports none mode like OpenWebUI', () {
+      final chunks = TtsManager.instance.getMessageContentParts(
+        'One.\nTwo.',
+        splitOn: TtsManager.splitOnNone,
+      );
+
+      expect(chunks, ['One.\nTwo.']);
+    });
+
+    test('strips details blocks before splitting', () {
+      final chunks = TtsManager.instance.getMessageContentParts(
+        'Hello <details><summary>Hidden</summary>ignored</details> world.',
+      );
+
+      expect(chunks, ['Hello  world.']);
+    });
+
+    test('cleans markdown internally without caller preprocessing', () {
+      final chunks = TtsManager.instance.getMessageContentParts(
+        '## **Hello**\n- world',
+        splitOn: TtsManager.splitOnNone,
+      );
+
+      expect(chunks, ['Hello\nworld']);
     });
   });
 }

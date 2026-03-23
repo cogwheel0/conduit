@@ -2429,19 +2429,13 @@ Future<List<String>> availableVoices(Ref ref) async {
     DebugLogger.log('skip-unauthed', scope: 'voices');
     return [];
   }
-  final api = ref.watch(apiServiceProvider);
-  if (api == null) return [];
+  final config = await ref.watch(backendConfigProvider.future);
+  if (config == null) return [];
 
-  try {
-    final voices = await api.getAvailableServerVoices();
-    return voices
-        .map((v) => (v['name'] ?? v['id'] ?? '').toString())
-        .where((s) => s.isNotEmpty)
-        .toList();
-  } catch (e) {
-    DebugLogger.error('voices-failed', scope: 'voices', error: e);
-    return [];
-  }
+  return config.ttsVoices
+      .map((voice) => voice.name.isNotEmpty ? voice.name : voice.id)
+      .where((name) => name.isNotEmpty)
+      .toList(growable: false);
 }
 
 // Image Generation providers

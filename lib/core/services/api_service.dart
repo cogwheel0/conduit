@@ -561,7 +561,7 @@ class ApiService {
         return null;
       }
 
-      return BackendConfig.fromJson(data);
+      return _enrichBackendConfigWithAudioConfig(BackendConfig.fromJson(data));
     } catch (e) {
       return null;
     }
@@ -583,7 +583,9 @@ class ApiService {
       if (jsonMap == null) {
         return null;
       }
-      return BackendConfig.fromJson(jsonMap);
+      return _enrichBackendConfigWithAudioConfig(
+        BackendConfig.fromJson(jsonMap),
+      );
     } on DioException catch (e, stackTrace) {
       _traceApi('Backend config request failed: $e');
       DebugLogger.error(
@@ -602,6 +604,27 @@ class ApiService {
         stackTrace: stackTrace,
       );
       rethrow;
+    }
+  }
+
+  Future<BackendConfig> _enrichBackendConfigWithAudioConfig(
+    BackendConfig config,
+  ) async {
+    try {
+      final audioConfig = await _loadServerAudioConfig();
+      return config.copyWith(
+        ttsVoice: audioConfig.voice ?? config.ttsVoice,
+        ttsSplitOn: audioConfig.splitOn,
+        ttsVoices: audioConfig.voices,
+      );
+    } catch (e, stackTrace) {
+      DebugLogger.error(
+        'backend-config-audio-defaults',
+        scope: 'api/config',
+        error: e,
+        stackTrace: stackTrace,
+      );
+      return config;
     }
   }
 
@@ -2346,39 +2369,54 @@ class ApiService {
   }
 
   // Audio
-  Future<String?> getDefaultServerVoice() async {
-    _traceApi('Fetching default server TTS voice');
+  Future<({String? voice, String splitOn, List<BackendTtsVoice> voices})>
+  _loadServerAudioConfig() async {
+    _traceApi('Fetching server TTS defaults');
     final response = await _dio.get('/api/v1/audio/config');
     final data = response.data;
+    final voices = await _loadServerTtsVoicesFromAudioEndpoint();
     if (data is Map<String, dynamic>) {
       final ttsConfig = data['tts'];
       if (ttsConfig is Map<String, dynamic>) {
-        final voice = ttsConfig['VOICE'] ?? ttsConfig['voice'];
-        if (voice is String && voice.trim().isNotEmpty) {
-          return voice.trim();
-        }
+        final rawVoice = ttsConfig['VOICE'] ?? ttsConfig['voice'];
+        final rawSplitOn = ttsConfig['SPLIT_ON'] ?? ttsConfig['split_on'];
+
+        final voice = rawVoice is String && rawVoice.trim().isNotEmpty
+            ? rawVoice.trim()
+            : null;
+        final splitOn = rawSplitOn is String && rawSplitOn.trim().isNotEmpty
+            ? rawSplitOn.trim()
+            : 'punctuation';
+
+        return (voice: voice, splitOn: splitOn, voices: voices);
       }
     }
-    return null;
+    return (voice: null, splitOn: 'punctuation', voices: voices);
   }
 
-  Future<List<Map<String, dynamic>>> getAvailableServerVoices() async {
+  Future<List<BackendTtsVoice>> _loadServerTtsVoicesFromAudioEndpoint() async {
     _traceApi('Fetching server TTS voices');
     final response = await _dio.get('/api/v1/audio/voices');
     final data = response.data;
     if (data is Map<String, dynamic>) {
       final voices = data['voices'];
       if (voices is List) {
-        return _normalizeList(voices, debugLabel: 'parse_voice_list');
+        final normalized = await _normalizeList(
+          voices,
+          debugLabel: 'parse_voice_list',
+        );
+        return normalized
+            .map(BackendTtsVoice.fromJson)
+            .where((voice) => voice.name.isNotEmpty)
+            .toList(growable: false);
       }
     }
     if (data is List) {
-      // Fallback: plain list of ids
       return data
-          .map((e) => {'id': e.toString(), 'name': e.toString()})
-          .toList();
+          .map((e) => BackendTtsVoice(id: e.toString(), name: e.toString()))
+          .toList(growable: false);
     }
-    return [];
+    return const [];
   }
 
   Future<Map<String, dynamic>> transcribeSpeech({

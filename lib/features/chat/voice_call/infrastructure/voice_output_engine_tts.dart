@@ -1,7 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../../core/providers/app_providers.dart';
 import '../../../../core/services/settings_service.dart';
+import '../../providers/text_to_speech_provider.dart';
 import '../../services/text_to_speech_service.dart';
 import '../domain/voice_call_interfaces.dart';
 
@@ -52,7 +52,7 @@ class VoiceOutputEngineTts implements VoiceOutputEngine {
   }
 
   @override
-  Future<void> preloadServerDefaults() => _service.preloadServerDefaults();
+  Future<void> reloadBackendConfig() => _service.reloadBackendConfig();
 
   @override
   List<String> splitTextForSpeech(String text) =>
@@ -74,7 +74,6 @@ class VoiceOutputEngineTts implements VoiceOutputEngine {
 }
 
 final voiceOutputEngineProvider = Provider<VoiceOutputEngine>((ref) {
-  final api = ref.watch(apiServiceProvider);
-  final service = TextToSpeechService(api: api);
+  final service = ref.watch(textToSpeechServiceProvider);
   return VoiceOutputEngineTts(service);
 });

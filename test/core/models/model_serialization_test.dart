@@ -32,8 +32,7 @@ void main() {
       check(user.username).equals('alice');
       check(user.email).equals('alice@example.com');
       check(user.name).equals('Alice');
-      check(user.profileImage)
-          .equals('https://img.example.com/a.png');
+      check(user.profileImage).equals('https://img.example.com/a.png');
       check(user.role).equals('admin');
       check(user.isActive).isTrue();
     });
@@ -47,8 +46,7 @@ void main() {
         'isActive': false,
       });
 
-      check(user.profileImage)
-          .equals('https://img.example.com/b.png');
+      check(user.profileImage).equals('https://img.example.com/b.png');
       check(user.isActive).isFalse();
     });
 
@@ -75,8 +73,7 @@ void main() {
 
       check(json['id']).equals('u1');
       check(json['username']).equals('alice');
-      check(json['profile_image_url'])
-          .equals('https://img.example.com/a.png');
+      check(json['profile_image_url']).equals('https://img.example.com/a.png');
       check(json['is_active']).equals(true);
     });
 
@@ -108,9 +105,7 @@ void main() {
             'capabilities': {'vision': true},
           },
         },
-        'architecture': {
-          'modality': 'text+image',
-        },
+        'architecture': {'modality': 'text+image'},
       });
 
       check(model.isMultimodal).isTrue();
@@ -122,15 +117,11 @@ void main() {
     });
 
     test('missing id throws ArgumentError', () {
-      check(() => Model.fromJson({'name': 'test'}))
-          .throws<ArgumentError>();
+      check(() => Model.fromJson({'name': 'test'})).throws<ArgumentError>();
     });
 
     test('toJson round-trip preserves id and name', () {
-      final model = Model.fromJson({
-        'id': 'rt',
-        'name': 'RoundTrip',
-      });
+      final model = Model.fromJson({'id': 'rt', 'name': 'RoundTrip'});
       final json = model.toJson();
 
       check(json['id']).equals('rt');
@@ -226,10 +217,7 @@ void main() {
     });
 
     test('defaults hasUserValves to false', () {
-      final filter = ToggleFilter.fromJson({
-        'id': 'f3',
-        'name': 'Simple',
-      });
+      final filter = ToggleFilter.fromJson({'id': 'f3', 'name': 'Simple'});
       check(filter.hasUserValves).isFalse();
     });
   });
@@ -290,27 +278,23 @@ void main() {
         },
       });
 
-      check(folder.conversationIds)
-          .deepEquals(['chat1', 'chat2']);
+      check(folder.conversationIds).deepEquals(['chat1', 'chat2']);
     });
 
-    test(
-      'conversation_ids takes precedence over items.chats',
-      () {
-        final folder = Folder.fromJson({
-          'id': 'f3',
-          'name': 'Mixed',
-          'conversation_ids': ['explicit1'],
-          'items': {
-            'chats': [
-              {'id': 'implicit1'},
-            ],
-          },
-        });
+    test('conversation_ids takes precedence over items.chats', () {
+      final folder = Folder.fromJson({
+        'id': 'f3',
+        'name': 'Mixed',
+        'conversation_ids': ['explicit1'],
+        'items': {
+          'chats': [
+            {'id': 'implicit1'},
+          ],
+        },
+      });
 
-        check(folder.conversationIds).deepEquals(['explicit1']);
-      },
-    );
+      check(folder.conversationIds).deepEquals(['explicit1']);
+    });
 
     test('toJson round-trip', () {
       final folder = Folder.fromJson({
@@ -322,8 +306,7 @@ void main() {
 
       check(json['id']).equals('f4');
       check(json['name']).equals('Archived');
-      check(json['conversation_ids'] as List)
-          .deepEquals(['a1']);
+      check(json['conversation_ids'] as List).deepEquals(['a1']);
     });
   });
 
@@ -340,9 +323,9 @@ void main() {
       check(kb.id).equals('kb1');
       check(kb.name).equals('Docs');
       check(kb.itemCount).equals(5);
-      check(kb.createdAt).equals(
-        DateTime.fromMillisecondsSinceEpoch(1700000000 * 1000),
-      );
+      check(
+        kb.createdAt,
+      ).equals(DateTime.fromMillisecondsSinceEpoch(1700000000 * 1000));
     });
 
     test('fromJson with camelCase (createdAt as string)', () {
@@ -357,8 +340,7 @@ void main() {
       check(kb.id).equals('kb2');
       check(kb.name).equals('Notes');
       check(kb.itemCount).equals(3);
-      check(kb.createdAt)
-          .equals(DateTime.utc(2024, 1, 15, 10, 0, 0));
+      check(kb.createdAt).equals(DateTime.utc(2024, 1, 15, 10, 0, 0));
     });
 
     test('defaults itemCount to 0', () {
@@ -500,8 +482,7 @@ void main() {
       check(output['temperature']).equals(0.9);
       check(output['maxTokens']).equals(4096);
       check(output['defaultModelId']).equals('gpt-4');
-      check(output['customSettings'] as Map)
-          .deepEquals({'key': 'val'});
+      check(output['customSettings'] as Map).deepEquals({'key': 'val'});
     });
   });
 
@@ -514,6 +495,10 @@ void main() {
         'stt_provider': 'whisper',
         'tts_provider': 'elevenlabs',
         'tts_voice': 'Rachel',
+        'tts_split_on': 'paragraphs',
+        'tts_voices': [
+          {'id': 'alloy', 'name': 'Alloy', 'locale': 'en-US'},
+        ],
         'default_stt_locale': 'en-US',
         'audio_sample_rate': 16000,
         'audio_frame_size': 320,
@@ -528,6 +513,9 @@ void main() {
       check(config.sttProvider).equals('whisper');
       check(config.ttsProvider).equals('elevenlabs');
       check(config.ttsVoice).equals('Rachel');
+      check(config.ttsSplitOn).equals('paragraphs');
+      check(config.ttsVoices.length).equals(1);
+      check(config.ttsVoices.first.id).equals('alloy');
       check(config.defaultSttLocale).equals('en-US');
       check(config.audioSampleRate).equals(16000);
       check(config.audioFrameSize).equals(320);
@@ -540,17 +528,18 @@ void main() {
       final config = BackendConfig(
         enableWebsocket: true,
         sttProvider: 'whisper',
+        ttsVoices: const [BackendTtsVoice(id: 'alloy', name: 'Alloy')],
       );
       final json = config.toJson();
 
       check(json['enable_websocket']).equals(true);
       check(json['stt_provider']).equals('whisper');
+      check(json.containsKey('tts_split_on')).isTrue();
+      check((json['tts_voices'] as List).length).equals(1);
     });
 
     test('OAuthProviders hasAnyProvider true', () {
-      final providers = OAuthProviders.fromJson({
-        'google': 'Google',
-      });
+      final providers = OAuthProviders.fromJson({'google': 'Google'});
       check(providers.hasAnyProvider).isTrue();
       check(providers.enabledProviders).contains('google');
     });
@@ -562,10 +551,7 @@ void main() {
     });
 
     test('OAuthProviders round-trip', () {
-      final providers = OAuthProviders(
-        google: 'Google',
-        github: 'GitHub',
-      );
+      final providers = OAuthProviders(google: 'Google', github: 'GitHub');
       final json = providers.toJson();
       check(json['google']).equals('Google');
       check(json['github']).equals('GitHub');
@@ -577,10 +563,12 @@ void main() {
         'features': {
           'enable_websocket': false,
           'enable_audio_input': true,
+          'tts_split_on': 'none',
         },
       });
       check(config.enableWebsocket).equals(false);
       check(config.enableAudioInput).equals(true);
+      check(config.ttsSplitOn).equals('none');
     });
 
     test('websocketOnly and pollingOnly', () {
@@ -596,10 +584,7 @@ void main() {
     test('fromJson parses OAuth providers', () {
       final config = BackendConfig.fromJson({
         'oauth': {
-          'providers': {
-            'google': 'Google',
-            'oidc': 'Corporate SSO',
-          },
+          'providers': {'google': 'Google', 'oidc': 'Corporate SSO'},
         },
       });
       check(config.oauthProviders.hasAnyProvider).isTrue();
@@ -711,10 +696,7 @@ void main() {
 
   group('SocketTransportAvailability', () {
     test('fromJson/toJson round-trip', () {
-      final json = {
-        'allowPolling': true,
-        'allowWebsocketOnly': false,
-      };
+      final json = {'allowPolling': true, 'allowWebsocketOnly': false};
 
       final avail = SocketTransportAvailability.fromJson(json);
       check(avail.allowPolling).isTrue();
