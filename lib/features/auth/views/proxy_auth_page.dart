@@ -1,7 +1,7 @@
 import 'dart:io' show Platform;
 
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -33,9 +33,9 @@ class ProxyAuthResult {
 
   /// Creates a failed result.
   const ProxyAuthResult.failed()
-      : success = false,
-        cookies = null,
-        jwtToken = null;
+    : success = false,
+      cookies = null,
+      jwtToken = null;
 
   /// Creates a successful result with captured cookies.
   const ProxyAuthResult.success({this.cookies, this.jwtToken}) : success = true;
@@ -53,6 +53,198 @@ class ProxyAuthConfig {
   final VoidCallback? onAuthComplete;
 
   const ProxyAuthConfig({required this.serverConfig, this.onAuthComplete});
+}
+
+/// Returns whether the proxy auth page should complete and pop.
+///
+/// Manual completion always proceeds. Automatic completion only waits for a JWT
+/// when the current OpenWebUI page still needs in-WebView SSO to finish.
+@visibleForTesting
+bool shouldCompleteProxyAuthCapture({
+  required bool isManual,
+  required bool shouldWaitForJwt,
+  required String? jwtToken,
+}) {
+  if (isManual || !shouldWaitForJwt) return true;
+  return hasCapturedJwtToken(jwtToken);
+}
+
+/// Returns whether a captured JWT token is present.
+@visibleForTesting
+bool hasCapturedJwtToken(String? jwtToken) {
+  return jwtToken != null && jwtToken.trim().isNotEmpty;
+}
+
+/// Returns whether automatic completion should wait for a JWT.
+///
+/// OpenWebUI's `/oauth/...` routes and `/auth` without a password field still
+/// require the WebView to stay open so OpenWebUI can finish its own auth flow.
+@visibleForTesting
+bool shouldWaitForAutomaticProxyAuthCapture({
+  required String path,
+  required bool hasPasswordField,
+}) {
+  final normalizedPath = path.toLowerCase();
+  if (normalizedPath.contains('/oauth/')) return true;
+
+  final isAuthPath =
+      normalizedPath == '/auth' || normalizedPath.startsWith('/auth/');
+  return isAuthPath && !hasPasswordField;
+}
+
+/// Returns whether automatic capture should keep requiring a JWT.
+///
+/// Once an OpenWebUI proxy flow has shown an in-WebView SSO handoff, later
+/// automatic page finishes in the same session must keep waiting for the JWT
+/// until it is captured or the user explicitly continues manually.
+@visibleForTesting
+bool shouldRequireJwtForAutomaticCapture({
+  required bool hasPendingJwtWait,
+  required bool currentPageShouldWait,
+}) {
+  return hasPendingJwtWait || currentPageShouldWait;
+}
+
+/// Capture request mode for proxy auth.
+@visibleForTesting
+enum ProxyAuthCaptureMode { automatic, manual }
+
+/// Snapshot of the page state that triggered a proxy auth capture attempt.
+@visibleForTesting
+final class ProxyAuthCaptureRequest {
+  const ProxyAuthCaptureRequest({
+    required this.mode,
+    required this.shouldWaitForJwt,
+    required this.path,
+  });
+
+  const ProxyAuthCaptureRequest.automatic({
+    required bool shouldWaitForJwt,
+    required String path,
+  }) : this(
+         mode: ProxyAuthCaptureMode.automatic,
+         shouldWaitForJwt: shouldWaitForJwt,
+         path: path,
+       );
+
+  const ProxyAuthCaptureRequest.manual()
+    : this(
+        mode: ProxyAuthCaptureMode.manual,
+        shouldWaitForJwt: false,
+        path: 'manual',
+      );
+
+  final ProxyAuthCaptureMode mode;
+  final bool shouldWaitForJwt;
+  final String path;
+
+  bool get isManual => mode == ProxyAuthCaptureMode.manual;
+
+  @override
+  bool operator ==(Object other) {
+    return other is ProxyAuthCaptureRequest &&
+        other.mode == mode &&
+        other.shouldWaitForJwt == shouldWaitForJwt &&
+        other.path == path;
+  }
+
+  @override
+  int get hashCode => Object.hash(mode, shouldWaitForJwt, path);
+}
+
+/// Result of evaluating whether a capture attempt should finish.
+@visibleForTesting
+enum ProxyAuthCaptureDecision { complete, waitForJwt, deferToQueuedRequest }
+
+/// Decides whether a capture attempt should complete, wait, or defer.
+@visibleForTesting
+ProxyAuthCaptureDecision decideProxyAuthCapture({
+  required ProxyAuthCaptureRequest activeRequest,
+  required ProxyAuthCaptureRequest? queuedRequest,
+  required String? jwtToken,
+}) {
+  if (hasCapturedJwtToken(jwtToken)) {
+    return ProxyAuthCaptureDecision.complete;
+  }
+  if (activeRequest.isManual) {
+    return ProxyAuthCaptureDecision.complete;
+  }
+  if (queuedRequest?.isManual ?? false) {
+    return ProxyAuthCaptureDecision.deferToQueuedRequest;
+  }
+  if (activeRequest.shouldWaitForJwt) {
+    return ProxyAuthCaptureDecision.waitForJwt;
+  }
+  if (queuedRequest != null) {
+    return ProxyAuthCaptureDecision.deferToQueuedRequest;
+  }
+  return shouldCompleteProxyAuthCapture(
+        isManual: activeRequest.isManual,
+        shouldWaitForJwt: activeRequest.shouldWaitForJwt,
+        jwtToken: jwtToken,
+      )
+      ? ProxyAuthCaptureDecision.complete
+      : ProxyAuthCaptureDecision.waitForJwt;
+}
+
+/// Small queue that coalesces repeated proxy capture requests.
+///
+/// Manual requests take precedence so an explicit user tap is never lost while
+/// an automatic capture attempt is already in flight.
+@visibleForTesting
+final class ProxyAuthCaptureQueue {
+  bool _inProgress = false;
+  ProxyAuthCaptureRequest? _queuedRequest;
+
+  ProxyAuthCaptureRequest? get queuedRequest => _queuedRequest;
+
+  ProxyAuthCaptureRequest? begin(ProxyAuthCaptureRequest request) {
+    if (_inProgress) {
+      _queuedRequest = switch ((_queuedRequest, request)) {
+        (ProxyAuthCaptureRequest(:final isManual), _) when isManual =>
+          _queuedRequest,
+        (_, ProxyAuthCaptureRequest(:final isManual)) when isManual => request,
+        (
+          ProxyAuthCaptureRequest(
+            mode: ProxyAuthCaptureMode.automatic,
+            :final shouldWaitForJwt,
+            :final path,
+          ),
+          ProxyAuthCaptureRequest(
+            mode: ProxyAuthCaptureMode.automatic,
+            shouldWaitForJwt: final incomingShouldWait,
+            path: final incomingPath,
+          ),
+        ) =>
+          ProxyAuthCaptureRequest.automatic(
+            shouldWaitForJwt: shouldWaitForJwt || incomingShouldWait,
+            path: incomingShouldWait ? incomingPath : path,
+          ),
+        _ => request,
+      };
+      return null;
+    }
+
+    _inProgress = true;
+    return request;
+  }
+
+  ProxyAuthCaptureRequest? finish({required bool completed}) {
+    _inProgress = false;
+    if (completed) {
+      _queuedRequest = null;
+      return null;
+    }
+
+    final nextRequest = _queuedRequest;
+    _queuedRequest = null;
+    return nextRequest;
+  }
+
+  void reset() {
+    _inProgress = false;
+    _queuedRequest = null;
+  }
 }
 
 /// Proxy Authentication page that uses a WebView to handle authentication
@@ -77,6 +269,8 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
   WebViewController? _controller;
   bool _isLoading = true;
   bool _cookiesCaptured = false;
+  final _captureQueue = ProxyAuthCaptureQueue();
+  bool _automaticCaptureRequiresJwt = false;
   String? _error;
   bool _isOnTargetServer = false;
 
@@ -183,12 +377,12 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
     if (uri.host == serverUri.host) {
       // We've reached our server - proxy auth must be complete
       _isOnTargetServer = true;
-      await _checkIfOpenWebUI();
+      await _checkIfOpenWebUI(url);
     }
   }
 
   /// Checks if we're on the OpenWebUI page and captures cookies if so.
-  Future<void> _checkIfOpenWebUI() async {
+  Future<void> _checkIfOpenWebUI(String url) async {
     if (_cookiesCaptured || !mounted) return;
 
     final controller = _controller;
@@ -197,8 +391,7 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
     try {
       // Check if this is an OpenWebUI page by looking for specific elements
       // or the /api/config endpoint being accessible
-      final result = await controller.runJavaScriptReturningResult(
-        '''
+      final result = await controller.runJavaScriptReturningResult('''
         (function() {
           // Check for OpenWebUI specific elements or title
           var isOpenWebUI = 
@@ -208,8 +401,7 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
             document.title.toLowerCase().includes('chat');
           return isOpenWebUI ? "true" : "false";
         })()
-        ''',
-      );
+        ''');
 
       if (!mounted) return;
 
@@ -221,7 +413,8 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
       // If we're on the target server, capture cookies
       // The user might be on a login page or the main page
       if (_isOnTargetServer) {
-        await _captureProxyCookies();
+        final request = await _buildAutomaticCaptureRequest(url);
+        await _requestProxyCookieCapture(request);
       }
     } catch (e) {
       DebugLogger.log(
@@ -232,7 +425,8 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
       // If detection fails but we're on target server, still try to capture
       if (_isOnTargetServer) {
         try {
-          await _captureProxyCookies();
+          final request = await _buildAutomaticCaptureRequest(url);
+          await _requestProxyCookieCapture(request);
         } catch (captureError) {
           if (!mounted) return;
           setState(() {
@@ -248,12 +442,24 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
   /// When oauth2-proxy uses trusted headers (like X-Forwarded-Email),
   /// OpenWebUI auto-authenticates the user after proxy auth. In this case,
   /// we can capture the JWT token and skip the sign-in page entirely.
-  Future<void> _captureProxyCookies() async {
+  Future<void> _requestProxyCookieCapture(
+    ProxyAuthCaptureRequest request,
+  ) async {
     if (_cookiesCaptured || !mounted) return;
 
-    // Set flag immediately to prevent race conditions from rapid taps
-    // or multiple page finish events triggering concurrent calls
-    _cookiesCaptured = true;
+    final captureRequest = _captureQueue.begin(request);
+    if (captureRequest == null) return;
+
+    await _captureProxyCookies(captureRequest);
+  }
+
+  Future<void> _captureProxyCookies(ProxyAuthCaptureRequest request) async {
+    if (_cookiesCaptured || !mounted) return;
+
+    var didComplete = false;
+    Object? pendingError;
+    StackTrace? pendingStackTrace;
+    ProxyAuthCaptureRequest? nextRequest;
 
     try {
       final serverUrl = widget.config.serverConfig.url;
@@ -278,23 +484,157 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
       // Check if OpenWebUI has already authenticated via trusted headers
       // This happens when oauth2-proxy sets X-Forwarded-Email and OpenWebUI
       // auto-creates/logs in the user
-      String? jwtToken = await _tryCaptureJwtToken();
+      final jwtToken = await _tryCaptureJwtTokenWithRetry();
+      final decision = decideProxyAuthCapture(
+        activeRequest: request,
+        queuedRequest: _captureQueue.queuedRequest,
+        jwtToken: jwtToken,
+      );
 
-      // Notify callback if provided
-      widget.config.onAuthComplete?.call();
+      switch (decision) {
+        case ProxyAuthCaptureDecision.deferToQueuedRequest:
+          DebugLogger.auth(
+            'Deferring proxy auth completion to a newer queued request',
+          );
+          break;
+        case ProxyAuthCaptureDecision.waitForJwt:
+          DebugLogger.auth(
+            'JWT token not available yet - keeping proxy auth page open',
+          );
+          break;
+        case ProxyAuthCaptureDecision.complete:
+          if (!mounted) return;
 
-      // Pop with success result, cookies, and possibly JWT token
-      if (!mounted) return;
-      context.pop(ProxyAuthResult.success(cookies: cookies, jwtToken: jwtToken));
+          _cookiesCaptured = true;
+          didComplete = true;
+
+          // Notify callback if provided.
+          widget.config.onAuthComplete?.call();
+
+          // Pop with success result, cookies, and possibly JWT token.
+          context.pop(
+            ProxyAuthResult.success(cookies: cookies, jwtToken: jwtToken),
+          );
+      }
+    } catch (e, stackTrace) {
+      pendingError = e;
+      pendingStackTrace = stackTrace;
+      DebugLogger.warning('Cookie capture failed: $e', scope: 'auth/proxy');
+    } finally {
+      nextRequest = _captureQueue.finish(
+        completed: didComplete || _cookiesCaptured,
+      );
+    }
+
+    if (nextRequest != null && !_cookiesCaptured && mounted) {
+      await _requestProxyCookieCapture(nextRequest);
+    }
+
+    if (pendingError != null &&
+        pendingStackTrace != null &&
+        !_cookiesCaptured) {
+      Error.throwWithStackTrace(pendingError, pendingStackTrace);
+    }
+  }
+
+  Future<ProxyAuthCaptureRequest> _buildAutomaticCaptureRequest(
+    String url,
+  ) async {
+    final path = Uri.tryParse(url)?.path ?? '/';
+    if (_automaticCaptureRequiresJwt) {
+      return ProxyAuthCaptureRequest.automatic(
+        shouldWaitForJwt: true,
+        path: path,
+      );
+    }
+
+    final currentPageShouldWait = await _shouldWaitForAutomaticProxyAuthCapture(
+      path,
+    );
+    final shouldWaitForJwt = shouldRequireJwtForAutomaticCapture(
+      hasPendingJwtWait: _automaticCaptureRequiresJwt,
+      currentPageShouldWait: currentPageShouldWait,
+    );
+    if (shouldWaitForJwt) {
+      _automaticCaptureRequiresJwt = true;
+    }
+
+    return ProxyAuthCaptureRequest.automatic(
+      shouldWaitForJwt: shouldWaitForJwt,
+      path: path,
+    );
+  }
+
+  Future<bool> _shouldWaitForAutomaticProxyAuthCapture(String path) async {
+    if (path.toLowerCase().contains('/oauth/')) {
+      DebugLogger.auth(
+        'Automatic proxy auth capture waiting for JWT on OAuth route: $path',
+      );
+      return true;
+    }
+
+    for (var attempt = 0; attempt < 3; attempt++) {
+      final hasPasswordField = await _currentPageHasPasswordField();
+      final shouldWait = shouldWaitForAutomaticProxyAuthCapture(
+        path: path,
+        hasPasswordField: hasPasswordField,
+      );
+
+      if (!shouldWait) {
+        DebugLogger.auth(
+          'Automatic proxy auth capture can complete without JWT on $path',
+        );
+        return false;
+      }
+
+      if (attempt < 2) {
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+        if (!mounted) return false;
+      }
+    }
+
+    DebugLogger.auth('Automatic proxy auth capture waiting for JWT on $path');
+    return true;
+  }
+
+  Future<bool> _currentPageHasPasswordField() async {
+    final controller = _controller;
+    if (controller == null || !mounted) return false;
+
+    try {
+      final result = await controller.runJavaScriptReturningResult('''
+        (function() {
+          return document.querySelector(
+            'input[type="password"], input[name="password"], #password'
+          ) !== null ? "true" : "false";
+        })()
+        ''');
+
+      if (!mounted) return false;
+      return result.toString().contains('true');
     } catch (e) {
-      // Reset flag on failure so user can retry
-      _cookiesCaptured = false;
-      DebugLogger.warning(
-        'Cookie capture failed: $e',
+      DebugLogger.log(
+        'Password field detection failed: ${e.toString().split('\n').first}',
         scope: 'auth/proxy',
       );
-      rethrow;
+      return false;
     }
+  }
+
+  Future<String?> _tryCaptureJwtTokenWithRetry() async {
+    for (var attempt = 0; attempt < 3; attempt++) {
+      final jwtToken = await _tryCaptureJwtToken();
+      if (hasCapturedJwtToken(jwtToken)) {
+        return jwtToken;
+      }
+
+      if (attempt < 2) {
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+        if (!mounted) return null;
+      }
+    }
+
+    return null;
   }
 
   /// Attempts to capture the JWT token from cookies or localStorage.
@@ -307,8 +647,7 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
 
     // Strategy 1: Check token cookie
     try {
-      final cookieResult = await controller.runJavaScriptReturningResult(
-        '''
+      final cookieResult = await controller.runJavaScriptReturningResult('''
         (function() {
           var cookies = document.cookie.split(";");
           for (var i = 0; i < cookies.length; i++) {
@@ -319,8 +658,7 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
           }
           return "";
         })()
-        ''',
-      );
+        ''');
 
       if (!mounted) return null;
 
@@ -427,6 +765,8 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
       _cookiesCaptured = false;
       _isOnTargetServer = false;
     });
+    _captureQueue.reset();
+    _automaticCaptureRequiresJwt = false;
 
     if (!mounted) return;
 
@@ -436,7 +776,7 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
   /// Manual completion button for when auto-detection doesn't work.
   Future<void> _manualComplete() async {
     try {
-      await _captureProxyCookies();
+      await _requestProxyCookieCapture(const ProxyAuthCaptureRequest.manual());
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -489,12 +829,7 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
         WebViewWidget(controller: _controller!),
         if (_isLoading) _buildLoadingOverlay(l10n),
         // Help text and manual continue button at the bottom
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: 0,
-          child: _buildHelpBanner(l10n),
-        ),
+        Positioned(left: 0, right: 0, bottom: 0, child: _buildHelpBanner(l10n)),
       ],
     );
   }
@@ -539,10 +874,9 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
             width: double.infinity,
             child: ConduitButton(
               text: l10n?.continueButton ?? 'Continue',
-              icon:
-                  Platform.isIOS
-                      ? CupertinoIcons.arrow_right
-                      : Icons.arrow_forward,
+              icon: Platform.isIOS
+                  ? CupertinoIcons.arrow_right
+                  : Icons.arrow_forward,
               onPressed: _manualComplete,
             ),
           ),
