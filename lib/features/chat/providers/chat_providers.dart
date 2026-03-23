@@ -995,8 +995,8 @@ Future<String> _preseedAssistantAndPersist(
   // Sync conversation state to establish the full message structure on the server.
   // The server's upsert only sets parentId and model - we need to set role,
   // timestamp, childrenIds, etc. for proper message rendering.
-  // Note: syncConversationMessages always sets done:true to prevent broken UI
-  // if streaming is interrupted (see api_service.dart).
+  // Streaming placeholders are intentionally persisted without `done:true`
+  // so the backend can finish them in place, matching OpenWebUI's flow.
   try {
     final api = ref.read(apiServiceProvider);
     final activeConv = ref.read(activeConversationProvider);
