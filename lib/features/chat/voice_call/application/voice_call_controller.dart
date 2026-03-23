@@ -530,7 +530,13 @@ class VoiceCallController extends _$VoiceCallController {
     _nonSpeakableFinalizationAttempts = 0;
 
     final selectedToolIds = ref.read(selectedToolIdsProvider);
-    final sendFuture = sendMessageFromService(ref, text, null, selectedToolIds);
+    final sendFuture = sendMessageFromService(
+      ref,
+      text,
+      null,
+      selectedToolIds,
+      true,
+    );
     _seedActiveAssistantMessageId();
     unawaited(sendFuture);
 

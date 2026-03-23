@@ -1647,8 +1647,9 @@ Future<void> sendMessage(
   String message,
   List<String>? attachments, [
   List<String>? toolIds,
+  bool isVoiceMode = false,
 ]) async {
-  await _sendMessageInternal(ref, message, attachments, toolIds);
+  await _sendMessageInternal(ref, message, attachments, toolIds, isVoiceMode);
 }
 
 // Service-friendly wrapper (accepts generic Ref)
@@ -1657,8 +1658,9 @@ Future<void> sendMessageFromService(
   String message,
   List<String>? attachments, [
   List<String>? toolIds,
+  bool isVoiceMode = false,
 ]) async {
-  await _sendMessageInternal(ref, message, attachments, toolIds);
+  await _sendMessageInternal(ref, message, attachments, toolIds, isVoiceMode);
 }
 
 Future<void> sendMessageWithContainer(
@@ -1666,8 +1668,15 @@ Future<void> sendMessageWithContainer(
   String message,
   List<String>? attachments, [
   List<String>? toolIds,
+  bool isVoiceMode = false,
 ]) async {
-  await _sendMessageInternal(container, message, attachments, toolIds);
+  await _sendMessageInternal(
+    container,
+    message,
+    attachments,
+    toolIds,
+    isVoiceMode,
+  );
 }
 
 // Internal send message implementation
@@ -1676,6 +1685,7 @@ Future<void> _sendMessageInternal(
   String message,
   List<String>? attachments, [
   List<String>? toolIds,
+  bool isVoiceMode = false,
 ]) async {
   final reviewerMode = ref.read(reviewerModeProvider);
   final api = ref.read(apiServiceProvider);
@@ -2213,6 +2223,7 @@ Future<void> _sendMessageInternal(
       filterIds: filterIdsForApi,
       enableWebSearch: webSearchEnabled,
       enableImageGeneration: imageGenerationEnabled,
+      isVoiceMode: isVoiceMode,
       modelItem: modelItem,
       sessionIdOverride: socketSessionId,
       toolServers: toolServers,
