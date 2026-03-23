@@ -1,20 +1,20 @@
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
-import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_plus/webview_flutter_plus.dart';
 
 import '../utils/debug_logger.dart';
 
 /// Check if WebView is supported on the current platform.
 ///
-/// webview_flutter only supports iOS and Android.
+/// Proxy/SSO auth WebViews are only supported on iOS and Android.
 bool get isWebViewSupported =>
     !kIsWeb && (Platform.isIOS || Platform.isAndroid);
 
 /// Helper for managing WebView data and cookies.
 ///
 /// This is isolated in its own file to prevent platform coupling issues
-/// when the webview_flutter package isn't available.
+/// when the WebView package isn't available.
 class WebViewCookieHelper {
   /// Clears all WebView cookies.
   ///
@@ -56,7 +56,7 @@ class WebViewCookieHelper {
 
     // Clear localStorage and cache using a temporary controller
     try {
-      final controller = WebViewController();
+      final controller = WebViewControllerPlus();
       await controller.clearLocalStorage();
       await controller.clearCache();
       DebugLogger.auth('WebView localStorage and cache cleared');
@@ -83,7 +83,7 @@ class WebViewCookieHelper {
   ///
   /// Returns a map of cookie names to values, or empty map if unavailable.
   static Future<Map<String, String>> getCookiesFromController(
-    WebViewController controller,
+    WebViewControllerPlus controller,
   ) async {
     if (!isWebViewSupported) return {};
 
@@ -94,10 +94,9 @@ class WebViewCookieHelper {
 
       final cookieString = result.toString();
       // Remove surrounding quotes if present
-      final cleaned =
-          cookieString.startsWith('"') && cookieString.endsWith('"')
-              ? cookieString.substring(1, cookieString.length - 1)
-              : cookieString;
+      final cleaned = cookieString.startsWith('"') && cookieString.endsWith('"')
+          ? cookieString.substring(1, cookieString.length - 1)
+          : cookieString;
 
       if (cleaned.isEmpty || cleaned == 'null') return {};
 
@@ -113,9 +112,7 @@ class WebViewCookieHelper {
         }
       }
 
-      DebugLogger.auth(
-        'Retrieved ${cookieMap.length} cookies from WebView',
-      );
+      DebugLogger.auth('Retrieved ${cookieMap.length} cookies from WebView');
       return cookieMap;
     } catch (e) {
       DebugLogger.warning(

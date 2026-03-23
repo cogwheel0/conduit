@@ -174,6 +174,12 @@ class _CallbackLog {
 
   void updateMessageById(String id, ChatMessage Function(ChatMessage) updater) {
     messageByIdUpdates.add((id, updater));
+    final index = messages.indexWhere((message) => message.id == id);
+    if (index == -1) {
+      return;
+    }
+    final updated = updater(messages[index]);
+    messages = [...messages.take(index), updated, ...messages.skip(index + 1)];
   }
 
   void finishStreaming() {
@@ -362,6 +368,62 @@ void main() {
       check(log.appendedChunks).deepEquals(['Hello', ' world']);
       check(log.finishCount).equals(1);
     });
+
+    test(
+      'httpStream converts reasoning deltas into upstream details blocks',
+      () async {
+        final log = _CallbackLog(
+          initialMessages: fakeStreamingAssistantMessages(content: 'Intro'),
+        );
+        final byteStream = Stream<List<int>>.fromIterable([
+          _sseFrame({
+            'choices': [
+              {
+                'delta': {'reasoning_content': 'Plan\nFirst step'},
+              },
+            ],
+          }),
+          _sseFrame({
+            'choices': [
+              {
+                'delta': {'content': 'Answer'},
+              },
+            ],
+          }),
+          _sseDone(),
+        ]);
+
+        _attach(
+          session: ChatCompletionSession.httpStream(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            byteStream: byteStream,
+            abort: () async {},
+          ),
+          log: log,
+        );
+
+        await pumpMicrotasks();
+        await pumpMicrotasks();
+        await pumpMicrotasks();
+
+        final finalContent = log.messages.last.content;
+
+        check(log.appendedChunks).isEmpty();
+        check(log.replacedContents.first).contains('done="false"');
+        check(finalContent).equals(
+          'Intro\n'
+          '<details type="reasoning" done="true" duration="0">\n'
+          '<summary>Thought for 0 seconds</summary>\n'
+          '&gt; Plan\n'
+          '&gt; First step\n'
+          '</details>\n'
+          'Answer',
+        );
+        check(finalContent).not((value) => value.contains('<think>'));
+        check(log.finishCount).equals(1);
+      },
+    );
 
     // -----------------------------------------------------------------------
     // 2. taskSocket sessions consume socket deltas and finish once on done
@@ -1002,6 +1064,48 @@ void main() {
       check(urls).deepEquals([
         'https://example.com/first.png',
         'https://example.com/second.png',
+      ]);
+    });
+
+    test('chat:message:embeds replaces embeds from string payloads', () async {
+      final log = _CallbackLog(
+        initialMessages: [
+          ChatMessage(
+            id: 'msg-1',
+            role: 'assistant',
+            content: '',
+            timestamp: DateTime.now(),
+            isStreaming: true,
+            embeds: const [
+              {'src': '<div>stale</div>'},
+            ],
+          ),
+        ],
+      );
+      final registrar = FakeSocketInjector();
+
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        socketService: _MockSocketService(registrar),
+      );
+
+      await pumpMicrotasks();
+
+      registrar.emitChatEvent('chat:message:embeds', {
+        'embeds': ['<div>fresh</div>'],
+      }, messageId: 'msg-1');
+
+      await pumpMicrotasks();
+
+      final lastMsg = log.messages.last;
+      check(lastMsg.embeds).isNotNull();
+      check(lastMsg.embeds!).deepEquals([
+        {'src': '<div>fresh</div>'},
       ]);
     });
 

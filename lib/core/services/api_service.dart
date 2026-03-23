@@ -22,6 +22,7 @@ import '../error/api_error_interceptor.dart';
 // Tool-call details are parsed in the UI layer to render collapsible blocks
 import 'connectivity_service.dart';
 import '../utils/debug_logger.dart';
+import '../utils/embed_utils.dart';
 import 'conversation_parsing.dart';
 import 'worker_manager.dart';
 
@@ -1114,6 +1115,10 @@ class ApiService {
     return sanitized.isNotEmpty ? sanitized : null;
   }
 
+  List<String>? _sanitizeEmbedsForWebUI(List<Map<String, dynamic>>? embeds) {
+    return sanitizeEmbedsForWebUi(embeds);
+  }
+
   // Create new conversation using OpenWebUI API
   Future<Conversation> createConversation({
     required String title,
@@ -1133,6 +1138,7 @@ class ApiService {
     String? lastUserId;
     for (final msg in messages) {
       final messageId = msg.id;
+      final sanitizedEmbeds = _sanitizeEmbedsForWebUI(msg.embeds);
 
       // Choose parent id (branch assistants from last user)
       final parentId = msg.role == 'assistant'
@@ -1159,6 +1165,7 @@ class ApiService {
           'attachment_ids': List<String>.from(msg.attachmentIds!),
         if (_sanitizeFilesForWebUI(msg.files) != null)
           'files': _sanitizeFilesForWebUI(msg.files),
+        if (sanitizedEmbeds != null) 'embeds': sanitizedEmbeds,
         // Assistant message extended fields
         if (msg.statusHistory.isNotEmpty)
           'statusHistory': msg.statusHistory.map((s) => s.toJson()).toList(),
@@ -1200,6 +1207,7 @@ class ApiService {
           'attachment_ids': List<String>.from(msg.attachmentIds!),
         if (_sanitizeFilesForWebUI(msg.files) != null)
           'files': _sanitizeFilesForWebUI(msg.files),
+        if (sanitizedEmbeds != null) 'embeds': sanitizedEmbeds,
         // Assistant message extended fields
         if (msg.statusHistory.isNotEmpty)
           'statusHistory': msg.statusHistory.map((s) => s.toJson()).toList(),
@@ -1287,6 +1295,7 @@ class ApiService {
       // Use the properly formatted files array for WebUI display
       // The msg.files array already contains all attachments in the correct format
       final sanitizedFiles = _sanitizeFilesForWebUI(msg.files);
+      final sanitizedEmbeds = _sanitizeEmbedsForWebUI(msg.embeds);
 
       // Determine parent id: allow explicit parent override via metadata
       final explicitParent = msg.metadata != null
@@ -1317,6 +1326,7 @@ class ApiService {
         if (msg.attachmentIds != null && msg.attachmentIds!.isNotEmpty)
           'attachment_ids': List<String>.from(msg.attachmentIds!),
         'files': ?sanitizedFiles,
+        if (sanitizedEmbeds != null) 'embeds': sanitizedEmbeds,
         // Mirror status updates, follow-ups, code executions, sources, and usage
         if (msg.statusHistory.isNotEmpty)
           'statusHistory': msg.statusHistory.map((s) => s.toJson()).toList(),
@@ -1359,6 +1369,7 @@ class ApiService {
         if (msg.attachmentIds != null && msg.attachmentIds!.isNotEmpty)
           'attachment_ids': List<String>.from(msg.attachmentIds!),
         'files': ?sanitizedArrayFiles,
+        if (sanitizedEmbeds != null) 'embeds': sanitizedEmbeds,
         // Mirror status updates, follow-ups, code executions, sources, and usage
         if (msg.statusHistory.isNotEmpty)
           'statusHistory': msg.statusHistory.map((s) => s.toJson()).toList(),
@@ -1401,6 +1412,8 @@ class ApiService {
               'modelIdx': 0,
               'done': true,
               if (ver.files != null) 'files': _sanitizeFilesForWebUI(ver.files),
+              if (_sanitizeEmbedsForWebUI(ver.embeds) != null)
+                'embeds': _sanitizeEmbedsForWebUI(ver.embeds),
               // Mirror follow-ups, code executions, sources, and errors for versions
               if (ver.followUps.isNotEmpty)
                 'followUps': List<String>.from(ver.followUps),

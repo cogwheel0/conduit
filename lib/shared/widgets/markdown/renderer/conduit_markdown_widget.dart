@@ -3,6 +3,7 @@ import 'package:markdown/markdown.dart' as md;
 
 import '../../../../core/models/chat_message.dart';
 import 'block_renderer.dart';
+import 'details_block_syntax.dart';
 import 'inline_renderer.dart';
 import 'latex_preprocessor.dart';
 import 'markdown_style.dart';
@@ -90,6 +91,7 @@ class _ConduitMarkdownWidgetState extends State<ConduitMarkdownWidget> {
 
     final document = md.Document(
       extensionSet: md.ExtensionSet.gitHubWeb,
+      blockSyntaxes: const [DetailsBlockSyntax()],
       encodeHtml: false,
     );
     _nodes = document.parse(preprocessed);

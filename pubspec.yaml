@@ -32,7 +32,7 @@ dependencies:
   # UI Components - Markdown Rendering
   cached_network_image: ^3.3.1
   markdown: ^7.3.0
-  webview_flutter: ^4.7.0
+  webview_flutter_plus: ^0.4.20
   socket_io_client: ^3.1.2
   yaml: ^3.1.2
   

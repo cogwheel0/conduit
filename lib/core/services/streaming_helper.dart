@@ -16,6 +16,7 @@ import 'navigation_service.dart';
 import '../../shared/widgets/themed_dialogs.dart';
 import '../../shared/theme/theme_extensions.dart';
 import '../utils/debug_logger.dart';
+import '../utils/embed_utils.dart';
 import '../utils/openwebui_source_parser.dart';
 import 'openwebui_stream_parser.dart';
 import 'streaming_response_controller.dart';
@@ -46,6 +47,39 @@ final _imageFilePattern = RegExp(
   r'https?://[^\s]+\.(jpg|jpeg|png|gif|webp)$',
   caseSensitive: false,
 );
+const HtmlEscape _htmlContentEscape = HtmlEscape();
+
+String _buildStreamingReasoningDetails(
+  String reasoningContent, {
+  required bool done,
+  int duration = 0,
+}) {
+  final normalizedReasoning = reasoningContent.trim();
+  final escapedDisplay = normalizedReasoning.isEmpty
+      ? ''
+      : _htmlContentEscape.convert(
+          LineSplitter.split(
+            normalizedReasoning,
+          ).map((line) => line.startsWith('>') ? line : '> $line').join('\n'),
+        );
+  if (done) {
+    return '<details type="reasoning" done="true" duration="$duration">\n'
+        '<summary>Thought for $duration seconds</summary>\n'
+        '$escapedDisplay\n'
+        '</details>\n';
+  }
+  return '<details type="reasoning" done="false">\n'
+      '<summary>Thinking…</summary>\n'
+      '$escapedDisplay\n'
+      '</details>\n';
+}
+
+String _prependReasoningDetails(String prefix, String reasoningDetails) {
+  if (prefix.isEmpty || prefix.endsWith('\n')) {
+    return '$prefix$reasoningDetails';
+  }
+  return '$prefix\n$reasoningDetails';
+}
 
 List<Map<String, dynamic>> _collectImageReferencesWorker(String content) {
   final collected = <Map<String, dynamic>>[];
@@ -1530,17 +1564,14 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         // Rich UI embed objects attached to this message (e.g. HTML tool
         // results). Mirrors OpenWebUI's Chat.svelte handler.
         try {
-          final embeds = payload['embeds'];
-          if (embeds is List && embeds.isNotEmpty) {
+          final rawEmbeds = payload is Map ? payload['embeds'] : payload;
+          final shouldReplaceEmbeds = rawEmbeds is List;
+          final embeds = normalizeEmbedList(rawEmbeds);
+          if (shouldReplaceEmbeds || embeds.isNotEmpty) {
             final targetId = _resolveTargetMessageId(messageId, getMessages);
             if (targetId != null) {
               updateMessageById(targetId, (current) {
-                final existing = current.embeds ?? <Map<String, dynamic>>[];
-                final merged = <Map<String, dynamic>>[
-                  ...existing,
-                  ...embeds.whereType<Map<String, dynamic>>(),
-                ];
-                return current.copyWith(embeds: merged);
+                return current.copyWith(embeds: embeds);
               });
             }
           }
@@ -1761,34 +1792,58 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     case ChatCompletionTransport.httpStream:
       // Parse the SSE byte stream directly via the typed parser.
       bool receivedDone = false;
-      // Track whether we're inside a reasoning block so we can wrap
-      // raw `reasoning_content` deltas in `<think>` tags for the
-      // ReasoningParser. The taskSocket transport doesn't need this
-      // because the backend middleware serializes reasoning into
-      // `<details type="reasoning">` HTML before emitting via socket.
+      // Track the current upstream-style reasoning details block so each
+      // delta replaces the prior complete block instead of appending raw tags.
       bool inReasoningBlock = false;
+      var renderedHttpContent = (() {
+        final messages = getMessages();
+        if (messages.isEmpty || messages.last.role != 'assistant') {
+          return '';
+        }
+        return messages.last.content;
+      })();
+      var reasoningPrefix = '';
+      var reasoningContent = '';
       final sub = parseOpenWebUIStream(session.byteStream!).listen(
         (update) {
           try {
             switch (update) {
               case OpenWebUIContentDelta(:final content):
-                // Close any open reasoning block before regular content.
                 if (inReasoningBlock) {
                   inReasoningBlock = false;
-                  appendToLastMessage('\n</think>\n');
+                  renderedHttpContent =
+                      _prependReasoningDetails(
+                        reasoningPrefix,
+                        _buildStreamingReasoningDetails(
+                          reasoningContent,
+                          done: true,
+                        ),
+                      ) +
+                      content;
+                  reasoningPrefix = '';
+                  reasoningContent = '';
+                  replaceLastMessageContent(renderedHttpContent);
+                } else {
+                  renderedHttpContent += content;
+                  appendToLastMessage(content);
                 }
-                appendToLastMessage(content);
                 updateImagesFromCurrentContent();
 
               case OpenWebUIReasoningDelta(:final content):
-                // Wrap raw reasoning_content in <think> tags so the
-                // ReasoningParser renders it as a collapsible thinking
-                // tile instead of regular text.
                 if (!inReasoningBlock) {
                   inReasoningBlock = true;
-                  appendToLastMessage('\n<think>\n');
+                  reasoningPrefix = renderedHttpContent;
+                  reasoningContent = '';
                 }
-                appendToLastMessage(content);
+                reasoningContent += content;
+                renderedHttpContent = _prependReasoningDetails(
+                  reasoningPrefix,
+                  _buildStreamingReasoningDetails(
+                    reasoningContent,
+                    done: false,
+                  ),
+                );
+                replaceLastMessageContent(renderedHttpContent);
 
               case OpenWebUIOutputUpdate(:final output):
                 // Store structured output items from backend middleware.
@@ -1830,10 +1885,18 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                 );
 
               case OpenWebUIStreamDone():
-                // Close any open reasoning block before finishing.
                 if (inReasoningBlock) {
                   inReasoningBlock = false;
-                  appendToLastMessage('\n</think>\n');
+                  renderedHttpContent = _prependReasoningDetails(
+                    reasoningPrefix,
+                    _buildStreamingReasoningDetails(
+                      reasoningContent,
+                      done: true,
+                    ),
+                  );
+                  reasoningPrefix = '';
+                  reasoningContent = '';
+                  replaceLastMessageContent(renderedHttpContent);
                 }
                 receivedDone = true;
                 wrappedFinishStreaming();

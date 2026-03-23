@@ -5,7 +5,7 @@ import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_plus/webview_flutter_plus.dart';
 
 import '../../../core/auth/native_cookie_manager.dart';
 import '../../../core/auth/webview_cookie_helper.dart';
@@ -266,7 +266,7 @@ class ProxyAuthPage extends ConsumerStatefulWidget {
 }
 
 class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
-  WebViewController? _controller;
+  WebViewControllerPlus? _controller;
   bool _isLoading = true;
   bool _cookiesCaptured = false;
   final _captureQueue = ProxyAuthCaptureQueue();
@@ -305,7 +305,7 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
     final serverUrl = widget.config.serverConfig.url;
     DebugLogger.auth('Initializing Proxy Auth WebView for $serverUrl');
 
-    final controller = WebViewController()
+    final controller = WebViewControllerPlus()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setNavigationDelegate(
         NavigationDelegate(

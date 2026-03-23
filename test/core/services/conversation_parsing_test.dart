@@ -71,19 +71,18 @@ void main() {
         final after = DateTime.now();
 
         final created = DateTime.parse(result['createdAt'] as String);
-        check(created.millisecondsSinceEpoch)
-            .isGreaterOrEqual(before.millisecondsSinceEpoch);
-        check(created.millisecondsSinceEpoch)
-            .isLessOrEqual(after.millisecondsSinceEpoch);
+        check(
+          created.millisecondsSinceEpoch,
+        ).isGreaterOrEqual(before.millisecondsSinceEpoch);
+        check(
+          created.millisecondsSinceEpoch,
+        ).isLessOrEqual(after.millisecondsSinceEpoch);
       });
     });
 
     group('extracts model', () {
       test('from top-level model field', () {
-        final result = parseConversationSummary({
-          'id': '1',
-          'model': 'gpt-4',
-        });
+        final result = parseConversationSummary({'id': '1', 'model': 'gpt-4'});
 
         check(result['model']).equals('gpt-4');
       });
@@ -96,9 +95,7 @@ void main() {
           'tags': ['tag1', 'tag2'],
         });
 
-        check((result['tags'] as List<String>)).deepEquals(
-          ['tag1', 'tag2'],
-        );
+        check((result['tags'] as List<String>)).deepEquals(['tag1', 'tag2']);
       });
 
       test('empty when not present', () {
@@ -150,9 +147,7 @@ void main() {
           },
         });
 
-        check(
-          (result['messages'] as List<Map<String, dynamic>>),
-        ).isEmpty();
+        check((result['messages'] as List<Map<String, dynamic>>)).isEmpty();
       });
     });
   });
@@ -175,8 +170,7 @@ void main() {
           },
         });
 
-        final messages =
-            result['messages'] as List<Map<String, dynamic>>;
+        final messages = result['messages'] as List<Map<String, dynamic>>;
         check(messages).length.equals(1);
         check(messages.first['role']).equals('user');
         check(messages.first['content']).equals('Hello');
@@ -195,8 +189,7 @@ void main() {
           ],
         });
 
-        final messages =
-            result['messages'] as List<Map<String, dynamic>>;
+        final messages = result['messages'] as List<Map<String, dynamic>>;
         check(messages).length.equals(1);
         check(messages.first['content']).equals('Hi there');
       });
@@ -228,8 +221,7 @@ void main() {
           },
         });
 
-        final messages =
-            result['messages'] as List<Map<String, dynamic>>;
+        final messages = result['messages'] as List<Map<String, dynamic>>;
         check(messages).length.equals(2);
         check(messages[0]['role']).equals('user');
         check(messages[0]['content']).equals('Hello');
@@ -254,8 +246,7 @@ void main() {
           },
         });
 
-        final messages =
-            result['messages'] as List<Map<String, dynamic>>;
+        final messages = result['messages'] as List<Map<String, dynamic>>;
         check(messages.first['content']).equals('plain text content');
       });
 
@@ -277,9 +268,34 @@ void main() {
           },
         });
 
-        final messages =
-            result['messages'] as List<Map<String, dynamic>>;
+        final messages = result['messages'] as List<Map<String, dynamic>>;
         check(messages.first['content']).equals('Hello world');
+      });
+
+      test('normalizes assistant embeds from message payloads', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'msg-1',
+                'role': 'assistant',
+                'content': '',
+                'timestamp': 1700000000,
+                'embeds': [
+                  '<div>embed</div>',
+                  {'html': '<section>card</section>'},
+                ],
+              },
+            ],
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        check(messages.first['embeds'] as List<Object?>).deepEquals([
+          {'src': '<div>embed</div>'},
+          {'html': '<section>card</section>', 'src': '<section>card</section>'},
+        ]);
       });
     });
 
@@ -299,8 +315,7 @@ void main() {
           },
         });
 
-        final messages =
-            result['messages'] as List<Map<String, dynamic>>;
+        final messages = result['messages'] as List<Map<String, dynamic>>;
         check(messages.first['role']).equals('system');
       });
 
@@ -320,8 +335,7 @@ void main() {
           },
         });
 
-        final messages =
-            result['messages'] as List<Map<String, dynamic>>;
+        final messages = result['messages'] as List<Map<String, dynamic>>;
         check(messages.first['model']).equals('gpt-4');
       });
 
@@ -340,10 +354,8 @@ void main() {
           },
         });
 
-        final messages =
-            result['messages'] as List<Map<String, dynamic>>;
-        final ts =
-            DateTime.parse(messages.first['timestamp'] as String);
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        final ts = DateTime.parse(messages.first['timestamp'] as String);
         check(ts.millisecondsSinceEpoch).equals(1700000000000);
       });
     });
@@ -386,10 +398,8 @@ void main() {
           },
         });
 
-        final messages =
-            result['messages'] as List<Map<String, dynamic>>;
-        final error =
-            messages.first['error'] as Map<String, dynamic>;
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        final error = messages.first['error'] as Map<String, dynamic>;
         check(error['content']).equals('Something went wrong');
       });
 
@@ -409,10 +419,8 @@ void main() {
           },
         });
 
-        final messages =
-            result['messages'] as List<Map<String, dynamic>>;
-        final error =
-            messages.first['error'] as Map<String, dynamic>;
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        final error = messages.first['error'] as Map<String, dynamic>;
         check(error['content']).isNull();
       });
 
@@ -431,8 +439,7 @@ void main() {
           },
         });
 
-        final messages =
-            result['messages'] as List<Map<String, dynamic>>;
+        final messages = result['messages'] as List<Map<String, dynamic>>;
         check(messages.first['error']).isNull();
       });
 
@@ -452,10 +459,8 @@ void main() {
           },
         });
 
-        final messages =
-            result['messages'] as List<Map<String, dynamic>>;
-        final error =
-            messages.first['error'] as Map<String, dynamic>;
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        final error = messages.first['error'] as Map<String, dynamic>;
         check(error['content']).equals('Network error');
       });
     });
@@ -466,9 +471,7 @@ void main() {
 
         check(result['id']).equals('');
         check(result['title']).equals('Chat');
-        check(
-          (result['messages'] as List<Map<String, dynamic>>),
-        ).isEmpty();
+        check((result['messages'] as List<Map<String, dynamic>>)).isEmpty();
       });
     });
   });

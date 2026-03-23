@@ -3,16 +3,13 @@ import 'package:markdown/markdown.dart' as md;
 
 import '../../../theme/theme_extensions.dart';
 import '../markdown_config.dart';
+import 'details_block_widget.dart';
 import 'inline_renderer.dart';
 import 'latex_preprocessor.dart';
 import 'markdown_style.dart';
 
 /// Signature for a builder that creates image widgets.
-typedef ImageBuilder = Widget Function(
-  String src,
-  String? alt,
-  String? title,
-);
+typedef ImageBuilder = Widget Function(String src, String? alt, String? title);
 
 /// Renders markdown AST block-level nodes as Flutter
 /// widgets.
@@ -84,9 +81,7 @@ class BlockRenderer {
   Widget? _renderTextNode(md.Text node) {
     final text = node.text.trim();
     if (text.isEmpty) return null;
-    return Text.rich(
-      inlineRenderer.render([node]),
-    );
+    return Text.rich(inlineRenderer.render([node]));
   }
 
   Widget? _renderElement(md.Element element) {
@@ -107,6 +102,7 @@ class BlockRenderer {
       'hr' => _renderHorizontalRule(),
       'div' => _renderDiv(element),
       'section' => _renderSection(element),
+      'details' => _renderDetails(element),
       'img' => _renderBlockImage(element),
       _ => _renderFallback(element),
     };
@@ -118,9 +114,7 @@ class BlockRenderer {
     final singleImage = _extractSingleImage(element);
     if (singleImage != null) {
       return Padding(
-        padding: EdgeInsets.only(
-          bottom: style.paragraphSpacing,
-        ),
+        padding: EdgeInsets.only(bottom: style.paragraphSpacing),
         child: _renderBlockImage(singleImage),
       );
     }
@@ -131,12 +125,8 @@ class BlockRenderer {
     }
 
     return Padding(
-      padding: EdgeInsets.only(
-        bottom: style.paragraphSpacing,
-      ),
-      child: Text.rich(
-        inlineRenderer.render(children),
-      ),
+      padding: EdgeInsets.only(bottom: style.paragraphSpacing),
+      child: Text.rich(inlineRenderer.render(children)),
     );
   }
 
@@ -163,10 +153,7 @@ class BlockRenderer {
             children,
             parentStyle: style.headingStyle(level),
           )
-        : TextSpan(
-            text: element.textContent,
-            style: style.headingStyle(level),
-          );
+        : TextSpan(text: element.textContent, style: style.headingStyle(level));
 
     return Padding(
       padding: EdgeInsets.only(
@@ -181,23 +168,60 @@ class BlockRenderer {
 
   Widget _renderCodeBlock(md.Element element) {
     final codeElement = _extractCodeChild(element);
-    final language =
-        _extractLanguage(codeElement) ?? '';
-    final code =
-        (codeElement ?? element).textContent;
+    final language = _extractLanguage(codeElement) ?? '';
+    final code = (codeElement ?? element).textContent;
+
+    if (language == 'mermaid') {
+      return Padding(
+        padding: EdgeInsets.symmetric(vertical: style.codeBlockSpacing),
+        child: ConduitMarkdown.buildMermaidBlock(context, code),
+      );
+    }
+
+    if (language == 'html' && ConduitMarkdown.containsChartJs(code)) {
+      return Padding(
+        padding: EdgeInsets.symmetric(vertical: style.codeBlockSpacing),
+        child: ConduitMarkdown.buildChartJsBlock(context, code),
+      );
+    }
 
     final conduitTheme = context.conduitTheme;
+    final previewable = ConduitMarkdown.isPreviewableCodeBlock(language, code);
+    final inlinePreview =
+        previewable &&
+        ConduitMarkdown.shouldInlinePreviewCodeBlock(language, code);
 
-    return Padding(
-      padding: EdgeInsets.symmetric(
-        vertical: style.codeBlockSpacing,
-      ),
+    final codeBlock = Padding(
+      padding: EdgeInsets.symmetric(vertical: style.codeBlockSpacing),
       child: ConduitMarkdown.buildCodeBlock(
         context: context,
         code: code,
         language: language,
         theme: conduitTheme,
+        onPreview: previewable
+            ? () => ConduitMarkdown.showCodePreviewSheet(
+                context,
+                code: code,
+                language: language,
+              )
+            : null,
       ),
+    );
+
+    if (!inlinePreview) {
+      return codeBlock;
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ConduitMarkdown.buildInlineCodePreview(
+          context,
+          code: code,
+          language: language,
+        ),
+        codeBlock,
+      ],
     );
   }
 
@@ -240,16 +264,11 @@ class BlockRenderer {
     );
 
     return Padding(
-      padding: EdgeInsets.symmetric(
-        vertical: style.blockquoteSpacing,
-      ),
+      padding: EdgeInsets.symmetric(vertical: style.blockquoteSpacing),
       child: Container(
         decoration: BoxDecoration(
           border: Border(
-            left: BorderSide(
-              color: style.blockquoteBorderColor,
-              width: 2,
-            ),
+            left: BorderSide(color: style.blockquoteBorderColor, width: 2),
           ),
         ),
         padding: const EdgeInsets.only(left: 12),
@@ -272,9 +291,7 @@ class BlockRenderer {
       }
     }
     return Padding(
-      padding: EdgeInsets.only(
-        bottom: style.paragraphSpacing,
-      ),
+      padding: EdgeInsets.only(bottom: style.paragraphSpacing),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: items,
@@ -286,8 +303,7 @@ class BlockRenderer {
 
   Widget _renderOrderedList(md.Element element) {
     final startAttr = element.attributes['start'];
-    final start =
-        startAttr != null ? (int.tryParse(startAttr) ?? 1) : 1;
+    final start = startAttr != null ? (int.tryParse(startAttr) ?? 1) : 1;
 
     final children = element.children ?? [];
     final items = <Widget>[];
@@ -299,9 +315,7 @@ class BlockRenderer {
       }
     }
     return Padding(
-      padding: EdgeInsets.only(
-        bottom: style.paragraphSpacing,
-      ),
+      padding: EdgeInsets.only(bottom: style.paragraphSpacing),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: items,
@@ -311,10 +325,7 @@ class BlockRenderer {
 
   // -- List item --
 
-  Widget _renderListItem(
-    md.Element element,
-    String marker,
-  ) {
+  Widget _renderListItem(md.Element element, String marker) {
     final children = element.children;
     final hasBlocks = _containsBlockElements(children);
 
@@ -330,30 +341,19 @@ class BlockRenderer {
       );
       content = inner.renderBlocks(children);
     } else if (children != null && children.isNotEmpty) {
-      content = Text.rich(
-        inlineRenderer.render(children),
-      );
+      content = Text.rich(inlineRenderer.render(children));
     } else {
-      content = Text(
-        element.textContent,
-        style: style.body,
-      );
+      content = Text(element.textContent, style: style.body);
     }
 
     return Padding(
-      padding: EdgeInsets.only(
-        bottom: style.listItemSpacing,
-      ),
+      padding: EdgeInsets.only(bottom: style.listItemSpacing),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
             width: 24,
-            child: Text(
-              marker,
-              style: style.body,
-              textAlign: TextAlign.center,
-            ),
+            child: Text(marker, style: style.body, textAlign: TextAlign.center),
           ),
           Expanded(child: content),
         ],
@@ -366,12 +366,23 @@ class BlockRenderer {
   bool _containsBlockElements(List<md.Node>? nodes) {
     if (nodes == null) return false;
     const blockTags = {
-      'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-      'ul', 'ol', 'pre', 'blockquote', 'table', 'hr',
+      'p',
+      'h1',
+      'h2',
+      'h3',
+      'h4',
+      'h5',
+      'h6',
+      'ul',
+      'ol',
+      'pre',
+      'blockquote',
+      'table',
+      'hr',
+      'details',
     };
     for (final node in nodes) {
-      if (node is md.Element &&
-          blockTags.contains(node.tag)) {
+      if (node is md.Element && blockTags.contains(node.tag)) {
         return true;
       }
     }
@@ -396,20 +407,14 @@ class BlockRenderer {
     if (columns.isEmpty) return const SizedBox.shrink();
 
     return Padding(
-      padding: EdgeInsets.symmetric(
-        vertical: style.tableSpacing,
-      ),
+      padding: EdgeInsets.symmetric(vertical: style.tableSpacing),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: DataTable(
-          headingRowColor: WidgetStatePropertyAll(
-            style.tableHeaderBackground,
-          ),
+          headingRowColor: WidgetStatePropertyAll(style.tableHeaderBackground),
           border: TableBorder.all(
             color: style.tableBorderColor,
-            borderRadius: BorderRadius.circular(
-              style.tableRadius,
-            ),
+            borderRadius: BorderRadius.circular(style.tableRadius),
           ),
           columns: columns,
           rows: rows,
@@ -418,10 +423,7 @@ class BlockRenderer {
     );
   }
 
-  void _parseTableHead(
-    md.Element thead,
-    List<DataColumn> columns,
-  ) {
+  void _parseTableHead(md.Element thead, List<DataColumn> columns) {
     for (final row in thead.children ?? <md.Node>[]) {
       if (row is! md.Element || row.tag != 'tr') continue;
       for (final cell in row.children ?? <md.Node>[]) {
@@ -430,29 +432,21 @@ class BlockRenderer {
         final children = cell.children;
         columns.add(
           DataColumn(
-            label: (children != null &&
-                    children.isNotEmpty)
+            label: (children != null && children.isNotEmpty)
                 ? Text.rich(
                     inlineRenderer.render(
                       children,
                       parentStyle: style.tableHeader,
                     ),
                   )
-                : Text(
-                    cell.textContent,
-                    style: style.tableHeader,
-                  ),
+                : Text(cell.textContent, style: style.tableHeader),
           ),
         );
       }
     }
   }
 
-  void _parseTableBody(
-    md.Element tbody,
-    List<DataRow> rows,
-    int columnCount,
-  ) {
+  void _parseTableBody(md.Element tbody, List<DataRow> rows, int columnCount) {
     for (final row in tbody.children ?? <md.Node>[]) {
       if (row is! md.Element || row.tag != 'tr') continue;
       final cells = <DataCell>[];
@@ -469,10 +463,7 @@ class BlockRenderer {
                       parentStyle: style.tableCell,
                     ),
                   )
-                : Text(
-                    cell.textContent,
-                    style: style.tableCell,
-                  ),
+                : Text(cell.textContent, style: style.tableCell),
           ),
         );
       }
@@ -517,9 +508,7 @@ class BlockRenderer {
     // The first child is typically a <p> containing
     // the alert title marker.
     for (final child in children) {
-      if (child is md.Element &&
-          child.tag == 'p' &&
-          titleText == null) {
+      if (child is md.Element && child.tag == 'p' && titleText == null) {
         titleText = _extractAlertTitle(child, alertType);
         // Remaining paragraph content after the title
         // marker is part of the body.
@@ -540,17 +529,10 @@ class BlockRenderer {
     );
 
     return Padding(
-      padding: EdgeInsets.symmetric(
-        vertical: style.blockquoteSpacing,
-      ),
+      padding: EdgeInsets.symmetric(vertical: style.blockquoteSpacing),
       child: Container(
         decoration: BoxDecoration(
-          border: Border(
-            left: BorderSide(
-              color: config.color,
-              width: 3,
-            ),
-          ),
+          border: Border(left: BorderSide(color: config.color, width: 3)),
         ),
         padding: const EdgeInsets.only(left: 12),
         child: Column(
@@ -558,11 +540,7 @@ class BlockRenderer {
           children: [
             Row(
               children: [
-                Icon(
-                  config.icon,
-                  color: config.color,
-                  size: 18,
-                ),
+                Icon(config.icon, color: config.color, size: 18),
                 const SizedBox(width: 6),
                 Text(
                   titleText ?? config.label,
@@ -573,8 +551,7 @@ class BlockRenderer {
                 ),
               ],
             ),
-            if (contentNodes.isNotEmpty)
-              inner.renderBlocks(contentNodes),
+            if (contentNodes.isNotEmpty) inner.renderBlocks(contentNodes),
           ],
         ),
       ),
@@ -582,13 +559,7 @@ class BlockRenderer {
   }
 
   String _parseAlertType(String cls) {
-    const types = [
-      'note',
-      'tip',
-      'important',
-      'warning',
-      'caution',
-    ];
+    const types = ['note', 'tip', 'important', 'warning', 'caution'];
     for (final type in types) {
       if (cls.contains('markdown-alert-$type')) {
         return type;
@@ -600,30 +571,30 @@ class BlockRenderer {
   _AlertConfig _alertConfig(String type) {
     return switch (type) {
       'tip' => const _AlertConfig(
-          color: Colors.green,
-          icon: Icons.lightbulb_outline,
-          label: 'Tip',
-        ),
+        color: Colors.green,
+        icon: Icons.lightbulb_outline,
+        label: 'Tip',
+      ),
       'important' => const _AlertConfig(
-          color: Colors.purple,
-          icon: Icons.priority_high,
-          label: 'Important',
-        ),
+        color: Colors.purple,
+        icon: Icons.priority_high,
+        label: 'Important',
+      ),
       'warning' => const _AlertConfig(
-          color: Colors.amber,
-          icon: Icons.warning_amber,
-          label: 'Warning',
-        ),
+        color: Colors.amber,
+        icon: Icons.warning_amber,
+        label: 'Warning',
+      ),
       'caution' => const _AlertConfig(
-          color: Colors.red,
-          icon: Icons.error_outline,
-          label: 'Caution',
-        ),
+        color: Colors.red,
+        icon: Icons.error_outline,
+        label: 'Caution',
+      ),
       _ => const _AlertConfig(
-          color: Colors.blue,
-          icon: Icons.info_outline,
-          label: 'Note',
-        ),
+        color: Colors.blue,
+        icon: Icons.info_outline,
+        label: 'Note',
+      ),
     };
   }
 
@@ -637,10 +608,7 @@ class BlockRenderer {
     '[!CAUTION]',
   ];
 
-  String? _extractAlertTitle(
-    md.Element paragraph,
-    String type,
-  ) {
+  String? _extractAlertTitle(md.Element paragraph, String type) {
     final children = paragraph.children;
     if (children == null || children.isEmpty) return null;
 
@@ -651,9 +619,7 @@ class BlockRenderer {
 
     for (final marker in _alertMarkers) {
       if (text.startsWith(marker)) {
-        return marker
-            .replaceAll('[!', '')
-            .replaceAll(']', '');
+        return marker.replaceAll('[!', '').replaceAll(']', '');
       }
     }
     return null;
@@ -663,9 +629,7 @@ class BlockRenderer {
   /// [paragraph] and returns the remaining content as a
   /// new paragraph element, preserving inline formatting
   /// (bold, italic, links) in subsequent child nodes.
-  md.Element? _remainingAlertContent(
-    md.Element paragraph,
-  ) {
+  md.Element? _remainingAlertContent(md.Element paragraph) {
     final children = paragraph.children;
     if (children == null || children.isEmpty) return null;
 
@@ -675,8 +639,7 @@ class BlockRenderer {
     final text = firstChild.text.trim();
     for (final marker in _alertMarkers) {
       if (text.startsWith(marker)) {
-        final remaining =
-            text.substring(marker.length).trim();
+        final remaining = text.substring(marker.length).trim();
         final newChildren = <md.Node>[
           if (remaining.isNotEmpty) md.Text(remaining),
           ...children.skip(1),
@@ -697,6 +660,69 @@ class BlockRenderer {
     return renderBlocks(children);
   }
 
+  // -- Details --
+
+  Widget _renderDetails(md.Element element) {
+    final children = element.children ?? const <md.Node>[];
+    String summaryText = '';
+    var bodyStartIndex = 0;
+
+    if (children.isNotEmpty) {
+      final firstChild = children.first;
+      if (firstChild is md.Element && firstChild.tag == 'summary') {
+        summaryText = firstChild.textContent.trim();
+        bodyStartIndex = 1;
+      }
+    }
+
+    final bodyNodes = children.skip(bodyStartIndex).toList(growable: false);
+    final hasBody = bodyNodes.any(_hasVisualContent);
+
+    return MarkdownDetailsBlock(
+      summaryText: summaryText,
+      attributes: Map<String, String>.from(element.attributes),
+      hasBody: hasBody,
+      bodyBuilder: hasBody
+          ? (context) {
+              final inner = BlockRenderer(
+                context,
+                style,
+                inlineRenderer,
+                latexPreprocessor,
+                onLinkTap,
+                imageBuilder,
+              );
+              return inner.renderBlocks(bodyNodes);
+            }
+          : null,
+    );
+  }
+
+  bool _hasVisualContent(md.Node node) {
+    if (node is md.Text) {
+      return node.text.trim().isNotEmpty;
+    }
+    if (node is! md.Element) {
+      return false;
+    }
+
+    if (const {'img', 'hr'}.contains(node.tag)) {
+      return true;
+    }
+
+    final children = node.children;
+    if (children == null || children.isEmpty) {
+      return node.textContent.trim().isNotEmpty;
+    }
+
+    for (final child in children) {
+      if (_hasVisualContent(child)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   // -- Block image --
 
   Widget? _renderBlockImage(md.Element element) {
@@ -711,17 +737,10 @@ class BlockRenderer {
 
     final uri = Uri.tryParse(src);
     if (uri == null) {
-      return ConduitMarkdown.buildImageError(
-        context,
-        context.conduitTheme,
-      );
+      return ConduitMarkdown.buildImageError(context, context.conduitTheme);
     }
 
-    return ConduitMarkdown.buildImage(
-      context,
-      uri,
-      context.conduitTheme,
-    );
+    return ConduitMarkdown.buildImage(context, uri, context.conduitTheme);
   }
 
   // -- Fallback --
@@ -733,9 +752,7 @@ class BlockRenderer {
     }
     final text = element.textContent.trim();
     if (text.isEmpty) return null;
-    return Text.rich(
-      inlineRenderer.render([element]),
-    );
+    return Text.rich(inlineRenderer.render([element]));
   }
 }
 

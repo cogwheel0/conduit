@@ -5,7 +5,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_plus/webview_flutter_plus.dart';
 
 import '../../../core/auth/webview_cookie_helper.dart';
 import '../../../core/models/server_config.dart';
@@ -33,7 +33,7 @@ class SsoAuthPage extends ConsumerStatefulWidget {
 }
 
 class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
-  WebViewController? _controller;
+  WebViewControllerPlus? _controller;
   bool _isLoading = true;
   bool _tokenCaptured = false;
   String? _error;
@@ -60,7 +60,7 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
   }
 
   Future<void> _initializeWebView() async {
-    // Check platform support first - webview_flutter only supports iOS/Android
+    // Check platform support first - auth WebViews are mobile-only here.
     if (!isWebViewSupported) {
       if (!mounted) return;
       final l10n = AppLocalizations.of(context);
@@ -95,7 +95,7 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
 
     DebugLogger.auth('Initializing SSO WebView for $_serverUrl');
 
-    final controller = WebViewController()
+    final controller = WebViewControllerPlus()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setNavigationDelegate(
         NavigationDelegate(
@@ -127,7 +127,7 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
 
   String _buildUserAgent() {
     // Use a standard mobile browser user agent to ensure OAuth providers work correctly
-    // Note: webview_flutter only supports iOS and Android; guard against web to be safe
+    // Note: auth WebViews are only enabled on iOS and Android here.
     if (!kIsWeb && Platform.isIOS) {
       return 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) '
           'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
@@ -480,9 +480,7 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
         backgroundColor: context.conduitTheme.surfaceBackground,
         extendBodyBehindAppBar: true,
         appBar: FloatingAppBar(
-          leading: FloatingAppBarBackButton(
-            onTap: () => context.pop(),
-          ),
+          leading: FloatingAppBarBackButton(onTap: () => context.pop()),
           title: FloatingAppBarTitle(text: l10n?.sso ?? 'SSO'),
           actions: [
             if (_controller != null)

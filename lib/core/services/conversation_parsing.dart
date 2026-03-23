@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:uuid/uuid.dart';
 
+import '../utils/embed_utils.dart';
 import '../utils/openwebui_source_parser.dart';
 
 /// Utilities for converting OpenWebUI conversation payloads into JSON maps
@@ -133,6 +134,7 @@ Map<String, dynamic> parseFullConversation(Map<String, dynamic> chatData) {
             'tool_call_id': nextRaw['tool_call_id']?.toString(),
             'content': nextRaw['content'],
             if (nextRaw.containsKey('files')) 'files': nextRaw['files'],
+            if (nextRaw.containsKey('embeds')) 'embeds': nextRaw['embeds'],
           });
           j++;
         }
@@ -289,6 +291,8 @@ Map<String, dynamic>? _parseSiblingAsVersion(
     files = allFiles.isNotEmpty ? allFiles : null;
   }
 
+  final embeds = normalizeEmbedList(msgData['embeds'] ?? historyMsg?['embeds']);
+
   // Extract other fields
   final sourcesRaw = historyMsg != null
       ? historyMsg['sources'] ?? historyMsg['citations']
@@ -308,6 +312,7 @@ Map<String, dynamic>? _parseSiblingAsVersion(
     'timestamp': _parseTimestamp(msgData['timestamp']).toIso8601String(),
     if (msgData['model'] != null) 'model': msgData['model'].toString(),
     'files': ?files,
+    if (embeds.isNotEmpty) 'embeds': embeds,
     'sources': _parseSourcesField(sourcesRaw),
     'followUps': _coerceStringList(followUpsRaw),
     'codeExecutions': _parseCodeExecutionsField(codeExecRaw),
@@ -483,6 +488,7 @@ Map<String, dynamic> _parseOpenWebUIMessageToJson(
     attachmentIds = attachments.isNotEmpty ? attachments : null;
     files = allFiles.isNotEmpty ? allFiles : null;
   }
+  final embeds = normalizeEmbedList(msgData['embeds'] ?? historyMsg?['embeds']);
 
   final statusHistoryRaw = historyMsg != null
       ? historyMsg['statusHistory'] ?? historyMsg['status_history']
@@ -510,6 +516,7 @@ Map<String, dynamic> _parseOpenWebUIMessageToJson(
     'isStreaming': _safeBool(msgData['isStreaming']) ?? false,
     'attachmentIds': ?attachmentIds,
     'files': ?files,
+    if (embeds.isNotEmpty) 'embeds': embeds,
     'metadata': _coerceJsonMap(msgData['metadata']),
     'statusHistory': _parseStatusHistoryField(statusHistoryRaw),
     'followUps': _coerceStringList(followUpsRaw),
@@ -830,6 +837,7 @@ String _synthesizeToolDetailsFromToolCallsWithResults(
     final resultEntry = resultsMap[id];
     final resRaw = resultEntry != null ? resultEntry['content'] : null;
     final filesRaw = resultEntry != null ? resultEntry['files'] : null;
+    final embedsRaw = resultEntry != null ? resultEntry['embeds'] : null;
 
     final attrs = StringBuffer()
       ..write('type="tool_calls"')
@@ -846,6 +854,10 @@ String _synthesizeToolDetailsFromToolCallsWithResults(
     final filesStr = _jsonStringify(filesRaw);
     if (filesStr.isNotEmpty) {
       attrs.write(' files="${_escapeHtmlAttr(filesStr)}"');
+    }
+    final embedsStr = _jsonStringify(embedsRaw);
+    if (embedsStr.isNotEmpty) {
+      attrs.write(' embeds="${_escapeHtmlAttr(embedsStr)}"');
     }
     buffer.writeln(
       '<details ${attrs.toString()}><summary>${resultEntry != null ? 'Tool Executed' : 'Executing...'}</summary></details>',
@@ -896,6 +908,7 @@ String _synthesizeToolDetailsFromContentArray(List<dynamic> content) {
           'call_${DateTime.now().millisecondsSinceEpoch}');
       final argsStr = _jsonStringify(item['arguments'] ?? item['args']);
       final resStr = item['result'] ?? item['output'] ?? item['response'];
+      final embedsStr = _jsonStringify(item['embeds']);
       final attrs = StringBuffer()
         ..write('type="tool_calls"')
         ..write(' done="${_escapeHtmlAttr(resStr != null ? 'true' : 'false')}"')
@@ -905,6 +918,9 @@ String _synthesizeToolDetailsFromContentArray(List<dynamic> content) {
       final result = _jsonStringify(resStr);
       if (result.isNotEmpty) {
         attrs.write(' result="${_escapeHtmlAttr(result)}"');
+      }
+      if (embedsStr.isNotEmpty) {
+        attrs.write(' embeds="${_escapeHtmlAttr(embedsStr)}"');
       }
       buffer.writeln(
         '<details ${attrs.toString()}><summary>${resStr != null ? 'Tool Executed' : 'Executing...'}</summary></details>',

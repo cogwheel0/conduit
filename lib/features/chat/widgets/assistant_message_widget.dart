@@ -7,9 +7,6 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/markdown/streaming_markdown_widget.dart';
-import '../../../core/utils/reasoning_parser.dart';
-import '../../../core/utils/message_segments.dart';
-import '../../../core/utils/tool_calls_parser.dart';
 import '../../../core/models/chat_message.dart';
 import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
 import '../providers/text_to_speech_provider.dart';
@@ -20,12 +17,14 @@ import 'package:conduit/shared/widgets/chat_action_button.dart';
 import '../../../shared/widgets/model_avatar.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
+import '../../../shared/widgets/web_content_embed.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import '../providers/chat_providers.dart'
     show sendMessageWithContainer, streamingContentProvider;
 import '../../../core/utils/debug_logger.dart';
 import '../../../core/services/platform_service.dart';
 import '../../../core/services/settings_service.dart';
+import '../../../core/utils/embed_utils.dart';
 import 'sources/openwebui_sources.dart';
 import '../providers/assistant_response_builder_provider.dart';
 import '../../../core/services/worker_manager.dart';
@@ -34,11 +33,16 @@ import '../utils/file_utils.dart';
 import 'code_execution_display.dart';
 import 'follow_up_suggestions.dart';
 import 'usage_stats_modal.dart';
-import 'tool_call_tile.dart';
-import 'reasoning_tile.dart';
 
-// Pre-compiled regex patterns for image processing (performance optimization)
-final _base64ImagePattern = RegExp(r'data:image/[^;]+;base64,[A-Za-z0-9+/]+=*');
+// Wrap only standalone base64 image lines so <details> attributes stay intact.
+final _standaloneBase64ImagePattern = RegExp(
+  r'(^|\n)([ \t]*)(data:image/[^;\s]+;base64,[A-Za-z0-9+/=]+)(?=(?:[ \t]*\n|$))',
+  multiLine: true,
+);
+final _ttsDetailsPattern = RegExp(
+  r'<details[^>]*>[\s\S]*?<\/details>',
+  caseSensitive: false,
+);
 // Handle both URL formats: /api/v1/files/{id} and /api/v1/files/{id}/content
 final _fileIdPattern = RegExp(r'/api/v1/files/([^/]+)(?:/content)?$');
 
@@ -75,9 +79,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     with TickerProviderStateMixin {
   late AnimationController _fadeController;
   late AnimationController _slideController;
-  // Unified content segments (text, tool-calls, reasoning)
-  List<MessageSegment> _segments = const [];
-  final Set<int> _expandedReasoning = {};
+  String _displayedContent = '';
   Widget? _cachedAvatar;
   bool _allowTypingIndicator = false;
   Timer? _typingGateTimer;
@@ -99,10 +101,6 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   // Streaming fade-in animation state
   late AnimationController _chunkFadeController;
-
-  /// Cache the last raw content that was fully parsed, so we can detect
-  /// when only the tail has changed and skip re-parsing earlier segments.
-  String _lastFullyParsedContent = '';
   // press state handled by shared ChatActionButton
 
   Future<void> _handleFollowUpTap(String suggestion) async {
@@ -144,8 +142,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       value: 1.0, // Start fully opaque for non-streaming messages
     );
 
-    // Parse reasoning and tool-calls sections
-    unawaited(_reparseSections());
+    _displayedContent = _resolvedMessageContent();
+    _scheduleTtsPlainTextBuild(_displayedContent);
     _updateTypingIndicatorGate();
     _syncStreamingContentSubscription();
   }
@@ -163,9 +161,17 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   void didUpdateWidget(AssistantMessageWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
 
-    if (oldWidget.message.id != widget.message.id) {
+    final messageChanged = oldWidget.message.id != widget.message.id;
+
+    if (messageChanged) {
       _lastStreamingContent = null;
-      _lastFullyParsedContent = '';
+      _displayedContent = '';
+      _ttsPlainText = '';
+      _ttsPlainTextRequestId++;
+      _ttsPlainTextDebounce?.cancel();
+      _pendingTtsPlainTextPayload = null;
+      _pendingTtsPlainTextSource = null;
+      _lastAppliedTtsPlainTextSource = null;
       _hasAnimated = false;
       _hasTriggeredContentHaptic = false;
       _fadeController.reset();
@@ -174,8 +180,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     }
 
     // Re-sync subscription when streaming state changes
-    if (oldWidget.isStreaming != widget.isStreaming ||
-        oldWidget.message.id != widget.message.id) {
+    if (oldWidget.isStreaming != widget.isStreaming || messageChanged) {
       _syncStreamingContentSubscription();
     }
 
@@ -189,15 +194,15 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       _streamingHaptic(HapticType.medium);
     }
 
-    // Re-parse sections when message content changes
-    if (oldWidget.message.content != widget.message.content) {
-      unawaited(_reparseSections());
-      _updateTypingIndicatorGate();
+    // Refresh rendered content when the active message changes.
+    if (messageChanged || oldWidget.message.content != widget.message.content) {
+      _refreshDisplayedContent();
     }
 
     // Update typing indicator gate when message properties that affect emptiness change
     if (oldWidget.message.statusHistory != widget.message.statusHistory ||
         oldWidget.message.files != widget.message.files ||
+        oldWidget.message.embeds != widget.message.embeds ||
         oldWidget.message.attachmentIds != widget.message.attachmentIds ||
         oldWidget.message.followUps != widget.message.followUps ||
         oldWidget.message.codeExecutions != widget.message.codeExecutions) {
@@ -211,11 +216,13 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     }
   }
 
-  Future<void> _reparseSections([String? overrideContent]) async {
-    final raw0 = _activeVersionIndex >= 0
-        ? (widget.message.versions[_activeVersionIndex].content as String?) ??
+  String _resolvedMessageContent([String? overrideContent, int? versionIndex]) {
+    final selectedVersionIndex = versionIndex ?? _activeVersionIndex;
+    final raw0 = selectedVersionIndex >= 0
+        ? (widget.message.versions[selectedVersionIndex].content as String?) ??
               ''
         : (overrideContent ?? widget.message.content ?? '');
+
     // Strip any leftover placeholders from content before parsing
     const ti = '[TYPING_INDICATOR]';
     const searchBanner = '🔍 Searching the web...';
@@ -226,112 +233,38 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     if (raw.startsWith(searchBanner)) {
       raw = raw.substring(searchBanner.length);
     }
+    return raw;
+  }
 
-    // Optimization: during streaming, if content only grew at the end and
-    // there's no new reasoning/tool block, just update the last text segment.
-    if (widget.isStreaming &&
-        _segments.isNotEmpty &&
-        raw.startsWith(_lastFullyParsedContent) &&
-        _lastFullyParsedContent.isNotEmpty) {
-      final newTail = raw.substring(_lastFullyParsedContent.length);
-      // Quick check: if the new tail doesn't contain reasoning or tool
-      // markers, we can just extend the last text segment.
-      if (!newTail.contains('<details') &&
-          !newTail.contains('</details') &&
-          !newTail.contains('<think') &&
-          !newTail.contains('</think')) {
-        final lastSeg = _segments.last;
-        if (lastSeg.isText) {
-          final previousLength = _lastFullyParsedContent.length;
-          final updatedSegments = [
-            ..._segments.sublist(0, _segments.length - 1),
-            MessageSegment.text((lastSeg.text ?? '') + newTail),
-          ];
-          _lastFullyParsedContent = raw;
-          if (!mounted) return;
-          setState(() {
-            _segments = updatedSegments;
-          });
-          if (widget.isStreaming) {
-            _onStreamingChunk(previousLength, raw.length);
-          }
-          _scheduleTtsPlainTextBuild(
-            updatedSegments
-                .where((s) => s.isText)
-                .map((s) => s.text!)
-                .toList(growable: false),
-            raw,
-          );
-          _updateTypingIndicatorGate();
-          return;
-        }
-      }
-    }
+  void _refreshDisplayedContent([String? overrideContent]) {
+    final raw = _resolvedMessageContent(overrideContent);
+    final previousLength = _displayedContent.length;
+    final contentChanged = raw != _displayedContent;
 
-    // Note: Link reference definitions (including OpenAI annotations like
-    // [openai_responses:v2:reasoning:ID]: #) are stripped by the markdown
-    // preprocessor using the `markdown` package for proper CommonMark handling.
-
-    // Do not truncate content during streaming; segmented parser skips
-    // incomplete details blocks and tiles will render once complete.
-    final rSegs = ReasoningParser.segments(raw);
-
-    final out = <MessageSegment>[];
-    final textSegments = <String>[];
-    if (rSegs == null || rSegs.isEmpty) {
-      final tSegs = ToolCallsParser.segments(raw);
-      if (tSegs == null || tSegs.isEmpty) {
-        out.add(MessageSegment.text(raw));
-        textSegments.add(raw);
+    if (contentChanged) {
+      if (mounted) {
+        setState(() {
+          _displayedContent = raw;
+        });
       } else {
-        for (final s in tSegs) {
-          if (s.isToolCall && s.entry != null) {
-            out.add(MessageSegment.tool(s.entry!));
-          } else if ((s.text ?? '').isNotEmpty) {
-            out.add(MessageSegment.text(s.text!));
-            textSegments.add(s.text!);
-          }
-        }
+        _displayedContent = raw;
       }
-    } else {
-      for (final rs in rSegs) {
-        if (rs.isReasoning && rs.entry != null) {
-          out.add(MessageSegment.reason(rs.entry!));
-        } else if ((rs.text ?? '').isNotEmpty) {
-          final t = rs.text!;
-          final tSegs = ToolCallsParser.segments(t);
-          if (tSegs == null || tSegs.isEmpty) {
-            out.add(MessageSegment.text(t));
-            textSegments.add(t);
-          } else {
-            for (final s in tSegs) {
-              if (s.isToolCall && s.entry != null) {
-                out.add(MessageSegment.tool(s.entry!));
-              } else if ((s.text ?? '').isNotEmpty) {
-                out.add(MessageSegment.text(s.text!));
-                textSegments.add(s.text!);
-              }
-            }
-          }
-        }
+      if (widget.isStreaming) {
+        _onStreamingChunk(previousLength, raw.length);
       }
     }
 
-    final segments = out.isEmpty ? [MessageSegment.text(raw)] : out;
+    _scheduleTtsPlainTextBuild(raw);
+    _updateTypingIndicatorGate();
+  }
 
-    final previousLength = _lastFullyParsedContent.length;
-    _lastFullyParsedContent = raw;
-    if (!mounted) return;
+  void _setActiveVersionIndex(int nextIndex) {
+    final raw = _resolvedMessageContent(null, nextIndex);
     setState(() {
-      _segments = segments;
+      _activeVersionIndex = nextIndex;
+      _displayedContent = raw;
     });
-    if (widget.isStreaming) {
-      _onStreamingChunk(previousLength, raw.length);
-    }
-    _scheduleTtsPlainTextBuild(
-      List<String>.from(textSegments, growable: false),
-      raw,
-    );
+    _scheduleTtsPlainTextBuild(raw);
     _updateTypingIndicatorGate();
   }
 
@@ -374,39 +307,15 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     }
   }
 
-  String _buildTtsPlainTextFallback(List<String> segments, String fallback) {
-    if (segments.isEmpty) {
-      return ConduitMarkdownPreprocessor.cleanText(fallback);
-    }
-
-    final buffer = StringBuffer();
-    for (final segment in segments) {
-      final sanitized = ConduitMarkdownPreprocessor.cleanText(segment);
-      if (sanitized.isEmpty) {
-        continue;
-      }
-      if (buffer.isNotEmpty) {
-        buffer.writeln();
-        buffer.writeln();
-      }
-      buffer.write(sanitized);
-    }
-
-    final result = buffer.toString().trim();
-    if (result.isEmpty) {
-      return ConduitMarkdownPreprocessor.cleanText(fallback);
-    }
-    return result;
+  String _buildTtsPlainTextFallback(String raw) {
+    return _buildTtsPlainTextFromRaw(raw);
   }
 
-  void _scheduleTtsPlainTextBuild(List<String> segments, String raw) {
-    final hasContent =
-        segments.any((segment) => segment.trim().isNotEmpty) ||
-        raw.trim().isNotEmpty;
-    if (!hasContent) {
+  void _scheduleTtsPlainTextBuild(String raw) {
+    if (raw.trim().isEmpty) {
       _pendingTtsPlainTextPayload = null;
       _pendingTtsPlainTextSource = null;
-      _lastAppliedTtsPlainTextSource = '';
+      _lastAppliedTtsPlainTextSource = null;
       if (_ttsPlainText.isNotEmpty && mounted) {
         setState(() {
           _ttsPlainText = '';
@@ -424,11 +333,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       return;
     }
 
-    final pendingSegments = List<String>.from(segments, growable: false);
-    _pendingTtsPlainTextPayload = {
-      'segments': pendingSegments,
-      'fallback': raw,
-    };
+    _pendingTtsPlainTextPayload = {'raw': raw};
     _pendingTtsPlainTextSource = raw;
 
     final delay = widget.isStreaming
@@ -464,7 +369,6 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     String raw,
     int requestId,
   ) async {
-    final segments = (payload['segments'] as List).cast<String>();
     String speechText;
     try {
       final worker = ref.read(workerManagerProvider);
@@ -474,7 +378,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         debugLabel: 'tts_plain_text',
       );
     } catch (_) {
-      speechText = _buildTtsPlainTextFallback(segments, raw);
+      speechText = _buildTtsPlainTextFallback(raw);
     }
 
     if (!mounted || requestId != _ttsPlainTextRequestId) {
@@ -489,57 +393,21 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     }
   }
 
-  // No streaming-specific markdown fixes needed here; handled by Markdown widget
-
-  Widget _buildSegmentedContent() {
+  Widget _buildMessageContent() {
     final children = <Widget>[];
-    bool firstToolSpacerAdded = false;
-    int idx = 0;
-    for (final seg in _segments) {
-      if (seg.isTool && seg.toolCall != null) {
-        // Add top spacing before the first tool block for clarity
-        if (!firstToolSpacerAdded) {
-          children.add(const SizedBox(height: Spacing.sm));
-          firstToolSpacerAdded = true;
-        }
-        children.add(
-          ToolCallTile(
-            toolCall: seg.toolCall!,
-            isStreaming: widget.isStreaming,
-          ),
-        );
-      } else if (seg.isReasoning && seg.reasoning != null) {
-        children.add(
-          ReasoningTile(
-            reasoning: seg.reasoning!,
-            index: idx,
-            onExpand: (i) => setState(() => _expandedReasoning.add(i)),
-            onCollapse: (i) {
-              if (mounted) {
-                setState(() => _expandedReasoning.remove(i));
-              }
-            },
-          ),
-        );
-      } else if ((seg.text ?? '').trim().isNotEmpty) {
-        // No extra spacing needed - reasoning/tool tiles have bottom padding
-        final markdownWidget = _buildEnhancedMarkdownContent(seg.text!);
-        // Wrap the last text segment with fade-in overlay during streaming
-        final isLastTextSeg =
-            widget.isStreaming &&
-            _segments.skip(idx + 1).every((s) => !s.isText);
-        children.add(
-          isLastTextSeg
-              ? RepaintBoundary(
-                  child: _StreamingFadeOverlay(
-                    animation: _chunkFadeController,
-                    child: markdownWidget,
-                  ),
-                )
-              : markdownWidget,
-        );
-      }
-      idx++;
+    final trimmedContent = _displayedContent.trim();
+    if (trimmedContent.isNotEmpty) {
+      final markdownWidget = _buildEnhancedMarkdownContent(_displayedContent);
+      children.add(
+        widget.isStreaming
+            ? RepaintBoundary(
+                child: _StreamingFadeOverlay(
+                  animation: _chunkFadeController,
+                  child: markdownWidget,
+                ),
+              )
+            : markdownWidget,
+      );
     }
 
     if (children.isEmpty) return const SizedBox.shrink();
@@ -613,7 +481,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       widget.isStreaming && _isAssistantResponseEmpty;
 
   bool get _isAssistantResponseEmpty {
-    final content = widget.message.content.trim();
+    final content = _displayedContent.trim();
     if (content.isNotEmpty) {
       return false;
     }
@@ -625,6 +493,11 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
     final hasAttachments = widget.message.attachmentIds?.isNotEmpty ?? false;
     if (hasAttachments) {
+      return false;
+    }
+
+    final hasEmbeds = (_resolveActiveEmbeds()?.isNotEmpty ?? false);
+    if (hasEmbeds) {
       return false;
     }
 
@@ -653,14 +526,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     if (hasCodeExecutions) {
       return false;
     }
-
-    // Check for tool calls in the content using ToolCallsParser
-    final hasToolCalls =
-        ToolCallsParser.segments(
-          content,
-        )?.any((segment) => segment.isToolCall) ??
-        false;
-    return !hasToolCalls;
+    return true;
   }
 
   void _buildCachedAvatar() {
@@ -766,7 +632,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       ) {
         if (next != null && next != _lastStreamingContent) {
           _lastStreamingContent = next;
-          unawaited(_reparseSections(next));
+          _refreshDisplayedContent(next);
         }
       }, fireImmediately: true);
     }
@@ -804,6 +670,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final activeFiles = showingVersion
         ? widget.message.versions[_activeVersionIndex].files
         : widget.message.files;
+    final activeEmbeds = _resolveActiveEmbeds();
     final hasSources = widget.message.sources.isNotEmpty;
 
     final content = Container(
@@ -833,6 +700,11 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
                   const SizedBox(height: Spacing.md),
                 ],
 
+                if (activeEmbeds != null && activeEmbeds.isNotEmpty) ...[
+                  _buildEmbedsFromArray(activeEmbeds),
+                  const SizedBox(height: Spacing.md),
+                ],
+
                 if (hasStatusTimeline) ...[
                   StreamingStatusWidget(
                     updates: visibleStatusHistory,
@@ -841,7 +713,6 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
                   const SizedBox(height: Spacing.xs),
                 ],
 
-                // Tool calls are rendered inline via segmented content
                 // Smoothly crossfade between typing indicator and content
                 AnimatedSwitcher(
                   duration: const Duration(milliseconds: 220),
@@ -864,7 +735,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
                         )
                       : KeyedSubtree(
                           key: const ValueKey('content'),
-                          child: _buildSegmentedContent(),
+                          child: _buildMessageContent(),
                         ),
                 ),
 
@@ -987,12 +858,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       return const SizedBox.shrink();
     }
 
-    // Note: The reasoning/tool-calls parsers now handle all tag formats including
-    // raw tags like <think>, <thinking>, <reasoning>, etc. They are extracted
-    // and rendered as collapsible tiles, so we don't need to strip them here.
-    // The markdown widget will receive only the text segments.
-
-    // Process images in the remaining text
+    // Keep the raw markdown intact so the shared renderer can parse
+    // Open WebUI-style <details> blocks directly.
     final processedContent = _processContentForImages(content);
 
     Widget buildDefault(BuildContext context) => StreamingMarkdownWidget(
@@ -1026,28 +893,30 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     return buildDefault(context);
   }
 
-  String _processContentForImages(String content) {
-    // Check if content contains image markdown or base64 data URLs
-    // This ensures images generated by AI are properly formatted
+  List<Map<String, dynamic>>? _resolveActiveEmbeds() {
+    final rawEmbeds =
+        _activeVersionIndex >= 0 &&
+            _activeVersionIndex < widget.message.versions.length
+        ? widget.message.versions[_activeVersionIndex].embeds
+        : widget.message.embeds;
+    final embeds = normalizeEmbedList(rawEmbeds);
+    if (embeds.isEmpty) {
+      return null;
+    }
+    return embeds;
+  }
 
-    // Quick check: only process if we have base64 images and no markdown
-    if (!content.contains('data:image/') || content.contains('![')) {
+  String _processContentForImages(String content) {
+    if (!content.contains('data:image/')) {
       return content;
     }
 
-    // If we find base64 images not wrapped in markdown, wrap them
-    if (_base64ImagePattern.hasMatch(content)) {
-      content = content.replaceAllMapped(_base64ImagePattern, (match) {
-        final imageData = match.group(0)!;
-        // Check if this image is already in markdown format (simple string check)
-        if (!content.contains('![$imageData)')) {
-          return '\n![Generated Image]($imageData)\n';
-        }
-        return imageData;
-      });
-    }
-
-    return content;
+    return content.replaceAllMapped(_standaloneBase64ImagePattern, (match) {
+      final linePrefix = match.group(1) ?? '';
+      final indentation = match.group(2) ?? '';
+      final imageData = match.group(3)!;
+      return '$linePrefix$indentation![Generated Image]($imageData)';
+    });
   }
 
   Widget _buildAttachmentItems() {
@@ -1097,6 +966,38 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
                 );
               }).toList(),
             ),
+    );
+  }
+
+  Widget _buildEmbedsFromArray(List<Map<String, dynamic>> embeds) {
+    final children = embeds.indexed
+        .map((entry) {
+          final index = entry.$1;
+          final embed = entry.$2;
+          final source = extractEmbedSource(embed);
+          if (source == null || source.isEmpty) {
+            return null;
+          }
+          return KeyedSubtree(
+            key: ValueKey('message-embed-$index-$source'),
+            child: WebContentEmbed(source: source),
+          );
+        })
+        .whereType<Widget>()
+        .toList(growable: false);
+
+    if (children.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (var index = 0; index < children.length; index++) ...[
+          if (index > 0) const SizedBox(height: Spacing.sm),
+          children[index],
+        ],
+      ],
     );
   }
 
@@ -1388,14 +1289,14 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
             label: l10n.previousLabel,
             sfSymbol: 'chevron.left',
             onTap: () {
-              setState(() {
-                if (_activeVersionIndex < 0) {
-                  _activeVersionIndex = widget.message.versions.length - 1;
-                } else if (_activeVersionIndex > 0) {
-                  _activeVersionIndex -= 1;
-                }
-                unawaited(_reparseSections());
-              });
+              final nextIndex = _activeVersionIndex < 0
+                  ? widget.message.versions.length - 1
+                  : _activeVersionIndex > 0
+                  ? _activeVersionIndex - 1
+                  : _activeVersionIndex;
+              if (nextIndex != _activeVersionIndex) {
+                _setActiveVersionIndex(nextIndex);
+              }
             },
           ),
           ConduitChip(
@@ -1410,15 +1311,14 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
             label: l10n.nextLabel,
             sfSymbol: 'chevron.right',
             onTap: () {
-              setState(() {
-                if (_activeVersionIndex < 0) return; // already live
-                if (_activeVersionIndex < widget.message.versions.length - 1) {
-                  _activeVersionIndex += 1;
-                } else {
-                  _activeVersionIndex = -1; // move to live
-                }
-                unawaited(_reparseSections());
-              });
+              if (_activeVersionIndex < 0) {
+                return;
+              }
+              final nextIndex =
+                  _activeVersionIndex < widget.message.versions.length - 1
+                  ? _activeVersionIndex + 1
+                  : -1;
+              _setActiveVersionIndex(nextIndex);
             },
           ),
         ],
@@ -1469,31 +1369,18 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 }
 
 String _buildTtsPlainTextWorker(Map<String, dynamic> payload) {
-  final rawSegments = payload['segments'];
-  final fallback = payload['fallback'] as String? ?? '';
-  final segments = rawSegments is List ? rawSegments.cast<dynamic>() : const [];
+  final raw = payload['raw'] as String? ?? '';
+  return _buildTtsPlainTextFromRaw(raw);
+}
 
-  if (segments.isEmpty) {
-    return ConduitMarkdownPreprocessor.cleanText(fallback);
+String _buildTtsPlainTextFromRaw(String raw) {
+  if (raw.trim().isEmpty) {
+    return '';
   }
 
-  final buffer = StringBuffer();
-  for (final segment in segments) {
-    if (segment is! String || segment.isEmpty) continue;
-    final sanitized = ConduitMarkdownPreprocessor.cleanText(segment);
-    if (sanitized.isEmpty) continue;
-    if (buffer.isNotEmpty) {
-      buffer.writeln();
-      buffer.writeln();
-    }
-    buffer.write(sanitized);
-  }
-
-  final result = buffer.toString().trim();
-  if (result.isEmpty) {
-    return ConduitMarkdownPreprocessor.cleanText(fallback);
-  }
-  return result;
+  final sanitized = ConduitMarkdownPreprocessor.sanitize(raw);
+  final withoutDetails = sanitized.replaceAll(_ttsDetailsPattern, '');
+  return ConduitMarkdownPreprocessor.cleanText(withoutDetails).trim();
 }
 
 Future<void> _launchUri(String url) async {
