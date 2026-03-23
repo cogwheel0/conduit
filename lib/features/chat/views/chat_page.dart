@@ -74,6 +74,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   bool _pendingScrollRestore = false;
   double _restoreScrollOffset = 0;
   bool _userPausedAutoScroll = false; // user scrolled away during generation
+  bool _isUserInteractingWithScroll = false;
   // Pin-to-top: scroll user message to top of viewport when sending
   bool _wantsPinToTop = false;
   GlobalKey _pinnedUserMessageKey = GlobalKey();
@@ -829,7 +830,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       _userPausedAutoScroll = true;
     });
     if (_wantsPinToTop) {
-      _endPinToTop(instant: true, preserveStreamingId: true);
+      _dismissPinToTop(preserveStreamingId: true);
     }
     _updateScrollToBottomVisibility();
   }
@@ -879,7 +880,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 
   void _scrollToBottom({bool smooth = true}) {
-    if (!_scrollController.hasClients) return;
+    if (_isUserInteractingWithScroll || !_scrollController.hasClients) return;
     final position = _scrollController.position;
     var maxScroll = position.maxScrollExtent;
     if (!maxScroll.isFinite || maxScroll <= 0) return;
@@ -955,6 +956,18 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   bool _endPinToTopInFlight = false;
 
+  void _dismissPinToTop({bool preserveStreamingId = false}) {
+    if (!_wantsPinToTop || !mounted) {
+      return;
+    }
+    setState(() {
+      _wantsPinToTop = false;
+      if (!preserveStreamingId) {
+        _pinnedStreamingId = null;
+      }
+    });
+  }
+
   /// Transitions out of pin-to-top mode.
   ///
   /// When [instant] is true (e.g. during streaming), uses jumpTo to
@@ -962,6 +975,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   /// streaming just completed), animates smoothly.
   void _endPinToTop({bool instant = false, bool preserveStreamingId = false}) {
     if (!_wantsPinToTop || !mounted || _endPinToTopInFlight) return;
+    if (_isUserInteractingWithScroll) {
+      _dismissPinToTop(preserveStreamingId: preserveStreamingId);
+      return;
+    }
     if (!_scrollController.hasClients) {
       setState(() {
         _wantsPinToTop = false;
@@ -1391,10 +1408,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         final isUserDirectionalScroll =
             notification is UserScrollNotification &&
             notification.direction != ScrollDirection.idle;
+        final isUserScrollIdle =
+            notification is UserScrollNotification &&
+            notification.direction == ScrollDirection.idle;
 
         // Detect user-initiated scrolling early enough to stop the streaming
         // follow path before the next chunk snaps the viewport back down.
         if (isTouchDragStart || isTouchDragUpdate || isUserDirectionalScroll) {
+          _isUserInteractingWithScroll = true;
           // Dismiss native platform keyboard on drag (mirrors
           // keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag
           // which only affects Flutter's text input system).
@@ -1404,13 +1425,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           if (isStreaming) {
             _pauseStreamingFollow();
           } else if (!isStreaming && _wantsPinToTop) {
-            // User scrolled after streaming ended with a short response;
-            // smoothly remove the phantom sliver.
-            _endPinToTop();
+            // User scrolled after streaming ended with a short response.
+            // Drop the phantom sliver without changing the scroll activity.
+            _dismissPinToTop();
           }
         }
         // Re-enable auto-scroll when user scrolls to bottom
-        if (notification is ScrollEndNotification) {
+        if (notification is ScrollEndNotification || isUserScrollIdle) {
+          _isUserInteractingWithScroll = false;
           final distanceFromBottom = _distanceFromBottom();
           if (!isStreaming &&
               distanceFromBottom <= 5 &&

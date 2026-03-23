@@ -90,6 +90,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   // Active version index (-1 means current/live content)
   int _activeVersionIndex = -1;
   String? _lastStreamingContent;
+  bool _disableAnimations = false;
   bool _hasAnimated = false;
 
   /// Guards the triple-haptic so it fires only once per streaming session.
@@ -124,6 +125,11 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   @override
   void initState() {
     super.initState();
+    _disableAnimations = WidgetsBinding
+        .instance
+        .platformDispatcher
+        .accessibilityFeatures
+        .disableAnimations;
     _fadeController = AnimationController(
       duration: const Duration(milliseconds: 300),
       vsync: this,
@@ -147,6 +153,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    _disableAnimations =
+        MediaQuery.maybeDisableAnimationsOf(context) ?? _disableAnimations;
     // Build cached avatar when theme context is available
     _buildCachedAvatar();
   }
@@ -710,7 +718,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     }
 
     // Respect reduced motion preference
-    if (MediaQuery.of(context).disableAnimations) {
+    if (_disableAnimations) {
       _chunkFadeController.value = 1.0;
     } else {
       _chunkFadeController.forward(from: 0.0);
