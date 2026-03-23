@@ -28,6 +28,7 @@ import '../../../core/providers/app_providers.dart';
 import '../../../core/services/settings_service.dart';
 import '../../chat/services/voice_input_service.dart';
 import '../../../core/models/knowledge_base.dart';
+import '../../../core/models/knowledge_base_file.dart';
 
 import '../../../shared/utils/platform_utils.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -903,22 +904,22 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 builder: (innerContext, innerRef, _) {
                   final cacheState = innerRef.watch(knowledgeCacheProvider);
                   final bases = cacheState.bases;
-                  final itemsMap = cacheState.items;
-                  final items = selectedBaseId != null
-                      ? itemsMap[selectedBaseId] ?? const <KnowledgeBaseItem>[]
-                      : const <KnowledgeBaseItem>[];
+                  final filesMap = cacheState.files;
+                  final files = selectedBaseId != null
+                      ? filesMap[selectedBaseId] ?? const <KnowledgeBaseFile>[]
+                      : const <KnowledgeBaseFile>[];
                   final loading =
                       cacheState.isLoading ||
                       (selectedBaseId != null &&
-                          !itemsMap.containsKey(selectedBaseId));
+                          !filesMap.containsKey(selectedBaseId));
 
-                  Future<void> loadItems(KnowledgeBase base) async {
+                  Future<void> loadFiles(KnowledgeBase base) async {
                     setModalState(() {
                       selectedBaseId = base.id;
                     });
                     await innerRef
                         .read(knowledgeCacheProvider.notifier)
-                        .fetchItemsForBase(base.id);
+                        .fetchFilesForBase(base.id);
                   }
 
                   return Container(
@@ -944,7 +945,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                                 return AdaptiveListTile(
                                   selected: isSelected,
                                   title: Text(base.name),
-                                  onTap: () => loadItems(base),
+                                  onTap: () => loadFiles(base),
                                 );
                               },
                             ),
@@ -957,9 +958,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                                     child: CircularProgressIndicator(),
                                   )
                                 : ListView.builder(
-                                    itemCount: items.length,
+                                    itemCount: files.length,
                                     itemBuilder: (context, index) {
-                                      final item = items[index];
+                                      final file = files[index];
                                       final KnowledgeBase? selectedBase =
                                           bases.isEmpty
                                           ? null
@@ -969,15 +970,13 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                                             );
                                       return AdaptiveListTile(
                                         title: Text(
-                                          item.title ??
-                                              item.metadata['name']
-                                                  ?.toString() ??
-                                              'Document',
+                                          file.meta?['name']?.toString() ??
+                                              file.filename,
                                           overflow: TextOverflow.ellipsis,
                                         ),
                                         subtitle: Text(
-                                          item.metadata['source']?.toString() ??
-                                              item.content,
+                                          file.meta?['source']?.toString() ??
+                                              file.filename,
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
                                         ),
@@ -989,15 +988,14 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                                               )
                                               .addKnowledge(
                                                 displayName:
-                                                    item.title ??
-                                                    item.metadata['name']
+                                                    file.meta?['name']
                                                         ?.toString() ??
-                                                    'Document',
-                                                fileId: item.id,
+                                                    file.filename,
+                                                fileId: file.id,
                                                 collectionName:
                                                     selectedBase?.name ??
                                                     'Unknown',
-                                                url: item.metadata['source']
+                                                url: file.meta?['source']
                                                     ?.toString(),
                                               );
                                           if (modalContext.mounted) {

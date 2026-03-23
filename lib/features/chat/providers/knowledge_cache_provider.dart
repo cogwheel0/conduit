@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/knowledge_base.dart';
+import '../../../core/models/knowledge_base_file.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/services/cache_manager.dart';
 import '../../../core/providers/app_providers.dart';
@@ -8,7 +9,7 @@ import '../../../core/utils/debug_logger.dart';
 
 /// Cache keys for knowledge base data.
 const String _basesKey = 'knowledge_bases';
-String _itemsKey(String baseId) => 'knowledge_items:$baseId';
+String _filesKey(String baseId) => 'knowledge_files:$baseId';
 
 /// TTL for knowledge cache entries.
 const Duration _knowledgeCacheTtl = Duration(minutes: 10);
@@ -29,8 +30,9 @@ class KnowledgeCacheManager {
 
   /// Returns cached knowledge bases, or null if not cached.
   List<KnowledgeBase>? getCachedBases() {
-    final (hit: hit, value: bases) =
-        _cache.lookup<List<KnowledgeBase>>(_basesKey);
+    final (hit: hit, value: bases) = _cache.lookup<List<KnowledgeBase>>(
+      _basesKey,
+    );
     if (hit) {
       DebugLogger.log('cache-hit', scope: 'knowledge/bases');
     }
@@ -47,23 +49,28 @@ class KnowledgeCacheManager {
     );
   }
 
-  /// Returns cached items for a knowledge base, or null if not cached.
-  List<KnowledgeBaseItem>? getCachedItems(String baseId) {
-    final (hit: hit, value: items) =
-        _cache.lookup<List<KnowledgeBaseItem>>(_itemsKey(baseId));
+  /// Returns cached files for a knowledge base, or null if not cached.
+  List<KnowledgeBaseFile>? getCachedFiles(String baseId) {
+    final (hit: hit, value: files) = _cache.lookup<List<KnowledgeBaseFile>>(
+      _filesKey(baseId),
+    );
     if (hit) {
-      DebugLogger.log('cache-hit', scope: 'knowledge/items', data: {'baseId': baseId});
+      DebugLogger.log(
+        'cache-hit',
+        scope: 'knowledge/files',
+        data: {'baseId': baseId},
+      );
     }
-    return hit ? items : null;
+    return hit ? files : null;
   }
 
-  /// Caches items for a knowledge base.
-  void cacheItems(String baseId, List<KnowledgeBaseItem> items) {
-    _cache.write<List<KnowledgeBaseItem>>(_itemsKey(baseId), items);
+  /// Caches files for a knowledge base.
+  void cacheFiles(String baseId, List<KnowledgeBaseFile> files) {
+    _cache.write<List<KnowledgeBaseFile>>(_filesKey(baseId), files);
     DebugLogger.log(
       'cache-write',
-      scope: 'knowledge/items',
-      data: {'baseId': baseId, 'count': items.length},
+      scope: 'knowledge/files',
+      data: {'baseId': baseId, 'count': files.length},
     );
   }
 
@@ -81,22 +88,22 @@ class KnowledgeCacheManager {
 class KnowledgeCacheState {
   const KnowledgeCacheState({
     this.bases = const <KnowledgeBase>[],
-    this.items = const <String, List<KnowledgeBaseItem>>{},
+    this.files = const <String, List<KnowledgeBaseFile>>{},
     this.isLoading = false,
   });
 
   final List<KnowledgeBase> bases;
-  final Map<String, List<KnowledgeBaseItem>> items;
+  final Map<String, List<KnowledgeBaseFile>> files;
   final bool isLoading;
 
   KnowledgeCacheState copyWith({
     List<KnowledgeBase>? bases,
-    Map<String, List<KnowledgeBaseItem>>? items,
+    Map<String, List<KnowledgeBaseFile>>? files,
     bool? isLoading,
   }) {
     return KnowledgeCacheState(
       bases: bases ?? this.bases,
-      items: items ?? this.items,
+      files: files ?? this.files,
       isLoading: isLoading ?? this.isLoading,
     );
   }
@@ -140,30 +147,28 @@ class KnowledgeCacheNotifier extends Notifier<KnowledgeCacheState> {
     }
   }
 
-  Future<void> fetchItemsForBase(String baseId) async {
-    // Check if already in state
-    if (state.items.containsKey(baseId)) return;
+  Future<void> fetchFilesForBase(String baseId) async {
+    if (state.files.containsKey(baseId)) return;
 
-    // Check cache
-    final cached = _cacheManager.getCachedItems(baseId);
+    final cached = _cacheManager.getCachedFiles(baseId);
     if (cached != null) {
-      final next = Map<String, List<KnowledgeBaseItem>>.from(state.items);
+      final next = Map<String, List<KnowledgeBaseFile>>.from(state.files);
       next[baseId] = cached;
-      state = state.copyWith(items: next);
+      state = state.copyWith(files: next);
       return;
     }
 
     if (_api == null) return;
 
-    final next = Map<String, List<KnowledgeBaseItem>>.from(state.items);
+    final next = Map<String, List<KnowledgeBaseFile>>.from(state.files);
     try {
-      final items = await _api!.getKnowledgeBaseItems(baseId);
-      _cacheManager.cacheItems(baseId, items);
-      next[baseId] = items;
+      final files = await _api!.getAllKnowledgeBaseFiles(baseId);
+      _cacheManager.cacheFiles(baseId, files);
+      next[baseId] = files;
     } catch (_) {
-      next[baseId] = const <KnowledgeBaseItem>[];
+      next[baseId] = const <KnowledgeBaseFile>[];
     }
-    state = state.copyWith(items: next);
+    state = state.copyWith(files: next);
   }
 
   /// Clears both in-memory state and persistent cache.
@@ -175,5 +180,5 @@ class KnowledgeCacheNotifier extends Notifier<KnowledgeCacheState> {
 
 final knowledgeCacheProvider =
     NotifierProvider<KnowledgeCacheNotifier, KnowledgeCacheState>(
-  KnowledgeCacheNotifier.new,
-);
+      KnowledgeCacheNotifier.new,
+    );
