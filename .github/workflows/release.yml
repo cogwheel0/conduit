@@ -182,13 +182,6 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Set Up Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: '3.2'
-          bundler-cache: true
-          working-directory: ios
-
         #3 Install Dependencies
       - name: Install Dependencies
         run: flutter pub get
@@ -214,7 +207,7 @@ jobs:
       - name: Install CocoaPods
         run: |
           cd ios
-          bundle exec pod install --verbose
+          pod install --verbose
 
         #6 Cache Xcode DerivedData
       - name: Cache Xcode DerivedData
