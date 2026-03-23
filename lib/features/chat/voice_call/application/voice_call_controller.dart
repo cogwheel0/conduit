@@ -156,7 +156,6 @@ class VoiceCallController extends _$VoiceCallController {
 
         final settings = ref.read(appSettingsProvider);
         await _output.initializeWithSettings(settings);
-        await _output.reloadBackendConfig();
         _output.bindHandlers(
           onStart: _handleOutputStart,
           onComplete: _handleOutputComplete,

@@ -220,6 +220,10 @@ class TextToSpeechService {
 
   /// Reloads backend config so TTS uses current server audio settings.
   Future<void> reloadBackendConfig() async {
+    if (!_shouldLoadBackendConfig()) {
+      return;
+    }
+
     final loader = _loadBackendConfig;
     final config = loader != null ? await loader() : null;
     if (config != null) {
@@ -309,6 +313,10 @@ class TextToSpeechService {
           },
         )
         .toList(growable: false);
+  }
+
+  bool _shouldLoadBackendConfig() {
+    return prefersServerEngine;
   }
 }
 

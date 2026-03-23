@@ -18,33 +18,21 @@ class ApiAuthInterceptor extends Interceptor {
     '/health',
     '/api/v1/auths/signin',
     '/api/v1/auths/signup',
-    '/api/v1/auths/signup/enabled',
     '/api/v1/auths/ldap',
-    '/api/v1/auths/trusted-header-auth',
-    '/ollama/api/ps',
-    '/ollama/api/version',
-    '/docs',
-    '/openapi.json',
-    '/swagger',
-    '/api/docs',
   };
 
   // Endpoints that have optional authentication (work without but better with)
   static const Set<String> _optionalAuthEndpoints = {
     '/api/config',
     '/api/models',
-    '/api/v1/configs/models',
   };
 
-  // Endpoints for features that can be disabled server-side.
-  // A 401 or 403 on these indicates the feature is disabled, not an auth failure.
-  static const Set<String> _featureEndpoints = {
-    '/api/v1/folders/',
-    '/api/v1/folders',
-    '/api/v1/notes/',
-    '/api/v1/notes',
-    '/api/v1/channels/',
-    '/api/v1/channels',
+  // Only a small set of session-validation endpoints should raise a
+  // connection/auth issue. Most other 401/403 responses are endpoint-level
+  // permissions or disabled features and should be handled locally.
+  static const Set<String> _authFailureEndpoints = {
+    '/api/v1/auths',
+    '/api/v1/auths/',
   };
 
   ApiAuthInterceptor({
@@ -60,62 +48,28 @@ class ApiAuthInterceptor extends Interceptor {
 
   String? get authToken => _authToken;
 
-  /// Check if endpoint requires authentication based on OpenAPI spec
-  bool _requiresAuth(String path) {
-    // Direct public endpoint match
+  _EndpointAuthMode _authModeFor(String path) {
     if (_publicEndpoints.contains(path)) {
-      return false;
+      return _EndpointAuthMode.public;
     }
-
-    // Check for partial matches (e.g., /ollama/* endpoints)
-    for (final publicPattern in _publicEndpoints) {
-      if (publicPattern.endsWith('*') &&
-          path.startsWith(
-            publicPattern.substring(0, publicPattern.length - 1),
-          )) {
-        return false;
-      }
+    if (_optionalAuthEndpoints.contains(path)) {
+      return _EndpointAuthMode.optional;
     }
-
-    // Endpoints that support optional auth should not strictly require it
-    if (_hasOptionalAuth(path)) {
-      return false;
-    }
-
-    // All other endpoints require authentication per OpenAPI spec
-    return true;
+    return _EndpointAuthMode.required;
   }
 
-  /// Check if endpoint is better with auth but works without
-  bool _hasOptionalAuth(String path) {
-    return _optionalAuthEndpoints.contains(path);
-  }
-
-  /// Check if endpoint is for a feature that can be disabled server-side.
-  /// A 401 or 403 on these indicates feature disabled, not an auth failure.
-  bool _isFeatureEndpoint(String path) {
-    // Direct match for exact paths like /api/v1/folders or /api/v1/folders/
-    if (_featureEndpoints.contains(path)) {
-      return true;
-    }
-    // Check for sub-paths (e.g., /api/v1/folders/{id}, /api/v1/channels/{id})
-    if (path.startsWith('/api/v1/folders/') ||
-        path.startsWith('/api/v1/notes/') ||
-        path.startsWith('/api/v1/channels/')) {
-      return true;
-    }
-    return false;
+  bool _shouldNotifyAuthFailure(String path) {
+    return _authFailureEndpoints.contains(path);
   }
 
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
     final path = options.path;
-    final requiresAuth = _requiresAuth(path);
-    final hasOptionalAuth = _hasOptionalAuth(path);
+    final authMode = _authModeFor(path);
+    final token = _authToken;
 
-    if (requiresAuth) {
-      // Strictly required authentication
-      if (_authToken == null || _authToken!.isEmpty) {
+    if (authMode == _EndpointAuthMode.required) {
+      if (token == null || token.isEmpty) {
         final error = DioException(
           requestOptions: options,
           response: Response(
@@ -128,12 +82,12 @@ class ApiAuthInterceptor extends Interceptor {
         handler.reject(error);
         return;
       }
-      options.headers['Authorization'] = 'Bearer $_authToken';
-    } else if (hasOptionalAuth &&
-        _authToken != null &&
-        _authToken!.isNotEmpty) {
-      // Optional authentication - add if available
-      options.headers['Authorization'] = 'Bearer $_authToken';
+    }
+
+    if (authMode != _EndpointAuthMode.public &&
+        token != null &&
+        token.isNotEmpty) {
+      options.headers['Authorization'] = 'Bearer $token';
     }
 
     // Add custom headers from server config (with safety checks)
@@ -162,50 +116,32 @@ class ApiAuthInterceptor extends Interceptor {
     final statusCode = err.response?.statusCode;
     final path = err.requestOptions.path;
 
-    // Handle authentication errors consistently
-    // IMPORTANT: Never auto-logout. Instead, notify the app to show connection issue page
-    if (statusCode == 401) {
-      // Do not clear the token for public or optional-auth endpoints.
-      // A 401 here may indicate endpoint-level permission or server config,
-      // not necessarily an expired/invalid token.
-      final requiresAuth = _requiresAuth(path);
-      final optionalAuth = _hasOptionalAuth(path);
-      final isFeatureEndpoint = _isFeatureEndpoint(path);
-      if (isFeatureEndpoint) {
-        DebugLogger.auth(
-          '401 on feature endpoint $path - feature likely disabled server-side',
-        );
-      } else if (requiresAuth && !optionalAuth) {
-        _notifyAuthFailure(
-          '401 Unauthorized on $path - notifying app without clearing token',
-        );
-      } else {
-        DebugLogger.auth(
-          '401 on public/optional endpoint $path - keeping auth token',
-        );
-      }
-    } else if (statusCode == 403) {
-      // 403 on protected endpoints indicates insufficient permissions or invalid token
-      // BUT 403 on feature endpoints indicates the feature is disabled server-side
-      final requiresAuth = _requiresAuth(path);
-      final optionalAuth = _hasOptionalAuth(path);
-      final isFeatureEndpoint = _isFeatureEndpoint(path);
-      if (isFeatureEndpoint) {
-        DebugLogger.auth(
-          '403 Forbidden on feature endpoint $path - feature likely disabled server-side',
-        );
-      } else if (requiresAuth && !optionalAuth) {
-        _notifyAuthFailure(
-          '403 Forbidden on protected endpoint $path - notifying app without clearing token',
-        );
-      } else {
-        DebugLogger.auth(
-          '403 Forbidden on public/optional endpoint $path - keeping auth token',
-        );
-      }
+    if (statusCode case final code? when code == 401 || code == 403) {
+      _handleAuthorizationError(path: path, statusCode: code);
     }
 
     handler.next(err);
+  }
+
+  void _handleAuthorizationError({
+    required String path,
+    required int statusCode,
+  }) {
+    final statusLabel = statusCode == 401 ? 'Unauthorized' : 'Forbidden';
+    final authMode = _authModeFor(path);
+
+    if (authMode == _EndpointAuthMode.required &&
+        _shouldNotifyAuthFailure(path)) {
+      _notifyAuthFailure(
+        '$statusCode $statusLabel on $path - '
+        'notifying app without clearing token',
+      );
+      return;
+    }
+
+    DebugLogger.auth(
+      '$statusCode on non-essential endpoint $path - keeping auth token',
+    );
   }
 
   /// Clear auth token and notify callbacks
@@ -228,3 +164,5 @@ class ApiAuthInterceptor extends Interceptor {
     _clearAuthToken();
   }
 }
+
+enum _EndpointAuthMode { public, optional, required }

@@ -121,6 +121,28 @@ void main() {
       expect(fakeTransport.registeredSessionIds.last, 'sid-2');
     });
 
+    test('start does not reload backend config for local output', () async {
+      final fakeOutput = _FakeOutput();
+      final container = _buildContainer(fakeOutput: fakeOutput);
+      addTearDown(container.dispose);
+
+      final notifier = container.read(voiceCallControllerProvider.notifier);
+      await notifier.start(startNewConversation: false);
+
+      expect(fakeOutput.reloadBackendConfigCalls, 0);
+    });
+
+    test('start reloads backend config for server output', () async {
+      final fakeOutput = _FakeOutput(prefersServerEngineValue: true);
+      final container = _buildContainer(fakeOutput: fakeOutput);
+      addTearDown(container.dispose);
+
+      final notifier = container.read(voiceCallControllerProvider.notifier);
+      await notifier.start(startNewConversation: false);
+
+      expect(fakeOutput.reloadBackendConfigCalls, 1);
+    });
+
     test(
       'non-completion events with message_id do not reset assistant response',
       () async {
@@ -537,12 +559,16 @@ class _FakeInput implements VoiceInputEngine {
 }
 
 class _FakeOutput implements VoiceOutputEngine {
+  _FakeOutput({this.prefersServerEngineValue = false});
+
   void Function()? _onStart;
   void Function()? _onComplete;
   final List<String> spokenTexts = <String>[];
+  final bool prefersServerEngineValue;
+  int reloadBackendConfigCalls = 0;
 
   @override
-  bool get prefersServerEngine => false;
+  bool get prefersServerEngine => prefersServerEngineValue;
 
   @override
   void bindHandlers({
@@ -558,10 +584,16 @@ class _FakeOutput implements VoiceOutputEngine {
   Future<void> dispose() async {}
 
   @override
-  Future<void> initializeWithSettings(AppSettings settings) async {}
+  Future<void> initializeWithSettings(AppSettings settings) async {
+    if (prefersServerEngineValue) {
+      await reloadBackendConfig();
+    }
+  }
 
   @override
-  Future<void> reloadBackendConfig() async {}
+  Future<void> reloadBackendConfig() async {
+    reloadBackendConfigCalls++;
+  }
 
   @override
   Future<void> speak(String text) async {
