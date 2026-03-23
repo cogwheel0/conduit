@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
 import 'package:flutter/services.dart';
+import 'package:conduit/core/services/haptic_service.dart';
 import '../../shared/theme/theme_extensions.dart';
 
 enum _DrawerSettleEndpoint { open, closed }
@@ -184,7 +185,7 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
 
     _pendingSettledEndpoint = null;
     _lastSettledEndpoint = endpoint;
-    HapticFeedback.mediumImpact();
+    ConduitHaptics.mediumImpact();
   }
 
   void open({double velocity = 0.0}) {

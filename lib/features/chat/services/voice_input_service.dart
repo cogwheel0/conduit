@@ -4,6 +4,7 @@ import 'dart:io' show Platform;
 import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
+import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -530,7 +531,7 @@ class VoiceInputService {
     final hapticsEnabled = _ref?.read(hapticEnabledProvider) ?? false;
     if (hapticsEnabled) {
       try {
-        HapticFeedback.heavyImpact();
+        ConduitHaptics.heavyImpact();
       } catch (_) {}
     }
 

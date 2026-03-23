@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
+import 'package:conduit/core/services/haptic_service.dart';
 import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/glass_colors.dart';
@@ -1909,7 +1910,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       child: _buildComposerIconButton(
         onPressed: enabled
             ? () {
-                HapticFeedback.selectionClick();
+                ConduitHaptics.selectionClick();
                 _showOverflowSheet();
               }
             : null,
@@ -1941,7 +1942,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       behavior: HitTestBehavior.opaque,
       onTap: enabledMic
           ? () {
-              HapticFeedback.selectionClick();
+              ConduitHaptics.selectionClick();
               _toggleVoice();
             }
           : null,
@@ -1982,7 +1983,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         child: _buildComposerIconButton(
           key: const ValueKey('primary-btn-stop'),
           onPressed: () {
-            HapticFeedback.lightImpact();
+            ConduitHaptics.lightImpact();
             stopGeneration();
           },
           size: buttonSize,
@@ -2115,7 +2116,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           onTap: onTap == null
               ? null
               : () {
-                  HapticFeedback.mediumImpact();
+                  ConduitHaptics.mediumImpact();
                   onTap();
                 },
           child: AnimatedContainer(
@@ -2298,7 +2299,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   }
 
   void _showOverflowSheet() {
-    HapticFeedback.selectionClick();
+    ConduitHaptics.selectionClick();
     final prevCanRequest = _focusNode.canRequestFocus;
     final wasFocused = _focusNode.hasFocus;
     _focusNode.canRequestFocus = false;
@@ -2439,7 +2440,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     await _voiceService.stopListening();
     if (!mounted) return;
     setState(() => _isRecording = false);
-    HapticFeedback.selectionClick();
+    ConduitHaptics.selectionClick();
   }
 
   // When on-device STT is unavailable we rely on server transcription.

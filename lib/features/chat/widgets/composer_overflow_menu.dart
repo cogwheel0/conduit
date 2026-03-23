@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'dart:io' show Platform;
@@ -45,7 +46,7 @@ class ToggleTile extends StatelessWidget {
       child: ConduitCard(
         padding: const EdgeInsets.all(Spacing.md),
         onTap: () {
-          HapticFeedback.selectionClick();
+          ConduitHaptics.selectionClick();
           onToggle();
         },
         child: Row(
@@ -73,9 +74,7 @@ class ToggleTile extends StatelessWidget {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: AppTypography.captionStyle.copyWith(
-                        color: theme.sidebarForeground.withValues(
-                          alpha: 0.75,
-                        ),
+                        color: theme.sidebarForeground.withValues(alpha: 0.75),
                       ),
                     ),
                   ],
@@ -134,8 +133,7 @@ class ComposerOverflowSheet extends ConsumerStatefulWidget {
       _ComposerOverflowSheetState();
 }
 
-class _ComposerOverflowSheetState
-    extends ConsumerState<ComposerOverflowSheet> {
+class _ComposerOverflowSheetState extends ConsumerState<ComposerOverflowSheet> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -148,7 +146,7 @@ class _ComposerOverflowSheetState
         onTap: widget.onFileAttachment == null
             ? null
             : () {
-                HapticFeedback.lightImpact();
+                ConduitHaptics.lightImpact();
                 widget.onFileAttachment!();
               },
       ),
@@ -158,7 +156,7 @@ class _ComposerOverflowSheetState
         onTap: widget.onImageAttachment == null
             ? null
             : () {
-                HapticFeedback.lightImpact();
+                ConduitHaptics.lightImpact();
                 widget.onImageAttachment!();
               },
       ),
@@ -168,7 +166,7 @@ class _ComposerOverflowSheetState
         onTap: widget.onCameraCapture == null
             ? null
             : () {
-                HapticFeedback.lightImpact();
+                ConduitHaptics.lightImpact();
                 widget.onCameraCapture!();
               },
       ),
@@ -178,7 +176,7 @@ class _ComposerOverflowSheetState
         onTap: widget.onWebAttachment == null
             ? null
             : () {
-                HapticFeedback.lightImpact();
+                ConduitHaptics.lightImpact();
                 widget.onWebAttachment!();
               },
       ),
@@ -194,8 +192,7 @@ class _ComposerOverflowSheetState
           title: l10n.webSearch,
           subtitle: l10n.webSearchDescription,
           value: webSearchEnabled,
-          onChanged: (v) =>
-              ref.read(webSearchEnabledProvider.notifier).set(v),
+          onChanged: (v) => ref.read(webSearchEnabledProvider.notifier).set(v),
         ),
       );
     }
@@ -283,9 +280,7 @@ class _ComposerOverflowSheetState
       listItems
         ..add(const SizedBox(height: Spacing.sm))
         ..add(_buildSectionLabel(l10n.filters))
-        ..add(
-          Column(children: withVerticalSpacing(filterTiles, Spacing.xxs)),
-        );
+        ..add(Column(children: withVerticalSpacing(filterTiles, Spacing.xxs)));
     }
 
     listItems.add(const SizedBox(height: Spacing.sm));
@@ -400,8 +395,7 @@ class _ComposerOverflowSheetState
                 color: enabled
                     ? iconColor.withValues(alpha: 0.1)
                     : theme.surfaceContainer.withValues(alpha: 0.60),
-                borderRadius:
-                    BorderRadius.circular(AppBorderRadius.small),
+                borderRadius: BorderRadius.circular(AppBorderRadius.small),
                 border: Border.all(
                   color: enabled
                       ? iconColor.withValues(alpha: 0.2)
@@ -571,9 +565,7 @@ class _ComposerOverflowSheetState
     if (name.contains('search')) {
       return Platform.isIOS ? CupertinoIcons.search : Icons.search;
     }
-    return Platform.isIOS
-        ? CupertinoIcons.square_grid_2x2
-        : Icons.extension;
+    return Platform.isIOS ? CupertinoIcons.square_grid_2x2 : Icons.extension;
   }
 
   String _descriptionFor(Tool tool) {

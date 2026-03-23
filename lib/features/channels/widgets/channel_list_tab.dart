@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
@@ -36,14 +37,16 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
   void initState() {
     super.initState();
     _activeChannelId = _parseChannelId(_currentPath);
-    NavigationService.router.routeInformationProvider
-        .addListener(_onRouteChanged);
+    NavigationService.router.routeInformationProvider.addListener(
+      _onRouteChanged,
+    );
   }
 
   @override
   void dispose() {
-    NavigationService.router.routeInformationProvider
-        .removeListener(_onRouteChanged);
+    NavigationService.router.routeInformationProvider.removeListener(
+      _onRouteChanged,
+    );
     _searchController.dispose();
     super.dispose();
   }
@@ -66,8 +69,7 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
   }
 
   void _onChannelTap(Channel channel) {
-    final isTablet =
-        MediaQuery.of(context).size.shortestSide >= 600;
+    final isTablet = MediaQuery.of(context).size.shortestSide >= 600;
     if (!isTablet) {
       ResponsiveDrawerLayout.of(context)?.close();
     }
@@ -75,7 +77,7 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
   }
 
   Future<void> _showCreateChannelDialog() async {
-    HapticFeedback.lightImpact();
+    ConduitHaptics.lightImpact();
     final l10n = AppLocalizations.of(context)!;
     final nameController = TextEditingController();
     final descController = TextEditingController();
@@ -93,9 +95,7 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
               children: [
                 TextField(
                   controller: nameController,
-                  decoration: InputDecoration(
-                    labelText: l10n.channelName,
-                  ),
+                  decoration: InputDecoration(labelText: l10n.channelName),
                   autofocus: true,
                 ),
                 const SizedBox(height: 12),
@@ -110,8 +110,7 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
                 SwitchListTile(
                   title: Text(l10n.channelPrivate),
                   value: isPrivate,
-                  onChanged: (v) =>
-                      setDialogState(() => isPrivate = v),
+                  onChanged: (v) => setDialogState(() => isPrivate = v),
                 ),
               ],
             ),
@@ -153,9 +152,7 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              AppLocalizations.of(context)!.channelCreateError,
-            ),
+            content: Text(AppLocalizations.of(context)!.channelCreateError),
           ),
         );
       }
@@ -201,11 +198,8 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
               final filtered = _query.isEmpty
                   ? channels
                   : channels
-                      .where(
-                        (c) =>
-                            c.name.toLowerCase().contains(_query),
-                      )
-                      .toList();
+                        .where((c) => c.name.toLowerCase().contains(_query))
+                        .toList();
 
               if (filtered.isEmpty) {
                 return Center(
@@ -218,10 +212,8 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
 
               return RefreshIndicator(
                 onRefresh: () async {
-                  HapticFeedback.lightImpact();
-                  await ref
-                      .read(channelsListProvider.notifier)
-                      .refresh();
+                  ConduitHaptics.lightImpact();
+                  await ref.read(channelsListProvider.notifier).refresh();
                 },
                 child: ListView.builder(
                   itemCount: filtered.length,
@@ -237,8 +229,7 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
                 ),
               );
             },
-            loading: () =>
-                const Center(child: CircularProgressIndicator()),
+            loading: () => const Center(child: CircularProgressIndicator()),
             error: (err, _) => Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -246,9 +237,8 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
                   Text(l10n.channelLoadError),
                   const SizedBox(height: 8),
                   TextButton(
-                    onPressed: () => ref
-                        .read(channelsListProvider.notifier)
-                        .refresh(),
+                    onPressed: () =>
+                        ref.read(channelsListProvider.notifier).refresh(),
                     child: Text(l10n.retry),
                   ),
                 ],
@@ -279,9 +269,7 @@ class _ChannelTile extends ConsumerWidget {
   }
 
   String _channelDisplayName() {
-    if (channel.isDm &&
-        channel.users != null &&
-        channel.users!.isNotEmpty) {
+    if (channel.isDm && channel.users != null && channel.users!.isNotEmpty) {
       final names = channel.users!
           .map((u) => u['name'] as String? ?? '')
           .where((n) => n.isNotEmpty)
@@ -324,9 +312,7 @@ class _ChannelTile extends ConsumerWidget {
                 children: [
                   Icon(
                     _channelIcon(),
-                    color: selected
-                        ? theme.textPrimary
-                        : theme.textSecondary,
+                    color: selected ? theme.textPrimary : theme.textSecondary,
                     size: IconSize.listItem,
                   ),
                   const SizedBox(width: 12),
@@ -375,9 +361,7 @@ class _ChannelTile extends ConsumerWidget {
                       child: Text(
                         unread > 99 ? '99+' : '$unread',
                         style: TextStyle(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .onPrimary,
+                          color: Theme.of(context).colorScheme.onPrimary,
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
                         ),

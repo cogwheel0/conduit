@@ -3,6 +3,7 @@ import 'dart:io' show Platform;
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:conduit/core/services/haptic_service.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
@@ -100,11 +101,7 @@ class NoteFileAttachment extends StatelessWidget {
                           ),
                         ),
                       )
-                    : Icon(
-                        _icon,
-                        color: _iconColor(theme),
-                        size: IconSize.md,
-                      ),
+                    : Icon(_icon, color: _iconColor(theme), size: IconSize.md),
               ),
 
               const SizedBox(width: Spacing.sm),
@@ -131,8 +128,8 @@ class NoteFileAttachment extends StatelessWidget {
                           _isAudio
                               ? l10n.audioFileType
                               : _isImage
-                                  ? l10n.imageFileType
-                                  : l10n.file,
+                              ? l10n.imageFileType
+                              : l10n.file,
                           style: AppTypography.captionStyle.copyWith(
                             color: theme.textSecondary,
                           ),
@@ -182,7 +179,7 @@ class NoteFileAttachment extends StatelessWidget {
                     size: IconSize.md,
                   ),
                   onPressed: () {
-                    HapticFeedback.lightImpact();
+                    ConduitHaptics.lightImpact();
                     onDelete?.call();
                   },
                   tooltip: l10n.removeFile,
@@ -229,10 +226,7 @@ class NoteFilesSection extends StatelessWidget {
       children: [
         // Section header
         Padding(
-          padding: const EdgeInsets.only(
-            left: Spacing.xs,
-            bottom: Spacing.xs,
-          ),
+          padding: const EdgeInsets.only(left: Spacing.xs, bottom: Spacing.xs),
           child: Row(
             children: [
               Icon(
@@ -288,4 +282,3 @@ class NoteFilesSection extends StatelessWidget {
     );
   }
 }
-

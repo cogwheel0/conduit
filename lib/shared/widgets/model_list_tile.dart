@@ -4,6 +4,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:conduit/core/services/haptic_service.dart';
 
 import '../../core/models/model.dart';
 import '../theme/theme_extensions.dart';
@@ -31,10 +32,7 @@ class ModelCapabilityChip extends StatelessWidget {
     final theme = context.conduitTheme;
     return Container(
       margin: const EdgeInsets.only(right: Spacing.xs),
-      padding: const EdgeInsets.symmetric(
-        horizontal: Spacing.xs,
-        vertical: 2,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.xs, vertical: 2),
       decoration: BoxDecoration(
         color: theme.buttonPrimary.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(AppBorderRadius.chip),
@@ -118,8 +116,7 @@ class ModelListTile extends StatelessWidget {
     }
 
     final hasCapabilities =
-        !isAutoSelect &&
-        (model.isMultimodal || modelSupportsReasoning(model));
+        !isAutoSelect && (model.isMultimodal || modelSupportsReasoning(model));
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: Spacing.xxs),
@@ -129,14 +126,12 @@ class ModelListTile extends StatelessWidget {
         child: InkWell(
           borderRadius: borderRadius,
           onTap: () {
-            HapticFeedback.selectionClick();
+            ConduitHaptics.selectionClick();
             onTap();
           },
           overlayColor: WidgetStateProperty.resolveWith((states) {
             if (states.contains(WidgetState.pressed)) {
-              return theme.buttonPrimary.withValues(
-                alpha: Alpha.buttonPressed,
-              );
+              return theme.buttonPrimary.withValues(alpha: Alpha.buttonPressed);
             }
             return Colors.transparent;
           }),
@@ -204,9 +199,7 @@ class ModelListTile extends StatelessWidget {
                 if (isSelected) ...[
                   const SizedBox(width: Spacing.xs),
                   Icon(
-                    Platform.isIOS
-                        ? CupertinoIcons.check_mark
-                        : Icons.check,
+                    Platform.isIOS ? CupertinoIcons.check_mark : Icons.check,
                     color: theme.buttonPrimary,
                     size: IconSize.medium,
                   ),

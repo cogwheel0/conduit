@@ -5,6 +5,7 @@ import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:super_drag_and_drop/super_drag_and_drop.dart';
@@ -58,7 +59,6 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
   String? _dragHoverFolderId;
   bool _isDragging = false;
   bool _draggingHasFolder = false;
-
 
   Future<void> _refreshChats() async {
     try {
@@ -287,7 +287,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
   }
 
   void _startNewChat() {
-    HapticFeedback.selectionClick();
+    ConduitHaptics.selectionClick();
     ref.read(chat.chatMessagesProvider.notifier).clearMessages();
     ref.read(activeConversationProvider.notifier).clear();
     ref.read(contextAttachmentsProvider.notifier).clear();
@@ -296,8 +296,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     NavigationService.router.go(Routes.chat);
 
     if (mounted) {
-      final isTablet =
-          MediaQuery.of(context).size.shortestSide >= 600;
+      final isTablet = MediaQuery.of(context).size.shortestSide >= 600;
       if (!isTablet) {
         ResponsiveDrawerLayout.of(context)?.close();
       }
@@ -933,16 +932,12 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
                 : Icons.create_new_folder_outlined,
             color: theme.iconPrimary,
           ),
-          onPressed: () => CreateFolderDialog.show(
-            context,
-            ref,
-            onError: _showDrawerError,
-          ),
+          onPressed: () =>
+              CreateFolderDialog.show(context, ref, onError: _showDrawerError),
         ),
       ],
     );
   }
-
 
   Widget _buildFolderHeader(
     String folderId,
@@ -993,7 +988,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           final api = ref.read(apiServiceProvider);
           if (api == null) throw Exception('No API service');
           await api.moveConversationToFolder(conversationId, folderId);
-          HapticFeedback.selectionClick();
+          ConduitHaptics.selectionClick();
           ref
               .read(conversationsProvider.notifier)
               .updateConversation(
@@ -1135,7 +1130,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
                               size: IconSize.listItem,
                             ),
                             onPressed: () {
-                              HapticFeedback.selectionClick();
+                              ConduitHaptics.selectionClick();
                               _startNewChatInFolder(folderId);
                             },
                             tooltip: AppLocalizations.of(context)!.newChat,
@@ -1266,7 +1261,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         cupertinoIcon: CupertinoIcons.pencil,
         materialIcon: Icons.edit_rounded,
         label: l10n.rename,
-        onBeforeClose: () => HapticFeedback.selectionClick(),
+        onBeforeClose: () => ConduitHaptics.selectionClick(),
         onSelected: () async {
           await _renameFolder(context, folderId, folderName);
         },
@@ -1276,7 +1271,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         materialIcon: Icons.delete_rounded,
         label: l10n.delete,
         destructive: true,
-        onBeforeClose: () => HapticFeedback.mediumImpact(),
+        onBeforeClose: () => ConduitHaptics.mediumImpact(),
         onSelected: () async {
           await _confirmAndDeleteFolder(context, folderId, folderName);
         },
@@ -1336,7 +1331,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       final api = ref.read(apiServiceProvider);
       if (api == null) throw Exception('No API service');
       await api.updateFolder(folderId, name: newName);
-      HapticFeedback.selectionClick();
+      ConduitHaptics.selectionClick();
       ref
           .read(foldersProvider.notifier)
           .updateFolder(
@@ -1378,7 +1373,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       final api = ref.read(apiServiceProvider);
       if (api == null) throw Exception('No API service');
       await api.deleteFolder(folderId);
-      HapticFeedback.mediumImpact();
+      ConduitHaptics.mediumImpact();
       ref.read(foldersProvider.notifier).removeFolder(folderId);
       refreshConversationsCache(ref, includeFolders: true);
     } catch (e, stackTrace) {
@@ -1419,7 +1414,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           final api = ref.read(apiServiceProvider);
           if (api == null) throw Exception('No API service');
           await api.moveConversationToFolder(conversationId, null);
-          HapticFeedback.selectionClick();
+          ConduitHaptics.selectionClick();
           ref
               .read(conversationsProvider.notifier)
               .updateConversation(
@@ -1532,7 +1527,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         canAddItemToExistingSession: true,
         dragItemProvider: (request) async {
           // Set drag state when drag starts
-          HapticFeedback.lightImpact();
+          ConduitHaptics.lightImpact();
           final hasFolder =
               (conv.folderId != null && (conv.folderId as String).isNotEmpty);
           setState(() {

@@ -7,6 +7,7 @@ import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -203,7 +204,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         });
 
         if (showFeedback) {
-          HapticFeedback.lightImpact();
+          ConduitHaptics.lightImpact();
         }
       }
     } catch (e) {
@@ -278,7 +279,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     );
 
     if (confirmed && mounted) {
-      HapticFeedback.mediumImpact();
+      ConduitHaptics.mediumImpact();
       final success = await ref
           .read(noteDeleterProvider.notifier)
           .deleteNote(widget.noteId);
@@ -310,7 +311,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     }
 
     setState(() => _isGeneratingTitle = true);
-    HapticFeedback.lightImpact();
+    ConduitHaptics.lightImpact();
 
     final api = ref.read(apiServiceProvider);
     if (api == null) {
@@ -325,7 +326,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       );
       if (mounted && generatedTitle != null && generatedTitle.isNotEmpty) {
         _titleController.text = generatedTitle;
-        HapticFeedback.mediumImpact();
+        ConduitHaptics.mediumImpact();
       }
     } catch (e) {
       if (mounted) {
@@ -354,7 +355,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     }
 
     setState(() => _isEnhancing = true);
-    HapticFeedback.lightImpact();
+    ConduitHaptics.lightImpact();
 
     final api = ref.read(apiServiceProvider);
     if (api == null) {
@@ -369,7 +370,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       );
       if (mounted && enhancedContent != null && enhancedContent.isNotEmpty) {
         _contentController.text = enhancedContent;
-        HapticFeedback.mediumImpact();
+        ConduitHaptics.mediumImpact();
         AdaptiveSnackBar.show(
           context,
           message: AppLocalizations.of(context)!.noteEnhanced,
@@ -416,7 +417,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         _voiceBaseText = _contentController.text;
       });
 
-      HapticFeedback.lightImpact();
+      ConduitHaptics.lightImpact();
 
       _voiceSub?.cancel();
       _voiceSub = stream.listen(
@@ -452,7 +453,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     _voiceSub?.cancel();
     if (mounted) {
       setState(() => _isRecording = false);
-      HapticFeedback.selectionClick();
+      ConduitHaptics.selectionClick();
     }
   }
 
@@ -675,7 +676,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
           _hasChanges = false;
         });
 
-        HapticFeedback.mediumImpact();
+        ConduitHaptics.mediumImpact();
         AdaptiveSnackBar.show(
           context,
           message: l10n.audioRecordingSaved,
@@ -704,7 +705,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     final l10n = AppLocalizations.of(context)!;
     final content = _contentController.text;
     Clipboard.setData(ClipboardData(text: content));
-    HapticFeedback.selectionClick();
+    ConduitHaptics.selectionClick();
     AdaptiveSnackBar.show(
       context,
       message: l10n.noteCopiedToClipboard,
@@ -1010,13 +1011,13 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                           onSelected: (_, entry) {
                             switch (entry.value) {
                               case 'generate':
-                                HapticFeedback.selectionClick();
+                                ConduitHaptics.selectionClick();
                                 _generateTitle();
                               case 'copy':
-                                HapticFeedback.selectionClick();
+                                ConduitHaptics.selectionClick();
                                 _copyToClipboard();
                               case 'delete':
-                                HapticFeedback.mediumImpact();
+                                ConduitHaptics.mediumImpact();
                                 _deleteNote();
                             }
                           },
@@ -1324,7 +1325,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
           _hasChanges = false;
         });
 
-        HapticFeedback.lightImpact();
+        ConduitHaptics.lightImpact();
         AdaptiveSnackBar.show(
           context,
           message: l10n.fileRemoved,

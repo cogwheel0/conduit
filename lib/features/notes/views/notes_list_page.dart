@@ -5,6 +5,7 @@ import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -67,12 +68,12 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
   }
 
   Future<void> _refreshNotes() async {
-    HapticFeedback.lightImpact();
+    ConduitHaptics.lightImpact();
     await ref.read(notesListProvider.notifier).refresh();
   }
 
   Future<void> _createNewNote() async {
-    HapticFeedback.lightImpact();
+    ConduitHaptics.lightImpact();
 
     final dateFormat = DateFormat('yyyy-MM-dd');
     final defaultTitle = dateFormat.format(DateTime.now());
@@ -100,7 +101,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
     );
 
     if (confirmed && mounted) {
-      HapticFeedback.mediumImpact();
+      ConduitHaptics.mediumImpact();
       await ref.read(noteDeleterProvider.notifier).deleteNote(note.id);
     }
   }
@@ -284,7 +285,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
 
     return InkWell(
       onTap: () {
-        HapticFeedback.selectionClick();
+        ConduitHaptics.selectionClick();
         setState(() => _expandedSections[range] = !isExpanded);
       },
       borderRadius: BorderRadius.circular(AppBorderRadius.sm),
@@ -401,7 +402,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
               borderRadius: BorderRadius.circular(AppBorderRadius.card),
               overlayColor: WidgetStateProperty.resolveWith(overlayForStates),
               onTap: () {
-                HapticFeedback.selectionClick();
+                ConduitHaptics.selectionClick();
                 context.goNamed(
                   RouteNames.noteEditor,
                   pathParameters: {'id': note.id},
@@ -543,7 +544,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
         cupertinoIcon: CupertinoIcons.pencil,
         materialIcon: Icons.edit_rounded,
         label: l10n.edit,
-        onBeforeClose: () => HapticFeedback.selectionClick(),
+        onBeforeClose: () => ConduitHaptics.selectionClick(),
         onSelected: () async {
           context.pushNamed(
             RouteNames.noteEditor,
@@ -555,7 +556,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
         cupertinoIcon: CupertinoIcons.doc_on_clipboard,
         materialIcon: Icons.copy_rounded,
         label: l10n.copy,
-        onBeforeClose: () => HapticFeedback.selectionClick(),
+        onBeforeClose: () => ConduitHaptics.selectionClick(),
         onSelected: () async {
           await Clipboard.setData(ClipboardData(text: note.markdownContent));
           if (!context.mounted) return;
@@ -572,7 +573,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
         materialIcon: Icons.delete_rounded,
         label: l10n.delete,
         destructive: true,
-        onBeforeClose: () => HapticFeedback.mediumImpact(),
+        onBeforeClose: () => ConduitHaptics.mediumImpact(),
         onSelected: () async => _deleteNote(note),
       ),
     ];

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../core/providers/app_providers.dart';
@@ -280,7 +281,7 @@ class _EnhancedAttachmentState extends ConsumerState<EnhancedAttachment> {
     return InkWell(
       borderRadius: BorderRadius.circular(AppBorderRadius.md),
       onTap: () async {
-        await HapticFeedback.mediumImpact();
+        await ConduitHaptics.mediumImpact();
         await _shareFile();
       },
       child: card,

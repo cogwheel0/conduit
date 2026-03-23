@@ -1,6 +1,7 @@
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter/services.dart';
+import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/folder.dart';
@@ -39,7 +40,7 @@ class CreateFolderDialog {
       if (api == null) throw Exception('No API service');
       final created = await api.createFolder(name: name);
       final folder = Folder.fromJson(Map<String, dynamic>.from(created));
-      HapticFeedback.lightImpact();
+      ConduitHaptics.lightImpact();
       ref.read(foldersProvider.notifier).upsertFolder(folder);
       refreshConversationsCache(ref, includeFolders: true);
     } catch (e, stackTrace) {
