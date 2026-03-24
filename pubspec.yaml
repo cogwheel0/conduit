@@ -86,7 +86,7 @@ dependencies:
   flutter_tex: ^5.2.6
   super_clipboard: ^0.9.1
   super_sliver_list: ^0.4.1
-  flutter_vibrate: ^1.4.0
+  gaimon: ^1.4.2
   
   # Clipboard functionality is available through flutter/services (part of Flutter SDK)
 

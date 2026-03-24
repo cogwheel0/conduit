@@ -63,6 +63,8 @@ PODS:
     - FlutterMacOS
   - flutter_tts (0.0.1):
     - Flutter
+  - gaimon (0.0.1):
+    - Flutter
   - home_widget (0.0.1):
     - Flutter
   - image_picker_ios (0.0.1):
@@ -153,6 +155,7 @@ DEPENDENCIES:
   - flutter_native_splash (from `.symlinks/plugins/flutter_native_splash/ios`)
   - flutter_secure_storage_darwin (from `.symlinks/plugins/flutter_secure_storage_darwin/darwin`)
   - flutter_tts (from `.symlinks/plugins/flutter_tts/ios`)
+  - gaimon (from `.symlinks/plugins/gaimon/ios`)
   - home_widget (from `.symlinks/plugins/home_widget/ios`)
   - image_picker_ios (from `.symlinks/plugins/image_picker_ios/ios`)
   - irondash_engine_context (from `.symlinks/plugins/irondash_engine_context/ios`)
@@ -213,6 +216,8 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/flutter_secure_storage_darwin/darwin"
   flutter_tts:
     :path: ".symlinks/plugins/flutter_tts/ios"
+  gaimon:
+    :path: ".symlinks/plugins/gaimon/ios"
   home_widget:
     :path: ".symlinks/plugins/home_widget/ios"
   image_picker_ios:
@@ -270,6 +275,7 @@ SPEC CHECKSUMS:
   flutter_native_splash: c32d145d68aeda5502d5f543ee38c192065986cf
   flutter_secure_storage_darwin: acdb3f316ed05a3e68f856e0353b133eec373a23
   flutter_tts: 35ac3c7d42412733e795ea96ad2d7e05d0a75113
+  gaimon: ce0b5c042363ed957bb92ee755c361903d3ce0ef
   home_widget: f169fc41fd807b4d46ab6615dc44d62adbf9f64f
   image_picker_ios: e0ece4aa2a75771a7de3fa735d26d90817041326
   irondash_engine_context: 8e58ca8e0212ee9d1c7dc6a42121849986c88486

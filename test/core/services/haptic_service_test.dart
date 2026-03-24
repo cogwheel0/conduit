@@ -13,7 +13,7 @@ class _RecordedPlatformCall {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('falls back to Flutter haptics when flutter_vibrate is unavailable', () async {
+  test('falls back to Flutter haptics when gaimon is unavailable', () async {
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     final platformCalls = <_RecordedPlatformCall>[];
@@ -43,13 +43,13 @@ void main() {
     );
   });
 
-  test('routes supported haptics through flutter_vibrate when available', () async {
+  test('routes supported haptics through gaimon when available', () async {
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     final pluginCalls = <String>[];
     final platformCalls = <_RecordedPlatformCall>[];
 
-    messenger.setMockMethodCallHandler(const MethodChannel('vibrate'), (
+    messenger.setMockMethodCallHandler(const MethodChannel('gaimon'), (
       call,
     ) async {
       pluginCalls.add(call.method);
@@ -63,7 +63,7 @@ void main() {
     try {
       await ConduitHaptics.selectionClick();
     } finally {
-      messenger.setMockMethodCallHandler(const MethodChannel('vibrate'), null);
+      messenger.setMockMethodCallHandler(const MethodChannel('gaimon'), null);
       messenger.setMockMethodCallHandler(SystemChannels.platform, null);
     }
 
