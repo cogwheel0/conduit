@@ -18,7 +18,7 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Create Release with Notes
         uses: ncipollo/release-action@v1
@@ -28,60 +28,17 @@ jobs:
           generateReleaseNotes: true
           makeLatest: true
 
-  prepare-generated-sources:
-    name: Prepare Generated Sources
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Set Up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
-          cache: true
-
-      - name: Install Dependencies
-        run: flutter pub get
-
-      - name: Generate code (build_runner)
-        run: dart run build_runner build --delete-conflicting-outputs
-
-      - name: Package Prepared Workspace
-        run: |
-          find lib -type f \
-            \( -name '*.g.dart' -o -name '*.freezed.dart' \) \
-            -print0 | tar --null -T - -czf generated-sources.tar.gz
-
-      - name: Upload Generated Sources
-        uses: actions/upload-artifact@v4
-        with:
-          name: generated-sources
-          path: generated-sources.tar.gz
-
   build-android:
     name: Build Android
     runs-on: ubuntu-latest
-    needs:
-      - generate-release-notes
-      - prepare-generated-sources
+    needs: generate-release-notes
     permissions:
       contents: write
 
     steps:
         #1 Checkout Repository
       - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Download Generated Sources
-        uses: actions/download-artifact@v4
-        with:
-          name: generated-sources
-          path: .
-
-      - name: Extract Generated Sources
-        run: tar -xzf generated-sources.tar.gz
+        uses: actions/checkout@v6
 
         #2 Setup Java
       - name: Set Up Java
@@ -102,16 +59,12 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Create Android local.properties
-        run: |
-          cat > android/local.properties <<EOF
-          sdk.dir=${ANDROID_SDK_ROOT}
-          flutter.sdk=${FLUTTER_ROOT}
-          EOF
-
         #4 Install Dependencies
       - name: Install Dependencies
         run: flutter pub get
+
+      - name: Generate code (build_runner)
+        run: dart run build_runner build --delete-conflicting-outputs
 
       
 
@@ -125,13 +78,11 @@ jobs:
           ANDROID_KEY_PROPERTIES_BASE64: ${{ secrets.ANDROID_KEY_PROPERTIES_BASE64 }}
         working-directory: android
       
-      - name: Build Android Release Artifacts
-        run: |
-          chmod +x android/gradlew
-          ./android/gradlew \
-            app:assembleRelease \
-            app:bundleRelease \
-            -Psplit-per-abi=true
+      - name: Build APK
+        run: flutter build apk --split-per-abi --release
+
+      - name: Build appBundle
+        run: flutter build appbundle --release
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
@@ -159,25 +110,14 @@ jobs:
   build-ios:
     name: Build iOS
     runs-on: macos-latest
-    needs:
-      - generate-release-notes
-      - prepare-generated-sources
+    needs: generate-release-notes
     permissions:
       contents: write
 
     steps:
         #1 Checkout Repository
       - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Download Generated Sources
-        uses: actions/download-artifact@v4
-        with:
-          name: generated-sources
-          path: .
-
-      - name: Extract Generated Sources
-        run: tar -xzf generated-sources.tar.gz
+        uses: actions/checkout@v6
 
         #2 Setup Flutter
       - name: Set Up Flutter
@@ -189,6 +129,9 @@ jobs:
         #3 Install Dependencies
       - name: Install Dependencies
         run: flutter pub get
+
+      - name: Generate code (build_runner)
+        run: dart run build_runner build --delete-conflicting-outputs
 
       
 
