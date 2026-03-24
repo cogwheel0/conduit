@@ -3,15 +3,14 @@ import 'dart:developer' as developer;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
-/// App-wide haptics helper backed by `gaimon` on mobile.
+/// App-wide haptics helper that prefers system haptics on Android.
 ///
-/// Falls back to Flutter's built-in `HapticFeedback` APIs when the plugin is
-/// unavailable, such as in tests.
+/// iOS can still use `gaimon` when it is available so notification-style
+/// feedback stays mapped to the native UIKit generators. Other platforms and
+/// tests fall back to Flutter's built-in `HapticFeedback` APIs.
 class ConduitHaptics {
   ConduitHaptics._();
 
-  // `gaimon`'s public Dart helpers do not await their platform calls, which
-  // makes fallback handling harder in tests. Await the channel directly here.
   static const MethodChannel _pluginChannel = MethodChannel('gaimon');
 
   /// Whether the current target supports mobile haptics.
@@ -21,6 +20,9 @@ class ConduitHaptics {
         TargetPlatform.android || TargetPlatform.iOS => true,
         _ => false,
       };
+
+  static bool get _preferPlugin =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
 
   /// Triggers a light impact haptic.
   static Future<void> lightImpact() =>
@@ -40,14 +42,15 @@ class ConduitHaptics {
 
   /// Triggers a success haptic.
   static Future<void> success() =>
-      _feedback('success', HapticFeedback.lightImpact);
+      _feedback('success', HapticFeedback.successNotification);
 
   /// Triggers a warning haptic.
   static Future<void> warning() =>
-      _feedback('warning', HapticFeedback.mediumImpact);
+      _feedback('warning', HapticFeedback.warningNotification);
 
   /// Triggers an error haptic.
-  static Future<void> error() => _feedback('error', HapticFeedback.heavyImpact);
+  static Future<void> error() =>
+      _feedback('error', HapticFeedback.errorNotification);
 
   /// Triggers a general-purpose vibration.
   static Future<void> vibrate() async {
@@ -63,6 +66,11 @@ class ConduitHaptics {
     Future<void> Function() fallback,
   ) async {
     if (!supportsHaptics) {
+      return;
+    }
+
+    if (!_preferPlugin) {
+      await _fallback('system haptic', fallback);
       return;
     }
 
