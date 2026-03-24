@@ -129,6 +129,12 @@ GoogleService-Info.plist
 **/android/key.properties
 *.hprof
 
+# Keep the Android Gradle wrapper in version control for reproducible CI builds.
+!android/gradle/wrapper/gradle-wrapper.jar
+!android/gradle/wrapper/gradle-wrapper.properties
+!android/gradlew
+!android/gradlew.bat
+
 # CMake
 **/android/CMakeLists.txt
 

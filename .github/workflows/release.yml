@@ -126,8 +126,12 @@ jobs:
         working-directory: android
       
       - name: Build Android Release Artifacts
-        working-directory: android
-        run: ./gradlew app:assembleRelease app:bundleRelease -Psplit-per-abi=true
+        run: |
+          chmod +x android/gradlew
+          ./android/gradlew \
+            app:assembleRelease \
+            app:bundleRelease \
+            -Psplit-per-abi=true
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
