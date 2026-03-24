@@ -21,6 +21,7 @@ import 'core/utils/system_ui_style.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
 import 'core/services/share_receiver_service.dart';
+import 'core/services/quick_actions_service.dart';
 import 'core/providers/app_startup_providers.dart';
 
 developer.TimelineTask? _startupTimeline;
@@ -62,6 +63,17 @@ void main() {
       // Edge-to-edge is now handled natively in MainActivity.kt for Android 15+
       // No need for SystemUiMode.edgeToEdge which is deprecated
       _startupTimeline?.instant('edge_to_edge_configured');
+
+      try {
+        await QuickActionsBootstrap.initialize();
+      } catch (error, stackTrace) {
+        DebugLogger.error(
+          'quick-actions-bootstrap',
+          scope: 'app/platform',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
 
       const secureStorage = FlutterSecureStorage(
         aOptions: AndroidOptions(
@@ -138,6 +150,7 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
   @override
   void initState() {
     super.initState();
+    ref.read(quickActionsCoordinatorProvider);
     // Delay heavy provider initialization until after the first frame so the
     // initial paint stays responsive.
     WidgetsBinding.instance.addPostFrameCallback((_) => _initializeAppState());
@@ -178,55 +191,38 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
 
   @override
   Widget build(BuildContext context) {
-    final themeMode = ref.watch(
-      appThemeModeProvider.select((mode) => mode),
-    );
+    final themeMode = ref.watch(appThemeModeProvider.select((mode) => mode));
     final router = ref.watch(goRouterProvider);
     final locale = ref.watch(appLocaleProvider);
     final lightTheme = ref.watch(appLightThemeProvider);
     final darkTheme = ref.watch(appDarkThemeProvider);
-    final cupertinoLight = ref.watch(
-      appCupertinoLightThemeProvider,
-    );
-    final cupertinoDark = ref.watch(
-      appCupertinoDarkThemeProvider,
-    );
+    final cupertinoLight = ref.watch(appCupertinoLightThemeProvider);
+    final cupertinoDark = ref.watch(appCupertinoDarkThemeProvider);
 
     return ErrorBoundary(
       child: AdaptiveApp.router(
         routerConfig: router,
-        onGenerateTitle: (context) =>
-            AppLocalizations.of(context)!.appTitle,
+        onGenerateTitle: (context) => AppLocalizations.of(context)!.appTitle,
         materialLightTheme: lightTheme,
         materialDarkTheme: darkTheme,
         cupertinoLightTheme: cupertinoLight,
         cupertinoDarkTheme: cupertinoDark,
         themeMode: themeMode,
         locale: locale,
-        localizationsDelegates:
-            AppLocalizations.localizationsDelegates,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
-        localeListResolutionCallback: (
-          deviceLocales,
-          supported,
-        ) {
+        localeListResolutionCallback: (deviceLocales, supported) {
           if (locale != null) return locale;
-          if (deviceLocales == null ||
-              deviceLocales.isEmpty) {
+          if (deviceLocales == null || deviceLocales.isEmpty) {
             return supported.first;
           }
-          final resolved = _resolveSupportedLocale(
-            deviceLocales,
-            supported,
-          );
+          final resolved = _resolveSupportedLocale(deviceLocales, supported);
           return resolved ?? supported.first;
         },
-        material: (_, _) => const MaterialAppData(
-          debugShowCheckedModeBanner: false,
-        ),
-        cupertino: (_, _) => const CupertinoAppData(
-          debugShowCheckedModeBanner: false,
-        ),
+        material: (_, _) =>
+            const MaterialAppData(debugShowCheckedModeBanner: false),
+        cupertino: (_, _) =>
+            const CupertinoAppData(debugShowCheckedModeBanner: false),
         builder: (context, child) {
           // Resolve brightness from themeMode rather than
           // Theme.of(context) — on iOS, CupertinoApp's
@@ -238,21 +234,17 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
             case ThemeMode.light:
               brightness = Brightness.light;
             case ThemeMode.system:
-              brightness =
-                  MediaQuery.platformBrightnessOf(context);
+              brightness = MediaQuery.platformBrightnessOf(context);
           }
           if (_lastAppliedOverlayBrightness != brightness) {
             _lastAppliedOverlayBrightness = brightness;
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (!mounted) return;
-              applySystemUiOverlayStyleOnce(
-                brightness: brightness,
-              );
+              applySystemUiOverlayStyleOnce(brightness: brightness);
             });
           }
           final mediaQuery = MediaQuery.of(context);
-          final safeChild =
-              child ?? const SizedBox.shrink();
+          final safeChild = child ?? const SizedBox.shrink();
 
           // On iOS, AdaptiveApp creates CupertinoApp which
           // doesn't propagate Material ThemeExtensions.
@@ -273,9 +265,7 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
                   maxScaleFactor: 3.0,
                 ),
               ),
-              child: _KeyboardDismissOnScroll(
-                child: safeChild,
-              ),
+              child: _KeyboardDismissOnScroll(child: safeChild),
             ),
           );
         },

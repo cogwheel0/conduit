@@ -11,7 +11,6 @@ import '../../features/auth/providers/unified_auth_providers.dart';
 import '../services/navigation_service.dart';
 import '../services/app_intents_service.dart';
 import '../services/home_widget_service.dart';
-import '../services/quick_actions_service.dart';
 import '../models/conversation.dart';
 import '../services/background_streaming_handler.dart';
 import '../services/socket_service.dart';
@@ -267,7 +266,6 @@ class AppStartupFlow extends _$AppStartupFlow {
     keepAlive(apiTokenUpdaterProvider);
     keepAlive(silentLoginCoordinatorProvider);
     keepAlive(appIntentCoordinatorProvider);
-    keepAlive(quickActionsCoordinatorProvider);
     keepAlive(homeWidgetCoordinatorProvider);
 
     // Kick background model loading flow (non-blocking)
@@ -390,7 +388,6 @@ class AppStartupFlow extends _$AppStartupFlow {
 
             // Kick background chat warmup now that we're authenticated
             _scheduleConversationWarmup(ref, force: true);
-
           } catch (e) {
             DebugLogger.error(
               'startup-flow-failed',
@@ -668,4 +665,3 @@ class _SocketPersistenceObserver extends WidgetsBindingObserver {
     }
   }
 }
-
