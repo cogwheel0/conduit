@@ -287,12 +287,6 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         finishReason == 'content_filter';
   }
 
-  void completeVisibleStreaming() {
-    if (hasCompletedStreamingUi) return;
-    hasCompletedStreamingUi = true;
-    completeStreamingUi();
-  }
-
   // Start background execution to keep app alive during streaming (iOS/Android)
   // Uses the assistantMessageId as a unique stream identifier
   final streamId = 'chat-stream-$assistantMessageId';
@@ -332,6 +326,144 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     finishStreaming();
   }
 
+  // Reference to image sync functions - initialized to no-op and reassigned
+  // after the real implementation is defined. Must not be `late` to avoid
+  // LateInitializationError if callbacks fire early.
+  void Function() syncImages = () {};
+  void Function() updateImagesFromCurrentContent = () {};
+
+  var renderedStreamingContent = (() {
+    final messages = getMessages();
+    if (messages.isEmpty || messages.last.role != 'assistant') {
+      return '';
+    }
+    return messages.last.content;
+  })();
+  var inReasoningBlock = false;
+  var reasoningPrefix = '';
+  var reasoningContent = '';
+
+  void resetStreamingReasoning() {
+    inReasoningBlock = false;
+    reasoningPrefix = '';
+    reasoningContent = '';
+  }
+
+  void syncRenderedStreamingContentFromState() {
+    final messages = getMessages();
+    if (messages.isEmpty || messages.last.role != 'assistant') {
+      renderedStreamingContent = '';
+      return;
+    }
+    renderedStreamingContent = messages.last.content;
+  }
+
+  void replaceVisibleAssistantContent(
+    String content, {
+    bool updateImages = true,
+  }) {
+    resetStreamingReasoning();
+    renderedStreamingContent = content;
+    replaceLastMessageContent(content);
+    if (updateImages) {
+      updateImagesFromCurrentContent();
+    }
+  }
+
+  void finalizeStreamingReasoning({
+    int duration = 0,
+    bool updateImages = false,
+  }) {
+    if (!inReasoningBlock) {
+      if (updateImages) {
+        updateImagesFromCurrentContent();
+      }
+      return;
+    }
+
+    renderedStreamingContent = _prependReasoningDetails(
+      reasoningPrefix,
+      _buildStreamingReasoningDetails(
+        reasoningContent,
+        done: true,
+        duration: duration,
+      ),
+    );
+    replaceLastMessageContent(renderedStreamingContent);
+    resetStreamingReasoning();
+
+    if (updateImages) {
+      updateImagesFromCurrentContent();
+    }
+  }
+
+  void appendVisibleAssistantChunk(String chunk, {bool updateImages = true}) {
+    if (chunk.isEmpty) return;
+
+    if (inReasoningBlock) {
+      renderedStreamingContent =
+          _prependReasoningDetails(
+            reasoningPrefix,
+            _buildStreamingReasoningDetails(reasoningContent, done: true),
+          ) +
+          chunk;
+      replaceLastMessageContent(renderedStreamingContent);
+      resetStreamingReasoning();
+    } else {
+      renderedStreamingContent += chunk;
+      appendToLastMessage(chunk);
+    }
+
+    if (updateImages) {
+      updateImagesFromCurrentContent();
+    }
+  }
+
+  void applyStreamingReasoningDelta(String chunk) {
+    if (chunk.isEmpty) return;
+
+    if (!inReasoningBlock) {
+      syncRenderedStreamingContentFromState();
+      inReasoningBlock = true;
+      reasoningPrefix = renderedStreamingContent;
+      reasoningContent = '';
+    }
+
+    reasoningContent += chunk;
+    renderedStreamingContent = _prependReasoningDetails(
+      reasoningPrefix,
+      _buildStreamingReasoningDetails(reasoningContent, done: false),
+    );
+    replaceLastMessageContent(renderedStreamingContent);
+  }
+
+  void handleStreamingChoiceDelta(Map<dynamic, dynamic> delta) {
+    final reasoning = delta['reasoning_content']?.toString() ?? '';
+    if (reasoning.isNotEmpty) {
+      applyStreamingReasoningDelta(reasoning);
+    }
+
+    final content = delta['content']?.toString() ?? '';
+    if (content.isNotEmpty) {
+      appendVisibleAssistantChunk(content);
+    }
+  }
+
+  void handleToolCallStatus(String name) {
+    if (name.isEmpty) return;
+    final status =
+        '\n<details type="tool_calls" done="false" '
+        'name="$name"><summary>Executing...</summary>\n</details>\n';
+    appendVisibleAssistantChunk(status, updateImages: false);
+  }
+
+  void completeVisibleStreaming() {
+    if (hasCompletedStreamingUi) return;
+    finalizeStreamingReasoning();
+    hasCompletedStreamingUi = true;
+    completeStreamingUi();
+  }
+
   // For taskSocket transport, we still need a StreamController so the
   // StreamingResponseController can manage the stream lifecycle.
   // For httpStream/jsonCompletion, these are unused.
@@ -341,10 +473,6 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   // HTTP subscription is tracked separately and cleaned up in disposeSocketSubscriptions.
   final socketSubscriptions = <VoidCallback>[];
   final hasSocketSignals = socketService != null;
-
-  // Reference to image sync function - initialized to no-op, reassigned after definition.
-  // Must not be `late` to avoid LateInitializationError if callbacks fire early.
-  void Function() syncImages = () {};
 
   // Shared helper to poll server for message content with exponential backoff.
   // Used by watchdog timeout and reconnection handler to recover from missed events.
@@ -503,7 +631,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         '$source: adopting server content (${content.length} chars)',
         scope: 'streaming/helper',
       );
-      replaceLastMessageContent(content);
+      replaceVisibleAssistantContent(content);
       applied = true;
 
       if (followUps.isNotEmpty) {
@@ -780,7 +908,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     );
   }
 
-  void updateImagesFromCurrentContent() {
+  updateImagesFromCurrentContent = () {
     try {
       final msgs = getMessages();
       if (msgs.isEmpty || msgs.last.role != 'assistant') return;
@@ -816,7 +944,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         runPendingImageCollection();
       }
     } catch (_) {}
-  }
+  };
 
   // Bind the late reference now that updateImagesFromCurrentContent is defined
   syncImages = updateImagesFromCurrentContent;
@@ -907,6 +1035,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       try {
         socketService?.offEvent(channel);
       } catch (_) {}
+      finalizeStreamingReasoning();
       if (!isTemporaryChat(activeConversationId)) {
         sendChatCompletedAndSync();
       }
@@ -953,46 +1082,33 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                               ? fn['name'] as String
                               : null;
                           if (name is String && name.isNotEmpty) {
-                            final msgs = getMessages();
-                            // Quick string check before expensive regex
-                            final exists =
-                                (msgs.isNotEmpty) &&
-                                msgs.last.content.contains('name="$name"');
+                            final exists = renderedStreamingContent.contains(
+                              'name="$name"',
+                            );
                             if (!exists) {
-                              final status =
-                                  '\n<details type="tool_calls" done="false" name="$name"><summary>Executing...</summary>\n</details>\n';
-                              appendToLastMessage(status);
+                              handleToolCallStatus(name);
                             }
                           }
                         }
                       }
                     }
                   }
-                  final content = delta['content']?.toString() ?? '';
-                  if (content.isNotEmpty) {
-                    appendToLastMessage(content);
-                    updateImagesFromCurrentContent();
-                  }
+                  handleStreamingChoiceDelta(delta);
                 }
               }
             } catch (_) {
               if (s.isNotEmpty) {
-                appendToLastMessage(s);
-                updateImagesFromCurrentContent();
+                appendVisibleAssistantChunk(s);
               }
             }
           } else {
             if (s.isNotEmpty) {
-              appendToLastMessage(s);
-              updateImagesFromCurrentContent();
+              appendVisibleAssistantChunk(s);
             }
           }
         } else if (line is Map) {
           if (line['done'] == true) {
-            try {
-              socketService?.offEvent(channel);
-            } catch (_) {}
-            wrappedFinishStreaming();
+            onChannelDone();
             return;
           }
         }
@@ -1113,15 +1229,11 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                         ? fn['name'] as String
                         : null;
                     if (name is String && name.isNotEmpty) {
-                      final msgs = getMessages();
-                      // Quick string check before expensive regex
-                      final exists =
-                          (msgs.isNotEmpty) &&
-                          msgs.last.content.contains('name="$name"');
+                      final exists = renderedStreamingContent.contains(
+                        'name="$name"',
+                      );
                       if (!exists) {
-                        final status =
-                            '\n<details type="tool_calls" done="false" name="$name"><summary>Executing...</summary>\n</details>\n';
-                        appendToLastMessage(status);
+                        handleToolCallStatus(name);
                       }
                     }
                   }
@@ -1162,26 +1274,18 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                               ? fn['name'] as String
                               : null;
                           if (name is String && name.isNotEmpty) {
-                            final msgs = getMessages();
-                            // Quick string check before expensive regex
-                            final exists =
-                                (msgs.isNotEmpty) &&
-                                msgs.last.content.contains('name="$name"');
+                            final exists = renderedStreamingContent.contains(
+                              'name="$name"',
+                            );
                             if (!exists) {
-                              final status =
-                                  '\n<details type="tool_calls" done="false" name="$name"><summary>Executing...</summary>\n</details>\n';
-                              appendToLastMessage(status);
+                              handleToolCallStatus(name);
                             }
                           }
                         }
                       }
                     }
                   }
-                  final content = delta['content']?.toString() ?? '';
-                  if (content.isNotEmpty) {
-                    appendToLastMessage(content);
-                    updateImagesFromCurrentContent();
-                  }
+                  handleStreamingChoiceDelta(delta);
                 }
               }
             }
@@ -1200,8 +1304,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             } else {
               final raw = payload['content']?.toString() ?? '';
               if (raw.isNotEmpty) {
-                replaceLastMessageContent(raw);
-                updateImagesFromCurrentContent();
+                replaceVisibleAssistantContent(raw);
               }
             }
           }
@@ -1260,6 +1363,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
               refreshConversationSnapshot,
             );
 
+            finalizeStreamingReasoning();
+
             // Flush buffer and check if we have content
             flushStreamingBuffer();
             final msgs = getMessages();
@@ -1285,7 +1390,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                     try {
                       final result = await pollServerForMessage();
                       if (result != null && result.content.isNotEmpty) {
-                        replaceLastMessageContent(result.content);
+                        replaceVisibleAssistantContent(result.content);
                         if (result.followUps.isNotEmpty) {
                           setFollowUps(assistantMessageId, result.followUps);
                         }
@@ -1522,8 +1627,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         } else {
           final content = payload['content']?.toString() ?? '';
           if (content.isNotEmpty) {
-            appendToLastMessage(content);
-            updateImagesFromCurrentContent();
+            appendVisibleAssistantChunk(content);
           }
         }
       } else if ((type == 'chat:message' || type == 'replace') &&
@@ -1541,7 +1645,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         } else {
           final content = payload['content']?.toString() ?? '';
           if (content.isNotEmpty) {
-            replaceLastMessageContent(content);
+            replaceVisibleAssistantContent(content);
           }
         }
       } else if ((type == 'chat:message:files') && payload != null) {
@@ -1633,9 +1737,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         // Show an executing tile immediately; also surface any inline files/result
         try {
           final name = payload['name']?.toString() ?? 'tool';
-          final status =
-              '\n<details type="tool_calls" done="false" name="$name"><summary>Executing...</summary>\n</details>\n';
-          appendToLastMessage(status);
+          handleToolCallStatus(name);
           try {
             final filesA = _extractFilesFromResult(payload['files']);
             final filesB = _extractFilesFromResult(payload['result']);
@@ -1719,8 +1821,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         } else {
           final content = payload['content']?.toString() ?? '';
           if (content.isNotEmpty) {
-            appendToLastMessage(content);
-            updateImagesFromCurrentContent();
+            appendVisibleAssistantChunk(content);
           }
         }
       } else {
@@ -1747,8 +1848,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       if (type == 'message' && payload is Map) {
         final content = payload['content']?.toString() ?? '';
         if (content.isNotEmpty) {
-          appendToLastMessage(content);
-          updateImagesFromCurrentContent();
+          appendVisibleAssistantChunk(content);
         }
       } else {
         // Log channel events that might include follow-ups
@@ -1792,58 +1892,15 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     case ChatCompletionTransport.httpStream:
       // Parse the SSE byte stream directly via the typed parser.
       bool receivedDone = false;
-      // Track the current upstream-style reasoning details block so each
-      // delta replaces the prior complete block instead of appending raw tags.
-      bool inReasoningBlock = false;
-      var renderedHttpContent = (() {
-        final messages = getMessages();
-        if (messages.isEmpty || messages.last.role != 'assistant') {
-          return '';
-        }
-        return messages.last.content;
-      })();
-      var reasoningPrefix = '';
-      var reasoningContent = '';
       final sub = parseOpenWebUIStream(session.byteStream!).listen(
         (update) {
           try {
             switch (update) {
               case OpenWebUIContentDelta(:final content):
-                if (inReasoningBlock) {
-                  inReasoningBlock = false;
-                  renderedHttpContent =
-                      _prependReasoningDetails(
-                        reasoningPrefix,
-                        _buildStreamingReasoningDetails(
-                          reasoningContent,
-                          done: true,
-                        ),
-                      ) +
-                      content;
-                  reasoningPrefix = '';
-                  reasoningContent = '';
-                  replaceLastMessageContent(renderedHttpContent);
-                } else {
-                  renderedHttpContent += content;
-                  appendToLastMessage(content);
-                }
-                updateImagesFromCurrentContent();
+                appendVisibleAssistantChunk(content);
 
               case OpenWebUIReasoningDelta(:final content):
-                if (!inReasoningBlock) {
-                  inReasoningBlock = true;
-                  reasoningPrefix = renderedHttpContent;
-                  reasoningContent = '';
-                }
-                reasoningContent += content;
-                renderedHttpContent = _prependReasoningDetails(
-                  reasoningPrefix,
-                  _buildStreamingReasoningDetails(
-                    reasoningContent,
-                    done: false,
-                  ),
-                );
-                replaceLastMessageContent(renderedHttpContent);
+                applyStreamingReasoningDelta(content);
 
               case OpenWebUIOutputUpdate(:final output):
                 // Store structured output items from backend middleware.
@@ -1885,19 +1942,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                 );
 
               case OpenWebUIStreamDone():
-                if (inReasoningBlock) {
-                  inReasoningBlock = false;
-                  renderedHttpContent = _prependReasoningDetails(
-                    reasoningPrefix,
-                    _buildStreamingReasoningDetails(
-                      reasoningContent,
-                      done: true,
-                    ),
-                  );
-                  reasoningPrefix = '';
-                  reasoningContent = '';
-                  replaceLastMessageContent(renderedHttpContent);
-                }
+                finalizeStreamingReasoning();
                 receivedDone = true;
                 wrappedFinishStreaming();
             }
@@ -2030,8 +2075,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           }
 
           if (effectiveChunk.trim().isNotEmpty) {
-            appendToLastMessage(effectiveChunk);
-            updateImagesFromCurrentContent();
+            appendVisibleAssistantChunk(effectiveChunk);
           }
         },
         onComplete: () {
@@ -2134,7 +2178,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
               if (message is Map<String, dynamic>) {
                 final content = message['content']?.toString() ?? '';
                 if (content.isNotEmpty) {
-                  replaceLastMessageContent(content);
+                  replaceVisibleAssistantContent(content);
                 }
               }
             }

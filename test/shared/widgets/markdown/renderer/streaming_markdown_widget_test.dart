@@ -55,14 +55,17 @@ void main() {
     );
   });
 
-  Widget buildHarness(String content) {
+  Widget buildHarness(String content, {bool isStreaming = false}) {
     return MaterialApp(
       theme: AppTheme.light(TweakcnThemes.t3Chat),
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       home: Scaffold(
         body: SingleChildScrollView(
-          child: StreamingMarkdownWidget(content: content, isStreaming: false),
+          child: StreamingMarkdownWidget(
+            content: content,
+            isStreaming: isStreaming,
+          ),
         ),
       ),
     );
@@ -184,6 +187,58 @@ Reasoning body
     await tester.pumpAndSettle();
 
     expect(find.text('Reasoning body'), findsOneWidget);
+  });
+
+  testWidgets('keeps the reasoning sheet live while content updates', (
+    tester,
+  ) async {
+    var content = '''
+<details type="reasoning" done="false">
+<summary>Thinking…</summary>
+First step
+</details>
+''';
+    late void Function(VoidCallback fn) rebuild;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(TweakcnThemes.t3Chat),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, setState) {
+              rebuild = setState;
+              return SingleChildScrollView(
+                child: StreamingMarkdownWidget(
+                  content: content,
+                  isStreaming: true,
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Thinking'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('First step'), findsOneWidget);
+
+    rebuild(() {
+      content = '''
+<details type="reasoning" done="true" duration="5">
+<summary>Thinking…</summary>
+First step
+Second step
+</details>
+''';
+    });
+    await tester.pumpAndSettle();
+
+    expect(find.text('Second step'), findsOneWidget);
+    expect(find.text('Thought for 5 seconds'), findsAtLeastNWidgets(1));
   });
 
   testWidgets(

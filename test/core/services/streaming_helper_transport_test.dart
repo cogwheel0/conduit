@@ -262,6 +262,7 @@ ActiveChatStream _attach({
 /// SocketService below.
 class FakeSocketInjector {
   void Function(Map<String, dynamic>, void Function(dynamic)?)? _handler;
+  final _channelHandlers = <String, void Function(dynamic)>{};
 
   /// Injects a socket chat event with the given [type] and [payload].
   void emitChatEvent(String type, dynamic payload, {String? messageId}) {
@@ -270,6 +271,11 @@ class FakeSocketInjector {
       'message_id': ?messageId,
     };
     _handler?.call(raw, null);
+  }
+
+  /// Injects a raw channel event payload for a registered channel name.
+  void emitChannelLine(String channel, dynamic payload) {
+    _channelHandlers[channel]?.call(payload);
   }
 }
 
@@ -311,10 +317,14 @@ class _MockSocketService implements SocketService {
   String? get sessionId => 'test-session';
 
   @override
-  void onEvent(String eventName, void Function(dynamic) handler) {}
+  void onEvent(String eventName, void Function(dynamic) handler) {
+    _injector._channelHandlers[eventName] = handler;
+  }
 
   @override
-  void offEvent(String eventName) {}
+  void offEvent(String eventName) {
+    _injector._channelHandlers.remove(eventName);
+  }
 
   // Stubs for remaining SocketService interface
   @override
@@ -421,6 +431,104 @@ void main() {
           'Answer',
         );
         check(finalContent).not((value) => value.contains('<think>'));
+        check(log.finishCount).equals(1);
+      },
+    );
+
+    test(
+      'taskSocket normalizes reasoning deltas from chat completion events',
+      () async {
+        final log = _CallbackLog(
+          initialMessages: fakeStreamingAssistantMessages(content: 'Intro'),
+        );
+        final registrar = FakeSocketInjector();
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
+
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:completion', {
+          'choices': [
+            {
+              'delta': {'reasoning_content': 'Plan\nFirst step'},
+            },
+          ],
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:completion', {
+          'choices': [
+            {
+              'delta': {'content': 'Answer'},
+            },
+          ],
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:completion', {
+          'done': true,
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        check(log.messages.last.content).equals(
+          'Intro\n'
+          '<details type="reasoning" done="true" duration="0">\n'
+          '<summary>Thought for 0 seconds</summary>\n'
+          '&gt; Plan\n'
+          '&gt; First step\n'
+          '</details>\n'
+          'Answer',
+        );
+        check(log.finishCount).equals(1);
+      },
+    );
+
+    test(
+      'taskSocket channel stream finalizes reasoning-only responses on done',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
+
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('request:chat:completion', {
+          'channel': 'chan-1',
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        registrar.emitChannelLine(
+          'chan-1',
+          'data: {"choices":[{"delta":{"reasoning_content":"Plan"}}]}',
+        );
+        await pumpMicrotasks();
+
+        registrar.emitChannelLine('chan-1', 'data: [DONE]');
+        await pumpMicrotasks();
+
+        check(log.messages.last.content).equals(
+          '<details type="reasoning" done="true" duration="0">\n'
+          '<summary>Thought for 0 seconds</summary>\n'
+          '&gt; Plan\n'
+          '</details>\n',
+        );
         check(log.finishCount).equals(1);
       },
     );
