@@ -34,6 +34,8 @@ class BlockRenderer {
     this.latexPreprocessor, [
     this.onLinkTap,
     this.imageBuilder,
+    this.stateScopeId,
+    this.nodePathPrefix,
   ]);
 
   /// The active build context.
@@ -54,11 +56,17 @@ class BlockRenderer {
   /// Optional builder for block-level images.
   final ImageBuilder? imageBuilder;
 
+  /// Optional scope used to preserve state for remounted markdown blocks.
+  final String? stateScopeId;
+
+  /// Optional AST path prefix used to keep sibling block identities unique.
+  final String? nodePathPrefix;
+
   /// Renders a list of block [nodes] as a [Column].
   Widget renderBlocks(List<md.Node> nodes) {
     final widgets = <Widget>[];
-    for (final node in nodes) {
-      final widget = renderBlock(node);
+    for (var index = 0; index < nodes.length; index++) {
+      final widget = renderBlock(nodes[index], nodePath: _nodePathFor(index));
       if (widget != null) widgets.add(widget);
     }
     return Column(
@@ -70,13 +78,24 @@ class BlockRenderer {
   /// Dispatches a single block [node] to its renderer.
   ///
   /// Returns `null` if the node produces no visual output.
-  Widget? renderBlock(md.Node node) {
+  Widget? renderBlock(md.Node node, {required String nodePath}) {
     if (node is md.Text) {
       return _renderTextNode(node);
     }
     if (node is! md.Element) return null;
-    return _renderElement(node);
+    return _renderElement(node, nodePath: nodePath);
   }
+
+  String _nodePathFor(int index) {
+    final prefix = nodePathPrefix;
+    if (prefix == null || prefix.isEmpty) {
+      return '$index';
+    }
+    return '$prefix.$index';
+  }
+
+  String _childNodePath(String parentNodePath, int childIndex) =>
+      '$parentNodePath.$childIndex';
 
   Widget? _renderTextNode(md.Text node) {
     final text = node.text.trim();
@@ -84,7 +103,7 @@ class BlockRenderer {
     return Text.rich(inlineRenderer.render([node]));
   }
 
-  Widget? _renderElement(md.Element element) {
+  Widget? _renderElement(md.Element element, {required String nodePath}) {
     return switch (element.tag) {
       'p' => _renderParagraph(element),
       'h1' => _renderHeading(element, 1),
@@ -94,15 +113,15 @@ class BlockRenderer {
       'h5' => _renderHeading(element, 5),
       'h6' => _renderHeading(element, 6),
       'pre' => _renderCodeBlock(element),
-      'blockquote' => _renderBlockquote(element),
-      'ul' => _renderUnorderedList(element),
-      'ol' => _renderOrderedList(element),
-      'li' => _renderListItem(element, ''),
+      'blockquote' => _renderBlockquote(element, nodePath: nodePath),
+      'ul' => _renderUnorderedList(element, nodePath: nodePath),
+      'ol' => _renderOrderedList(element, nodePath: nodePath),
+      'li' => _renderListItem(element, '', nodePath: nodePath),
       'table' => _renderTable(element),
       'hr' => _renderHorizontalRule(),
-      'div' => _renderDiv(element),
-      'section' => _renderSection(element),
-      'details' => _renderDetails(element),
+      'div' => _renderDiv(element, nodePath: nodePath),
+      'section' => _renderSection(element, nodePath: nodePath),
+      'details' => _renderDetails(element, nodePath: nodePath),
       'img' => _renderBlockImage(element),
       _ => _renderFallback(element),
     };
@@ -248,7 +267,7 @@ class BlockRenderer {
 
   // -- Blockquote --
 
-  Widget _renderBlockquote(md.Element element) {
+  Widget _renderBlockquote(md.Element element, {required String nodePath}) {
     final children = element.children;
     if (children == null || children.isEmpty) {
       return const SizedBox.shrink();
@@ -261,6 +280,8 @@ class BlockRenderer {
       latexPreprocessor,
       onLinkTap,
       imageBuilder,
+      stateScopeId,
+      nodePath,
     );
 
     return Padding(
@@ -282,12 +303,19 @@ class BlockRenderer {
 
   // -- Unordered list --
 
-  Widget _renderUnorderedList(md.Element element) {
+  Widget _renderUnorderedList(md.Element element, {required String nodePath}) {
     final children = element.children ?? [];
     final items = <Widget>[];
-    for (final child in children) {
+    for (var index = 0; index < children.length; index++) {
+      final child = children[index];
       if (child is md.Element && child.tag == 'li') {
-        items.add(_renderListItem(child, '\u2022'));
+        items.add(
+          _renderListItem(
+            child,
+            '\u2022',
+            nodePath: _childNodePath(nodePath, index),
+          ),
+        );
       }
     }
     return Padding(
@@ -301,16 +329,23 @@ class BlockRenderer {
 
   // -- Ordered list --
 
-  Widget _renderOrderedList(md.Element element) {
+  Widget _renderOrderedList(md.Element element, {required String nodePath}) {
     final startAttr = element.attributes['start'];
     final start = startAttr != null ? (int.tryParse(startAttr) ?? 1) : 1;
 
     final children = element.children ?? [];
     final items = <Widget>[];
     var index = start;
-    for (final child in children) {
+    for (var childIndex = 0; childIndex < children.length; childIndex++) {
+      final child = children[childIndex];
       if (child is md.Element && child.tag == 'li') {
-        items.add(_renderListItem(child, '$index.'));
+        items.add(
+          _renderListItem(
+            child,
+            '$index.',
+            nodePath: _childNodePath(nodePath, childIndex),
+          ),
+        );
         index++;
       }
     }
@@ -325,7 +360,11 @@ class BlockRenderer {
 
   // -- List item --
 
-  Widget _renderListItem(md.Element element, String marker) {
+  Widget _renderListItem(
+    md.Element element,
+    String marker, {
+    required String nodePath,
+  }) {
     final children = element.children;
     final hasBlocks = _containsBlockElements(children);
 
@@ -338,6 +377,8 @@ class BlockRenderer {
         latexPreprocessor,
         onLinkTap,
         imageBuilder,
+        stateScopeId,
+        nodePath,
       );
       content = inner.renderBlocks(children);
     } else if (children != null && children.isNotEmpty) {
@@ -489,15 +530,19 @@ class BlockRenderer {
 
   // -- Div (GitHub alerts) --
 
-  Widget? _renderDiv(md.Element element) {
+  Widget? _renderDiv(md.Element element, {required String nodePath}) {
     final cls = element.attributes['class'] ?? '';
     if (cls.contains('markdown-alert')) {
-      return _renderAlert(element, cls);
+      return _renderAlert(element, cls, nodePath: nodePath);
     }
     return _renderFallback(element);
   }
 
-  Widget _renderAlert(md.Element element, String cls) {
+  Widget _renderAlert(
+    md.Element element,
+    String cls, {
+    required String nodePath,
+  }) {
     final alertType = _parseAlertType(cls);
     final config = _alertConfig(alertType);
 
@@ -526,6 +571,8 @@ class BlockRenderer {
       latexPreprocessor,
       onLinkTap,
       imageBuilder,
+      stateScopeId,
+      nodePath,
     );
 
     return Padding(
@@ -654,15 +701,25 @@ class BlockRenderer {
 
   // -- Section (footnotes) --
 
-  Widget? _renderSection(md.Element element) {
+  Widget? _renderSection(md.Element element, {required String nodePath}) {
     final children = element.children;
     if (children == null || children.isEmpty) return null;
-    return renderBlocks(children);
+    final inner = BlockRenderer(
+      context,
+      style,
+      inlineRenderer,
+      latexPreprocessor,
+      onLinkTap,
+      imageBuilder,
+      stateScopeId,
+      nodePath,
+    );
+    return inner.renderBlocks(children);
   }
 
   // -- Details --
 
-  Widget _renderDetails(md.Element element) {
+  Widget _renderDetails(md.Element element, {required String nodePath}) {
     final children = element.children ?? const <md.Node>[];
     String summaryText = '';
     var bodyStartIndex = 0;
@@ -679,9 +736,15 @@ class BlockRenderer {
     final hasBody = bodyNodes.any(_hasVisualContent);
 
     return MarkdownDetailsBlock(
+      key: _detailsKey(element, summaryText, nodePath: nodePath),
       summaryText: summaryText,
       attributes: Map<String, String>.from(element.attributes),
       hasBody: hasBody,
+      inlineExpansionStateId: _detailsStateId(
+        element,
+        summaryText,
+        nodePath: nodePath,
+      ),
       bodyBuilder: hasBody
           ? (context) {
               final inner = BlockRenderer(
@@ -691,11 +754,56 @@ class BlockRenderer {
                 latexPreprocessor,
                 onLinkTap,
                 imageBuilder,
+                stateScopeId,
+                nodePath,
               );
               return inner.renderBlocks(bodyNodes);
             }
           : null,
     );
+  }
+
+  Key? _detailsKey(
+    md.Element element,
+    String summaryText, {
+    required String nodePath,
+  }) {
+    final stateId = _detailsStateId(element, summaryText, nodePath: nodePath);
+    if (stateId == null || stateId.isEmpty) {
+      return null;
+    }
+    return ValueKey<String>(stateId);
+  }
+
+  String? _detailsStateId(
+    md.Element element,
+    String summaryText, {
+    required String nodePath,
+  }) {
+    final detailType = element.attributes['type']?.trim();
+    final usesInlineExpansion =
+        detailType == 'reasoning' || detailType == 'code_interpreter';
+    if (!usesInlineExpansion) {
+      return null;
+    }
+
+    final toolName = element.attributes['name']?.trim();
+    final normalizedSummary = summaryText.trim();
+
+    if ((stateScopeId == null || stateScopeId!.isEmpty) &&
+        (detailType == null || detailType.isEmpty) &&
+        normalizedSummary.isEmpty &&
+        (toolName == null || toolName.isEmpty)) {
+      return null;
+    }
+
+    return [
+      if (stateScopeId != null && stateScopeId!.isNotEmpty) stateScopeId,
+      nodePath,
+      if (detailType != null && detailType.isNotEmpty) detailType,
+      if (toolName != null && toolName.isNotEmpty) toolName,
+      if (normalizedSummary.isNotEmpty) normalizedSummary,
+    ].join('|');
   }
 
   bool _hasVisualContent(md.Node node) {

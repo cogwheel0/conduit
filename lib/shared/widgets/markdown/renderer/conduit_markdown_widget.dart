@@ -43,6 +43,7 @@ class ConduitMarkdownWidget extends StatefulWidget {
     this.imageBuilder,
     this.sources,
     this.onSourceTap,
+    this.stateScopeId,
     super.key,
   });
 
@@ -60,6 +61,9 @@ class ConduitMarkdownWidget extends StatefulWidget {
 
   /// Callback when an inline citation badge is tapped.
   final void Function(int sourceIndex)? onSourceTap;
+
+  /// Optional scope used to preserve state for remounted markdown blocks.
+  final String? stateScopeId;
 
   @override
   State<ConduitMarkdownWidget> createState() => _ConduitMarkdownWidgetState();
@@ -119,6 +123,7 @@ class _ConduitMarkdownWidgetState extends State<ConduitMarkdownWidget> {
       _latexPreprocessor,
       widget.onLinkTap,
       widget.imageBuilder,
+      widget.stateScopeId,
     );
 
     return blockRenderer.renderBlocks(_nodes);

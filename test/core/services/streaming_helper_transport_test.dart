@@ -276,10 +276,16 @@ class FakeSocketInjector {
   int get channelHandlerCount => _channelHandlers.length;
 
   /// Injects a socket chat event with the given [type] and [payload].
-  void emitChatEvent(String type, dynamic payload, {String? messageId}) {
+  void emitChatEvent(
+    String type,
+    dynamic payload, {
+    String? messageId,
+    String? sessionId,
+  }) {
     final raw = <String, dynamic>{
       'data': {'type': type, 'data': payload},
       'message_id': ?messageId,
+      'session_id': ?sessionId,
     };
     _handler?.call(raw, null);
   }
@@ -300,6 +306,7 @@ class _MockSocketService implements SocketService {
   SocketEventSubscription addChatEventHandler({
     String? conversationId,
     String? sessionId,
+    String? messageId,
     bool requireFocus = true,
     required SocketChatEventHandler handler,
   }) {
@@ -615,7 +622,106 @@ void main() {
     });
 
     test(
-      'taskSocket retires stale helper when a newer message streams',
+      'taskSocket binds alternate server message ids for the active session',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
+
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent(
+          'chat:completion',
+          {
+            'choices': [
+              {
+                'delta': {'content': 'Bound content'},
+              },
+            ],
+          },
+          messageId: 'server-msg-1',
+          sessionId: 'sess-1',
+        );
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent(
+          'chat:message:follow_ups',
+          {
+            'follow_ups': ['Ask again'],
+          },
+          messageId: 'server-msg-1',
+          sessionId: 'sess-1',
+        );
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent(
+          'chat:completion',
+          {'done': true},
+          messageId: 'server-msg-1',
+          sessionId: 'sess-1',
+        );
+        await pumpMicrotasks();
+
+        check(log.messages.last.id).equals('msg-1');
+        check(log.messages.last.content).equals('Bound content');
+        check(log.followUpUpdates.length).equals(1);
+        check(log.followUpUpdates.single.$1).equals('msg-1');
+        check(log.followUpUpdates.single.$2).deepEquals(['Ask again']);
+        check(log.finishCount).equals(1);
+      },
+    );
+
+    test(
+      'taskSocket ignores alternate message ids from another session',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
+
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent(
+          'chat:completion',
+          {
+            'choices': [
+              {
+                'delta': {'content': 'Should be ignored'},
+              },
+            ],
+          },
+          messageId: 'server-msg-1',
+          sessionId: 'web-session',
+        );
+
+        await pumpMicrotasks();
+
+        check(registrar.hasChatHandler).isTrue();
+        check(log.messages.last.content).equals('');
+        check(log.followUpUpdates).isEmpty();
+        check(log.finishCount).equals(0);
+      },
+    );
+
+    test(
+      'taskSocket retires stale helper when the local target is replaced',
       () async {
         final log = _CallbackLog();
         final registrar = FakeSocketInjector();
@@ -635,24 +741,46 @@ void main() {
         check(registrar.hasChatHandler).isTrue();
         check(log.messages.last.isStreaming).isTrue();
 
-        registrar.emitChatEvent('chat:completion', {
-          'choices': [
-            {
-              'delta': {'content': 'Newer message content'},
-            },
-          ],
-        }, messageId: 'msg-2');
+        log.messages = [
+          ...log.messages,
+          ChatMessage(
+            id: 'msg-2',
+            role: 'assistant',
+            content: '',
+            timestamp: DateTime.now(),
+            isStreaming: true,
+          ),
+        ];
+
+        registrar.emitChatEvent(
+          'chat:completion',
+          {
+            'choices': [
+              {
+                'delta': {'content': 'Old stream content'},
+              },
+            ],
+          },
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+        );
 
         await pumpMicrotasks();
 
         check(registrar.hasChatHandler).isFalse();
         check(log.finishCount).equals(0);
         check(log.messages.last.isStreaming).isTrue();
+        check(log.messages.last.id).equals('msg-2');
         check(log.messages.last.content).equals('');
 
-        registrar.emitChatEvent('chat:message:follow_ups', {
-          'follow_ups': ['Should not apply'],
-        }, messageId: 'msg-1');
+        registrar.emitChatEvent(
+          'chat:message:follow_ups',
+          {
+            'follow_ups': ['Should not apply'],
+          },
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+        );
 
         await pumpMicrotasks();
 
@@ -661,7 +789,7 @@ void main() {
     );
 
     test(
-      'taskSocket ignores wrong-message follow-ups without syncing',
+      'taskSocket ignores foreign-session follow-ups without syncing',
       () async {
         final log = _CallbackLog();
         final registrar = FakeSocketInjector();
@@ -683,9 +811,14 @@ void main() {
 
         await pumpMicrotasks();
 
-        registrar.emitChatEvent('chat:message:follow_ups', {
-          'follow_ups': ['Ask a follow-up'],
-        }, messageId: 'msg-2');
+        registrar.emitChatEvent(
+          'chat:message:follow_ups',
+          {
+            'follow_ups': ['Ask a follow-up'],
+          },
+          messageId: 'msg-2',
+          sessionId: 'web-session',
+        );
 
         await pumpMicrotasks();
         await pumpMicrotasks();
@@ -733,18 +866,36 @@ void main() {
 
         await pumpMicrotasks();
 
-        registrar.emitChatEvent('chat:completion', {
-          'choices': [
-            {
-              'delta': {'content': 'Newer message content'},
-            },
-          ],
-        }, messageId: 'msg-2');
+        log.messages = [
+          ...log.messages,
+          ChatMessage(
+            id: 'msg-2',
+            role: 'assistant',
+            content: '',
+            timestamp: DateTime.now(),
+            isStreaming: true,
+          ),
+        ];
+
+        registrar.emitChatEvent(
+          'chat:completion',
+          {
+            'choices': [
+              {
+                'delta': {'content': 'Old stream content'},
+              },
+            ],
+          },
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+        );
 
         await pumpMicrotasks();
         check(registrar.hasChatHandler).isFalse();
 
-        registrar.emitChatEvent('chat:active', {'active': false});
+        registrar.emitChatEvent('chat:active', {
+          'active': false,
+        }, sessionId: 'sess-1');
 
         await pumpMicrotasks();
         for (var i = 0; i < 5; i++) {

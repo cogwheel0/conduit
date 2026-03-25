@@ -15,6 +15,7 @@ class StreamingMarkdownWidget extends StatelessWidget {
     this.imageBuilderOverride,
     this.sources,
     this.onSourceTap,
+    this.stateScopeId,
   });
 
   final String content;
@@ -29,6 +30,9 @@ class StreamingMarkdownWidget extends StatelessWidget {
 
   /// Callback when a source badge is tapped.
   final void Function(int sourceIndex)? onSourceTap;
+
+  /// Optional scope used to preserve state for remounted markdown blocks.
+  final String? stateScopeId;
 
   /// Adapts the legacy [imageBuilderOverride] callback
   /// to the [ImageBuilder] signature used by the custom
@@ -73,6 +77,7 @@ class StreamingMarkdownWidget extends StatelessWidget {
       imageBuilder: _adaptImageBuilder(),
       sources: sources,
       onSourceTap: onSourceTap,
+      stateScopeId: stateScopeId,
     );
   }
 }
@@ -84,6 +89,7 @@ extension StreamingMarkdownExtension on String {
     MarkdownLinkTapCallback? onTapLink,
     List<ChatSourceReference>? sources,
     void Function(int sourceIndex)? onSourceTap,
+    String? stateScopeId,
   }) {
     return StreamingMarkdownWidget(
       content: this,
@@ -91,6 +97,7 @@ extension StreamingMarkdownExtension on String {
       onTapLink: onTapLink,
       sources: sources,
       onSourceTap: onSourceTap,
+      stateScopeId: stateScopeId,
     );
   }
 }

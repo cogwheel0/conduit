@@ -22,12 +22,14 @@ class MarkdownDetailsBlock extends StatefulWidget {
     required this.attributes,
     required this.hasBody,
     this.bodyBuilder,
+    this.inlineExpansionStateId,
   });
 
   final String summaryText;
   final Map<String, String> attributes;
   final bool hasBody;
   final WidgetBuilder? bodyBuilder;
+  final String? inlineExpansionStateId;
 
   @override
   State<MarkdownDetailsBlock> createState() => _MarkdownDetailsBlockState();
@@ -39,6 +41,7 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
   var _isSheetOpen = false;
   var _hasPendingSheetRefresh = false;
   var _isInlineExpanded = false;
+  String? _restoredInlineExpansionStateId;
 
   bool get _isToolCall => widget.attributes['type'] == 'tool_calls';
 
@@ -72,10 +75,21 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
       _ToolCallViewData.fromAttributes(widget.attributes);
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _restoreInlineExpansionStateIfNeeded();
+  }
+
+  @override
   void didUpdateWidget(covariant MarkdownDetailsBlock oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.inlineExpansionStateId != widget.inlineExpansionStateId) {
+      _restoredInlineExpansionStateId = null;
+      _restoreInlineExpansionStateIfNeeded();
+    }
     if (_isInlineExpanded && !_usesInlineExpansion) {
       _isInlineExpanded = false;
+      _persistInlineExpansionState();
     }
     _scheduleSheetRefresh();
   }
@@ -127,10 +141,39 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
       setState(() {
         _isInlineExpanded = !_isInlineExpanded;
       });
+      _persistInlineExpansionState();
       return;
     }
 
     _showDetailsBottomSheet(context);
+  }
+
+  void _restoreInlineExpansionStateIfNeeded() {
+    final stateId = widget.inlineExpansionStateId;
+    if (stateId == null || _restoredInlineExpansionStateId == stateId) {
+      return;
+    }
+
+    final restored = PageStorage.maybeOf(
+      context,
+    )?.readState(context, identifier: stateId);
+    if (_usesInlineExpansion && restored is bool) {
+      _isInlineExpanded = restored;
+    } else if (!_usesInlineExpansion) {
+      _isInlineExpanded = false;
+    }
+    _restoredInlineExpansionStateId = stateId;
+  }
+
+  void _persistInlineExpansionState() {
+    final stateId = widget.inlineExpansionStateId;
+    if (stateId == null) {
+      return;
+    }
+
+    PageStorage.maybeOf(
+      context,
+    )?.writeState(context, _isInlineExpanded, identifier: stateId);
   }
 
   Widget _buildInlineBody(BuildContext context, Widget body) {

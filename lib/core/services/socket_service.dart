@@ -92,30 +92,121 @@ class SocketService with WidgetsBindingObserver {
   // Event buffering for timing races
   // ---------------------------------------------------------------------------
   // The backend may emit socket events before the streaming handler registers.
-  // This buffer captures events for a specific chat_id and replays them when
-  // a handler is added. Mirrors OpenWebUI's approach of registering global
-  // listeners before sending the HTTP request.
+  // This buffer captures events for a specific conversation/session/message
+  // scope and replays them when a matching handler is added. This is
+  // especially important for early `request:chat:completion` events that may
+  // target a session before the handler attaches.
 
-  final Map<String, List<(Map<String, dynamic>, void Function(dynamic)?)>>
-  _eventBuffer = {};
+  final Map<String, _BufferedChatEventScope> _eventBuffer = {};
 
-  /// Start buffering events for a chat_id. Call this BEFORE sending the
-  /// HTTP request so events that arrive early aren't lost.
-  void startBuffering(String chatId) {
-    _eventBuffer[chatId] = [];
+  String _conversationBufferAlias(String conversationId) =>
+      'chat:$conversationId';
+
+  String _sessionBufferAlias(String sessionId) => 'session:$sessionId';
+
+  String _messageBufferAlias(String messageId) => 'message:$messageId';
+
+  Set<String> _bufferAliases({
+    String? conversationId,
+    String? sessionId,
+    String? messageId,
+  }) {
+    return <String>{
+      if (conversationId != null && conversationId.isNotEmpty)
+        _conversationBufferAlias(conversationId),
+      if (sessionId != null && sessionId.isNotEmpty)
+        _sessionBufferAlias(sessionId),
+      if (messageId != null && messageId.isNotEmpty)
+        _messageBufferAlias(messageId),
+    };
   }
 
-  /// Stop buffering and discard any remaining events for a chat_id.
-  void stopBuffering(String chatId) {
-    _eventBuffer.remove(chatId);
+  _BufferedChatEventScope? _findBufferScope({
+    String? conversationId,
+    String? sessionId,
+    String? messageId,
+  }) {
+    for (final alias in _bufferAliases(
+      conversationId: conversationId,
+      sessionId: sessionId,
+      messageId: messageId,
+    )) {
+      final scope = _eventBuffer[alias];
+      if (scope != null) {
+        return scope;
+      }
+    }
+    return null;
   }
 
-  /// Remove and return all buffered events for a chat_id.
-  /// Used when the buffer needs to be replayed outside of addChatEventHandler.
-  List<(Map<String, dynamic>, void Function(dynamic)?)>? drainBuffer(
-    String chatId,
-  ) {
-    return _eventBuffer.remove(chatId);
+  void _removeBufferScope(_BufferedChatEventScope scope) {
+    for (final alias in scope.aliases) {
+      if (identical(_eventBuffer[alias], scope)) {
+        _eventBuffer.remove(alias);
+      }
+    }
+  }
+
+  void _removeBufferScopesForAliases(Set<String> aliases) {
+    final scopes = <_BufferedChatEventScope>{};
+    for (final alias in aliases) {
+      final scope = _eventBuffer[alias];
+      if (scope != null) {
+        scopes.add(scope);
+      }
+    }
+    for (final scope in scopes) {
+      _removeBufferScope(scope);
+    }
+  }
+
+  /// Start buffering events for a pending send before the streaming handler
+  /// is attached.
+  void startBuffering(String chatId, {String? sessionId, String? messageId}) {
+    final aliases = _bufferAliases(
+      conversationId: chatId,
+      sessionId: sessionId,
+      messageId: messageId,
+    );
+    _removeBufferScopesForAliases(aliases);
+
+    final scope = _BufferedChatEventScope();
+    for (final alias in aliases) {
+      scope.aliases.add(alias);
+      _eventBuffer[alias] = scope;
+    }
+  }
+
+  /// Stop buffering and discard any remaining buffered events for a pending
+  /// send scope.
+  void stopBuffering(String chatId, {String? sessionId, String? messageId}) {
+    _removeBufferScopesForAliases(
+      _bufferAliases(
+        conversationId: chatId,
+        sessionId: sessionId,
+        messageId: messageId,
+      ),
+    );
+  }
+
+  /// Remove and return all buffered events for a pending send scope.
+  List<(Map<String, dynamic>, void Function(dynamic)?)>? drainBuffer({
+    String? conversationId,
+    String? sessionId,
+    String? messageId,
+  }) {
+    final scope = _findBufferScope(
+      conversationId: conversationId,
+      sessionId: sessionId,
+      messageId: messageId,
+    );
+    if (scope == null) {
+      return null;
+    }
+    _removeBufferScope(scope);
+    return List<(Map<String, dynamic>, void Function(dynamic)?)>.from(
+      scope.events,
+    );
   }
 
   /// Stream controller that emits when a socket reconnection occurs.
@@ -277,6 +368,7 @@ class SocketService with WidgetsBindingObserver {
   SocketEventSubscription addChatEventHandler({
     String? conversationId,
     String? sessionId,
+    String? messageId,
     bool requireFocus = true,
     required SocketChatEventHandler handler,
   }) {
@@ -285,17 +377,25 @@ class SocketService with WidgetsBindingObserver {
       id: id,
       conversationId: conversationId,
       sessionId: sessionId,
+      messageId: messageId,
       requireFocus: requireFocus,
       handler: handler,
     );
 
-    // Replay buffered events for this conversation. This handles the timing
-    // race where the backend emits events before the handler is registered.
-    if (conversationId != null && _eventBuffer.containsKey(conversationId)) {
-      final buffered = _eventBuffer.remove(conversationId)!;
+    // Replay buffered events for this scope. This handles the timing race
+    // where the backend emits events before the handler is registered.
+    final buffered = drainBuffer(
+      conversationId: conversationId,
+      sessionId: sessionId,
+      messageId: messageId,
+    );
+    if (buffered != null) {
       if (buffered.isNotEmpty) {
         DebugLogger.log(
-          'Replaying ${buffered.length} buffered events for $conversationId',
+          'Replaying ${buffered.length} buffered events '
+          '(chat=${conversationId ?? "<none>"}, '
+          'session=${sessionId ?? "<none>"}, '
+          'message=${messageId ?? "<none>"})',
           scope: 'socket/dispatch',
         );
         for (final (map, ackFn) in buffered) {
@@ -349,6 +449,7 @@ class SocketService with WidgetsBindingObserver {
         id: existing.id,
         conversationId: existing.conversationId,
         sessionId: newSessionId,
+        messageId: existing.messageId,
         requireFocus: existing.requireFocus,
         handler: existing.handler,
       );
@@ -382,6 +483,7 @@ class SocketService with WidgetsBindingObserver {
           id: entry.value.id,
           conversationId: entry.value.conversationId,
           sessionId: newSessionId,
+          messageId: entry.value.messageId,
           requireFocus: entry.value.requireFocus,
           handler: entry.value.handler,
         );
@@ -705,16 +807,18 @@ class SocketService with WidgetsBindingObserver {
     final sessionId = _extractSessionId(map);
     final chatId = _extractConversationId(map);
     final channelId = _extractChannelId(map);
+    final messageId = _extractMessageId(map);
 
-    bool delivered = false;
     for (final registration in List<_ChatEventRegistration>.from(
       _chatEventHandlers.values,
     )) {
       if (!_shouldDeliver(
         registration.conversationId,
         registration.sessionId,
+        registration.messageId,
         chatId,
         sessionId,
+        messageId,
         registration.requireFocus,
         incomingChannelId: channelId,
       )) {
@@ -724,11 +828,18 @@ class SocketService with WidgetsBindingObserver {
       try {
         registration.handler(map, ackFn);
       } catch (_) {}
-      delivered = true;
     }
-    // Buffer event if no handler matched and we're pre-buffering
-    if (!delivered && chatId != null && _eventBuffer.containsKey(chatId)) {
-      _eventBuffer[chatId]!.add((Map<String, dynamic>.from(map), ackFn));
+    // Retain early events for any active pre-buffer scope even if another
+    // handler already matched them. This allows passive listeners to coexist
+    // with the later-attaching streaming helper without losing task bootstrap
+    // events like `request:chat:completion`.
+    final bufferScope = _findBufferScope(
+      conversationId: chatId,
+      sessionId: sessionId,
+      messageId: messageId,
+    );
+    if (bufferScope != null) {
+      bufferScope.events.add((Map<String, dynamic>.from(map), ackFn));
     }
   }
 
@@ -759,8 +870,10 @@ class SocketService with WidgetsBindingObserver {
       if (!_shouldDeliver(
         registration.conversationId,
         registration.sessionId,
+        null,
         chatId,
         sessionId,
+        null,
         registration.requireFocus,
         incomingChannelId: channelId,
       )) {
@@ -776,8 +889,10 @@ class SocketService with WidgetsBindingObserver {
   bool _shouldDeliver(
     String? registeredConversationId,
     String? registeredSessionId,
+    String? registeredMessageId,
     String? incomingConversationId,
     String? incomingSessionId,
+    String? incomingMessageId,
     bool requireFocus, {
     String? incomingChannelId,
   }) {
@@ -791,9 +906,13 @@ class SocketService with WidgetsBindingObserver {
         registeredSessionId != null &&
         incomingSessionId != null &&
         registeredSessionId == incomingSessionId;
+    final matchesMessage =
+        registeredMessageId != null &&
+        incomingMessageId != null &&
+        registeredMessageId == incomingMessageId;
 
-    // Must match either conversation or session to be considered
-    if (!matchesConversation && !matchesSession) {
+    // Must match either conversation, session, or message to be considered.
+    if (!matchesConversation && !matchesSession && !matchesMessage) {
       return false;
     }
 
@@ -805,6 +924,10 @@ class SocketService with WidgetsBindingObserver {
     // Session-targeted messages always bypass focus check (critical for
     // background streaming - done/delta events must arrive even when backgrounded)
     if (matchesSession) {
+      return true;
+    }
+
+    if (matchesMessage) {
       return true;
     }
 
@@ -911,6 +1034,38 @@ class SocketService with WidgetsBindingObserver {
     return candidate;
   }
 
+  String? _extractMessageId(Map<String, dynamic> event) {
+    String? candidate;
+
+    if (event['message_id'] != null) {
+      candidate = event['message_id'].toString();
+    }
+    if (candidate == null && event['messageId'] != null) {
+      candidate = event['messageId'].toString();
+    }
+
+    final data = event['data'];
+    if (data is Map) {
+      if (candidate == null && data['message_id'] != null) {
+        candidate = data['message_id'].toString();
+      }
+      if (candidate == null && data['messageId'] != null) {
+        candidate = data['messageId'].toString();
+      }
+      final inner = data['data'];
+      if (inner is Map) {
+        if (candidate == null && inner['message_id'] != null) {
+          candidate = inner['message_id'].toString();
+        }
+        if (candidate == null && inner['messageId'] != null) {
+          candidate = inner['messageId'].toString();
+        }
+      }
+    }
+
+    return candidate;
+  }
+
   String? _extractConversationId(Map<String, dynamic> event) {
     String? candidate;
 
@@ -969,12 +1124,14 @@ class _ChatEventRegistration {
     required this.handler,
     this.conversationId,
     this.sessionId,
+    this.messageId,
     this.requireFocus = true,
   });
 
   final String id;
   final String? conversationId;
   final String? sessionId;
+  final String? messageId;
   final bool requireFocus;
   final SocketChatEventHandler handler;
 }
@@ -993,4 +1150,9 @@ class _ChannelEventRegistration {
   final String? sessionId;
   final bool requireFocus;
   final SocketChannelEventHandler handler;
+}
+
+final class _BufferedChatEventScope {
+  final aliases = <String>{};
+  final events = <(Map<String, dynamic>, void Function(dynamic)?)>[];
 }

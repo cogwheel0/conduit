@@ -35,6 +35,7 @@ class _FakeSocketService extends SocketService {
   SocketEventSubscription addChatEventHandler({
     String? conversationId,
     String? sessionId,
+    String? messageId,
     bool requireFocus = true,
     required SocketChatEventHandler handler,
   }) {

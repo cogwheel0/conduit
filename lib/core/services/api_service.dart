@@ -1165,7 +1165,7 @@ class ApiService {
           'attachment_ids': List<String>.from(msg.attachmentIds!),
         if (_sanitizeFilesForWebUI(msg.files) != null)
           'files': _sanitizeFilesForWebUI(msg.files),
-        if (sanitizedEmbeds != null) 'embeds': sanitizedEmbeds,
+        'embeds': ?sanitizedEmbeds,
         // Assistant message extended fields
         if (msg.statusHistory.isNotEmpty)
           'statusHistory': msg.statusHistory.map((s) => s.toJson()).toList(),
@@ -1207,7 +1207,7 @@ class ApiService {
           'attachment_ids': List<String>.from(msg.attachmentIds!),
         if (_sanitizeFilesForWebUI(msg.files) != null)
           'files': _sanitizeFilesForWebUI(msg.files),
-        if (sanitizedEmbeds != null) 'embeds': sanitizedEmbeds,
+        'embeds': ?sanitizedEmbeds,
         // Assistant message extended fields
         if (msg.statusHistory.isNotEmpty)
           'statusHistory': msg.statusHistory.map((s) => s.toJson()).toList(),
@@ -1326,7 +1326,7 @@ class ApiService {
         if (msg.attachmentIds != null && msg.attachmentIds!.isNotEmpty)
           'attachment_ids': List<String>.from(msg.attachmentIds!),
         'files': ?sanitizedFiles,
-        if (sanitizedEmbeds != null) 'embeds': sanitizedEmbeds,
+        'embeds': ?sanitizedEmbeds,
         // Mirror status updates, follow-ups, code executions, sources, and usage
         if (msg.statusHistory.isNotEmpty)
           'statusHistory': msg.statusHistory.map((s) => s.toJson()).toList(),
@@ -1369,7 +1369,7 @@ class ApiService {
         if (msg.attachmentIds != null && msg.attachmentIds!.isNotEmpty)
           'attachment_ids': List<String>.from(msg.attachmentIds!),
         'files': ?sanitizedArrayFiles,
-        if (sanitizedEmbeds != null) 'embeds': sanitizedEmbeds,
+        'embeds': ?sanitizedEmbeds,
         // Mirror status updates, follow-ups, code executions, sources, and usage
         if (msg.statusHistory.isNotEmpty)
           'statusHistory': msg.statusHistory.map((s) => s.toJson()).toList(),
@@ -3437,6 +3437,7 @@ class ApiService {
       'stream': true,
       'model': model,
       'messages': processedMessages,
+      'params': <String, dynamic>{},
     };
 
     // Request usage statistics if model supports it (issue #274)
@@ -3450,12 +3451,11 @@ class ApiService {
 
     // Forward user model params (temperature, top_p, top_k, seed, etc.)
     // Mirrors OpenWebUI's: { ...$settings?.params, ...params, stop: getStopTokens() }
+    final params = <String, dynamic>{};
     try {
       final raw = userSettings?['params'];
       final userParams = raw is Map ? Map<String, dynamic>.from(raw) : null;
       if (userParams != null && userParams.isNotEmpty) {
-        final params =
-            (data['params'] as Map<String, dynamic>?) ?? <String, dynamic>{};
         params.addAll(userParams);
         // Normalize stop tokens: split comma-separated string into list
         final rawStop = params['stop'];
@@ -3470,11 +3470,11 @@ class ApiService {
         if (params['stop'] is List && (params['stop'] as List).isEmpty) {
           params.remove('stop');
         }
-        data['params'] = params;
       }
     } catch (_) {
       // Non-critical: proceed without user params
     }
+    data['params'] = params;
 
     // Include model_item with real server routing data (pipe, actions,
     // filters, etc.). This is critical for pipe models which need
@@ -3484,39 +3484,34 @@ class ApiService {
     }
 
     // Feature flags via 'features' object (not top-level params).
-    // See: https://github.com/cogwheel0/conduit/issues/271
+    // Mirror the web client by always sending the base feature flags, even
+    // when disabled, so pipes receive a stable request shape.
     final uiMemorySettings = userSettings?['ui'] as Map<String, dynamic>?;
     final bool memoryEnabled = uiMemorySettings?['memory'] == true;
 
-    // Always send features when any flag is active (mirrors OpenWebUI's
-    // getFeatures() which always returns the object).
     final features = <String, dynamic>{
+      'voice': isVoiceMode,
       'web_search': enableWebSearch,
       'image_generation': enableImageGeneration,
       'code_interpreter': enableCodeInterpreter,
     };
-    if (isVoiceMode) features['voice'] = true;
     if (memoryEnabled) features['memory'] = true;
-    if (features.values.any((v) => v == true)) {
-      data['features'] = features;
-      if (enableWebSearch) {
-        _traceApi('Web search enabled in streaming request');
-      }
-      if (enableImageGeneration) {
-        _traceApi('Image generation enabled in streaming request');
-      }
-      if (enableCodeInterpreter) {
-        _traceApi('Code interpreter enabled in streaming request');
-      }
-      if (memoryEnabled) {
-        _traceApi('Memory enabled in streaming request (from user settings)');
-      }
+    data['features'] = features;
+    if (enableWebSearch) {
+      _traceApi('Web search enabled in streaming request');
+    }
+    if (enableImageGeneration) {
+      _traceApi('Image generation enabled in streaming request');
+    }
+    if (enableCodeInterpreter) {
+      _traceApi('Code interpreter enabled in streaming request');
+    }
+    if (memoryEnabled) {
+      _traceApi('Memory enabled in streaming request (from user settings)');
     }
 
     // Template variables for prompt substitution ({{USER_NAME}}, etc.)
-    if (variables != null && variables.isNotEmpty) {
-      data['variables'] = variables;
-    }
+    data['variables'] = variables ?? <String, dynamic>{};
 
     // Add filter_ids if provided (Open-WebUI toggle filters)
     if (filterIds != null && filterIds.isNotEmpty) {
@@ -3558,8 +3553,8 @@ class ApiService {
       }
     }
 
+    data['tool_servers'] = toolServers ?? <Map<String, dynamic>>[];
     if (toolServers != null && toolServers.isNotEmpty) {
-      data['tool_servers'] = toolServers;
       _traceApi('Including tool_servers in request (${toolServers.length})');
     }
 
@@ -3588,9 +3583,7 @@ class ApiService {
     // See: https://github.com/cogwheel0/conduit/issues/311
     data['parent_message'] = parentMessage ?? <String, dynamic>{};
 
-    if (backgroundTasks != null && backgroundTasks.isNotEmpty) {
-      data['background_tasks'] = backgroundTasks;
-    }
+    data['background_tasks'] = backgroundTasks ?? <String, dynamic>{};
 
     // Diagnostic: log the full payload for pipe model debugging
     _traceApi(
@@ -4003,6 +3996,15 @@ class ApiService {
     String? conversationId,
     bool enableWebSearch = false,
     bool enableImageGeneration = false,
+    bool enableCodeInterpreter = false,
+    bool isVoiceMode = false,
+    Map<String, dynamic>? modelItem,
+    List<Map<String, dynamic>>? toolServers,
+    Map<String, dynamic>? backgroundTasks,
+    Map<String, dynamic>? userSettings,
+    String? parentMessageId,
+    Map<String, dynamic>? parentMessage,
+    Map<String, dynamic>? variables,
   }) {
     return _buildChatCompletionPayload(
       messages: messages,
@@ -4012,6 +4014,15 @@ class ApiService {
       conversationId: conversationId,
       enableWebSearch: enableWebSearch,
       enableImageGeneration: enableImageGeneration,
+      enableCodeInterpreter: enableCodeInterpreter,
+      isVoiceMode: isVoiceMode,
+      modelItem: modelItem,
+      toolServers: toolServers,
+      backgroundTasks: backgroundTasks,
+      userSettings: userSettings,
+      parentMessageId: parentMessageId,
+      parentMessage: parentMessage,
+      variables: variables,
     );
   }
 

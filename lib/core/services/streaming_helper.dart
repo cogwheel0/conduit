@@ -283,6 +283,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   bool hasCompletedStreamingUi = false;
   bool isObsoleteStream = false;
   bool backgroundExecutionStopped = false;
+  var currentStreamSessionId = sessionId;
+  String? boundRemoteMessageId;
   StreamingResponseController? streamController;
   late void Function(String reason, {String? incomingMessageId})
   retireObsoleteStream;
@@ -319,41 +321,113 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     return null;
   }
 
-  bool streamHasBeenSuperseded(String? incomingMessageId) {
-    final currentTargetId = currentAssistantTargetId();
-    if (currentTargetId == null || currentTargetId == assistantMessageId) {
-      return false;
+  List<String> currentServerMessageIds() {
+    final ids = <String>[assistantMessageId];
+    final remoteMessageId = boundRemoteMessageId;
+    if (remoteMessageId != null &&
+        remoteMessageId.isNotEmpty &&
+        remoteMessageId != assistantMessageId) {
+      ids.add(remoteMessageId);
     }
-    return incomingMessageId == null ||
-        incomingMessageId.isEmpty ||
-        incomingMessageId != assistantMessageId ||
-        currentTargetId != assistantMessageId;
+    return ids;
+  }
+
+  bool matchesCurrentStreamSession(String? incomingSessionId) {
+    if (incomingSessionId == null || incomingSessionId.isEmpty) {
+      return true;
+    }
+    if (currentStreamSessionId == null || currentStreamSessionId!.isEmpty) {
+      return true;
+    }
+    return incomingSessionId == currentStreamSessionId;
+  }
+
+  String? extractEventSessionId(Map<String, dynamic> event) {
+    String? candidate =
+        event['session_id']?.toString() ?? event['sessionId']?.toString();
+
+    final data = event['data'];
+    if (candidate == null && data is Map) {
+      candidate =
+          data['session_id']?.toString() ?? data['sessionId']?.toString();
+
+      final inner = data['data'];
+      if (candidate == null && inner is Map) {
+        candidate =
+            inner['session_id']?.toString() ?? inner['sessionId']?.toString();
+      }
+    }
+
+    return candidate;
+  }
+
+  bool streamHasBeenSuperseded() {
+    final currentTargetId = currentAssistantTargetId();
+    return currentTargetId != null && currentTargetId != assistantMessageId;
   }
 
   String? resolveTargetMessageIdForStream(
     String? incomingMessageId, {
     required String eventType,
-    bool retireIfWrongMessage = false,
+    String? incomingSessionId,
+    bool allowBindingForeignMessage = false,
   }) {
-    if (incomingMessageId != null && incomingMessageId.isNotEmpty) {
-      if (incomingMessageId == assistantMessageId) {
-        return incomingMessageId;
-      }
-      if (retireIfWrongMessage) {
-        retireObsoleteStream(
-          'Superseded by $eventType',
-          incomingMessageId: incomingMessageId,
-        );
-        return null;
-      }
+    final currentTargetId = currentAssistantTargetId();
+    if (currentTargetId == null || currentTargetId != assistantMessageId) {
+      return null;
+    }
+
+    if (!matchesCurrentStreamSession(incomingSessionId)) {
       DebugLogger.log(
-        'Ignoring $eventType for wrong message: '
-        '$incomingMessageId (expected $assistantMessageId)',
+        'Ignoring $eventType for foreign-session message: '
+        '${incomingMessageId ?? "<none>"} '
+        '(session=${incomingSessionId ?? "<none>"}, '
+        'expected=${currentStreamSessionId ?? "<none>"})',
         scope: 'streaming/helper',
       );
       return null;
     }
-    return currentAssistantTargetId() ?? assistantMessageId;
+
+    if (incomingMessageId == null || incomingMessageId.isEmpty) {
+      return currentTargetId;
+    }
+
+    if (incomingMessageId == assistantMessageId ||
+        incomingMessageId == boundRemoteMessageId) {
+      return currentTargetId;
+    }
+
+    if (!allowBindingForeignMessage) {
+      final boundMessageId = boundRemoteMessageId;
+      DebugLogger.log(
+        boundMessageId == null
+            ? 'Ignoring $eventType for wrong message: '
+                  '$incomingMessageId (expected $assistantMessageId)'
+            : 'Ignoring $eventType for unexpected message: '
+                  '$incomingMessageId '
+                  '(expected $assistantMessageId or $boundMessageId)',
+        scope: 'streaming/helper',
+      );
+      return null;
+    }
+
+    if (boundRemoteMessageId == null) {
+      boundRemoteMessageId = incomingMessageId;
+      DebugLogger.log(
+        'Binding $eventType server message $incomingMessageId '
+        'to local assistant $assistantMessageId',
+        scope: 'streaming/helper',
+      );
+      return currentTargetId;
+    }
+
+    DebugLogger.log(
+      'Ignoring $eventType for unexpected message: $incomingMessageId '
+      '(bound=${boundRemoteMessageId ?? "<none>"}, '
+      'local=$assistantMessageId)',
+      scope: 'streaming/helper',
+    );
+    return null;
   }
 
   void stopBackgroundExecution() {
@@ -574,8 +648,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     if (rawMessages is! List) {
       return null;
     }
+    final targetIds = currentServerMessageIds().toSet();
     final serverMsg = rawMessages.firstWhere(
-      (m) => m is Map && m['id']?.toString() == assistantMessageId,
+      (m) => m is Map && targetIds.contains(m['id']?.toString()),
       orElse: () => null,
     );
     return _asStringMap(serverMsg);
@@ -604,8 +679,14 @@ ActiveChatStream attachUnifiedChunkedStreaming({
 
       final history = _asStringMap(chatObj?['history']);
       final historyMessages = _asStringMap(history?['messages']);
-      final serverMsg =
-          _asStringMap(historyMessages?[assistantMessageId]) ??
+      Map<String, dynamic>? serverMsg;
+      for (final targetId in currentServerMessageIds()) {
+        serverMsg = _asStringMap(historyMessages?[targetId]);
+        if (serverMsg != null) {
+          break;
+        }
+      }
+      serverMsg ??=
           findServerMessageInList(chatObj?['messages']) ??
           findServerMessageInList(data?['messages']);
       if (serverMsg == null) return null;
@@ -867,6 +948,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       final newSessionId = socketService.sessionId;
       final convId = activeConversationId;
       if (newSessionId != null && convId != null && convId.isNotEmpty) {
+        currentStreamSessionId = newSessionId;
         socketService.updateSessionIdForConversation(convId, newSessionId);
       }
 
@@ -1115,7 +1197,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             messages: messagesForCompleted,
             model: modelId,
             modelItem: modelItem,
-            sessionId: sessionId,
+            sessionId: currentStreamSessionId,
             filterIds: filterIds,
           );
           if (isObsoleteStream) {
@@ -1178,7 +1260,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     }
 
     void handler(dynamic line) {
-      if (isObsoleteStream || streamHasBeenSuperseded(null)) {
+      if (isObsoleteStream || streamHasBeenSuperseded()) {
         retireObsoleteStream(
           'Superseded by channel stream $channel',
           incomingMessageId: null,
@@ -1288,11 +1370,12 @@ ActiveChatStream attachUnifiedChunkedStreaming({
 
       final payload = data['data'];
       final messageId = ev['message_id']?.toString();
+      final incomingSessionId = extractEventSessionId(ev);
 
       if (isObsoleteStream) {
         return;
       }
-      if (streamHasBeenSuperseded(messageId)) {
+      if (streamHasBeenSuperseded()) {
         retireObsoleteStream(
           'Superseded by socket event ${type ?? 'unknown'}',
           incomingMessageId: messageId,
@@ -1302,7 +1385,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
 
       if (kSocketVerboseLogging && payload is Map) {
         DebugLogger.log(
-          'socket delta type=$type session=$sessionId message=$messageId keys=${payload.keys.toList()}',
+          'socket delta type=$type session=$currentStreamSessionId '
+          'message=$messageId keys=${payload.keys.toList()}',
           scope: 'socket/chat',
         );
       }
@@ -1312,7 +1396,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           final completionTargetId = resolveTargetMessageIdForStream(
             messageId,
             eventType: 'chat:completion',
-            retireIfWrongMessage: true,
+            incomingSessionId: incomingSessionId,
+            allowBindingForeignMessage: true,
           );
           String? terminalFinishReason;
 
@@ -1538,7 +1623,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         final targetId = resolveTargetMessageIdForStream(
           messageId,
           eventType: 'status',
-          retireIfWrongMessage: true,
+          incomingSessionId: incomingSessionId,
+          allowBindingForeignMessage: true,
         );
         if (statusMap != null && targetId != null) {
           try {
@@ -1557,7 +1643,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         final targetId = resolveTargetMessageIdForStream(
           messageId,
           eventType: 'chat:tasks:cancel',
-          retireIfWrongMessage: true,
+          incomingSessionId: incomingSessionId,
+          allowBindingForeignMessage: true,
         );
         if (targetId == null) {
           return;
@@ -1578,7 +1665,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           final targetId = resolveTargetMessageIdForStream(
             messageId,
             eventType: 'chat:message:follow_ups',
-            retireIfWrongMessage: true,
+            incomingSessionId: incomingSessionId,
+            allowBindingForeignMessage: true,
           );
           DebugLogger.log(
             'Follow-ups: ${suggestions.length} suggestions for message $targetId',
@@ -1655,7 +1743,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
               final targetId = resolveTargetMessageIdForStream(
                 messageId,
                 eventType: type.toString(),
-                retireIfWrongMessage: true,
+                incomingSessionId: incomingSessionId,
+                allowBindingForeignMessage: true,
               );
               if (targetId != null) {
                 upsertCodeExecution(targetId, exec);
@@ -1668,7 +1757,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                 final targetId = resolveTargetMessageIdForStream(
                   messageId,
                   eventType: type.toString(),
-                  retireIfWrongMessage: true,
+                  incomingSessionId: incomingSessionId,
+                  allowBindingForeignMessage: true,
                 );
                 if (targetId != null) {
                   for (final source in sources) {
@@ -1680,6 +1770,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           }
         }
       } else if (type == 'notification' && payload != null) {
+        if (!matchesCurrentStreamSession(incomingSessionId)) {
+          return;
+        }
         final map = _asStringMap(payload);
         if (map != null) {
           final notifType = map['type']?.toString() ?? 'info';
@@ -1687,6 +1780,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           _showSocketNotification(notifType, content);
         }
       } else if (type == 'confirmation' && payload != null) {
+        if (!matchesCurrentStreamSession(incomingSessionId)) {
+          return;
+        }
         if (ack != null) {
           final map = _asStringMap(payload);
           if (map != null) {
@@ -1701,6 +1797,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           }
         }
       } else if (type == 'execute' && payload != null) {
+        if (!matchesCurrentStreamSession(incomingSessionId)) {
+          return;
+        }
         // The backend sends JavaScript code for the web client to eval.
         // Flutter can't execute JS, so we return null (not an error object)
         // to let the pipe/function continue with its default behavior.
@@ -1712,6 +1811,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           } catch (_) {}
         }
       } else if (type == 'input' && payload != null) {
+        if (!matchesCurrentStreamSession(incomingSessionId)) {
+          return;
+        }
         if (ack != null) {
           final map = _asStringMap(payload);
           if (map != null) {
@@ -1731,7 +1833,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           final targetId = resolveTargetMessageIdForStream(
             messageId,
             eventType: 'chat:message:error',
-            retireIfWrongMessage: true,
+            incomingSessionId: incomingSessionId,
+            allowBindingForeignMessage: true,
           );
           if (targetId == null) {
             return;
@@ -1771,7 +1874,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         if (resolveTargetMessageIdForStream(
               messageId,
               eventType: type.toString(),
-              retireIfWrongMessage: true,
+              incomingSessionId: incomingSessionId,
+              allowBindingForeignMessage: true,
             ) !=
             null) {
           final content = payload['content']?.toString() ?? '';
@@ -1784,7 +1888,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         if (resolveTargetMessageIdForStream(
               messageId,
               eventType: type.toString(),
-              retireIfWrongMessage: true,
+              incomingSessionId: incomingSessionId,
+              allowBindingForeignMessage: true,
             ) !=
             null) {
           final content = payload['content']?.toString() ?? '';
@@ -1798,7 +1903,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           final targetId = resolveTargetMessageIdForStream(
             messageId,
             eventType: 'chat:message:files',
-            retireIfWrongMessage: true,
+            incomingSessionId: incomingSessionId,
+            allowBindingForeignMessage: true,
           );
           if (targetId == null) {
             return;
@@ -1834,7 +1940,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             final targetId = resolveTargetMessageIdForStream(
               messageId,
               eventType: 'chat:message:embeds',
-              retireIfWrongMessage: true,
+              incomingSessionId: incomingSessionId,
+              allowBindingForeignMessage: true,
             );
             if (targetId != null) {
               updateMessageById(targetId, (current) {
@@ -1851,7 +1958,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             final targetId = resolveTargetMessageIdForStream(
               messageId,
               eventType: 'chat:message:favorite',
-              retireIfWrongMessage: true,
+              incomingSessionId: incomingSessionId,
+              allowBindingForeignMessage: true,
             );
             if (targetId != null) {
               updateMessageById(targetId, (current) {
@@ -1870,6 +1978,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         try {
           final active = payload['active'];
           if (active is bool) {
+            if (!matchesCurrentStreamSession(incomingSessionId)) {
+              return;
+            }
             onChatActiveChanged?.call(activeConversationId, active);
             if (!active && !hasFinished) {
               unawaited(
@@ -1882,6 +1993,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           }
         } catch (_) {}
       } else if (type == 'execute:python' && payload != null) {
+        if (!matchesCurrentStreamSession(incomingSessionId)) {
+          return;
+        }
         // Pyodide code execution request. Flutter can't run Python,
         // so return an empty result (not an error) to let the pipe
         // continue with its default behavior.
@@ -1894,7 +2008,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         if (resolveTargetMessageIdForStream(
               messageId,
               eventType: 'request:chat:completion',
-              retireIfWrongMessage: true,
+              incomingSessionId: incomingSessionId,
+              allowBindingForeignMessage: true,
             ) ==
             null) {
           return;
@@ -1914,7 +2029,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           if (resolveTargetMessageIdForStream(
                 messageId,
                 eventType: 'execute:tool',
-                retireIfWrongMessage: true,
+                incomingSessionId: incomingSessionId,
+                allowBindingForeignMessage: true,
               ) ==
               null) {
             return;
@@ -1949,6 +2065,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           } catch (_) {}
         } catch (_) {}
       } else if (type == 'files' && payload != null) {
+        if (!matchesCurrentStreamSession(incomingSessionId)) {
+          return;
+        }
         // Handle raw files event (image generation results)
         try {
           final files = _extractFilesFromResult(payload);
@@ -1968,7 +2087,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         final targetId = resolveTargetMessageIdForStream(
           messageId,
           eventType: 'event:status',
-          retireIfWrongMessage: true,
+          incomingSessionId: incomingSessionId,
+          allowBindingForeignMessage: true,
         );
         if (map != null && targetId != null) {
           try {
@@ -1985,6 +2105,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           } catch (_) {}
         }
       } else if (type == 'event:tool' && payload != null) {
+        if (!matchesCurrentStreamSession(incomingSessionId)) {
+          return;
+        }
         // Accept files from both 'result' and 'files'
         final files = [
           ..._extractFilesFromResult(payload['files']),
@@ -2002,7 +2125,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         if (resolveTargetMessageIdForStream(
               messageId,
               eventType: 'event:message:delta',
-              retireIfWrongMessage: true,
+              incomingSessionId: incomingSessionId,
+              allowBindingForeignMessage: true,
             ) !=
             null) {
           final content = payload['content']?.toString() ?? '';
@@ -2034,7 +2158,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       if (isObsoleteStream) {
         return;
       }
-      if (streamHasBeenSuperseded(null)) {
+      if (streamHasBeenSuperseded()) {
         retireObsoleteStream(
           'Superseded by channel event ${type ?? 'unknown'}',
           incomingMessageId: null,
@@ -2064,6 +2188,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     final chatSub = socketService.addChatEventHandler(
       conversationId: activeConversationId,
       sessionId: sessionId,
+      messageId: assistantMessageId,
       requireFocus: false,
       handler: chatHandler,
     );

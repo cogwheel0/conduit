@@ -1316,6 +1316,130 @@ String? _extractSystemPromptFromSettings(Map<String, dynamic>? settings) {
   return null;
 }
 
+String _formatOpenWebUiDate(DateTime value) {
+  final year = value.year.toString().padLeft(4, '0');
+  final month = value.month.toString().padLeft(2, '0');
+  final day = value.day.toString().padLeft(2, '0');
+  return '$year-$month-$day';
+}
+
+String _formatOpenWebUiTime(DateTime value) {
+  final hour = value.hour.toString().padLeft(2, '0');
+  final minute = value.minute.toString().padLeft(2, '0');
+  final second = value.second.toString().padLeft(2, '0');
+  return '$hour:$minute:$second';
+}
+
+String _openWebUiWeekday(DateTime value) {
+  const weekdays = <String>[
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday',
+    'Saturday',
+    'Sunday',
+  ];
+  return weekdays[value.weekday - 1];
+}
+
+Map<String, dynamic> _buildOpenWebUiPromptVariables({
+  required DateTime now,
+  required String userName,
+  required String userEmail,
+  required String userLanguage,
+  String? userLocation,
+}) {
+  final normalizedUserName = userName.trim().isNotEmpty
+      ? userName.trim()
+      : 'User';
+  final normalizedUserEmail = userEmail.trim().isNotEmpty
+      ? userEmail.trim()
+      : 'Unknown';
+  final normalizedUserLanguage = userLanguage.trim().isNotEmpty
+      ? userLanguage.trim()
+      : 'en-US';
+  final normalizedUserLocation =
+      userLocation != null && userLocation.trim().isNotEmpty
+      ? userLocation.trim()
+      : 'Unknown';
+  final date = _formatOpenWebUiDate(now);
+  final time = _formatOpenWebUiTime(now);
+
+  return <String, dynamic>{
+    '{{USER_NAME}}': normalizedUserName,
+    '{{USER_EMAIL}}': normalizedUserEmail,
+    '{{USER_LOCATION}}': normalizedUserLocation,
+    '{{CURRENT_DATETIME}}': '$date $time',
+    '{{CURRENT_DATE}}': date,
+    '{{CURRENT_TIME}}': time,
+    '{{CURRENT_WEEKDAY}}': _openWebUiWeekday(now),
+    '{{CURRENT_TIMEZONE}}': now.timeZoneName,
+    '{{USER_LANGUAGE}}': normalizedUserLanguage,
+  };
+}
+
+Map<String, dynamic>? _buildOpenWebUiParentMessage({
+  required List<ChatMessage> messages,
+  required String? parentMessageId,
+  required String modelId,
+  String? childMessageId,
+}) {
+  if (parentMessageId == null || parentMessageId.isEmpty) {
+    return null;
+  }
+
+  ChatMessage? parentMessage;
+  for (final message in messages) {
+    if (message.id == parentMessageId) {
+      parentMessage = message;
+      break;
+    }
+  }
+  if (parentMessage == null) {
+    return null;
+  }
+
+  final metadata = parentMessage.metadata;
+  final parentId = metadata?['parentId']?.toString();
+  final rawChildren = metadata?['childrenIds'];
+  final childrenIds = rawChildren is List
+      ? rawChildren
+            .map((child) => child?.toString() ?? '')
+            .where((child) => child.isNotEmpty)
+            .toList(growable: true)
+      : <String>[];
+  if (childMessageId != null &&
+      childMessageId.isNotEmpty &&
+      !childrenIds.contains(childMessageId)) {
+    childrenIds.add(childMessageId);
+  }
+
+  final rawModels = metadata?['models'];
+  final models = rawModels is List
+      ? rawModels
+            .map((model) => model?.toString() ?? '')
+            .where((model) => model.isNotEmpty)
+            .toList(growable: false)
+      : <String>[];
+
+  return <String, dynamic>{
+    'id': parentMessage.id,
+    'parentId': parentId,
+    'childrenIds': childrenIds,
+    'role': parentMessage.role,
+    'content': parentMessage.content,
+    if (parentMessage.role == 'user')
+      'models': models.isNotEmpty ? models : <String>[modelId],
+    'timestamp': parentMessage.timestamp.millisecondsSinceEpoch ~/ 1000,
+    if (parentMessage.files != null && parentMessage.files!.isNotEmpty)
+      'files': parentMessage.files,
+    if (parentMessage.attachmentIds != null &&
+        parentMessage.attachmentIds!.isNotEmpty)
+      'attachment_ids': List<String>.from(parentMessage.attachmentIds!),
+  };
+}
+
 // Start a new chat (unified function for both "New Chat" button and home screen)
 void startNewChat(dynamic ref) {
   // Clear active conversation
@@ -1838,106 +1962,133 @@ Future<void> regenerateMessage(
     Map<String, dynamic>? parentMsgMap;
     try {
       final now2 = DateTime.now();
-      promptVars2 = <String, dynamic>{
-        '{{USER_NAME}}': 'User',
-        '{{USER_EMAIL}}': '',
-        '{{CURRENT_DATETIME}}': now2.toIso8601String(),
-        '{{CURRENT_DATE}}':
-            '${now2.year}-${now2.month.toString().padLeft(2, '0')}-${now2.day.toString().padLeft(2, '0')}',
-        '{{CURRENT_TIME}}':
-            '${now2.hour.toString().padLeft(2, '0')}:${now2.minute.toString().padLeft(2, '0')}',
-        '{{CURRENT_WEEKDAY}}': [
-          'Monday',
-          'Tuesday',
-          'Wednesday',
-          'Thursday',
-          'Friday',
-          'Saturday',
-          'Sunday',
-        ][now2.weekday - 1],
-        '{{CURRENT_TIMEZONE}}': now2.timeZoneName,
-        '{{USER_LANGUAGE}}': 'en',
-      };
-    } catch (_) {}
+      String userName = 'User';
+      String userEmail = 'Unknown';
+      String userLanguage = 'en-US';
+      String? userLocation;
 
-    // Build parent message map
-    try {
-      if (lastUserMessageId != null) {
-        for (final m in messages) {
-          if (m.id == lastUserMessageId) {
-            parentMsgMap = {
-              'id': m.id,
-              'role': m.role,
-              'content': m.content,
-              if (m.files != null) 'files': m.files,
-              'timestamp': m.timestamp.millisecondsSinceEpoch ~/ 1000,
-            };
-            break;
+      try {
+        final userData = ref.read(currentUserProvider);
+        if (userData is AsyncData) {
+          final user = userData.value;
+          if (user != null) {
+            userName = user.name?.trim().isNotEmpty == true
+                ? user.name!.trim()
+                : user.email;
+            userEmail = user.email;
           }
         }
-      }
+      } catch (_) {}
+
+      try {
+        final dynamic locale = ref.read(appLocaleProvider);
+        if (locale != null) {
+          userLanguage = locale.toLanguageTag()?.toString() ?? 'en-US';
+        }
+      } catch (_) {}
+
+      try {
+        final uiSettings = userSettingsData?['ui'];
+        if (uiSettings is Map) {
+          final rawLocation = uiSettings['userLocation'];
+          if (rawLocation is String && rawLocation.trim().isNotEmpty) {
+            userLocation = rawLocation.trim();
+          }
+        }
+      } catch (_) {}
+
+      promptVars2 = _buildOpenWebUiPromptVariables(
+        now: now2,
+        userName: userName,
+        userEmail: userEmail,
+        userLanguage: userLanguage,
+        userLocation: userLocation,
+      );
     } catch (_) {}
 
-    // Start buffering socket events before sending to avoid timing races
+    try {
+      parentMsgMap = _buildOpenWebUiParentMessage(
+        messages: messages,
+        parentMessageId: lastUserMessageId,
+        modelId: selectedModel.id,
+        childMessageId: assistantMessageId,
+      );
+    } catch (_) {}
+
+    // Start buffering socket events before sending to avoid timing races.
+    // Include session/message aliases because some early taskSocket events are
+    // emitted before the handler attaches and may not carry chat_id yet.
     final regenSocketService = ref.read(socketServiceProvider);
-    regenSocketService?.startBuffering(activeConversation.id);
-
-    // Use transport-aware session dispatch
-    final session = await api!.sendMessageSession(
-      messages: conversationMessages,
-      model: selectedModel.id,
-      conversationId: activeConversation.id,
-      toolIds: selectedToolIds.isNotEmpty ? selectedToolIds : null,
-      filterIds: selectedFilterIds.isNotEmpty ? selectedFilterIds : null,
-      enableWebSearch: webSearchEnabled,
-      enableImageGeneration: imageGenerationEnabled,
-      modelItem: modelItem,
-      sessionIdOverride: socketSessionId,
-      toolServers: toolServers,
-      backgroundTasks: bgTasks,
-      responseMessageId: assistantMessageId,
-      userSettings: userSettingsData,
-      parentMessageId: lastUserMessageId,
-      parentMessage: parentMsgMap,
-      variables: promptVars2,
+    regenSocketService?.startBuffering(
+      activeConversation.id,
+      sessionId: socketSessionId,
+      messageId: assistantMessageId,
     );
 
-    // Check if model uses reasoning based on common naming patterns
-    final modelLower = selectedModel.id.toLowerCase();
-    final modelUsesReasoning =
-        modelLower.contains('o1') ||
-        modelLower.contains('o3') ||
-        modelLower.contains('deepseek-r1') ||
-        modelLower.contains('reasoning') ||
-        modelLower.contains('think');
+    try {
+      // Use transport-aware session dispatch
+      final session = await api!.sendMessageSession(
+        messages: conversationMessages,
+        model: selectedModel.id,
+        conversationId: activeConversation.id,
+        toolIds: selectedToolIds.isNotEmpty ? selectedToolIds : null,
+        filterIds: selectedFilterIds.isNotEmpty ? selectedFilterIds : null,
+        enableWebSearch: webSearchEnabled,
+        enableImageGeneration: imageGenerationEnabled,
+        modelItem: modelItem,
+        sessionIdOverride: socketSessionId,
+        toolServers: toolServers,
+        backgroundTasks: bgTasks,
+        responseMessageId: assistantMessageId,
+        userSettings: userSettingsData,
+        parentMessageId: lastUserMessageId,
+        parentMessage: parentMsgMap,
+        variables: promptVars2,
+      );
 
-    final bool isBackgroundFlow =
-        isBackgroundToolsFlowPre ||
-        isBackgroundWebSearchPre ||
-        imageGenerationEnabled ||
-        bgTasks.isNotEmpty;
+      // Check if model uses reasoning based on common naming patterns
+      final modelLower = selectedModel.id.toLowerCase();
+      final modelUsesReasoning =
+          modelLower.contains('o1') ||
+          modelLower.contains('o3') ||
+          modelLower.contains('deepseek-r1') ||
+          modelLower.contains('reasoning') ||
+          modelLower.contains('think');
 
-    await dispatchChatTransport(
-      ref: ref,
-      session: session,
-      assistantMessageId: assistantMessageId,
-      modelId: selectedModel.id,
-      modelItem: modelItem,
-      activeConversationId: activeConversation.id,
-      api: api!,
-      socketService: socketService,
-      workerManager: ref.read(workerManagerProvider),
-      webSearchEnabled: webSearchEnabled,
-      imageGenerationEnabled: imageGenerationEnabled,
-      isBackgroundFlow: isBackgroundFlow,
-      modelUsesReasoning: modelUsesReasoning,
-      toolsEnabled:
-          selectedToolIds.isNotEmpty ||
-          (toolServers != null && toolServers.isNotEmpty) ||
-          imageGenerationEnabled,
-      isTemporary: isTemporary,
-      filterIds: selectedFilterIds.isNotEmpty ? selectedFilterIds : null,
-    );
+      final bool isBackgroundFlow =
+          isBackgroundToolsFlowPre ||
+          isBackgroundWebSearchPre ||
+          imageGenerationEnabled ||
+          bgTasks.isNotEmpty;
+
+      await dispatchChatTransport(
+        ref: ref,
+        session: session,
+        assistantMessageId: assistantMessageId,
+        modelId: selectedModel.id,
+        modelItem: modelItem,
+        activeConversationId: activeConversation.id,
+        api: api!,
+        socketService: socketService,
+        workerManager: ref.read(workerManagerProvider),
+        webSearchEnabled: webSearchEnabled,
+        imageGenerationEnabled: imageGenerationEnabled,
+        isBackgroundFlow: isBackgroundFlow,
+        modelUsesReasoning: modelUsesReasoning,
+        toolsEnabled:
+            selectedToolIds.isNotEmpty ||
+            (toolServers != null && toolServers.isNotEmpty) ||
+            imageGenerationEnabled,
+        isTemporary: isTemporary,
+        filterIds: selectedFilterIds.isNotEmpty ? selectedFilterIds : null,
+      );
+    } finally {
+      regenSocketService?.stopBuffering(
+        activeConversation.id,
+        sessionId: socketSessionId,
+        messageId: assistantMessageId,
+      );
+    }
     return;
   } catch (e) {
     rethrow;
@@ -2348,6 +2499,8 @@ Future<void> _sendMessageInternal(
       : null;
 
   String? chatIdForBuffer;
+  String? sessionIdForBuffer;
+  String? messageIdForBuffer;
   try {
     // Assistant placeholder was already added above (after user message)
     // to show typing indicator immediately. Sync conversation state to server.
@@ -2447,43 +2600,45 @@ Future<void> _sendMessageInternal(
     Map<String, dynamic>? parentMessageMap;
     try {
       final now = DateTime.now();
-      // Read user and locale through dynamic ref — safe operations
       String userName = 'User';
-      String userEmail = '';
-      String userLanguage = 'en';
+      String userEmail = 'Unknown';
+      String userLanguage = 'en-US';
+      String? userLocation;
       try {
         final userData = ref.read(currentUserProvider);
         if (userData is AsyncData) {
-          userName = (userData).value?.name ?? 'User';
-          userEmail = (userData).value?.email ?? '';
+          final user = userData.value;
+          if (user != null) {
+            userName = user.name?.trim().isNotEmpty == true
+                ? user.name!.trim()
+                : user.email;
+            userEmail = user.email;
+          }
         }
       } catch (_) {}
       try {
         final dynamic locale = ref.read(appLocaleProvider);
         if (locale != null) {
-          userLanguage = locale.toLanguageTag()?.toString() ?? 'en';
+          userLanguage = locale.toLanguageTag()?.toString() ?? 'en-US';
         }
       } catch (_) {}
-      promptVariables = <String, dynamic>{
-        '{{USER_NAME}}': userName,
-        '{{USER_EMAIL}}': userEmail,
-        '{{CURRENT_DATETIME}}': now.toIso8601String(),
-        '{{CURRENT_DATE}}':
-            '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}',
-        '{{CURRENT_TIME}}':
-            '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}',
-        '{{CURRENT_WEEKDAY}}': [
-          'Monday',
-          'Tuesday',
-          'Wednesday',
-          'Thursday',
-          'Friday',
-          'Saturday',
-          'Sunday',
-        ][now.weekday - 1],
-        '{{CURRENT_TIMEZONE}}': now.timeZoneName,
-        '{{USER_LANGUAGE}}': userLanguage,
-      };
+      try {
+        final uiSettings = userSettingsData?['ui'];
+        if (uiSettings is Map) {
+          final rawLocation = uiSettings['userLocation'];
+          if (rawLocation is String && rawLocation.trim().isNotEmpty) {
+            userLocation = rawLocation.trim();
+          }
+        }
+      } catch (_) {}
+
+      promptVariables = _buildOpenWebUiPromptVariables(
+        now: now,
+        userName: userName,
+        userEmail: userEmail,
+        userLanguage: userLanguage,
+        userLocation: userLocation,
+      );
     } catch (e) {
       DebugLogger.error(
         'Failed to build prompt variables: $e',
@@ -2492,99 +2647,101 @@ Future<void> _sendMessageInternal(
       );
     }
 
-    // Build the parent (user) message object so the backend has full context.
     try {
-      if (lastUserMessageId != null) {
-        for (final m in messages) {
-          if (m.id == lastUserMessageId) {
-            parentMessageMap = {
-              'id': m.id,
-              'role': m.role,
-              'content': m.content,
-              if (m.files != null) 'files': m.files,
-              'timestamp': m.timestamp.millisecondsSinceEpoch ~/ 1000,
-            };
-            break;
-          }
-        }
-      }
+      parentMessageMap = _buildOpenWebUiParentMessage(
+        messages: messages,
+        parentMessageId: lastUserMessageId,
+        modelId: selectedModel.id,
+        childMessageId: assistantMessageId,
+      );
     } catch (_) {}
 
     // Start buffering socket events for this chat BEFORE sending the HTTP
     // request. The backend may emit events (especially for fast pipe models)
     // before dispatchChatTransport registers the streaming handler.
     chatIdForBuffer = activeConversation?.id;
+    sessionIdForBuffer = socketSessionId;
+    messageIdForBuffer = assistantMessageId;
     if (chatIdForBuffer != null) {
-      socketService?.startBuffering(chatIdForBuffer);
+      socketService?.startBuffering(
+        chatIdForBuffer,
+        sessionId: sessionIdForBuffer,
+        messageId: messageIdForBuffer,
+      );
     }
 
-    final session = await api.sendMessageSession(
-      messages: conversationMessages,
-      model: selectedModel.id,
-      conversationId: activeConversation?.id,
-      toolIds: toolIdsForApi,
-      filterIds: filterIdsForApi,
-      enableWebSearch: webSearchEnabled,
-      enableImageGeneration: imageGenerationEnabled,
-      isVoiceMode: isVoiceMode,
-      modelItem: modelItem,
-      sessionIdOverride: socketSessionId,
-      toolServers: toolServers,
-      backgroundTasks: bgTasks,
-      responseMessageId: assistantMessageId,
-      userSettings: userSettingsData,
-      parentMessageId: lastUserMessageId,
-      parentMessage: parentMessageMap,
-      variables: promptVariables,
-    );
+    try {
+      final session = await api.sendMessageSession(
+        messages: conversationMessages,
+        model: selectedModel.id,
+        conversationId: activeConversation?.id,
+        toolIds: toolIdsForApi,
+        filterIds: filterIdsForApi,
+        enableWebSearch: webSearchEnabled,
+        enableImageGeneration: imageGenerationEnabled,
+        isVoiceMode: isVoiceMode,
+        modelItem: modelItem,
+        sessionIdOverride: socketSessionId,
+        toolServers: toolServers,
+        backgroundTasks: bgTasks,
+        responseMessageId: assistantMessageId,
+        userSettings: userSettingsData,
+        parentMessageId: lastUserMessageId,
+        parentMessage: parentMessageMap,
+        variables: promptVariables,
+      );
 
-    // Check if model uses reasoning based on common naming patterns
-    final modelLower2 = selectedModel.id.toLowerCase();
-    final modelUsesReasoning2 =
-        modelLower2.contains('o1') ||
-        modelLower2.contains('o3') ||
-        modelLower2.contains('deepseek-r1') ||
-        modelLower2.contains('reasoning') ||
-        modelLower2.contains('think');
+      // Check if model uses reasoning based on common naming patterns
+      final modelLower2 = selectedModel.id.toLowerCase();
+      final modelUsesReasoning2 =
+          modelLower2.contains('o1') ||
+          modelLower2.contains('o3') ||
+          modelLower2.contains('deepseek-r1') ||
+          modelLower2.contains('reasoning') ||
+          modelLower2.contains('think');
 
-    final bool isBackgroundFlow =
-        isBackgroundToolsFlowPre ||
-        isBackgroundWebSearchPre ||
-        imageGenerationEnabled ||
-        bgTasks.isNotEmpty;
+      final bool isBackgroundFlow =
+          isBackgroundToolsFlowPre ||
+          isBackgroundWebSearchPre ||
+          imageGenerationEnabled ||
+          bgTasks.isNotEmpty;
 
-    await dispatchChatTransport(
-      ref: ref,
-      session: session,
-      assistantMessageId: assistantMessageId,
-      modelId: selectedModel.id,
-      modelItem: modelItem,
-      activeConversationId: activeConversation?.id,
-      api: api,
-      socketService: socketService,
-      workerManager: ref.read(workerManagerProvider),
-      webSearchEnabled: webSearchEnabled,
-      imageGenerationEnabled: imageGenerationEnabled,
-      isBackgroundFlow: isBackgroundFlow,
-      modelUsesReasoning: modelUsesReasoning2,
-      toolsEnabled:
-          (toolIdsForApi != null && toolIdsForApi.isNotEmpty) ||
-          (toolServers != null && toolServers.isNotEmpty) ||
-          imageGenerationEnabled,
-      isTemporary: isTemporary,
-      filterIds: filterIdsForApi,
-    );
+      await dispatchChatTransport(
+        ref: ref,
+        session: session,
+        assistantMessageId: assistantMessageId,
+        modelId: selectedModel.id,
+        modelItem: modelItem,
+        activeConversationId: activeConversation?.id,
+        api: api,
+        socketService: socketService,
+        workerManager: ref.read(workerManagerProvider),
+        webSearchEnabled: webSearchEnabled,
+        imageGenerationEnabled: imageGenerationEnabled,
+        isBackgroundFlow: isBackgroundFlow,
+        modelUsesReasoning: modelUsesReasoning2,
+        toolsEnabled:
+            (toolIdsForApi != null && toolIdsForApi.isNotEmpty) ||
+            (toolServers != null && toolServers.isNotEmpty) ||
+            imageGenerationEnabled,
+        isTemporary: isTemporary,
+        filterIds: filterIdsForApi,
+      );
+    } finally {
+      if (chatIdForBuffer != null) {
+        socketService?.stopBuffering(
+          chatIdForBuffer,
+          sessionId: sessionIdForBuffer,
+          messageId: messageIdForBuffer,
+        );
+      }
+    }
 
     // Clear context attachments after successfully initiating the message send.
     // This prevents stale attachments from being included in subsequent messages.
     try {
       ref.read(contextAttachmentsProvider.notifier).clear();
     } catch (_) {}
-
-    // Stop buffering -- handler was registered and replayed any buffered events
-    if (chatIdForBuffer != null) {
-      socketService?.stopBuffering(chatIdForBuffer);
-    }
 
     return;
   } catch (e, st) {
@@ -3209,8 +3366,10 @@ Map<String, dynamic> _buildLocalModelItem(dynamic selectedModel) {
     if (meta?['actions'] != null) 'actions': meta!['actions'],
     if (meta?['owned_by'] != null) 'owned_by': meta!['owned_by'],
     if (meta?['object'] != null) 'object': meta!['object'],
+    if (meta?['created'] != null) 'created': meta!['created'],
     if (meta?['has_user_valves'] != null)
       'has_user_valves': meta!['has_user_valves'],
+    if (meta?['tags'] != null) 'tags': meta!['tags'],
     // Include filters for outlet filter routing
     if (selectedModel.filters != null)
       'filters': (selectedModel.filters as List)

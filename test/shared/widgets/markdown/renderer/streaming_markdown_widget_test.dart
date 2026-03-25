@@ -1,9 +1,12 @@
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/core/models/chat_message.dart';
+import 'package:conduit/features/chat/widgets/assistant_message_widget.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_config.dart';
 import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -55,7 +58,11 @@ void main() {
     );
   });
 
-  Widget buildHarness(String content, {bool isStreaming = false}) {
+  Widget buildHarness(
+    String content, {
+    bool isStreaming = false,
+    String? stateScopeId,
+  }) {
     return MaterialApp(
       theme: AppTheme.light(TweakcnThemes.t3Chat),
       localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -65,6 +72,7 @@ void main() {
           child: StreamingMarkdownWidget(
             content: content,
             isStreaming: isStreaming,
+            stateScopeId: stateScopeId,
           ),
         ),
       ),
@@ -262,6 +270,238 @@ Second step
 
       expect(find.byType(DraggableScrollableSheet), findsOneWidget);
       expect(find.text('Second step'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'restores expanded inline reasoning after the markdown subtree remounts',
+    (tester) async {
+      final bucket = PageStorageBucket();
+      var content = '''
+<details type="reasoning" done="false">
+<summary>Thinking…</summary>
+First step
+</details>
+''';
+      var revision = 0;
+      late void Function(VoidCallback fn) rebuild;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: StatefulBuilder(
+              builder: (context, setState) {
+                rebuild = setState;
+                return PageStorage(
+                  bucket: bucket,
+                  child: KeyedSubtree(
+                    key: ValueKey(revision),
+                    child: SingleChildScrollView(
+                      child: StreamingMarkdownWidget(
+                        content: content,
+                        isStreaming: true,
+                        stateScopeId: 'message-1',
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.textContaining('Thinking'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('First step'), findsOneWidget);
+
+      rebuild(() {
+        revision += 1;
+        content = '''
+<details type="reasoning" done="false">
+<summary>Thinking…</summary>
+First step
+Second step
+</details>
+''';
+      });
+      await tester.pumpAndSettle();
+
+      expect(find.text('First step'), findsOneWidget);
+      expect(find.text('Second step'), findsOneWidget);
+      expect(find.byType(DraggableScrollableSheet), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'keeps inline reasoning state isolated across version-specific scopes',
+    (tester) async {
+      final bucket = PageStorageBucket();
+      const content = '''
+<details type="reasoning" done="false">
+<summary>Thinking…</summary>
+Shared reasoning
+</details>
+''';
+      var stateScopeId = 'message-1|version:v1';
+      late void Function(VoidCallback fn) rebuild;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: StatefulBuilder(
+              builder: (context, setState) {
+                rebuild = setState;
+                return PageStorage(
+                  bucket: bucket,
+                  child: SingleChildScrollView(
+                    child: StreamingMarkdownWidget(
+                      content: content,
+                      isStreaming: true,
+                      stateScopeId: stateScopeId,
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.textContaining('Thinking'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Shared reasoning'), findsOneWidget);
+
+      rebuild(() {
+        stateScopeId = 'message-1|version:v2';
+      });
+      await tester.pumpAndSettle();
+
+      expect(find.text('Shared reasoning'), findsNothing);
+
+      rebuild(() {
+        stateScopeId = 'message-1|version:v1';
+      });
+      await tester.pumpAndSettle();
+
+      expect(find.text('Shared reasoning'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'assistant message keeps reasoning expansion isolated per version',
+    (tester) async {
+      final timestamp = DateTime(2026);
+      final message = ChatMessage(
+        id: 'message-1',
+        role: 'assistant',
+        content: '''
+<details type="reasoning" done="false">
+<summary>Thinking…</summary>
+Current reasoning
+</details>
+''',
+        timestamp: timestamp,
+        versions: [
+          ChatMessageVersion(
+            id: 'version-1',
+            content: '''
+<details type="reasoning" done="false">
+<summary>Thinking…</summary>
+Version reasoning
+</details>
+''',
+            timestamp: timestamp,
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            theme: AppTheme.light(TweakcnThemes.t3Chat),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(
+              body: AssistantMessageWidget(
+                message: message,
+                isStreaming: false,
+                showFollowUps: false,
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.textContaining('Thinking'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Current reasoning'), findsOneWidget);
+
+      await tester.tap(find.byIcon(Icons.chevron_left));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Current reasoning'), findsNothing);
+      expect(find.text('Version reasoning'), findsNothing);
+
+      await tester.tap(find.textContaining('Thinking'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Version reasoning'), findsOneWidget);
+
+      await tester.tap(find.byIcon(Icons.chevron_right));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Version reasoning'), findsNothing);
+      expect(find.text('Current reasoning'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'allows duplicate inline reasoning summaries to expand independently',
+    (tester) async {
+      const content = '''
+<details type="reasoning" done="false">
+<summary>Thinking…</summary>
+First reasoning block
+</details>
+
+<details type="reasoning" done="false">
+<summary>Thinking…</summary>
+Second reasoning block
+</details>
+''';
+
+      await tester.pumpWidget(
+        buildHarness(
+          content,
+          isStreaming: true,
+          stateScopeId: 'message-1|current',
+        ),
+      );
+
+      final headers = find.textContaining('Thinking');
+      expect(headers, findsNWidgets(2));
+
+      await tester.tap(headers.first);
+      await tester.pumpAndSettle();
+
+      expect(find.text('First reasoning block'), findsOneWidget);
+      expect(find.text('Second reasoning block'), findsNothing);
+
+      await tester.tap(headers.last);
+      await tester.pumpAndSettle();
+
+      expect(find.text('First reasoning block'), findsOneWidget);
+      expect(find.text('Second reasoning block'), findsOneWidget);
     },
   );
 

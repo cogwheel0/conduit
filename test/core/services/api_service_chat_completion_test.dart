@@ -312,6 +312,16 @@ void main() {
       check(payload['id'] as String).equals('msg-1');
       check(payload['session_id'] as String).equals('sess-1');
       check(payload['messages']).isA<List>();
+      check(payload['params']).isA<Map<String, dynamic>>().deepEquals({});
+      check(payload['tool_servers'])
+          .isA<List<Map<String, dynamic>>>()
+          .deepEquals(const <Map<String, dynamic>>[]);
+      check(payload['features']).isA<Map<String, dynamic>>().deepEquals({
+        'voice': false,
+        'web_search': false,
+        'image_generation': false,
+        'code_interpreter': false,
+      });
       // parent_message always present (OWUI 0.6.42+ compat)
       check(payload['parent_message']).isNotNull();
     });
@@ -330,13 +340,14 @@ void main() {
       );
 
       check(payload['features']).isA<Map<String, dynamic>>().deepEquals({
+        'voice': false,
         'web_search': false,
         'image_generation': true,
         'code_interpreter': false,
       });
     });
 
-    test('omits features key when no feature flags are active', () {
+    test('keeps disabled feature flags for pipe compatibility', () {
       final api = _buildApiServiceForTest(_FakeAdapter.json({}));
 
       final payload = api.buildChatCompletionPayloadForTest(
@@ -348,7 +359,79 @@ void main() {
         sessionId: 'sess-plain',
       );
 
-      check(payload.containsKey('features')).isFalse();
+      check(payload['features']).isA<Map<String, dynamic>>().deepEquals({
+        'voice': false,
+        'web_search': false,
+        'image_generation': false,
+        'code_interpreter': false,
+      });
+    });
+
+    test('preserves pipe-friendly empty collections and parent payload', () {
+      final api = _buildApiServiceForTest(_FakeAdapter.json({}));
+      const parentMessage = <String, dynamic>{
+        'id': 'user-1',
+        'parentId': null,
+        'childrenIds': ['assistant-1'],
+        'role': 'user',
+        'content': 'Tell me another joke',
+        'models': ['pipe-model'],
+        'timestamp': 1774458297,
+      };
+      const variables = <String, dynamic>{
+        '{{USER_NAME}}': 'cogwheel',
+        '{{USER_EMAIL}}': 'cogwheel@cogwheel.app',
+        '{{USER_LOCATION}}': 'Unknown',
+      };
+      const backgroundTasks = <String, dynamic>{'follow_up_generation': true};
+      const modelItem = <String, dynamic>{
+        'id': 'pipe-model',
+        'pipe': {'type': 'pipe'},
+      };
+
+      final payload = api.buildChatCompletionPayloadForTest(
+        messages: const [
+          {'role': 'user', 'content': 'hello'},
+        ],
+        model: 'pipe-model',
+        messageId: 'assistant-1',
+        sessionId: 'sess-pipe',
+        conversationId: 'chat-pipe',
+        modelItem: modelItem,
+        toolServers: const <Map<String, dynamic>>[],
+        backgroundTasks: backgroundTasks,
+        userSettings: const {
+          'ui': {'memory': true},
+        },
+        parentMessageId: 'user-1',
+        parentMessage: parentMessage,
+        variables: variables,
+      );
+
+      check(payload['params']).isA<Map<String, dynamic>>().deepEquals({});
+      check(payload['tool_servers'])
+          .isA<List<Map<String, dynamic>>>()
+          .deepEquals(const <Map<String, dynamic>>[]);
+      check(
+        payload['background_tasks'],
+      ).isA<Map<String, dynamic>>().deepEquals(backgroundTasks);
+      check(payload['parent_id'] as String).equals('user-1');
+      check(
+        payload['parent_message'],
+      ).isA<Map<String, dynamic>>().deepEquals(parentMessage);
+      check(
+        payload['variables'],
+      ).isA<Map<String, dynamic>>().deepEquals(variables);
+      check(
+        payload['model_item'],
+      ).isA<Map<String, dynamic>>().deepEquals(modelItem);
+      check(payload['features']).isA<Map<String, dynamic>>().deepEquals({
+        'voice': false,
+        'web_search': false,
+        'image_generation': false,
+        'code_interpreter': false,
+        'memory': true,
+      });
     });
   });
 

@@ -865,6 +865,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     Widget buildDefault(BuildContext context) => StreamingMarkdownWidget(
       content: processedContent,
       isStreaming: widget.isStreaming,
+      stateScopeId: _markdownStateScopeId(),
       onTapLink: (url, _) => _launchUri(url),
       sources: widget.message.sources,
       imageBuilderOverride: (uri, title, alt) {
@@ -891,6 +892,16 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     }
 
     return buildDefault(context);
+  }
+
+  String _markdownStateScopeId() {
+    final selectedVersionIndex = _activeVersionIndex;
+    if (selectedVersionIndex >= 0 &&
+        selectedVersionIndex < widget.message.versions.length) {
+      final versionId = widget.message.versions[selectedVersionIndex].id;
+      return '${widget.message.id}|version:$versionId';
+    }
+    return '${widget.message.id}|current';
   }
 
   List<Map<String, dynamic>>? _resolveActiveEmbeds() {
