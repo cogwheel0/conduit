@@ -703,7 +703,7 @@ class SocketService with WidgetsBindingObserver {
 
     final ackFn = _wrapAck(effectiveAck);
     final sessionId = _extractSessionId(map);
-    final chatId = map['chat_id']?.toString();
+    final chatId = _extractConversationId(map);
     final channelId = _extractChannelId(map);
 
     bool delivered = false;
@@ -750,7 +750,7 @@ class SocketService with WidgetsBindingObserver {
 
     final ackFn = _wrapAck(effectiveAck);
     final sessionId = _extractSessionId(map);
-    final chatId = map['chat_id']?.toString();
+    final chatId = _extractConversationId(map);
     final channelId = _extractChannelId(map);
 
     for (final registration in List<_ChannelEventRegistration>.from(
@@ -904,6 +904,38 @@ class SocketService with WidgetsBindingObserver {
         }
         if (candidate == null && inner['channelId'] != null) {
           candidate = inner['channelId'].toString();
+        }
+      }
+    }
+
+    return candidate;
+  }
+
+  String? _extractConversationId(Map<String, dynamic> event) {
+    String? candidate;
+
+    if (event['chat_id'] != null) {
+      candidate = event['chat_id'].toString();
+    }
+    if (candidate == null && event['chatId'] != null) {
+      candidate = event['chatId'].toString();
+    }
+
+    final data = event['data'];
+    if (data is Map) {
+      if (candidate == null && data['chat_id'] != null) {
+        candidate = data['chat_id'].toString();
+      }
+      if (candidate == null && data['chatId'] != null) {
+        candidate = data['chatId'].toString();
+      }
+      final inner = data['data'];
+      if (inner is Map) {
+        if (candidate == null && inner['chat_id'] != null) {
+          candidate = inner['chat_id'].toString();
+        }
+        if (candidate == null && inner['chatId'] != null) {
+          candidate = inner['chatId'].toString();
         }
       }
     }

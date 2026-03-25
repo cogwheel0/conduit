@@ -265,6 +265,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   required void Function() completeStreamingUi,
   required void Function() finishStreaming,
   required List<ChatMessage> Function() getMessages,
+  void Function()? onObsoleteStreamRetired,
 
   /// Flushes buffered streaming content into state so
   /// [getMessages] returns up-to-date content. Must be
@@ -280,6 +281,11 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   // Track if streaming has been finished to avoid duplicate cleanup
   bool hasFinished = false;
   bool hasCompletedStreamingUi = false;
+  bool isObsoleteStream = false;
+  bool backgroundExecutionStopped = false;
+  StreamingResponseController? streamController;
+  late void Function(String reason, {String? incomingMessageId})
+  retireObsoleteStream;
 
   bool isTerminalFinishReason(String? finishReason) {
     return finishReason == 'stop' ||
@@ -303,14 +309,58 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         });
   }
 
-  // Wrap finishStreaming to always clear the cancel token and stop background execution
-  void wrappedFinishStreaming() {
-    if (hasFinished) return;
-    hasFinished = true;
-    hasCompletedStreamingUi = true;
-    api.clearStreamCancelToken(assistantMessageId);
+  String? currentAssistantTargetId() {
+    final messages = getMessages();
+    for (final message in messages.reversed) {
+      if (message.role == 'assistant') {
+        return message.id;
+      }
+    }
+    return null;
+  }
 
-    // Stop background execution when streaming completes
+  bool streamHasBeenSuperseded(String? incomingMessageId) {
+    final currentTargetId = currentAssistantTargetId();
+    if (currentTargetId == null || currentTargetId == assistantMessageId) {
+      return false;
+    }
+    return incomingMessageId == null ||
+        incomingMessageId.isEmpty ||
+        incomingMessageId != assistantMessageId ||
+        currentTargetId != assistantMessageId;
+  }
+
+  String? resolveTargetMessageIdForStream(
+    String? incomingMessageId, {
+    required String eventType,
+    bool retireIfWrongMessage = false,
+  }) {
+    if (incomingMessageId != null && incomingMessageId.isNotEmpty) {
+      if (incomingMessageId == assistantMessageId) {
+        return incomingMessageId;
+      }
+      if (retireIfWrongMessage) {
+        retireObsoleteStream(
+          'Superseded by $eventType',
+          incomingMessageId: incomingMessageId,
+        );
+        return null;
+      }
+      DebugLogger.log(
+        'Ignoring $eventType for wrong message: '
+        '$incomingMessageId (expected $assistantMessageId)',
+        scope: 'streaming/helper',
+      );
+      return null;
+    }
+    return currentAssistantTargetId() ?? assistantMessageId;
+  }
+
+  void stopBackgroundExecution() {
+    if (backgroundExecutionStopped) {
+      return;
+    }
+    backgroundExecutionStopped = true;
     if (Platform.isIOS || Platform.isAndroid) {
       BackgroundStreamingHandler.instance
           .stopBackgroundExecution([streamId])
@@ -322,6 +372,17 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             );
           });
     }
+  }
+
+  // Wrap finishStreaming to always clear the cancel token and stop background execution
+  void wrappedFinishStreaming() {
+    if (hasFinished) return;
+    hasFinished = true;
+    hasCompletedStreamingUi = true;
+    api.clearStreamCancelToken(assistantMessageId);
+
+    // Stop background execution when streaming completes
+    stopBackgroundExecution();
 
     finishStreaming();
   }
@@ -524,6 +585,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     int attempt = 0,
     int maxAttempts = 3,
   }) async {
+    if (isObsoleteStream) {
+      return null;
+    }
     try {
       final chatId = activeConversationId;
       if (chatId == null || chatId.isEmpty || isTemporaryChat(chatId)) {
@@ -531,6 +595,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       }
 
       final resp = await api.dio.get('/api/v1/chats/$chatId');
+      if (isObsoleteStream) {
+        return null;
+      }
       final data = resp.data as Map<String, dynamic>?;
       final chatObj = data?['chat'] as Map<String, dynamic>?;
       if (chatObj == null && data == null) return null;
@@ -586,6 +653,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       if (attempt < maxAttempts - 1) {
         final backoffMs = (attempt + 1) * 1000;
         await Future.delayed(Duration(milliseconds: backoffMs));
+        if (isObsoleteStream) {
+          return null;
+        }
         return pollServerForMessage(
           attempt: attempt + 1,
           maxAttempts: maxAttempts,
@@ -606,6 +676,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     required String source,
     String? errorContent,
   }) {
+    if (isObsoleteStream) {
+      return false;
+    }
     final msgs = getMessages();
     if (msgs.isEmpty || msgs.last.role != 'assistant') return false;
 
@@ -659,7 +732,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
 
   bool refreshingSnapshot = false;
   Future<void> refreshConversationSnapshot() async {
-    if (refreshingSnapshot) return;
+    if (isObsoleteStream || refreshingSnapshot) return;
     final chatId = activeConversationId;
     if (chatId == null || chatId.isEmpty || isTemporaryChat(chatId)) {
       return;
@@ -667,6 +740,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     refreshingSnapshot = true;
     try {
       final conversation = await api.getConversation(chatId);
+      if (isObsoleteStream) {
+        return;
+      }
 
       if (conversation.title.isNotEmpty && conversation.title != 'New Chat') {
         onChatTitleUpdated?.call(conversation.title);
@@ -710,6 +786,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   }
 
   bool finishFromLocalState({required bool allowContentOnlyTerminal}) {
+    if (isObsoleteStream) {
+      return false;
+    }
     flushStreamingBuffer();
 
     final msgs = getMessages();
@@ -737,9 +816,12 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     required String source,
     bool allowContentOnlyTerminal = false,
   }) async {
+    if (isObsoleteStream) {
+      return;
+    }
     try {
       final result = await pollServerForMessage();
-      if (hasFinished) {
+      if (hasFinished || isObsoleteStream) {
         return;
       }
 
@@ -755,7 +837,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         if (applied) {
           syncImages();
         }
-        if (hasFinished) {
+        if (hasFinished || isObsoleteStream) {
           return;
         }
       }
@@ -794,7 +876,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         // Wrap async work in unawaited to handle errors properly
         unawaited(
           _handleReconnectRecovery(
-            hasFinished: () => hasFinished,
+            hasFinished: () => hasFinished || isObsoleteStream,
             getMessages: getMessages,
             pollServerForMessage: pollServerForMessage,
             applyServerContent: applyServerContent,
@@ -840,9 +922,47 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     imageCollectionRequestId = 0;
   }
 
+  retireObsoleteStream = (String reason, {String? incomingMessageId}) {
+    if (isObsoleteStream) {
+      return;
+    }
+    isObsoleteStream = true;
+    hasFinished = true;
+    hasCompletedStreamingUi = true;
+
+    DebugLogger.log(
+      '$reason: retiring obsolete stream '
+      '(assistant=$assistantMessageId, '
+      'incoming=${incomingMessageId ?? '<none>'}, '
+      'current=${currentAssistantTargetId() ?? '<none>'})',
+      scope: 'streaming/helper',
+    );
+
+    disposeSocketSubscriptions();
+
+    final controller = streamController;
+    if (controller != null) {
+      unawaited(controller.cancel().catchError((Object _) {}));
+    }
+
+    final abort = session.abort;
+    if (abort != null) {
+      unawaited(abort().catchError((Object _) {}));
+    }
+
+    api.clearStreamCancelToken(assistantMessageId);
+    stopBackgroundExecution();
+    try {
+      onObsoleteStreamRetired?.call();
+    } catch (_) {}
+  };
+
   bool isSearching = false;
 
   void runPendingImageCollection() {
+    if (isObsoleteStream) {
+      return;
+    }
     imageCollectionDebounce?.cancel();
     imageCollectionDebounce = null;
 
@@ -866,6 +986,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             debugLabel: 'stream_collect_images',
           )
           .then((collected) {
+            if (isObsoleteStream) {
+              return;
+            }
             if (requestId != imageCollectionRequestId) {
               return;
             }
@@ -909,6 +1032,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   }
 
   updateImagesFromCurrentContent = () {
+    if (isObsoleteStream) {
+      return;
+    }
     try {
       final msgs = getMessages();
       if (msgs.isEmpty || msgs.last.role != 'assistant') return;
@@ -959,6 +1085,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   void sendChatCompletedAndSync() {
     unawaited(
       Future(() async {
+        if (isObsoleteStream) {
+          return;
+        }
         try {
           // Build message list for the completed notification
           final currentMessages = getMessages();
@@ -989,6 +1118,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             sessionId: sessionId,
             filterIds: filterIds,
           );
+          if (isObsoleteStream) {
+            return;
+          }
 
           // 2. Apply outlet filter modifications if any.
           // OpenWebUI does a full object spread; we merge all returned fields.
@@ -1017,7 +1149,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         // Runs AFTER chatCompleted so filter changes are included.
         try {
           final chatId = activeConversationId;
-          if (chatId != null && chatId.isNotEmpty) {
+          if (!isObsoleteStream && chatId != null && chatId.isNotEmpty) {
             final updatedMessages = getMessages();
             await api.syncConversationMessages(
               chatId,
@@ -1035,6 +1167,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       try {
         socketService?.offEvent(channel);
       } catch (_) {}
+      if (isObsoleteStream) {
+        return;
+      }
       finalizeStreamingReasoning();
       if (!isTemporaryChat(activeConversationId)) {
         sendChatCompletedAndSync();
@@ -1043,6 +1178,13 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     }
 
     void handler(dynamic line) {
+      if (isObsoleteStream || streamHasBeenSuperseded(null)) {
+        retireObsoleteStream(
+          'Superseded by channel stream $channel',
+          incomingMessageId: null,
+        );
+        return;
+      }
       try {
         if (line is String) {
           final s = line.trim();
@@ -1129,6 +1271,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     // Register cleanup for socket subscriptions
     socketSubscriptions.add(() {
       channelTimeoutTimer.cancel();
+      try {
+        socketService?.offEvent(channel);
+      } catch (_) {}
     });
   }
 
@@ -1144,6 +1289,17 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       final payload = data['data'];
       final messageId = ev['message_id']?.toString();
 
+      if (isObsoleteStream) {
+        return;
+      }
+      if (streamHasBeenSuperseded(messageId)) {
+        retireObsoleteStream(
+          'Superseded by socket event ${type ?? 'unknown'}',
+          incomingMessageId: messageId,
+        );
+        return;
+      }
+
       if (kSocketVerboseLogging && payload is Map) {
         DebugLogger.log(
           'socket delta type=$type session=$sessionId message=$messageId keys=${payload.keys.toList()}',
@@ -1153,73 +1309,70 @@ ActiveChatStream attachUnifiedChunkedStreaming({
 
       if (type == 'chat:completion' && payload != null) {
         if (payload is Map<String, dynamic>) {
+          final completionTargetId = resolveTargetMessageIdForStream(
+            messageId,
+            eventType: 'chat:completion',
+            retireIfWrongMessage: true,
+          );
           String? terminalFinishReason;
 
           // Store the structured output[] array from the backend middleware.
           // This contains OR-aligned items (message, reasoning,
           // code_interpreter, function_call, function_call_output).
           final outputItems = payload['output'];
-          if (outputItems is List && outputItems.isNotEmpty) {
-            final targetId = _resolveTargetMessageId(messageId, getMessages);
-            if (targetId != null) {
-              updateMessageById(targetId, (current) {
-                return current.copyWith(
-                  output: outputItems.whereType<Map<String, dynamic>>().toList(
-                    growable: false,
-                  ),
-                );
-              });
-            }
+          if (completionTargetId != null &&
+              outputItems is List &&
+              outputItems.isNotEmpty) {
+            updateMessageById(completionTargetId, (current) {
+              return current.copyWith(
+                output: outputItems.whereType<Map<String, dynamic>>().toList(
+                  growable: false,
+                ),
+              );
+            });
           }
 
           // Capture the selected_model_id for arena/routing flows.
           final selectedModelId = payload['selected_model_id']?.toString();
-          if (selectedModelId != null && selectedModelId.isNotEmpty) {
-            final targetId = _resolveTargetMessageId(messageId, getMessages);
-            if (targetId != null) {
-              updateMessageById(targetId, (current) {
-                return current.copyWith(
-                  metadata: {
-                    ...?current.metadata,
-                    'selectedModelId': selectedModelId,
-                    'arena': true,
-                  },
-                );
-              });
-            }
+          if (completionTargetId != null &&
+              selectedModelId != null &&
+              selectedModelId.isNotEmpty) {
+            updateMessageById(completionTargetId, (current) {
+              return current.copyWith(
+                metadata: {
+                  ...?current.metadata,
+                  'selectedModelId': selectedModelId,
+                  'arena': true,
+                },
+              );
+            });
           }
 
           // Capture usage statistics whenever they appear (issue #274)
           // Usage may come in a separate payload before the done:true payload
           final usageData = payload['usage'];
-          if (usageData is Map<String, dynamic> && usageData.isNotEmpty) {
-            final targetId = _resolveTargetMessageId(messageId, getMessages);
-            if (targetId != null) {
-              updateMessageById(targetId, (current) {
-                return current.copyWith(usage: usageData);
-              });
-            }
+          if (completionTargetId != null &&
+              usageData is Map<String, dynamic> &&
+              usageData.isNotEmpty) {
+            updateMessageById(completionTargetId, (current) {
+              return current.copyWith(usage: usageData);
+            });
           }
 
           final rawSources = payload['sources'] ?? payload['citations'];
           final normalizedSources = _normalizeSourcesPayload(rawSources);
-          if (normalizedSources != null && normalizedSources.isNotEmpty) {
+          if (completionTargetId != null &&
+              normalizedSources != null &&
+              normalizedSources.isNotEmpty) {
             final parsedSources = parseOpenWebUISourceList(normalizedSources);
             if (parsedSources.isNotEmpty) {
-              final targetId = _resolveTargetMessageId(messageId, getMessages);
-              if (targetId != null) {
-                for (final source in parsedSources) {
-                  appendSourceReference(targetId, source);
-                }
+              for (final source in parsedSources) {
+                appendSourceReference(completionTargetId, source);
               }
             }
           }
           if (payload.containsKey('tool_calls')) {
-            // Validate message ID to prevent late events from previous turns
-            // from corrupting the current assistant message
-            if (messageId == null ||
-                messageId.isEmpty ||
-                messageId == assistantMessageId) {
+            if (completionTargetId != null) {
               final tc = payload['tool_calls'];
               if (tc is List) {
                 for (final call in tc) {
@@ -1241,71 +1394,47 @@ ActiveChatStream attachUnifiedChunkedStreaming({
               }
             }
           }
-          if (payload.containsKey('choices')) {
-            // Validate message ID to prevent late events from previous turns
-            // from corrupting the current assistant message
-            if (messageId != null &&
-                messageId.isNotEmpty &&
-                messageId != assistantMessageId) {
-              DebugLogger.log(
-                'Ignoring completion choices for wrong message: '
-                '$messageId (expected $assistantMessageId)',
-                scope: 'streaming/helper',
-              );
-            } else {
-              final choices = payload['choices'];
-              if (choices is List && choices.isNotEmpty) {
-                final choice = choices.first;
-                final delta = choice is Map ? choice['delta'] : null;
-                final finishReason = choice is Map
-                    ? choice['finish_reason']?.toString()
-                    : null;
-                if (isTerminalFinishReason(finishReason)) {
-                  terminalFinishReason = finishReason;
-                }
-                if (delta is Map) {
-                  if (delta.containsKey('tool_calls')) {
-                    final tc = delta['tool_calls'];
-                    if (tc is List) {
-                      for (final call in tc) {
-                        if (call is Map<String, dynamic>) {
-                          final fn = call['function'];
-                          final name = (fn is Map && fn['name'] is String)
-                              ? fn['name'] as String
-                              : null;
-                          if (name is String && name.isNotEmpty) {
-                            final exists = renderedStreamingContent.contains(
-                              'name="$name"',
-                            );
-                            if (!exists) {
-                              handleToolCallStatus(name);
-                            }
+          if (completionTargetId != null && payload.containsKey('choices')) {
+            final choices = payload['choices'];
+            if (choices is List && choices.isNotEmpty) {
+              final choice = choices.first;
+              final delta = choice is Map ? choice['delta'] : null;
+              final finishReason = choice is Map
+                  ? choice['finish_reason']?.toString()
+                  : null;
+              if (isTerminalFinishReason(finishReason)) {
+                terminalFinishReason = finishReason;
+              }
+              if (delta is Map) {
+                if (delta.containsKey('tool_calls')) {
+                  final tc = delta['tool_calls'];
+                  if (tc is List) {
+                    for (final call in tc) {
+                      if (call is Map<String, dynamic>) {
+                        final fn = call['function'];
+                        final name = (fn is Map && fn['name'] is String)
+                            ? fn['name'] as String
+                            : null;
+                        if (name is String && name.isNotEmpty) {
+                          final exists = renderedStreamingContent.contains(
+                            'name="$name"',
+                          );
+                          if (!exists) {
+                            handleToolCallStatus(name);
                           }
                         }
                       }
                     }
                   }
-                  handleStreamingChoiceDelta(delta);
                 }
+                handleStreamingChoiceDelta(delta);
               }
             }
           }
-          if (payload.containsKey('content')) {
-            // Validate message ID to prevent late events from previous turns
-            // from corrupting the current assistant message
-            if (messageId != null &&
-                messageId.isNotEmpty &&
-                messageId != assistantMessageId) {
-              DebugLogger.log(
-                'Ignoring completion content for wrong message: '
-                '$messageId (expected $assistantMessageId)',
-                scope: 'streaming/helper',
-              );
-            } else {
-              final raw = payload['content']?.toString() ?? '';
-              if (raw.isNotEmpty) {
-                replaceVisibleAssistantContent(raw);
-              }
+          if (completionTargetId != null && payload.containsKey('content')) {
+            final raw = payload['content']?.toString() ?? '';
+            if (raw.isNotEmpty) {
+              replaceVisibleAssistantContent(raw);
             }
           }
           if (terminalFinishReason != null && !hasFinished) {
@@ -1330,16 +1459,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             }
           }
           if (payload['done'] == true) {
-            // Validate message ID to prevent late done events from previous
-            // turns from prematurely terminating the current stream
-            if (messageId != null &&
-                messageId.isNotEmpty &&
-                messageId != assistantMessageId) {
-              DebugLogger.log(
-                'Ignoring completion done for wrong message: '
-                '$messageId (expected $assistantMessageId)',
-                scope: 'streaming/helper',
-              );
+            if (completionTargetId == null) {
               return;
             }
             // The done payload may carry a title (OpenWebUI includes
@@ -1383,13 +1503,15 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                     chatId.isNotEmpty &&
                     !isTemporaryChat(chatId)) {
                   Future.delayed(const Duration(seconds: 2), () async {
-                    if (hasFinished) {
+                    if (hasFinished || isObsoleteStream) {
                       // Already finished via another path
                       return;
                     }
                     try {
                       final result = await pollServerForMessage();
-                      if (result != null && result.content.isNotEmpty) {
+                      if (!isObsoleteStream &&
+                          result != null &&
+                          result.content.isNotEmpty) {
                         replaceVisibleAssistantContent(result.content);
                         if (result.followUps.isNotEmpty) {
                           setFollowUps(assistantMessageId, result.followUps);
@@ -1413,7 +1535,11 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         }
       } else if (type == 'status' && payload != null) {
         final statusMap = _asStringMap(payload);
-        final targetId = _resolveTargetMessageId(messageId, getMessages);
+        final targetId = resolveTargetMessageIdForStream(
+          messageId,
+          eventType: 'status',
+          retireIfWrongMessage: true,
+        );
         if (statusMap != null && targetId != null) {
           try {
             final statusUpdate = ChatStatusUpdate.fromJson(statusMap);
@@ -1428,13 +1554,18 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           } catch (_) {}
         }
       } else if (type == 'chat:tasks:cancel') {
-        final targetId = _resolveTargetMessageId(messageId, getMessages);
-        if (targetId != null) {
-          updateMessageById(targetId, (current) {
-            final metadata = {...?current.metadata, 'tasksCancelled': true};
-            return current.copyWith(metadata: metadata, isStreaming: false);
-          });
+        final targetId = resolveTargetMessageIdForStream(
+          messageId,
+          eventType: 'chat:tasks:cancel',
+          retireIfWrongMessage: true,
+        );
+        if (targetId == null) {
+          return;
         }
+        updateMessageById(targetId, (current) {
+          final metadata = {...?current.metadata, 'tasksCancelled': true};
+          return current.copyWith(metadata: metadata, isStreaming: false);
+        });
         disposeSocketSubscriptions();
         wrappedFinishStreaming();
       } else if (type == 'chat:message:follow_ups' && payload != null) {
@@ -1444,7 +1575,11 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           final followUpsRaw =
               followMap['follow_ups'] ?? followMap['followUps'];
           final suggestions = _parseFollowUpsField(followUpsRaw);
-          final targetId = _resolveTargetMessageId(messageId, getMessages);
+          final targetId = resolveTargetMessageIdForStream(
+            messageId,
+            eventType: 'chat:message:follow_ups',
+            retireIfWrongMessage: true,
+          );
           DebugLogger.log(
             'Follow-ups: ${suggestions.length} suggestions for message $targetId',
             scope: 'streaming/helper',
@@ -1467,6 +1602,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                 !isTemporaryChat(chatId) &&
                 suggestions.isNotEmpty) {
               Future.microtask(() async {
+                if (isObsoleteStream) {
+                  return;
+                }
                 try {
                   final currentMessages = getMessages();
                   await api.syncConversationMessages(
@@ -1474,6 +1612,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                     currentMessages,
                     model: modelId,
                   );
+                  if (isObsoleteStream) {
+                    return;
+                  }
                   DebugLogger.log(
                     'Follow-ups persisted to server',
                     scope: 'streaming/helper',
@@ -1511,7 +1652,11 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           if (map['type']?.toString() == 'code_execution') {
             try {
               final exec = ChatCodeExecution.fromJson(map);
-              final targetId = _resolveTargetMessageId(messageId, getMessages);
+              final targetId = resolveTargetMessageIdForStream(
+                messageId,
+                eventType: type.toString(),
+                retireIfWrongMessage: true,
+              );
               if (targetId != null) {
                 upsertCodeExecution(targetId, exec);
               }
@@ -1520,9 +1665,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             try {
               final sources = parseOpenWebUISourceList([map]);
               if (sources.isNotEmpty) {
-                final targetId = _resolveTargetMessageId(
+                final targetId = resolveTargetMessageIdForStream(
                   messageId,
-                  getMessages,
+                  eventType: type.toString(),
+                  retireIfWrongMessage: true,
                 );
                 if (targetId != null) {
                   for (final source in sources) {
@@ -1582,6 +1728,14 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       } else if (type == 'chat:message:error' && payload != null) {
         // Server reports an error for the current assistant message
         try {
+          final targetId = resolveTargetMessageIdForStream(
+            messageId,
+            eventType: 'chat:message:error',
+            retireIfWrongMessage: true,
+          );
+          if (targetId == null) {
+            return;
+          }
           dynamic err = payload is Map ? payload['error'] : null;
           String errorContent = '';
           if (err is Map) {
@@ -1598,7 +1752,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           }
           // Set the error field on the message for proper OpenWebUI round-trip
           // Also drop search-only status rows so the error feels cleaner
-          updateLastMessageWith((message) {
+          updateMessageById(targetId, (message) {
             final filtered = message.statusHistory
                 .where((status) => status.action != 'knowledge_search')
                 .toList(growable: false);
@@ -1614,17 +1768,12 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         wrappedFinishStreaming();
       } else if ((type == 'chat:message:delta' || type == 'message') &&
           payload != null) {
-        // Incremental message content over socket
-        // Validate message ID to prevent late events from previous turns
-        // from corrupting the current assistant message
-        if (messageId != null &&
-            messageId.isNotEmpty &&
-            messageId != assistantMessageId) {
-          DebugLogger.log(
-            'Ignoring delta for wrong message: $messageId (expected $assistantMessageId)',
-            scope: 'streaming/helper',
-          );
-        } else {
+        if (resolveTargetMessageIdForStream(
+              messageId,
+              eventType: type.toString(),
+              retireIfWrongMessage: true,
+            ) !=
+            null) {
           final content = payload['content']?.toString() ?? '';
           if (content.isNotEmpty) {
             appendVisibleAssistantChunk(content);
@@ -1632,17 +1781,12 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         }
       } else if ((type == 'chat:message' || type == 'replace') &&
           payload != null) {
-        // Full message replacement over socket
-        // Validate message ID to prevent late events from previous turns
-        // from corrupting the current assistant message
-        if (messageId != null &&
-            messageId.isNotEmpty &&
-            messageId != assistantMessageId) {
-          DebugLogger.log(
-            'Ignoring replace for wrong message: $messageId (expected $assistantMessageId)',
-            scope: 'streaming/helper',
-          );
-        } else {
+        if (resolveTargetMessageIdForStream(
+              messageId,
+              eventType: type.toString(),
+              retireIfWrongMessage: true,
+            ) !=
+            null) {
           final content = payload['content']?.toString() ?? '';
           if (content.isNotEmpty) {
             replaceVisibleAssistantContent(content);
@@ -1651,15 +1795,30 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       } else if ((type == 'chat:message:files') && payload != null) {
         // Alias for files event used by web client
         try {
+          final targetId = resolveTargetMessageIdForStream(
+            messageId,
+            eventType: 'chat:message:files',
+            retireIfWrongMessage: true,
+          );
+          if (targetId == null) {
+            return;
+          }
           final files = _extractFilesFromResult(payload['files'] ?? payload);
           final msgs = getMessages();
-          if (msgs.isNotEmpty && msgs.last.role == 'assistant') {
+          ChatMessage? target;
+          for (final message in msgs) {
+            if (message.id == targetId) {
+              target = message;
+              break;
+            }
+          }
+          if (target != null && target.role == 'assistant') {
             final merged = _mergeNormalizedFiles(
               incoming: files,
-              existing: msgs.last.files ?? <Map<String, dynamic>>[],
+              existing: target.files ?? <Map<String, dynamic>>[],
             );
             if (merged != null) {
-              updateLastMessageWith((m) => m.copyWith(files: merged));
+              updateMessageById(targetId, (m) => m.copyWith(files: merged));
             }
           }
         } catch (_) {}
@@ -1672,7 +1831,11 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           final shouldReplaceEmbeds = rawEmbeds is List;
           final embeds = normalizeEmbedList(rawEmbeds);
           if (shouldReplaceEmbeds || embeds.isNotEmpty) {
-            final targetId = _resolveTargetMessageId(messageId, getMessages);
+            final targetId = resolveTargetMessageIdForStream(
+              messageId,
+              eventType: 'chat:message:embeds',
+              retireIfWrongMessage: true,
+            );
             if (targetId != null) {
               updateMessageById(targetId, (current) {
                 return current.copyWith(embeds: embeds);
@@ -1685,7 +1848,11 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         try {
           final favorite = payload['favorite'];
           if (favorite is bool) {
-            final targetId = _resolveTargetMessageId(messageId, getMessages);
+            final targetId = resolveTargetMessageIdForStream(
+              messageId,
+              eventType: 'chat:message:favorite',
+              retireIfWrongMessage: true,
+            );
             if (targetId != null) {
               updateMessageById(targetId, (current) {
                 return current.copyWith(
@@ -1724,6 +1891,14 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           } catch (_) {}
         }
       } else if (type == 'request:chat:completion' && payload != null) {
+        if (resolveTargetMessageIdForStream(
+              messageId,
+              eventType: 'request:chat:completion',
+              retireIfWrongMessage: true,
+            ) ==
+            null) {
+          return;
+        }
         final channel = payload['channel'];
         if (channel is String && channel.isNotEmpty) {
           channelLineHandlerFactory(channel);
@@ -1736,6 +1911,14 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       } else if (type == 'execute:tool' && payload != null) {
         // Show an executing tile immediately; also surface any inline files/result
         try {
+          if (resolveTargetMessageIdForStream(
+                messageId,
+                eventType: 'execute:tool',
+                retireIfWrongMessage: true,
+              ) ==
+              null) {
+            return;
+          }
           final name = payload['name']?.toString() ?? 'tool';
           handleToolCallStatus(name);
           try {
@@ -1782,15 +1965,21 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         } catch (_) {}
       } else if (type == 'event:status' && payload != null) {
         final map = _asStringMap(payload);
-        final status = map?['status']?.toString() ?? '';
-        if (status.isNotEmpty) {
-          updateLastMessageWith(
-            (m) => m.copyWith(metadata: {...?m.metadata, 'status': status}),
-          );
-        }
-        final targetId = _resolveTargetMessageId(messageId, getMessages);
+        final targetId = resolveTargetMessageIdForStream(
+          messageId,
+          eventType: 'event:status',
+          retireIfWrongMessage: true,
+        );
         if (map != null && targetId != null) {
           try {
+            final status = map['status']?.toString() ?? '';
+            if (status.isNotEmpty) {
+              updateMessageById(targetId, (message) {
+                return message.copyWith(
+                  metadata: {...?message.metadata, 'status': status},
+                );
+              });
+            }
             final statusUpdate = ChatStatusUpdate.fromJson(map);
             appendStatusUpdate(targetId, statusUpdate);
           } catch (_) {}
@@ -1810,15 +1999,12 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           }
         }
       } else if (type == 'event:message:delta' && payload != null) {
-        // Validate message ID to prevent late events from previous turns
-        if (messageId != null &&
-            messageId.isNotEmpty &&
-            messageId != assistantMessageId) {
-          DebugLogger.log(
-            'Ignoring event delta for wrong message: $messageId (expected $assistantMessageId)',
-            scope: 'streaming/helper',
-          );
-        } else {
+        if (resolveTargetMessageIdForStream(
+              messageId,
+              eventType: 'event:message:delta',
+              retireIfWrongMessage: true,
+            ) !=
+            null) {
           final content = payload['content']?.toString() ?? '';
           if (content.isNotEmpty) {
             appendVisibleAssistantChunk(content);
@@ -1845,6 +2031,16 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       if (data == null) return;
       final type = data['type'];
       final payload = data['data'];
+      if (isObsoleteStream) {
+        return;
+      }
+      if (streamHasBeenSuperseded(null)) {
+        retireObsoleteStream(
+          'Superseded by channel event ${type ?? 'unknown'}',
+          incomingMessageId: null,
+        );
+        return;
+      }
       if (type == 'message' && payload is Map) {
         final content = payload['content']?.toString() ?? '';
         if (content.isNotEmpty) {
@@ -1885,8 +2081,6 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   // -----------------------------------------------------------------------
   // Transport dispatch
   // -----------------------------------------------------------------------
-
-  StreamingResponseController? streamController;
 
   switch (session.transport) {
     case ChatCompletionTransport.httpStream:
@@ -2356,20 +2550,6 @@ List<dynamic>? _normalizeSourcesPayload(dynamic raw) {
     } catch (_) {}
   }
   return null;
-}
-
-String? _resolveTargetMessageId(
-  String? messageId,
-  List<ChatMessage> Function() getMessages,
-) {
-  if (messageId != null && messageId.isNotEmpty) {
-    return messageId;
-  }
-  final messages = getMessages();
-  if (messages.isEmpty) {
-    return null;
-  }
-  return messages.last.id;
 }
 
 List<String> _parseFollowUpsField(dynamic raw) {

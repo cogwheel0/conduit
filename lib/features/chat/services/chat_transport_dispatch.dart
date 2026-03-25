@@ -314,6 +314,11 @@ Future<void> dispatchChatTransport({
     getMessages: () => ref.read(chatMessagesProvider),
     flushStreamingBuffer: () =>
         ref.read(chatMessagesProvider.notifier).syncStreamingBuffer(),
+    onObsoleteStreamRetired: () {
+      ref
+          .read(chatMessagesProvider.notifier)
+          .retireObsoleteStreamingTransport(assistantMessageId);
+    },
   );
 
   // 6. Register controller + socket subscriptions with the notifier.
@@ -322,9 +327,10 @@ Future<void> dispatchChatTransport({
   //    StreamingResponseController).
   final notifier = ref.read(chatMessagesProvider.notifier);
   if (activeStream.controller != null) {
-    notifier.setMessageStream(activeStream.controller!);
+    notifier.setMessageStream(assistantMessageId, activeStream.controller!);
   }
   notifier.setSocketSubscriptions(
+    assistantMessageId,
     activeStream.socketSubscriptions,
     onDispose: activeStream.disposeWatchdog,
   );

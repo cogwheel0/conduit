@@ -40,6 +40,13 @@ class _StubAdapter implements HttpClientAdapter {
   _StubAdapter({this.pollResponse});
 
   final Map<String, dynamic>? pollResponse;
+  final requests = <({String method, String path})>[];
+
+  int requestCount({required String method, required String path}) {
+    return requests
+        .where((request) => request.method == method && request.path == path)
+        .length;
+  }
 
   @override
   Future<ResponseBody> fetch(
@@ -47,6 +54,7 @@ class _StubAdapter implements HttpClientAdapter {
     Stream<List<int>>? requestStream,
     Future<void>? cancelOnError,
   ) async {
+    requests.add((method: options.method, path: options.path));
     if (pollResponse != null && options.method == 'GET') {
       return ResponseBody(
         Stream.value(utf8.encode(jsonEncode(pollResponse))),
@@ -263,6 +271,9 @@ ActiveChatStream _attach({
 class FakeSocketInjector {
   void Function(Map<String, dynamic>, void Function(dynamic)?)? _handler;
   final _channelHandlers = <String, void Function(dynamic)>{};
+
+  bool get hasChatHandler => _handler != null;
+  int get channelHandlerCount => _channelHandlers.length;
 
   /// Injects a socket chat event with the given [type] and [payload].
   void emitChatEvent(String type, dynamic payload, {String? messageId}) {
@@ -602,6 +613,152 @@ void main() {
       check(log.uiFinishCount).equals(1);
       check(log.finishCount).equals(0);
     });
+
+    test(
+      'taskSocket retires stale helper when a newer message streams',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
+
+        await pumpMicrotasks();
+
+        check(registrar.hasChatHandler).isTrue();
+        check(log.messages.last.isStreaming).isTrue();
+
+        registrar.emitChatEvent('chat:completion', {
+          'choices': [
+            {
+              'delta': {'content': 'Newer message content'},
+            },
+          ],
+        }, messageId: 'msg-2');
+
+        await pumpMicrotasks();
+
+        check(registrar.hasChatHandler).isFalse();
+        check(log.finishCount).equals(0);
+        check(log.messages.last.isStreaming).isTrue();
+        check(log.messages.last.content).equals('');
+
+        registrar.emitChatEvent('chat:message:follow_ups', {
+          'follow_ups': ['Should not apply'],
+        }, messageId: 'msg-1');
+
+        await pumpMicrotasks();
+
+        check(log.followUpUpdates).isEmpty();
+      },
+    );
+
+    test(
+      'taskSocket ignores wrong-message follow-ups without syncing',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+        final api = _buildFakeApi();
+        final adapter = api.dio.httpClientAdapter as _StubAdapter;
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            conversationId: 'conv-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          api: api,
+          activeConversationId: 'conv-1',
+          socketService: _MockSocketService(registrar),
+        );
+
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:message:follow_ups', {
+          'follow_ups': ['Ask a follow-up'],
+        }, messageId: 'msg-2');
+
+        await pumpMicrotasks();
+        await pumpMicrotasks();
+
+        check(log.followUpUpdates).isEmpty();
+        check(registrar.hasChatHandler).isFalse();
+        check(
+          adapter.requestCount(method: 'POST', path: '/api/v1/chats/conv-1'),
+        ).equals(0);
+      },
+    );
+
+    test(
+      'taskSocket ignores stale inactive recovery after retirement',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+        final api = _buildFakeApi(
+          pollResponse: {
+            'chat': {
+              'messages': [
+                {
+                  'id': 'msg-1',
+                  'content': 'Recovered stale content',
+                  'done': true,
+                },
+              ],
+            },
+          },
+        );
+        final adapter = api.dio.httpClientAdapter as _StubAdapter;
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            conversationId: 'conv-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          api: api,
+          activeConversationId: 'conv-1',
+          socketService: _MockSocketService(registrar),
+        );
+
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:completion', {
+          'choices': [
+            {
+              'delta': {'content': 'Newer message content'},
+            },
+          ],
+        }, messageId: 'msg-2');
+
+        await pumpMicrotasks();
+        check(registrar.hasChatHandler).isFalse();
+
+        registrar.emitChatEvent('chat:active', {'active': false});
+
+        await pumpMicrotasks();
+        for (var i = 0; i < 5; i++) {
+          await pumpMicrotasks();
+        }
+
+        check(log.messages.last.content).equals('');
+        check(log.messages.last.isStreaming).isTrue();
+        check(log.finishCount).equals(0);
+        check(
+          adapter.requestCount(method: 'GET', path: '/api/v1/chats/conv-1'),
+        ).equals(0);
+      },
+    );
 
     // -----------------------------------------------------------------------
     // 3. jsonCompletion sessions apply payload and finish once

@@ -38,6 +38,7 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
   final ValueNotifier<int> _sheetRevision = ValueNotifier<int>(0);
   var _isSheetOpen = false;
   var _hasPendingSheetRefresh = false;
+  var _isInlineExpanded = false;
 
   bool get _isToolCall => widget.attributes['type'] == 'tool_calls';
 
@@ -52,6 +53,8 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
     final done = widget.attributes['done'];
     return done != null && done != 'true';
   }
+
+  bool get _usesInlineExpansion => _isReasoning && _isPending;
 
   bool get _canExpand {
     if (!_isToolCall) {
@@ -71,6 +74,9 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
   @override
   void didUpdateWidget(covariant MarkdownDetailsBlock oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (_isInlineExpanded && !_usesInlineExpansion) {
+      _isInlineExpanded = false;
+    }
     _scheduleSheetRefresh();
   }
 
@@ -83,6 +89,10 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
   @override
   Widget build(BuildContext context) {
     final title = _headerTitle(context);
+    final showInlineChevron = _usesInlineExpansion && _canExpand;
+    final inlineBody = showInlineChevron && _isInlineExpanded
+        ? _buildBody(context)
+        : null;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: Spacing.xs),
@@ -91,16 +101,52 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
         children: [
           GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTap: _canExpand ? () => _showDetailsBottomSheet(context) : null,
+            onTap: _canExpand ? () => _handleHeaderTap(context) : null,
             child: AssistantDetailHeader(
               title: title,
               showShimmer: _isPending,
               showChevron: _canExpand,
+              useInlineChevron: showInlineChevron,
+              isExpanded: showInlineChevron && _isInlineExpanded,
             ),
           ),
+          if (inlineBody != null) _buildInlineBody(context, inlineBody),
           if (_isToolCall) ..._buildToolCallEmbeds(context),
           if (_isToolCall) ..._buildToolCallImages(context),
         ],
+      ),
+    );
+  }
+
+  void _handleHeaderTap(BuildContext context) {
+    if (!_canExpand) {
+      return;
+    }
+
+    if (_usesInlineExpansion) {
+      setState(() {
+        _isInlineExpanded = !_isInlineExpanded;
+      });
+      return;
+    }
+
+    _showDetailsBottomSheet(context);
+  }
+
+  Widget _buildInlineBody(BuildContext context, Widget body) {
+    final theme = context.conduitTheme;
+    return Padding(
+      padding: const EdgeInsets.only(top: Spacing.xs, left: Spacing.sm),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border(
+            left: BorderSide(color: theme.dividerColor.withValues(alpha: 0.28)),
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.only(left: Spacing.sm),
+          child: body,
+        ),
       ),
     );
   }

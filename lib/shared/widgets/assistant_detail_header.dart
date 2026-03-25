@@ -12,11 +12,15 @@ class AssistantDetailHeader extends StatelessWidget {
     required this.title,
     required this.showShimmer,
     this.showChevron = true,
+    this.useInlineChevron = false,
+    this.isExpanded = false,
   });
 
   final String title;
   final bool showShimmer;
   final bool showChevron;
+  final bool useInlineChevron;
+  final bool isExpanded;
 
   @override
   Widget build(BuildContext context) {
@@ -38,10 +42,17 @@ class AssistantDetailHeader extends StatelessWidget {
         ),
         if (showChevron) ...[
           const SizedBox(width: 4),
-          Icon(
-            Icons.chevron_right_rounded,
-            size: 16,
-            color: theme.textPrimary.withValues(alpha: 0.6),
+          AnimatedRotation(
+            turns: useInlineChevron ? (isExpanded ? 0 : -0.25) : 0,
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOutCubic,
+            child: Icon(
+              useInlineChevron
+                  ? Icons.expand_more_rounded
+                  : Icons.chevron_right_rounded,
+              size: 16,
+              color: theme.textPrimary.withValues(alpha: 0.6),
+            ),
           ),
         ],
       ],

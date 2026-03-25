@@ -189,57 +189,81 @@ Reasoning body
     expect(find.text('Reasoning body'), findsOneWidget);
   });
 
-  testWidgets('keeps the reasoning sheet live while content updates', (
-    tester,
-  ) async {
-    var content = '''
+  testWidgets(
+    'keeps reasoning inline while streaming and moves it to the modal when done',
+    (tester) async {
+      var content = '''
 <details type="reasoning" done="false">
 <summary>Thinking…</summary>
 First step
 </details>
 ''';
-    late void Function(VoidCallback fn) rebuild;
+      late void Function(VoidCallback fn) rebuild;
 
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: AppTheme.light(TweakcnThemes.t3Chat),
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
-        home: Scaffold(
-          body: StatefulBuilder(
-            builder: (context, setState) {
-              rebuild = setState;
-              return SingleChildScrollView(
-                child: StreamingMarkdownWidget(
-                  content: content,
-                  isStreaming: true,
-                ),
-              );
-            },
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: StatefulBuilder(
+              builder: (context, setState) {
+                rebuild = setState;
+                return SingleChildScrollView(
+                  child: StreamingMarkdownWidget(
+                    content: content,
+                    isStreaming: true,
+                  ),
+                );
+              },
+            ),
           ),
         ),
-      ),
-    );
+      );
 
-    await tester.tap(find.text('Thinking'));
-    await tester.pumpAndSettle();
+      expect(find.text('First step'), findsNothing);
 
-    expect(find.text('First step'), findsOneWidget);
+      await tester.tap(find.textContaining('Thinking'));
+      await tester.pumpAndSettle();
 
-    rebuild(() {
-      content = '''
+      expect(find.text('First step'), findsOneWidget);
+      expect(find.byType(DraggableScrollableSheet), findsNothing);
+
+      rebuild(() {
+        content = '''
+<details type="reasoning" done="false">
+<summary>Thinking…</summary>
+First step
+Second step
+</details>
+''';
+      });
+      await tester.pumpAndSettle();
+
+      expect(find.text('Second step'), findsOneWidget);
+      expect(find.byType(DraggableScrollableSheet), findsNothing);
+
+      rebuild(() {
+        content = '''
 <details type="reasoning" done="true" duration="5">
 <summary>Thinking…</summary>
 First step
 Second step
 </details>
 ''';
-    });
-    await tester.pumpAndSettle();
+      });
+      await tester.pumpAndSettle();
 
-    expect(find.text('Second step'), findsOneWidget);
-    expect(find.text('Thought for 5 seconds'), findsAtLeastNWidgets(1));
-  });
+      expect(find.text('Thought for 5 seconds'), findsOneWidget);
+      expect(find.text('Second step'), findsNothing);
+
+      await tester.tap(find.text('Thought for 5 seconds'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(DraggableScrollableSheet), findsOneWidget);
+      expect(find.text('Second step'), findsOneWidget);
+    },
+  );
 
   testWidgets(
     'renders generic details bodies through the shared markdown pipeline',

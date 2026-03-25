@@ -13,6 +13,7 @@ import '../../../core/models/conversation.dart';
 import '../../../core/providers/app_providers.dart';
 
 import '../../../core/services/settings_service.dart';
+import '../../../core/services/socket_service.dart';
 import '../../../core/services/streaming_response_controller.dart';
 import '../../../core/services/worker_manager.dart';
 import '../../../core/utils/debug_logger.dart';
@@ -117,18 +118,25 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   /// Interval for syncing the streaming buffer into the message list state.
   /// Per-chunk updates go through [streamingContentProvider] instead.
   static const _streamingSyncInterval = Duration(milliseconds: 500);
+  static const _passiveRefreshDebounce = Duration(milliseconds: 350);
 
   StreamingResponseController? _messageStream;
   ProviderSubscription? _conversationListener;
   final List<StreamSubscription> _subscriptions = [];
   final List<VoidCallback> _socketSubscriptions = [];
   VoidCallback? _socketTeardown;
+  SocketEventSubscription? _passiveConversationSocketSubscription;
   DateTime? _lastStreamingActivity;
   StringBuffer? _streamingBuffer;
   Timer? _streamingSyncTimer;
   Timer? _taskStatusTimer;
+  Timer? _passiveConversationRefreshTimer;
   bool _taskStatusCheckInFlight = false;
   bool _observedRemoteTask = false;
+  bool _passiveConversationRefreshInFlight = false;
+  bool _queuedPassiveConversationRefresh = false;
+  String? _passiveConversationId;
+  String? _activeStreamingTransportMessageId;
 
   bool _initialized = false;
 
@@ -145,70 +153,16 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           scope: 'chat/providers',
         );
 
+        _configurePassiveConversationSync(next);
+
         // Only react when the conversation actually changes
         if (previous?.id == next?.id) {
-          // If same conversation but server updated it (e.g., title/content), avoid overwriting
-          // locally streamed assistant content with an outdated server copy.
-          if (previous?.updatedAt != next?.updatedAt) {
-            final serverMessages = next?.messages ?? const [];
-            // Primary rule: adopt server messages when there are strictly more of them.
-            if (serverMessages.length > state.length) {
-              // Check streaming state BEFORE updating state
-              final needsCleanup = _shouldCleanupStreamingFromServer(
-                serverMessages,
-              );
-              // Clear buffer/timer before adopting server state to prevent
-              // the sync timer from writing stale content back over it.
-              _streamingBuffer = null;
-              _streamingSyncTimer?.cancel();
-              _streamingSyncTimer = null;
-              state = serverMessages;
-              if (needsCleanup) _cancelMessageStream();
-              return;
-            }
-
-            // Guard: while we are actively streaming via socket, don't let
-            // server refreshes overwrite the locally-accumulated content.
-            // _messageStream is non-null from setMessageStream() until
-            // finishStreaming() completes or _cancelMessageStream() runs.
-            if (_messageStream != null) {
-              DebugLogger.log(
-                'Skipping server state adoption during active streaming '
-                '(message: ${state.lastOrNull?.id ?? "unknown"})',
-                scope: 'chat/providers',
-              );
-              return;
-            }
-
-            // Secondary rule: if counts are equal but the last assistant message grew,
-            // adopt the server copy to recover from missed socket events.
-            if (serverMessages.isNotEmpty && state.isNotEmpty) {
-              final serverLast = serverMessages.last;
-              final localLast = state.last;
-              final serverText = serverLast.content.trim();
-              final localText = localLast.content.trim();
-              final sameLastId = serverLast.id == localLast.id;
-              final isAssistant = serverLast.role == 'assistant';
-              final serverHasMore =
-                  serverText.isNotEmpty && serverText.length > localText.length;
-              final localEmptyButServerHas =
-                  localText.isEmpty && serverText.isNotEmpty;
-              if (sameLastId &&
-                  isAssistant &&
-                  (serverHasMore || localEmptyButServerHas)) {
-                // Check streaming state BEFORE updating state
-                final needsCleanup = _shouldCleanupStreamingFromServer(
-                  serverMessages,
-                );
-                // Clear buffer/timer before adopting server state
-                _streamingBuffer = null;
-                _streamingSyncTimer?.cancel();
-                _streamingSyncTimer = null;
-                state = serverMessages;
-                if (needsCleanup) _cancelMessageStream();
-                return;
-              }
-            }
+          final serverMessages = next?.messages ?? const [];
+          if (_shouldAdoptServerMessages(serverMessages)) {
+            _adoptServerMessages(
+              serverMessages,
+              source: 'active conversation update',
+            );
           }
           return;
         }
@@ -238,6 +192,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         }
         _subscriptions.clear();
 
+        _teardownPassiveConversationSync();
         _cancelMessageStream();
         _stopRemoteTaskMonitor();
         _streamingSyncTimer?.cancel();
@@ -249,7 +204,252 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
 
     final activeConversation = ref.read(activeConversationProvider);
+    _configurePassiveConversationSync(activeConversation);
     return activeConversation?.messages ?? const [];
+  }
+
+  bool _shouldAdoptServerMessages(List<ChatMessage> serverMessages) {
+    if (serverMessages.isEmpty && state.isNotEmpty) {
+      return false;
+    }
+    return !listEquals(serverMessages, state);
+  }
+
+  void _adoptServerMessages(
+    List<ChatMessage> serverMessages, {
+    required String source,
+  }) {
+    if (!_shouldAdoptServerMessages(serverMessages)) {
+      return;
+    }
+
+    if (_shouldProtectLocalStreamingState) {
+      DebugLogger.log(
+        'Skipping server state adoption during active streaming '
+        '(source: $source, message: ${state.lastOrNull?.id ?? "unknown"})',
+        scope: 'chat/providers',
+      );
+      return;
+    }
+
+    final needsCleanup = _shouldCleanupStreamingFromServer(serverMessages);
+
+    _streamingBuffer = null;
+    _streamingSyncTimer?.cancel();
+    _streamingSyncTimer = null;
+    _clearStreamingContent();
+    if (_hasTrackedStreamingTransport) {
+      _dropStreamingTransportState(source: 'server adoption from $source');
+    }
+    state = serverMessages;
+
+    if (needsCleanup) {
+      _cancelMessageStream();
+    }
+
+    DebugLogger.log(
+      'Adopted server conversation snapshot from $source '
+      '(${serverMessages.length} messages)',
+      scope: 'chat/providers',
+    );
+  }
+
+  void _configurePassiveConversationSync(Conversation? conversation) {
+    final conversationId = conversation?.id;
+    final socket = ref.read(socketServiceProvider);
+
+    if (conversationId == null ||
+        conversationId.isEmpty ||
+        isTemporaryChat(conversationId) ||
+        socket == null) {
+      _teardownPassiveConversationSync();
+      return;
+    }
+
+    if (_passiveConversationId == conversationId &&
+        _passiveConversationSocketSubscription != null) {
+      return;
+    }
+
+    _teardownPassiveConversationSync();
+    _passiveConversationId = conversationId;
+    _passiveConversationSocketSubscription = socket.addChatEventHandler(
+      conversationId: conversationId,
+      requireFocus: true,
+      handler: (event, _) {
+        if (!_shouldRefreshFromPassiveSocketEvent(
+          event,
+          localSessionId: socket.sessionId,
+        )) {
+          return;
+        }
+
+        _scheduleConversationRefreshFromServer(
+          conversationId,
+          source: _extractSocketEventType(event),
+        );
+      },
+    );
+  }
+
+  void _teardownPassiveConversationSync() {
+    _passiveConversationSocketSubscription?.dispose();
+    _passiveConversationSocketSubscription = null;
+    _passiveConversationRefreshTimer?.cancel();
+    _passiveConversationRefreshTimer = null;
+    _passiveConversationRefreshInFlight = false;
+    _queuedPassiveConversationRefresh = false;
+    _passiveConversationId = null;
+  }
+
+  bool _shouldRefreshFromPassiveSocketEvent(
+    Map<String, dynamic> event, {
+    String? localSessionId,
+  }) {
+    if (_shouldProtectLocalStreamingState) {
+      return false;
+    }
+
+    final type = _extractSocketEventType(event);
+    if (type.isEmpty) {
+      return false;
+    }
+
+    const refreshingTypes = {
+      'message',
+      'replace',
+      'chat:message',
+      'chat:message:delta',
+      'chat:message:error',
+      'chat:message:files',
+      'chat:message:embeds',
+      'chat:message:follow_ups',
+      'chat:completed',
+      'chat:title',
+      'chat:tags',
+    };
+
+    if (!refreshingTypes.contains(type)) {
+      return false;
+    }
+
+    final incomingSessionId = _extractSocketEventSessionId(event);
+    if (localSessionId != null &&
+        incomingSessionId != null &&
+        localSessionId == incomingSessionId) {
+      return false;
+    }
+
+    return true;
+  }
+
+  String _extractSocketEventType(Map<String, dynamic> event) {
+    String? candidate = event['type']?.toString();
+
+    final data = event['data'];
+    if (candidate == null && data is Map) {
+      candidate = data['type']?.toString();
+
+      final inner = data['data'];
+      if (candidate == null && inner is Map) {
+        candidate = inner['type']?.toString();
+      }
+    }
+
+    return candidate ?? 'socket';
+  }
+
+  String? _extractSocketEventSessionId(Map<String, dynamic> event) {
+    String? candidate = event['session_id']?.toString();
+
+    final data = event['data'];
+    if (candidate == null && data is Map) {
+      candidate =
+          data['session_id']?.toString() ?? data['sessionId']?.toString();
+
+      final inner = data['data'];
+      if (candidate == null && inner is Map) {
+        candidate =
+            inner['session_id']?.toString() ?? inner['sessionId']?.toString();
+      }
+    }
+
+    return candidate;
+  }
+
+  void _scheduleConversationRefreshFromServer(
+    String conversationId, {
+    required String source,
+  }) {
+    _passiveConversationRefreshTimer?.cancel();
+    _passiveConversationRefreshTimer = Timer(_passiveRefreshDebounce, () {
+      if (_passiveConversationRefreshInFlight) {
+        _queuedPassiveConversationRefresh = true;
+        return;
+      }
+
+      unawaited(_refreshConversationFromServer(conversationId, source: source));
+    });
+  }
+
+  Future<void> _refreshConversationFromServer(
+    String conversationId, {
+    required String source,
+  }) async {
+    if (_passiveConversationRefreshInFlight ||
+        _shouldProtectLocalStreamingState) {
+      return;
+    }
+
+    final api = ref.read(apiServiceProvider);
+    final activeConversation = ref.read(activeConversationProvider);
+    if (api == null ||
+        activeConversation == null ||
+        activeConversation.id != conversationId) {
+      return;
+    }
+
+    _passiveConversationRefreshInFlight = true;
+    try {
+      final refreshed = await api.getConversation(conversationId);
+      if (!ref.mounted) {
+        return;
+      }
+
+      final currentActive = ref.read(activeConversationProvider);
+      if (currentActive == null || currentActive.id != conversationId) {
+        return;
+      }
+
+      ref.read(activeConversationProvider.notifier).set(refreshed);
+
+      if (!isTemporaryChat(conversationId)) {
+        try {
+          ref
+              .read(conversationsProvider.notifier)
+              .upsertConversation(refreshed.copyWith(messages: const []));
+        } catch (_) {}
+      }
+
+      DebugLogger.log(
+        'Refreshed active conversation from server after $source',
+        scope: 'chat/providers',
+      );
+    } catch (e) {
+      DebugLogger.log(
+        'Passive conversation refresh failed after $source: $e',
+        scope: 'chat/providers',
+      );
+    } finally {
+      _passiveConversationRefreshInFlight = false;
+      if (_queuedPassiveConversationRefresh) {
+        _queuedPassiveConversationRefresh = false;
+        _scheduleConversationRefreshFromServer(
+          conversationId,
+          source: 'queued',
+        );
+      }
+    }
   }
 
   /// Safely clears the streaming content provider, tolerating disposal
@@ -265,6 +465,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   void _cancelMessageStream() {
     final controller = _messageStream;
     _messageStream = null;
+    _activeStreamingTransportMessageId = null;
     if (controller != null && controller.isActive) {
       unawaited(controller.cancel());
     }
@@ -318,6 +519,68 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     if (state.isEmpty) return false;
     final last = state.last;
     return last.role == 'assistant' && last.isStreaming;
+  }
+
+  bool get _hasTrackedStreamingTransport {
+    return _activeStreamingTransportMessageId != null ||
+        _messageStream != null ||
+        _socketSubscriptions.isNotEmpty ||
+        _socketTeardown != null ||
+        _taskStatusTimer != null ||
+        _taskStatusCheckInFlight;
+  }
+
+  bool get _shouldProtectLocalStreamingState {
+    if (!_hasStreamingAssistant || state.isEmpty) {
+      return false;
+    }
+
+    final lastMessageId = state.last.id;
+    if (_activeStreamingTransportMessageId != lastMessageId) {
+      return false;
+    }
+
+    return _messageStream?.isActive == true ||
+        _socketSubscriptions.isNotEmpty ||
+        _socketTeardown != null ||
+        _taskStatusTimer != null ||
+        _taskStatusCheckInFlight;
+  }
+
+  void _dropStreamingTransportState({
+    required String source,
+    String? messageId,
+  }) {
+    if (!_hasTrackedStreamingTransport) {
+      return;
+    }
+
+    final trackedMessageId = _activeStreamingTransportMessageId;
+    if (messageId != null && trackedMessageId != messageId) {
+      return;
+    }
+
+    DebugLogger.log(
+      'Dropping stale transport state during $source '
+      '(trackedMessage=${trackedMessageId ?? "unknown"})',
+      scope: 'chat/providers',
+    );
+
+    _messageStream = null;
+    _activeStreamingTransportMessageId = null;
+    cancelSocketSubscriptions();
+    _streamingBuffer = null;
+    _streamingSyncTimer?.cancel();
+    _streamingSyncTimer = null;
+    _clearStreamingContent();
+    _stopRemoteTaskMonitor();
+  }
+
+  void retireObsoleteStreamingTransport(String messageId) {
+    _dropStreamingTransportState(
+      source: 'obsolete stream retirement',
+      messageId: messageId,
+    );
   }
 
   void _ensureRemoteTaskMonitor() {
@@ -536,16 +799,22 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
   }
 
-  void setMessageStream(StreamingResponseController? controller) {
+  void setMessageStream(
+    String messageId,
+    StreamingResponseController? controller,
+  ) {
     _cancelMessageStream();
+    _activeStreamingTransportMessageId = messageId;
     _messageStream = controller;
   }
 
   void setSocketSubscriptions(
+    String messageId,
     List<VoidCallback> subscriptions, {
     VoidCallback? onDispose,
   }) {
     cancelSocketSubscriptions();
+    _activeStreamingTransportMessageId = messageId;
     _socketSubscriptions.addAll(subscriptions);
     _socketTeardown = onDispose;
   }
@@ -913,6 +1182,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     if (state.isEmpty) {
       if (releaseTransport) {
         _messageStream = null;
+        _activeStreamingTransportMessageId = null;
+        cancelSocketSubscriptions();
         _stopRemoteTaskMonitor();
       }
       return;
@@ -922,6 +1193,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     if (lastMessage.role != 'assistant' || !lastMessage.isStreaming) {
       if (releaseTransport) {
         _messageStream = null;
+        _activeStreamingTransportMessageId = null;
+        cancelSocketSubscriptions();
         _stopRemoteTaskMonitor();
       }
       return;
@@ -934,6 +1207,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
     if (releaseTransport) {
       _messageStream = null;
+      _activeStreamingTransportMessageId = null;
+      cancelSocketSubscriptions();
       _stopRemoteTaskMonitor();
     }
 
