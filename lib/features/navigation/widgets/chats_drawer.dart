@@ -25,9 +25,11 @@ import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../../core/models/model.dart';
 import '../../../core/models/conversation.dart';
 import '../../../core/models/folder.dart';
+import '../../../core/models/folder_tree.dart';
 import 'conversation_tile.dart';
 import 'create_folder_dialog.dart';
 import 'drawer_section_notifiers.dart';
+import 'move_folder_dialog.dart';
 
 /// Defines the section types that can be collapsed in the chats drawer
 enum _SectionType { pinned, recent }
@@ -83,6 +85,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
   Widget _conversationsSliver(
     List<dynamic> items, {
     bool inFolder = false,
+    int depth = 0,
     Map<String, Model> modelsById = const <String, Model>{},
   }) {
     return SliverList(
@@ -90,6 +93,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         (context, index) => _buildTileFor(
           items[index],
           inFolder: inFolder,
+          depth: depth,
           modelsById: modelsById,
         ),
         childCount: items.length,
@@ -354,86 +358,10 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
                 ),
                 const SliverToBoxAdapter(child: SizedBox(height: Spacing.sm)),
               ],
-              ...ref
-                  .watch(foldersProvider)
-                  .when(
-                    data: (folders) {
-                      final grouped = <String, List<dynamic>>{};
-                      for (final c in foldered) {
-                        final id = c.folderId!;
-                        grouped.putIfAbsent(id, () => []).add(c);
-                      }
-
-                      final expandedMap = ref.watch(expandedFoldersProvider);
-
-                      final out = <Widget>[];
-                      for (final folder in folders) {
-                        final existing =
-                            grouped[folder.id] ?? const <dynamic>[];
-                        final convs = _resolveFolderConversations(
-                          folder,
-                          existing,
-                        );
-                        final isExpanded =
-                            expandedMap[folder.id] ?? folder.isExpanded;
-                        final hasItems = convs.isNotEmpty;
-                        out.add(
-                          SliverPadding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: Spacing.md,
-                            ),
-                            sliver: SliverToBoxAdapter(
-                              child: _buildFolderHeader(
-                                folder.id,
-                                folder.name,
-                                convs.length,
-                                defaultExpanded: folder.isExpanded,
-                              ),
-                            ),
-                          ),
-                        );
-                        if (isExpanded && hasItems) {
-                          out.add(
-                            const SliverToBoxAdapter(
-                              child: SizedBox(height: Spacing.xs),
-                            ),
-                          );
-                          out.add(
-                            _conversationsSliver(
-                              convs,
-                              inFolder: true,
-                              modelsById: modelsById,
-                            ),
-                          );
-                          out.add(
-                            const SliverToBoxAdapter(
-                              child: SizedBox(height: Spacing.sm),
-                            ),
-                          );
-                        } else {
-                          // Only add spacing after collapsed folders
-                          out.add(
-                            const SliverToBoxAdapter(
-                              child: SizedBox(height: Spacing.xs),
-                            ),
-                          );
-                        }
-                      }
-                      return out.isEmpty
-                          ? <Widget>[
-                              const SliverToBoxAdapter(
-                                child: SizedBox.shrink(),
-                              ),
-                            ]
-                          : out;
-                    },
-                    loading: () => [
-                      const SliverToBoxAdapter(child: SizedBox.shrink()),
-                    ],
-                    error: (e, st) => [
-                      const SliverToBoxAdapter(child: SizedBox.shrink()),
-                    ],
-                  ),
+              ..._buildFolderSlivers(
+                foldered: foldered,
+                modelsById: modelsById,
+              ),
             ],
             if (foldersEnabled)
               const SliverToBoxAdapter(child: SizedBox(height: Spacing.md)),
@@ -608,79 +536,10 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
             );
           }
 
-          final folderSlivers = ref
-              .watch(foldersProvider)
-              .when(
-                data: (folders) {
-                  final grouped = <String, List<dynamic>>{};
-                  for (final c in foldered) {
-                    final id = c.folderId!;
-                    grouped.putIfAbsent(id, () => []).add(c);
-                  }
-                  final expandedMap = ref.watch(expandedFoldersProvider);
-                  final out = <Widget>[];
-                  for (final folder in folders) {
-                    final existing = grouped[folder.id] ?? const <dynamic>[];
-                    final convs = _resolveFolderConversations(folder, existing);
-                    final isExpanded =
-                        expandedMap[folder.id] ?? folder.isExpanded;
-                    final hasItems = convs.isNotEmpty;
-
-                    out.add(
-                      SliverPadding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: Spacing.md,
-                        ),
-                        sliver: SliverToBoxAdapter(
-                          child: _buildFolderHeader(
-                            folder.id,
-                            folder.name,
-                            convs.length,
-                            defaultExpanded: folder.isExpanded,
-                          ),
-                        ),
-                      ),
-                    );
-                    if (isExpanded && hasItems) {
-                      out.add(
-                        const SliverToBoxAdapter(
-                          child: SizedBox(height: Spacing.xs),
-                        ),
-                      );
-                      out.add(
-                        _conversationsSliver(
-                          convs,
-                          inFolder: true,
-                          modelsById: modelsById,
-                        ),
-                      );
-                      out.add(
-                        const SliverToBoxAdapter(
-                          child: SizedBox(height: Spacing.sm),
-                        ),
-                      );
-                    } else {
-                      // Only add spacing after collapsed folders
-                      out.add(
-                        const SliverToBoxAdapter(
-                          child: SizedBox(height: Spacing.xs),
-                        ),
-                      );
-                    }
-                  }
-                  return out.isEmpty
-                      ? <Widget>[
-                          const SliverToBoxAdapter(child: SizedBox.shrink()),
-                        ]
-                      : out;
-                },
-                loading: () => <Widget>[
-                  const SliverToBoxAdapter(child: SizedBox.shrink()),
-                ],
-                error: (e, st) => <Widget>[
-                  const SliverToBoxAdapter(child: SizedBox.shrink()),
-                ],
-              );
+          final folderSlivers = _buildFolderSlivers(
+            foldered: foldered,
+            modelsById: modelsById,
+          );
           slivers.addAll(folderSlivers);
         }
 
@@ -887,6 +746,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     String name,
     int count, {
     bool defaultExpanded = false,
+    int depth = 0,
   }) {
     final theme = context.conduitTheme;
     final expandedMap = ref.watch(expandedFoldersProvider);
@@ -909,7 +769,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       return Colors.transparent;
     }
 
-    return DropRegion(
+    final folderRow = DropRegion(
       formats: const [], // Local data only
       onDropOver: (event) {
         setState(() => _dragHoverFolderId = folderId);
@@ -979,9 +839,11 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
                 minHeight: TouchTarget.listItem,
               ),
               child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: Spacing.md,
-                  vertical: Spacing.xs,
+                padding: EdgeInsets.only(
+                  left: Spacing.md,
+                  right: Spacing.md,
+                  top: Spacing.xs,
+                  bottom: Spacing.xs,
                 ),
                 child: LayoutBuilder(
                   builder: (context, constraints) {
@@ -1101,6 +963,35 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         ),
       ),
     );
+
+    return _wrapNestedHierarchy(child: folderRow, depth: depth);
+  }
+
+  Widget _wrapNestedHierarchy({required Widget child, required int depth}) {
+    if (depth <= 0) {
+      return child;
+    }
+
+    final sidebarTheme = context.sidebarTheme;
+    final nestedBackground = Color.alphaBlend(
+      sidebarTheme.accent.withValues(alpha: 0.22),
+      sidebarTheme.background,
+    );
+
+    return Padding(
+      padding: EdgeInsets.only(left: Spacing.md + (Spacing.lg * depth)),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: nestedBackground,
+          borderRadius: BorderRadius.circular(AppBorderRadius.card),
+          border: Border.all(
+            color: sidebarTheme.border.withValues(alpha: 0.4),
+            width: BorderWidth.micro,
+          ),
+        ),
+        child: child,
+      ),
+    );
   }
 
   List<dynamic> _resolveFolderConversations(
@@ -1210,6 +1101,29 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         },
       ),
       ConduitContextMenuAction(
+        cupertinoIcon: CupertinoIcons.folder_badge_plus,
+        materialIcon: Icons.create_new_folder_rounded,
+        label: l10n.createSubfolder,
+        onBeforeClose: () => ConduitHaptics.selectionClick(),
+        onSelected: () async {
+          await CreateFolderDialog.show(
+            context,
+            ref,
+            parentId: folderId,
+            onError: _showDrawerError,
+          );
+        },
+      ),
+      ConduitContextMenuAction(
+        cupertinoIcon: CupertinoIcons.folder,
+        materialIcon: Icons.drive_file_move_rounded,
+        label: l10n.moveToFolder,
+        onBeforeClose: () => ConduitHaptics.selectionClick(),
+        onSelected: () async {
+          await _moveFolder(folderId);
+        },
+      ),
+      ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.delete,
         materialIcon: Icons.delete_rounded,
         label: l10n.delete,
@@ -1301,10 +1215,16 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     String folderName,
   ) async {
     final l10n = AppLocalizations.of(context)!;
+    final allFolders = ref
+        .read(foldersProvider)
+        .maybeWhen(data: (value) => value, orElse: () => const <Folder>[]);
+    final hasChildren = allFolders.any((folder) => folder.parentId == folderId);
     final confirmed = await ThemedDialogs.confirm(
       context,
       title: l10n.deleteFolderTitle,
-      message: l10n.deleteFolderMessage,
+      message: hasChildren
+          ? l10n.deleteFolderWithSubfoldersMessage
+          : l10n.deleteFolderMessage,
       confirmText: l10n.delete,
       isDestructive: true,
     );
@@ -1329,6 +1249,103 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       );
       await _showDrawerError(deleteFolderError);
     }
+  }
+
+  Future<void> _moveFolder(String folderId) async {
+    final folders = ref
+        .read(foldersProvider)
+        .maybeWhen(data: (value) => value, orElse: () => const <Folder>[]);
+    Folder? folder;
+    for (final item in folders) {
+      if (item.id == folderId) {
+        folder = item;
+        break;
+      }
+    }
+    if (folder == null) return;
+    await MoveFolderDialog.show(
+      context,
+      ref,
+      folder: folder,
+      allFolders: folders,
+      onError: _showDrawerError,
+    );
+  }
+
+  List<Widget> _buildFolderSlivers({
+    required List<dynamic> foldered,
+    required Map<String, Model> modelsById,
+  }) {
+    final foldersState = ref.watch(foldersProvider);
+    final folderTree = ref.watch(folderTreeProvider);
+    final expandedMap = ref.watch(expandedFoldersProvider);
+
+    if (foldersState.isLoading || foldersState.hasError) {
+      return const <Widget>[SliverToBoxAdapter(child: SizedBox.shrink())];
+    }
+
+    final grouped = <String, List<dynamic>>{};
+    for (final conversation in foldered) {
+      final id = conversation.folderId;
+      if (id is String && id.isNotEmpty) {
+        grouped.putIfAbsent(id, () => <dynamic>[]).add(conversation);
+      }
+    }
+
+    List<Widget> buildNode(FolderTreeNode node, int depth) {
+      final folder = node.folder;
+      final existing = grouped[folder.id] ?? const <dynamic>[];
+      final conversations = _resolveFolderConversations(folder, existing);
+      final isExpanded = expandedMap[folder.id] ?? folder.isExpanded;
+      final trailingSpacing = depth == 0 ? Spacing.sm : Spacing.xs;
+      final out = <Widget>[
+        SliverPadding(
+          padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
+          sliver: SliverToBoxAdapter(
+            child: _buildFolderHeader(
+              folder.id,
+              folder.name,
+              conversations.length,
+              defaultExpanded: folder.isExpanded,
+              depth: depth,
+            ),
+          ),
+        ),
+      ];
+
+      if (!isExpanded) {
+        out.add(const SliverToBoxAdapter(child: SizedBox(height: Spacing.xs)));
+        return out;
+      }
+
+      for (final child in node.children) {
+        out.addAll(buildNode(child, depth + 1));
+      }
+
+      if (conversations.isNotEmpty) {
+        out.add(const SliverToBoxAdapter(child: SizedBox(height: Spacing.xs)));
+        out.add(
+          _conversationsSliver(
+            conversations,
+            inFolder: true,
+            depth: depth + 1,
+            modelsById: modelsById,
+          ),
+        );
+      }
+
+      out.add(SliverToBoxAdapter(child: SizedBox(height: trailingSpacing)));
+      return out;
+    }
+
+    final output = <Widget>[];
+    for (final root in folderTree) {
+      output.addAll(buildNode(root, 0));
+    }
+    if (output.isEmpty) {
+      return const <Widget>[SliverToBoxAdapter(child: SizedBox.shrink())];
+    }
+    return output;
   }
 
   Widget _buildUnfileDropTarget() {
@@ -1423,6 +1440,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
   Widget _buildTileFor(
     dynamic conv, {
     bool inFolder = false,
+    int depth = 0,
     Map<String, Model> modelsById = const <String, Model>{},
   }) {
     // Only rebuild this tile when its own selected state changes.
@@ -1457,7 +1475,9 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         conversation: conv,
       ),
       child: Padding(
-        padding: EdgeInsets.only(left: inFolder ? Spacing.sm : 0),
+        padding: EdgeInsets.only(
+          left: inFolder ? Spacing.md + (Spacing.lg * depth) : 0,
+        ),
         child: tileWidget,
       ),
     );

@@ -666,9 +666,21 @@
   "@newFolder": {
     "description": "Action to create a new folder."
   },
+  "newSubfolder": "New Subfolder",
+  "@newSubfolder": {
+    "description": "Action to create a new subfolder inside a folder."
+  },
   "folderName": "Folder name",
   "@folderName": {
     "description": "Label for entering a folder's name."
+  },
+  "parentFolder": "Parent folder",
+  "@parentFolder": {
+    "description": "Label for selecting a parent folder."
+  },
+  "topLevel": "None (top level)",
+  "@topLevel": {
+    "description": "Option for placing a folder at the root level."
   },
   "newChat": "New Chat",
   "@newChat": {
@@ -717,6 +729,14 @@
   "rename": "Rename",
   "@rename": {
     "description": "Context action to rename an item."
+  },
+  "createSubfolder": "Create Subfolder",
+  "@createSubfolder": {
+    "description": "Context action to create a subfolder."
+  },
+  "moveToFolder": "Move to Folder",
+  "@moveToFolder": {
+    "description": "Context action to move a folder to another parent."
   },
   "delete": "Delete",
   "@delete": {
@@ -844,9 +864,17 @@
   "@deleteFolderMessage": {
     "description": "Warning that deleting a folder will remove it and its associations."
   },
+  "deleteFolderWithSubfoldersMessage": "This folder, its subfolders, and assignment references will be removed.",
+  "@deleteFolderWithSubfoldersMessage": {
+    "description": "Warning that deleting a folder with subfolders removes the whole subtree and associations."
+  },
   "failedToDeleteFolder": "Failed to delete folder",
   "@failedToDeleteFolder": {
     "description": "Error notice when deleting a folder fails."
+  },
+  "failedToMoveFolder": "Failed to move folder",
+  "@failedToMoveFolder": {
+    "description": "Error notice when moving a folder fails."
   },
   "aboutApp": "About",
   "@aboutApp": {
