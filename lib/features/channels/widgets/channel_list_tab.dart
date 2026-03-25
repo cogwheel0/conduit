@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -12,6 +11,7 @@ import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../core/services/navigation_service.dart';
+import '../../navigation/widgets/sidebar_user_pill.dart';
 import '../providers/channel_providers.dart';
 
 /// Sidebar tab that lists all channels with search and create support.
@@ -164,89 +164,93 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
     super.build(context);
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
+    final bottomInset = sidebarUserPillContentInset(context, ref);
     final channelsAsync = ref.watch(channelsListProvider);
 
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-          child: Row(
-            children: [
-              Expanded(
-                child: ConduitGlassSearchField(
-                  controller: _searchController,
-                  hintText: l10n.searchChannels,
-                  onChanged: _onSearchChanged,
-                  query: _query,
-                  onClear: () {
-                    _searchController.clear();
-                    _onSearchChanged('');
-                  },
+    return Padding(
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: ConduitGlassSearchField(
+                    controller: _searchController,
+                    hintText: l10n.searchChannels,
+                    onChanged: _onSearchChanged,
+                    query: _query,
+                    onClear: () {
+                      _searchController.clear();
+                      _onSearchChanged('');
+                    },
+                  ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              FloatingAppBarIconButton(
-                icon: UiUtils.newChannelIcon,
-                onTap: _showCreateChannelDialog,
-              ),
-            ],
+                const SizedBox(width: 8),
+                FloatingAppBarIconButton(
+                  icon: UiUtils.newChannelIcon,
+                  onTap: _showCreateChannelDialog,
+                ),
+              ],
+            ),
           ),
-        ),
-        Expanded(
-          child: channelsAsync.when(
-            data: (channels) {
-              final filtered = _query.isEmpty
-                  ? channels
-                  : channels
-                        .where((c) => c.name.toLowerCase().contains(_query))
-                        .toList();
+          Expanded(
+            child: channelsAsync.when(
+              data: (channels) {
+                final filtered = _query.isEmpty
+                    ? channels
+                    : channels
+                          .where((c) => c.name.toLowerCase().contains(_query))
+                          .toList();
 
-              if (filtered.isEmpty) {
-                return Center(
-                  child: Text(
-                    l10n.channelEmptyState,
-                    style: TextStyle(color: theme.textSecondary),
+                if (filtered.isEmpty) {
+                  return Center(
+                    child: Text(
+                      l10n.channelEmptyState,
+                      style: TextStyle(color: theme.textSecondary),
+                    ),
+                  );
+                }
+
+                return RefreshIndicator(
+                  onRefresh: () async {
+                    ConduitHaptics.lightImpact();
+                    await ref.read(channelsListProvider.notifier).refresh();
+                  },
+                  child: ListView.builder(
+                    itemCount: filtered.length,
+                    padding: EdgeInsets.zero,
+                    itemBuilder: (context, index) {
+                      final ch = filtered[index];
+                      return _ChannelTile(
+                        channel: ch,
+                        selected: ch.id == _activeChannelId,
+                        onTap: () => _onChannelTap(ch),
+                      );
+                    },
                   ),
                 );
-              }
-
-              return RefreshIndicator(
-                onRefresh: () async {
-                  ConduitHaptics.lightImpact();
-                  await ref.read(channelsListProvider.notifier).refresh();
-                },
-                child: ListView.builder(
-                  itemCount: filtered.length,
-                  padding: EdgeInsets.zero,
-                  itemBuilder: (context, index) {
-                    final ch = filtered[index];
-                    return _ChannelTile(
-                      channel: ch,
-                      selected: ch.id == _activeChannelId,
-                      onTap: () => _onChannelTap(ch),
-                    );
-                  },
+              },
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (err, _) => Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(l10n.channelLoadError),
+                    const SizedBox(height: 8),
+                    TextButton(
+                      onPressed: () =>
+                          ref.read(channelsListProvider.notifier).refresh(),
+                      child: Text(l10n.retry),
+                    ),
+                  ],
                 ),
-              );
-            },
-            loading: () => const Center(child: CircularProgressIndicator()),
-            error: (err, _) => Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(l10n.channelLoadError),
-                  const SizedBox(height: 8),
-                  TextButton(
-                    onPressed: () =>
-                        ref.read(channelsListProvider.notifier).refresh(),
-                    child: Text(l10n.retry),
-                  ),
-                ],
               ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

@@ -4,6 +4,7 @@ import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/core/models/folder.dart';
 import 'package:conduit/core/models/model.dart';
 import 'package:conduit/core/models/note.dart';
+import 'package:conduit/core/models/user.dart';
 import 'package:conduit/core/services/navigation_service.dart';
 import 'package:conduit/core/services/settings_service.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
@@ -293,6 +294,51 @@ void main() {
     expect(channelStateWithoutNotes, same(initialChannelState));
     expect(channelStateWithNotesAgain, same(initialChannelState));
   });
+
+  testWidgets('shared user pill stays visible across sidebar tabs', (
+    tester,
+  ) async {
+    final controllers = _SidebarHarnessControllers();
+    const user = User(
+      id: 'user-1',
+      username: 'ava',
+      email: 'ava@example.com',
+      name: 'Ava',
+      role: 'user',
+    );
+
+    await tester.pumpWidget(
+      _buildSidebarHarness(controllers: controllers, currentUser: user),
+    );
+
+    expect(
+      find.byKey(const ValueKey<String>('sidebar-user-pill')),
+      findsOneWidget,
+    );
+    expect(find.text('Ava'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('sidebar-tab-selector-notes')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey<String>('sidebar-user-pill')),
+      findsOneWidget,
+    );
+    expect(find.text('Ava'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('sidebar-tab-selector-channels')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey<String>('sidebar-user-pill')),
+      findsOneWidget,
+    );
+    expect(find.text('Ava'), findsOneWidget);
+  });
 }
 
 enum _SidebarTabLayer { chats, notes, channels }
@@ -315,7 +361,10 @@ Finder _layerOpacityFinder(_SidebarTabLayer layer) {
   );
 }
 
-Widget _buildSidebarHarness({required _SidebarHarnessControllers controllers}) {
+Widget _buildSidebarHarness({
+  required _SidebarHarnessControllers controllers,
+  User? currentUser,
+}) {
   final router = GoRouter(
     initialLocation: '/chat',
     routes: [
@@ -339,8 +388,8 @@ Widget _buildSidebarHarness({required _SidebarHarnessControllers controllers}) {
     overrides: [
       appSettingsProvider.overrideWithValue(const AppSettings()),
       apiServiceProvider.overrideWithValue(null),
-      currentUserProvider2.overrideWithValue(null),
-      currentUserProvider.overrideWith((ref) async => null),
+      currentUserProvider2.overrideWithValue(currentUser),
+      currentUserProvider.overrideWith((ref) async => currentUser),
       conversationsProvider.overrideWith(_TestConversations.new),
       modelsProvider.overrideWith(_TestModels.new),
       foldersProvider.overrideWith(_TestFolders.new),

@@ -4,15 +4,12 @@ import 'dart:io' show Platform;
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:super_drag_and_drop/super_drag_and_drop.dart';
 
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/settings_service.dart';
-import '../../auth/providers/unified_auth_providers.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../chat/providers/chat_providers.dart' as chat;
 import '../../chat/providers/context_attachments_provider.dart';
@@ -21,10 +18,7 @@ import '../../../core/services/navigation_service.dart';
 import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import 'package:conduit/l10n/app_localizations.dart';
-import '../../../core/utils/user_display_name.dart';
-import '../../../core/utils/user_avatar_utils.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
-import '../../../shared/widgets/user_avatar.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
@@ -163,100 +157,49 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    // Bottom section now only shows navigation actions
-    final sidebarTheme = context.sidebarTheme;
+    final backgroundColor = context.conduitTheme.surfaceBackground;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: sidebarTheme.background,
-        border: Border(right: BorderSide(color: sidebarTheme.border)),
-      ),
-      child: Stack(
-        children: [
-          // Main scrollable content - extends behind floating elements
-          Positioned.fill(child: _buildConversationList(context)),
-          // Floating top area with gradient background (matches app bar pattern)
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  stops: const [0.0, 0.4, 1.0],
-                  colors: [
-                    sidebarTheme.background,
-                    sidebarTheme.background.withValues(alpha: 0.85),
-                    sidebarTheme.background.withValues(alpha: 0.0),
-                  ],
-                ),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Small top padding
-                  const SizedBox(height: Spacing.sm),
-                  // Floating search bar
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: Spacing.inputPadding,
-                    ),
-                    child: _buildFloatingSearchField(context),
-                  ),
-                  // Gradient fade area below
-                  const SizedBox(height: Spacing.md),
+    return Stack(
+      children: [
+        // Main scrollable content - extends behind floating elements
+        Positioned.fill(child: _buildConversationList(context)),
+        // Floating top area with gradient background (matches app bar pattern)
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                stops: const [0.0, 0.4, 1.0],
+                colors: [
+                  backgroundColor,
+                  backgroundColor.withValues(alpha: 0.85),
+                  backgroundColor.withValues(alpha: 0.0),
                 ],
               ),
             ),
-          ),
-          // Floating bottom area with gradient background (matches chat input pattern)
-          Positioned(
-            bottom: 0,
-            left: 0,
-            right: 0,
-            child: Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  stops: const [0.0, 0.4, 1.0],
-                  colors: [
-                    sidebarTheme.background.withValues(alpha: 0.0),
-                    sidebarTheme.background.withValues(alpha: 0.85),
-                    sidebarTheme.background,
-                  ],
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Small top padding
+                const SizedBox(height: Spacing.sm),
+                // Floating search bar
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: Spacing.inputPadding,
+                  ),
+                  child: _buildFloatingSearchField(context),
                 ),
-              ),
-              child: Builder(
-                builder: (context) {
-                  final bottomPadding = MediaQuery.of(
-                    context,
-                  ).viewPadding.bottom;
-                  return Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Gradient fade area above
-                      const SizedBox(height: Spacing.xl),
-                      // Floating user tile
-                      Padding(
-                        padding: EdgeInsets.fromLTRB(
-                          Spacing.screenPadding,
-                          0,
-                          Spacing.screenPadding,
-                          bottomPadding + Spacing.md,
-                        ),
-                        child: _buildFloatingBottomSection(context),
-                      ),
-                    ],
-                  );
-                },
-              ),
+                // Gradient fade area below
+                const SizedBox(height: Spacing.md),
+              ],
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -1728,87 +1671,6 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     } finally {
       if (mounted) setState(() => _isLoadingConversation = false);
     }
-  }
-
-  Widget _buildFloatingBottomSection(BuildContext context) {
-    final conduitTheme = context.conduitTheme;
-    final authUser = ref.watch(currentUserProvider2);
-    final asyncUser = ref.watch(currentUserProvider);
-    final user = asyncUser.maybeWhen(
-      data: (value) => value ?? authUser,
-      orElse: () => authUser,
-    );
-    final api = ref.watch(apiServiceProvider);
-
-    String initialFor(String name) {
-      if (name.isEmpty) return 'U';
-      final ch = name.characters.first;
-      return ch.toUpperCase();
-    }
-
-    final displayName = deriveUserDisplayName(user);
-    final initial = initialFor(displayName);
-    final avatarUrl = resolveUserAvatarUrlForUser(api, user);
-
-    if (user == null) return const SizedBox.shrink();
-
-    return FloatingAppBarPill(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: Spacing.sm,
-          vertical: Spacing.xs,
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(AppBorderRadius.avatar),
-                border: Border.all(
-                  color: conduitTheme.buttonPrimary.withValues(alpha: 0.25),
-                  width: BorderWidth.thin,
-                ),
-              ),
-              clipBehavior: Clip.hardEdge,
-              child: UserAvatar(
-                size: 36,
-                imageUrl: avatarUrl,
-                fallbackText: initial,
-              ),
-            ),
-            const SizedBox(width: Spacing.sm),
-            Expanded(
-              child: Text(
-                displayName,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: AppTypography.bodySmallStyle.copyWith(
-                  color: conduitTheme.textPrimary,
-                  fontWeight: FontWeight.w600,
-                  decoration: TextDecoration.none,
-                ),
-              ),
-            ),
-            IconButton(
-              tooltip: AppLocalizations.of(context)!.manage,
-              onPressed: () {
-                Navigator.of(context).maybePop();
-                context.pushNamed(RouteNames.profile);
-              },
-              visualDensity: VisualDensity.compact,
-              icon: Icon(
-                Platform.isIOS
-                    ? CupertinoIcons.settings
-                    : Icons.settings_rounded,
-                color: conduitTheme.iconPrimary,
-                size: IconSize.medium,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 }
 

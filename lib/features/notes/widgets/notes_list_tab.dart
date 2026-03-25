@@ -1,6 +1,5 @@
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -11,6 +10,7 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
+import '../../navigation/widgets/sidebar_user_pill.dart';
 import '../providers/notes_providers.dart';
 
 /// Simplified notes list for the sidebar Notes tab.
@@ -96,71 +96,75 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
     super.build(context);
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
+    final bottomInset = sidebarUserPillContentInset(context, ref);
     final notes = _query.isEmpty
         ? ref.watch(notesListProvider)
         : AsyncValue.data(ref.watch(filteredNotesProvider(_query)));
 
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-          child: Row(
-            children: [
-              Expanded(
-                child: ConduitGlassSearchField(
-                  controller: _searchController,
-                  hintText: l10n.searchNotes,
-                  onChanged: _onSearchChanged,
-                  query: _query,
-                  onClear: () {
-                    _searchController.clear();
-                    _onSearchChanged('');
-                  },
+    return Padding(
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: ConduitGlassSearchField(
+                    controller: _searchController,
+                    hintText: l10n.searchNotes,
+                    onChanged: _onSearchChanged,
+                    query: _query,
+                    onClear: () {
+                      _searchController.clear();
+                      _onSearchChanged('');
+                    },
+                  ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              FloatingAppBarIconButton(
-                icon: UiUtils.newNoteIcon,
-                onTap: _createNote,
-              ),
-            ],
+                const SizedBox(width: 8),
+                FloatingAppBarIconButton(
+                  icon: UiUtils.newNoteIcon,
+                  onTap: _createNote,
+                ),
+              ],
+            ),
           ),
-        ),
-        Expanded(
-          child: notes.when(
-            data: (noteList) {
-              if (noteList.isEmpty) {
-                return Center(
-                  child: Text(
-                    _query.isEmpty ? l10n.noNotesYet : l10n.noNotesFound,
-                    style: TextStyle(color: theme.textSecondary),
+          Expanded(
+            child: notes.when(
+              data: (noteList) {
+                if (noteList.isEmpty) {
+                  return Center(
+                    child: Text(
+                      _query.isEmpty ? l10n.noNotesYet : l10n.noNotesFound,
+                      style: TextStyle(color: theme.textSecondary),
+                    ),
+                  );
+                }
+                return RefreshIndicator(
+                  onRefresh: () async {
+                    ConduitHaptics.lightImpact();
+                    await ref.read(notesListProvider.notifier).refresh();
+                  },
+                  child: ListView.builder(
+                    itemCount: noteList.length,
+                    padding: EdgeInsets.zero,
+                    itemBuilder: (context, index) {
+                      final note = noteList[index];
+                      return _NoteListTile(
+                        note: note,
+                        selected: note.id == _activeNoteId,
+                        onTap: () => _onNoteTap(note),
+                      );
+                    },
                   ),
                 );
-              }
-              return RefreshIndicator(
-                onRefresh: () async {
-                  ConduitHaptics.lightImpact();
-                  await ref.read(notesListProvider.notifier).refresh();
-                },
-                child: ListView.builder(
-                  itemCount: noteList.length,
-                  padding: EdgeInsets.zero,
-                  itemBuilder: (context, index) {
-                    final note = noteList[index];
-                    return _NoteListTile(
-                      note: note,
-                      selected: note.id == _activeNoteId,
-                      onTap: () => _onNoteTap(note),
-                    );
-                  },
-                ),
-              );
-            },
-            loading: () => const Center(child: CircularProgressIndicator()),
-            error: (err, _) => Center(child: Text(l10n.failedToLoadNotes)),
+              },
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (err, _) => Center(child: Text(l10n.failedToLoadNotes)),
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

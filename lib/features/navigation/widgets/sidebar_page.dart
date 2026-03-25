@@ -8,6 +8,7 @@ import '../providers/sidebar_providers.dart';
 import '../../channels/widgets/channel_list_tab.dart';
 import '../../notes/widgets/notes_list_tab.dart';
 import 'chats_drawer.dart';
+import 'sidebar_user_pill.dart';
 
 enum _SidebarTabId { chats, notes, channels }
 
@@ -301,52 +302,79 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
     ];
 
     final conduitTheme = context.conduitTheme;
+    final sidebarTheme = context.sidebarTheme;
+    final backgroundColor = conduitTheme.surfaceBackground;
 
-    return Column(
-      children: [
-        _SidebarPillTabBar(
-          tabController: _tabController,
-          tabDefinitions: tabDefinitions,
-          theme: conduitTheme,
-        ),
-        Expanded(
-          child: AnimatedBuilder(
-            animation: _tabController,
-            builder: (context, _) {
-              final activeIndex = _tabController.index.clamp(
-                0,
-                tabDefinitions.length - 1,
-              );
+    return Container(
+      key: const ValueKey<String>('sidebar-page-surface'),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        border: Border(right: BorderSide(color: sidebarTheme.border)),
+      ),
+      child: Column(
+        children: [
+          _SidebarPillTabBar(
+            tabController: _tabController,
+            tabDefinitions: tabDefinitions,
+            theme: conduitTheme,
+          ),
+          Expanded(
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: AnimatedBuilder(
+                    animation: _tabController,
+                    builder: (context, _) {
+                      final activeIndex = _tabController.index.clamp(
+                        0,
+                        tabDefinitions.length - 1,
+                      );
 
-              return Stack(
-                fit: StackFit.expand,
-                children: [
-                  for (var index = 0; index < tabDefinitions.length; index++)
-                    KeyedSubtree(
-                      key: tabDefinitions[index].layerKey,
-                      child: IgnorePointer(
-                        ignoring: index != activeIndex,
-                        child: TickerMode(
-                          enabled: index == activeIndex,
-                          child: ExcludeFocus(
-                            excluding: index != activeIndex,
-                            child: ExcludeSemantics(
-                              excluding: index != activeIndex,
-                              child: Opacity(
-                                opacity: index == activeIndex ? 1 : 0,
-                                child: tabDefinitions[index].body,
+                      return Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          for (
+                            var index = 0;
+                            index < tabDefinitions.length;
+                            index++
+                          )
+                            KeyedSubtree(
+                              key: tabDefinitions[index].layerKey,
+                              child: IgnorePointer(
+                                ignoring: index != activeIndex,
+                                child: TickerMode(
+                                  enabled: index == activeIndex,
+                                  child: ExcludeFocus(
+                                    excluding: index != activeIndex,
+                                    child: ExcludeSemantics(
+                                      excluding: index != activeIndex,
+                                      child: Opacity(
+                                        opacity: index == activeIndex ? 1 : 0,
+                                        child: tabDefinitions[index].body,
+                                      ),
+                                    ),
+                                  ),
+                                ),
                               ),
                             ),
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              );
-            },
+                        ],
+                      );
+                    },
+                  ),
+                ),
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: SidebarUserPillOverlay(
+                    backgroundColor: backgroundColor,
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
