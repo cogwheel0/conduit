@@ -1316,6 +1316,44 @@ String? _extractSystemPromptFromSettings(Map<String, dynamic>? settings) {
   return null;
 }
 
+Map<String, dynamic> _buildOpenWebUiBackgroundTasks({
+  required Map<String, dynamic>? userSettings,
+  required bool shouldGenerateTitle,
+  bool webSearchEnabled = false,
+  bool imageGenerationEnabled = false,
+}) {
+  bool? autoTitle;
+  bool? autoTags;
+  bool? autoFollowUps;
+
+  try {
+    final uiMap = userSettings?['ui'];
+    if (uiMap is Map) {
+      final titleMap = uiMap['title'];
+      if (titleMap is Map && titleMap['auto'] is bool) {
+        autoTitle = titleMap['auto'] as bool;
+      }
+      if (uiMap['autoTags'] is bool) {
+        autoTags = uiMap['autoTags'] as bool;
+      }
+      if (uiMap['autoFollowUps'] is bool) {
+        autoFollowUps = uiMap['autoFollowUps'] as bool;
+      }
+    }
+  } catch (_) {}
+
+  return <String, dynamic>{
+    // Only send generation toggles when backend-synced user settings explicitly
+    // enable them. If the setting is absent, omit the flag and let the backend
+    // decide using its own defaults/configuration.
+    if (shouldGenerateTitle && autoTitle == true) 'title_generation': true,
+    if (shouldGenerateTitle && autoTags == true) 'tags_generation': true,
+    if (autoFollowUps == true) 'follow_up_generation': true,
+    if (webSearchEnabled) 'web_search': true,
+    if (imageGenerationEnabled) 'image_generation': true,
+  };
+}
+
 String _formatOpenWebUiDate(DateTime value) {
   final year = value.year.toString().padLeft(4, '0');
   final month = value.month.toString().padLeft(2, '0');
@@ -1919,7 +1957,8 @@ Future<void> regenerateMessage(
       } catch (_) {}
     }
 
-    // Background tasks parity with Web client (safe defaults)
+    // Background tasks should follow backend-synced user settings instead of
+    // forcing local defaults.
     final isTemporary = ref.read(temporaryChatEnabledProvider);
     bool shouldGenerateTitle = false;
     if (!isTemporary) {
@@ -1935,13 +1974,12 @@ Future<void> regenerateMessage(
       } catch (_) {}
     }
 
-    final bgTasks = <String, dynamic>{
-      if (shouldGenerateTitle) 'title_generation': true,
-      if (shouldGenerateTitle) 'tags_generation': true,
-      'follow_up_generation': true,
-      if (webSearchEnabled) 'web_search': true,
-      if (imageGenerationEnabled) 'image_generation': true,
-    };
+    final bgTasks = _buildOpenWebUiBackgroundTasks(
+      userSettings: userSettingsData,
+      shouldGenerateTitle: shouldGenerateTitle,
+      webSearchEnabled: webSearchEnabled,
+      imageGenerationEnabled: imageGenerationEnabled,
+    );
 
     final bool isBackgroundToolsFlowPre =
         (selectedToolIds.isNotEmpty) ||
@@ -2537,8 +2575,9 @@ Future<void> _sendMessageInternal(
       } catch (_) {}
     }
 
-    // Background tasks parity with Web client (safe defaults)
-    // Enable title/tags generation on the very first user turn of a new chat.
+    // Background tasks should follow backend-synced user settings instead of
+    // forcing local defaults. Enable title/tags generation only on the first
+    // user turn of a new chat.
     final isTemporary = ref.read(temporaryChatEnabledProvider);
     bool shouldGenerateTitle = false;
     if (!isTemporary) {
@@ -2555,27 +2594,10 @@ Future<void> _sendMessageInternal(
       } catch (_) {}
     }
 
-    // Match web client: request background follow-ups always; title/tags on first turn
-    // Respect user settings for auto-generation (mirrors OpenWebUI's
-    // $settings?.title?.auto, $settings?.autoTags, $settings?.autoFollowUps)
-    bool autoTitle = true;
-    bool autoTags = true;
-    bool autoFollowUps = true;
-    try {
-      final uiMap = userSettingsData?['ui'];
-      if (uiMap is Map) {
-        final titleMap = uiMap['title'];
-        if (titleMap is Map && titleMap['auto'] == false) autoTitle = false;
-        if (uiMap['autoTags'] == false) autoTags = false;
-        if (uiMap['autoFollowUps'] == false) autoFollowUps = false;
-      }
-    } catch (_) {}
-
-    final bgTasks = <String, dynamic>{
-      if (shouldGenerateTitle && autoTitle) 'title_generation': true,
-      if (shouldGenerateTitle && autoTags) 'tags_generation': true,
-      if (autoFollowUps) 'follow_up_generation': true,
-    };
+    final bgTasks = _buildOpenWebUiBackgroundTasks(
+      userSettings: userSettingsData,
+      shouldGenerateTitle: shouldGenerateTitle,
+    );
 
     // Determine if we need background task flow (tools/tool servers or web search)
     final bool isBackgroundToolsFlowPre =
