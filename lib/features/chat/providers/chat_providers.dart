@@ -1322,36 +1322,58 @@ Map<String, dynamic> _buildOpenWebUiBackgroundTasks({
   bool webSearchEnabled = false,
   bool imageGenerationEnabled = false,
 }) {
-  bool? autoTitle;
-  bool? autoTags;
-  bool? autoFollowUps;
+  bool? readBool(Map<String, dynamic>? map, String key) {
+    final value = map?[key];
+    return value is bool ? value : null;
+  }
 
-  try {
-    final uiMap = userSettings?['ui'];
-    if (uiMap is Map) {
-      final titleMap = uiMap['title'];
-      if (titleMap is Map && titleMap['auto'] is bool) {
-        autoTitle = titleMap['auto'] as bool;
-      }
-      if (uiMap['autoTags'] is bool) {
-        autoTags = uiMap['autoTags'] as bool;
-      }
-      if (uiMap['autoFollowUps'] is bool) {
-        autoFollowUps = uiMap['autoFollowUps'] as bool;
-      }
+  bool? readTitleAuto(Map<String, dynamic>? map) {
+    final title = map?['title'];
+    if (title is Map && title['auto'] is bool) {
+      return title['auto'] as bool;
     }
-  } catch (_) {}
+    return null;
+  }
+
+  final uiMap = switch (userSettings?['ui']) {
+    final Map<String, dynamic> map => map,
+    final Map map => map.map((key, value) => MapEntry(key.toString(), value)),
+    _ => null,
+  };
+
+  final autoTitle = readTitleAuto(userSettings) ?? readTitleAuto(uiMap) ?? true;
+  final autoTags =
+      readBool(userSettings, 'autoTags') ?? readBool(uiMap, 'autoTags') ?? true;
+  final autoFollowUps =
+      readBool(userSettings, 'autoFollowUps') ??
+      readBool(uiMap, 'autoFollowUps') ??
+      true;
 
   return <String, dynamic>{
-    // Only send generation toggles when backend-synced user settings explicitly
-    // enable them. If the setting is absent, omit the flag and let the backend
-    // decide using its own defaults/configuration.
-    if (shouldGenerateTitle && autoTitle == true) 'title_generation': true,
-    if (shouldGenerateTitle && autoTags == true) 'tags_generation': true,
-    if (autoFollowUps == true) 'follow_up_generation': true,
+    // Default to the same enabled behavior as the web client, but still honor
+    // explicit backend-synced user settings when they disable generation.
+    if (shouldGenerateTitle && autoTitle) 'title_generation': true,
+    if (shouldGenerateTitle && autoTags) 'tags_generation': true,
+    if (autoFollowUps) 'follow_up_generation': true,
     if (webSearchEnabled) 'web_search': true,
     if (imageGenerationEnabled) 'image_generation': true,
   };
+}
+
+/// Exposes [_buildOpenWebUiBackgroundTasks] for focused unit tests.
+@visibleForTesting
+Map<String, dynamic> buildOpenWebUiBackgroundTasksForTest({
+  required Map<String, dynamic>? userSettings,
+  required bool shouldGenerateTitle,
+  bool webSearchEnabled = false,
+  bool imageGenerationEnabled = false,
+}) {
+  return _buildOpenWebUiBackgroundTasks(
+    userSettings: userSettings,
+    shouldGenerateTitle: shouldGenerateTitle,
+    webSearchEnabled: webSearchEnabled,
+    imageGenerationEnabled: imageGenerationEnabled,
+  );
 }
 
 String _formatOpenWebUiDate(DateTime value) {
