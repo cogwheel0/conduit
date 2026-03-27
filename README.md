@@ -28,59 +28,46 @@
   />
 </p>
 
-<table align="center">
-  <tr>
-    <td valign="middle">
-      <a href="https://play.google.com/store/apps/details?id=app.cogwheel.conduit">
-        <img
-          src="docs/store-badges/google.webp"
-          alt="Get it on Google Play"
-          height="56"
-        />
-      </a>
-    </td>
-    <td width="12"></td>
-    <td valign="middle">
-      <a
-        href="https://apps.apple.com/us/app/conduit-open-webui-client/id6749840287"
-      >
-        <img
-          src="docs/store-badges/apple.webp"
-          alt="Download on the App Store"
-          height="56"
-        />
-      </a>
-    </td>
-  </tr>
-</table>
+<p align="center">
+  <a href="https://play.google.com/store/apps/details?id=app.cogwheel.conduit">
+    <img
+      src="docs/store-badges/google.webp"
+      alt="Get it on Google Play"
+      height="56"
+    />
+  </a>
+  <a
+    href="https://apps.apple.com/us/app/conduit-open-webui-client/id6749840287"
+  >
+    <img
+      src="docs/store-badges/apple.webp"
+      alt="Download on the App Store"
+      height="56"
+    />
+  </a>
+</p>
 
 <p align="center">
   <sub>OSS support and project momentum</sub>
 </p>
 
-<table align="center">
-  <tr>
-    <td valign="middle">
+<p align="center">
       <a href="https://vercel.com/blog/vercel-open-source-program-fall-2025-cohort#conduit">
         <img
           alt="Vercel OSS Program"
           src="https://vercel.com/oss/program-badge.svg"
+          height="25"
         />
       </a>
-    </td>
-    <td width="16"></td>
-    <td valign="middle">
+      <br></br>
       <a href="https://trendshift.io/repositories/15397" target="_blank">
         <img
           src="https://trendshift.io/api/badge/repositories/15397"
           alt="cogwheel0%2Fconduit | Trendshift"
-          width="250"
-          height="55"
+          height="56"
         />
       </a>
-    </td>
-  </tr>
-</table>
+</p>
 
 <p align="center">
   <a href="#why-conduit">Why Conduit</a> |
