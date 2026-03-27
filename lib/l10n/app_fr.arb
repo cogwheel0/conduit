@@ -295,6 +295,8 @@
   "chatSettings": "Discussion",
   "sendOnEnter": "Envoyer avec Entrée",
   "sendOnEnterDescription": "Entrée envoie (clavier logiciel). Cmd/Ctrl+Entrée aussi disponible",
+  "disableHapticsWhileStreaming": "Désactiver les retours haptiques pendant le streaming",
+  "disableHapticsWhileStreamingDescription": "Coupe les retours haptiques des réponses en direct sans affecter le reste de l’app",
   "androidAssistantTitle": "Android digital assistant",
   "androidAssistantDescription": "Choose what happens when you trigger the Android digital assistant.",
   "androidAssistantOverlayOption": "Show quick overlay (default)",

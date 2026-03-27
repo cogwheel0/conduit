@@ -295,6 +295,8 @@
   "chatSettings": "对话",
   "sendOnEnter": "回车发送",
   "sendOnEnterDescription": "回车发送（软键盘）。Cmd/Ctrl+Enter 也可用",
+  "disableHapticsWhileStreaming": "流式输出时禁用触觉反馈",
+  "disableHapticsWhileStreamingDescription": "仅关闭实时回复的触觉反馈，不影响应用的其他反馈",
   "androidAssistantTitle": "Android digital assistant",
   "androidAssistantDescription": "Choose what happens when you trigger the Android digital assistant.",
   "androidAssistantOverlayOption": "Show quick overlay (default)",

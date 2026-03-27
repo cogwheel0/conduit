@@ -295,6 +295,8 @@
   "chatSettings": "Чат",
   "sendOnEnter": "Отправка по Enter",
   "sendOnEnterDescription": "Enter отправляет (программная клавиатура). Также доступно Cmd/Ctrl+Enter",
+  "disableHapticsWhileStreaming": "Отключать тактильный отклик во время стриминга",
+  "disableHapticsWhileStreamingDescription": "Отключает отклик для ответов в реальном времени, не затрагивая остальную часть приложения",
   "androidAssistantTitle": "Android digital assistant",
   "androidAssistantDescription": "Choose what happens when you trigger the Android digital assistant.",
   "androidAssistantOverlayOption": "Show quick overlay (default)",

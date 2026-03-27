@@ -83,6 +83,7 @@ class PersistenceMigrator {
     copyBool(PreferenceKeys.reduceMotion);
     copyDouble(PreferenceKeys.animationSpeed);
     copyBool(PreferenceKeys.hapticFeedback);
+    copyBool(PreferenceKeys.disableHapticsWhileStreaming);
     copyBool(PreferenceKeys.highContrast);
     copyBool(PreferenceKeys.largeText);
     copyBool(PreferenceKeys.darkMode);
@@ -204,6 +205,7 @@ class PersistenceMigrator {
       PreferenceKeys.reduceMotion,
       PreferenceKeys.animationSpeed,
       PreferenceKeys.hapticFeedback,
+      PreferenceKeys.disableHapticsWhileStreaming,
       PreferenceKeys.highContrast,
       PreferenceKeys.largeText,
       PreferenceKeys.darkMode,

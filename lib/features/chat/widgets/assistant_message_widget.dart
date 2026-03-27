@@ -591,9 +591,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     }
   }
 
-  /// Fires a single haptic impulse if the user has haptics enabled.
+  /// Fires a single haptic impulse if streaming haptics are enabled.
   void _streamingHaptic(HapticType type) {
-    final enabled = ref.read(hapticEnabledProvider);
+    final enabled = ref.read(streamingHapticsEnabledProvider);
     PlatformService.hapticFeedbackWithSettings(
       type: type,
       hapticEnabled: enabled,
@@ -605,7 +605,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   /// Each tap is spaced 150ms apart so the user perceives three
   /// separate impulses rather than a single buzz.
   void _tripleHaptic() {
-    final enabled = ref.read(hapticEnabledProvider);
+    final enabled = ref.read(streamingHapticsEnabledProvider);
     if (!enabled) return;
     PlatformService.hapticFeedback(type: HapticType.medium);
     Future.delayed(const Duration(milliseconds: 150), () {

@@ -20,6 +20,10 @@ void main() {
         check(settings.hapticFeedback).equals(true);
       });
 
+      test('disableHapticsWhileStreaming defaults to false', () {
+        check(settings.disableHapticsWhileStreaming).equals(false);
+      });
+
       test('highContrast defaults to false', () {
         check(settings.highContrast).equals(false);
       });
@@ -93,8 +97,9 @@ void main() {
       });
 
       test('androidAssistantTrigger defaults to overlay', () {
-        check(settings.androidAssistantTrigger)
-            .equals(AndroidAssistantTrigger.overlay);
+        check(
+          settings.androidAssistantTrigger,
+        ).equals(AndroidAssistantTrigger.overlay);
       });
 
       test('voiceSilenceDuration defaults to 2000', () {
@@ -119,6 +124,7 @@ void main() {
           reduceMotion: true,
           animationSpeed: 1.5,
           hapticFeedback: false,
+          disableHapticsWhileStreaming: true,
           highContrast: true,
           largeText: true,
           darkMode: false,
@@ -140,6 +146,7 @@ void main() {
         check(modified.reduceMotion).equals(true);
         check(modified.animationSpeed).equals(1.5);
         check(modified.hapticFeedback).equals(false);
+        check(modified.disableHapticsWhileStreaming).equals(true);
         check(modified.highContrast).equals(true);
         check(modified.largeText).equals(true);
         check(modified.darkMode).equals(false);
@@ -148,14 +155,14 @@ void main() {
         check(modified.socketTransportMode).equals('polling');
         check(modified.quickPills).deepEquals(['web', 'image']);
         check(modified.sendOnEnter).equals(true);
-        check(modified.sttPreference)
-            .equals(SttPreference.serverOnly);
+        check(modified.sttPreference).equals(SttPreference.serverOnly);
         check(modified.ttsSpeechRate).equals(0.8);
         check(modified.ttsPitch).equals(1.2);
         check(modified.ttsVolume).equals(0.9);
         check(modified.ttsEngine).equals(TtsEngine.server);
-        check(modified.androidAssistantTrigger)
-            .equals(AndroidAssistantTrigger.newChat);
+        check(
+          modified.androidAssistantTrigger,
+        ).equals(AndroidAssistantTrigger.newChat);
         check(modified.voiceSilenceDuration).equals(1500);
         check(modified.temporaryChatByDefault).equals(true);
       });
@@ -174,8 +181,7 @@ void main() {
         check(modified.voiceLocaleId).equals('en_US');
         check(modified.ttsVoice).equals('voice1');
         check(modified.ttsServerVoiceId).equals('server-voice-1');
-        check(modified.ttsServerVoiceName)
-            .equals('Server Voice');
+        check(modified.ttsServerVoiceName).equals('Server Voice');
       });
 
       test('can set nullable fields back to null', () {
@@ -257,38 +263,23 @@ void main() {
       });
 
       test('different quickPills yields inequality', () {
-        final a = const AppSettings().copyWith(
-          quickPills: ['web'],
-        );
-        final b = const AppSettings().copyWith(
-          quickPills: ['image'],
-        );
+        final a = const AppSettings().copyWith(quickPills: ['web']);
+        final b = const AppSettings().copyWith(quickPills: ['image']);
         check(a).not((it) => it.equals(b));
       });
 
       test('quickPills order matters', () {
-        final a = const AppSettings().copyWith(
-          quickPills: ['web', 'image'],
-        );
-        final b = const AppSettings().copyWith(
-          quickPills: ['image', 'web'],
-        );
+        final a = const AppSettings().copyWith(quickPills: ['web', 'image']);
+        final b = const AppSettings().copyWith(quickPills: ['image', 'web']);
         check(a).not((it) => it.equals(b));
       });
 
-      test(
-        'socketTransportMode is excluded from equality',
-        () {
-          final a = const AppSettings().copyWith(
-            socketTransportMode: 'ws',
-          );
-          final b = const AppSettings().copyWith(
-            socketTransportMode: 'polling',
-          );
-          // socketTransportMode is intentionally not in ==
-          check(a).equals(b);
-        },
-      );
+      test('socketTransportMode is excluded from equality', () {
+        final a = const AppSettings().copyWith(socketTransportMode: 'ws');
+        final b = const AppSettings().copyWith(socketTransportMode: 'polling');
+        // socketTransportMode is intentionally not in ==
+        check(a).equals(b);
+      });
 
       test('not equal to a non-AppSettings object', () {
         const a = AppSettings();
@@ -321,10 +312,8 @@ void main() {
   group('Enum values', () {
     test('SttPreference has expected values', () {
       check(SttPreference.values).length.equals(2);
-      check(SttPreference.values)
-          .contains(SttPreference.deviceOnly);
-      check(SttPreference.values)
-          .contains(SttPreference.serverOnly);
+      check(SttPreference.values).contains(SttPreference.deviceOnly);
+      check(SttPreference.values).contains(SttPreference.serverOnly);
     });
 
     test('TtsEngine has expected values', () {
@@ -335,29 +324,31 @@ void main() {
 
     test('AndroidAssistantTrigger has expected values', () {
       check(AndroidAssistantTrigger.values).length.equals(3);
-      check(AndroidAssistantTrigger.values)
-          .contains(AndroidAssistantTrigger.overlay);
-      check(AndroidAssistantTrigger.values)
-          .contains(AndroidAssistantTrigger.newChat);
-      check(AndroidAssistantTrigger.values)
-          .contains(AndroidAssistantTrigger.voiceCall);
+      check(
+        AndroidAssistantTrigger.values,
+      ).contains(AndroidAssistantTrigger.overlay);
+      check(
+        AndroidAssistantTrigger.values,
+      ).contains(AndroidAssistantTrigger.newChat);
+      check(
+        AndroidAssistantTrigger.values,
+      ).contains(AndroidAssistantTrigger.voiceCall);
     });
   });
 
   group('AndroidAssistantTriggerStorage', () {
     test('overlay storageValue is "overlay"', () {
-      check(AndroidAssistantTrigger.overlay.storageValue)
-          .equals('overlay');
+      check(AndroidAssistantTrigger.overlay.storageValue).equals('overlay');
     });
 
     test('newChat storageValue is "new_chat"', () {
-      check(AndroidAssistantTrigger.newChat.storageValue)
-          .equals('new_chat');
+      check(AndroidAssistantTrigger.newChat.storageValue).equals('new_chat');
     });
 
     test('voiceCall storageValue is "voice_call"', () {
-      check(AndroidAssistantTrigger.voiceCall.storageValue)
-          .equals('voice_call');
+      check(
+        AndroidAssistantTrigger.voiceCall.storageValue,
+      ).equals('voice_call');
     });
   });
 }

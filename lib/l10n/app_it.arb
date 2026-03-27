@@ -295,6 +295,8 @@
   "chatSettings": "Chat",
   "sendOnEnter": "Invia con Invio",
   "sendOnEnterDescription": "Invio invia (tastiera software). Cmd/Ctrl+Invio disponibile",
+  "disableHapticsWhileStreaming": "Disattiva l'aptica durante lo streaming",
+  "disableHapticsWhileStreamingDescription": "Disattiva il feedback aptico delle risposte in tempo reale senza influire sul resto dell'app",
   "androidAssistantTitle": "Android digital assistant",
   "androidAssistantDescription": "Choose what happens when you trigger the Android digital assistant.",
   "androidAssistantOverlayOption": "Show quick overlay (default)",

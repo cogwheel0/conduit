@@ -295,6 +295,8 @@
   "chatSettings": "Conversación",
   "sendOnEnter": "Enviar con Enter",
   "sendOnEnterDescription": "Enter envía (teclado virtual). Cmd/Ctrl+Enter también disponible",
+  "disableHapticsWhileStreaming": "Desactivar la vibración durante el streaming",
+  "disableHapticsWhileStreamingDescription": "Silencia la vibración de las respuestas en tiempo real sin afectar al resto de la app",
   "androidAssistantTitle": "Android digital assistant",
   "androidAssistantDescription": "Choose what happens when you trigger the Android digital assistant.",
   "androidAssistantOverlayOption": "Show quick overlay (default)",

@@ -50,7 +50,8 @@ class AppCustomizationPage extends ConsumerWidget {
     final languageLabel = _resolveLanguageLabel(context, currentLanguageCode);
     final activeTheme = ref.watch(appThemePaletteProvider);
     final canPop = ModalRoute.of(context)?.canPop ?? false;
-    final topPadding = MediaQuery.of(context).padding.top + kTextTabBarHeight + 24;
+    final topPadding =
+        MediaQuery.of(context).padding.top + kTextTabBarHeight + 24;
 
     return Scaffold(
       backgroundColor: context.conduitTheme.surfaceBackground,
@@ -465,8 +466,28 @@ class AppCustomizationPage extends ConsumerWidget {
           showChevron: false,
           onTap: () => ref
               .read(appSettingsProvider.notifier)
-              .setTemporaryChatByDefault(
-                !settings.temporaryChatByDefault,
+              .setTemporaryChatByDefault(!settings.temporaryChatByDefault),
+        ),
+        const SizedBox(height: Spacing.sm),
+        CustomizationTile(
+          leading: _buildIconBadge(
+            context,
+            Icons.vibration,
+            color: theme.buttonPrimary,
+          ),
+          title: l10n.disableHapticsWhileStreaming,
+          subtitle: l10n.disableHapticsWhileStreamingDescription,
+          trailing: AdaptiveSwitch(
+            value: settings.disableHapticsWhileStreaming,
+            onChanged: (value) => ref
+                .read(appSettingsProvider.notifier)
+                .setDisableHapticsWhileStreaming(value),
+          ),
+          showChevron: false,
+          onTap: () => ref
+              .read(appSettingsProvider.notifier)
+              .setDisableHapticsWhileStreaming(
+                !settings.disableHapticsWhileStreaming,
               ),
         ),
         if (Platform.isAndroid) ...[
@@ -2182,5 +2203,3 @@ class _SheetHeader extends StatelessWidget {
     );
   }
 }
-
-

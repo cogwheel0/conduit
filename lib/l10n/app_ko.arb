@@ -412,6 +412,8 @@
   "chatSettings": "채팅",
   "sendOnEnter": "Enter로 전송",
   "sendOnEnterDescription": "Enter로 전송 (소프트 키보드). Cmd/Ctrl+Enter도 사용 가능",
+  "disableHapticsWhileStreaming": "스트리밍 중 햅틱 끄기",
+  "disableHapticsWhileStreamingDescription": "실시간 응답 햅틱만 끄고 앱의 다른 햅틱은 유지합니다",
   "androidAssistantTitle": "Android digital assistant",
   "androidAssistantDescription": "Choose what happens when you trigger the Android digital assistant.",
   "androidAssistantOverlayOption": "Show quick overlay (default)",

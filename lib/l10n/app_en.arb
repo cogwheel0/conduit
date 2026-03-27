@@ -1245,6 +1245,14 @@
   "@sendOnEnterDescription": {
     "description": "Explanation of how the Send on Enter toggle behaves."
   },
+  "disableHapticsWhileStreaming": "Disable haptics while streaming",
+  "@disableHapticsWhileStreaming": {
+    "description": "Title for the setting that suppresses assistant response streaming haptics."
+  },
+  "disableHapticsWhileStreamingDescription": "Mute live response haptics without affecting the rest of the app",
+  "@disableHapticsWhileStreamingDescription": {
+    "description": "Subtitle for the setting that suppresses assistant response streaming haptics."
+  },
   "androidAssistantTitle": "Android digital assistant",
   "@androidAssistantTitle": {
     "description": "Tile title for configuring the Android digital assistant trigger."

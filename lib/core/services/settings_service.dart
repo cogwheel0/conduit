@@ -39,6 +39,8 @@ class SettingsService {
   static const String _reduceMotionKey = PreferenceKeys.reduceMotion;
   static const String _animationSpeedKey = PreferenceKeys.animationSpeed;
   static const String _hapticFeedbackKey = PreferenceKeys.hapticFeedback;
+  static const String _disableHapticsWhileStreamingKey =
+      PreferenceKeys.disableHapticsWhileStreaming;
   static const String _highContrastKey = PreferenceKeys.highContrast;
   static const String _largeTextKey = PreferenceKeys.largeText;
   static const String _darkModeKey = PreferenceKeys.darkMode;
@@ -95,6 +97,18 @@ class SettingsService {
   /// Set haptic feedback preference
   static Future<void> setHapticFeedback(bool value) {
     return _preferencesBox().put(_hapticFeedbackKey, value);
+  }
+
+  /// Get streaming haptics suppression preference.
+  static Future<bool> getDisableHapticsWhileStreaming() {
+    final value =
+        _preferencesBox().get(_disableHapticsWhileStreamingKey) as bool?;
+    return Future.value(value ?? false);
+  }
+
+  /// Set streaming haptics suppression preference.
+  static Future<void> setDisableHapticsWhileStreaming(bool value) {
+    return _preferencesBox().put(_disableHapticsWhileStreamingKey, value);
   }
 
   /// Get high contrast preference
@@ -158,6 +172,7 @@ class SettingsService {
       _reduceMotionKey: settings.reduceMotion,
       _animationSpeedKey: settings.animationSpeed,
       _hapticFeedbackKey: settings.hapticFeedback,
+      _disableHapticsWhileStreamingKey: settings.disableHapticsWhileStreaming,
       _highContrastKey: settings.highContrast,
       _largeTextKey: settings.largeText,
       _darkModeKey: settings.darkMode,
@@ -174,8 +189,7 @@ class SettingsService {
       _voiceSilenceDurationKey: settings.voiceSilenceDuration,
       _androidAssistantTriggerKey:
           settings.androidAssistantTrigger.storageValue,
-      PreferenceKeys.temporaryChatByDefault:
-          settings.temporaryChatByDefault,
+      PreferenceKeys.temporaryChatByDefault: settings.temporaryChatByDefault,
     };
 
     await box.putAll(updates);
@@ -339,17 +353,13 @@ class SettingsService {
   }
 
   static Future<bool> getTemporaryChatByDefault() {
-    final value = _preferencesBox().get(
-      PreferenceKeys.temporaryChatByDefault,
-    ) as bool?;
+    final value =
+        _preferencesBox().get(PreferenceKeys.temporaryChatByDefault) as bool?;
     return Future.value(value ?? false);
   }
 
   static Future<void> setTemporaryChatByDefault(bool value) {
-    return _preferencesBox().put(
-      PreferenceKeys.temporaryChatByDefault,
-      value,
-    );
+    return _preferencesBox().put(PreferenceKeys.temporaryChatByDefault, value);
   }
 
   static Future<int> getVoiceSilenceDuration() {
@@ -425,6 +435,8 @@ class SettingsService {
       reduceMotion: (box.get(_reduceMotionKey) as bool?) ?? false,
       animationSpeed: (box.get(_animationSpeedKey) as num?)?.toDouble() ?? 1.0,
       hapticFeedback: (box.get(_hapticFeedbackKey) as bool?) ?? true,
+      disableHapticsWhileStreaming:
+          (box.get(_disableHapticsWhileStreamingKey) as bool?) ?? false,
       highContrast: (box.get(_highContrastKey) as bool?) ?? false,
       largeText: (box.get(_largeTextKey) as bool?) ?? false,
       darkMode: (box.get(_darkModeKey) as bool?) ?? true,
@@ -470,6 +482,7 @@ class AppSettings {
   final bool reduceMotion;
   final double animationSpeed;
   final bool hapticFeedback;
+  final bool disableHapticsWhileStreaming;
   final bool highContrast;
   final bool largeText;
   final bool darkMode;
@@ -495,6 +508,7 @@ class AppSettings {
     this.reduceMotion = false,
     this.animationSpeed = 1.0,
     this.hapticFeedback = true,
+    this.disableHapticsWhileStreaming = false,
     this.highContrast = false,
     this.largeText = false,
     this.darkMode = true,
@@ -522,6 +536,7 @@ class AppSettings {
     bool? reduceMotion,
     double? animationSpeed,
     bool? hapticFeedback,
+    bool? disableHapticsWhileStreaming,
     bool? highContrast,
     bool? largeText,
     bool? darkMode,
@@ -548,6 +563,8 @@ class AppSettings {
       reduceMotion: reduceMotion ?? this.reduceMotion,
       animationSpeed: animationSpeed ?? this.animationSpeed,
       hapticFeedback: hapticFeedback ?? this.hapticFeedback,
+      disableHapticsWhileStreaming:
+          disableHapticsWhileStreaming ?? this.disableHapticsWhileStreaming,
       highContrast: highContrast ?? this.highContrast,
       largeText: largeText ?? this.largeText,
       darkMode: darkMode ?? this.darkMode,
@@ -589,6 +606,7 @@ class AppSettings {
         other.reduceMotion == reduceMotion &&
         other.animationSpeed == animationSpeed &&
         other.hapticFeedback == hapticFeedback &&
+        other.disableHapticsWhileStreaming == disableHapticsWhileStreaming &&
         other.highContrast == highContrast &&
         other.largeText == largeText &&
         other.darkMode == darkMode &&
@@ -618,6 +636,7 @@ class AppSettings {
       reduceMotion,
       animationSpeed,
       hapticFeedback,
+      disableHapticsWhileStreaming,
       highContrast,
       largeText,
       darkMode,
@@ -700,6 +719,11 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
   Future<void> setHapticFeedback(bool value) async {
     state = state.copyWith(hapticFeedback: value);
     await SettingsService.setHapticFeedback(value);
+  }
+
+  Future<void> setDisableHapticsWhileStreaming(bool value) async {
+    state = state.copyWith(disableHapticsWhileStreaming: value);
+    await SettingsService.setDisableHapticsWhileStreaming(value);
   }
 
   Future<void> setHighContrast(bool value) async {
@@ -837,6 +861,12 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
 final hapticEnabledProvider = Provider<bool>((ref) {
   final settings = ref.watch(appSettingsProvider);
   return settings.hapticFeedback;
+});
+
+/// Provider for checking if assistant response streaming haptics are enabled.
+final streamingHapticsEnabledProvider = Provider<bool>((ref) {
+  final settings = ref.watch(appSettingsProvider);
+  return settings.hapticFeedback && !settings.disableHapticsWhileStreaming;
 });
 
 /// Provider for effective animation settings

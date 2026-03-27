@@ -1,15 +1,42 @@
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/core/models/chat_message.dart';
+import 'package:conduit/core/services/settings_service.dart';
+import 'package:conduit/features/chat/providers/chat_providers.dart';
+import 'package:conduit/features/chat/providers/text_to_speech_provider.dart';
 import 'package:conduit/features/chat/widgets/assistant_message_widget.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_config.dart';
 import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+class _RecordedPlatformCall {
+  const _RecordedPlatformCall(this.method, this.arguments);
+
+  final String method;
+  final Object? arguments;
+}
+
+Iterable<_RecordedPlatformCall> _mediumImpactCalls(
+  List<_RecordedPlatformCall> calls,
+) => calls.where(
+  (call) =>
+      call.method == 'HapticFeedback.vibrate' &&
+      call.arguments == 'HapticFeedbackType.mediumImpact',
+);
+
+class _TestTextToSpeechController extends TextToSpeechController {
+  @override
+  TextToSpeechState build() => const TextToSpeechState();
+}
+
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   test('preserves authored chart canvases in preview documents', () {
     const htmlContent = '''
 <div class="charts">
@@ -79,6 +106,28 @@ void main() {
     );
   }
 
+  Widget buildAssistantHarness({
+    required ProviderContainer container,
+    required ChatMessage message,
+    required bool isStreaming,
+  }) {
+    return UncontrolledProviderScope(
+      container: container,
+      child: MaterialApp(
+        theme: AppTheme.light(TweakcnThemes.t3Chat),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: AssistantMessageWidget(
+            message: message,
+            isStreaming: isStreaming,
+            showFollowUps: false,
+          ),
+        ),
+      ),
+    );
+  }
+
   testWidgets(
     'renders tool call details through markdown and expands attributes',
     (tester) async {
@@ -105,6 +154,126 @@ After
       expect(find.text('Output'), findsOneWidget);
       expect(find.text('cats'), findsOneWidget);
       expect(find.text('done'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'assistant streaming haptics fire for content arrival and completion',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+
+      final container = ProviderContainer(
+        overrides: [
+          appSettingsProvider.overrideWithValue(const AppSettings()),
+          textToSpeechControllerProvider.overrideWith(
+            _TestTextToSpeechController.new,
+          ),
+        ],
+      );
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final platformCalls = <_RecordedPlatformCall>[];
+      messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        platformCalls.add(_RecordedPlatformCall(call.method, call.arguments));
+        return null;
+      });
+
+      final message = ChatMessage(
+        id: 'streaming-message',
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime(2026),
+      );
+
+      try {
+        await tester.pumpWidget(
+          buildAssistantHarness(
+            container: container,
+            message: message,
+            isStreaming: true,
+          ),
+        );
+
+        container.read(streamingContentProvider.notifier).set('Hello');
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 350));
+
+        await tester.pumpWidget(
+          buildAssistantHarness(
+            container: container,
+            message: message.copyWith(content: 'Hello'),
+            isStreaming: false,
+          ),
+        );
+        await tester.pump();
+
+        expect(_mediumImpactCalls(platformCalls), hasLength(4));
+      } finally {
+        messenger.setMockMethodCallHandler(SystemChannels.platform, null);
+        container.dispose();
+        debugDefaultTargetPlatformOverride = null;
+      }
+    },
+  );
+
+  testWidgets(
+    'assistant streaming haptics stay silent when disabled in settings',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+
+      final container = ProviderContainer(
+        overrides: [
+          appSettingsProvider.overrideWithValue(
+            const AppSettings(disableHapticsWhileStreaming: true),
+          ),
+          textToSpeechControllerProvider.overrideWith(
+            _TestTextToSpeechController.new,
+          ),
+        ],
+      );
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final platformCalls = <_RecordedPlatformCall>[];
+      messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        platformCalls.add(_RecordedPlatformCall(call.method, call.arguments));
+        return null;
+      });
+
+      final message = ChatMessage(
+        id: 'streaming-message',
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime(2026),
+      );
+
+      try {
+        await tester.pumpWidget(
+          buildAssistantHarness(
+            container: container,
+            message: message,
+            isStreaming: true,
+          ),
+        );
+
+        container.read(streamingContentProvider.notifier).set('Hello');
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 350));
+
+        await tester.pumpWidget(
+          buildAssistantHarness(
+            container: container,
+            message: message.copyWith(content: 'Hello'),
+            isStreaming: false,
+          ),
+        );
+        await tester.pump();
+
+        expect(_mediumImpactCalls(platformCalls), isEmpty);
+      } finally {
+        messenger.setMockMethodCallHandler(SystemChannels.platform, null);
+        container.dispose();
+        debugDefaultTargetPlatformOverride = null;
+      }
     },
   );
 
@@ -426,6 +595,11 @@ Version reasoning
 
       await tester.pumpWidget(
         ProviderScope(
+          overrides: [
+            textToSpeechControllerProvider.overrideWith(
+              _TestTextToSpeechController.new,
+            ),
+          ],
           child: MaterialApp(
             theme: AppTheme.light(TweakcnThemes.t3Chat),
             localizationsDelegates: AppLocalizations.localizationsDelegates,

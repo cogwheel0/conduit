@@ -295,6 +295,8 @@
   "chatSettings": "Chat",
   "sendOnEnter": "Verzenden met Enter",
   "sendOnEnterDescription": "Enter verzendt (softtoetsenbord). Cmd/Ctrl+Enter ook beschikbaar",
+  "disableHapticsWhileStreaming": "Haptiek uitschakelen tijdens streamen",
+  "disableHapticsWhileStreamingDescription": "Dempt haptiek voor live reacties zonder de rest van de app te beïnvloeden",
   "androidAssistantTitle": "Android digital assistant",
   "androidAssistantDescription": "Choose what happens when you trigger the Android digital assistant.",
   "androidAssistantOverlayOption": "Show quick overlay (default)",
