@@ -193,7 +193,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         _subscriptions.clear();
 
         _teardownPassiveConversationSync();
-        _cancelMessageStream();
+        _cancelMessageStream(clearStreamingContent: false);
         _stopRemoteTaskMonitor();
         _streamingSyncTimer?.cancel();
         _streamingSyncTimer = null;
@@ -457,12 +457,13 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   void _clearStreamingContent() {
     try {
       ref.read(streamingContentProvider.notifier).set(null);
-    } on StateError catch (_) {
-      // Provider may be disposed during conversation transitions.
+    } on Object catch (_) {
+      // Provider may be disposing or unavailable during conversation
+      // transitions / notifier teardown.
     }
   }
 
-  void _cancelMessageStream() {
+  void _cancelMessageStream({bool clearStreamingContent = true}) {
     final controller = _messageStream;
     _messageStream = null;
     _activeStreamingTransportMessageId = null;
@@ -473,7 +474,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _streamingBuffer = null;
     _streamingSyncTimer?.cancel();
     _streamingSyncTimer = null;
-    _clearStreamingContent();
+    if (clearStreamingContent) {
+      _clearStreamingContent();
+    }
     _stopRemoteTaskMonitor();
   }
 
@@ -1139,27 +1142,29 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
       // Skip conversations list update for temporary chats
       if (!isTemporaryChat(activeConversation.id)) {
-        final conversationsAsync = ref.read(conversationsProvider);
-        Conversation? summary;
-        conversationsAsync.maybeWhen(
-          data: (conversations) {
-            for (final conversation in conversations) {
-              if (conversation.id == updatedActive.id) {
-                summary = conversation;
-                break;
+        try {
+          final conversationsAsync = ref.read(conversationsProvider);
+          Conversation? summary;
+          conversationsAsync.maybeWhen(
+            data: (conversations) {
+              for (final conversation in conversations) {
+                if (conversation.id == updatedActive.id) {
+                  summary = conversation;
+                  break;
+                }
               }
-            }
-          },
-          orElse: () {},
-        );
-        final updatedSummary =
-            (summary ?? updatedActive.copyWith(messages: const [])).copyWith(
-              updatedAt: updatedActive.updatedAt,
-            );
+            },
+            orElse: () {},
+          );
+          final updatedSummary =
+              (summary ?? updatedActive.copyWith(messages: const [])).copyWith(
+                updatedAt: updatedActive.updatedAt,
+              );
 
-        ref
-            .read(conversationsProvider.notifier)
-            .upsertConversation(updatedSummary.copyWith(messages: const []));
+          ref
+              .read(conversationsProvider.notifier)
+              .upsertConversation(updatedSummary.copyWith(messages: const []));
+        } catch (_) {}
       }
     }
 

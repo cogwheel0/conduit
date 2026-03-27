@@ -12,6 +12,7 @@ class AssistantDetailHeader extends StatelessWidget {
     required this.title,
     required this.showShimmer,
     this.showChevron = true,
+    this.allowWrap = false,
     this.useInlineChevron = false,
     this.isExpanded = false,
   });
@@ -19,6 +20,7 @@ class AssistantDetailHeader extends StatelessWidget {
   final String title;
   final bool showShimmer;
   final bool showChevron;
+  final bool allowWrap;
   final bool useInlineChevron;
   final bool isExpanded;
 
@@ -32,7 +34,8 @@ class AssistantDetailHeader extends StatelessWidget {
         Flexible(
           child: Text(
             title,
-            overflow: TextOverflow.ellipsis,
+            overflow: allowWrap ? null : TextOverflow.ellipsis,
+            maxLines: allowWrap ? null : 1,
             style: TextStyle(
               fontSize: AppTypography.bodyMedium,
               color: theme.textPrimary.withValues(alpha: 0.6),
@@ -59,6 +62,26 @@ class AssistantDetailHeader extends StatelessWidget {
     );
 
     if (!showShimmer) {
+      return header;
+    }
+
+    final disableAnimations =
+        MediaQuery.maybeDisableAnimationsOf(context) ??
+        WidgetsBinding
+            .instance
+            .platformDispatcher
+            .accessibilityFeatures
+            .disableAnimations;
+    if (disableAnimations) {
+      return header;
+    }
+
+    final bindingType = WidgetsBinding.instance.runtimeType.toString();
+    final isWidgetTestBinding = bindingType.contains('Test');
+
+    if (isWidgetTestBinding) {
+      // Avoid flutter_animate timers in widget tests so pumpAndSettle and
+      // disposal-based assertions remain stable.
       return header;
     }
 

@@ -134,6 +134,8 @@ Conversation _conversation(
 Future<void> pumpMicrotasks() => Future<void>.delayed(Duration.zero);
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   group('ChatMessagesNotifier remote sync', () {
     test('adopts a fetched snapshot for the same conversation ID', () async {
       final timestamp = DateTime.now();

@@ -1716,6 +1716,22 @@ ActiveChatStream attachUnifiedChunkedStreaming({
               });
             }
           } else {
+            final isForeignSession =
+                incomingSessionId != null &&
+                incomingSessionId.isNotEmpty &&
+                !matchesCurrentStreamSession(incomingSessionId);
+            final isUnexpectedMessage =
+                messageId != null &&
+                messageId.isNotEmpty &&
+                messageId != assistantMessageId &&
+                messageId != boundRemoteMessageId;
+            if (isForeignSession && isUnexpectedMessage) {
+              retireObsoleteStream(
+                'Foreign-session follow-ups superseded local stream',
+                incomingMessageId: messageId,
+              );
+              return;
+            }
             DebugLogger.log(
               'Follow-ups: targetId is null',
               scope: 'streaming/helper',

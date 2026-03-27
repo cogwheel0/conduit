@@ -103,6 +103,7 @@ class _StreamingStatusWidgetState extends State<StreamingStatusWidget> {
                     vertical: Spacing.sm,
                   ),
                   child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Icon(
                         Icons.public,
@@ -113,7 +114,6 @@ class _StreamingStatusWidgetState extends State<StreamingStatusWidget> {
                       Expanded(
                         child: Text(
                           title,
-                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontSize: AppTypography.bodyLarge,
                             fontWeight: FontWeight.w600,
@@ -171,7 +171,11 @@ class _MinimalStatusRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final description = _resolveStatusDescription(update);
-    return AssistantDetailHeader(title: description, showShimmer: isPending);
+    return AssistantDetailHeader(
+      title: description,
+      showShimmer: isPending,
+      showChevron: hasDetails,
+    );
   }
 }
 
@@ -192,6 +196,7 @@ class _MinimalHistoryTimeline extends StatelessWidget {
     final items = updates.asMap().entries.map((entry) {
       final index = entry.key;
       final update = entry.value;
+      final isFirst = index == 0;
       final isLast = index == updates.length - 1;
       final isPending = isLast && update.done != true && isStreaming;
       final description = _resolveStatusDescription(update);
@@ -200,31 +205,14 @@ class _MinimalHistoryTimeline extends StatelessWidget {
 
       return IntrinsicHeight(
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            SizedBox(
-              width: 20,
-              child: Column(
-                children: [
-                  Container(
-                    margin: const EdgeInsets.only(top: 5),
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: theme.textSecondary.withValues(alpha: 0.6),
-                    ),
-                  ),
-                  if (!isLast)
-                    Expanded(
-                      child: Container(
-                        width: 1,
-                        margin: const EdgeInsets.symmetric(vertical: 4),
-                        color: theme.dividerColor.withValues(alpha: 0.4),
-                      ),
-                    ),
-                ],
-              ),
+            _TimelineMarker(
+              index: index,
+              isFirst: isFirst,
+              isLast: isLast,
+              isPending: isPending,
+              theme: theme,
             ),
             const SizedBox(width: Spacing.sm),
             Expanded(
@@ -234,7 +222,12 @@ class _MinimalHistoryTimeline extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    _buildStatusText(context, description, isPending),
+                    AssistantDetailHeader(
+                      title: description,
+                      showShimmer: isPending,
+                      allowWrap: true,
+                      showChevron: false,
+                    ),
                     if (queries.isNotEmpty) ...[
                       const SizedBox(height: Spacing.xs),
                       _MinimalQueryChips(queries: queries),
@@ -258,31 +251,84 @@ class _MinimalHistoryTimeline extends StatelessWidget {
       children: items,
     );
   }
+}
 
-  Widget _buildStatusText(
-    BuildContext context,
-    String description,
-    bool isPending,
-  ) {
-    final theme = context.conduitTheme;
-    final baseColor = theme.textPrimary.withValues(alpha: 0.8);
-    final baseStyle = TextStyle(
-      fontSize: AppTypography.bodySmall,
-      color: baseColor,
-      height: 1.3,
+class _TimelineMarker extends StatelessWidget {
+  const _TimelineMarker({
+    required this.index,
+    required this.isFirst,
+    required this.isLast,
+    required this.isPending,
+    required this.theme,
+  });
+
+  static const double _width = 20;
+  static const double _dotSize = 8;
+  static const double _dotTop = 5;
+  static const double _lineWidth = 2;
+
+  final int index;
+  final bool isFirst;
+  final bool isLast;
+  final bool isPending;
+  final ConduitThemeExtension theme;
+
+  @override
+  Widget build(BuildContext context) {
+    final lineColor = theme.textSecondary.withValues(alpha: 0.6);
+    final dotColor = isPending
+        ? theme.shimmerHighlight.withValues(alpha: 0.85)
+        : theme.textSecondary.withValues(alpha: 0.6);
+    final backgroundColor = theme.surfaceBackground;
+    final centerOffset = (_width - _lineWidth) / 2;
+    final dotCenterY = _dotTop + (_dotSize / 2);
+
+    return SizedBox(
+      width: _width,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Positioned(
+            key: ValueKey<String>('status-timeline-rail-$index'),
+            left: centerOffset,
+            top: 0,
+            bottom: 0,
+            width: _lineWidth,
+            child: ColoredBox(color: lineColor),
+          ),
+          if (isFirst)
+            Positioned(
+              key: ValueKey<String>('status-timeline-mask-top-$index'),
+              left: centerOffset - 1,
+              width: _lineWidth + 2,
+              top: 0,
+              height: dotCenterY,
+              child: ColoredBox(color: backgroundColor),
+            ),
+          if (isLast)
+            Positioned(
+              key: ValueKey<String>('status-timeline-mask-bottom-$index'),
+              left: centerOffset - 1,
+              width: _lineWidth + 2,
+              top: dotCenterY,
+              bottom: 0,
+              child: ColoredBox(color: backgroundColor),
+            ),
+          Positioned(
+            top: _dotTop,
+            left: (_width - _dotSize) / 2,
+            child: Container(
+              width: _dotSize,
+              height: _dotSize,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: dotColor,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
-
-    if (!isPending) {
-      return Text(description, style: baseStyle);
-    }
-
-    // Shimmer effect for pending state
-    return Text(description, style: baseStyle)
-        .animate(onPlay: (controller) => controller.repeat())
-        .shimmer(
-          duration: 1500.ms,
-          color: theme.shimmerHighlight.withValues(alpha: 0.6),
-        );
   }
 }
 

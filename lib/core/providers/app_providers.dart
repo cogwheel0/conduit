@@ -1035,10 +1035,34 @@ class _ConversationsCacheTimestamp extends _$ConversationsCacheTimestamp {
 void refreshConversationsCache(dynamic ref, {bool includeFolders = false}) {
   ref.read(_conversationsCacheTimestampProvider.notifier).set(null);
   final notifier = ref.read(conversationsProvider.notifier);
-  unawaited(notifier.refresh(includeFolders: includeFolders));
+  unawaited(
+    notifier.refresh(includeFolders: includeFolders).catchError((
+      Object error,
+      StackTrace stackTrace,
+    ) {
+      DebugLogger.error(
+        'refresh-cache-failed',
+        scope: 'conversations',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }),
+  );
   if (includeFolders) {
     final foldersNotifier = ref.read(foldersProvider.notifier);
-    unawaited(foldersNotifier.refresh());
+    unawaited(
+      foldersNotifier.refresh().catchError((
+        Object error,
+        StackTrace stackTrace,
+      ) {
+        DebugLogger.error(
+          'refresh-folders-cache-failed',
+          scope: 'folders',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }),
+    );
   }
 }
 

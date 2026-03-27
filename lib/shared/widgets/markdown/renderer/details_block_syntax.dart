@@ -85,7 +85,13 @@ class DetailsBlockSyntax extends md.BlockSyntax {
       innerContent = innerContent.substring(summaryMatch.end);
     }
 
-    final decodedContent = _decode(innerContent).trim();
+    var decodedContent = _decode(innerContent).trim();
+    final detailType = _detailType(attributes);
+    if (detailType == 'reasoning') {
+      decodedContent = _normalizeReasoningLineBreaks(decodedContent);
+    } else if (detailType == 'code_interpreter') {
+      decodedContent = _normalizeCodeInterpreterLineBreaks(decodedContent);
+    }
     final childNodes = decodedContent.isEmpty
         ? const <md.Node>[]
         : md.BlockParser(
@@ -103,4 +109,71 @@ class DetailsBlockSyntax extends md.BlockSyntax {
   }
 
   static String _decode(String input) => _detailsHtmlUnescape.convert(input);
+
+  static String? _detailType(Map<String, String> attributes) =>
+      attributes['type']?.trim();
+
+  static String _normalizeReasoningLineBreaks(String input) {
+    if (input.isEmpty) {
+      return input;
+    }
+
+    final lines = input.split('\n');
+    if (lines.any(_looksLikeStructuredMarkdown)) {
+      return input;
+    }
+
+    return lines.where((line) => line.trim().isNotEmpty).join('\n\n');
+  }
+
+  static String _normalizeCodeInterpreterLineBreaks(String input) {
+    if (input.isEmpty) {
+      return input;
+    }
+
+    final lines = input.split('\n');
+    if (lines.any(_looksLikeStructuredMarkdown)) {
+      return input;
+    }
+
+    final paragraphs = <String>[];
+    var currentParagraph = <String>[];
+
+    void flushParagraph() {
+      if (currentParagraph.isEmpty) {
+        return;
+      }
+      paragraphs.add(currentParagraph.join('  \n'));
+      currentParagraph = <String>[];
+    }
+
+    for (final line in lines) {
+      if (line.trim().isEmpty) {
+        flushParagraph();
+        continue;
+      }
+      currentParagraph.add(line);
+    }
+    flushParagraph();
+
+    return paragraphs.join('\n\n');
+  }
+
+  static bool _looksLikeStructuredMarkdown(String rawLine) {
+    final line = rawLine.trim();
+    if (line.isEmpty) {
+      return false;
+    }
+
+    return rawLine.startsWith('    ') ||
+        rawLine.startsWith('\t') ||
+        line.startsWith('```') ||
+        line.startsWith('>') ||
+        line.startsWith('- ') ||
+        line.startsWith('* ') ||
+        RegExp(r'^\d+\.\s').hasMatch(line) ||
+        line.startsWith('#') ||
+        line.startsWith('|') ||
+        line.startsWith('<');
+  }
 }

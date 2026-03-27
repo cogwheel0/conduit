@@ -3,33 +3,15 @@ import 'dart:convert';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/models/chat_message.dart';
-import 'package:conduit/core/models/socket_event.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/chat_completion_transport.dart';
+import 'package:conduit/core/services/socket_service.dart';
 import 'package:conduit/core/services/streaming_helper.dart';
 import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/features/chat/services/chat_transport_dispatch.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
-
-// ---------------------------------------------------------------------------
-// Local typedefs for socket delta listener (not yet in production code)
-// ---------------------------------------------------------------------------
-
-/// Callback invoked when a conversation delta arrives.
-typedef ConversationDeltaDataCallback = void Function(ConversationDelta delta);
-
-/// Callback invoked on delta listener errors.
-typedef ConversationDeltaErrorCallback = void Function(Object error);
-
-/// Registers a delta listener and returns a dispose function.
-typedef RegisterConversationDeltaListener =
-    void Function() Function({
-      required ConversationDeltaRequest request,
-      required ConversationDeltaDataCallback onDelta,
-      required ConversationDeltaErrorCallback onError,
-    });
 
 // ---------------------------------------------------------------------------
 // Fake helpers
@@ -183,6 +165,18 @@ class _CallbackLog {
   void flushStreamingBuffer() {
     flushCount++;
   }
+
+  void updateMessageById(
+    String id,
+    ChatMessage Function(ChatMessage current) updater,
+  ) {
+    final index = messages.indexWhere((message) => message.id == id);
+    if (index == -1) {
+      return;
+    }
+    final updated = updater(messages[index]);
+    messages = [...messages.take(index), updated, ...messages.skip(index + 1)];
+  }
 }
 
 List<ChatMessage> _fakeStreamingMessages({
@@ -211,8 +205,7 @@ ActiveChatStream _attach({
   String assistantMessageId = 'msg-1',
   String sessionId = 'sess-1',
   String? activeConversationId = 'conv-1',
-  // ignore: unused_parameter – kept for future delta-listener wiring
-  RegisterConversationDeltaListener? registerDeltaListener,
+  SocketService? socketService,
 }) {
   return attachUnifiedChunkedStreaming(
     session: session,
@@ -223,7 +216,7 @@ ActiveChatStream _attach({
     sessionId: sessionId,
     activeConversationId: activeConversationId,
     api: api ?? _buildFakeApi(),
-    socketService: null,
+    socketService: socketService,
     workerManager: workerManager ?? WorkerManager(maxConcurrentTasks: 1),
     appendToLastMessage: log.appendToLastMessage,
     replaceLastMessageContent: log.replaceLastMessageContent,
@@ -232,7 +225,7 @@ ActiveChatStream _attach({
     setFollowUps: (_, _) {},
     upsertCodeExecution: (_, _) {},
     appendSourceReference: (_, _) {},
-    updateMessageById: (_, _) {},
+    updateMessageById: log.updateMessageById,
     completeStreamingUi: log.completeStreamingUi,
     finishStreaming: log.finishStreaming,
     getMessages: log.getMessages,
@@ -244,31 +237,152 @@ ActiveChatStream _attach({
 // Socket event injection helper
 // ---------------------------------------------------------------------------
 
-/// Captures delta listener callbacks for injecting socket events in tests.
-class _FakeDeltaRegistrar {
-  ConversationDeltaDataCallback? _chatHandler;
+class FakeSocketInjector {
+  final _registrations = <_ChatHandlerRegistration>[];
 
-  RegisterConversationDeltaListener get registrar =>
-      ({
-        required ConversationDeltaRequest request,
-        required ConversationDeltaDataCallback onDelta,
-        required ConversationDeltaErrorCallback onError,
-      }) {
-        if (request.source == ConversationDeltaSource.chat) {
-          _chatHandler = onDelta;
-        }
-        return () {};
-      };
+  bool get hasChatHandler => _registrations.isNotEmpty;
 
-  void emitChatEvent(String type, dynamic payload, {String? messageId}) {
+  void emitChatEvent(
+    String type,
+    dynamic payload, {
+    String? conversationId,
+    String? messageId,
+    String? sessionId,
+  }) {
     final raw = <String, dynamic>{
-      'data': {'type': type, 'data': payload},
+      'chat_id': ?conversationId,
       'message_id': ?messageId,
+      'session_id': ?sessionId,
+      'data': {
+        'type': type,
+        'data': payload,
+        'chat_id': ?conversationId,
+        'message_id': ?messageId,
+        'session_id': ?sessionId,
+      },
     };
-    _chatHandler?.call(
-      ConversationDelta(source: ConversationDeltaSource.chat, raw: raw),
+    for (final registration in List<_ChatHandlerRegistration>.from(
+      _registrations,
+    )) {
+      if (!_shouldDeliver(
+        registration.conversationId,
+        registration.sessionId,
+        registration.messageId,
+        conversationId,
+        sessionId,
+        messageId,
+        registration.requireFocus,
+      )) {
+        continue;
+      }
+      registration.handler(raw, null);
+    }
+  }
+}
+
+class _ChatHandlerRegistration {
+  const _ChatHandlerRegistration({
+    required this.id,
+    required this.conversationId,
+    required this.sessionId,
+    required this.messageId,
+    required this.requireFocus,
+    required this.handler,
+  });
+
+  final String id;
+  final String? conversationId;
+  final String? sessionId;
+  final String? messageId;
+  final bool requireFocus;
+  final SocketChatEventHandler handler;
+}
+
+bool _shouldDeliver(
+  String? registeredConversationId,
+  String? registeredSessionId,
+  String? registeredMessageId,
+  String? incomingConversationId,
+  String? incomingSessionId,
+  String? incomingMessageId,
+  bool requireFocus,
+) {
+  final matchesConversation =
+      registeredConversationId == null ||
+      (incomingConversationId != null &&
+          registeredConversationId == incomingConversationId);
+  final matchesSession =
+      registeredSessionId != null &&
+      incomingSessionId != null &&
+      registeredSessionId == incomingSessionId;
+  final matchesMessage =
+      registeredMessageId != null &&
+      incomingMessageId != null &&
+      registeredMessageId == incomingMessageId;
+
+  if (!matchesConversation && !matchesSession && !matchesMessage) {
+    return false;
+  }
+
+  if (!requireFocus) {
+    return true;
+  }
+
+  return true;
+}
+
+class _MockSocketService implements SocketService {
+  _MockSocketService(this._injector);
+
+  final FakeSocketInjector _injector;
+  var _nextHandlerId = 0;
+
+  @override
+  SocketEventSubscription addChatEventHandler({
+    String? conversationId,
+    String? sessionId,
+    String? messageId,
+    bool requireFocus = true,
+    required SocketChatEventHandler handler,
+  }) {
+    final handlerId = 'test-${_nextHandlerId++}';
+    _injector._registrations.add(
+      _ChatHandlerRegistration(
+        id: handlerId,
+        conversationId: conversationId,
+        sessionId: sessionId,
+        messageId: messageId,
+        requireFocus: requireFocus,
+        handler: handler,
+      ),
+    );
+    return SocketEventSubscription(
+      () => _injector._registrations.removeWhere(
+        (registration) => registration.id == handlerId,
+      ),
+      handlerId: handlerId,
     );
   }
+
+  @override
+  SocketEventSubscription addChannelEventHandler({
+    String? conversationId,
+    String? sessionId,
+    bool requireFocus = true,
+    required SocketChatEventHandler handler,
+  }) => SocketEventSubscription(() {}, handlerId: 'test-channel');
+
+  @override
+  Stream<void> get onReconnect => const Stream.empty();
+
+  @override
+  bool get isConnected => true;
+
+  @override
+  String? get sessionId => 'test-session';
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
 }
 
 // ---------------------------------------------------------------------------
@@ -561,7 +675,7 @@ void main() {
           metadata: {'transport': 'taskSocket', 'taskId': 'task-abc'},
         ),
       );
-      final registrar = _FakeDeltaRegistrar();
+      final registrar = FakeSocketInjector();
 
       _attach(
         session: ChatCompletionSession.taskSocket(
@@ -570,7 +684,7 @@ void main() {
           taskId: 'task-abc',
         ),
         log: log,
-        registerDeltaListener: registrar.registrar,
+        socketService: _MockSocketService(registrar),
       );
 
       await pumpMicrotasks();
@@ -580,7 +694,7 @@ void main() {
         'files': [
           {'url': 'https://example.com/gen.png'},
         ],
-      });
+      }, conversationId: 'conv-1');
 
       await pumpMicrotasks();
 
@@ -607,7 +721,7 @@ void main() {
           },
         ),
       );
-      final registrar = _FakeDeltaRegistrar();
+      final registrar = FakeSocketInjector();
 
       _attach(
         session: ChatCompletionSession.taskSocket(
@@ -616,13 +730,15 @@ void main() {
           taskId: 'task-xyz',
         ),
         log: log,
-        registerDeltaListener: registrar.registrar,
+        socketService: _MockSocketService(registrar),
       );
 
       await pumpMicrotasks();
 
       // Status event arrives
-      registrar.emitChatEvent('event:status', {'status': 'Processing...'});
+      registrar.emitChatEvent('event:status', {
+        'status': 'Processing...',
+      }, conversationId: 'conv-1');
 
       await pumpMicrotasks();
 
@@ -636,6 +752,32 @@ void main() {
       check(lastMsg.metadata!['hasActiveAbortHandle']).equals(true);
     });
 
+    test('scoped chat handler ignores unscoped socket events', () async {
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          conversationId: 'conv-1',
+          taskId: 'task-routing',
+        ),
+        log: log,
+        activeConversationId: 'conv-1',
+        socketService: _MockSocketService(registrar),
+      );
+
+      await pumpMicrotasks();
+
+      check(registrar.hasChatHandler).isTrue();
+
+      registrar.emitChatEvent('event:status', {'status': 'Should not route'});
+      await pumpMicrotasks();
+
+      check(log.messages.last.metadata).isNull();
+    });
+
     // -------------------------------------------------------------------
     // 12. Sequential image + status patches preserve all metadata
     // -------------------------------------------------------------------
@@ -647,7 +789,7 @@ void main() {
             metadata: {'transport': 'taskSocket', 'taskId': 'task-seq'},
           ),
         );
-        final registrar = _FakeDeltaRegistrar();
+        final registrar = FakeSocketInjector();
 
         _attach(
           session: ChatCompletionSession.taskSocket(
@@ -656,7 +798,7 @@ void main() {
             taskId: 'task-seq',
           ),
           log: log,
-          registerDeltaListener: registrar.registrar,
+          socketService: _MockSocketService(registrar),
         );
 
         await pumpMicrotasks();
@@ -664,12 +806,14 @@ void main() {
         // Files first
         registrar.emitChatEvent('files', [
           {'url': 'https://example.com/seq.png'},
-        ]);
+        ], conversationId: 'conv-1');
 
         await pumpMicrotasks();
 
         // Status second
-        registrar.emitChatEvent('event:status', {'status': 'Done generating'});
+        registrar.emitChatEvent('event:status', {
+          'status': 'Done generating',
+        }, conversationId: 'conv-1');
 
         await pumpMicrotasks();
 
