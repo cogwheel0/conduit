@@ -89,7 +89,7 @@
             android:paddingStart="20dp"
             android:paddingEnd="8dp">
 
-            <!-- Ask Conduit text -->
+            <!-- Ask Qonduit text -->
             <TextView
                 android:id="@+id/input_area"
                 android:layout_width="wrap_content"
@@ -97,7 +97,7 @@
                 android:layout_alignParentStart="true"
                 android:layout_toStartOf="@id/btn_voice"
                 android:layout_centerVertical="true"
-                android:text="Ask Conduit"
+                android:text="Ask Qonduit"
                 android:textColor="@android:color/white"
                 android:textSize="16sp"
                 android:alpha="0.6"

@@ -16,8 +16,8 @@
 library;
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/models/chat_message.dart';
-import 'package:conduit/features/chat/utils/file_utils.dart';
+import 'package:qonduit/core/models/chat_message.dart';
+import 'package:qonduit/features/chat/utils/file_utils.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

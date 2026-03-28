@@ -1,7 +1,7 @@
 import 'package:checks/checks.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:conduit/core/services/settings_service.dart';
+import 'package:qonduit/core/services/settings_service.dart';
 
 void main() {
   group('AppSettings', () {

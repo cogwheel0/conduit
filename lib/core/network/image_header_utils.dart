@@ -1,8 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/api_service.dart';
-import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
+import 'package:qonduit/core/providers/app_providers.dart';
+import 'package:qonduit/core/services/api_service.dart';
+import 'package:qonduit/features/auth/providers/unified_auth_providers.dart';
 
 /// Builds HTTP headers for protected image requests.
 ///

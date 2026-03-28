@@ -30,7 +30,7 @@ class ScreenContextNotifier extends Notifier<String?> {
 }
 
 class AndroidAssistantHandler {
-  static const platform = MethodChannel('app.cogwheel.conduit/assistant');
+  static const platform = MethodChannel('app.cogwheel.qonduit/assistant');
   final Ref _ref;
 
   AndroidAssistantHandler(this._ref) {

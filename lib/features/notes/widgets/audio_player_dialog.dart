@@ -205,7 +205,7 @@ class _AudioPlayerDialogState extends State<AudioPlayerDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final l10n = AppLocalizations.of(context)!;
 
     final progress = _duration.inMilliseconds > 0

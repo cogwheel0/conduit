@@ -1,4 +1,4 @@
-import 'package:conduit/l10n/app_localizations.dart';
+import 'package:qonduit/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../shared/widgets/themed_dialogs.dart';

@@ -10,13 +10,13 @@ import '../services/worker_manager.dart';
 final secureStorageProvider = Provider<FlutterSecureStorage>((ref) {
   return const FlutterSecureStorage(
     aOptions: AndroidOptions(
-      sharedPreferencesName: 'conduit_secure_prefs',
-      preferencesKeyPrefix: 'conduit_',
+      sharedPreferencesName: 'qonduit_secure_prefs',
+      preferencesKeyPrefix: 'qonduit_',
       // Avoid auto-wipe on transient errors; handled at call sites instead.
       resetOnError: false,
     ),
     iOptions: IOSOptions(
-      accountName: 'conduit_secure_storage',
+      accountName: 'qonduit_secure_storage',
       synchronizable: false,
     ),
   );

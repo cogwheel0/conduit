@@ -1,5 +1,5 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/core/error/api_error.dart';
+import 'package:qonduit/core/error/api_error.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

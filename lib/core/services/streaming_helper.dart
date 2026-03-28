@@ -2302,7 +2302,7 @@ Future<String?> _showInputDialog(Map<String, dynamic> data) async {
             if (message.isNotEmpty) ...[
               Text(
                 message,
-                style: TextStyle(color: dialogCtx.conduitTheme.textSecondary),
+                style: TextStyle(color: dialogCtx.qonduitTheme.textSecondary),
               ),
               const SizedBox(height: Spacing.md),
             ],
@@ -2324,7 +2324,7 @@ Future<String?> _showInputDialog(Map<String, dynamic> data) async {
           AdaptiveButton(
             onPressed: () => Navigator.of(dialogCtx).pop(null),
             label: data['cancel_text']?.toString() ?? 'Cancel',
-            textColor: dialogCtx.conduitTheme.textSecondary,
+            textColor: dialogCtx.qonduitTheme.textSecondary,
             style: AdaptiveButtonStyle.plain,
           ),
           AdaptiveButton(
@@ -2337,7 +2337,7 @@ Future<String?> _showInputDialog(Map<String, dynamic> data) async {
               }
             },
             label: data['confirm_text']?.toString() ?? 'Submit',
-            textColor: dialogCtx.conduitTheme.buttonPrimary,
+            textColor: dialogCtx.qonduitTheme.buttonPrimary,
             style: AdaptiveButtonStyle.plain,
           ),
         ],

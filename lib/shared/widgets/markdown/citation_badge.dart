@@ -118,7 +118,7 @@ class CitationBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
 
     // Check if index is valid
     if (sourceIndex < 0 || sourceIndex >= sources.length) {
@@ -212,7 +212,7 @@ class CitationBadgeGroup extends StatelessWidget {
       );
     }
 
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
 
     // Get first valid source for display
     final firstIndex = sourceIndices.first;

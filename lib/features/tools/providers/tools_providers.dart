@@ -2,9 +2,9 @@ import 'dart:async';
 
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import 'package:conduit/core/models/tool.dart';
-import 'package:conduit/core/providers/storage_providers.dart';
-import 'package:conduit/core/services/tools_service.dart';
+import 'package:qonduit/core/models/tool.dart';
+import 'package:qonduit/core/providers/storage_providers.dart';
+import 'package:qonduit/core/services/tools_service.dart';
 
 part 'tools_providers.g.dart';
 

@@ -218,7 +218,7 @@ class TextToSpeechController extends Notifier<TextToSpeechState> {
     }
 
     // Prepare sentence split for highlighting
-    final cleanText = ConduitMarkdownPreprocessor.toPlainText(text);
+    final cleanText = QonduitMarkdownPreprocessor.toPlainText(text);
     final sentences = _service.splitTextForSpeech(cleanText);
     final offsets = _computeOffsets(cleanText, sentences);
 

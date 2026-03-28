@@ -2,12 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:conduit/l10n/app_localizations.dart';
+import 'package:qonduit/l10n/app_localizations.dart';
 import '../../../core/models/channel.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
-import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/qonduit_components.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../core/services/navigation_service.dart';
@@ -165,7 +165,7 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final channelsAsync = ref.watch(channelsListProvider);
 
@@ -176,7 +176,7 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
           child: Row(
             children: [
               Expanded(
-                child: ConduitGlassSearchField(
+                child: QonduitGlassSearchField(
                   controller: _searchController,
                   hintText: l10n.searchChannels,
                   onChanged: _onSearchChanged,
@@ -293,7 +293,7 @@ class _ChannelTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final unread = channel.unreadCount;
 
     final background = selected

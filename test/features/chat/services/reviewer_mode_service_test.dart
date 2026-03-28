@@ -1,5 +1,5 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/features/chat/services/reviewer_mode_service.dart';
+import 'package:qonduit/features/chat/services/reviewer_mode_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -45,7 +45,7 @@ void main() {
             );
             final hasGreeting =
                 result.contains('help you explore') ||
-                result.contains('Welcome to Conduit') ||
+                result.contains('Welcome to Qonduit') ||
                 result.contains('chat capabilities');
             check(hasGreeting)
                 .isTrue();
@@ -156,7 +156,7 @@ void main() {
           );
           final hasGreeting =
               result.contains('help you explore') ||
-              result.contains('Welcome to Conduit') ||
+              result.contains('Welcome to Qonduit') ||
               result.contains('chat capabilities');
           check(hasGreeting).isTrue();
         });

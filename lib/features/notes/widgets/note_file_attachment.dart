@@ -3,7 +3,7 @@ import 'dart:io' show Platform;
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:conduit/l10n/app_localizations.dart';
+import 'package:qonduit/l10n/app_localizations.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/file_type_utils.dart';
@@ -48,7 +48,7 @@ class NoteFileAttachment extends StatelessWidget {
 
   IconData get _icon => FileTypeUtils.iconForExtension(_extension);
 
-  Color _iconColor(ConduitThemeExtension theme) =>
+  Color _iconColor(QonduitThemeExtension theme) =>
       FileTypeUtils.colorForExtension(
         _extension,
         fallback: theme.textSecondary,
@@ -56,7 +56,7 @@ class NoteFileAttachment extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final l10n = AppLocalizations.of(context)!;
 
     return Material(
@@ -221,7 +221,7 @@ class NoteFilesSection extends StatelessWidget {
   Widget build(BuildContext context) {
     if (files.isEmpty) return const SizedBox.shrink();
 
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final l10n = AppLocalizations.of(context)!;
 
     return Column(

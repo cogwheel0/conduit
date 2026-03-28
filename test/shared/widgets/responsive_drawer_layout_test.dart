@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:conduit/shared/widgets/responsive_drawer_layout.dart';
+import 'package:qonduit/shared/widgets/responsive_drawer_layout.dart';
 
 const _mobileSize = Size(390, 844);
 const _tabletSize = Size(1024, 1366);

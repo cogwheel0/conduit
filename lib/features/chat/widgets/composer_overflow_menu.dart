@@ -7,14 +7,14 @@ import 'dart:io' show Platform;
 
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/sheet_handle.dart';
-import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/qonduit_components.dart';
 import '../../../shared/widgets/modal_safe_area.dart';
 import '../../../core/models/tool.dart';
 import '../../../core/models/toggle_filter.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../tools/providers/tools_providers.dart';
 import '../providers/chat_providers.dart';
-import 'package:conduit/l10n/app_localizations.dart';
+import 'package:qonduit/l10n/app_localizations.dart';
 
 /// A reusable toggle tile widget used in the composer overflow sheet.
 class ToggleTile extends StatelessWidget {
@@ -33,7 +33,7 @@ class ToggleTile extends StatelessWidget {
   final String? subtitle;
   final bool selected;
   final VoidCallback onToggle;
-  final ConduitThemeExtension theme;
+  final QonduitThemeExtension theme;
 
   @override
   Widget build(BuildContext context) {
@@ -42,7 +42,7 @@ class ToggleTile extends StatelessWidget {
       toggled: selected,
       label: title,
       hint: (subtitle?.isEmpty ?? true) ? null : subtitle,
-      child: ConduitCard(
+      child: QonduitCard(
         padding: const EdgeInsets.all(Spacing.md),
         onTap: () {
           HapticFeedback.selectionClick();
@@ -139,7 +139,7 @@ class _ComposerOverflowSheetState
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
 
     final attachments = <Widget>[
       _buildAction(
@@ -316,7 +316,7 @@ class _ComposerOverflowSheetState
                 color: theme.dividerColor,
                 width: BorderWidth.thin,
               ),
-              boxShadow: ConduitShadows.modal(context),
+              boxShadow: QonduitShadows.modal(context),
             ),
             child: ModalSheetSafeArea(
               padding: const EdgeInsets.fromLTRB(
@@ -343,7 +343,7 @@ class _ComposerOverflowSheetState
       child: Text(
         text,
         style: AppTypography.labelStyle.copyWith(
-          color: context.conduitTheme.textSecondary.withValues(
+          color: context.qonduitTheme.textSecondary.withValues(
             alpha: Alpha.strong,
           ),
           fontWeight: FontWeight.w600,
@@ -353,8 +353,8 @@ class _ComposerOverflowSheetState
   }
 
   Widget _buildInfoCard(String message) {
-    final theme = context.conduitTheme;
-    return ConduitCard(
+    final theme = context.qonduitTheme;
+    return QonduitCard(
       padding: const EdgeInsets.all(Spacing.md),
       child: Text(
         message,
@@ -370,7 +370,7 @@ class _ComposerOverflowSheetState
     required String label,
     VoidCallback? onTap,
   }) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final bool enabled = onTap != null;
     final Color iconColor = enabled ? theme.buttonPrimary : theme.iconDisabled;
     final Color textColor = enabled
@@ -379,7 +379,7 @@ class _ComposerOverflowSheetState
 
     return Opacity(
       opacity: enabled ? 1.0 : Alpha.disabled,
-      child: ConduitCard(
+      child: QonduitCard(
         padding: const EdgeInsets.symmetric(
           horizontal: Spacing.xs,
           vertical: Spacing.sm,
@@ -435,7 +435,7 @@ class _ComposerOverflowSheetState
     required ValueChanged<bool> onChanged,
     String? iconUrl,
   }) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final glyph = iconUrl != null && iconUrl.isNotEmpty
         ? _buildFilterGlyph(iconUrl: iconUrl, selected: value, theme: theme)
         : _buildIconGlyph(icon: icon, selected: value, theme: theme);
@@ -454,7 +454,7 @@ class _ComposerOverflowSheetState
     required bool selected,
     required VoidCallback onToggle,
   }) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     return ToggleTile(
       glyph: _buildIconGlyph(
         icon: _iconFor(tool),
@@ -474,7 +474,7 @@ class _ComposerOverflowSheetState
     required bool selected,
     required VoidCallback onToggle,
   }) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     return ToggleTile(
       glyph: _buildFilterGlyph(
         iconUrl: filter.icon,
@@ -492,7 +492,7 @@ class _ComposerOverflowSheetState
   Widget _buildIconGlyph({
     required IconData icon,
     required bool selected,
-    required ConduitThemeExtension theme,
+    required QonduitThemeExtension theme,
   }) {
     final color = selected ? theme.buttonPrimary : theme.iconPrimary;
     return Container(
@@ -514,7 +514,7 @@ class _ComposerOverflowSheetState
   Widget _buildFilterGlyph({
     String? iconUrl,
     required bool selected,
-    required ConduitThemeExtension theme,
+    required QonduitThemeExtension theme,
   }) {
     final color = selected ? theme.buttonPrimary : theme.iconPrimary;
     final fallback = Icon(

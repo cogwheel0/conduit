@@ -121,7 +121,7 @@ class BackgroundStreamingHandler: NSObject {
     private var microphoneStreams: Set<String> = []
     private var channel: FlutterMethodChannel?
 
-    static let processingTaskIdentifier = "app.cogwheel.conduit.refresh"
+    static let processingTaskIdentifier = "app.cogwheel.qonduit.refresh"
 
     override init() {
         super.init()
@@ -263,7 +263,7 @@ class BackgroundStreamingHandler: NSObject {
     private func startBackgroundTask() {
         guard backgroundTask == .invalid else { return }
         
-        backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "ConduitStreaming") { [weak self] in
+        backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "QonduitStreaming") { [weak self] in
             guard let self = self else { return }
             // Notify Flutter about streams being suspended before task expires
             self.notifyStreamsSuspending(reason: "background_task_expiring")
@@ -287,7 +287,7 @@ class BackgroundStreamingHandler: NSObject {
             
             // Begin a new task BEFORE marking old one invalid
             // This ensures continuous background execution coverage
-            let newTask = UIApplication.shared.beginBackgroundTask(withName: "ConduitStreaming") { [weak self] in
+            let newTask = UIApplication.shared.beginBackgroundTask(withName: "QonduitStreaming") { [weak self] in
                 guard let self = self else { return }
                 self.notifyStreamsSuspending(reason: "keepalive_task_expiring")
                 self.channel?.invokeMethod("backgroundTaskExpiring", arguments: nil)
@@ -444,7 +444,7 @@ final class AppIntentMethodChannel {
 
     init(messenger: FlutterBinaryMessenger) {
         channel = FlutterMethodChannel(
-            name: "conduit/app_intents",
+            name: "qonduit/app_intents",
             binaryMessenger: messenger
         )
     }
@@ -483,17 +483,17 @@ enum AppIntentError: Error {
 }
 
 @available(iOS 16.0, *)
-struct AskConduitIntent: AppIntent {
-    static var title: LocalizedStringResource = "Ask Conduit"
+struct AskQonduitIntent: AppIntent {
+    static var title: LocalizedStringResource = "Ask Qonduit"
     static var description = IntentDescription(
-        "Start a Conduit chat with an optional prompt."
+        "Start a Qonduit chat with an optional prompt."
     )
     static var isDiscoverable = true
     static var openAppWhenRun = true
 
     @Parameter(
         title: "Prompt",
-        requestValueDialog: IntentDialog("What should Conduit answer?")
+        requestValueDialog: IntentDialog("What should Qonduit answer?")
     )
     var prompt: String?
 
@@ -514,7 +514,7 @@ struct AskConduitIntent: AppIntent {
             ? ["prompt": prompt ?? ""]
             : [:]
         let result = await channel.invokeIntent(
-            identifier: "app.cogwheel.conduit.ask_chat",
+            identifier: "app.cogwheel.qonduit.ask_chat",
             parameters: parameters
         )
 
@@ -524,7 +524,7 @@ struct AskConduitIntent: AppIntent {
         }
 
         let message = result["error"] as? String
-            ?? "Unable to open Conduit chat"
+            ?? "Unable to open Qonduit chat"
         throw AppIntentError.executionFailed(message)
     }
 }
@@ -533,7 +533,7 @@ struct AskConduitIntent: AppIntent {
 struct StartVoiceCallIntent: AppIntent {
     static var title: LocalizedStringResource = "Start Voice Call"
     static var description = IntentDescription(
-        "Start a live voice call with Conduit."
+        "Start a live voice call with Qonduit."
     )
     static var isDiscoverable = true
     static var openAppWhenRun = true
@@ -546,7 +546,7 @@ struct StartVoiceCallIntent: AppIntent {
         }
 
         let result = await channel.invokeIntent(
-            identifier: "app.cogwheel.conduit.start_voice_call",
+            identifier: "app.cogwheel.qonduit.start_voice_call",
             parameters: [:]
         )
 
@@ -562,17 +562,17 @@ struct StartVoiceCallIntent: AppIntent {
 }
 
 @available(iOS 16.0, *)
-struct ConduitSendTextIntent: AppIntent {
-    static var title: LocalizedStringResource = "Send to Conduit"
+struct QonduitSendTextIntent: AppIntent {
+    static var title: LocalizedStringResource = "Send to Qonduit"
     static var description = IntentDescription(
-        "Start a Conduit chat with provided text."
+        "Start a Qonduit chat with provided text."
     )
     static var isDiscoverable = true
     static var openAppWhenRun = true
 
     @Parameter(
         title: "Text",
-        requestValueDialog: IntentDialog("What should Conduit process?")
+        requestValueDialog: IntentDialog("What should Qonduit process?")
     )
     var text: String?
 
@@ -585,12 +585,12 @@ struct ConduitSendTextIntent: AppIntent {
 
         let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines)
         let result = await channel.invokeIntent(
-            identifier: "app.cogwheel.conduit.send_text",
+            identifier: "app.cogwheel.qonduit.send_text",
             parameters: ["text": trimmed ?? ""]
         )
 
         if let success = result["success"] as? Bool, success {
-            let value = result["value"] as? String ?? "Sent to Conduit"
+            let value = result["value"] as? String ?? "Sent to Qonduit"
             return .result(value: value)
         }
 
@@ -600,17 +600,17 @@ struct ConduitSendTextIntent: AppIntent {
 }
 
 @available(iOS 16.0, *)
-struct ConduitSendUrlIntent: AppIntent {
-    static var title: LocalizedStringResource = "Send Link to Conduit"
+struct QonduitSendUrlIntent: AppIntent {
+    static var title: LocalizedStringResource = "Send Link to Qonduit"
     static var description = IntentDescription(
-        "Send a URL into Conduit for summary or analysis."
+        "Send a URL into Qonduit for summary or analysis."
     )
     static var isDiscoverable = true
     static var openAppWhenRun = true
 
     @Parameter(
         title: "URL",
-        requestValueDialog: IntentDialog("Which link should Conduit analyze?")
+        requestValueDialog: IntentDialog("Which link should Qonduit analyze?")
     )
     var url: URL
 
@@ -622,12 +622,12 @@ struct ConduitSendUrlIntent: AppIntent {
         }
 
         let result = await channel.invokeIntent(
-            identifier: "app.cogwheel.conduit.send_url",
+            identifier: "app.cogwheel.qonduit.send_url",
             parameters: ["url": url.absoluteString]
         )
 
         if let success = result["success"] as? Bool, success {
-            let value = result["value"] as? String ?? "Sent link to Conduit"
+            let value = result["value"] as? String ?? "Sent link to Qonduit"
             return .result(value: value)
         }
 
@@ -637,17 +637,17 @@ struct ConduitSendUrlIntent: AppIntent {
 }
 
 @available(iOS 16.0, *)
-struct ConduitSendImageIntent: AppIntent {
-    static var title: LocalizedStringResource = "Send Image to Conduit"
+struct QonduitSendImageIntent: AppIntent {
+    static var title: LocalizedStringResource = "Send Image to Qonduit"
     static var description = IntentDescription(
-        "Send an image into Conduit for analysis."
+        "Send an image into Qonduit for analysis."
     )
     static var isDiscoverable = true
     static var openAppWhenRun = true
 
     @Parameter(
         title: "Image",
-        requestValueDialog: IntentDialog("Choose an image for Conduit.")
+        requestValueDialog: IntentDialog("Choose an image for Qonduit.")
     )
     var image: IntentFile
 
@@ -669,7 +669,7 @@ struct ConduitSendImageIntent: AppIntent {
         let name = image.filename ?? "shared_image.jpg"
 
         let result = await channel.invokeIntent(
-            identifier: "app.cogwheel.conduit.send_image",
+            identifier: "app.cogwheel.qonduit.send_image",
             parameters: [
                 "filename": name,
                 "bytes": base64,
@@ -677,7 +677,7 @@ struct ConduitSendImageIntent: AppIntent {
         )
 
         if let success = result["success"] as? Bool, success {
-            let value = result["value"] as? String ?? "Sent image to Conduit"
+            let value = result["value"] as? String ?? "Sent image to Qonduit"
             return .result(value: value)
         }
 
@@ -691,7 +691,7 @@ struct AppShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         return [
             AppShortcut(
-                intent: AskConduitIntent(),
+                intent: AskQonduitIntent(),
                 phrases: [
                     "Ask with \(.applicationName)",
                     "Start chat in \(.applicationName)",
@@ -707,7 +707,7 @@ struct AppShortcuts: AppShortcutsProvider {
                 ]
             ),
             AppShortcut(
-                intent: ConduitSendTextIntent(),
+                intent: QonduitSendTextIntent(),
                 phrases: [
                     "Send text to \(.applicationName)",
                     "Share text with \(.applicationName)",
@@ -715,7 +715,7 @@ struct AppShortcuts: AppShortcutsProvider {
                 ]
             ),
             AppShortcut(
-                intent: ConduitSendUrlIntent(),
+                intent: QonduitSendUrlIntent(),
                 phrases: [
                     "Summarize link in \(.applicationName)",
                     "Analyze link with \(.applicationName)",
@@ -723,7 +723,7 @@ struct AppShortcuts: AppShortcutsProvider {
                 ]
             ),
             AppShortcut(
-                intent: ConduitSendImageIntent(),
+                intent: QonduitSendImageIntent(),
                 phrases: [
                     "Send image to \(.applicationName)",
                     "Analyze image with \(.applicationName)",
@@ -774,7 +774,7 @@ struct AppShortcuts: AppShortcutsProvider {
     // Setup background streaming handler
     let bgRegistrar = engineBridge.applicationRegistrar
     let channel = FlutterMethodChannel(
-      name: "conduit/background_streaming",
+      name: "qonduit/background_streaming",
       binaryMessenger: bgRegistrar.messenger()
     )
 
@@ -792,7 +792,7 @@ struct AppShortcuts: AppShortcutsProvider {
     // Setup cookie manager channel for WebView cookie access
     let cookieRegistrar = engineBridge.applicationRegistrar
     let cookieChannel = FlutterMethodChannel(
-      name: "com.conduit.app/cookies",
+      name: "com.qonduit.app/cookies",
       binaryMessenger: cookieRegistrar.messenger()
     )
 

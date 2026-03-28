@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
-import '../../../shared/theme/conduit_input_styles.dart';
+import '../../../shared/theme/qonduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/glass_colors.dart';
 // app_theme not required here; using theme extension tokens
@@ -30,7 +30,7 @@ import '../../chat/services/voice_input_service.dart';
 import '../../../core/models/knowledge_base.dart';
 
 import '../../../shared/utils/platform_utils.dart';
-import 'package:conduit/l10n/app_localizations.dart';
+import 'package:qonduit/l10n/app_localizations.dart';
 import '../../../shared/widgets/modal_safe_area.dart';
 import '../../../core/utils/prompt_variable_parser.dart';
 import '../../prompts/widgets/prompt_variable_dialog.dart';
@@ -924,11 +924,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   return Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: innerContext.conduitTheme.surfaceBackground,
+                      color: innerContext.qonduitTheme.surfaceBackground,
                       borderRadius: const BorderRadius.vertical(
                         top: Radius.circular(AppBorderRadius.modal),
                       ),
-                      boxShadow: ConduitShadows.modal(innerContext),
+                      boxShadow: QonduitShadows.modal(innerContext),
                     ),
                     child: SizedBox(
                       height: MediaQuery.of(innerContext).size.height * 0.6,
@@ -1026,8 +1026,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     if (_currentPromptCommand.startsWith('#')) {
       return _buildKnowledgeOverlay(
         context,
-        context.conduitTheme.cardBackground,
-        context.conduitTheme.cardBorder.withValues(
+        context.qonduitTheme.cardBackground,
+        context.qonduitTheme.cardBorder.withValues(
           alpha: Theme.of(context).brightness == Brightness.dark ? 0.6 : 0.4,
         ),
       );
@@ -1058,7 +1058,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         border: Border.all(color: borderColor, width: BorderWidth.thin),
         boxShadow: [
           BoxShadow(
-            color: context.conduitTheme.cardShadow.withValues(
+            color: context.qonduitTheme.cardShadow.withValues(
               alpha: Theme.of(context).brightness == Brightness.dark
                   ? 0.28
                   : 0.16,
@@ -1161,7 +1161,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final Brightness brightness = Theme.of(context).brightness;
 
     // Keep mention highlight colors in sync with the theme.
-    final mentionColor = context.conduitTheme.buttonPrimary;
+    final mentionColor = context.qonduitTheme.buttonPrimary;
     _controller.mentionColor = mentionColor;
     _controller.mentionBackground = mentionColor.withValues(alpha: 0.12);
 
@@ -1170,7 +1170,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final bool useGlassColors = !kIsWeb && Platform.isIOS;
     final Color placeholderColor = useGlassColors
         ? GlassColors.secondaryLabel(context)
-        : context.conduitTheme.textSecondary.withValues(alpha: 0.5);
+        : context.qonduitTheme.textSecondary.withValues(alpha: 0.5);
     final Color placeholderBase = placeholderColor;
     final Color placeholderFocused = placeholderColor;
     final List<Widget> quickPills = <Widget>[];
@@ -1724,7 +1724,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               )!;
               final textLabel = (!kIsWeb && Platform.isIOS)
                   ? GlassColors.label(context)
-                  : context.conduitTheme.inputText;
+                  : context.qonduitTheme.inputText;
               final Color animatedTextColor = Color.lerp(
                 textLabel.withValues(alpha: 0.88),
                 textLabel,
@@ -1817,7 +1817,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   fontStyle: _isRecording ? FontStyle.italic : FontStyle.normal,
                   fontWeight: recordingWeight,
                 ),
-                decoration: context.conduitInputStyles
+                decoration: context.qonduitInputStyles
                     .borderless(
                       hint:
                           widget.placeholder ??
@@ -1881,16 +1881,16 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         imageGenerationActive ||
         toolsActive ||
         filtersActive) {
-      activeColor = context.conduitTheme.buttonPrimary;
+      activeColor = context.qonduitTheme.buttonPrimary;
     }
 
     final bool isActive = activeColor != null;
 
     final Color iconColor = !enabled
-        ? context.conduitTheme.textPrimary.withValues(alpha: Alpha.disabled)
+        ? context.qonduitTheme.textPrimary.withValues(alpha: Alpha.disabled)
         : isActive
-        ? context.conduitTheme.buttonPrimaryText
-        : context.conduitTheme.textPrimary.withValues(alpha: Alpha.strong);
+        ? context.qonduitTheme.buttonPrimaryText
+        : context.qonduitTheme.textPrimary.withValues(alpha: Alpha.strong);
 
     final IconData overflowIcon = switch ((
       webSearchActive,
@@ -1931,7 +1931,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         child: Icon(
           Icons.open_in_full,
           size: IconSize.large,
-          color: context.conduitTheme.textSecondary.withValues(alpha: 0.7),
+          color: context.qonduitTheme.textSecondary.withValues(alpha: 0.7),
         ),
       ),
     );
@@ -1953,8 +1953,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           Platform.isIOS ? CupertinoIcons.mic : Icons.mic,
           size: IconSize.large,
           color: _isRecording
-              ? context.conduitTheme.buttonPrimary
-              : context.conduitTheme.textSecondary.withValues(
+              ? context.qonduitTheme.buttonPrimary
+              : context.qonduitTheme.textSecondary.withValues(
                   alpha: enabledMic ? Alpha.strong : Alpha.disabled,
                 ),
         ),
@@ -1992,7 +1992,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           child: Icon(
             Platform.isIOS ? CupertinoIcons.stop_fill : Icons.stop,
             size: dense ? IconSize.large : IconSize.xl,
-            color: context.conduitTheme.buttonPrimaryText,
+            color: context.qonduitTheme.buttonPrimaryText,
           ),
         ),
       );
@@ -2011,15 +2011,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               height: IconSize.large,
               child: CircularProgressIndicator(
                 strokeWidth: 2.5,
-                color: context.conduitTheme.textSecondary,
+                color: context.qonduitTheme.textSecondary,
               ),
             )
           : Icon(
               CupertinoIcons.arrow_up,
               size: IconSize.large,
               color: enabled
-                  ? context.conduitTheme.buttonPrimaryText
-                  : context.conduitTheme.textPrimary.withValues(
+                  ? context.qonduitTheme.buttonPrimaryText
+                  : context.qonduitTheme.textPrimary.withValues(
                       alpha: Alpha.disabled,
                     ),
             );
@@ -2057,8 +2057,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
             Platform.isIOS ? CupertinoIcons.waveform : Icons.graphic_eq,
             size: dense ? IconSize.large : IconSize.xl,
             color: enabledVoiceCall
-                ? context.conduitTheme.buttonPrimaryText
-                : context.conduitTheme.textPrimary.withValues(
+                ? context.qonduitTheme.buttonPrimaryText
+                : context.qonduitTheme.textPrimary.withValues(
                     alpha: Alpha.disabled,
                   ),
           ),
@@ -2075,7 +2075,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       child: Icon(
         CupertinoIcons.arrow_up,
         size: IconSize.large,
-        color: context.conduitTheme.textPrimary.withValues(
+        color: context.qonduitTheme.textPrimary.withValues(
           alpha: Alpha.disabled,
         ),
       ),
@@ -2091,7 +2091,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     bool dense = false,
   }) {
     final bool enabled = onTap != null;
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
 
     final Color background = isActive
         ? theme.buttonPrimary.withValues(alpha: 0.10)
@@ -2194,7 +2194,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     bool isProminent = false,
     Color? color,
   }) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final effectiveColor = color ?? theme.buttonPrimary;
 
     if (!kIsWeb && Platform.isIOS) {
@@ -2257,7 +2257,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         child: child,
       );
     }
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     return Container(
       key: key,
       decoration: BoxDecoration(

@@ -10,7 +10,7 @@ import 'package:dio/dio.dart' as dio;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../../shared/theme/theme_extensions.dart';
-import 'package:conduit/l10n/app_localizations.dart';
+import 'package:qonduit/l10n/app_localizations.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../auth/providers/unified_auth_providers.dart';
 import '../../../core/utils/debug_logger.dart';
@@ -482,10 +482,10 @@ class _EnhancedImageAttachmentState
       constraints: constraints,
       margin: const EdgeInsets.only(bottom: Spacing.xs),
       decoration: BoxDecoration(
-        color: context.conduitTheme.surfaceBackground.withValues(alpha: 0.5),
+        color: context.qonduitTheme.surfaceBackground.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(AppBorderRadius.md),
         border: Border.all(
-          color: context.conduitTheme.dividerColor.withValues(alpha: 0.3),
+          color: context.qonduitTheme.dividerColor.withValues(alpha: 0.3),
           width: BorderWidth.thin,
         ),
       ),
@@ -500,9 +500,9 @@ class _EnhancedImageAttachmentState
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                     colors: [
-                      context.conduitTheme.shimmerBase,
-                      context.conduitTheme.shimmerHighlight,
-                      context.conduitTheme.shimmerBase,
+                      context.qonduitTheme.shimmerBase,
+                      context.qonduitTheme.shimmerHighlight,
+                      context.qonduitTheme.shimmerBase,
                     ],
                   ),
                 ),
@@ -510,13 +510,13 @@ class _EnhancedImageAttachmentState
               .animate(onPlay: (controller) => controller.repeat())
               .shimmer(
                 duration: const Duration(milliseconds: 1500),
-                color: context.conduitTheme.shimmerHighlight.withValues(
+                color: context.qonduitTheme.shimmerHighlight.withValues(
                   alpha: 0.3,
                 ),
               ),
           // Progress indicator overlay
           CircularProgressIndicator(
-            color: context.conduitTheme.buttonPrimary,
+            color: context.qonduitTheme.buttonPrimary,
             strokeWidth: 2,
           ),
         ],
@@ -537,10 +537,10 @@ class _EnhancedImageAttachmentState
           ),
       margin: const EdgeInsets.only(bottom: Spacing.xs),
       decoration: BoxDecoration(
-        color: context.conduitTheme.surfaceBackground.withValues(alpha: 0.3),
+        color: context.qonduitTheme.surfaceBackground.withValues(alpha: 0.3),
         borderRadius: BorderRadius.circular(AppBorderRadius.md),
         border: Border.all(
-          color: context.conduitTheme.error.withValues(alpha: 0.3),
+          color: context.qonduitTheme.error.withValues(alpha: 0.3),
           width: BorderWidth.thin,
         ),
       ),
@@ -549,7 +549,7 @@ class _EnhancedImageAttachmentState
         children: [
           Icon(
             Icons.broken_image_outlined,
-            color: context.conduitTheme.error,
+            color: context.qonduitTheme.error,
             size: 32,
           ),
           const SizedBox(height: Spacing.xs),
@@ -558,7 +558,7 @@ class _EnhancedImageAttachmentState
             child: Text(
               _errorMessage!,
               style: TextStyle(
-                color: context.conduitTheme.error,
+                color: context.qonduitTheme.error,
                 fontSize: AppTypography.bodySmall,
               ),
               textAlign: TextAlign.center,
@@ -592,7 +592,7 @@ class _EnhancedImageAttachmentState
       placeholder: (context, url) => Container(
         constraints: widget.constraints,
         decoration: BoxDecoration(
-          color: context.conduitTheme.shimmerBase,
+          color: context.qonduitTheme.shimmerBase,
           borderRadius: BorderRadius.circular(AppBorderRadius.md),
         ),
       ),
@@ -618,12 +618,12 @@ class _EnhancedImageAttachmentState
       placeholderBuilder: (context) => Container(
         constraints: widget.constraints,
         decoration: BoxDecoration(
-          color: context.conduitTheme.shimmerBase,
+          color: context.qonduitTheme.shimmerBase,
           borderRadius: BorderRadius.circular(AppBorderRadius.md),
         ),
         child: Center(
           child: CircularProgressIndicator(
-            color: context.conduitTheme.buttonPrimary,
+            color: context.qonduitTheme.buttonPrimary,
             strokeWidth: 2,
           ),
         ),
@@ -691,7 +691,7 @@ class _EnhancedImageAttachmentState
         // Add subtle shadow for depth
         boxShadow: [
           BoxShadow(
-            color: context.conduitTheme.cardShadow.withValues(alpha: 0.1),
+            color: context.qonduitTheme.cardShadow.withValues(alpha: 0.1),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -785,7 +785,7 @@ class FullScreenImageViewer extends ConsumerWidget {
           errorBuilder: (context, error, stackTrace) => Center(
             child: Icon(
               Icons.error_outline,
-              color: context.conduitTheme.error,
+              color: context.qonduitTheme.error,
               size: 48,
             ),
           ),
@@ -805,13 +805,13 @@ class FullScreenImageViewer extends ConsumerWidget {
           headers: headers,
           placeholderBuilder: (context) => Center(
             child: CircularProgressIndicator(
-              color: context.conduitTheme.buttonPrimary,
+              color: context.qonduitTheme.buttonPrimary,
             ),
           ),
           errorBuilder: (context, error, stackTrace) => Center(
             child: Icon(
               Icons.error_outline,
-              color: context.conduitTheme.error,
+              color: context.qonduitTheme.error,
               size: 48,
             ),
           ),
@@ -825,13 +825,13 @@ class FullScreenImageViewer extends ConsumerWidget {
           httpHeaders: headers,
           placeholder: (context, url) => Center(
             child: CircularProgressIndicator(
-              color: context.conduitTheme.buttonPrimary,
+              color: context.qonduitTheme.buttonPrimary,
             ),
           ),
           errorWidget: (context, url, error) => Center(
             child: Icon(
               Icons.error_outline,
-              color: context.conduitTheme.error,
+              color: context.qonduitTheme.error,
               size: 48,
             ),
           ),
@@ -859,7 +859,7 @@ class FullScreenImageViewer extends ConsumerWidget {
             errorBuilder: (context, error, stackTrace) => Center(
               child: Icon(
                 Icons.error_outline,
-                color: context.conduitTheme.error,
+                color: context.qonduitTheme.error,
                 size: 48,
               ),
             ),
@@ -871,7 +871,7 @@ class FullScreenImageViewer extends ConsumerWidget {
         imageWidget = Center(
           child: Icon(
             Icons.error_outline,
-            color: context.conduitTheme.error,
+            color: context.qonduitTheme.error,
             size: 48,
           ),
         );
@@ -881,7 +881,7 @@ class FullScreenImageViewer extends ConsumerWidget {
       imageWidget = Center(
         child: Icon(
           Icons.error_outline,
-          color: context.conduitTheme.error,
+          color: context.qonduitTheme.error,
           size: 48,
         ),
       );
@@ -1011,7 +1011,7 @@ class FullScreenImageViewer extends ConsumerWidget {
       fileExtension ??= 'png';
       final tempDir = await getTemporaryDirectory();
       final filePath =
-          '${tempDir.path}/conduit_shared_${DateTime.now().millisecondsSinceEpoch}.$fileExtension';
+          '${tempDir.path}/qonduit_shared_${DateTime.now().millisecondsSinceEpoch}.$fileExtension';
       final file = File(filePath);
       await file.writeAsBytes(bytes);
 

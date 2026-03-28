@@ -19,7 +19,7 @@
 		CA4A256DAFB6E4374BC67B91 /* Pods_Runner.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E952EFF81F1FEABA348FE2CC /* Pods_Runner.framework */; };
 		F15AFEC42EE5499D00A1FABB /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F15AFEC32EE5499D00A1FABB /* WidgetKit.framework */; };
 		F15AFEC62EE5499D00A1FABB /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F15AFEC52EE5499D00A1FABB /* SwiftUI.framework */; };
-		F15AFED12EE5499E00A1FABB /* ConduitWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = F15AFEC22EE5499D00A1FABB /* ConduitWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		F15AFED12EE5499E00A1FABB /* QonduitWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = F15AFEC22EE5499D00A1FABB /* QonduitWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		F1DBCF1D2E601A39004C2540 /* ShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = F1DBCF132E601A39004C2540 /* ShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		F1L10N012EE5500000000001 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = F1L10N002EE5500000000001 /* InfoPlist.strings */; };
 /* End PBXBuildFile section */
@@ -37,7 +37,7 @@
 			containerPortal = 97C146E61CF9000F007C117D /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = F15AFEC12EE5499D00A1FABB;
-			remoteInfo = ConduitWidgetExtension;
+			remoteInfo = QonduitWidgetExtension;
 		};
 		F1DBCF1B2E601A39004C2540 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -66,7 +66,7 @@
 			dstSubfolderSpec = 13;
 			files = (
 				F1DBCF1D2E601A39004C2540 /* ShareExtension.appex in Embed Foundation Extensions */,
-				F15AFED12EE5499E00A1FABB /* ConduitWidgetExtension.appex in Embed Foundation Extensions */,
+				F15AFED12EE5499E00A1FABB /* QonduitWidgetExtension.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -102,10 +102,10 @@
 		AEC6CFD537128217FAB31030 /* Pods-ShareExtension.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-ShareExtension.debug.xcconfig"; path = "Target Support Files/Pods-ShareExtension/Pods-ShareExtension.debug.xcconfig"; sourceTree = "<group>"; };
 		E590F0BC5DD9A3EFB1FDDDBF /* Pods-RunnerTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.release.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.release.xcconfig"; sourceTree = "<group>"; };
 		E952EFF81F1FEABA348FE2CC /* Pods_Runner.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Runner.framework; sourceTree = BUILT_PRODUCTS_DIR; };
-		F15AFEC22EE5499D00A1FABB /* ConduitWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ConduitWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		F15AFEC22EE5499D00A1FABB /* QonduitWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = QonduitWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		F15AFEC32EE5499D00A1FABB /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		F15AFEC52EE5499D00A1FABB /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
-		F15AFED82EE549B700A1FABB /* ConduitWidgetExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ConduitWidgetExtension.entitlements; sourceTree = "<group>"; };
+		F15AFED82EE549B700A1FABB /* QonduitWidgetExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = QonduitWidgetExtension.entitlements; sourceTree = "<group>"; };
 		F1DBCF132E601A39004C2540 /* ShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		F1DBCF242E601A7C004C2540 /* Runner.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Runner.entitlements; sourceTree = "<group>"; };
 		F1L10N102EE5500000000001 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
@@ -121,12 +121,12 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		F15AFED52EE5499E00A1FABB /* Exceptions for "ConduitWidget" folder in "ConduitWidgetExtension" target */ = {
+		F15AFED52EE5499E00A1FABB /* Exceptions for "QonduitWidget" folder in "QonduitWidgetExtension" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
 			);
-			target = F15AFEC12EE5499D00A1FABB /* ConduitWidgetExtension */;
+			target = F15AFEC12EE5499D00A1FABB /* QonduitWidgetExtension */;
 		};
 		F1DBCF222E601A39004C2540 /* Exceptions for "ShareExtension" folder in "ShareExtension" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
@@ -138,16 +138,16 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		F15AFEC72EE5499D00A1FABB /* ConduitWidget */ = {
+		F15AFEC72EE5499D00A1FABB /* QonduitWidget */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				F15AFED52EE5499E00A1FABB /* Exceptions for "ConduitWidget" folder in "ConduitWidgetExtension" target */,
+				F15AFED52EE5499E00A1FABB /* Exceptions for "QonduitWidget" folder in "QonduitWidgetExtension" target */,
 			);
 			explicitFileTypes = {
 			};
 			explicitFolders = (
 			);
-			path = ConduitWidget;
+			path = QonduitWidget;
 			sourceTree = "<group>";
 		};
 		F1DBCF142E601A39004C2540 /* ShareExtension */ = {
@@ -251,11 +251,11 @@
 		97C146E51CF9000F007C117D = {
 			isa = PBXGroup;
 			children = (
-				F15AFED82EE549B700A1FABB /* ConduitWidgetExtension.entitlements */,
+				F15AFED82EE549B700A1FABB /* QonduitWidgetExtension.entitlements */,
 				9740EEB11CF90186004384FC /* Flutter */,
 				97C146F01CF9000F007C117D /* Runner */,
 				F1DBCF142E601A39004C2540 /* ShareExtension */,
-				F15AFEC72EE5499D00A1FABB /* ConduitWidget */,
+				F15AFEC72EE5499D00A1FABB /* QonduitWidget */,
 				97C146EF1CF9000F007C117D /* Products */,
 				331C8082294A63A400263BE5 /* RunnerTests */,
 				8C43905FA2E52A883F49D605 /* Pods */,
@@ -269,7 +269,7 @@
 				97C146EE1CF9000F007C117D /* Runner.app */,
 				331C8081294A63A400263BE5 /* RunnerTests.xctest */,
 				F1DBCF132E601A39004C2540 /* ShareExtension.appex */,
-				F15AFEC22EE5499D00A1FABB /* ConduitWidgetExtension.appex */,
+				F15AFEC22EE5499D00A1FABB /* QonduitWidgetExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -340,9 +340,9 @@
 			productReference = 97C146EE1CF9000F007C117D /* Runner.app */;
 			productType = "com.apple.product-type.application";
 		};
-		F15AFEC12EE5499D00A1FABB /* ConduitWidgetExtension */ = {
+		F15AFEC12EE5499D00A1FABB /* QonduitWidgetExtension */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = F15AFED62EE5499E00A1FABB /* Build configuration list for PBXNativeTarget "ConduitWidgetExtension" */;
+			buildConfigurationList = F15AFED62EE5499E00A1FABB /* Build configuration list for PBXNativeTarget "QonduitWidgetExtension" */;
 			buildPhases = (
 				F15AFEBE2EE5499D00A1FABB /* Sources */,
 				F15AFEBF2EE5499D00A1FABB /* Frameworks */,
@@ -353,11 +353,11 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				F15AFEC72EE5499D00A1FABB /* ConduitWidget */,
+				F15AFEC72EE5499D00A1FABB /* QonduitWidget */,
 			);
-			name = ConduitWidgetExtension;
-			productName = ConduitWidgetExtension;
-			productReference = F15AFEC22EE5499D00A1FABB /* ConduitWidgetExtension.appex */;
+			name = QonduitWidgetExtension;
+			productName = QonduitWidgetExtension;
+			productReference = F15AFEC22EE5499D00A1FABB /* QonduitWidgetExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
 		F1DBCF122E601A39004C2540 /* ShareExtension */ = {
@@ -433,7 +433,7 @@
 				97C146ED1CF9000F007C117D /* Runner */,
 				331C8080294A63A400263BE5 /* RunnerTests */,
 				F1DBCF122E601A39004C2540 /* ShareExtension */,
-				F15AFEC12EE5499D00A1FABB /* ConduitWidgetExtension */,
+				F15AFEC12EE5499D00A1FABB /* QonduitWidgetExtension */,
 			);
 		};
 /* End PBXProject section */
@@ -646,7 +646,7 @@
 		};
 		F15AFED02EE5499E00A1FABB /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = F15AFEC12EE5499D00A1FABB /* ConduitWidgetExtension */;
+			target = F15AFEC12EE5499D00A1FABB /* QonduitWidgetExtension */;
 			targetProxy = F15AFECF2EE5499E00A1FABB /* PBXContainerItemProxy */;
 		};
 		F1DBCF1C2E601A39004C2540 /* PBXTargetDependency */ = {
@@ -759,7 +759,7 @@
 				DEVELOPMENT_TEAM = X2662V5DT2;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = Runner/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = Conduit;
+				INFOPLIST_KEY_CFBundleDisplayName = Qonduit;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -770,7 +770,7 @@
 					"-ObjC",
 					"-lc++",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = app.cogwheel.conduit;
+				PRODUCT_BUNDLE_IDENTIFIER = app.cogwheel.qonduit;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
@@ -788,7 +788,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = app.cogwheel.conduit.RunnerTests;
+				PRODUCT_BUNDLE_IDENTIFIER = app.cogwheel.qonduit.RunnerTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -806,7 +806,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = app.cogwheel.conduit.RunnerTests;
+				PRODUCT_BUNDLE_IDENTIFIER = app.cogwheel.qonduit.RunnerTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Runner.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Runner";
@@ -822,7 +822,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = app.cogwheel.conduit.RunnerTests;
+				PRODUCT_BUNDLE_IDENTIFIER = app.cogwheel.qonduit.RunnerTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Runner.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Runner";
@@ -954,7 +954,7 @@
 				DEVELOPMENT_TEAM = X2662V5DT2;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = Runner/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Conduit Debug";
+				INFOPLIST_KEY_CFBundleDisplayName = "Qonduit Debug";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -965,7 +965,7 @@
 					"-ObjC",
 					"-lc++",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = app.cogwheel.conduit.debug;
+				PRODUCT_BUNDLE_IDENTIFIER = app.cogwheel.qonduit.debug;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
@@ -989,7 +989,7 @@
 				DEVELOPMENT_TEAM = X2662V5DT2;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = Runner/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = Conduit;
+				INFOPLIST_KEY_CFBundleDisplayName = Qonduit;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1000,7 +1000,7 @@
 					"-ObjC",
 					"-lc++",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = app.cogwheel.conduit;
+				PRODUCT_BUNDLE_IDENTIFIER = app.cogwheel.qonduit;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
@@ -1020,7 +1020,7 @@
 				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
 				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
-				CODE_SIGN_ENTITLEMENTS = ConduitWidgetExtension.entitlements;
+				CODE_SIGN_ENTITLEMENTS = QonduitWidgetExtension.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -1028,8 +1028,8 @@
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = ConduitWidget/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = ConduitWidget;
+				INFOPLIST_FILE = QonduitWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = QonduitWidget;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				IPHONEOS_DEPLOYMENT_TARGET = 26.1;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1041,7 +1041,7 @@
 				MARKETING_VERSION = 1.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = app.cogwheel.conduit.debug.ConduitWidget;
+				PRODUCT_BUNDLE_IDENTIFIER = app.cogwheel.qonduit.debug.QonduitWidget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -1066,7 +1066,7 @@
 				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
 				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
-				CODE_SIGN_ENTITLEMENTS = ConduitWidgetExtension.entitlements;
+				CODE_SIGN_ENTITLEMENTS = QonduitWidgetExtension.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -1074,8 +1074,8 @@
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = ConduitWidget/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = ConduitWidget;
+				INFOPLIST_FILE = QonduitWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = QonduitWidget;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				IPHONEOS_DEPLOYMENT_TARGET = 26.1;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1086,7 +1086,7 @@
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MARKETING_VERSION = 1.0;
 				MTL_FAST_MATH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = app.cogwheel.conduit.ConduitWidget;
+				PRODUCT_BUNDLE_IDENTIFIER = app.cogwheel.qonduit.QonduitWidget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -1109,7 +1109,7 @@
 				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
 				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
-				CODE_SIGN_ENTITLEMENTS = ConduitWidgetExtension.entitlements;
+				CODE_SIGN_ENTITLEMENTS = QonduitWidgetExtension.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -1117,8 +1117,8 @@
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = ConduitWidget/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = ConduitWidget;
+				INFOPLIST_FILE = QonduitWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = QonduitWidget;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				IPHONEOS_DEPLOYMENT_TARGET = 26.1;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1129,7 +1129,7 @@
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MARKETING_VERSION = 1.0;
 				MTL_FAST_MATH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = app.cogwheel.conduit.ConduitWidget;
+				PRODUCT_BUNDLE_IDENTIFIER = app.cogwheel.qonduit.QonduitWidget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -1178,7 +1178,7 @@
 					"-ObjC",
 					"-lc++",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = app.cogwheel.conduit.debug.ShareExtension;
+				PRODUCT_BUNDLE_IDENTIFIER = app.cogwheel.qonduit.debug.ShareExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
@@ -1225,7 +1225,7 @@
 					"-ObjC",
 					"-lc++",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = app.cogwheel.conduit.ShareExtension;
+				PRODUCT_BUNDLE_IDENTIFIER = app.cogwheel.qonduit.ShareExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -1270,7 +1270,7 @@
 					"-ObjC",
 					"-lc++",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = app.cogwheel.conduit.ShareExtension;
+				PRODUCT_BUNDLE_IDENTIFIER = app.cogwheel.qonduit.ShareExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -1312,7 +1312,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		F15AFED62EE5499E00A1FABB /* Build configuration list for PBXNativeTarget "ConduitWidgetExtension" */ = {
+		F15AFED62EE5499E00A1FABB /* Build configuration list for PBXNativeTarget "QonduitWidgetExtension" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				F15AFED22EE5499E00A1FABB /* Debug */,

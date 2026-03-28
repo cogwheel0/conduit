@@ -8,8 +8,8 @@ import 'package:markdown/markdown.dart' as md;
 /// - [sanitize] - Cleans content for copy/API (removes reasoning blocks)
 /// - [toPlainText] - Converts to plain text for TTS
 /// - [softenInlineCode] - Breaks long inline code spans
-class ConduitMarkdownPreprocessor {
-  const ConduitMarkdownPreprocessor._();
+class QonduitMarkdownPreprocessor {
+  const QonduitMarkdownPreprocessor._();
 
   static final _htmlUnescape = HtmlUnescape();
 

@@ -1,1 +1,1 @@
-https://github.com/cogwheel0/conduit
+https://github.com/cogwheel0/qonduit

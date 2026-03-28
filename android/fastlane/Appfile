@@ -1,1 +1,1 @@
-package_name("app.cogwheel.conduit") # e.g. com.krausefx.app
+package_name("app.cogwheel.qonduit") # e.g. com.krausefx.app

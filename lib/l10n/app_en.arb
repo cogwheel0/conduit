@@ -1,6 +1,6 @@
 {
   "@@locale": "en",
-  "appTitle": "Conduit",
+  "appTitle": "Qonduit",
   "@appTitle": {
     "description": "Application name displayed in the app and OS UI."
   },
@@ -36,12 +36,12 @@
   "@account": {
     "description": "Section header for account-related options."
   },
-  "supportConduit": "Support Conduit",
-  "@supportConduit": {
+  "supportQonduit": "Support Qonduit",
+  "@supportQonduit": {
     "description": "Section header inviting the user to financially support the project."
   },
-  "supportConduitSubtitle": "Keep Conduit independent by funding ongoing development.",
-  "@supportConduitSubtitle": {
+  "supportQonduitSubtitle": "Keep Qonduit independent by funding ongoing development.",
+  "@supportQonduitSubtitle": {
     "description": "Subtitle explaining why donations are helpful."
   },
   "githubSponsorsTitle": "GitHub Sponsors",
@@ -482,7 +482,7 @@
   "@voiceCallErrorHelp": {
     "description": "Guidance shown when the voice call encounters an error."
   },
-  "messageHintText": "Ask Conduit",
+  "messageHintText": "Ask Qonduit",
   "@messageHintText": {
     "description": "Short placeholder text in the message input."
   },
@@ -852,7 +852,7 @@
   "@aboutApp": {
     "description": "Settings tile title to view app information."
   },
-  "aboutAppSubtitle": "Conduit information and links",
+  "aboutAppSubtitle": "Qonduit information and links",
   "@aboutAppSubtitle": {
     "description": "Subtitle/description for the About section."
   },
@@ -1105,13 +1105,13 @@
   "@themePalette": {
     "description": "Title for selecting the app color palette."
   },
-  "themePaletteConduitLabel": "Conduit",
-  "@themePaletteConduitLabel": {
-    "description": "Palette name for the default Conduit theme."
+  "themePaletteQonduitLabel": "Qonduit",
+  "@themePaletteQonduitLabel": {
+    "description": "Palette name for the default Qonduit theme."
   },
-  "themePaletteConduitDescription": "Clean neutral theme designed for Conduit.",
-  "@themePaletteConduitDescription": {
-    "description": "Description of the Conduit palette."
+  "themePaletteQonduitDescription": "Clean neutral theme designed for Qonduit.",
+  "@themePaletteQonduitDescription": {
+    "description": "Description of the Qonduit palette."
   },
   "themePaletteClaudeLabel": "Claude",
   "@themePaletteClaudeLabel": {
@@ -1157,8 +1157,8 @@
   "@currentlyUsingLightTheme": {
     "description": "Status text indicating light theme is active."
   },
-  "aboutConduit": "About Conduit",
-  "@aboutConduit": {
+  "aboutQonduit": "About Qonduit",
+  "@aboutQonduit": {
     "description": "Dialog title for app information."
   },
   "versionLabel": "Version: {version} ({build})",
@@ -1257,7 +1257,7 @@
   "@androidAssistantOverlayOption": {
     "description": "Option label for keeping the current assistant overlay."
   },
-  "androidAssistantNewChatOption": "Open Conduit with a new chat",
+  "androidAssistantNewChatOption": "Open Qonduit with a new chat",
   "@androidAssistantNewChatOption": {
     "description": "Option label for opening the app to a fresh chat from the assistant trigger."
   },

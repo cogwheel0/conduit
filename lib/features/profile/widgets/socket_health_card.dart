@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import '../../../core/models/socket_health.dart';
 import '../../../core/services/socket_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
-import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/qonduit_components.dart';
 
 /// Widget that displays socket connection health with real-time updates.
 class SocketHealthCard extends StatefulWidget {
@@ -53,11 +53,11 @@ class SocketHealthCardState extends State<SocketHealthCard> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final health = _health;
 
     if (health == null) {
-      return ConduitCard(
+      return QonduitCard(
         padding: const EdgeInsets.all(Spacing.md),
         child: Row(
           children: [
@@ -79,7 +79,7 @@ class SocketHealthCardState extends State<SocketHealthCard> {
     final statusColor = health.isConnected ? theme.success : theme.error;
     final qualityColor = _getQualityColor(theme, health.quality);
 
-    return ConduitCard(
+    return QonduitCard(
       padding: const EdgeInsets.all(Spacing.md),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -230,7 +230,7 @@ class SocketHealthCardState extends State<SocketHealthCard> {
     }
   }
 
-  Color _getQualityColor(ConduitThemeExtension theme, String quality) {
+  Color _getQualityColor(QonduitThemeExtension theme, String quality) {
     switch (quality) {
       case 'excellent':
         return theme.success;
@@ -278,7 +278,7 @@ class MetricTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
 
     return Container(
       padding: const EdgeInsets.all(Spacing.sm),

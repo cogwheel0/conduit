@@ -207,7 +207,7 @@ Copy the same English strings to all other ARB files. They can be translated lat
 **Step 3: Run code generation**
 
 ```bash
-cd /Users/tunap/Development/conduit && flutter gen-l10n
+cd /Users/tunap/Development/qonduit && flutter gen-l10n
 ```
 
 **Step 4: Commit**
@@ -393,8 +393,8 @@ actions: [
                   ? 'bubble.left.fill'
                   : 'bubble.left',
               color: isTemporary
-                  ? context.conduitTheme.primary
-                  : context.conduitTheme.textPrimary,
+                  ? context.qonduitTheme.primary
+                  : context.qonduitTheme.textPrimary,
             ),
           ),
         );
@@ -426,7 +426,7 @@ actions: [
                   ? CupertinoIcons.arrow_down_doc
                   : Icons.save_alt,
               sfSymbol: 'square.and.arrow.down',
-              color: context.conduitTheme.textPrimary,
+              color: context.qonduitTheme.textPrimary,
             ),
           ),
         );
@@ -661,7 +661,7 @@ git commit -m "feat: clear temporary chat mode when selecting a conversation"
 Files that reference `temporaryChatEnabledProvider` or `isTemporaryChat` need:
 
 ```dart
-import 'package:conduit/core/providers/app_providers.dart';
+import 'package:qonduit/core/providers/app_providers.dart';
 ```
 
 This is likely already imported in most files. Verify and add where missing.
@@ -669,7 +669,7 @@ This is likely already imported in most files. Verify and add where missing.
 **Step 2: Run analysis**
 
 ```bash
-cd /Users/tunap/Development/conduit && flutter analyze
+cd /Users/tunap/Development/qonduit && flutter analyze
 ```
 
 Fix any issues found.
@@ -677,13 +677,13 @@ Fix any issues found.
 **Step 3: Run build_runner for codegen**
 
 ```bash
-cd /Users/tunap/Development/conduit && dart run build_runner build --delete-conflicting-outputs
+cd /Users/tunap/Development/qonduit && dart run build_runner build --delete-conflicting-outputs
 ```
 
 **Step 4: Run tests**
 
 ```bash
-cd /Users/tunap/Development/conduit && flutter test
+cd /Users/tunap/Development/qonduit && flutter test
 ```
 
 **Step 5: Commit any fixes**
@@ -701,7 +701,7 @@ git add -A && git commit -m "fix: resolve imports and analysis issues for tempor
 **Step 1: Run the app**
 
 ```bash
-cd /Users/tunap/Development/conduit && flutter run
+cd /Users/tunap/Development/qonduit && flutter run
 ```
 
 **Step 2: Test scenarios**

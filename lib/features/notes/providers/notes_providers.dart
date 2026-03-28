@@ -1,7 +1,7 @@
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import 'package:conduit/core/models/note.dart';
-import 'package:conduit/core/providers/app_providers.dart';
+import 'package:qonduit/core/models/note.dart';
+import 'package:qonduit/core/providers/app_providers.dart';
 
 part 'notes_providers.g.dart';
 

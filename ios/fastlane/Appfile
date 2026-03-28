@@ -1,4 +1,4 @@
-app_identifier("app.cogwheel.conduit") # The bundle identifier of your app
+app_identifier("app.cogwheel.qonduit") # The bundle identifier of your app
 
 itc_team_id("128030454") # App Store Connect Team ID
 team_id("X2662V5DT2") # Developer Portal Team ID

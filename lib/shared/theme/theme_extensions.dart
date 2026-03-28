@@ -7,8 +7,8 @@ import 'color_tokens.dart';
 
 /// Extended theme data for consistent styling across the app
 @immutable
-class ConduitThemeExtension extends ThemeExtension<ConduitThemeExtension> {
-  const ConduitThemeExtension._({
+class QonduitThemeExtension extends ThemeExtension<QonduitThemeExtension> {
+  const QonduitThemeExtension._({
     required this.tokens,
     required this.variant,
     required this.isDark,
@@ -18,7 +18,7 @@ class ConduitThemeExtension extends ThemeExtension<ConduitThemeExtension> {
     required this.shapes,
   });
 
-  factory ConduitThemeExtension.create({
+  factory QonduitThemeExtension.create({
     required TweakcnThemeDefinition theme,
     required AppColorTokens tokens,
     required Brightness brightness,
@@ -27,7 +27,7 @@ class ConduitThemeExtension extends ThemeExtension<ConduitThemeExtension> {
     required ShadowThemeExtension shadows,
     required ShapeThemeExtension shapes,
   }) {
-    return ConduitThemeExtension._(
+    return QonduitThemeExtension._(
       tokens: tokens,
       variant: theme.variantFor(brightness),
       isDark: brightness == Brightness.dark,
@@ -254,7 +254,7 @@ class ConduitThemeExtension extends ThemeExtension<ConduitThemeExtension> {
   );
 
   @override
-  ConduitThemeExtension copyWith({
+  QonduitThemeExtension copyWith({
     AppColorTokens? tokens,
     TweakcnThemeVariant? variant,
     bool? isDark,
@@ -263,7 +263,7 @@ class ConduitThemeExtension extends ThemeExtension<ConduitThemeExtension> {
     ShadowThemeExtension? shadows,
     ShapeThemeExtension? shapes,
   }) {
-    return ConduitThemeExtension._(
+    return QonduitThemeExtension._(
       tokens: tokens ?? this.tokens,
       variant: variant ?? this.variant,
       isDark: isDark ?? this.isDark,
@@ -275,11 +275,11 @@ class ConduitThemeExtension extends ThemeExtension<ConduitThemeExtension> {
   }
 
   @override
-  ConduitThemeExtension lerp(
-    covariant ThemeExtension<ConduitThemeExtension>? other,
+  QonduitThemeExtension lerp(
+    covariant ThemeExtension<QonduitThemeExtension>? other,
     double t,
   ) {
-    if (other is! ConduitThemeExtension) return this;
+    if (other is! QonduitThemeExtension) return this;
     return t < 0.5 ? this : other;
   }
 
@@ -310,11 +310,11 @@ class ConduitThemeExtension extends ThemeExtension<ConduitThemeExtension> {
   }
 }
 
-/// Extension method to easily access Conduit theme from BuildContext
-extension ConduitThemeContext on BuildContext {
-  ConduitThemeExtension get conduitTheme {
+/// Extension method to easily access Qonduit theme from BuildContext
+extension QonduitThemeContext on BuildContext {
+  QonduitThemeExtension get qonduitTheme {
     final theme = Theme.of(this);
-    final extension = theme.extension<ConduitThemeExtension>();
+    final extension = theme.extension<QonduitThemeExtension>();
     if (extension != null) return extension;
     final palette =
         theme.extension<AppPaletteThemeExtension>()?.palette ??
@@ -335,7 +335,7 @@ extension ConduitThemeContext on BuildContext {
     final ShapeThemeExtension shapes =
         theme.extension<ShapeThemeExtension>() ??
         ShapeThemeExtension.fromVariant(variant);
-    return ConduitThemeExtension.create(
+    return QonduitThemeExtension.create(
       theme: palette,
       tokens: tokens,
       brightness: theme.brightness,
@@ -347,7 +347,7 @@ extension ConduitThemeContext on BuildContext {
   }
 }
 
-extension ConduitColorTokensContext on BuildContext {
+extension QonduitColorTokensContext on BuildContext {
   AppColorTokens get colorTokens {
     final theme = Theme.of(this);
     final tokens = theme.extension<AppColorTokens>();
@@ -361,8 +361,8 @@ extension ConduitColorTokensContext on BuildContext {
   }
 }
 
-extension ConduitPaletteContext on BuildContext {
-  TweakcnThemeDefinition get conduitPalette {
+extension QonduitPaletteContext on BuildContext {
+  TweakcnThemeDefinition get qonduitPalette {
     return Theme.of(this).extension<AppPaletteThemeExtension>()?.palette ??
         TweakcnThemes.t3Chat;
   }
@@ -983,7 +983,7 @@ class Elevation {
 }
 
 /// Helper class for consistent shadows - Enhanced for production with better hierarchy
-class ConduitShadows {
+class QonduitShadows {
   static List<BoxShadow> low(BuildContext context) => _shadow(
     context.colorTokens,
     opacity: 0.08,
@@ -1133,7 +1133,7 @@ class ConduitShadows {
   }
 }
 
-/// Typography scale following Conduit design tokens - Enhanced for production
+/// Typography scale following Qonduit design tokens - Enhanced for production
 class AppTypography {
   // Primary UI font now uses the platform default system font
   static const String fontFamily = '';
@@ -1159,7 +1159,7 @@ class AppTypography {
   static const double labelMedium = 14;
   static const double labelSmall = 12;
 
-  // Text styles following Conduit design - Enhanced for production
+  // Text styles following Qonduit design - Enhanced for production
   static final TextStyle displayLargeStyle = const TextStyle(
     fontWeight: FontWeight.w700,
     letterSpacing: -0.8,

@@ -1,15 +1,15 @@
-# Conduit
+# Qonduit
 
 <div align="center">
 
-![Latest Release](https://img.shields.io/github/v/release/cogwheel0/conduit?display_name=tag&color=8A2BE2)
-![GitHub all downloads](https://img.shields.io/github/downloads/cogwheel0/conduit/total?style=flat-square&label=Downloads&logo=github&color=0A84FF)
+![Latest Release](https://img.shields.io/github/v/release/cogwheel0/qonduit?display_name=tag&color=8A2BE2)
+![GitHub all downloads](https://img.shields.io/github/downloads/cogwheel0/qonduit/total?style=flat-square&label=Downloads&logo=github&color=0A84FF)
 
 
-<a href="https://play.google.com/store/apps/details?id=app.cogwheel.conduit">
+<a href="https://play.google.com/store/apps/details?id=app.cogwheel.qonduit">
 <img src="docs/store-badges/google.webp" alt="Get it on Google Play" style="height:56px;"/>
 </a>
-<a href="https://apps.apple.com/us/app/conduit-open-webui-client/id6749840287">
+<a href="https://apps.apple.com/us/app/qonduit-open-webui-client/id6749840287">
 <img src="docs/store-badges/apple.webp" alt="Download on the App Store" style="height:56px;"/>
 </a>
 
@@ -18,12 +18,12 @@
 <br>
 
 <div align="center">
-<img src="docs/screenshots/conduit-demo.gif" alt="Conduit Demo" style="height:600px;"/>
+<img src="docs/screenshots/qonduit-demo.gif" alt="Qonduit Demo" style="height:600px;"/>
 </div>
 
 <br>
 
-Conduit is an open-source, cross-platform mobile application for Open-WebUI, providing a native mobile experience for interacting with your self-hosted AI infrastructure.
+Qonduit is an open-source, cross-platform mobile application for Open-WebUI, providing a native mobile experience for interacting with your self-hosted AI infrastructure.
 
 ## Table of Contents
 
@@ -47,7 +47,7 @@ Conduit is an open-source, cross-platform mobile application for Open-WebUI, pro
 ## Quickstart
 
 ```bash
-git clone https://github.com/cogwheel0/conduit && cd conduit
+git clone https://github.com/cogwheel0/qonduit && cd qonduit
 flutter pub get
 dart run build_runner build --delete-conflicting-outputs
 flutter run -d ios   # or: -d android
@@ -71,13 +71,13 @@ flutter run -d ios   # or: -d android
  - **Tools (Function Calling)**: Invoke server-side tools exposed by Open‑WebUI, with result rendering
 
 ### Authentication
-Conduit supports multiple authentication flows when connecting to your Open‑WebUI:
+Qonduit supports multiple authentication flows when connecting to your Open‑WebUI:
 - **Username + Password**: Sign in directly against servers that expose a login endpoint. Credentials are stored securely using platform keychains.
 - **SSO / OAuth** (iOS & Android): Authenticate via your server's configured OAuth providers (Google, Microsoft, GitHub, OIDC, etc.) using an in-app WebView. The token is automatically captured after the OAuth flow completes.
-- **Reverse Proxy Support** (iOS & Android): Seamlessly connect to Open WebUI instances behind authentication proxies like oauth2-proxy, Authelia, Authentik, Pangolin, Cloudflare Tunnel, etc. Conduit automatically detects when proxy authentication is required and guides you through the login flow—no endpoint allowlisting or server-side configuration needed. Proxy session cookies are captured from the native cookie store and included in all subsequent API requests.
+- **Reverse Proxy Support** (iOS & Android): Seamlessly connect to Open WebUI instances behind authentication proxies like oauth2-proxy, Authelia, Authentik, Pangolin, Cloudflare Tunnel, etc. Qonduit automatically detects when proxy authentication is required and guides you through the login flow—no endpoint allowlisting or server-side configuration needed. Proxy session cookies are captured from the native cookie store and included in all subsequent API requests.
 - **LDAP**: Sign in using LDAP credentials if enabled on your server.
 - **JWT Token**: Paste a server‑issued JWT token for manual token-based auth.
-- **Custom Headers**: Add headers during login (e.g., `X-API-Key`, `Authorization`, `X-Org`) that Conduit will include on all HTTP/WebSocket requests.
+- **Custom Headers**: Add headers during login (e.g., `X-API-Key`, `Authorization`, `X-Org`) that Qonduit will include on all HTTP/WebSocket requests.
 
 The authentication page dynamically displays available options based on your server's configuration.
 
@@ -98,8 +98,8 @@ The authentication page dynamically displays available options based on your ser
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/conduit.git
-cd conduit
+git clone https://github.com/yourusername/qonduit.git
+cd qonduit
 ```
 
 2. Install dependencies:
@@ -180,15 +180,15 @@ lib/
 
 ## Contributing
 
-Conduit is currently in active development. We welcome your feedback and contributions!
+Qonduit is currently in active development. We welcome your feedback and contributions!
 
 **How to Contribute:**
 
-- **Bug Reports**: Found a bug? Please [create an issue](https://github.com/cogwheel0/conduit/issues) with details about the problem, steps to reproduce, and your device/platform information.
+- **Bug Reports**: Found a bug? Please [create an issue](https://github.com/cogwheel0/qonduit/issues) with details about the problem, steps to reproduce, and your device/platform information.
 
-- **Feature Requests**: Have an idea for a new feature? Start a [discussion](https://github.com/cogwheel0/conduit/discussions) to share your ideas and gather feedback from the community.
+- **Feature Requests**: Have an idea for a new feature? Start a [discussion](https://github.com/cogwheel0/qonduit/discussions) to share your ideas and gather feedback from the community.
 
-- **Questions & Feedback**: Use [GitHub Discussions](https://github.com/cogwheel0/conduit/discussions) to ask questions, share your experience, or discuss the project.
+- **Questions & Feedback**: Use [GitHub Discussions](https://github.com/cogwheel0/qonduit/discussions) to ask questions, share your experience, or discuss the project.
 
 **Note:** As the project is actively evolving, we're not accepting pull requests at this time. Instead, please use issues and discussions to share your ideas, report bugs, and contribute to the project's development.
 
@@ -217,8 +217,8 @@ This project is licensed under the GPL3 License - see the LICENSE file for detai
 - <a href="https://vercel.com/oss"><img alt="Vercel OSS Program" src="https://vercel.com/oss/program-badge.svg" /></a>
 - Open-WebUI team for creating an amazing self-hosted AI interface
 - Flutter team for the excellent mobile framework
-- All contributors and users of Conduit
+- All contributors and users of Qonduit
 
 ## Support
 
-For issues and feature requests, please use the [GitHub Issues](https://github.com/cogwheel0/conduit/issues) page.
+For issues and feature requests, please use the [GitHub Issues](https://github.com/cogwheel0/qonduit/issues) page.

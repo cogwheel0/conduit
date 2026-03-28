@@ -7,7 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
-import 'package:conduit/l10n/app_localizations.dart';
+import 'package:qonduit/l10n/app_localizations.dart';
 
 import '../../../core/auth/webview_cookie_helper.dart';
 import '../../../core/models/server_config.dart';
@@ -21,7 +21,7 @@ import '../../../core/widgets/error_boundary.dart';
 import '../providers/unified_auth_providers.dart';
 import '../../../shared/services/brand_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
-import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/qonduit_components.dart';
 import 'proxy_auth_page.dart';
 
 class ServerConnectionPage extends ConsumerStatefulWidget {
@@ -496,7 +496,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
 
     return ErrorBoundary(
       child: Scaffold(
-        backgroundColor: context.conduitTheme.surfaceBackground,
+        backgroundColor: context.qonduitTheme.surfaceBackground,
         body: Column(
           children: [
             // Main content
@@ -560,7 +560,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   }
 
   Widget _buildHeader(bool reviewerMode) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
 
     return Column(
       children: [
@@ -613,7 +613,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
               if (reviewerMode)
                 Positioned(
                   bottom: -8,
-                  child: ConduitBadge(
+                  child: QonduitBadge(
                     text: AppLocalizations.of(context)!.demoBadge,
                     backgroundColor: theme.warning.withValues(alpha: 0.15),
                     textColor: theme.warning,
@@ -650,7 +650,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   }
 
   Widget _buildReviewerModeSection() {
-    return ConduitCard(
+    return QonduitCard(
       isElevated: false,
       padding: const EdgeInsets.all(Spacing.lg),
       child: Column(
@@ -659,7 +659,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
             children: [
               Icon(
                 Platform.isIOS ? CupertinoIcons.wand_stars : Icons.auto_awesome,
-                color: context.conduitTheme.warning,
+                color: context.qonduitTheme.warning,
                 size: IconSize.medium,
               ),
               const SizedBox(width: Spacing.md),
@@ -669,16 +669,16 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
                   children: [
                     Text(
                       AppLocalizations.of(context)!.demoModeActive,
-                      style: context.conduitTheme.bodyMedium?.copyWith(
+                      style: context.qonduitTheme.bodyMedium?.copyWith(
                         fontWeight: FontWeight.w600,
-                        color: context.conduitTheme.warning,
+                        color: context.qonduitTheme.warning,
                       ),
                     ),
                     const SizedBox(height: Spacing.xs),
                     Text(
                       AppLocalizations.of(context)!.skipServerSetupTryDemo,
-                      style: context.conduitTheme.bodySmall?.copyWith(
-                        color: context.conduitTheme.textSecondary,
+                      style: context.qonduitTheme.bodySmall?.copyWith(
+                        color: context.qonduitTheme.textSecondary,
                       ),
                     ),
                   ],
@@ -687,7 +687,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
             ],
           ),
           const SizedBox(height: Spacing.lg),
-          ConduitButton(
+          QonduitButton(
             text: AppLocalizations.of(context)!.enterDemo,
             icon: Platform.isIOS ? CupertinoIcons.play_fill : Icons.play_arrow,
             onPressed: () {
@@ -720,13 +720,13 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
           onSubmitted: (_) => _connectToServer(),
           prefixIcon: Icon(
             Platform.isIOS ? CupertinoIcons.globe : Icons.public,
-            color: context.conduitTheme.iconSecondary,
+            color: context.qonduitTheme.iconSecondary,
           ),
           autofillHints: const [AutofillHints.url],
           cupertinoDecoration: BoxDecoration(
             color: CupertinoColors.tertiarySystemBackground,
             border: Border.all(
-              color: context.conduitTheme.inputBorder,
+              color: context.qonduitTheme.inputBorder,
             ),
             borderRadius: BorderRadius.circular(8),
           ),
@@ -746,7 +746,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   }
 
   Widget _buildAdvancedSettings() {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
 
     return Container(
       decoration: BoxDecoration(
@@ -792,7 +792,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
                   if (_customHeaders.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(right: Spacing.sm),
-                      child: ConduitBadge(
+                      child: QonduitBadge(
                         text: '${_customHeaders.length}',
                         backgroundColor: theme.buttonPrimary
                             .withValues(alpha: 0.1),
@@ -833,7 +833,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
 
   Widget _buildAdvancedSettingsContent() {
     final l10n = AppLocalizations.of(context)!;
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1030,7 +1030,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   }
 
   Widget _buildCustomHeadersList() {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
 
     return Column(
       children: _customHeaders.entries.map((entry) {
@@ -1071,7 +1071,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                ConduitIconButton(
+                QonduitIconButton(
                   icon: Platform.isIOS
                       ? CupertinoIcons.xmark
                       : Icons.close_rounded,
@@ -1090,7 +1090,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   }
 
   Widget _buildConnectButton() {
-    return ConduitButton(
+    return QonduitButton(
       text: _isConnecting
           ? AppLocalizations.of(context)!.connecting
           : AppLocalizations.of(context)!.connectToServerButton,
@@ -1112,10 +1112,10 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       child: Container(
         padding: const EdgeInsets.all(Spacing.md),
         decoration: BoxDecoration(
-          color: context.conduitTheme.error.withValues(alpha: 0.08),
+          color: context.qonduitTheme.error.withValues(alpha: 0.08),
           borderRadius: BorderRadius.circular(AppBorderRadius.small),
           border: Border.all(
-            color: context.conduitTheme.error.withValues(alpha: 0.2),
+            color: context.qonduitTheme.error.withValues(alpha: 0.2),
             width: BorderWidth.standard,
           ),
         ),
@@ -1125,15 +1125,15 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
               Platform.isIOS
                   ? CupertinoIcons.exclamationmark_circle
                   : Icons.error_outline,
-              color: context.conduitTheme.error,
+              color: context.qonduitTheme.error,
               size: IconSize.small,
             ),
             const SizedBox(width: Spacing.sm),
             Expanded(
               child: Text(
                 message,
-                style: context.conduitTheme.bodySmall?.copyWith(
-                  color: context.conduitTheme.error,
+                style: context.qonduitTheme.bodySmall?.copyWith(
+                  color: context.qonduitTheme.error,
                 ),
               ),
             ),

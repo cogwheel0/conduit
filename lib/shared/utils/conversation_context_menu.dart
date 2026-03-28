@@ -1,10 +1,10 @@
 import 'dart:io';
 
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/l10n/app_localizations.dart';
-import 'package:conduit/shared/theme/theme_extensions.dart';
-import 'package:conduit/shared/widgets/themed_dialogs.dart';
+import 'package:qonduit/core/providers/app_providers.dart';
+import 'package:qonduit/l10n/app_localizations.dart';
+import 'package:qonduit/shared/theme/theme_extensions.dart';
+import 'package:qonduit/shared/widgets/themed_dialogs.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -14,14 +14,14 @@ import 'package:super_context_menu/super_context_menu.dart';
 import 'package:super_context_menu/src/scaffold/mobile/menu_widget_builder.dart'
     as mobile;
 
-import 'package:conduit/features/chat/providers/chat_providers.dart' as chat;
+import 'package:qonduit/features/chat/providers/chat_providers.dart' as chat;
 
 /// Re-export super_context_menu types for convenience.
 export 'package:super_context_menu/super_context_menu.dart'
     show ContextMenuWidget, Menu, MenuAction, MenuSeparator;
 
-/// Defines an action for use in Conduit context menus.
-class ConduitContextMenuAction {
+/// Defines an action for use in Qonduit context menus.
+class QonduitContextMenuAction {
   final IconData cupertinoIcon;
   final IconData materialIcon;
   final String label;
@@ -29,7 +29,7 @@ class ConduitContextMenuAction {
   final VoidCallback? onBeforeClose;
   final bool destructive;
 
-  const ConduitContextMenuAction({
+  const QonduitContextMenuAction({
     required this.cupertinoIcon,
     required this.materialIcon,
     required this.label,
@@ -45,11 +45,11 @@ class ConduitContextMenuAction {
 /// On iOS, this uses the native context menu provided by super_context_menu.
 /// On Android, it displays a custom Material 3 styled menu that matches the
 /// app's theme.
-class ConduitContextMenu extends StatelessWidget {
-  final List<ConduitContextMenuAction> actions;
+class QonduitContextMenu extends StatelessWidget {
+  final List<QonduitContextMenuAction> actions;
   final Widget child;
 
-  const ConduitContextMenu({
+  const QonduitContextMenu({
     super.key,
     required this.actions,
     required this.child,
@@ -60,16 +60,16 @@ class ConduitContextMenu extends StatelessWidget {
     // iOS: Use native context menu
     if (Platform.isIOS) {
       return ContextMenuWidget(
-        menuProvider: (_) => buildConduitMenu(actions),
+        menuProvider: (_) => buildQonduitMenu(actions),
         child: child,
       );
     }
 
     // Android: Use ContextMenuWidget with custom Material 3 styling
     return ContextMenuWidget(
-      menuProvider: (_) => buildConduitMenu(actions),
-      mobileMenuWidgetBuilder: _ConduitMobileMenuBuilder(
-        theme: context.conduitTheme,
+      menuProvider: (_) => buildQonduitMenu(actions),
+      mobileMenuWidgetBuilder: _QonduitMobileMenuBuilder(
+        theme: context.qonduitTheme,
       ),
       child: child,
     );
@@ -77,10 +77,10 @@ class ConduitContextMenu extends StatelessWidget {
 }
 
 /// Custom Material 3 styled menu builder for super_context_menu on Android.
-class _ConduitMobileMenuBuilder extends mobile.MobileMenuWidgetBuilder {
-  final ConduitThemeExtension theme;
+class _QonduitMobileMenuBuilder extends mobile.MobileMenuWidgetBuilder {
+  final QonduitThemeExtension theme;
 
-  const _ConduitMobileMenuBuilder({required this.theme});
+  const _QonduitMobileMenuBuilder({required this.theme});
 
   @override
   Widget buildMenuContainer(
@@ -307,16 +307,16 @@ class _ConduitMobileMenuBuilder extends mobile.MobileMenuWidgetBuilder {
   }
 }
 
-/// Builds a [Menu] from a list of [ConduitContextMenuAction]s.
+/// Builds a [Menu] from a list of [QonduitContextMenuAction]s.
 ///
 /// Use this with [ContextMenuWidget.menuProvider]:
 /// ```dart
 /// ContextMenuWidget(
-///   menuProvider: (_) => buildConduitMenu(actions),
+///   menuProvider: (_) => buildQonduitMenu(actions),
 ///   child: MyWidget(),
 /// )
 /// ```
-Menu buildConduitMenu(List<ConduitContextMenuAction> actions) {
+Menu buildQonduitMenu(List<QonduitContextMenuAction> actions) {
   return Menu(
     children: actions.map((action) {
       return MenuAction(
@@ -334,14 +334,14 @@ Menu buildConduitMenu(List<ConduitContextMenuAction> actions) {
 
 /// Builds a list of actions for conversation context menus.
 ///
-/// Use with [ConduitContextMenu]:
+/// Use with [QonduitContextMenu]:
 /// ```dart
-/// ConduitContextMenu(
+/// QonduitContextMenu(
 ///   actions: buildConversationActions(context: context, ref: ref, conversation: conv),
 ///   child: MyWidget(),
 /// )
 /// ```
-List<ConduitContextMenuAction> buildConversationActions({
+List<QonduitContextMenuAction> buildConversationActions({
   required BuildContext context,
   required WidgetRef ref,
   required dynamic conversation,
@@ -388,7 +388,7 @@ List<ConduitContextMenuAction> buildConversationActions({
   }
 
   return [
-    ConduitContextMenuAction(
+    QonduitContextMenuAction(
       cupertinoIcon: isPinned
           ? CupertinoIcons.pin_slash
           : CupertinoIcons.pin_fill,
@@ -397,7 +397,7 @@ List<ConduitContextMenuAction> buildConversationActions({
       onBeforeClose: () => HapticFeedback.lightImpact(),
       onSelected: togglePin,
     ),
-    ConduitContextMenuAction(
+    QonduitContextMenuAction(
       cupertinoIcon: isArchived
           ? CupertinoIcons.archivebox_fill
           : CupertinoIcons.archivebox,
@@ -408,14 +408,14 @@ List<ConduitContextMenuAction> buildConversationActions({
       onBeforeClose: () => HapticFeedback.lightImpact(),
       onSelected: toggleArchive,
     ),
-    ConduitContextMenuAction(
+    QonduitContextMenuAction(
       cupertinoIcon: CupertinoIcons.pencil,
       materialIcon: Icons.edit_rounded,
       label: l10n.rename,
       onBeforeClose: () => HapticFeedback.selectionClick(),
       onSelected: rename,
     ),
-    ConduitContextMenuAction(
+    QonduitContextMenuAction(
       cupertinoIcon: CupertinoIcons.delete,
       materialIcon: Icons.delete_rounded,
       label: l10n.delete,
@@ -434,7 +434,7 @@ Menu buildConversationMenu({
   required WidgetRef ref,
   required dynamic conversation,
 }) {
-  return buildConduitMenu(
+  return buildQonduitMenu(
     buildConversationActions(
       context: context,
       ref: ref,
@@ -533,7 +533,7 @@ Future<void> _showConversationError(
 ) async {
   if (!context.mounted) return;
   final l10n = AppLocalizations.of(context)!;
-  final theme = context.conduitTheme;
+  final theme = context.qonduitTheme;
   await ThemedDialogs.show<void>(
     context,
     title: l10n.errorMessage,

@@ -31,7 +31,7 @@ class _OpenWebUISourcesWidgetState extends State<OpenWebUISourcesWidget> {
     // Debug logging can be enabled here if needed for future debugging
     // debugPrint('OpenWebUI Sources: ${widget.sources.length} sources');
 
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final urlSources = widget.sources.where((s) {
       // Check multiple possible URL fields
       String? url = s.url;
@@ -188,7 +188,7 @@ class _OpenWebUISourcesWidgetState extends State<OpenWebUISourcesWidget> {
     ChatSourceReference source,
     int index,
   ) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
 
     // Get URL using helper method
     final url = _getSourceUrl(source);

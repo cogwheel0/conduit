@@ -1,5 +1,5 @@
-import 'package:conduit/features/chat/voice_call/domain/call_state_machine.dart';
-import 'package:conduit/features/chat/voice_call/domain/voice_call_models.dart';
+import 'package:qonduit/features/chat/voice_call/domain/call_state_machine.dart';
+import 'package:qonduit/features/chat/voice_call/domain/voice_call_models.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

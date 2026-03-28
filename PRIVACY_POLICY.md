@@ -1,8 +1,8 @@
-# Conduit Privacy Policy
+# Qonduit Privacy Policy
 
 Effective date: 2025-08-09
 
-Conduit is an open‑source mobile client for Open‑WebUI. This app acts as a client to a server you choose and configure. This policy describes how the app itself handles data on your device. Your configured server may collect, process, and store data under its own policies; please review your server's privacy terms separately.
+Qonduit is an open‑source mobile client for Open‑WebUI. This app acts as a client to a server you choose and configure. This policy describes how the app itself handles data on your device. Your configured server may collect, process, and store data under its own policies; please review your server's privacy terms separately.
 
 ## Information We Collect
 - Device-stored data: minimal settings and preferences (e.g., theme, UI options) saved locally on your device.
@@ -20,7 +20,7 @@ Conduit is an open‑source mobile client for Open‑WebUI. This app acts as a c
 - Network transfer: when you interact with the app, your data is sent to the server you configured. The app does not send your data to any developer‑controlled servers.
 
 ## Permissions
-Depending on how you use Conduit, the app may request:
+Depending on how you use Qonduit, the app may request:
 - Microphone: to capture voice input when you opt in.
 - Photos/Files: to let you pick and upload attachments.
 - Network access: to connect to your configured server.
@@ -40,7 +40,7 @@ We use platform‑provided secure storage for sensitive credentials where suppor
 - You can choose not to grant optional permissions; some features may not work without them.
 
 ## Children’s Privacy
-Conduit is not directed to children under 13 (or the minimum age required in your jurisdiction). Do not use the app if you do not meet the applicable age requirements.
+Qonduit is not directed to children under 13 (or the minimum age required in your jurisdiction). Do not use the app if you do not meet the applicable age requirements.
 
 ## Changes to This Policy
 We may update this policy to reflect improvements or legal requirements. Material changes will be reflected in the app bundle and version notes.

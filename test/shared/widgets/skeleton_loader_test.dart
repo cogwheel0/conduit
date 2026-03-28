@@ -1,4 +1,4 @@
-import 'package:conduit/shared/widgets/skeleton_loader.dart';
+import 'package:qonduit/shared/widgets/skeleton_loader.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 

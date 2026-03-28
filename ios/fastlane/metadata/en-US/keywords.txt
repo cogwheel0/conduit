@@ -1,1 +1,1 @@
-conduit, openwebui, ai chat, llm chat, self hosted ai, ollama
+qonduit, openwebui, ai chat, llm chat, self hosted ai, ollama

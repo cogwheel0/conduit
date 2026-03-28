@@ -1,6 +1,6 @@
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
-import '../../../shared/theme/conduit_input_styles.dart';
+import '../../../shared/theme/qonduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import 'enhanced_image_attachment.dart';
 import 'enhanced_attachment.dart';
@@ -8,7 +8,7 @@ import 'enhanced_attachment.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:io' show Platform;
-import 'package:conduit/l10n/app_localizations.dart';
+import 'package:qonduit/l10n/app_localizations.dart';
 import 'package:flutter/services.dart';
 import '../../../core/providers/app_providers.dart';
 import '../providers/chat_providers.dart';
@@ -442,21 +442,21 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
     super.dispose();
   }
 
-  List<ConduitContextMenuAction> _buildMessageActions(BuildContext context) {
+  List<QonduitContextMenuAction> _buildMessageActions(BuildContext context) {
     // Don't show menu while editing - return empty list
     if (_isEditing) return [];
 
     final l10n = AppLocalizations.of(context)!;
 
     return [
-      ConduitContextMenuAction(
+      QonduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.pencil,
         materialIcon: Icons.edit_outlined,
         label: l10n.edit,
         onBeforeClose: () => HapticFeedback.selectionClick(),
         onSelected: () async => _startInlineEdit(),
       ),
-      ConduitContextMenuAction(
+      QonduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.doc_on_clipboard,
         materialIcon: Icons.content_copy,
         label: l10n.copy,
@@ -484,8 +484,8 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
         widget.message.files != null &&
         (widget.message.files as List).any((f) => f is Map && f['url'] != null);
     // Prefer input/textPrimary colors during inline editing to avoid low contrast
-    final inlineEditTextColor = context.conduitTheme.textPrimary;
-    final inlineEditFill = context.conduitTheme.surfaceContainer.withValues(
+    final inlineEditTextColor = context.qonduitTheme.textPrimary;
+    final inlineEditFill = context.qonduitTheme.surfaceContainer.withValues(
       alpha: 0.92,
     );
     // Use rounded rectangle for multiline, pill for single-line (like chat input)
@@ -497,7 +497,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
         ? AppBorderRadius.xl
         : AppBorderRadius.pill;
 
-    return ConduitContextMenu(
+    return QonduitContextMenu(
       actions: _buildMessageActions(context),
       child: Container(
         width: double.infinity,
@@ -531,7 +531,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
                           vertical: Spacing.md,
                         ),
                         decoration: BoxDecoration(
-                          color: context.conduitTheme.chatBubbleUser,
+                          color: context.qonduitTheme.chatBubbleUser,
                           borderRadius: BorderRadius.circular(bubbleRadius),
                         ),
                         child: _isEditing
@@ -546,7 +546,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
                                     ),
                                     border: Border.all(
                                       color: context
-                                          .conduitTheme
+                                          .qonduitTheme
                                           .inputBorderFocused
                                           .withValues(alpha: 0.5),
                                       width: BorderWidth.thin,
@@ -566,7 +566,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
                                       padding: EdgeInsets.zero,
                                       cupertinoDecoration:
                                           const BoxDecoration(),
-                                      decoration: context.conduitInputStyles
+                                      decoration: context.qonduitInputStyles
                                           .borderless()
                                           .copyWith(
                                             isCollapsed: true,
@@ -580,7 +580,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
                                 widget.message.content,
                                 style: AppTypography.chatMessageStyle.copyWith(
                                   color:
-                                      context.conduitTheme.chatBubbleUserText,
+                                      context.qonduitTheme.chatBubbleUserText,
                                 ),
                                 softWrap: true,
                                 textAlign: TextAlign.left,
@@ -610,7 +610,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
 
   Widget _buildEditActionButtons() {
     final l10n = AppLocalizations.of(context)!;
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.end,

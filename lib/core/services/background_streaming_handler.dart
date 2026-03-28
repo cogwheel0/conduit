@@ -44,7 +44,7 @@ import '../utils/debug_logger.dart';
 /// ```
 class BackgroundStreamingHandler {
   static const MethodChannel _channel = MethodChannel(
-    'conduit/background_streaming',
+    'qonduit/background_streaming',
   );
 
   /// Stream ID used for socket keepalive - not counted as an "active stream"

@@ -1,4 +1,4 @@
-import 'package:conduit/shared/widgets/model_avatar.dart';
+import 'package:qonduit/shared/widgets/model_avatar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';

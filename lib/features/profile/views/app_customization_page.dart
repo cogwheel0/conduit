@@ -11,7 +11,7 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/theme/tweakcn_themes.dart';
 import '../../tools/providers/tools_providers.dart';
 import '../../../core/models/tool.dart';
-import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/qonduit_components.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../l10n/app_localizations.dart';
@@ -21,6 +21,7 @@ import '../widgets/adaptive_segmented_selector.dart';
 import '../widgets/customization_tile.dart';
 import '../widgets/expandable_card.dart';
 import '../widgets/socket_health_card.dart';
+import '../../../qonduit_router/views/qonduit_router_page.dart';
 
 const _sectionGap = SizedBox(height: Spacing.lg);
 
@@ -53,7 +54,7 @@ class AppCustomizationPage extends ConsumerWidget {
     final topPadding = MediaQuery.of(context).padding.top + kTextTabBarHeight + 24;
 
     return Scaffold(
-      backgroundColor: context.conduitTheme.surfaceBackground,
+      backgroundColor: context.qonduitTheme.surfaceBackground,
       extendBodyBehindAppBar: true,
       appBar: FloatingAppBar(
         leading: canPop ? const FloatingAppBarBackButton() : null,
@@ -92,9 +93,38 @@ class AppCustomizationPage extends ConsumerWidget {
           _sectionGap,
           _buildChatSection(context, ref, settings),
           _sectionGap,
+          _buildQonduitRouterSection(context),
+          _sectionGap,
           _buildSocketHealthSection(context, ref),
         ],
       ),
+    );
+  }
+
+  Widget _buildQonduitRouterSection(BuildContext context) {
+    final theme = context.qonduitTheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionHeader(title: 'LLM Server'),
+        const SizedBox(height: Spacing.sm),
+        CustomizationTile(
+          leading: _buildIconBadge(
+            context,
+            Platform.isIOS ? CupertinoIcons.gear : Icons.memory,            color: theme.buttonPrimary,
+          ),
+          title: 'Qonduit Router',
+          subtitle: 'Launch and manage llama.cpp models',
+          onTap: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => const QonduitRouterPage(),
+              ),
+            );
+          },
+        ),
+      ],
     );
   }
 
@@ -144,7 +174,7 @@ class AppCustomizationPage extends ConsumerWidget {
     String currentLanguageTag,
     String languageLabel,
   ) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -188,7 +218,7 @@ class AppCustomizationPage extends ConsumerWidget {
     TweakcnThemeDefinition activeTheme,
   ) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
 
     return CustomizationTile(
       leading: _buildIconBadge(
@@ -297,7 +327,7 @@ class AppCustomizationPage extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          ConduitCard(
+          QonduitCard(
             padding: EdgeInsets.zero,
             child: Theme(
               data: Theme.of(context).copyWith(
@@ -374,7 +404,7 @@ class AppCustomizationPage extends ConsumerWidget {
     WidgetRef ref,
     AppSettings settings,
   ) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final transportAvailability = ref.watch(socketTransportOptionsProvider);
     var activeTransportMode = settings.socketTransportMode;
@@ -523,7 +553,7 @@ class AppCustomizationPage extends ConsumerWidget {
     WidgetRef ref,
     AppSettings settings,
   ) async {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final options = <({AndroidAssistantTrigger value, String label})>[
       (
@@ -658,7 +688,7 @@ class AppCustomizationPage extends ConsumerWidget {
     WidgetRef ref,
     AppSettings settings,
   ) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final localSupport = ref.watch(localVoiceRecognitionAvailableProvider);
     final bool localAvailable = localSupport.maybeWhen(
@@ -691,7 +721,7 @@ class AppCustomizationPage extends ConsumerWidget {
       children: [
         _SectionHeader(title: l10n.sttSettings),
         const SizedBox(height: Spacing.sm),
-        ConduitCard(
+        QonduitCard(
           padding: const EdgeInsets.all(Spacing.md),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -884,7 +914,7 @@ class AppCustomizationPage extends ConsumerWidget {
     WidgetRef ref,
     AppSettings settings,
   ) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final ttsService = ref.watch(textToSpeechServiceProvider);
     final bool deviceAvailable =
@@ -911,7 +941,7 @@ class AppCustomizationPage extends ConsumerWidget {
       children: [
         _SectionHeader(title: l10n.ttsSettings),
         const SizedBox(height: Spacing.sm),
-        ConduitCard(
+        QonduitCard(
           padding: const EdgeInsets.all(Spacing.md),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1126,8 +1156,8 @@ class AppCustomizationPage extends ConsumerWidget {
     required String label,
     required ValueChanged<double> onChanged,
   }) {
-    final theme = context.conduitTheme;
-    return ConduitCard(
+    final theme = context.qonduitTheme;
+    return QonduitCard(
       padding: const EdgeInsets.all(Spacing.md),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1179,7 +1209,7 @@ class AppCustomizationPage extends ConsumerWidget {
     AppSettings settings,
   ) async {
     final l10n = AppLocalizations.of(context)!;
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final ttsService = ref.read(textToSpeechServiceProvider);
 
     // Ensure the service uses the currently selected engine before fetching
@@ -1700,7 +1730,7 @@ class AppCustomizationPage extends ConsumerWidget {
     required bool allowPolling,
     required bool allowWebsocketOnly,
   }) async {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final l10n = AppLocalizations.of(context)!;
     var current = settings.socketTransportMode;
 
@@ -1787,7 +1817,7 @@ class AppCustomizationPage extends ConsumerWidget {
   }
 
   Widget _buildValueBadge(BuildContext context, String label) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     return Container(
       padding: const EdgeInsets.symmetric(
         horizontal: Spacing.md,
@@ -1844,7 +1874,7 @@ class AppCustomizationPage extends ConsumerWidget {
     String activePaletteId,
   ) async {
     final l10n = AppLocalizations.of(context)!;
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final palettes = TweakcnThemes.all;
 
     await showModalBottomSheet<void>(
@@ -1928,7 +1958,7 @@ class AppCustomizationPage extends ConsumerWidget {
           borderRadius: const BorderRadius.vertical(
             top: Radius.circular(AppBorderRadius.modal),
           ),
-          boxShadow: ConduitShadows.modal(sheetContext),
+          boxShadow: QonduitShadows.modal(sheetContext),
         ),
         child: SafeArea(
           top: false,
@@ -2106,7 +2136,7 @@ class _PaletteColorDot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     return Container(
       margin: const EdgeInsets.only(right: Spacing.xs),
       width: 18,
@@ -2130,7 +2160,7 @@ class _SectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     return Text(
       title,
       style:
@@ -2148,7 +2178,7 @@ class _SheetHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     return Padding(
       padding: const EdgeInsets.symmetric(
         horizontal: Spacing.lg,

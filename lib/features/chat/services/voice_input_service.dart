@@ -871,7 +871,7 @@ class VoiceInputService {
     try {
       final wavBytes = _samplesToWav(samples);
       final fileName =
-          'conduit_voice_${DateTime.now().millisecondsSinceEpoch}.wav';
+          'qonduit_voice_${DateTime.now().millisecondsSinceEpoch}.wav';
 
       final response = await api.transcribeSpeech(
         audioBytes: wavBytes,

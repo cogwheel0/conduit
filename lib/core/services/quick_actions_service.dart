@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:conduit/l10n/app_localizations.dart';
+import 'package:qonduit/l10n/app_localizations.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:quick_actions/quick_actions.dart';
@@ -14,8 +14,8 @@ import 'navigation_service.dart';
 
 part 'quick_actions_service.g.dart';
 
-const _quickActionNewChat = 'conduit_new_chat';
-const _quickActionVoiceCall = 'conduit_voice_call';
+const _quickActionNewChat = 'qonduit_new_chat';
+const _quickActionVoiceCall = 'qonduit_voice_call';
 
 @Riverpod(keepAlive: true)
 class QuickActionsCoordinator extends _$QuickActionsCoordinator {

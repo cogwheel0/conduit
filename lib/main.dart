@@ -19,7 +19,7 @@ import 'core/auth/auth_state_manager.dart';
 import 'core/utils/debug_logger.dart';
 import 'core/utils/system_ui_style.dart';
 
-import 'package:conduit/l10n/app_localizations.dart';
+import 'package:qonduit/l10n/app_localizations.dart';
 import 'core/services/share_receiver_service.dart';
 import 'core/providers/app_startup_providers.dart';
 
@@ -65,12 +65,12 @@ void main() {
 
       const secureStorage = FlutterSecureStorage(
         aOptions: AndroidOptions(
-          sharedPreferencesName: 'conduit_secure_prefs',
-          preferencesKeyPrefix: 'conduit_',
+          sharedPreferencesName: 'qonduit_secure_prefs',
+          preferencesKeyPrefix: 'qonduit_',
           resetOnError: false,
         ),
         iOptions: IOSOptions(
-          accountName: 'conduit_secure_storage',
+          accountName: 'qonduit_secure_storage',
           synchronizable: false,
         ),
       );
@@ -109,7 +109,7 @@ void main() {
             secureStorageProvider.overrideWithValue(secureStorage),
             hiveBoxesProvider.overrideWithValue(hiveBoxes),
           ],
-          child: const ConduitApp(),
+          child: const QonduitApp(),
         ),
       );
       developer.Timeline.instantSync('runApp_called');
@@ -126,14 +126,14 @@ void main() {
   );
 }
 
-class ConduitApp extends ConsumerStatefulWidget {
-  const ConduitApp({super.key});
+class QonduitApp extends ConsumerStatefulWidget {
+  const QonduitApp({super.key});
 
   @override
-  ConsumerState<ConduitApp> createState() => _ConduitAppState();
+  ConsumerState<QonduitApp> createState() => _QonduitAppState();
 }
 
-class _ConduitAppState extends ConsumerState<ConduitApp> {
+class _QonduitAppState extends ConsumerState<QonduitApp> {
   Brightness? _lastAppliedOverlayBrightness;
   @override
   void initState() {
@@ -257,7 +257,7 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
           // On iOS, AdaptiveApp creates CupertinoApp which
           // doesn't propagate Material ThemeExtensions.
           // Wrap with Theme to ensure all custom extensions
-          // (ConduitThemeExtension, AppColorTokens, etc.)
+          // (QonduitThemeExtension, AppColorTokens, etc.)
           // are available via Theme.of(context) on every
           // platform.
           final materialTheme = brightness == Brightness.dark

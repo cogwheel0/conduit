@@ -39,7 +39,7 @@ class InlineCitationText extends StatelessWidget {
       return Text(text, style: style);
     }
 
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final baseStyle =
         style ??
         TextStyle(

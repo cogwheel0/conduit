@@ -1,1 +1,1 @@
-Conduit: OpenWebUI 客户端
+Qonduit: OpenWebUI 客户端

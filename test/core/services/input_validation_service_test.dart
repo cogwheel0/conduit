@@ -1,7 +1,7 @@
 import 'package:checks/checks.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:conduit/core/services/input_validation_service.dart';
+import 'package:qonduit/core/services/input_validation_service.dart';
 
 void main() {
   group('InputValidationService', () {

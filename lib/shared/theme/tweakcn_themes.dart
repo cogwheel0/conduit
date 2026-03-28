@@ -1,4 +1,4 @@
-import 'package:conduit/l10n/app_localizations.dart';
+import 'package:qonduit/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 
 /// Represents a single tweakcn theme variant (light or dark) and exposes the
@@ -118,7 +118,7 @@ Color mix(Color a, Color b, double amount) {
 }
 
 class TweakcnThemes {
-  static final TweakcnThemeVariant _conduitLight = TweakcnThemeVariant(
+  static final TweakcnThemeVariant _qonduitLight = TweakcnThemeVariant(
     background: const Color(0xFFFFFFFF), // background
     foreground: const Color(0xFF000000), // onBackground
     card: const Color(0xFFF4F4F4), // surface
@@ -190,7 +190,7 @@ class TweakcnThemes {
     ],
   );
 
-  static final TweakcnThemeVariant _conduitDark = TweakcnThemeVariant(
+  static final TweakcnThemeVariant _qonduitDark = TweakcnThemeVariant(
     background: const Color(0xFF000000), // background
     foreground: const Color(0xFFECECEC), // onBackground
     card: const Color(0xFF141414), // surface
@@ -800,12 +800,12 @@ class TweakcnThemes {
     ],
   );
 
-  static final TweakcnThemeDefinition conduit = TweakcnThemeDefinition(
-    id: 'conduit',
-    labelBuilder: (l10n) => l10n.themePaletteConduitLabel,
-    descriptionBuilder: (l10n) => l10n.themePaletteConduitDescription,
-    light: _conduitLight,
-    dark: _conduitDark,
+  static final TweakcnThemeDefinition qonduit = TweakcnThemeDefinition(
+    id: 'qonduit',
+    labelBuilder: (l10n) => l10n.themePaletteQonduitLabel,
+    descriptionBuilder: (l10n) => l10n.themePaletteQonduitDescription,
+    light: _qonduitLight,
+    dark: _qonduitDark,
     preview: const <Color>[
       Color(0xFF000000), // primary
       Color(0xFF10A37F), // tertiary / accent
@@ -840,7 +840,7 @@ class TweakcnThemes {
   );
 
   static List<TweakcnThemeDefinition> all = [
-    conduit,
+    qonduit,
     claude,
     t3Chat,
     catppuccin,
@@ -848,7 +848,7 @@ class TweakcnThemes {
   ];
 
   static TweakcnThemeDefinition byId(String? id) {
-    return all.firstWhere((theme) => theme.id == id, orElse: () => conduit);
+    return all.firstWhere((theme) => theme.id == id, orElse: () => qonduit);
   }
 }
 

@@ -2,10 +2,10 @@ import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'dart:io' show Platform;
-import 'package:conduit/l10n/app_localizations.dart';
+import 'package:qonduit/l10n/app_localizations.dart';
 
 /// Utility functions for common UI patterns and helpers
-/// Following Conduit design principles
+/// Following Qonduit design principles
 
 class UiUtils {
   static bool get isIOS => Platform.isIOS;
@@ -103,7 +103,7 @@ class UiUtils {
     android: Icons.push_pin_outlined,
   );
 
-  /// Shows a Conduit-styled snackbar with conversational messaging
+  /// Shows a Qonduit-styled snackbar with conversational messaging
   static void showMessage(
     BuildContext context,
     String message, {
@@ -127,7 +127,7 @@ class UiUtils {
 
   // Confirmation dialog moved to shared ThemedDialogs.confirm for cohesion
 
-  /// Formats dates in a conversational way following Conduit patterns
+  /// Formats dates in a conversational way following Qonduit patterns
   static String formatDate(DateTime date) {
     final now = DateTime.now();
     final difference = now.difference(date);

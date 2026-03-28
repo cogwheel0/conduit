@@ -1,4 +1,4 @@
-import 'package:conduit/core/providers/app_providers.dart';
+import 'package:qonduit/core/providers/app_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 

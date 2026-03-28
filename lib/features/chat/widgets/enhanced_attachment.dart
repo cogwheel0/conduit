@@ -167,10 +167,10 @@ class _EnhancedAttachmentState extends ConsumerState<EnhancedAttachment> {
         width: widget.constraints?.maxWidth ?? 160,
         height: 84,
         decoration: BoxDecoration(
-          color: context.conduitTheme.cardBackground,
+          color: context.qonduitTheme.cardBackground,
           borderRadius: BorderRadius.circular(AppBorderRadius.md),
           border: Border.all(
-            color: context.conduitTheme.textPrimary.withValues(alpha: 0.1),
+            color: context.qonduitTheme.textPrimary.withValues(alpha: 0.1),
             width: BorderWidth.regular,
           ),
         ),
@@ -181,17 +181,17 @@ class _EnhancedAttachmentState extends ConsumerState<EnhancedAttachment> {
       return Container(
         padding: const EdgeInsets.all(Spacing.sm),
         decoration: BoxDecoration(
-          color: context.conduitTheme.surfaceContainer,
+          color: context.qonduitTheme.surfaceContainer,
           borderRadius: BorderRadius.circular(AppBorderRadius.md),
           border: Border.all(
-            color: context.conduitTheme.error.withValues(alpha: 0.3),
+            color: context.qonduitTheme.error.withValues(alpha: 0.3),
             width: BorderWidth.regular,
           ),
         ),
         child: Text(
           _error!,
           style: TextStyle(
-            color: context.conduitTheme.error,
+            color: context.qonduitTheme.error,
             fontSize: AppTypography.labelMedium,
           ),
         ),
@@ -230,10 +230,10 @@ class _EnhancedAttachmentState extends ConsumerState<EnhancedAttachment> {
       constraints: widget.constraints,
       padding: const EdgeInsets.all(Spacing.md),
       decoration: BoxDecoration(
-        color: context.conduitTheme.cardBackground,
+        color: context.qonduitTheme.cardBackground,
         borderRadius: BorderRadius.circular(AppBorderRadius.md),
         border: Border.all(
-          color: context.conduitTheme.textPrimary.withValues(alpha: 0.12),
+          color: context.qonduitTheme.textPrimary.withValues(alpha: 0.12),
           width: BorderWidth.regular,
         ),
       ),
@@ -255,7 +255,7 @@ class _EnhancedAttachmentState extends ConsumerState<EnhancedAttachment> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: context.conduitTheme.textPrimary,
+                    color: context.qonduitTheme.textPrimary,
                     fontSize: AppTypography.labelLarge,
                     fontWeight: FontWeight.w600,
                   ),
@@ -264,7 +264,7 @@ class _EnhancedAttachmentState extends ConsumerState<EnhancedAttachment> {
                   Text(
                     metaLabel,
                     style: TextStyle(
-                      color: context.conduitTheme.textSecondary.withValues(
+                      color: context.qonduitTheme.textSecondary.withValues(
                         alpha: 0.7,
                       ),
                       fontSize: AppTypography.labelMedium,

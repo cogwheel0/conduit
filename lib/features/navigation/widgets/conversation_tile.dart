@@ -15,7 +15,7 @@ class ConversationDragFeedback extends StatelessWidget {
   final bool pinned;
 
   /// The theme extension for styling.
-  final ConduitThemeExtension theme;
+  final QonduitThemeExtension theme;
 
   /// Creates a drag feedback widget for a conversation.
   const ConversationDragFeedback({
@@ -81,7 +81,7 @@ class ConversationTileContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
 
     // Enhanced typography with better visual hierarchy
     final textStyle = AppTypography.standard.copyWith(
@@ -188,7 +188,7 @@ class _ConversationTileState extends State<ConversationTile> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final sidebarTheme = context.sidebarTheme;
     final borderRadius = BorderRadius.circular(AppBorderRadius.card);
 

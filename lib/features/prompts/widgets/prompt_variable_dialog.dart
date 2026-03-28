@@ -2,10 +2,10 @@ import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'package:conduit/core/utils/prompt_variable_parser.dart';
-import 'package:conduit/l10n/app_localizations.dart';
-import 'package:conduit/shared/theme/conduit_input_styles.dart';
-import 'package:conduit/shared/theme/theme_extensions.dart';
+import 'package:qonduit/core/utils/prompt_variable_parser.dart';
+import 'package:qonduit/l10n/app_localizations.dart';
+import 'package:qonduit/shared/theme/qonduit_input_styles.dart';
+import 'package:qonduit/shared/theme/theme_extensions.dart';
 
 // Use AppTypography constants for font sizes
 
@@ -99,7 +99,7 @@ class _PromptVariableDialogState extends State<PromptVariableDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final l10n = AppLocalizations.of(context)!;
 
     return AlertDialog(
@@ -169,7 +169,7 @@ class _PromptVariableDialogState extends State<PromptVariableDialog> {
   }
 
   Widget _buildField(PromptVariable variable) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -217,13 +217,13 @@ class _PromptVariableDialogState extends State<PromptVariableDialog> {
   }
 
   Widget _buildTextField(PromptVariable variable) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final l10n = AppLocalizations.of(context)!;
 
     return TextFormField(
       controller: _controllers[variable.name],
       style: TextStyle(color: theme.inputText),
-      decoration: context.conduitInputStyles
+      decoration: context.qonduitInputStyles
           .standard(hint: variable.placeholder),
       validator: (value) {
         if (variable.isRequired && (value == null || value.trim().isEmpty)) {
@@ -236,13 +236,13 @@ class _PromptVariableDialogState extends State<PromptVariableDialog> {
   }
 
   Widget _buildTextareaField(PromptVariable variable) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final l10n = AppLocalizations.of(context)!;
 
     return TextFormField(
       controller: _controllers[variable.name],
       style: TextStyle(color: theme.inputText),
-      decoration: context.conduitInputStyles
+      decoration: context.qonduitInputStyles
           .standard(hint: variable.placeholder),
       minLines: 3,
       maxLines: 6,
@@ -256,13 +256,13 @@ class _PromptVariableDialogState extends State<PromptVariableDialog> {
   }
 
   Widget _buildSelectField(PromptVariable variable) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final options = variable.options;
 
     return DropdownButtonFormField<String>(
       initialValue: _selectValues[variable.name],
-      decoration: context.conduitInputStyles
+      decoration: context.qonduitInputStyles
           .standard(hint: variable.placeholder),
       dropdownColor: theme.surfaceBackground,
       style: TextStyle(color: theme.inputText),
@@ -284,13 +284,13 @@ class _PromptVariableDialogState extends State<PromptVariableDialog> {
   }
 
   Widget _buildNumberField(PromptVariable variable) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final l10n = AppLocalizations.of(context)!;
 
     return TextFormField(
       controller: _controllers[variable.name],
       style: TextStyle(color: theme.inputText),
-      decoration: context.conduitInputStyles
+      decoration: context.qonduitInputStyles
           .standard(hint: variable.placeholder),
       keyboardType: TextInputType.numberWithOptions(
         decimal: variable.step != null && variable.step! < 1,

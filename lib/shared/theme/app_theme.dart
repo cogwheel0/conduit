@@ -85,7 +85,7 @@ class AppTheme {
     final shadows = ShadowThemeExtension.standard();
     final shapes = ShapeThemeExtension.fromVariant(variant);
     final sidebar = SidebarThemeExtension.fromVariant(variant);
-    final conduitExtension = ConduitThemeExtension.create(
+    final qonduitExtension = QonduitThemeExtension.create(
       theme: theme,
       tokens: tokens,
       brightness: brightness,
@@ -172,24 +172,24 @@ class AppTheme {
       ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
-        backgroundColor: conduitExtension.statusPalette.info.base,
+        backgroundColor: qonduitExtension.statusPalette.info.base,
         contentTextStyle: textTheme.bodyMedium?.copyWith(
-          color: conduitExtension.statusPalette.info.onBase,
+          color: qonduitExtension.statusPalette.info.onBase,
         ),
-        actionTextColor: conduitExtension.statusPalette.info.onBase,
+        actionTextColor: qonduitExtension.statusPalette.info.onBase,
         shape: RoundedRectangleBorder(borderRadius: shapes.medium),
         elevation: Elevation.low,
         insetPadding: const EdgeInsets.all(Spacing.md),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: conduitExtension.inputBackground,
+        fillColor: qonduitExtension.inputBackground,
         focusColor: surfaces.ring,
         hoverColor: Color.alphaBlend(
           shadows.shadowXs.first.color,
-          conduitExtension.inputBackground,
+          qonduitExtension.inputBackground,
         ),
-        hintStyle: TextStyle(color: conduitExtension.inputPlaceholder),
+        hintStyle: TextStyle(color: qonduitExtension.inputPlaceholder),
         border: baseInputBorder,
         enabledBorder: baseInputBorder,
         focusedBorder: baseInputBorder.copyWith(
@@ -214,8 +214,8 @@ class AppTheme {
           shadows.shadowXs.first.color,
           surfaces.card,
         ),
-        selectedColor: conduitExtension.statusPalette.success.background,
-        secondarySelectedColor: conduitExtension.statusPalette.info.background,
+        selectedColor: qonduitExtension.statusPalette.success.background,
+        secondarySelectedColor: qonduitExtension.statusPalette.info.background,
         shadowColor: shadows.shadowSm.first.color,
         selectedShadowColor: shadows.shadowSm.first.color,
         brightness: brightness,
@@ -223,13 +223,13 @@ class AppTheme {
           color: tokens.neutralOnSurface,
         ),
         secondaryLabelStyle: textTheme.bodySmall?.copyWith(
-          color: conduitExtension.statusPalette.info.onBase,
+          color: qonduitExtension.statusPalette.info.onBase,
         ),
         side: BorderSide(color: surfaces.border),
       ),
       badgeTheme: BadgeThemeData(
-        backgroundColor: conduitExtension.statusPalette.info.base,
-        textColor: conduitExtension.statusPalette.info.onBase,
+        backgroundColor: qonduitExtension.statusPalette.info.base,
+        textColor: qonduitExtension.statusPalette.info.onBase,
         padding: const EdgeInsets.symmetric(
           horizontal: Spacing.xs,
           vertical: Spacing.xxs,
@@ -254,7 +254,7 @@ class AppTheme {
         shape: RoundedRectangleBorder(borderRadius: shapes.medium),
         tileColor: Color.lerp(surfaces.card, surfaces.muted, 0.25),
         selectedTileColor: Color.alphaBlend(
-          conduitExtension.statusPalette.info.background,
+          qonduitExtension.statusPalette.info.background,
           surfaces.card,
         ),
         iconColor: tokens.neutralTone80,
@@ -302,7 +302,7 @@ class AppTheme {
         shadows,
         shapes,
         sidebar,
-        conduitExtension,
+        qonduitExtension,
         AppPaletteThemeExtension(palette: theme),
       ],
     );

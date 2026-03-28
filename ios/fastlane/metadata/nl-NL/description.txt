@@ -1,4 +1,4 @@
-Conduit is een open-source, native mobiele client voor Open‑WebUI. Verbind met je eigen server om te chatten met AI-modellen, gesprekken te beheren en je zelf gehoste AI veilig mee te nemen—onderweg en beveiligd.
+Qonduit is een open-source, native mobiele client voor Open‑WebUI. Verbind met je eigen server om te chatten met AI-modellen, gesprekken te beheren en je zelf gehoste AI veilig mee te nemen—onderweg en beveiligd.
 
 Functies
 - Real-time streaming chat
@@ -13,7 +13,7 @@ Functies
 - Veilige opslag van inloggegevens (Keychain/Keystore)
 
 Vereisten
-- Vereist een bestaande Open‑WebUI server. Conduit host geen AI-modellen en biedt deze niet aan.
+- Vereist een bestaande Open‑WebUI server. Qonduit host geen AI-modellen en biedt deze niet aan.
 - Standaard worden geen gegevens naar derde partijen verzonden; alles blijft bij je geconfigureerde server.
 
 Machtigingen
@@ -22,9 +22,9 @@ Machtigingen
 - Netwerk: Verbinding met je Open‑WebUI server
 
 Open Source:
-Conduit is een open-source project. Voor ondersteuning, om problemen te melden of om de broncode te bekijken, bezoek onze GitHub repository:
+Qonduit is een open-source project. Voor ondersteuning, om problemen te melden of om de broncode te bekijken, bezoek onze GitHub repository:
 
-https://github.com/cogwheel0/conduit
+https://github.com/cogwheel0/qonduit
 
 -----
 

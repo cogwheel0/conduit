@@ -24,8 +24,8 @@ class SecureCredentialStorage {
   /// Get Android-specific secure storage options
   AndroidOptions _getAndroidOptions() {
     return const AndroidOptions(
-      sharedPreferencesName: 'conduit_secure_prefs',
-      preferencesKeyPrefix: 'conduit_',
+      sharedPreferencesName: 'qonduit_secure_prefs',
+      preferencesKeyPrefix: 'qonduit_',
       // Avoid auto-wipe on transient errors; handle gracefully in code
       resetOnError: false,
     );
@@ -34,7 +34,7 @@ class SecureCredentialStorage {
   /// Get iOS-specific secure storage options
   IOSOptions _getIOSOptions() {
     return const IOSOptions(
-      accountName: 'conduit_secure_storage',
+      accountName: 'qonduit_secure_storage',
       synchronizable: false,
     );
   }
@@ -344,7 +344,7 @@ class SecureCredentialStorage {
         'majorVersion': Platform.operatingSystemVersion.split('.').first,
         'isPhysicalDevice': true, // In a real implementation, you'd detect this
         // Add a static component to ensure consistency
-        'appId': 'conduit_app_v1',
+        'appId': 'qonduit_app_v1',
       };
 
       final fingerprintData = jsonEncode(platformInfo);

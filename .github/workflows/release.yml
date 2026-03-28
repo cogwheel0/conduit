@@ -71,7 +71,7 @@ jobs:
         #5 Setup Keystore
       - name: Create Keystore
         run: |
-          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > app/conduit-keystore.jks
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > app/qonduit-keystore.jks
           echo "${{ secrets.ANDROID_KEY_PROPERTIES_BASE64 }}" | base64 --decode > key.properties
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -177,7 +177,7 @@ jobs:
           cd build/ios/Release-iphoneos
           mkdir Payload
           cp -r Runner.app Payload/
-          zip -r ../ipa/conduit.ipa Payload
+          zip -r ../ipa/qonduit.ipa Payload
           cd ../ipa
 
         #8 Upload Artifacts
@@ -192,7 +192,7 @@ jobs:
       - name: Update Release with IPA
         uses: ncipollo/release-action@v1
         with:
-          artifacts: "build/ios/ipa/conduit.ipa"
+          artifacts: "build/ios/ipa/qonduit.ipa"
           tag: ${{ github.ref_name }}
           token: ${{ secrets.GITHUB_TOKEN }}
           allowUpdates: true

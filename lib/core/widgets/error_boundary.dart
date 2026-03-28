@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../shared/theme/theme_extensions.dart';
 import '../error/enhanced_error_service.dart';
-import 'package:conduit/l10n/app_localizations.dart';
+import 'package:qonduit/l10n/app_localizations.dart';
 
 /// Error boundary widget that catches and handles errors in child widgets
 class ErrorBoundary extends ConsumerStatefulWidget {
@@ -152,15 +152,15 @@ class _ErrorBoundaryState extends ConsumerState<ErrorBoundary> {
                 child: Container(
                   constraints: const BoxConstraints(maxWidth: 480),
                   decoration: BoxDecoration(
-                    color: context.conduitTheme.cardBackground,
+                    color: context.qonduitTheme.cardBackground,
                     borderRadius: BorderRadius.circular(
-                      context.conduitTheme.radiusLg,
+                      context.qonduitTheme.radiusLg,
                     ),
                     border: Border.all(
-                      color: context.conduitTheme.cardBorder,
+                      color: context.qonduitTheme.cardBorder,
                       width: BorderWidth.regular,
                     ),
-                    boxShadow: context.conduitTheme.cardShadows,
+                    boxShadow: context.qonduitTheme.cardShadows,
                   ),
                   padding: const EdgeInsets.all(Spacing.xl),
                   child: Column(
@@ -171,13 +171,13 @@ class _ErrorBoundaryState extends ConsumerState<ErrorBoundary> {
                         width: 80,
                         height: 80,
                         decoration: BoxDecoration(
-                          color: context.conduitTheme.errorBackground,
+                          color: context.qonduitTheme.errorBackground,
                           shape: BoxShape.circle,
                         ),
                         child: Icon(
                           Icons.error_outline_rounded,
                           size: 40,
-                          color: context.conduitTheme.error,
+                          color: context.qonduitTheme.error,
                         ),
                       ),
                       const SizedBox(height: Spacing.lg),
@@ -186,7 +186,7 @@ class _ErrorBoundaryState extends ConsumerState<ErrorBoundary> {
                       Text(
                         AppLocalizations.of(context)?.errorMessage ??
                             'Something went wrong',
-                        style: context.conduitTheme.headingSmall,
+                        style: context.qonduitTheme.headingSmall,
                         textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: Spacing.sm),
@@ -195,8 +195,8 @@ class _ErrorBoundaryState extends ConsumerState<ErrorBoundary> {
                       Text(
                         enhancedErrorService.getUserMessage(_error!),
                         textAlign: TextAlign.center,
-                        style: context.conduitTheme.bodySmall?.copyWith(
-                          color: context.conduitTheme.textSecondary,
+                        style: context.qonduitTheme.bodySmall?.copyWith(
+                          color: context.qonduitTheme.textSecondary,
                         ),
                       ),
 
@@ -208,10 +208,10 @@ class _ErrorBoundaryState extends ConsumerState<ErrorBoundary> {
                           width: double.infinity,
                           child: AdaptiveButton.child(
                             onPressed: _retry,
-                            color: context.conduitTheme.buttonPrimary,
+                            color: context.qonduitTheme.buttonPrimary,
                             style: AdaptiveButtonStyle.filled,
                             borderRadius: BorderRadius.circular(
-                              context.conduitTheme.radiusMd,
+                              context.qonduitTheme.radiusMd,
                             ),
                             padding: const EdgeInsets.symmetric(
                               horizontal: Spacing.lg,
@@ -225,11 +225,11 @@ class _ErrorBoundaryState extends ConsumerState<ErrorBoundary> {
                                 Text(
                                   AppLocalizations.of(context)?.retry ??
                                       'Try Again',
-                                  style: context.conduitTheme.bodySmall
+                                  style: context.qonduitTheme.bodySmall
                                       ?.copyWith(
                                     fontWeight: FontWeight.w600,
                                     color: context
-                                        .conduitTheme.buttonPrimaryText,
+                                        .qonduitTheme.buttonPrimaryText,
                                   ),
                                 ),
                               ],
@@ -320,7 +320,7 @@ class AsyncErrorBoundary extends ConsumerWidget {
                   Icon(
                     Icons.error_outline,
                     size: 48,
-                    color: context.conduitTheme.error,
+                    color: context.qonduitTheme.error,
                   ),
                   const SizedBox(height: 16),
                   Text(
@@ -410,7 +410,7 @@ class StreamErrorBoundary<T> extends ConsumerWidget {
                   Icon(
                     Icons.error_outline,
                     size: 48,
-                    color: context.conduitTheme.error,
+                    color: context.qonduitTheme.error,
                   ),
                   const SizedBox(height: 16),
                   Text(

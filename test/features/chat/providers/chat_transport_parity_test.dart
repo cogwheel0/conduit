@@ -2,14 +2,14 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/models/chat_message.dart';
-import 'package:conduit/core/models/socket_event.dart';
-import 'package:conduit/core/services/api_service.dart';
-import 'package:conduit/core/services/chat_completion_transport.dart';
-import 'package:conduit/core/services/streaming_helper.dart';
-import 'package:conduit/core/services/worker_manager.dart';
-import 'package:conduit/core/models/server_config.dart';
-import 'package:conduit/features/chat/services/chat_transport_dispatch.dart';
+import 'package:qonduit/core/models/chat_message.dart';
+import 'package:qonduit/core/models/socket_event.dart';
+import 'package:qonduit/core/services/api_service.dart';
+import 'package:qonduit/core/services/chat_completion_transport.dart';
+import 'package:qonduit/core/services/streaming_helper.dart';
+import 'package:qonduit/core/services/worker_manager.dart';
+import 'package:qonduit/core/models/server_config.dart';
+import 'package:qonduit/features/chat/services/chat_transport_dispatch.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 

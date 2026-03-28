@@ -12,7 +12,7 @@ import '../../../core/services/connectivity_service.dart';
 import '../../../core/widgets/error_boundary.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
-import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/qonduit_components.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../providers/unified_auth_providers.dart';
 
@@ -64,8 +64,8 @@ class _ConnectionIssuePageState extends ConsumerState<ConnectionIssuePage> {
                           Text(
                             l10n.connectionIssueSubtitle,
                             textAlign: TextAlign.center,
-                            style: context.conduitTheme.bodyMedium?.copyWith(
-                              color: context.conduitTheme.textSecondary,
+                            style: context.qonduitTheme.bodyMedium?.copyWith(
+                              color: context.qonduitTheme.textSecondary,
                               height: 1.4,
                             ),
                           ),
@@ -92,7 +92,7 @@ class _ConnectionIssuePageState extends ConsumerState<ConnectionIssuePage> {
     AppLocalizations l10n,
     ConnectivityStatus? connectivity,
   ) {
-    final iconColor = context.conduitTheme.error;
+    final iconColor = context.qonduitTheme.error;
     final statusText = _statusLabel(connectivity, l10n);
 
     return Column(
@@ -103,10 +103,10 @@ class _ConnectionIssuePageState extends ConsumerState<ConnectionIssuePage> {
           width: 64,
           height: 64,
           decoration: BoxDecoration(
-            color: context.conduitTheme.error.withValues(alpha: 0.1),
+            color: context.qonduitTheme.error.withValues(alpha: 0.1),
             shape: BoxShape.circle,
             border: Border.all(
-              color: context.conduitTheme.error.withValues(alpha: 0.2),
+              color: context.qonduitTheme.error.withValues(alpha: 0.2),
               width: BorderWidth.thin,
             ),
           ),
@@ -122,9 +122,9 @@ class _ConnectionIssuePageState extends ConsumerState<ConnectionIssuePage> {
         Text(
           l10n.connectionIssueTitle,
           textAlign: TextAlign.center,
-          style: context.conduitTheme.headingMedium?.copyWith(
+          style: context.qonduitTheme.headingMedium?.copyWith(
             fontWeight: FontWeight.w600,
-            color: context.conduitTheme.textPrimary,
+            color: context.qonduitTheme.textPrimary,
           ),
         ),
         if (statusText != null) ...[
@@ -132,8 +132,8 @@ class _ConnectionIssuePageState extends ConsumerState<ConnectionIssuePage> {
           Text(
             statusText,
             textAlign: TextAlign.center,
-            style: context.conduitTheme.bodySmall?.copyWith(
-              color: context.conduitTheme.textSecondary,
+            style: context.qonduitTheme.bodySmall?.copyWith(
+              color: context.qonduitTheme.textSecondary,
               fontWeight: FontWeight.w500,
             ),
           ),
@@ -150,8 +150,8 @@ class _ConnectionIssuePageState extends ConsumerState<ConnectionIssuePage> {
         Text(
           host,
           textAlign: TextAlign.center,
-          style: context.conduitTheme.bodyMedium?.copyWith(
-            color: context.conduitTheme.textPrimary,
+          style: context.qonduitTheme.bodyMedium?.copyWith(
+            color: context.qonduitTheme.textPrimary,
             fontFamily: AppTypography.monospaceFontFamily,
           ),
         ),
@@ -159,8 +159,8 @@ class _ConnectionIssuePageState extends ConsumerState<ConnectionIssuePage> {
         Text(
           server.url,
           textAlign: TextAlign.center,
-          style: context.conduitTheme.bodySmall?.copyWith(
-            color: context.conduitTheme.textSecondary,
+          style: context.qonduitTheme.bodySmall?.copyWith(
+            color: context.qonduitTheme.textSecondary,
           ),
         ),
       ],
@@ -173,7 +173,7 @@ class _ConnectionIssuePageState extends ConsumerState<ConnectionIssuePage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          ConduitButton(
+          QonduitButton(
             text: l10n.retry,
             onPressed: (_isLoggingOut || _isRetrying) ? null : _retryConnection,
             isLoading: _isRetrying,
@@ -183,7 +183,7 @@ class _ConnectionIssuePageState extends ConsumerState<ConnectionIssuePage> {
             isFullWidth: true,
           ),
           const SizedBox(height: Spacing.sm),
-          ConduitButton(
+          QonduitButton(
             text: l10n.signOut,
             onPressed: (_isLoggingOut || _isRetrying)
                 ? null
@@ -207,8 +207,8 @@ class _ConnectionIssuePageState extends ConsumerState<ConnectionIssuePage> {
       child: Text(
         message,
         textAlign: TextAlign.center,
-        style: context.conduitTheme.bodySmall?.copyWith(
-          color: context.conduitTheme.textSecondary,
+        style: context.qonduitTheme.bodySmall?.copyWith(
+          color: context.qonduitTheme.textSecondary,
         ),
       ),
     );

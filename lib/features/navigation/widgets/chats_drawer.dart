@@ -17,15 +17,15 @@ import '../../chat/providers/chat_providers.dart' as chat;
 import '../../chat/providers/context_attachments_provider.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../core/services/navigation_service.dart';
-import '../../../shared/widgets/conduit_loading.dart';
+import '../../../shared/widgets/qonduit_loading.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
-import 'package:conduit/l10n/app_localizations.dart';
+import 'package:qonduit/l10n/app_localizations.dart';
 import '../../../core/utils/user_display_name.dart';
 import '../../../core/utils/user_avatar_utils.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../../../shared/utils/ui_utils.dart';
-import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/qonduit_components.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../../core/models/model.dart';
 import '../../../core/models/conversation.dart';
@@ -128,7 +128,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       slivers: paddedSlivers,
     );
 
-    final refreshableScroll = ConduitRefreshIndicator(
+    final refreshableScroll = QonduitRefreshIndicator(
       onRefresh: _refreshChats,
       child: scroll,
     );
@@ -264,7 +264,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     return Row(
       children: [
         Expanded(
-          child: ConduitGlassSearchField(
+          child: QonduitGlassSearchField(
             controller: _searchController,
             focusNode: _searchFocusNode,
             hintText: AppLocalizations.of(context)!.searchConversations,
@@ -310,7 +310,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
   }
 
   Widget _buildConversationList(BuildContext context) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
 
     if (_query.isEmpty) {
       final conversationsAsync = ref.watch(conversationsProvider);
@@ -886,7 +886,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
 
   /// Header for the Folders section with a create button on the right
   Widget _buildFoldersSectionHeader() {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final sidebarTheme = context.sidebarTheme;
     final isExpanded = ref.watch(showFoldersProvider);
 
@@ -950,7 +950,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     int count, {
     bool defaultExpanded = false,
   }) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final expandedMap = ref.watch(expandedFoldersProvider);
     final isExpanded = expandedMap[folderId] ?? defaultExpanded;
     final isHover = _dragHoverFolderId == folderId;
@@ -1018,7 +1018,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           }
         }
       },
-      child: ConduitContextMenu(
+      child: QonduitContextMenu(
         actions: _buildFolderActions(folderId, name),
         child: Material(
           color: isHover ? hoverColor : baseColor,
@@ -1034,7 +1034,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
               current[folderId] = next;
               ref.read(expandedFoldersProvider.notifier).set(current);
             },
-            onLongPress: null, // Handled by ConduitContextMenu
+            onLongPress: null, // Handled by QonduitContextMenu
             overlayColor: WidgetStateProperty.resolveWith(overlayForStates),
             child: ConstrainedBox(
               constraints: const BoxConstraints(
@@ -1235,7 +1235,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
   Future<void> _showDrawerError(String message) async {
     if (!mounted) return;
     final l10n = AppLocalizations.of(context)!;
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     await ThemedDialogs.show<void>(
       context,
       title: l10n.errorMessage,
@@ -1255,14 +1255,14 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     );
   }
 
-  List<ConduitContextMenuAction> _buildFolderActions(
+  List<QonduitContextMenuAction> _buildFolderActions(
     String folderId,
     String folderName,
   ) {
     final l10n = AppLocalizations.of(context)!;
 
     return [
-      ConduitContextMenuAction(
+      QonduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.pencil,
         materialIcon: Icons.edit_rounded,
         label: l10n.rename,
@@ -1271,7 +1271,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           await _renameFolder(context, folderId, folderName);
         },
       ),
-      ConduitContextMenuAction(
+      QonduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.delete,
         materialIcon: Icons.delete_rounded,
         label: l10n.delete,
@@ -1394,7 +1394,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
   }
 
   Widget _buildUnfileDropTarget() {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final isHover = _dragHoverFolderId == '__UNFILE__';
     return DropRegion(
@@ -1492,7 +1492,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       activeConversationProvider.select((c) => c?.id == conv.id),
     );
     final title = conv.title?.isEmpty == true ? 'Chat' : (conv.title ?? 'Chat');
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final bool isLoadingSelected =
         (_pendingConversationId == conv.id) &&
         (ref.watch(chat.isLoadingConversationProvider) == true);
@@ -1512,7 +1512,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           : () => _selectConversation(context, conv.id),
     );
 
-    final contextMenuTile = ConduitContextMenu(
+    final contextMenuTile = QonduitContextMenu(
       actions: buildConversationActions(
         context: context,
         ref: ref,
@@ -1579,7 +1579,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
   }
 
   Widget _buildArchivedHeader(int count) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final show = ref.watch(showArchivedProvider);
     return Material(
       color: show ? theme.navigationSelectedBackground : theme.surfaceContainer,
@@ -1736,7 +1736,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
   }
 
   Widget _buildFloatingBottomSection(BuildContext context) {
-    final conduitTheme = context.conduitTheme;
+    final qonduitTheme = context.qonduitTheme;
     final authUser = ref.watch(currentUserProvider2);
     final asyncUser = ref.watch(currentUserProvider);
     final user = asyncUser.maybeWhen(
@@ -1771,7 +1771,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(AppBorderRadius.avatar),
                 border: Border.all(
-                  color: conduitTheme.buttonPrimary.withValues(alpha: 0.25),
+                  color: qonduitTheme.buttonPrimary.withValues(alpha: 0.25),
                   width: BorderWidth.thin,
                 ),
               ),
@@ -1789,7 +1789,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: AppTypography.bodySmallStyle.copyWith(
-                  color: conduitTheme.textPrimary,
+                  color: qonduitTheme.textPrimary,
                   fontWeight: FontWeight.w600,
                   decoration: TextDecoration.none,
                 ),
@@ -1806,7 +1806,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
                 Platform.isIOS
                     ? CupertinoIcons.settings
                     : Icons.settings_rounded,
-                color: conduitTheme.iconPrimary,
+                color: qonduitTheme.iconPrimary,
                 size: IconSize.medium,
               ),
             ),

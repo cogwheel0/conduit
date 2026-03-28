@@ -1,5 +1,5 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/core/utils/tool_calls_parser.dart';
+import 'package:qonduit/core/utils/tool_calls_parser.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

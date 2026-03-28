@@ -21,7 +21,7 @@ class BrandService {
   static IconData get networkIcon =>
       Platform.isIOS ? CupertinoIcons.globe : Icons.public;
 
-  /// Brand colors - these should be accessed through context.conduitTheme in UI components
+  /// Brand colors - these should be accessed through context.qonduitTheme in UI components
   static Color primaryBrandColor({
     BuildContext? context,
     Brightness? brightness,
@@ -111,7 +111,7 @@ class BrandService {
     final tokens = _resolveTokens(context);
     final iColor =
         iconColor ??
-        (context?.conduitTheme.textInverse ?? tokens.neutralTone00);
+        (context?.qonduitTheme.textInverse ?? tokens.neutralTone00);
 
     return Container(
       width: size,
@@ -180,7 +180,7 @@ class BrandService {
   }) {
     final tokens = _resolveTokens(context);
     final iconColor =
-        color ?? (context?.conduitTheme.iconSecondary ?? tokens.neutralTone80);
+        color ?? (context?.qonduitTheme.iconSecondary ?? tokens.neutralTone80);
 
     if (!showBackground) {
       return createBrandIcon(
@@ -195,10 +195,10 @@ class BrandService {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: context?.conduitTheme.surfaceBackground ?? tokens.neutralTone10,
+        color: context?.qonduitTheme.surfaceBackground ?? tokens.neutralTone10,
         borderRadius: BorderRadius.circular(size / 2),
         border: Border.all(
-          color: context?.conduitTheme.dividerColor ?? tokens.neutralTone40,
+          color: context?.qonduitTheme.dividerColor ?? tokens.neutralTone40,
           width: 2,
         ),
       ),
@@ -221,7 +221,7 @@ class BrandService {
     bool isSecondary = false,
     BuildContext? context,
   }) {
-    final theme = context?.conduitTheme;
+    final theme = context?.qonduitTheme;
     final tokens = _resolveTokens(context);
     return SizedBox(
       width: width,
@@ -256,7 +256,7 @@ class BrandService {
   }
 
   /// Brand-specific semantic labels for accessibility
-  static String get brandName => 'Conduit';
+  static String get brandName => 'Qonduit';
   static String get brandDescription => 'Your AI Conversation Hub';
   static String get connectionLabel => 'Hub Connection';
   static String get networkLabel => 'Network Hub';
@@ -274,8 +274,8 @@ class BrandService {
       title: Text(
         title,
         style: context != null
-            ? context.conduitTheme.headingSmall?.copyWith(
-                color: context.conduitTheme.textPrimary,
+            ? context.qonduitTheme.headingSmall?.copyWith(
+                color: context.qonduitTheme.textPrimary,
                 fontWeight: FontWeight.w600,
               )
             : TextStyle(
@@ -285,7 +285,7 @@ class BrandService {
       ),
       centerTitle: centerTitle,
       elevation: elevation,
-      backgroundColor: context?.conduitTheme.surfaceBackground,
+      backgroundColor: context?.qonduitTheme.surfaceBackground,
       surfaceTintColor: Colors.transparent,
       shadowColor: Colors.transparent,
       leading: leading,
@@ -299,7 +299,7 @@ class BrandService {
     bool animate = true,
     BuildContext? context,
   }) {
-    final theme = context?.conduitTheme;
+    final theme = context?.qonduitTheme;
     final tokens = _resolveTokens(context);
     final baseColor =
         theme?.buttonPrimary ??
@@ -319,8 +319,8 @@ class BrandService {
         ),
         borderRadius: BorderRadius.circular(size / 2),
         boxShadow: context != null
-            ? ConduitShadows.glow(context)
-            : ConduitShadows.glowWithTokens(tokens),
+            ? QonduitShadows.glow(context)
+            : QonduitShadows.glowWithTokens(tokens),
       ),
       child: Icon(
         primaryIcon,

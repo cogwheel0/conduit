@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/markdown/streaming_markdown_widget.dart';
 import '../../../core/utils/reasoning_parser.dart';
-import 'package:conduit/l10n/app_localizations.dart';
+import 'package:qonduit/l10n/app_localizations.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import '../../../core/utils/debug_logger.dart';
 import 'assistant_detail_header.dart';
@@ -34,7 +34,7 @@ class ReasoningTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final showShimmer = !reasoning.isDone;
     final title = _headerText(context);
 
@@ -95,7 +95,7 @@ class ReasoningTile extends StatelessWidget {
   void _showReasoningBottomSheet(
     BuildContext context,
     String title,
-    ConduitThemeExtension theme,
+    QonduitThemeExtension theme,
   ) {
     showModalBottomSheet<void>(
       context: context,

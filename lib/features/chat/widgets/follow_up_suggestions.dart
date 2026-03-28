@@ -18,7 +18,7 @@ class FollowUpSuggestionBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final trimmedSuggestions = suggestions
         .map((s) => s.trim())
         .where((s) => s.isNotEmpty)
@@ -81,7 +81,7 @@ class _MinimalFollowUpButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
 
     return InkWell(
       onTap: enabled ? onPressed : null,

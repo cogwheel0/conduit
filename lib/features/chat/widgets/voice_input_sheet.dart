@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
-import 'package:conduit/l10n/app_localizations.dart';
+import 'package:qonduit/l10n/app_localizations.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -12,7 +12,7 @@ import '../../../core/services/platform_service.dart' as ps;
 import '../../../core/services/settings_service.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../shared/theme/theme_extensions.dart';
-import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/qonduit_components.dart';
 import '../../../shared/widgets/sheet_handle.dart';
 import '../services/voice_input_service.dart';
 
@@ -203,15 +203,15 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
         final l10n = AppLocalizations.of(context)!;
         return Container(
           decoration: BoxDecoration(
-            color: context.conduitTheme.surfaceBackground,
+            color: context.qonduitTheme.surfaceBackground,
             borderRadius: const BorderRadius.vertical(
               top: Radius.circular(AppBorderRadius.bottomSheet),
             ),
             border: Border.all(
-              color: context.conduitTheme.dividerColor,
+              color: context.qonduitTheme.dividerColor,
               width: BorderWidth.regular,
             ),
-            boxShadow: ConduitShadows.modal(context),
+            boxShadow: QonduitShadows.modal(context),
           ),
           padding: const EdgeInsets.all(
             Spacing.bottomSheetPadding,
@@ -227,7 +227,7 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
                   l10n.selectLanguage,
                   style: TextStyle(
                     fontSize: AppTypography.headlineSmall,
-                    color: context.conduitTheme.textPrimary,
+                    color: context.qonduitTheme.textPrimary,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -238,7 +238,7 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
                     itemCount: locales.length,
                     separatorBuilder: (_, sep) => Divider(
                       height: 1,
-                      color: context.conduitTheme.dividerColor,
+                      color: context.qonduitTheme.dividerColor,
                     ),
                     itemBuilder: (ctx, i) {
                       final l = locales[i];
@@ -249,14 +249,14 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
                           l.name,
                           style: TextStyle(
                             color:
-                                context.conduitTheme.textPrimary,
+                                context.qonduitTheme.textPrimary,
                           ),
                         ),
                         subtitle: Text(
                           l.localeId,
                           style: TextStyle(
                             color: context
-                                .conduitTheme
+                                .qonduitTheme
                                 .textSecondary,
                           ),
                         ),
@@ -264,7 +264,7 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
                             ? Icon(
                                 Icons.check,
                                 color: context
-                                    .conduitTheme
+                                    .qonduitTheme
                                     .buttonPrimary,
                               )
                             : null,
@@ -301,7 +301,7 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
     required bool value,
     required ValueChanged<bool> onChanged,
   }) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     return AdaptiveSwitch(
       value: value,
       onChanged: onChanged,
@@ -329,15 +329,15 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
     return Container(
       height: media.size.height * (isCompact ? 0.45 : 0.6),
       decoration: BoxDecoration(
-        color: context.conduitTheme.surfaceBackground,
+        color: context.qonduitTheme.surfaceBackground,
         borderRadius: const BorderRadius.vertical(
           top: Radius.circular(AppBorderRadius.bottomSheet),
         ),
         border: Border.all(
-          color: context.conduitTheme.dividerColor,
+          color: context.qonduitTheme.dividerColor,
           width: 1,
         ),
-        boxShadow: ConduitShadows.modal(context),
+        boxShadow: QonduitShadows.modal(context),
       ),
       child: SafeArea(
         top: false,
@@ -363,7 +363,7 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
                       style: TextStyle(
                         fontSize: AppTypography.headlineMedium,
                         fontWeight: FontWeight.w600,
-                        color: context.conduitTheme.textPrimary,
+                        color: context.qonduitTheme.textPrimary,
                       ),
                     ),
                     Row(
@@ -379,7 +379,7 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
                             ),
                             decoration: BoxDecoration(
                               color: context
-                                  .conduitTheme
+                                  .qonduitTheme
                                   .surfaceBackground
                                   .withValues(alpha: 0.4),
                               borderRadius: BorderRadius.circular(
@@ -387,7 +387,7 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
                               ),
                               border: Border.all(
                                 color: context
-                                    .conduitTheme
+                                    .qonduitTheme
                                     .dividerColor,
                                 width: BorderWidth.thin,
                               ),
@@ -400,7 +400,7 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
                                     fontSize:
                                         AppTypography.labelSmall,
                                     color: context
-                                        .conduitTheme
+                                        .qonduitTheme
                                         .textSecondary,
                                     fontWeight: FontWeight.w600,
                                   ),
@@ -412,7 +412,7 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
                                     Icons.arrow_drop_down,
                                     size: 16,
                                     color: context
-                                        .conduitTheme
+                                        .qonduitTheme
                                         .iconSecondary,
                                   ),
                                 ],
@@ -428,14 +428,14 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
                             _formatSeconds(_elapsedSeconds),
                             style: TextStyle(
                               color: context
-                                  .conduitTheme
+                                  .qonduitTheme
                                   .textSecondary,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
                         ),
                         const SizedBox(width: Spacing.sm),
-                        ConduitIconButton(
+                        QonduitIconButton(
                           icon: Platform.isIOS
                               ? CupertinoIcons.xmark
                               : Icons.close,
@@ -479,7 +479,7 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
                             l10n.voiceHoldToTalk,
                             style: TextStyle(
                               color: context
-                                  .conduitTheme
+                                  .qonduitTheme
                                   .textSecondary,
                             ),
                           ),
@@ -509,7 +509,7 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
                             l10n.voiceAutoSend,
                             style: TextStyle(
                               color: context
-                                  .conduitTheme
+                                  .qonduitTheme
                                   .textSecondary,
                             ),
                           ),
@@ -576,13 +576,13 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
                                   decoration: BoxDecoration(
                                     color: _isListening
                                         ? context
-                                              .conduitTheme
+                                              .qonduitTheme
                                               .error
                                               .withValues(
                                                 alpha: 0.2,
                                               )
                                         : context
-                                              .conduitTheme
+                                              .qonduitTheme
                                               .surfaceBackground
                                               .withValues(
                                                 alpha:
@@ -592,13 +592,13 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
                                     border: Border.all(
                                       color: _isListening
                                           ? context
-                                                .conduitTheme
+                                                .qonduitTheme
                                                 .error
                                                 .withValues(
                                                   alpha: 0.5,
                                                 )
                                           : context
-                                                .conduitTheme
+                                                .qonduitTheme
                                                 .dividerColor,
                                       width: 2,
                                     ),
@@ -616,10 +616,10 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
                                     size: micIconSize,
                                     color: _isListening
                                         ? context
-                                              .conduitTheme
+                                              .qonduitTheme
                                               .error
                                         : context
-                                              .conduitTheme
+                                              .qonduitTheme
                                               .iconSecondary,
                                   ),
                                 ),
@@ -692,7 +692,7 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
                                     ),
                                     decoration: BoxDecoration(
                                       color: context
-                                          .conduitTheme
+                                          .qonduitTheme
                                           .buttonPrimary
                                           .withValues(
                                             alpha: 0.7,
@@ -726,7 +726,7 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
                                   ? 56
                                   : (isCompact ? 64 : 80),
                             ),
-                            child: ConduitCard(
+                            child: QonduitCard(
                               isCompact: isCompact,
                               padding: EdgeInsets.all(
                                 isCompact
@@ -748,12 +748,12 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
                                           fontWeight:
                                               FontWeight.w600,
                                           color: context
-                                              .conduitTheme
+                                              .qonduitTheme
                                               .textSecondary,
                                         ),
                                       ),
                                       const Spacer(),
-                                      ConduitIconButton(
+                                      QonduitIconButton(
                                         icon: Icons.close,
                                         isCompact: true,
                                         tooltip:
@@ -804,10 +804,10 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
                                           color: _recognizedText
                                                   .isEmpty
                                               ? context
-                                                    .conduitTheme
+                                                    .qonduitTheme
                                                     .inputPlaceholder
                                               : context
-                                                    .conduitTheme
+                                                    .qonduitTheme
                                                     .textPrimary,
                                           height: 1.4,
                                         ),
@@ -854,7 +854,7 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
                       children: [
                         if (showStartStop) ...[
                           Expanded(
-                            child: ConduitButton(
+                            child: QonduitButton(
                               text: _isListening
                                   ? l10n.voiceActionStop
                                   : l10n.voiceActionStart,
@@ -870,7 +870,7 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
                           const SizedBox(width: Spacing.xs),
                         if (showSend) ...[
                           Expanded(
-                            child: ConduitButton(
+                            child: QonduitButton(
                               text: l10n.send,
                               isCompact: isCompact,
                               onPressed:

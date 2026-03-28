@@ -10,7 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../shared/theme/theme_extensions.dart';
-import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/qonduit_components.dart';
 import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
 import '../voice_call/application/voice_call_controller.dart';
 import '../voice_call/domain/voice_call_models.dart';
@@ -65,9 +65,9 @@ class _VoiceCallPageState extends ConsumerState<VoiceCallPage>
     final snapshot = ref.watch(voiceCallControllerProvider);
     final selectedModel = ref.watch(selectedModelProvider);
     final l10n = AppLocalizations.of(context)!;
-    final conduit = context.conduitTheme;
-    final primaryColor = conduit.buttonPrimary;
-    final textColor = conduit.textPrimary;
+    final qonduit = context.qonduitTheme;
+    final primaryColor = qonduit.buttonPrimary;
+    final textColor = qonduit.textPrimary;
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -322,7 +322,7 @@ class _VoiceCallPageState extends ConsumerState<VoiceCallPage>
     final showTranscript = snapshot.phase == CallPhase.listening;
     final text = showTranscript
         ? snapshot.transcript
-        : ConduitMarkdownPreprocessor.toPlainText(snapshot.response);
+        : QonduitMarkdownPreprocessor.toPlainText(snapshot.response);
     if (text.trim().isEmpty) {
       return const SizedBox.shrink();
     }

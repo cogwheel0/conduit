@@ -25,7 +25,7 @@ class DrawerShellPage extends ConsumerWidget {
     final scrim = Platform.isIOS
         ? context.colorTokens.scrimMedium
         : context.colorTokens.scrimStrong;
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
 
     return ResponsiveDrawerLayout(
       maxFraction: isTablet ? 0.42 : 1.0,

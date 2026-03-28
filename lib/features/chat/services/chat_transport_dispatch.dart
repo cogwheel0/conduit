@@ -199,6 +199,33 @@ Future<void> dispatchChatTransport({
   // 1. Write transport + flow metadata onto assistant message
   writeTransportMetadata(ref: ref, session: session);
 
+  // Handle non-streaming JSON completions (memory gateway)
+  if (session.transport == ChatCompletionTransport.jsonCompletion) {
+    try {
+      final response = session.jsonPayload;
+
+      final content =
+          response?['choices']?[0]?['message']?['content']?.toString() ??
+              response?['choices']?[0]?['text']?.toString() ??
+              '';
+
+      ref.read(chatMessagesProvider.notifier).replaceLastMessageContent(content);
+      ref.read(chatMessagesProvider.notifier).finishStreaming();
+
+      final active = ref.read(activeConversationProvider);
+      if (active != null && !isTemporaryChat(active.id)) {
+        refreshConversationsCache(ref);
+      }
+    } catch (e) {
+      DebugLogger.log(
+        'jsonCompletion dispatch error: $e',
+        scope: 'transport/dispatch',
+      );
+      rethrow;
+    }
+    return;
+  }
+
   try {
     ref.read(chatMessagesProvider.notifier).updateLastMessageWithFunction((
       ChatMessage m,

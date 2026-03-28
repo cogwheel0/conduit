@@ -4,14 +4,14 @@
 	<dict>
 		<key>BGTaskSchedulerPermittedIdentifiers</key>
 		<array>
-			<string>app.cogwheel.conduit.refresh</string>
+			<string>app.cogwheel.qonduit.refresh</string>
 		</array>
 		<key>CADisableMinimumFrameDurationOnPhone</key>
 		<true/>
 		<key>CFBundleDevelopmentRegion</key>
 		<string>$(DEVELOPMENT_LANGUAGE)</string>
 		<key>CFBundleDisplayName</key>
-		<string>Conduit</string>
+		<string>Qonduit</string>
 		<key>CFBundleExecutable</key>
 		<string>$(EXECUTABLE_NAME)</string>
 		<key>CFBundleIdentifier</key>
@@ -32,7 +32,7 @@
 			<string>zh-Hant</string>
 		</array>
 		<key>CFBundleName</key>
-		<string>conduit</string>
+		<string>qonduit</string>
 		<key>CFBundlePackageType</key>
 		<string>APPL</string>
 		<key>CFBundleShortVersionString</key>
@@ -45,27 +45,27 @@
 				<key>CFBundleTypeRole</key>
 				<string>Editor</string>
 				<key>CFBundleURLName</key>
-				<string>app.cogwheel.conduit.share</string>
+				<string>app.cogwheel.qonduit.share</string>
 				<key>CFBundleURLSchemes</key>
 				<array>
-					<string>ShareMedia-app.cogwheel.conduit</string>
+					<string>ShareMedia-app.cogwheel.qonduit</string>
 				</array>
 			</dict>
 			<dict>
 				<key>CFBundleTypeRole</key>
 				<string>Editor</string>
 				<key>CFBundleURLName</key>
-				<string>app.cogwheel.conduit.widget</string>
+				<string>app.cogwheel.qonduit.widget</string>
 				<key>CFBundleURLSchemes</key>
 				<array>
-					<string>conduit</string>
+					<string>qonduit</string>
 				</array>
 			</dict>
 		</array>
 		<key>CFBundleVersion</key>
 		<string>$(FLUTTER_BUILD_NUMBER)</string>
 		<key>AppGroupId</key>
-		<string>group.app.cogwheel.conduit</string>
+		<string>group.app.cogwheel.qonduit</string>
 		<key>ITSAppUsesNonExemptEncryption</key>
 		<false/>
 		<key>LSApplicationQueriesSchemes</key>
@@ -83,13 +83,13 @@
 			<true/>
 		</dict>
 		<key>NSCameraUsageDescription</key>
-		<string>Conduit uses the camera to take photos or videos you choose to share in chats. For example, you can snap a photo of a document and attach it to a message.</string>
+		<string>Qonduit uses the camera to take photos or videos you choose to share in chats. For example, you can snap a photo of a document and attach it to a message.</string>
 		<key>NSMicrophoneUsageDescription</key>
-		<string>Conduit uses the microphone to record voice messages and enable voice-to-text in chats. For example, when you hold the mic button in a conversation, we capture your speech to send as an audio message or transcript.</string>
+		<string>Qonduit uses the microphone to record voice messages and enable voice-to-text in chats. For example, when you hold the mic button in a conversation, we capture your speech to send as an audio message or transcript.</string>
 		<key>NSPhotoLibraryUsageDescription</key>
-		<string>Conduit needs access to your photo library so you can select existing images or videos to share in chats. For example, you can pick a screenshot to include in a conversation.</string>
+		<string>Qonduit needs access to your photo library so you can select existing images or videos to share in chats. For example, you can pick a screenshot to include in a conversation.</string>
 		<key>NSSpeechRecognitionUsageDescription</key>
-		<string>Conduit uses on-device speech recognition so you can dictate messages hands‑free. Your speech is converted to text on your device when available.</string>
+		<string>Qonduit uses on-device speech recognition so you can dictate messages hands‑free. Your speech is converted to text on your device when available.</string>
 		<key>UIApplicationSupportsIndirectInputEvents</key>
 		<true/>
 		<key>UIBackgroundModes</key>

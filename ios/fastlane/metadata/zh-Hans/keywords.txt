@@ -1,1 +1,1 @@
-conduit, openwebui, ai 聊天, llm 聊天, 自托管 ai, ollama
+qonduit, openwebui, ai 聊天, llm 聊天, 自托管 ai, ollama

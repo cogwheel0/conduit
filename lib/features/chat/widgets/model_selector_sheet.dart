@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 
-import 'package:conduit/l10n/app_localizations.dart';
+import 'package:qonduit/l10n/app_localizations.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,7 +10,7 @@ import '../../../core/models/model.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/utils/model_icon_utils.dart';
 import '../../../shared/theme/theme_extensions.dart';
-import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/qonduit_components.dart';
 import '../../../shared/widgets/modal_safe_area.dart';
 import '../../../shared/widgets/model_list_tile.dart';
 import '../../../shared/widgets/sheet_handle.dart';
@@ -100,17 +100,17 @@ class ModelSelectorSheetState
           builder: (context, scrollController) {
             return Container(
               decoration: BoxDecoration(
-                color: context.conduitTheme.surfaceBackground,
+                color: context.qonduitTheme.surfaceBackground,
                 borderRadius: const BorderRadius.vertical(
                   top: Radius.circular(
                     AppBorderRadius.bottomSheet,
                   ),
                 ),
                 border: Border.all(
-                  color: context.conduitTheme.dividerColor,
+                  color: context.qonduitTheme.dividerColor,
                   width: BorderWidth.regular,
                 ),
-                boxShadow: ConduitShadows.modal(context),
+                boxShadow: QonduitShadows.modal(context),
               ),
               child: ModalSheetSafeArea(
                 padding: const EdgeInsets.symmetric(
@@ -139,7 +139,7 @@ class ModelSelectorSheetState
                                                 : Icons.search_off,
                                             size: 48,
                                             color: context
-                                                .conduitTheme
+                                                .qonduitTheme
                                                 .iconSecondary,
                                           ),
                                           const SizedBox(
@@ -149,7 +149,7 @@ class ModelSelectorSheetState
                                             'No results',
                                             style: TextStyle(
                                               color: context
-                                                  .conduitTheme
+                                                  .qonduitTheme
                                                   .textSecondary,
                                               fontSize:
                                                   AppTypography
@@ -216,14 +216,14 @@ class ModelSelectorSheetState
                                   stops: const [0.0, 0.65, 1.0],
                                   colors: [
                                     context
-                                        .conduitTheme
+                                        .qonduitTheme
                                         .surfaceBackground,
                                     context
-                                        .conduitTheme
+                                        .qonduitTheme
                                         .surfaceBackground
                                         .withValues(alpha: 0.9),
                                     context
-                                        .conduitTheme
+                                        .qonduitTheme
                                         .surfaceBackground
                                         .withValues(alpha: 0.0),
                                   ],
@@ -235,7 +235,7 @@ class ModelSelectorSheetState
                                   const SizedBox(
                                     height: Spacing.sm,
                                   ),
-                                  ConduitGlassSearchField(
+                                  QonduitGlassSearchField(
                                     controller: _searchController,
                                     hintText: AppLocalizations.of(
                                       context,

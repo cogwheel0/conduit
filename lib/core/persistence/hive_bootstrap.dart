@@ -16,7 +16,7 @@ class HiveBootstrap {
       return _boxes!;
     }
 
-    await Hive.initFlutter('conduit_hive');
+    await Hive.initFlutter('qonduit_hive');
 
     final preferences = await Hive.openBox<dynamic>(HiveBoxNames.preferences);
     final caches = await Hive.openBox<dynamic>(HiveBoxNames.caches);

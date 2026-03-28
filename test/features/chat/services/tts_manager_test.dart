@@ -1,4 +1,4 @@
-import 'package:conduit/features/chat/services/tts_manager.dart';
+import 'package:qonduit/features/chat/services/tts_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

@@ -317,7 +317,7 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final scrim = widget.scrimColor ?? context.colorTokens.overlayStrong;
     final isTablet = _isTablet(context);
 
@@ -330,7 +330,7 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
     }
   }
 
-  Widget _buildTabletLayout(ConduitThemeExtension theme) {
+  Widget _buildTabletLayout(QonduitThemeExtension theme) {
     final targetWidth = widget.tabletDismissible && !_isTabletDocked
         ? 0.0
         : widget.tabletDrawerWidth;
@@ -363,7 +363,7 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
     );
   }
 
-  Widget _buildMobileLayout(ConduitThemeExtension theme, Color scrim) {
+  Widget _buildMobileLayout(QonduitThemeExtension theme, Color scrim) {
     return Stack(
       children: [
         // Content (optionally pushed by the drawer)

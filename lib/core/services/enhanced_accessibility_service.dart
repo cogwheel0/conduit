@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 import 'dart:ui' show FlutterView;
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
-import 'package:conduit/l10n/app_localizations.dart';
+import 'package:qonduit/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/semantics.dart';
@@ -122,7 +122,7 @@ class EnhancedAccessibilityService {
         enabled: onPressed != null,
         child: AdaptiveButton.child(
           onPressed: onPressed,
-          color: isDestructive ? context.conduitTheme.error : null,
+          color: isDestructive ? context.qonduitTheme.error : null,
           style: AdaptiveButtonStyle.filled,
           minSize: const Size(44, 44),
           child: child,
@@ -187,7 +187,7 @@ class EnhancedAccessibilityService {
             ? Builder(
                 builder: (context) => Icon(
                   Icons.error_outline,
-                  color: context.conduitTheme.error,
+                  color: context.qonduitTheme.error,
                 ),
               )
             : null,
@@ -202,7 +202,7 @@ class EnhancedAccessibilityService {
               ? Builder(
                   builder: (context) => Icon(
                     Icons.error_outline,
-                    color: context.conduitTheme.error,
+                    color: context.qonduitTheme.error,
                   ),
                 )
               : null,
@@ -296,12 +296,12 @@ class EnhancedAccessibilityService {
         child: SwitchListTile(
           title: Text(
             label,
-            style: TextStyle(color: context.conduitTheme.textPrimary),
+            style: TextStyle(color: context.qonduitTheme.textPrimary),
           ),
           subtitle: description != null
               ? Text(
                   description,
-                  style: TextStyle(color: context.conduitTheme.textSecondary),
+                  style: TextStyle(color: context.qonduitTheme.textSecondary),
                 )
               : null,
           value: value,

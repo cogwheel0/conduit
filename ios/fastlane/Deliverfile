@@ -4,9 +4,9 @@
 submit_for_review(true)
 skip_metadata(false)
 release_notes({
-  'default' => "https://github.com/cogwheel0/conduit/releases/tag/v2.6.2",
+  'default' => "https://github.com/cogwheel0/qonduit/releases/tag/v2.6.2",
 })
-promotional_text({'default' => "https://github.com/cogwheel0/conduit/releases/tag/v2.6.2"})
+promotional_text({'default' => "https://github.com/cogwheel0/qonduit/releases/tag/v2.6.2"})
 skip_screenshots(true)
 run_precheck_before_submit(false)
-ipa("../build/ios/ipa/conduit.ipa")
+ipa("../build/ios/ipa/qonduit.ipa")

@@ -13,8 +13,8 @@ import '../../../core/providers/app_providers.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../core/widgets/error_boundary.dart';
 import '../../../shared/theme/theme_extensions.dart';
-import '../../../shared/widgets/conduit_components.dart';
-import 'package:conduit/l10n/app_localizations.dart';
+import '../../../shared/widgets/qonduit_components.dart';
+import 'package:qonduit/l10n/app_localizations.dart';
 import '../providers/unified_auth_providers.dart';
 
 /// SSO Authentication page that uses a WebView to handle OAuth/OIDC flows.
@@ -22,7 +22,7 @@ import '../providers/unified_auth_providers.dart';
 /// This page loads the Open-WebUI `/auth` page in a WebView, allowing users
 /// to authenticate via configured OAuth providers (Google, Microsoft, GitHub,
 /// OIDC, etc.). After successful authentication, the JWT token is captured
-/// from cookies or localStorage and used to authenticate in Conduit.
+/// from cookies or localStorage and used to authenticate in Qonduit.
 class SsoAuthPage extends ConsumerStatefulWidget {
   final ServerConfig? serverConfig;
 
@@ -477,7 +477,7 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
 
     return ErrorBoundary(
       child: Scaffold(
-        backgroundColor: context.conduitTheme.surfaceBackground,
+        backgroundColor: context.qonduitTheme.surfaceBackground,
         extendBodyBehindAppBar: true,
         appBar: FloatingAppBar(
           leading: FloatingAppBarBackButton(
@@ -526,8 +526,8 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
           const SizedBox(height: Spacing.lg),
           Text(
             l10n?.ssoLoadingLogin ?? 'Loading login page...',
-            style: context.conduitTheme.bodyMedium?.copyWith(
-              color: context.conduitTheme.textSecondary,
+            style: context.qonduitTheme.bodyMedium?.copyWith(
+              color: context.qonduitTheme.textSecondary,
             ),
           ),
         ],
@@ -538,7 +538,7 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
   Widget _buildLoadingOverlay(AppLocalizations? l10n) {
     return Positioned.fill(
       child: Container(
-        color: context.conduitTheme.surfaceBackground.withValues(alpha: 0.8),
+        color: context.qonduitTheme.surfaceBackground.withValues(alpha: 0.8),
         child: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -549,8 +549,8 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
                 _tokenCaptured
                     ? (l10n?.ssoAuthenticating ?? 'Authenticating...')
                     : (l10n?.ssoLoadingLogin ?? 'Loading...'),
-                style: context.conduitTheme.bodyMedium?.copyWith(
-                  color: context.conduitTheme.textSecondary,
+                style: context.qonduitTheme.bodyMedium?.copyWith(
+                  color: context.qonduitTheme.textSecondary,
                 ),
               ),
             ],
@@ -572,30 +572,30 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
                   ? CupertinoIcons.exclamationmark_circle
                   : Icons.error_outline,
               size: IconSize.xxl,
-              color: context.conduitTheme.error,
+              color: context.qonduitTheme.error,
             ),
             const SizedBox(height: Spacing.lg),
             Text(
               l10n?.ssoAuthFailed ?? 'SSO authentication failed',
-              style: context.conduitTheme.headingMedium,
+              style: context.qonduitTheme.headingMedium,
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: Spacing.sm),
             Text(
               _error ?? '',
-              style: context.conduitTheme.bodyMedium?.copyWith(
-                color: context.conduitTheme.textSecondary,
+              style: context.qonduitTheme.bodyMedium?.copyWith(
+                color: context.qonduitTheme.textSecondary,
               ),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: Spacing.xl),
-            ConduitButton(
+            QonduitButton(
               text: l10n?.retry ?? 'Retry',
               icon: Platform.isIOS ? CupertinoIcons.refresh : Icons.refresh,
               onPressed: _refresh,
             ),
             const SizedBox(height: Spacing.md),
-            ConduitButton(
+            QonduitButton(
               text: l10n?.back ?? 'Back',
               icon: Platform.isIOS ? CupertinoIcons.back : Icons.arrow_back,
               onPressed: () => context.pop(),

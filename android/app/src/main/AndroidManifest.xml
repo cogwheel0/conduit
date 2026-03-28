@@ -43,14 +43,14 @@
          ForegroundServiceDidNotStartInTimeException. This ensures channels exist before
          any foreground service attempts to use them. -->
     <application
-        android:label="Conduit"
-        android:name=".ConduitApplication"
+        android:label="Qonduit"
+        android:name=".QonduitApplication"
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="false"
         android:fullBackupContent="false"
         android:usesCleartextTraffic="true">
         <service
-            android:name=".ConduitVoiceInteractionSessionService"
+            android:name=".QonduitVoiceInteractionSessionService"
             android:permission="android.permission.BIND_VOICE_INTERACTION"
             android:exported="true">
             <meta-data
@@ -111,7 +111,7 @@
         <activity
             android:name=".ProcessTextActivity"
             android:exported="true"
-            android:label="Ask Conduit"
+            android:label="Ask Qonduit"
             android:noHistory="true">
             <intent-filter>
                 <action android:name="android.intent.action.PROCESS_TEXT" />
@@ -129,7 +129,7 @@
         
         <!-- Home Screen Widget -->
         <receiver
-            android:name=".ConduitWidgetProvider"
+            android:name=".QonduitWidgetProvider"
             android:exported="true"
             android:label="@string/widget_name">
             <intent-filter>
@@ -137,7 +137,7 @@
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
-                android:resource="@xml/conduit_widget_info" />
+                android:resource="@xml/qonduit_widget_info" />
         </receiver>
 
         <!-- Don't delete the meta-data below.

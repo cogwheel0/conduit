@@ -1,1 +1,1 @@
-conduit, openwebui, чат с ии, чат llm, самодельный ии, ollama
+qonduit, openwebui, чат с ии, чат llm, самодельный ии, ollama

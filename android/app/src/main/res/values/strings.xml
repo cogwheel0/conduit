@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Conduit</string>
+    <string name="app_name">Qonduit</string>
     
     <!-- Widget strings -->
-    <string name="widget_name">Conduit</string>
-    <string name="widget_description">Quick access to Conduit chat with camera, photos, and clipboard shortcuts</string>
-    <string name="widget_ask_conduit">Ask Conduit</string>
+    <string name="widget_name">Qonduit</string>
+    <string name="widget_description">Quick access to Qonduit chat with camera, photos, and clipboard shortcuts</string>
+    <string name="widget_ask_qonduit">Ask Qonduit</string>
     <string name="widget_camera">Camera</string>
     <string name="widget_photos">Photos</string>
     <string name="widget_clipboard">Clipboard</string>

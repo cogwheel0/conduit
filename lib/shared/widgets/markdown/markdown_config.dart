@@ -11,17 +11,17 @@ import 'package:flutter_highlight/themes/github.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
-import 'package:conduit/l10n/app_localizations.dart';
+import 'package:qonduit/l10n/app_localizations.dart';
 
 import '../../theme/color_tokens.dart';
 import '../../theme/theme_extensions.dart';
-import 'package:conduit/core/network/self_signed_image_cache_manager.dart';
-import 'package:conduit/core/network/image_header_utils.dart';
+import 'package:qonduit/core/network/self_signed_image_cache_manager.dart';
+import 'package:qonduit/core/network/image_header_utils.dart';
 
 typedef MarkdownLinkTapCallback = void Function(String url, String title);
 
-class ConduitMarkdown {
-  const ConduitMarkdown._();
+class QonduitMarkdown {
+  const QonduitMarkdown._();
 
   /// Builds a syntax-highlighted code block with a
   /// language header and copy button.
@@ -29,7 +29,7 @@ class ConduitMarkdown {
     required BuildContext context,
     required String code,
     required String language,
-    required ConduitThemeExtension theme,
+    required QonduitThemeExtension theme,
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final normalizedLanguage = language.trim().isEmpty
@@ -144,7 +144,7 @@ class ConduitMarkdown {
   static Widget buildImage(
     BuildContext context,
     Uri uri,
-    ConduitThemeExtension theme,
+    QonduitThemeExtension theme,
   ) {
     if (uri.scheme == 'data') {
       return _buildBase64Image(uri.toString(), context, theme);
@@ -158,7 +158,7 @@ class ConduitMarkdown {
   static Widget _buildBase64Image(
     String dataUrl,
     BuildContext context,
-    ConduitThemeExtension theme,
+    QonduitThemeExtension theme,
   ) {
     try {
       final commaIndex = dataUrl.indexOf(',');
@@ -194,7 +194,7 @@ class ConduitMarkdown {
   static Widget _buildNetworkImage(
     String url,
     BuildContext context,
-    ConduitThemeExtension theme,
+    QonduitThemeExtension theme,
   ) {
     // Read headers and optional self-signed cache manager from Riverpod
     final container = ProviderScope.containerOf(context, listen: false);
@@ -232,7 +232,7 @@ class ConduitMarkdown {
   /// Builds an error placeholder for broken images.
   static Widget buildImageError(
     BuildContext context,
-    ConduitThemeExtension theme,
+    QonduitThemeExtension theme,
   ) {
     return Container(
       height: 120,
@@ -251,13 +251,13 @@ class ConduitMarkdown {
   }
 
   static Widget buildMermaidBlock(BuildContext context, String code) {
-    final conduitTheme = context.conduitTheme;
+    final qonduitTheme = context.qonduitTheme;
     final materialTheme = Theme.of(context);
 
     if (MermaidDiagram.isSupported) {
       return _buildMermaidContainer(
         context: context,
-        conduitTheme: conduitTheme,
+        qonduitTheme: qonduitTheme,
         materialTheme: materialTheme,
         code: code,
       );
@@ -265,14 +265,14 @@ class ConduitMarkdown {
 
     return _buildUnsupportedMermaidContainer(
       context: context,
-      conduitTheme: conduitTheme,
+      qonduitTheme: qonduitTheme,
       code: code,
     );
   }
 
   static Widget _buildMermaidContainer({
     required BuildContext context,
-    required ConduitThemeExtension conduitTheme,
+    required QonduitThemeExtension qonduitTheme,
     required ThemeData materialTheme,
     required String code,
   }) {
@@ -282,7 +282,7 @@ class ConduitMarkdown {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(AppBorderRadius.sm),
         border: Border.all(
-          color: conduitTheme.cardBorder.withValues(alpha: 0.4),
+          color: qonduitTheme.cardBorder.withValues(alpha: 0.4),
           width: BorderWidth.micro,
         ),
       ),
@@ -302,22 +302,22 @@ class ConduitMarkdown {
 
   static Widget _buildUnsupportedMermaidContainer({
     required BuildContext context,
-    required ConduitThemeExtension conduitTheme,
+    required QonduitThemeExtension qonduitTheme,
     required String code,
   }) {
     final l10n = AppLocalizations.of(context);
     final textStyle = AppTypography.bodySmallStyle.copyWith(
-      color: conduitTheme.codeText.withValues(alpha: 0.7),
+      color: qonduitTheme.codeText.withValues(alpha: 0.7),
     );
 
     return Container(
       margin: const EdgeInsets.symmetric(vertical: Spacing.sm),
       padding: const EdgeInsets.all(Spacing.sm),
       decoration: BoxDecoration(
-        color: conduitTheme.surfaceContainer.withValues(alpha: 0.35),
+        color: qonduitTheme.surfaceContainer.withValues(alpha: 0.35),
         borderRadius: BorderRadius.circular(AppBorderRadius.sm),
         border: Border.all(
-          color: conduitTheme.cardBorder.withValues(alpha: 0.4),
+          color: qonduitTheme.cardBorder.withValues(alpha: 0.4),
           width: BorderWidth.micro,
         ),
       ),
@@ -338,7 +338,7 @@ class ConduitMarkdown {
             textDirection: TextDirection.ltr,
             textWidthBasis: TextWidthBasis.parent,
             style: AppTypography.codeStyle.copyWith(
-              color: conduitTheme.codeText,
+              color: qonduitTheme.codeText,
             ),
           ),
         ],
@@ -364,13 +364,13 @@ class ConduitMarkdown {
 
   /// Builds a ChartJS block for rendering in a WebView.
   static Widget buildChartJsBlock(BuildContext context, String htmlContent) {
-    final conduitTheme = context.conduitTheme;
+    final qonduitTheme = context.qonduitTheme;
     final materialTheme = Theme.of(context);
 
     if (ChartJsDiagram.isSupported) {
       return _buildChartJsContainer(
         context: context,
-        conduitTheme: conduitTheme,
+        qonduitTheme: qonduitTheme,
         materialTheme: materialTheme,
         htmlContent: htmlContent,
       );
@@ -378,13 +378,13 @@ class ConduitMarkdown {
 
     return _buildUnsupportedChartJsContainer(
       context: context,
-      conduitTheme: conduitTheme,
+      qonduitTheme: qonduitTheme,
     );
   }
 
   static Widget _buildChartJsContainer({
     required BuildContext context,
-    required ConduitThemeExtension conduitTheme,
+    required QonduitThemeExtension qonduitTheme,
     required ThemeData materialTheme,
     required String htmlContent,
   }) {
@@ -394,7 +394,7 @@ class ConduitMarkdown {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(AppBorderRadius.sm),
         border: Border.all(
-          color: conduitTheme.cardBorder.withValues(alpha: 0.4),
+          color: qonduitTheme.cardBorder.withValues(alpha: 0.4),
           width: BorderWidth.micro,
         ),
       ),
@@ -414,21 +414,21 @@ class ConduitMarkdown {
 
   static Widget _buildUnsupportedChartJsContainer({
     required BuildContext context,
-    required ConduitThemeExtension conduitTheme,
+    required QonduitThemeExtension qonduitTheme,
   }) {
     final l10n = AppLocalizations.of(context);
     final textStyle = AppTypography.bodySmallStyle.copyWith(
-      color: conduitTheme.codeText.withValues(alpha: 0.7),
+      color: qonduitTheme.codeText.withValues(alpha: 0.7),
     );
 
     return Container(
       margin: const EdgeInsets.symmetric(vertical: Spacing.sm),
       padding: const EdgeInsets.all(Spacing.sm),
       decoration: BoxDecoration(
-        color: conduitTheme.surfaceContainer.withValues(alpha: 0.35),
+        color: qonduitTheme.surfaceContainer.withValues(alpha: 0.35),
         borderRadius: BorderRadius.circular(AppBorderRadius.sm),
         border: Border.all(
-          color: conduitTheme.cardBorder.withValues(alpha: 0.4),
+          color: qonduitTheme.cardBorder.withValues(alpha: 0.4),
           width: BorderWidth.micro,
         ),
       ),
@@ -844,11 +844,11 @@ class _ChartJsDiagramState extends State<ChartJsDiagram> {
 
   String _buildHtml(String htmlContent, String script) {
     final isDark = widget.brightness == Brightness.dark;
-    final background = ConduitMarkdown.colorToHex(
+    final background = QonduitMarkdown.colorToHex(
       isDark ? widget.tokens.codeBackground : Colors.white,
     );
-    final textColor = ConduitMarkdown.colorToHex(widget.tokens.codeText);
-    final gridColor = ConduitMarkdown.colorToHex(
+    final textColor = QonduitMarkdown.colorToHex(widget.tokens.codeText);
+    final gridColor = QonduitMarkdown.colorToHex(
       isDark
           ? Colors.white.withValues(alpha: 0.1)
           : Colors.black.withValues(alpha: 0.1),
@@ -1056,10 +1056,10 @@ class _MermaidDiagramState extends State<MermaidDiagram> {
 
   String _buildHtml(String code, String script) {
     final theme = widget.brightness == Brightness.dark ? 'dark' : 'default';
-    final primary = ConduitMarkdown.colorToHex(widget.tokens.brandTone60);
-    final secondary = ConduitMarkdown.colorToHex(widget.tokens.accentTeal60);
-    final background = ConduitMarkdown.colorToHex(widget.tokens.codeBackground);
-    final onBackground = ConduitMarkdown.colorToHex(widget.tokens.codeText);
+    final primary = QonduitMarkdown.colorToHex(widget.tokens.brandTone60);
+    final secondary = QonduitMarkdown.colorToHex(widget.tokens.accentTeal60);
+    final background = QonduitMarkdown.colorToHex(widget.tokens.codeBackground);
+    final onBackground = QonduitMarkdown.colorToHex(widget.tokens.codeText);
 
     return '''
 <!DOCTYPE html>

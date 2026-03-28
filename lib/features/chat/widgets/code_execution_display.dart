@@ -60,7 +60,7 @@ class CodeExecutionListView extends StatelessWidget {
     BuildContext context,
     ChatCodeExecution execution,
   ) async {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,

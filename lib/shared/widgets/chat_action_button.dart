@@ -1,9 +1,9 @@
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:conduit/shared/theme/theme_extensions.dart';
-import 'package:conduit/core/services/platform_service.dart';
-import 'package:conduit/core/services/settings_service.dart';
+import 'package:qonduit/shared/theme/theme_extensions.dart';
+import 'package:qonduit/core/services/platform_service.dart';
+import 'package:qonduit/core/services/settings_service.dart';
 
 class ChatActionButton extends ConsumerStatefulWidget {
   final IconData icon;
@@ -34,7 +34,7 @@ class _ChatActionButtonState extends ConsumerState<ChatActionButton> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final hapticEnabled = ref.read(hapticEnabledProvider);
     final radius = BorderRadius.circular(AppBorderRadius.circular);
 

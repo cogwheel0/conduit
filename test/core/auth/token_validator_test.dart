@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/auth/token_validator.dart';
+import 'package:qonduit/core/auth/token_validator.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Creates a fake JWT with the given payload for testing.

@@ -6,13 +6,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher_string.dart';
-import 'package:conduit/l10n/app_localizations.dart';
+import 'package:qonduit/l10n/app_localizations.dart';
 import '../../../core/widgets/error_boundary.dart';
-import '../../../shared/widgets/conduit_loading.dart';
+import '../../../shared/widgets/qonduit_loading.dart';
 
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
-import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/qonduit_components.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../chat/providers/chat_providers.dart' show restoreDefaultModel;
@@ -69,7 +69,7 @@ class ProfilePage extends ConsumerWidget {
     final l10n = AppLocalizations.of(context)!;
 
     return Scaffold(
-      backgroundColor: context.conduitTheme.surfaceBackground,
+      backgroundColor: context.qonduitTheme.surfaceBackground,
       extendBodyBehindAppBar: true,
       appBar: FloatingAppBar(
         leading: canPop ? const FloatingAppBarBackButton() : null,
@@ -122,7 +122,7 @@ class ProfilePage extends ConsumerWidget {
   }
 
   Widget _buildSupportSection(BuildContext context) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final textTheme =
         theme.bodySmall?.copyWith(
           color: theme.sidebarForeground.withValues(alpha: 0.75),
@@ -158,12 +158,12 @@ class ProfilePage extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          AppLocalizations.of(context)!.supportConduit,
+          AppLocalizations.of(context)!.supportQonduit,
           style: theme.headingSmall?.copyWith(color: theme.sidebarForeground),
         ),
         const SizedBox(height: Spacing.xs),
         Text(
-          AppLocalizations.of(context)!.supportConduitSubtitle,
+          AppLocalizations.of(context)!.supportQonduitSubtitle,
           style: textTheme,
         ),
         const SizedBox(height: Spacing.sm),
@@ -183,7 +183,7 @@ class ProfilePage extends ConsumerWidget {
     required String url,
     required Color color,
   }) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     return ProfileSettingTile(
       onTap: () => _openExternalLink(context, url),
       leading: _buildIconBadge(context, icon, color: color),
@@ -255,7 +255,7 @@ class ProfilePage extends ConsumerWidget {
     }
 
     final email = extractEmail(user) ?? 'No email';
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
 
     return Container(
       padding: const EdgeInsets.all(Spacing.md),
@@ -372,7 +372,7 @@ class ProfilePage extends ConsumerWidget {
     required VoidCallback onTap,
     bool showChevron = true,
   }) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final color = theme.buttonPrimary;
     return ProfileSettingTile(
       onTap: onTap,
@@ -417,7 +417,7 @@ class ProfilePage extends ConsumerWidget {
             ? currentModel.name
             : AppLocalizations.of(context)!.autoSelect;
 
-        final theme = context.conduitTheme;
+        final theme = context.qonduitTheme;
 
         Widget leading;
         if (selectedModelExplicit) {
@@ -464,7 +464,7 @@ class ProfilePage extends ConsumerWidget {
             ios: CupertinoIcons.cube_box,
             android: Icons.psychology,
           ),
-          color: context.conduitTheme.buttonPrimary,
+          color: context.qonduitTheme.buttonPrimary,
         ),
         title: AppLocalizations.of(context)!.defaultModel,
         subtitle: AppLocalizations.of(context)!.loadingModels,
@@ -475,7 +475,7 @@ class ProfilePage extends ConsumerWidget {
           child: CircularProgressIndicator(
             strokeWidth: 2,
             valueColor: AlwaysStoppedAnimation<Color>(
-              context.conduitTheme.buttonPrimary,
+              context.qonduitTheme.buttonPrimary,
             ),
           ),
         ),
@@ -550,13 +550,13 @@ class ProfilePage extends ConsumerWidget {
       final info = await PackageInfo.fromPlatform();
       // Update dialog with dynamic version each time
       // GitHub repo URL source of truth
-      const githubUrl = 'https://github.com/cogwheel0/conduit';
+      const githubUrl = 'https://github.com/cogwheel0/qonduit';
 
       if (!context.mounted) return;
       final l10n = AppLocalizations.of(context)!;
       await ThemedDialogs.show(
         context,
-        title: l10n.aboutConduit,
+        title: l10n.aboutQonduit,
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -577,13 +577,13 @@ class ProfilePage extends ConsumerWidget {
                       android: Icons.link,
                     ),
                     size: IconSize.small,
-                    color: context.conduitTheme.buttonPrimary,
+                    color: context.qonduitTheme.buttonPrimary,
                   ),
                   const SizedBox(width: Spacing.xs),
                   Text(
                     l10n.githubRepository,
                     style: TextStyle(
-                      color: context.conduitTheme.buttonPrimary,
+                      color: context.qonduitTheme.buttonPrimary,
                       fontWeight: FontWeight.w600,
                     ),
                   ),

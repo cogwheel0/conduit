@@ -8,7 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/models/model.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../shared/theme/theme_extensions.dart';
-import 'package:conduit/l10n/app_localizations.dart';
+import 'package:qonduit/l10n/app_localizations.dart';
 
 /// Autocomplete overlay that appears when the user types `@` to
 /// switch the active AI model, similar to OpenWebUI.
@@ -32,8 +32,8 @@ class ModelSuggestionOverlay extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final Brightness brightness = Theme.of(context).brightness;
-    final overlayColor = context.conduitTheme.cardBackground;
-    final borderColor = context.conduitTheme.cardBorder.withValues(
+    final overlayColor = context.qonduitTheme.cardBackground;
+    final borderColor = context.qonduitTheme.cardBorder.withValues(
       alpha: brightness == Brightness.dark ? 0.6 : 0.4,
     );
 
@@ -52,7 +52,7 @@ class ModelSuggestionOverlay extends ConsumerWidget {
         ),
         boxShadow: [
           BoxShadow(
-            color: context.conduitTheme.cardShadow.withValues(
+            color: context.qonduitTheme.cardShadow.withValues(
               alpha: brightness == Brightness.dark ? 0.28 : 0.16,
             ),
             blurRadius: 22,
@@ -69,7 +69,7 @@ class ModelSuggestionOverlay extends ConsumerWidget {
               leading: Icon(
                 Icons.inbox_outlined,
                 size: IconSize.medium,
-                color: context.conduitTheme.textSecondary.withValues(
+                color: context.qonduitTheme.textSecondary.withValues(
                   alpha: Alpha.medium,
                 ),
               ),
@@ -102,7 +102,7 @@ class ModelSuggestionOverlay extends ConsumerWidget {
                     currentModel?.id == model.id;
                 final Color highlight = isSelected
                     ? context
-                          .conduitTheme
+                          .qonduitTheme
                           .navigationSelectedBackground
                           .withValues(alpha: 0.4)
                     : Colors.transparent;
@@ -149,7 +149,7 @@ class ModelSuggestionOverlay extends ConsumerWidget {
                                         fontWeight:
                                             FontWeight.w600,
                                         color: context
-                                            .conduitTheme
+                                            .qonduitTheme
                                             .textPrimary,
                                       ),
                                   maxLines: 1,
@@ -172,7 +172,7 @@ class ModelSuggestionOverlay extends ConsumerWidget {
                                           .bodySmall
                                           ?.copyWith(
                                             color: context
-                                                .conduitTheme
+                                                .qonduitTheme
                                                 .textSecondary,
                                           ),
                                       maxLines: 1,
@@ -195,7 +195,7 @@ class ModelSuggestionOverlay extends ConsumerWidget {
                                     : Icons.check,
                                 size: IconSize.medium,
                                 color: context
-                                    .conduitTheme
+                                    .qonduitTheme
                                     .buttonPrimary,
                               ),
                             ),
@@ -215,7 +215,7 @@ class ModelSuggestionOverlay extends ConsumerWidget {
             child: CircularProgressIndicator(
               strokeWidth: BorderWidth.regular,
               valueColor: AlwaysStoppedAnimation<Color>(
-                context.conduitTheme.loadingIndicator,
+                context.qonduitTheme.loadingIndicator,
               ),
             ),
           ),
@@ -224,7 +224,7 @@ class ModelSuggestionOverlay extends ConsumerWidget {
           leading: Icon(
             Icons.error_outline,
             size: IconSize.medium,
-            color: context.conduitTheme.error,
+            color: context.qonduitTheme.error,
           ),
         ),
       ),
@@ -268,7 +268,7 @@ class _ModelAvatar extends StatelessWidget {
       height: size,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: context.conduitTheme.buttonPrimary.withValues(
+        color: context.qonduitTheme.buttonPrimary.withValues(
           alpha: 0.12,
         ),
       ),
@@ -278,7 +278,7 @@ class _ModelAvatar extends StatelessWidget {
               ? CupertinoIcons.sparkles
               : Icons.auto_awesome,
           size: IconSize.small,
-          color: context.conduitTheme.buttonPrimary,
+          color: context.qonduitTheme.buttonPrimary,
         ),
       ),
     );
@@ -316,7 +316,7 @@ class _OverlayPlaceholder extends StatelessWidget {
                     .textTheme
                     .bodySmall
                     ?.copyWith(
-                      color: context.conduitTheme.textSecondary,
+                      color: context.qonduitTheme.textSecondary,
                     ),
               ),
             ),

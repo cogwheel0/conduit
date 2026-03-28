@@ -1,6 +1,6 @@
 {
   "@@locale": "ru",
-  "appTitle": "Conduit",
+  "appTitle": "Qonduit",
   "retry": "Повторить",
   "back": "Назад",
   "you": "Вы",
@@ -15,8 +15,8 @@
     "description": "Подзаголовок с доступными действиями при недоступности сервера"
   },
   "account": "Аккаунт",
-  "supportConduit": "Поддержать Conduit",
-  "supportConduitSubtitle": "Сохраните независимость Conduit, финансируя разработку.",
+  "supportQonduit": "Поддержать Qonduit",
+  "supportQonduitSubtitle": "Сохраните независимость Qonduit, финансируя разработку.",
   "githubSponsorsTitle": "GitHub Sponsors",
   "githubSponsorsSubtitle": "Станьте регулярным спонсором для финансирования дорожной карты.",
   "buyMeACoffeeTitle": "Buy Me a Coffee",
@@ -97,7 +97,7 @@
   "voicePromptTapStart": "Нажмите «Начать» для запуска",
   "voiceActionStop": "Стоп",
   "voiceActionStart": "Начать",
-  "messageHintText": "Спросите Conduit",
+  "messageHintText": "Спросите Qonduit",
   "stopGenerating": "Остановить генерацию",
   "codeCopiedToClipboard": "Код скопирован в буфер обмена.",
   "send": "Отправить",
@@ -185,7 +185,7 @@
   "deleteFolderMessage": "Эта папка и ее ссылки будут удалены.",
   "failedToDeleteFolder": "Не удалось удалить папку",
   "aboutApp": "О",
-  "aboutAppSubtitle": "Информация и ссылки Conduit",
+  "aboutAppSubtitle": "Информация и ссылки Qonduit",
   "web": "Веб",
   "imageGen": "Генерация изображений",
   "pinned": "Закреплено",
@@ -261,7 +261,7 @@
   "themeLight": "Светлая",
   "currentlyUsingDarkTheme": "Используется темная тема",
   "currentlyUsingLightTheme": "Используется светлая тема",
-  "aboutConduit": "О Conduit",
+  "aboutQonduit": "О Qonduit",
   "versionLabel": "Версия: {version} ({build})",
   "@versionLabel": {
     "placeholders": {
@@ -298,7 +298,7 @@
   "androidAssistantTitle": "Android digital assistant",
   "androidAssistantDescription": "Choose what happens when you trigger the Android digital assistant.",
   "androidAssistantOverlayOption": "Show quick overlay (default)",
-  "androidAssistantNewChatOption": "Open Conduit with a new chat",
+  "androidAssistantNewChatOption": "Open Qonduit with a new chat",
   "androidAssistantVoiceCallOption": "Start a voice call",
   "sttSettings": "Речь в текст",
   "sttEngineLabel": "Движок распознавания",
@@ -631,13 +631,13 @@
   "@nextLabel": {
     "description": "Label for navigating to the next item."
   },
-  "themePaletteConduitLabel": "Conduit",
-  "@themePaletteConduitLabel": {
-    "description": "Palette name for the default Conduit theme."
+  "themePaletteQonduitLabel": "Qonduit",
+  "@themePaletteQonduitLabel": {
+    "description": "Palette name for the default Qonduit theme."
   },
-  "themePaletteConduitDescription": "Нейтральная чистая тема, созданная для Conduit.",
-  "@themePaletteConduitDescription": {
-    "description": "Description of the Conduit palette."
+  "themePaletteQonduitDescription": "Нейтральная чистая тема, созданная для Qonduit.",
+  "@themePaletteQonduitDescription": {
+    "description": "Description of the Qonduit palette."
   },
   "themePaletteClaudeLabel": "Claude",
   "@themePaletteClaudeLabel": {

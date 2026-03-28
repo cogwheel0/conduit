@@ -23,7 +23,8 @@ import '../../../shared/services/tasks/task_queue.dart';
 import '../../tools/providers/tools_providers.dart';
 import '../services/chat_transport_dispatch.dart';
 import '../services/reviewer_mode_service.dart';
-
+import 'package:qonduit/qonduit_router/providers/qonduit_runtime_providers.dart';
+import 'package:qonduit/features/rag/providers/rag_collections_providers.dart';
 part 'chat_providers.g.dart';
 
 // Chat messages for current conversation
@@ -1579,11 +1580,15 @@ Future<void> regenerateMessage(
     final regenSocketService = ref.read(socketServiceProvider);
     regenSocketService?.startBuffering(activeConversation.id);
 
+    final runtime = ref.read(qonduitRuntimeStateProvider);
+    final selectedRagCollection = ref.read(selectedRagCollectionProvider);
     // Use transport-aware session dispatch
     final session = await api!.sendMessageSession(
       messages: conversationMessages,
       model: selectedModel.id,
       conversationId: activeConversation.id,
+      contextSize: runtime.contextSize,
+      ragCollection: selectedRagCollection,
       toolIds: selectedToolIds.isNotEmpty ? selectedToolIds : null,
       filterIds: selectedFilterIds.isNotEmpty ? selectedFilterIds : null,
       enableWebSearch: webSearchEnabled,
@@ -2205,10 +2210,14 @@ Future<void> _sendMessageInternal(
       socketService?.startBuffering(chatIdForBuffer);
     }
 
+    final runtime = ref.read(qonduitRuntimeStateProvider);
+    final selectedRagCollection = ref.read(selectedRagCollectionProvider);
     final session = await api.sendMessageSession(
       messages: conversationMessages,
       model: selectedModel.id,
       conversationId: activeConversation?.id,
+      contextSize: runtime.contextSize,
+      ragCollection: selectedRagCollection,
       toolIds: toolIdsForApi,
       filterIds: filterIdsForApi,
       enableWebSearch: webSearchEnabled,

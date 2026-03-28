@@ -170,7 +170,7 @@ class VoiceCallController extends _$VoiceCallController {
               ref.read(selectedModelProvider)?.name ?? 'Assistant';
           _nativeCallId = await _callSurface.startOutgoingCall(
             callerName: modelName,
-            handle: 'Conduit AI',
+            handle: 'Qonduit AI',
           );
           _listenForNativeCallEvents(token);
         }
@@ -673,7 +673,7 @@ class VoiceCallController extends _$VoiceCallController {
   }
 
   void _processSpeakableSegments({required bool isFinalChunk}) {
-    final cleanText = ConduitMarkdownPreprocessor.toPlainText(
+    final cleanText = QonduitMarkdownPreprocessor.toPlainText(
       _accumulatedResponse,
     ).trim();
     if (cleanText.isEmpty) {
@@ -756,7 +756,7 @@ class VoiceCallController extends _$VoiceCallController {
   }
 
   bool get _hasSpeakableAssistantResponse =>
-      ConduitMarkdownPreprocessor.toPlainText(
+      QonduitMarkdownPreprocessor.toPlainText(
         _accumulatedResponse,
       ).trim().isNotEmpty;
 

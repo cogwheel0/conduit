@@ -1,6 +1,6 @@
 import 'dart:io' show Platform;
 
-import 'package:conduit/l10n/app_localizations.dart';
+import 'package:qonduit/l10n/app_localizations.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -28,7 +28,7 @@ class ModelCapabilityChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     return Container(
       margin: const EdgeInsets.only(right: Spacing.xs),
       padding: const EdgeInsets.symmetric(
@@ -86,7 +86,7 @@ class ModelListTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final borderRadius = BorderRadius.circular(AppBorderRadius.card);
 

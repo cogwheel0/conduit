@@ -1,18 +1,18 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/core/models/backend_config.dart';
-import 'package:conduit/core/models/conversation.dart';
-import 'package:conduit/core/models/folder.dart';
-import 'package:conduit/core/models/knowledge_base.dart';
-import 'package:conduit/core/models/knowledge_base_file.dart';
-import 'package:conduit/core/models/model.dart';
-import 'package:conduit/core/models/prompt.dart';
-import 'package:conduit/core/models/server_config.dart';
-import 'package:conduit/core/models/socket_health.dart';
-import 'package:conduit/core/models/socket_transport_availability.dart';
-import 'package:conduit/core/models/toggle_filter.dart';
-import 'package:conduit/core/models/tool.dart';
-import 'package:conduit/core/models/user.dart';
-import 'package:conduit/core/models/user_settings.dart';
+import 'package:qonduit/core/models/backend_config.dart';
+import 'package:qonduit/core/models/conversation.dart';
+import 'package:qonduit/core/models/folder.dart';
+import 'package:qonduit/core/models/knowledge_base.dart';
+import 'package:qonduit/core/models/knowledge_base_file.dart';
+import 'package:qonduit/core/models/model.dart';
+import 'package:qonduit/core/models/prompt.dart';
+import 'package:qonduit/core/models/server_config.dart';
+import 'package:qonduit/core/models/socket_health.dart';
+import 'package:qonduit/core/models/socket_transport_availability.dart';
+import 'package:qonduit/core/models/toggle_filter.dart';
+import 'package:qonduit/core/models/tool.dart';
+import 'package:qonduit/core/models/user.dart';
+import 'package:qonduit/core/models/user_settings.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

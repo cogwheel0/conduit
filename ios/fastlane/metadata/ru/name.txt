@@ -1,1 +1,1 @@
-Conduit: Клиент OpenWebUI
+Qonduit: Клиент OpenWebUI

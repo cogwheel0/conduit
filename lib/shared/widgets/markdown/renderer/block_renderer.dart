@@ -43,7 +43,7 @@ class BlockRenderer {
   final BuildContext context;
 
   /// Style configuration for all markdown elements.
-  final ConduitMarkdownStyle style;
+  final QonduitMarkdownStyle style;
 
   /// Renderer for inline-level nodes.
   final InlineRenderer inlineRenderer;
@@ -186,17 +186,17 @@ class BlockRenderer {
     final code =
         (codeElement ?? element).textContent;
 
-    final conduitTheme = context.conduitTheme;
+    final qonduitTheme = context.qonduitTheme;
 
     return Padding(
       padding: EdgeInsets.symmetric(
         vertical: style.codeBlockSpacing,
       ),
-      child: ConduitMarkdown.buildCodeBlock(
+      child: QonduitMarkdown.buildCodeBlock(
         context: context,
         code: code,
         language: language,
-        theme: conduitTheme,
+        theme: qonduitTheme,
       ),
     );
   }
@@ -711,16 +711,16 @@ class BlockRenderer {
 
     final uri = Uri.tryParse(src);
     if (uri == null) {
-      return ConduitMarkdown.buildImageError(
+      return QonduitMarkdown.buildImageError(
         context,
-        context.conduitTheme,
+        context.qonduitTheme,
       );
     }
 
-    return ConduitMarkdown.buildImage(
+    return QonduitMarkdown.buildImage(
       context,
       uri,
-      context.conduitTheme,
+      context.qonduitTheme,
     );
   }
 

@@ -39,7 +39,7 @@ class ModelAvatar extends StatelessWidget {
       imageUrl: imageUrl,
       borderRadius: BorderRadius.circular(AppBorderRadius.small),
       fallbackBuilder: (context, size) {
-        final theme = context.conduitTheme;
+        final theme = context.qonduitTheme;
         String? uppercase;
         final trimmed = label?.trim();
         if (trimmed != null && trimmed.isNotEmpty) {

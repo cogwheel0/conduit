@@ -9,14 +9,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
-import 'package:conduit/l10n/app_localizations.dart';
+import 'package:qonduit/l10n/app_localizations.dart';
 import '../../../core/models/note.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../core/widgets/error_boundary.dart';
 import '../../../shared/theme/theme_extensions.dart';
-import '../../../shared/widgets/conduit_components.dart';
-import '../../../shared/widgets/conduit_loading.dart';
+import '../../../shared/widgets/qonduit_components.dart';
+import '../../../shared/widgets/qonduit_loading.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
@@ -125,7 +125,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
 
     return ErrorBoundary(
       child: Scaffold(
-        backgroundColor: context.conduitTheme.surfaceBackground,
+        backgroundColor: context.qonduitTheme.surfaceBackground,
         extendBodyBehindAppBar: true,
         appBar: FloatingAppBar(
           leading: canPop ? const FloatingAppBarBackButton() : null,
@@ -155,7 +155,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
   Widget _buildFloatingSearchField(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
 
-    return ConduitGlassSearchField(
+    return QonduitGlassSearchField(
       controller: _searchController,
       focusNode: _searchFocusNode,
       hintText: l10n.searchNotes,
@@ -252,7 +252,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
       ...slivers,
     ];
 
-    return ConduitRefreshIndicator(
+    return QonduitRefreshIndicator(
       onRefresh: _refreshNotes,
       child: CustomScrollView(
         controller: _scrollController,
@@ -263,7 +263,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
   }
 
   Widget _buildSectionHeader(BuildContext context, TimeRange range, int count) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final sidebarTheme = context.sidebarTheme;
     final l10n = AppLocalizations.of(context)!;
     final isExpanded = _expandedSections[range] ?? true;
@@ -338,7 +338,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
   }
 
   Widget _buildNoteCard(BuildContext context, Note note) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final sidebarTheme = context.sidebarTheme;
     final l10n = AppLocalizations.of(context)!;
 
@@ -370,7 +370,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
       sidebarTheme.background,
     );
 
-    return ConduitContextMenu(
+    return QonduitContextMenu(
       actions: _buildNoteActions(context, note),
       child: Padding(
         padding: const EdgeInsets.only(bottom: Spacing.sm),
@@ -407,7 +407,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
                   pathParameters: {'id': note.id},
                 );
               },
-              onLongPress: null, // Handled by ConduitContextMenu
+              onLongPress: null, // Handled by QonduitContextMenu
               child: Padding(
                 padding: const EdgeInsets.all(Spacing.md),
                 child: Row(
@@ -532,14 +532,14 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
         date.day == now.day;
   }
 
-  List<ConduitContextMenuAction> _buildNoteActions(
+  List<QonduitContextMenuAction> _buildNoteActions(
     BuildContext context,
     Note note,
   ) {
     final l10n = AppLocalizations.of(context)!;
 
     return [
-      ConduitContextMenuAction(
+      QonduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.pencil,
         materialIcon: Icons.edit_rounded,
         label: l10n.edit,
@@ -551,7 +551,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
           );
         },
       ),
-      ConduitContextMenuAction(
+      QonduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.doc_on_clipboard,
         materialIcon: Icons.copy_rounded,
         label: l10n.copy,
@@ -567,7 +567,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
           );
         },
       ),
-      ConduitContextMenuAction(
+      QonduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.delete,
         materialIcon: Icons.delete_rounded,
         label: l10n.delete,
@@ -579,7 +579,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
   }
 
   Widget _buildEmptyState(BuildContext context) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final sidebarTheme = context.sidebarTheme;
     final l10n = AppLocalizations.of(context)!;
     final isSearchActive = _query.isNotEmpty;
@@ -675,7 +675,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
   }
 
   Widget _buildError(BuildContext context, Object error) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final sidebarTheme = context.sidebarTheme;
     final l10n = AppLocalizations.of(context)!;
     final topPadding = MediaQuery.of(context).padding.top;
@@ -742,7 +742,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
   }
 
   Widget _buildFAB(BuildContext context) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final l10n = AppLocalizations.of(context)!;
 
     return AdaptiveFloatingActionButton(

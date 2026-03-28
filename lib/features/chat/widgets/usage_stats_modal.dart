@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'package:conduit/l10n/app_localizations.dart';
+import 'package:qonduit/l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 
 /// Modal bottom sheet displaying usage/performance statistics for a
@@ -13,7 +13,7 @@ class UsageStatsModal {
     BuildContext context,
     Map<String, dynamic> usage,
   ) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final l10n = AppLocalizations.of(context)!;
 
     showModalBottomSheet<void>(
@@ -68,7 +68,7 @@ class UsageStatsModal {
     BuildContext context,
     Map<String, dynamic> usage,
     AppLocalizations l10n,
-    ConduitThemeExtension theme,
+    QonduitThemeExtension theme,
   ) {
     final stats = <Widget>[];
 
@@ -298,7 +298,7 @@ class _UsageStatRow extends StatelessWidget {
   final String label;
   final String value;
   final String? detail;
-  final ConduitThemeExtension theme;
+  final QonduitThemeExtension theme;
 
   @override
   Widget build(BuildContext context) {

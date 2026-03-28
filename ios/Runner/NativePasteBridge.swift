@@ -7,7 +7,7 @@ import UniformTypeIdentifiers
 final class NativePasteBridge {
     static let shared = NativePasteBridge()
 
-    private static let channelName = "conduit/native_paste"
+    private static let channelName = "qonduit/native_paste"
     private static var didSwizzle = false
 
     private var channel: FlutterMethodChannel?
@@ -30,7 +30,7 @@ final class NativePasteBridge {
         // from FlutterTextInputView, so the swizzle applies automatically.
         // Swizzling both causes infinite recursion: the subclass swizzle
         // sees the parent's already-swizzled Method, making the exchange
-        // a no-op and leaving conduit_canPerformAction pointing at itself.
+        // a no-op and leaving qonduit_canPerformAction pointing at itself.
         guard let targetClass = NSClassFromString("FlutterTextInputView")
         else { return }
         swizzlePaste(for: targetClass)
@@ -41,7 +41,7 @@ final class NativePasteBridge {
     private static func swizzlePaste(for targetClass: AnyClass) {
         let originalSelector = #selector(UIResponder.paste(_:))
         let swizzledSelector = #selector(
-            UIResponder.conduit_handlePaste(_:))
+            UIResponder.qonduit_handlePaste(_:))
 
         guard
             let originalMethod = class_getInstanceMethod(
@@ -75,7 +75,7 @@ final class NativePasteBridge {
         let originalSelector = #selector(
             UIResponder.canPerformAction(_:withSender:))
         let swizzledSelector = #selector(
-            UIResponder.conduit_canPerformAction(_:withSender:))
+            UIResponder.qonduit_canPerformAction(_:withSender:))
 
         guard
             let originalMethod = class_getInstanceMethod(
@@ -108,7 +108,7 @@ final class NativePasteBridge {
     private static func swizzlePasteConfiguration(for targetClass: AnyClass) {
         let originalSelector = #selector(getter: UIResponder.pasteConfiguration)
         let swizzledSelector = #selector(
-            getter: UIResponder.conduit_pasteConfiguration
+            getter: UIResponder.qonduit_pasteConfiguration
         )
 
         guard
@@ -232,15 +232,15 @@ final class NativePasteBridge {
 }
 
 extension UIResponder {
-    @objc func conduit_handlePaste(_ sender: Any?) {
+    @objc func qonduit_handlePaste(_ sender: Any?) {
         if NativePasteBridge.shared.handlePasteAction() {
             return
         }
 
-        conduit_handlePaste(sender)
+        qonduit_handlePaste(sender)
     }
 
-    @objc func conduit_canPerformAction(
+    @objc func qonduit_canPerformAction(
         _ action: Selector,
         withSender sender: Any?
     ) -> Bool {
@@ -248,10 +248,10 @@ extension UIResponder {
             return true
         }
 
-        return conduit_canPerformAction(action, withSender: sender)
+        return qonduit_canPerformAction(action, withSender: sender)
     }
 
-    @objc var conduit_pasteConfiguration: UIPasteConfiguration? {
+    @objc var qonduit_pasteConfiguration: UIPasteConfiguration? {
         get {
             UIPasteConfiguration(acceptableTypeIdentifiers: [
                 UTType.image.identifier,

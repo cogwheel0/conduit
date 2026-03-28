@@ -9,7 +9,7 @@ import '../../../core/models/model.dart';
 import '../../../core/utils/model_icon_utils.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
-import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/qonduit_components.dart';
 import '../../../shared/widgets/model_list_tile.dart';
 import '../../../shared/widgets/sheet_handle.dart';
 import '../../../shared/widgets/modal_safe_area.dart';
@@ -107,10 +107,10 @@ class DefaultModelBottomSheetState
                   top: Radius.circular(AppBorderRadius.bottomSheet),
                 ),
                 border: Border.all(
-                  color: context.conduitTheme.dividerColor,
+                  color: context.qonduitTheme.dividerColor,
                   width: BorderWidth.regular,
                 ),
-                boxShadow: ConduitShadows.modal(context),
+                boxShadow: QonduitShadows.modal(context),
               ),
               child: ModalSheetSafeArea(
                 padding: const EdgeInsets.symmetric(
@@ -138,7 +138,7 @@ class DefaultModelBottomSheetState
                                                 : Icons.search_off,
                                             size: 48,
                                             color: context
-                                                .conduitTheme
+                                                .qonduitTheme
                                                 .iconSecondary,
                                           ),
                                           const SizedBox(height: Spacing.md),
@@ -148,7 +148,7 @@ class DefaultModelBottomSheetState
                                             )!.noResults,
                                             style: TextStyle(
                                               color: context
-                                                  .conduitTheme
+                                                  .qonduitTheme
                                                   .textSecondary,
                                               fontSize: AppTypography.bodyLarge,
                                             ),
@@ -217,7 +217,7 @@ class DefaultModelBottomSheetState
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   const SizedBox(height: Spacing.md),
-                                  ConduitGlassSearchField(
+                                  QonduitGlassSearchField(
                                     controller: _searchController,
                                     hintText: AppLocalizations.of(
                                       context,
@@ -240,7 +240,7 @@ class DefaultModelBottomSheetState
                                             .copyWith(
                                               fontWeight: FontWeight.w600,
                                               color: context
-                                                  .conduitTheme
+                                                  .qonduitTheme
                                                   .textSecondary,
                                               letterSpacing: 0.2,
                                             ),
@@ -259,7 +259,7 @@ class DefaultModelBottomSheetState
                                           ),
                                           border: Border.all(
                                             color: context
-                                                .conduitTheme
+                                                .qonduitTheme
                                                 .dividerColor,
                                             width: BorderWidth.thin,
                                           ),
@@ -269,7 +269,7 @@ class DefaultModelBottomSheetState
                                           style: AppTypography.bodySmallStyle
                                               .copyWith(
                                                 color: context
-                                                    .conduitTheme
+                                                    .qonduitTheme
                                                     .textSecondary,
                                               ),
                                         ),

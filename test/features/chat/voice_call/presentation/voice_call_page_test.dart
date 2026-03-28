@@ -1,7 +1,7 @@
-import 'package:conduit/features/chat/views/voice_call_page.dart';
-import 'package:conduit/features/chat/voice_call/application/voice_call_controller.dart';
-import 'package:conduit/features/chat/voice_call/domain/voice_call_models.dart';
-import 'package:conduit/l10n/app_localizations.dart';
+import 'package:qonduit/features/chat/views/voice_call_page.dart';
+import 'package:qonduit/features/chat/voice_call/application/voice_call_controller.dart';
+import 'package:qonduit/features/chat/voice_call/domain/voice_call_models.dart';
+import 'package:qonduit/l10n/app_localizations.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';

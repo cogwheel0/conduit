@@ -15,7 +15,7 @@ class SplashLauncherPage extends StatelessWidget {
           child: CircularProgressIndicator(
             strokeWidth: 2.5,
             valueColor: AlwaysStoppedAnimation<Color>(
-              context.conduitTheme.loadingIndicator,
+              context.qonduitTheme.loadingIndicator,
             ),
           ),
         ),

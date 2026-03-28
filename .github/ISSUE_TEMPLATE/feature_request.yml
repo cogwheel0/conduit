@@ -1,12 +1,12 @@
 name: 💡 Feature Request
-description: Suggest an idea for Conduit.
+description: Suggest an idea for Qonduit.
 title: '[FEAT] '
 labels: ['enhancement', 'triage']
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for suggesting a new feature! This helps make Conduit better.
+        Thanks for suggesting a new feature! This helps make Qonduit better.
         
         Please provide as much detail as possible so I can understand what you're looking for.
 

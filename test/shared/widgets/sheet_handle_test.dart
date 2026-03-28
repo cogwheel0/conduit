@@ -1,4 +1,4 @@
-import 'package:conduit/shared/widgets/sheet_handle.dart';
+import 'package:qonduit/shared/widgets/sheet_handle.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 

@@ -258,7 +258,7 @@ class ToolCallsParser {
     if (content.isEmpty) return content;
 
     // Remove annotations and reasoning blocks
-    content = ConduitMarkdownPreprocessor.sanitize(content);
+    content = QonduitMarkdownPreprocessor.sanitize(content);
 
     if (!content.contains('<details')) return content.trim();
 

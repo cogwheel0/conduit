@@ -1,4 +1,4 @@
-name: conduit
+name: qonduit
 description: Open-source mobile client for Open-WebUI
 version: 2.6.2+103
 publish_to: 'none'

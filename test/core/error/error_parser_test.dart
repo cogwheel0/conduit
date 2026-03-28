@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/error/error_parser.dart';
+import 'package:qonduit/core/error/error_parser.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

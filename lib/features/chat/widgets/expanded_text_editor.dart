@@ -5,9 +5,9 @@ import 'package:flutter/cupertino.dart';
 
 import 'dart:io' show Platform;
 
-import '../../../shared/theme/conduit_input_styles.dart';
+import '../../../shared/theme/qonduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
-import 'package:conduit/l10n/app_localizations.dart';
+import 'package:qonduit/l10n/app_localizations.dart';
 
 /// Full-screen bottom sheet editor shown when the chat input grows large.
 ///
@@ -56,7 +56,7 @@ class _ExpandedTextEditorSheetState extends State<ExpandedTextEditorSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final viewInsets = MediaQuery.of(context).viewInsets;
     final viewPadding = MediaQuery.of(context).viewPadding;
@@ -150,7 +150,7 @@ class _ExpandedTextEditorSheetState extends State<ExpandedTextEditorSheet> {
                   fontSize: 16,
                   height: 1.5,
                 ),
-                decoration: context.conduitInputStyles
+                decoration: context.qonduitInputStyles
                     .borderless(hint: l10n.messageHintText)
                     .copyWith(
                       contentPadding: const EdgeInsets.fromLTRB(

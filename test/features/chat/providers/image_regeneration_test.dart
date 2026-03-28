@@ -1,8 +1,8 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/core/models/chat_message.dart';
-import 'package:conduit/core/models/conversation.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/features/chat/providers/chat_providers.dart';
+import 'package:qonduit/core/models/chat_message.dart';
+import 'package:qonduit/core/models/conversation.dart';
+import 'package:qonduit/core/providers/app_providers.dart';
+import 'package:qonduit/features/chat/providers/chat_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 

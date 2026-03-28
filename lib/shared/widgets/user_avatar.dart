@@ -2,8 +2,8 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:conduit/core/network/image_header_utils.dart';
-import 'package:conduit/core/network/self_signed_image_cache_manager.dart';
+import 'package:qonduit/core/network/image_header_utils.dart';
+import 'package:qonduit/core/network/self_signed_image_cache_manager.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -82,14 +82,14 @@ class AvatarImage extends ConsumerWidget {
       width: size,
       height: size,
       alignment: Alignment.center,
-      color: context.conduitTheme.surfaceContainer.withValues(alpha: 0.35),
+      color: context.qonduitTheme.surfaceContainer.withValues(alpha: 0.35),
       child: SizedBox(
         width: size * 0.35,
         height: size * 0.35,
         child: CircularProgressIndicator(
           strokeWidth: 2,
           valueColor: AlwaysStoppedAnimation(
-            context.conduitTheme.buttonPrimary,
+            context.qonduitTheme.buttonPrimary,
           ),
         ),
       ),

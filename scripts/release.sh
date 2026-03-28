@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Conduit Mobile Release Script (CI-driven)
+# Qonduit Mobile Release Script (CI-driven)
 # Usage:
 #   ./scripts/release.sh [major|minor|patch]
 #   ./scripts/release.sh rebuild [vX.Y.Z]   # Rebuild existing tag, bump build number only, update same release assets
@@ -144,7 +144,7 @@ rm pubspec.yaml.bak
 
 # Generate Fastlane changelogs
 print_status "Generating Fastlane changelogs..."
-LINK="https://github.com/cogwheel0/conduit/releases/tag/$TAG_VERSION"
+LINK="https://github.com/cogwheel0/qonduit/releases/tag/$TAG_VERSION"
 
 # Android changelog (default only)
 ANDROID_CHANGELOG_DIR="android/fastlane/metadata/android/en-US/changelogs"

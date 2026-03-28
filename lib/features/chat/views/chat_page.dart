@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
-import 'package:conduit/l10n/app_localizations.dart';
+import 'package:qonduit/l10n/app_localizations.dart';
 import '../../../core/widgets/error_boundary.dart';
 import '../../../shared/widgets/optimized_list.dart';
-import '../../../shared/theme/conduit_input_styles.dart';
+import '../../../shared/theme/qonduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/glass_colors.dart';
 import 'package:flutter/services.dart';
@@ -39,12 +39,13 @@ import '../../../core/models/chat_message.dart';
 import '../../../core/models/folder.dart';
 import '../../../core/models/model.dart';
 import '../providers/context_attachments_provider.dart';
-import '../../../shared/widgets/conduit_loading.dart';
+import '../../../shared/widgets/qonduit_loading.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/measure_size.dart';
-import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/qonduit_components.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
 import 'package:flutter/gestures.dart' show DragStartBehavior;
+import 'package:qonduit/features/rag/providers/rag_collections_providers.dart';
 
 class ChatPage extends ConsumerStatefulWidget {
   const ChatPage({super.key});
@@ -606,7 +607,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                     const SizedBox(height: 12),
                     AdaptiveTextField(
                       placeholder: 'https://example.com/article',
-                      decoration: innerContext.conduitInputStyles
+                      decoration: innerContext.qonduitInputStyles
                           .standard(
                             hint: 'https://example.com/article',
                             error: errorText,
@@ -1004,7 +1005,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       );
     }
 
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     return SizedBox(
       width: TouchTarget.minimum,
       height: TouchTarget.minimum,
@@ -1122,18 +1123,18 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   padding: const EdgeInsets.all(Spacing.md),
                   decoration: BoxDecoration(
                     color: isUser
-                        ? context.conduitTheme.buttonPrimary.withValues(
+                        ? context.qonduitTheme.buttonPrimary.withValues(
                             alpha: 0.15,
                           )
-                        : context.conduitTheme.cardBackground,
+                        : context.qonduitTheme.cardBackground,
                     borderRadius: BorderRadius.circular(
                       AppBorderRadius.messageBubble,
                     ),
                     border: Border.all(
-                      color: context.conduitTheme.cardBorder,
+                      color: context.qonduitTheme.cardBorder,
                       width: BorderWidth.regular,
                     ),
-                    boxShadow: ConduitShadows.messageBubble(context),
+                    boxShadow: QonduitShadows.messageBubble(context),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1142,7 +1143,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                         height: 14,
                         width: index % 3 == 0 ? 140 : 220,
                         decoration: BoxDecoration(
-                          color: context.conduitTheme.shimmerBase,
+                          color: context.qonduitTheme.shimmerBase,
                           borderRadius: BorderRadius.circular(
                             AppBorderRadius.xs,
                           ),
@@ -1153,7 +1154,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                         height: 14,
                         width: double.infinity,
                         decoration: BoxDecoration(
-                          color: context.conduitTheme.shimmerBase,
+                          color: context.qonduitTheme.shimmerBase,
                           borderRadius: BorderRadius.circular(
                             AppBorderRadius.xs,
                           ),
@@ -1165,7 +1166,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                           height: 14,
                           width: index % 2 == 0 ? 180 : 120,
                           decoration: BoxDecoration(
-                            color: context.conduitTheme.shimmerBase,
+                            color: context.qonduitTheme.shimmerBase,
                             borderRadius: BorderRadius.circular(
                               AppBorderRadius.xs,
                             ),
@@ -1261,7 +1262,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
     // Add top padding for floating app bar, bottom padding for floating input.
     final topPadding =
-        MediaQuery.of(context).padding.top + kTextTabBarHeight + Spacing.md;
+        MediaQuery.of(context).padding.top + kTextTabBarHeight + 72 + Spacing.md;
     final bottomPadding = Spacing.lg + _inputHeight;
 
     // Check if any message is currently streaming
@@ -1482,7 +1483,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   void _copyMessage(String content) {
     // Strip reasoning blocks and annotations from copied content
-    final cleanedContent = ConduitMarkdownPreprocessor.sanitize(content);
+    final cleanedContent = QonduitMarkdownPreprocessor.sanitize(content);
     Clipboard.setData(ClipboardData(text: cleanedContent));
   }
 
@@ -1564,7 +1565,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
     final greetingStyle = theme.textTheme.headlineSmall?.copyWith(
       fontWeight: FontWeight.w600,
-      color: context.conduitTheme.textPrimary,
+      color: context.qonduitTheme.textPrimary,
     );
     final greetingHeight =
         (greetingStyle?.fontSize ?? 24) * (greetingStyle?.height ?? 1.1);
@@ -1626,13 +1627,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                                   ? CupertinoIcons.folder_fill
                                   : Icons.folder_rounded,
                               size: 14,
-                              color: context.conduitTheme.textSecondary,
+                              color: context.qonduitTheme.textSecondary,
                             ),
                             const SizedBox(width: Spacing.xs),
                             Text(
                               pendingFolder.name,
                               style: AppTypography.small.copyWith(
-                                color: context.conduitTheme.textSecondary,
+                                color: context.qonduitTheme.textSecondary,
                               ),
                               textAlign: TextAlign.center,
                               maxLines: 1,
@@ -1669,10 +1670,173 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     );
   }
 
+  void _showRagCollectionActionsSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.create_new_folder_outlined),
+                title: const Text('Create collection'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  _promptCreateRagCollection();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.note_add_outlined),
+                title: const Text('Add text'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  _promptAddTextToSelectedRagCollection();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.refresh),
+                title: const Text('Refresh collections'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  ref.invalidate(ragCollectionsProvider);
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _promptCreateRagCollection() async {
+    final controller = TextEditingController();
+
+    final createdName = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Create collection'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            decoration: const InputDecoration(
+              labelText: 'Collection name',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop(controller.text.trim());
+              },
+              child: const Text('Create'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (createdName == null || createdName.isEmpty) return;
+
+    try {
+      final api = ref.read(apiServiceProvider);
+      if (api == null) return;
+
+      await api.createRagCollection(createdName);
+      ref.invalidate(ragCollectionsProvider);
+      ref
+          .read(selectedRagCollectionProvider.notifier)
+          .setCollection(createdName);
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Created collection "$createdName"')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to create collection: $e')),
+      );
+    }
+  }
+
+  Future<void> _promptAddTextToSelectedRagCollection() async {
+    final selectedCollection = ref.read(selectedRagCollectionProvider);
+
+    if (selectedCollection == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Select a collection first')),
+      );
+      return;
+    }
+
+    final controller = TextEditingController();
+
+    final text = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: Text('Add text to $selectedCollection'),
+          content: TextField(
+            controller: controller,
+            maxLines: 10,
+            decoration: const InputDecoration(
+              hintText: 'Paste notes here...',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop(controller.text);
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (text == null || text.trim().isEmpty) return;
+
+    try {
+      final api = ref.read(apiServiceProvider);
+      if (api == null) return;
+
+      await api.addTextToRagCollection(
+        text: text,
+        collection: selectedCollection,
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Text added to collection')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to add text: $e')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context)!;
+
+    final ragCollectionsAsync = ref.watch(ragCollectionsProvider);
+    final selectedRagCollection = ref.watch(selectedRagCollectionProvider);
     // Use select to watch only the selected model to reduce rebuilds
     final selectedModel = ref.watch(
       selectedModelProvider.select((model) => model),
@@ -1719,7 +1883,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         : null;
     final modelLabel = formattedModelName ?? l10n.chooseModel;
     final TextStyle modelTextStyle = AppTypography.standard.copyWith(
-      color: context.conduitTheme.textPrimary,
+      color: context.qonduitTheme.textPrimary,
       fontWeight: FontWeight.w600,
     );
 
@@ -1851,7 +2015,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           }
         },
         child: Scaffold(
-          backgroundColor: context.conduitTheme.surfaceBackground,
+          backgroundColor: context.qonduitTheme.surfaceBackground,
           // Replace Scaffold drawer with a tunable slide drawer for gentler snap behavior.
           drawerEnableOpenDragGesture: false,
           drawerDragStartBehavior: DragStartBehavior.down,
@@ -1876,7 +2040,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                             ? CupertinoIcons.xmark
                             : Icons.close,
                         sfSymbol: 'xmark',
-                        color: context.conduitTheme.textPrimary,
+                        color: context.qonduitTheme.textPrimary,
                       ),
                     ),
                   )
@@ -1912,7 +2076,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                               ? CupertinoIcons.line_horizontal_3
                               : Icons.menu,
                           sfSymbol: 'line.3.horizontal',
-                          color: context.conduitTheme.textPrimary,
+                          color: context.qonduitTheme.textPrimary,
                         ),
                       ),
                     ),
@@ -1928,7 +2092,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                       child: Text(
                         '${_selectedMessageIds.length} selected',
                         style: AppTypography.headlineSmallStyle.copyWith(
-                          color: context.conduitTheme.textPrimary,
+                          color: context.qonduitTheme.textPrimary,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -1951,7 +2115,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                               ),
                               child: Center(
                                 widthFactor: 1,
-                                child: ConduitLoading.skeleton(
+                                child: QonduitLoading.skeleton(
                                   width: 80,
                                   height: 14,
                                   borderRadius: BorderRadius.circular(
@@ -2059,7 +2223,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                                   const SizedBox(width: Spacing.xs),
                                   Icon(
                                     CupertinoIcons.chevron_down,
-                                    color: context.conduitTheme.iconSecondary,
+                                    color: context.qonduitTheme.iconSecondary,
                                     size: IconSize.small,
                                   ),
                                 ],
@@ -2102,7 +2266,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                                             ? CupertinoIcons.chevron_down
                                             : Icons.keyboard_arrow_down,
                                         color:
-                                            context.conduitTheme.iconSecondary,
+                                            context.qonduitTheme.iconSecondary,
                                         size: IconSize.medium,
                                       ),
                                     ],
@@ -2139,13 +2303,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                                   vertical: 1.0,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: context.conduitTheme.success
+                                  color: context.qonduitTheme.success
                                       .withValues(alpha: 0.1),
                                   borderRadius: BorderRadius.circular(
                                     AppBorderRadius.badge,
                                   ),
                                   border: Border.all(
-                                    color: context.conduitTheme.success
+                                    color: context.qonduitTheme.success
                                         .withValues(alpha: 0.3),
                                     width: BorderWidth.thin,
                                   ),
@@ -2153,7 +2317,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                                 child: Text(
                                   'REVIEWER MODE',
                                   style: AppTypography.captionStyle.copyWith(
-                                    color: context.conduitTheme.success,
+                                    color: context.qonduitTheme.success,
                                     fontWeight: FontWeight.w600,
                                     fontSize: 9,
                                   ),
@@ -2201,7 +2365,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                               ? CupertinoIcons.arrow_down_doc
                               : Icons.save_alt,
                           sfSymbol: 'square.and.arrow.down',
-                          color: context.conduitTheme.textPrimary,
+                          color: context.qonduitTheme.textPrimary,
                         ),
                       );
                     }
@@ -2232,7 +2396,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                         sfSymbol: isTemporary ? 'eye.slash' : 'eye',
                         color: isTemporary
                             ? Colors.blue
-                            : context.conduitTheme.textPrimary,
+                            : context.qonduitTheme.textPrimary,
                       ),
                     );
                   },
@@ -2249,7 +2413,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                           ? CupertinoIcons.create
                           : Icons.add_comment,
                       sfSymbol: 'square.and.pencil',
-                      color: context.conduitTheme.textPrimary,
+                      color: context.qonduitTheme.textPrimary,
                     ),
                   ),
                 ),
@@ -2263,7 +2427,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                         ? CupertinoIcons.delete
                         : Icons.delete,
                     sfSymbol: 'trash',
-                    color: context.conduitTheme.error,
+                    color: context.qonduitTheme.error,
                   ),
                 ),
               ],
@@ -2284,7 +2448,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
               children: [
                 // Messages Area fills entire space with pull-to-refresh
                 Positioned.fill(
-                  child: ConduitRefreshIndicator(
+                  child: QonduitRefreshIndicator(
                     // Position indicator below the floating app bar
                     edgeOffset:
                         MediaQuery.of(context).padding.top + kTextTabBarHeight,
@@ -2336,6 +2500,75 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                     ),
                   ),
                 ),
+
+            // Floating RAG collection selector
+            Positioned(
+              top: MediaQuery.of(context).padding.top + kTextTabBarHeight + Spacing.md,
+              left: Spacing.inputPadding,
+              right: Spacing.inputPadding,
+              child: Material(
+                color: Colors.transparent,
+                child: ragCollectionsAsync.when(
+                  data: (collections) {
+                    final items = <DropdownMenuItem<String?>>[
+                      const DropdownMenuItem<String?>(
+                        value: null,
+                        child: Text('No knowledge collection'),
+                      ),
+                      ...collections.map(
+                            (name) => DropdownMenuItem<String?>(
+                          value: name,
+                          child: Text(name),
+                        ),
+                      ),
+                    ];
+
+                    final currentValue =
+                    (selectedRagCollection != null &&
+                        collections.contains(selectedRagCollection))
+                        ? selectedRagCollection
+                        : null;
+
+                    return Row(
+                      children: [
+                        Expanded(
+                          child: DropdownButtonFormField<String?>(
+                            initialValue: currentValue,
+                            decoration: const InputDecoration(
+                              labelText: 'Knowledge collection',
+                              border: OutlineInputBorder(),
+                              isDense: true,
+                              filled: true,
+                            ),
+                            items: items,
+                            onChanged: (value) {
+                              ref
+                                  .read(selectedRagCollectionProvider.notifier)
+                                  .setCollection(value);
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton(
+                          tooltip: 'Knowledge actions',
+                          onPressed: () {
+                            _showRagCollectionActionsSheet(context);
+                          },
+                          icon: const Icon(Icons.tune),
+                        ),
+                      ],
+                    );
+                  },
+                  loading: () => const LinearProgressIndicator(),
+                  error: (error, stack) => Material(
+                    color: Colors.transparent,
+                    child: Text('RAG collections error: $error'),
+                  ),
+                ),
+              ),
+            ),
+
+            // Floating Scroll to Bottom Button...
 
                 // Floating input area with attachments and blur background
                 Positioned(

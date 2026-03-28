@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
-import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/qonduit_components.dart';
 
 /// Expandable card widget for collapsible settings sections.
 class ExpandableCard extends StatefulWidget {
@@ -61,9 +61,9 @@ class ExpandableCardState extends State<ExpandableCard>
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
 
-    return ConduitCard(
+    return QonduitCard(
       padding: EdgeInsets.zero,
       onTap: _toggle,
       child: Column(

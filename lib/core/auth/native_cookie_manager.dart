@@ -11,7 +11,7 @@ import '../utils/debug_logger.dart';
 /// This is necessary because dart:io HttpClient has its own isolated cookie
 /// store that doesn't share with WebView.
 class NativeCookieManager {
-  static const _channel = MethodChannel('com.conduit.app/cookies');
+  static const _channel = MethodChannel('com.qonduit.app/cookies');
 
   /// Gets all cookies for a given URL from the native cookie store.
   ///

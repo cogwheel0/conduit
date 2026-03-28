@@ -4,10 +4,10 @@ import '../../../shared/theme/theme_extensions.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:io' show File, Platform;
-import 'package:conduit/l10n/app_localizations.dart';
+import 'package:qonduit/l10n/app_localizations.dart';
 import '../services/file_attachment_service.dart';
 import '../../../shared/services/tasks/task_queue.dart';
-import '../../../shared/widgets/conduit_loading.dart';
+import '../../../shared/widgets/qonduit_loading.dart';
 
 const Set<String> _previewableImageExtensions = <String>{
   '.jpg',
@@ -37,7 +37,7 @@ class FileAttachmentWidget extends ConsumerWidget {
           Text(
             AppLocalizations.of(context)!.attachments,
             style: TextStyle(
-              color: context.conduitTheme.textSecondary.withValues(alpha: 0.7),
+              color: context.qonduitTheme.textSecondary.withValues(alpha: 0.7),
               fontSize: AppTypography.labelMedium,
               fontWeight: FontWeight.w500,
             ),
@@ -76,7 +76,7 @@ class _FileAttachmentCard extends ConsumerWidget {
       width: 140,
       padding: const EdgeInsets.all(Spacing.sm),
       decoration: BoxDecoration(
-        color: context.conduitTheme.cardBackground,
+        color: context.qonduitTheme.cardBackground,
         borderRadius: BorderRadius.circular(AppBorderRadius.small),
         border: Border.all(
           color: _getBorderColor(fileState.status, context),
@@ -102,7 +102,7 @@ class _FileAttachmentCard extends ConsumerWidget {
           Text(
             fileState.fileName,
             style: TextStyle(
-              color: context.conduitTheme.textPrimary,
+              color: context.qonduitTheme.textPrimary,
               fontSize: AppTypography.labelMedium,
               fontWeight: FontWeight.w500,
             ),
@@ -113,7 +113,7 @@ class _FileAttachmentCard extends ConsumerWidget {
           Text(
             fileState.formattedSize,
             style: TextStyle(
-              color: context.conduitTheme.textSecondary.withValues(alpha: 0.6),
+              color: context.qonduitTheme.textSecondary.withValues(alpha: 0.6),
               fontSize: AppTypography.labelSmall,
             ),
           ),
@@ -126,7 +126,7 @@ class _FileAttachmentCard extends ConsumerWidget {
             Text(
               'Failed to upload',
               style: TextStyle(
-                color: context.conduitTheme.error,
+                color: context.qonduitTheme.error,
                 fontSize: AppTypography.labelSmall,
               ),
             ),
@@ -142,12 +142,12 @@ class _FileAttachmentCard extends ConsumerWidget {
         return Icon(
           Platform.isIOS ? CupertinoIcons.clock : Icons.schedule,
           size: IconSize.sm,
-          color: context.conduitTheme.iconDisabled,
+          color: context.qonduitTheme.iconDisabled,
         );
       case FileUploadStatus.uploading:
-        return ConduitLoading.inline(
+        return QonduitLoading.inline(
           size: IconSize.sm,
-          color: context.conduitTheme.iconSecondary,
+          color: context.qonduitTheme.iconSecondary,
         );
       case FileUploadStatus.completed:
         return Icon(
@@ -155,7 +155,7 @@ class _FileAttachmentCard extends ConsumerWidget {
               ? CupertinoIcons.checkmark_circle_fill
               : Icons.check_circle,
           size: IconSize.sm,
-          color: context.conduitTheme.success,
+          color: context.qonduitTheme.success,
         );
       case FileUploadStatus.failed:
         return GestureDetector(
@@ -167,7 +167,7 @@ class _FileAttachmentCard extends ConsumerWidget {
                 ? CupertinoIcons.exclamationmark_circle_fill
                 : Icons.error,
             size: IconSize.sm,
-            color: context.conduitTheme.error,
+            color: context.qonduitTheme.error,
           ),
         );
     }
@@ -190,19 +190,19 @@ class _FileAttachmentCard extends ConsumerWidget {
             height: 28,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: context.conduitTheme.cardBackground.withValues(
+              color: context.qonduitTheme.cardBackground.withValues(
                 alpha: 0.85,
               ),
               shape: BoxShape.circle,
               border: Border.all(
-                color: context.conduitTheme.cardBorder.withValues(alpha: 0.6),
+                color: context.qonduitTheme.cardBorder.withValues(alpha: 0.6),
                 width: BorderWidth.thin,
               ),
             ),
             child: Icon(
               Platform.isIOS ? CupertinoIcons.xmark : Icons.close,
               size: 14,
-              color: context.conduitTheme.textPrimary.withValues(alpha: 0.8),
+              color: context.qonduitTheme.textPrimary.withValues(alpha: 0.8),
             ),
           ),
         ),
@@ -222,11 +222,11 @@ class _FileAttachmentCard extends ConsumerWidget {
       borderRadius: BorderRadius.circular(AppBorderRadius.xs),
       child: LinearProgressIndicator(
         value: fileState.progress,
-        backgroundColor: context.conduitTheme.textPrimary.withValues(
+        backgroundColor: context.qonduitTheme.textPrimary.withValues(
           alpha: 0.1,
         ),
         valueColor: AlwaysStoppedAnimation<Color>(
-          context.conduitTheme.buttonPrimary,
+          context.qonduitTheme.buttonPrimary,
         ),
         minHeight: 4,
       ),
@@ -236,13 +236,13 @@ class _FileAttachmentCard extends ConsumerWidget {
   Color _getBorderColor(FileUploadStatus status, BuildContext context) {
     switch (status) {
       case FileUploadStatus.pending:
-        return context.conduitTheme.textPrimary.withValues(alpha: 0.2);
+        return context.qonduitTheme.textPrimary.withValues(alpha: 0.2);
       case FileUploadStatus.uploading:
-        return context.conduitTheme.buttonPrimary.withValues(alpha: 0.5);
+        return context.qonduitTheme.buttonPrimary.withValues(alpha: 0.5);
       case FileUploadStatus.completed:
-        return context.conduitTheme.success.withValues(alpha: 0.3);
+        return context.qonduitTheme.success.withValues(alpha: 0.3);
       case FileUploadStatus.failed:
-        return context.conduitTheme.error.withValues(alpha: 0.3);
+        return context.qonduitTheme.error.withValues(alpha: 0.3);
     }
   }
 
@@ -271,7 +271,7 @@ class _FileAttachmentCard extends ConsumerWidget {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(AppBorderRadius.xs),
         border: Border.all(
-          color: context.conduitTheme.cardBorder,
+          color: context.qonduitTheme.cardBorder,
           width: BorderWidth.thin,
         ),
       ),
@@ -286,7 +286,7 @@ class _FileAttachmentCard extends ConsumerWidget {
                 Positioned.fill(
                   child: DecoratedBox(
                     decoration: BoxDecoration(
-                      color: context.conduitTheme.cardBackground.withValues(
+                      color: context.qonduitTheme.cardBackground.withValues(
                         alpha: 0.35,
                       ),
                     ),
@@ -297,7 +297,7 @@ class _FileAttachmentCard extends ConsumerWidget {
                 right: Spacing.xs,
                 child: DecoratedBox(
                   decoration: BoxDecoration(
-                    color: context.conduitTheme.cardBackground.withValues(
+                    color: context.qonduitTheme.cardBackground.withValues(
                       alpha: 0.85,
                     ),
                     borderRadius: BorderRadius.circular(AppBorderRadius.xs),
@@ -322,7 +322,7 @@ class _FileAttachmentCard extends ConsumerWidget {
 
   Widget _buildPreviewPlaceholderContent(BuildContext context) {
     return Container(
-      color: context.conduitTheme.textPrimary.withValues(alpha: 0.08),
+      color: context.qonduitTheme.textPrimary.withValues(alpha: 0.08),
       alignment: Alignment.center,
       child: Text(fileState.fileIcon, style: const TextStyle(fontSize: 26)),
     );
@@ -352,12 +352,12 @@ class MessageAttachmentPreview extends StatelessWidget {
                   vertical: Spacing.xs,
                 ),
                 decoration: BoxDecoration(
-                  color: context.conduitTheme.textPrimary.withValues(
+                  color: context.qonduitTheme.textPrimary.withValues(
                     alpha: 0.08,
                   ),
                   borderRadius: BorderRadius.circular(AppBorderRadius.small),
                   border: Border.all(
-                    color: context.conduitTheme.textPrimary.withValues(
+                    color: context.qonduitTheme.textPrimary.withValues(
                       alpha: 0.15,
                     ),
                     width: BorderWidth.thin,
@@ -371,7 +371,7 @@ class MessageAttachmentPreview extends StatelessWidget {
                     Text(
                       AppLocalizations.of(context)!.attachmentLabel,
                       style: TextStyle(
-                        color: context.conduitTheme.textPrimary.withValues(
+                        color: context.qonduitTheme.textPrimary.withValues(
                           alpha: 0.8,
                         ),
                         fontSize: AppTypography.labelSmall,

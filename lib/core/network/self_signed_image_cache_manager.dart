@@ -49,7 +49,7 @@ BaseCacheManager? _buildForServer(ServerConfig server) {
   final fileService = HttpFileService(httpClient: ioClient);
 
   // Use a stable key per host/port to share cache across widgets.
-  final key = 'conduit-selfsigned-$host:${port ?? 0}';
+  final key = 'qonduit-selfsigned-$host:${port ?? 0}';
   return CacheManager(Config(key, fileService: fileService));
 }
 

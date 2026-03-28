@@ -1,1 +1,1 @@
-Conduit: OpenWebUI Client
+Qonduit: OpenWebUI Client

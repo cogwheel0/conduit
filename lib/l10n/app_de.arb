@@ -1,6 +1,6 @@
 {
   "@@locale": "de",
-  "appTitle": "Conduit",
+  "appTitle": "Qonduit",
   "retry": "Erneut versuchen",
   "back": "Zurück",
   "you": "Du",
@@ -15,8 +15,8 @@
     "description": "Untertitel mit den verfügbaren Aktionen, wenn der Server nicht erreichbar ist"
   },
   "account": "Konto",
-  "supportConduit": "Conduit unterstützen",
-  "supportConduitSubtitle": "Hilf, die Weiterentwicklung und neue Funktionen zu finanzieren.",
+  "supportQonduit": "Qonduit unterstützen",
+  "supportQonduitSubtitle": "Hilf, die Weiterentwicklung und neue Funktionen zu finanzieren.",
   "githubSponsorsTitle": "GitHub Sponsors",
   "githubSponsorsSubtitle": "Werde monatliche*r Sponsor*in und unterstütze die Roadmap.",
   "buyMeACoffeeTitle": "Buy Me a Coffee",
@@ -97,7 +97,7 @@
   "voicePromptTapStart": "Tippe auf \"Starten\", um zu beginnen",
   "voiceActionStop": "Stopp",
   "voiceActionStart": "Starten",
-  "messageHintText": "Frag Conduit",
+  "messageHintText": "Frag Qonduit",
   "stopGenerating": "Generierung stoppen",
   "codeCopiedToClipboard": "Code in die Zwischenablage kopiert.",
   "send": "Senden",
@@ -185,7 +185,7 @@
   "deleteFolderMessage": "Dieser Ordner und seine Zuordnungen werden entfernt.",
   "failedToDeleteFolder": "Ordner konnte nicht gelöscht werden",
   "aboutApp": "Über",
-  "aboutAppSubtitle": "Conduit Informationen und Links",
+  "aboutAppSubtitle": "Qonduit Informationen und Links",
   "web": "Web",
   "imageGen": "Bild-Gen",
   "pinned": "Angeheftet",
@@ -261,7 +261,7 @@
   "themeLight": "Hell",
   "currentlyUsingDarkTheme": "Aktuell dunkles Thema",
   "currentlyUsingLightTheme": "Aktuell helles Thema",
-  "aboutConduit": "Über Conduit",
+  "aboutQonduit": "Über Qonduit",
   "versionLabel": "Version: {version} ({build})",
   "@versionLabel": {
     "placeholders": {
@@ -298,7 +298,7 @@
   "androidAssistantTitle": "Android digital assistant",
   "androidAssistantDescription": "Choose what happens when you trigger the Android digital assistant.",
   "androidAssistantOverlayOption": "Show quick overlay (default)",
-  "androidAssistantNewChatOption": "Open Conduit with a new chat",
+  "androidAssistantNewChatOption": "Open Qonduit with a new chat",
   "androidAssistantVoiceCallOption": "Start a voice call",
   "sttSettings": "Sprache zu Text",
   "sttEngineLabel": "Erkennungs-Engine",
@@ -631,13 +631,13 @@
   "@nextLabel": {
     "description": "Label for navigating to the next item."
   },
-  "themePaletteConduitLabel": "Conduit",
-  "@themePaletteConduitLabel": {
-    "description": "Palette name for the default Conduit theme."
+  "themePaletteQonduitLabel": "Qonduit",
+  "@themePaletteQonduitLabel": {
+    "description": "Palette name for the default Qonduit theme."
   },
-  "themePaletteConduitDescription": "Schlichtes neutrales Design für Conduit.",
-  "@themePaletteConduitDescription": {
-    "description": "Description of the Conduit palette."
+  "themePaletteQonduitDescription": "Schlichtes neutrales Design für Qonduit.",
+  "@themePaletteQonduitDescription": {
+    "description": "Description of the Qonduit palette."
   },
   "themePaletteClaudeLabel": "Claude",
   "@themePaletteClaudeLabel": {

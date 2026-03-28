@@ -1,1 +1,1 @@
-conduit, openwebui, chat ia, chat llm, ia autoalojada, ollama
+qonduit, openwebui, chat ia, chat llm, ia autoalojada, ollama

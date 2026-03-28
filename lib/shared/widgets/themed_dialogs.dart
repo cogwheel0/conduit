@@ -4,17 +4,17 @@ import 'dart:io' show Platform;
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 
-import 'package:conduit/l10n/app_localizations.dart';
+import 'package:qonduit/l10n/app_localizations.dart';
 
-import '../theme/conduit_input_styles.dart';
+import '../theme/qonduit_input_styles.dart';
 import '../theme/theme_extensions.dart';
-import 'conduit_components.dart';
+import 'qonduit_components.dart';
 
 /// Centralized helper for building themed dialogs consistently.
 ///
 /// On iOS: delegates to [AdaptiveAlertDialog] for native Cupertino /
 /// Liquid Glass chrome.
-/// On Android: renders a [AlertDialog] explicitly themed with conduit
+/// On Android: renders a [AlertDialog] explicitly themed with qonduit
 /// tokens so button colors, backgrounds, and text match the app palette.
 class ThemedDialogs {
   ThemedDialogs._();
@@ -26,7 +26,7 @@ class ThemedDialogs {
     Widget? content,
     List<Widget>? actions,
   }) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     return AlertDialog(
       backgroundColor: theme.surfaces.popover,
       surfaceTintColor: Colors.transparent,
@@ -101,7 +101,7 @@ class ThemedDialogs {
       context: context,
       barrierDismissible: barrierDismissible,
       builder: (ctx) {
-        final theme = ctx.conduitTheme;
+        final theme = ctx.qonduitTheme;
         return buildBase(
           context: ctx,
           title: title,
@@ -110,11 +110,11 @@ class ThemedDialogs {
             style: TextStyle(color: theme.textSecondary),
           ),
           actions: [
-            ConduitTextButton(
+            QonduitTextButton(
               text: effectiveCancelText,
               onPressed: () => Navigator.of(ctx).pop(false),
             ),
-            ConduitTextButton(
+            QonduitTextButton(
               text: effectiveConfirmText,
               onPressed: () => Navigator.of(ctx).pop(true),
               isDestructive: isDestructive,
@@ -269,7 +269,7 @@ class _TextInputDialogContentState extends State<_TextInputDialogContent> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     return ThemedDialogs.buildBase(
       context: context,
       title: widget.title,
@@ -280,7 +280,7 @@ class _TextInputDialogContentState extends State<_TextInputDialogContent> {
         textCapitalization: widget.textCapitalization,
         maxLength: widget.maxLength,
         style: TextStyle(color: theme.textPrimary),
-        decoration: context.conduitInputStyles
+        decoration: context.qonduitInputStyles
             .underline(hint: widget.hintText)
             .copyWith(
               counterStyle: TextStyle(
@@ -289,11 +289,11 @@ class _TextInputDialogContentState extends State<_TextInputDialogContent> {
             ),
       ),
       actions: [
-        ConduitTextButton(
+        QonduitTextButton(
           text: widget.cancelText,
           onPressed: () => Navigator.of(context).pop(null),
         ),
-        ConduitTextButton(
+        QonduitTextButton(
           text: widget.confirmText,
           onPressed: () =>
               Navigator.of(context).pop(_controller.text),

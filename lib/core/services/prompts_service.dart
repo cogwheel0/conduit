@@ -1,10 +1,10 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:conduit/core/error/api_error_handler.dart';
-import 'package:conduit/core/models/prompt.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/api_service.dart';
+import 'package:qonduit/core/error/api_error_handler.dart';
+import 'package:qonduit/core/models/prompt.dart';
+import 'package:qonduit/core/providers/app_providers.dart';
+import 'package:qonduit/core/services/api_service.dart';
 
 class PromptsService {
   const PromptsService(this._apiService);

@@ -1,4 +1,4 @@
-import 'package:conduit/l10n/app_localizations.dart';
+import 'package:qonduit/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -38,7 +38,7 @@ class _SidebarPillTabBar extends StatelessWidget {
 
   final TabController tabController;
   final List<_SidebarTabDefinition> tabDefinitions;
-  final ConduitThemeExtension theme;
+  final QonduitThemeExtension theme;
 
   Widget _buildSlidingPill(double tabWidth) {
     final pillDecoration = BoxDecoration(
@@ -300,14 +300,14 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
         ),
     ];
 
-    final conduitTheme = context.conduitTheme;
+    final qonduitTheme = context.qonduitTheme;
 
     return Column(
       children: [
         _SidebarPillTabBar(
           tabController: _tabController,
           tabDefinitions: tabDefinitions,
-          theme: conduitTheme,
+          theme: qonduitTheme,
         ),
         Expanded(
           child: AnimatedBuilder(

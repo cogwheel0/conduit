@@ -31,13 +31,13 @@ class WidgetActions {
 }
 
 /// App group identifier for iOS widget data sharing.
-const String _appGroupId = 'group.app.cogwheel.conduit';
+const String _appGroupId = 'group.app.cogwheel.qonduit';
 
 /// Android widget provider class name.
-const String _androidWidgetName = 'ConduitWidgetProvider';
+const String _androidWidgetName = 'QonduitWidgetProvider';
 
 /// iOS widget kind identifier.
-const String _iOSWidgetKind = 'ConduitWidget';
+const String _iOSWidgetKind = 'QonduitWidget';
 
 /// Handles home screen widget interactions for Android and iOS.
 ///

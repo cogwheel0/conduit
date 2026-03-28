@@ -1,6 +1,6 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/core/error/api_error.dart';
-import 'package:conduit/core/error/api_error_handler.dart';
+import 'package:qonduit/core/error/api_error.dart';
+import 'package:qonduit/core/error/api_error_handler.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 

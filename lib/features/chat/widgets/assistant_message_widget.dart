@@ -14,11 +14,11 @@ import '../../../core/models/chat_message.dart';
 import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
 import '../providers/text_to_speech_provider.dart';
 import 'enhanced_image_attachment.dart';
-import 'package:conduit/l10n/app_localizations.dart';
+import 'package:qonduit/l10n/app_localizations.dart';
 import 'enhanced_attachment.dart';
-import 'package:conduit/shared/widgets/chat_action_button.dart';
+import 'package:qonduit/shared/widgets/chat_action_button.dart';
 import '../../../shared/widgets/model_avatar.dart';
-import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/qonduit_components.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import '../providers/chat_providers.dart'
@@ -368,12 +368,12 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   String _buildTtsPlainTextFallback(List<String> segments, String fallback) {
     if (segments.isEmpty) {
-      return ConduitMarkdownPreprocessor.toPlainText(fallback);
+      return QonduitMarkdownPreprocessor.toPlainText(fallback);
     }
 
     final buffer = StringBuffer();
     for (final segment in segments) {
-      final sanitized = ConduitMarkdownPreprocessor.toPlainText(segment);
+      final sanitized = QonduitMarkdownPreprocessor.toPlainText(segment);
       if (sanitized.isEmpty) {
         continue;
       }
@@ -386,7 +386,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
     final result = buffer.toString().trim();
     if (result.isEmpty) {
-      return ConduitMarkdownPreprocessor.toPlainText(fallback);
+      return QonduitMarkdownPreprocessor.toPlainText(fallback);
     }
     return result;
   }
@@ -554,7 +554,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   }
 
   Widget _buildKaraokeBar(TextToSpeechState ttsState) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final idx = ttsState.activeSentenceIndex;
     if (idx < 0 || idx >= ttsState.sentences.length) {
       return const SizedBox.shrink();
@@ -595,7 +595,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       );
     }
 
-    return ConduitCard(
+    return QonduitCard(
       padding: const EdgeInsets.all(Spacing.sm),
       child: RichText(text: buildSpans()),
     );
@@ -656,7 +656,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   }
 
   void _buildCachedAvatar() {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final iconUrl = widget.modelIconUrl?.trim();
     final hasIcon = iconUrl != null && iconUrl.isNotEmpty;
 
@@ -1240,7 +1240,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   }
 
   Widget _buildTypingIndicator() {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final dotColor = theme.textSecondary.withValues(alpha: 0.75);
 
     const double dotSize = 8.0;
@@ -1390,7 +1390,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
               });
             },
           ),
-          ConduitChip(
+          QonduitChip(
             label:
                 '${_activeVersionIndex < 0 ? (widget.message.versions.length + 1) : (_activeVersionIndex + 1)}/${widget.message.versions.length + 1}',
             isCompact: true,
@@ -1466,13 +1466,13 @@ String _buildTtsPlainTextWorker(Map<String, dynamic> payload) {
   final segments = rawSegments is List ? rawSegments.cast<dynamic>() : const [];
 
   if (segments.isEmpty) {
-    return ConduitMarkdownPreprocessor.toPlainText(fallback);
+    return QonduitMarkdownPreprocessor.toPlainText(fallback);
   }
 
   final buffer = StringBuffer();
   for (final segment in segments) {
     if (segment is! String || segment.isEmpty) continue;
-    final sanitized = ConduitMarkdownPreprocessor.toPlainText(segment);
+    final sanitized = QonduitMarkdownPreprocessor.toPlainText(segment);
     if (sanitized.isEmpty) continue;
     if (buffer.isNotEmpty) {
       buffer.writeln();
@@ -1483,7 +1483,7 @@ String _buildTtsPlainTextWorker(Map<String, dynamic> payload) {
 
   final result = buffer.toString().trim();
   if (result.isEmpty) {
-    return ConduitMarkdownPreprocessor.toPlainText(fallback);
+    return QonduitMarkdownPreprocessor.toPlainText(fallback);
   }
   return result;
 }

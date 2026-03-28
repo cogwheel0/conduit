@@ -4,7 +4,7 @@ import '../../../core/models/chat_message.dart';
 import 'markdown_config.dart';
 import 'markdown_preprocessor.dart';
 import 'renderer/block_renderer.dart';
-import 'renderer/conduit_markdown_widget.dart';
+import 'renderer/qonduit_markdown_widget.dart';
 
 // Pre-compiled regex for mermaid diagram detection (performance optimization)
 final _mermaidRegex = RegExp(r'```mermaid\s*([\s\S]*?)```', multiLine: true);
@@ -55,7 +55,7 @@ class StreamingMarkdownWidget extends StatelessWidget {
       return const SizedBox.shrink();
     }
 
-    final normalized = ConduitMarkdownPreprocessor.normalize(content);
+    final normalized = QonduitMarkdownPreprocessor.normalize(content);
 
     // Collect all special blocks (Mermaid and ChartJS)
     final specialBlocks = <_SpecialBlock>[];
@@ -78,7 +78,7 @@ class StreamingMarkdownWidget extends StatelessWidget {
     // Find HTML blocks that contain ChartJS
     for (final match in _htmlBlockRegex.allMatches(normalized)) {
       final html = match.group(1)?.trim() ?? '';
-      if (html.isNotEmpty && ConduitMarkdown.containsChartJs(html)) {
+      if (html.isNotEmpty && QonduitMarkdown.containsChartJs(html)) {
         specialBlocks.add(
           _SpecialBlock(
             start: match.start,
@@ -116,11 +116,11 @@ class StreamingMarkdownWidget extends StatelessWidget {
         switch (block.type) {
           case _BlockType.mermaid:
             children.add(
-              ConduitMarkdown.buildMermaidBlock(context, block.content),
+              QonduitMarkdown.buildMermaidBlock(context, block.content),
             );
           case _BlockType.chartJs:
             children.add(
-              ConduitMarkdown.buildChartJsBlock(context, block.content),
+              QonduitMarkdown.buildChartJsBlock(context, block.content),
             );
         }
 
@@ -153,7 +153,7 @@ class StreamingMarkdownWidget extends StatelessWidget {
   /// Citations like [1], [2] are rendered as clickable
   /// badges inline with the text.
   Widget _buildMarkdownWithCitations(String data) {
-    return ConduitMarkdownWidget(
+    return QonduitMarkdownWidget(
       data: data,
       onLinkTap: onTapLink,
       imageBuilder: _adaptImageBuilder(),

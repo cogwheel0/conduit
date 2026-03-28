@@ -7,7 +7,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:conduit/l10n/app_localizations.dart';
+import 'package:qonduit/l10n/app_localizations.dart';
 
 import '../../../core/models/channel.dart';
 import '../../../core/models/channel_message.dart';
@@ -16,9 +16,9 @@ import '../../../core/services/api_service.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../core/utils/model_icon_utils.dart';
 import '../../../core/utils/user_avatar_utils.dart';
-import '../../../shared/theme/conduit_input_styles.dart';
+import '../../../shared/theme/qonduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
-import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/qonduit_components.dart';
 import '../../../shared/widgets/model_avatar.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
@@ -232,7 +232,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   /// with file, photo, and camera actions.
   Widget _buildAttachmentButton(double size) {
     final l10n = AppLocalizations.of(context);
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
 
     return AdaptivePopupMenuButton.widget<String>(
       items: [
@@ -427,7 +427,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
 
   void _showMessageActions(ChannelMessage message) {
     final l10n = AppLocalizations.of(context);
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final currentUserId = ref.read(currentUserProvider).value?.id;
     final isOwn = message.userId == currentUserId;
 
@@ -506,7 +506,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   }
 
   void _showEmojiPicker(ChannelMessage message) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     const emojis = ['👍', '❤️', '😂', '🎉', '🤔', '👀'];
 
     showModalBottomSheet<void>(
@@ -552,7 +552,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
 
   Future<void> _editChannel(Channel channel) async {
     final l10n = AppLocalizations.of(context);
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
 
     final nameController = TextEditingController(text: channel.name);
     final descController = TextEditingController(text: channel.description);
@@ -569,7 +569,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
               controller: nameController,
               autofocus: true,
               style: TextStyle(color: theme.textPrimary),
-              decoration: context.conduitInputStyles.underline(
+              decoration: context.qonduitInputStyles.underline(
                 hint: l10n?.channelName ?? 'Channel Name',
               ),
             ),
@@ -577,7 +577,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
             TextField(
               controller: descController,
               style: TextStyle(color: theme.textPrimary),
-              decoration: context.conduitInputStyles.underline(
+              decoration: context.qonduitInputStyles.underline(
                 hint: l10n?.channelDescription ?? 'Description',
               ),
               maxLines: 3,
@@ -586,11 +586,11 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
           ],
         ),
         actions: [
-          ConduitTextButton(
+          QonduitTextButton(
             text: l10n?.cancel ?? 'Cancel',
             onPressed: () => Navigator.of(ctx).pop(false),
           ),
-          ConduitTextButton(
+          QonduitTextButton(
             text: l10n?.save ?? 'Save',
             onPressed: () => Navigator.of(ctx).pop(true),
             isPrimary: true,
@@ -699,11 +699,11 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     return _buildScaffold(context, theme);
   }
 
-  Widget _buildScaffold(BuildContext context, ConduitThemeExtension theme) {
+  Widget _buildScaffold(BuildContext context, QonduitThemeExtension theme) {
     final l10n = AppLocalizations.of(context);
     final channel = ref.watch(activeChannelProvider);
     final messagesAsync = ref.watch(channelMessagesProvider(widget.channelId));
@@ -897,7 +897,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
 
   Widget _buildMessageList(
     List<ChannelMessage> messages,
-    ConduitThemeExtension theme,
+    QonduitThemeExtension theme,
     AppLocalizations? l10n,
   ) {
     if (messages.isEmpty) {
@@ -986,7 +986,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   Future<void> _showMemberList() async {
     final api = ref.read(apiServiceProvider);
     if (api == null) return;
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
 
     try {
       final result = await api.getChannelMembers(widget.channelId);
@@ -1072,7 +1072,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
 
   Widget _buildMoreMenuButton(
     Channel? channel,
-    ConduitThemeExtension theme,
+    QonduitThemeExtension theme,
     AppLocalizations? l10n,
   ) {
     return PopupMenuButton<String>(
@@ -1155,7 +1155,7 @@ class _MessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final timestamp = _formatTimestamp(message.createdDateTime);
 
     return InkWell(
@@ -1346,7 +1346,7 @@ class _MessageBubble extends StatelessWidget {
 
   static const double _avatarSize = 28;
 
-  Widget _buildAvatar(ConduitThemeExtension theme) {
+  Widget _buildAvatar(QonduitThemeExtension theme) {
     if (isModelMessage(message)) {
       return ModelAvatar(
         size: _avatarSize,
@@ -1361,7 +1361,7 @@ class _MessageBubble extends StatelessWidget {
     );
   }
 
-  Widget _buildHeader(ConduitThemeExtension theme, String timestamp) {
+  Widget _buildHeader(QonduitThemeExtension theme, String timestamp) {
     return Row(
       children: [
         Flexible(
@@ -1388,7 +1388,7 @@ class _MessageBubble extends StatelessWidget {
     );
   }
 
-  Widget _buildReactions(BuildContext context, ConduitThemeExtension theme) {
+  Widget _buildReactions(BuildContext context, QonduitThemeExtension theme) {
     final primaryColor = Theme.of(context).colorScheme.primary;
 
     return Padding(

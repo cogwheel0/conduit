@@ -42,7 +42,7 @@ class _ToolCallTileState extends State<ToolCallTile> {
   @override
   Widget build(BuildContext context) {
     final tc = widget.toolCall;
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final showShimmer = widget.isStreaming && !tc.done;
 
     return Padding(
@@ -67,7 +67,7 @@ class _ToolCallTileState extends State<ToolCallTile> {
   void _showToolCallBottomSheet(
     BuildContext context,
     ToolCallEntry toolCall,
-    ConduitThemeExtension theme,
+    QonduitThemeExtension theme,
   ) {
     showModalBottomSheet<void>(
       context: context,
@@ -176,7 +176,7 @@ class _ToolCallHeader extends StatelessWidget {
 
 class _ToolCallExpandedContent extends StatelessWidget {
   final ToolCallEntry toolCall;
-  final ConduitThemeExtension theme;
+  final QonduitThemeExtension theme;
   final String Function(dynamic, {int max}) pretty;
 
   const _ToolCallExpandedContent({

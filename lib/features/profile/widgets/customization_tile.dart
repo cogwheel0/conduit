@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
-import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/qonduit_components.dart';
 
 /// A tile widget used in customization settings pages, showing a leading
 /// icon, title, subtitle, and optional trailing widget or chevron.
@@ -27,8 +27,8 @@ class CustomizationTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-    return ConduitCard(
+    final theme = context.qonduitTheme;
+    return QonduitCard(
       padding: const EdgeInsets.all(Spacing.md),
       onTap: onTap,
       child: Row(

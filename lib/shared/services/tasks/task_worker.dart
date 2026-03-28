@@ -292,7 +292,7 @@ class TaskWorker {
 
       if (result != null && result.isNotEmpty) {
         // Write to temp file for upload
-        final tempDir = await Directory.systemTemp.createTemp('conduit_img_');
+        final tempDir = await Directory.systemTemp.createTemp('qonduit_img_');
         final tempFile = File('${tempDir.path}/converted.jpg');
         await tempFile.writeAsBytes(result);
 

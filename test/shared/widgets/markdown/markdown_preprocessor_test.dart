@@ -1,21 +1,21 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/shared/widgets/markdown/markdown_preprocessor.dart';
+import 'package:qonduit/shared/widgets/markdown/markdown_preprocessor.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  group('ConduitMarkdownPreprocessor.normalize', () {
+  group('QonduitMarkdownPreprocessor.normalize', () {
     test('empty string returns empty', () {
-      check(ConduitMarkdownPreprocessor.normalize('')).equals('');
+      check(QonduitMarkdownPreprocessor.normalize('')).equals('');
     });
 
     test('CRLF is converted to LF', () {
-      final result = ConduitMarkdownPreprocessor.normalize('hello\r\nworld');
+      final result = QonduitMarkdownPreprocessor.normalize('hello\r\nworld');
       check(result).not((s) => s.contains('\r'));
       check(result).contains('hello\nworld');
     });
 
     test('auto-closes unmatched fence (odd count)', () {
-      final result = ConduitMarkdownPreprocessor.normalize('```python\ncode');
+      final result = QonduitMarkdownPreprocessor.normalize('```python\ncode');
       check(result).endsWith('```');
       // Should have exactly 2 fences now (even)
       final fenceCount = RegExp(r'```').allMatches(result).length;
@@ -23,7 +23,7 @@ void main() {
     });
 
     test('dedents indented opening fence', () {
-      final result = ConduitMarkdownPreprocessor.normalize(
+      final result = QonduitMarkdownPreprocessor.normalize(
         '    ```python\ncode\n```',
       );
       check(result).contains('```python');
@@ -31,7 +31,7 @@ void main() {
     });
 
     test('dedents indented closing fence', () {
-      final result = ConduitMarkdownPreprocessor.normalize(
+      final result = QonduitMarkdownPreprocessor.normalize(
         '```python\ncode\n    ```',
       );
       // The closing fence should not be indented.
@@ -39,7 +39,7 @@ void main() {
     });
 
     test('moves fence after list marker to new line', () {
-      final result = ConduitMarkdownPreprocessor.normalize(
+      final result = QonduitMarkdownPreprocessor.normalize(
         '- ```python\ncode\n```',
       );
       // The fence should be on its own line after the list marker.
@@ -47,7 +47,7 @@ void main() {
     });
 
     test('ensures closing fence on own line', () {
-      final result = ConduitMarkdownPreprocessor.normalize(
+      final result = QonduitMarkdownPreprocessor.normalize(
         '```\nsome code```\n',
       );
       // "code```" at EOL should become "code\n```"
@@ -55,25 +55,25 @@ void main() {
     });
 
     test('fixes numeric heading by inserting ZWNJ after dot', () {
-      final result = ConduitMarkdownPreprocessor.normalize('### 1. First');
+      final result = QonduitMarkdownPreprocessor.normalize('### 1. First');
       // Should insert \u200C between the dot and space.
       check(result).contains('1.\u200C');
     });
 
     test('fixes Setext heading false positive', () {
-      final result = ConduitMarkdownPreprocessor.normalize('**Bold**\n---');
+      final result = QonduitMarkdownPreprocessor.normalize('**Bold**\n---');
       // Should add a blank line between the bold text and the dashes.
       check(result).contains('**Bold**\n\n');
     });
   });
 
-  group('ConduitMarkdownPreprocessor.sanitize', () {
+  group('QonduitMarkdownPreprocessor.sanitize', () {
     test('empty string returns empty', () {
-      check(ConduitMarkdownPreprocessor.sanitize('')).equals('');
+      check(QonduitMarkdownPreprocessor.sanitize('')).equals('');
     });
 
     test('removes <think>...</think> blocks', () {
-      final result = ConduitMarkdownPreprocessor.sanitize(
+      final result = QonduitMarkdownPreprocessor.sanitize(
         'before<think>internal reasoning</think>after',
       );
       check(result).not((s) => s.contains('think'));
@@ -83,7 +83,7 @@ void main() {
     });
 
     test('removes <details type="reasoning">...</details> blocks', () {
-      final result = ConduitMarkdownPreprocessor.sanitize(
+      final result = QonduitMarkdownPreprocessor.sanitize(
         'before<details type="reasoning">hidden</details>after',
       );
       check(result).not((s) => s.contains('hidden'));
@@ -92,18 +92,18 @@ void main() {
     });
 
     test('collapses 3+ newlines to double newline', () {
-      final result = ConduitMarkdownPreprocessor.sanitize('a\n\n\n\nb');
+      final result = QonduitMarkdownPreprocessor.sanitize('a\n\n\n\nb');
       check(result).equals('a\n\nb');
     });
   });
 
-  group('ConduitMarkdownPreprocessor.toPlainText', () {
+  group('QonduitMarkdownPreprocessor.toPlainText', () {
     test('whitespace-only returns empty', () {
-      check(ConduitMarkdownPreprocessor.toPlainText('   ')).equals('');
+      check(QonduitMarkdownPreprocessor.toPlainText('   ')).equals('');
     });
 
     test('removes code blocks, keeps inline code text', () {
-      final result = ConduitMarkdownPreprocessor.toPlainText(
+      final result = QonduitMarkdownPreprocessor.toPlainText(
         '```dart\nvoid main() {}\n```\nUse `print` here',
       );
       check(result).not((s) => s.contains('void main'));
@@ -111,7 +111,7 @@ void main() {
     });
 
     test('removes images ![alt](url)', () {
-      final result = ConduitMarkdownPreprocessor.toPlainText(
+      final result = QonduitMarkdownPreprocessor.toPlainText(
         'See ![photo](http://img.png) here',
       );
       check(result).not((s) => s.contains('photo'));
@@ -119,7 +119,7 @@ void main() {
     });
 
     test('keeps link text [text](url)', () {
-      final result = ConduitMarkdownPreprocessor.toPlainText(
+      final result = QonduitMarkdownPreprocessor.toPlainText(
         'Click [here](http://example.com) now',
       );
       check(result).contains('here');
@@ -127,7 +127,7 @@ void main() {
     });
 
     test('strips **bold** markers', () {
-      final result = ConduitMarkdownPreprocessor.toPlainText(
+      final result = QonduitMarkdownPreprocessor.toPlainText(
         'This is **bold** text',
       );
       check(result).contains('bold');
@@ -135,7 +135,7 @@ void main() {
     });
 
     test('strips ***bold italic*** markers', () {
-      final result = ConduitMarkdownPreprocessor.toPlainText(
+      final result = QonduitMarkdownPreprocessor.toPlainText(
         'This is ***important*** text',
       );
       check(result).contains('important');
@@ -143,7 +143,7 @@ void main() {
     });
 
     test('strips ~~strikethrough~~ markers', () {
-      final result = ConduitMarkdownPreprocessor.toPlainText(
+      final result = QonduitMarkdownPreprocessor.toPlainText(
         'This is ~~deleted~~ text',
       );
       check(result).contains('deleted');
@@ -151,7 +151,7 @@ void main() {
     });
 
     test('strips # heading markers', () {
-      final result = ConduitMarkdownPreprocessor.toPlainText(
+      final result = QonduitMarkdownPreprocessor.toPlainText(
         '## My Heading\nParagraph',
       );
       check(result).contains('My Heading');
@@ -159,7 +159,7 @@ void main() {
     });
 
     test('strips list markers (-, *, 1.)', () {
-      final result = ConduitMarkdownPreprocessor.toPlainText(
+      final result = QonduitMarkdownPreprocessor.toPlainText(
         '- item one\n* item two\n1. item three',
       );
       check(result).contains('item one');
@@ -168,13 +168,13 @@ void main() {
     });
 
     test('strips > blockquote markers', () {
-      final result = ConduitMarkdownPreprocessor.toPlainText('> quoted text');
+      final result = QonduitMarkdownPreprocessor.toPlainText('> quoted text');
       check(result).contains('quoted text');
       check(result).not((s) => s.startsWith('>'));
     });
 
     test('removes HTML tags', () {
-      final result = ConduitMarkdownPreprocessor.toPlainText(
+      final result = QonduitMarkdownPreprocessor.toPlainText(
         'Hello <b>world</b>',
       );
       check(result).contains('world');
@@ -182,7 +182,7 @@ void main() {
     });
 
     test('removes tool call details from spoken text', () {
-      final result = ConduitMarkdownPreprocessor.toPlainText(
+      final result = QonduitMarkdownPreprocessor.toPlainText(
         'Before <details type="tool_calls" done="true" '
         'name="search"><summary>Tool Executed</summary></details> after',
       );
@@ -192,7 +192,7 @@ void main() {
     });
 
     test('removes extended reasoning blocks from spoken text', () {
-      final result = ConduitMarkdownPreprocessor.toPlainText(
+      final result = QonduitMarkdownPreprocessor.toPlainText(
         'Start <reason>internal chain of thought</reason> '
         '<details><summary>Thinking</summary>private notes</details> end',
       );
@@ -204,7 +204,7 @@ void main() {
     });
 
     test('preserves generic details content in sanitize', () {
-      final result = ConduitMarkdownPreprocessor.sanitize(
+      final result = QonduitMarkdownPreprocessor.sanitize(
         'before <details><summary>Thinking about dinner</summary>menu</details> after',
       );
       check(result).contains('Thinking about dinner');
@@ -212,23 +212,23 @@ void main() {
     });
 
     test('normalizes whitespace', () {
-      final result = ConduitMarkdownPreprocessor.toPlainText(
+      final result = QonduitMarkdownPreprocessor.toPlainText(
         'hello   world\n\nnew  paragraph',
       );
       check(result).not((s) => s.contains('  '));
     });
   });
 
-  group('ConduitMarkdownPreprocessor.softenInlineCode', () {
+  group('QonduitMarkdownPreprocessor.softenInlineCode', () {
     test('short input returned unchanged', () {
-      final result = ConduitMarkdownPreprocessor.softenInlineCode('short');
+      final result = QonduitMarkdownPreprocessor.softenInlineCode('short');
       check(result).equals('short');
     });
 
     test('inserts ZWSP every chunkSize chars for long input', () {
       // Default chunkSize is 24.
       final input = 'a' * 48;
-      final result = ConduitMarkdownPreprocessor.softenInlineCode(input);
+      final result = QonduitMarkdownPreprocessor.softenInlineCode(input);
       // Should have ZWSP at positions 24 and 48.
       check(result).contains('\u200B');
       check(result.length).equals(48 + 2);
@@ -236,7 +236,7 @@ void main() {
 
     test('custom chunkSize works', () {
       final input = 'abcdefghij'; // length 10
-      final result = ConduitMarkdownPreprocessor.softenInlineCode(
+      final result = QonduitMarkdownPreprocessor.softenInlineCode(
         input,
         chunkSize: 5,
       );

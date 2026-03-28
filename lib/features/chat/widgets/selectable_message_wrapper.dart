@@ -34,7 +34,7 @@ class SelectableMessageWrapper extends StatelessWidget {
         margin: const EdgeInsets.symmetric(vertical: Spacing.xs),
         decoration: BoxDecoration(
           color: isSelected
-              ? context.conduitTheme.buttonPrimary.withValues(
+              ? context.qonduitTheme.buttonPrimary.withValues(
                   alpha: 0.1,
                 )
               : Colors.transparent,
@@ -44,7 +44,7 @@ class SelectableMessageWrapper extends StatelessWidget {
           border: isSelected
               ? Border.all(
                   color:
-                      context.conduitTheme.buttonPrimary.withValues(
+                      context.qonduitTheme.buttonPrimary.withValues(
                     alpha: 0.3,
                   ),
                   width: 2,
@@ -62,13 +62,13 @@ class SelectableMessageWrapper extends StatelessWidget {
                   width: 24,
                   height: 24,
                   decoration: BoxDecoration(
-                    color: context.conduitTheme.buttonPrimary,
+                    color: context.qonduitTheme.buttonPrimary,
                     shape: BoxShape.circle,
-                    boxShadow: ConduitShadows.medium(context),
+                    boxShadow: QonduitShadows.medium(context),
                   ),
                   child: Icon(
                     Icons.check,
-                    color: context.conduitTheme.textInverse,
+                    color: context.qonduitTheme.textInverse,
                     size: 16,
                   ),
                 ),

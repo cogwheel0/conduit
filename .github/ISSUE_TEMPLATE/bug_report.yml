@@ -1,12 +1,12 @@
 name: 🐛 Bug Report
-description: Create a report to help improve Conduit.
+description: Create a report to help improve Qonduit.
 title: '[BUG] '
 labels: ['bug', 'triage']
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for taking the time to report a bug! This helps make Conduit better.
+        Thanks for taking the time to report a bug! This helps make Qonduit better.
         
         **Note:** Bugs are tricky to understand. The more details you can provide, the faster I can fix it.
 
@@ -34,7 +34,7 @@ body:
     id: installation-method
     attributes:
       label: How you installed it
-      description: "How did you install Conduit?"
+      description: "How did you install Qonduit?"
       options:
         - App Store
         - Google Play

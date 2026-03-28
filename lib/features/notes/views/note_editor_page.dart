@@ -11,17 +11,17 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
-import 'package:conduit/l10n/app_localizations.dart';
+import 'package:qonduit/l10n/app_localizations.dart';
 import '../../../core/models/note.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/widgets/error_boundary.dart';
-import '../../../shared/theme/conduit_input_styles.dart';
+import '../../../shared/theme/qonduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/glass_colors.dart';
 import '../../../shared/utils/ui_utils.dart';
-import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/qonduit_components.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
-import '../../../shared/widgets/conduit_loading.dart';
+import '../../../shared/widgets/qonduit_loading.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../chat/services/voice_input_service.dart';
@@ -459,12 +459,12 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
   /// Shows a bottom sheet to choose between dictation and audio recording.
   void _showRecordingOptions() {
-    final conduitTheme = context.conduitTheme;
+    final qonduitTheme = context.qonduitTheme;
     final l10n = AppLocalizations.of(context)!;
 
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: conduitTheme.surfaceContainer,
+      backgroundColor: qonduitTheme.surfaceContainer,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(
           top: Radius.circular(AppBorderRadius.modal),
@@ -482,7 +482,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                 height: 4,
                 margin: const EdgeInsets.only(bottom: Spacing.md),
                 decoration: BoxDecoration(
-                  color: conduitTheme.textSecondary.withValues(alpha: 0.3),
+                  color: qonduitTheme.textSecondary.withValues(alpha: 0.3),
                   borderRadius: BorderRadius.circular(AppBorderRadius.round),
                 ),
               ),
@@ -492,28 +492,28 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                   width: 44,
                   height: 44,
                   decoration: BoxDecoration(
-                    color: conduitTheme.buttonPrimary.withValues(alpha: 0.1),
+                    color: qonduitTheme.buttonPrimary.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(AppBorderRadius.md),
                   ),
                   child: Icon(
                     Platform.isIOS
                         ? CupertinoIcons.keyboard
                         : Icons.keyboard_voice_rounded,
-                    color: conduitTheme.buttonPrimary,
+                    color: qonduitTheme.buttonPrimary,
                     size: IconSize.md,
                   ),
                 ),
                 title: Text(
                   l10n.dictation,
                   style: TextStyle(
-                    color: conduitTheme.textPrimary,
+                    color: qonduitTheme.textPrimary,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
                 subtitle: Text(
                   l10n.dictationDescription,
                   style: TextStyle(
-                    color: conduitTheme.textSecondary,
+                    color: qonduitTheme.textSecondary,
                     fontSize: AppTypography.bodySmall,
                   ),
                 ),
@@ -543,14 +543,14 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                 title: Text(
                   l10n.recordAudio,
                   style: TextStyle(
-                    color: conduitTheme.textPrimary,
+                    color: qonduitTheme.textPrimary,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
                 subtitle: Text(
                   l10n.recordAudioDescription,
                   style: TextStyle(
-                    color: conduitTheme.textSecondary,
+                    color: qonduitTheme.textSecondary,
                     fontSize: AppTypography.bodySmall,
                   ),
                 ),
@@ -731,7 +731,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
     return ErrorBoundary(
       child: Scaffold(
-        backgroundColor: context.conduitTheme.surfaceBackground,
+        backgroundColor: context.qonduitTheme.surfaceBackground,
         extendBodyBehindAppBar: true,
         appBar: _buildAppBar(context),
         body: Stack(
@@ -753,7 +753,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
   PreferredSizeWidget _buildAppBar(BuildContext context) {
     final theme = Theme.of(context);
-    final conduitTheme = context.conduitTheme;
+    final qonduitTheme = context.qonduitTheme;
     final l10n = AppLocalizations.of(context)!;
 
     return PreferredSize(
@@ -822,7 +822,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                                                 strokeWidth: BorderWidth.medium,
                                                 valueColor:
                                                     AlwaysStoppedAnimation(
-                                                      conduitTheme
+                                                      qonduitTheme
                                                           .loadingIndicator,
                                                     ),
                                               ),
@@ -833,7 +833,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                                               style: AppTypography
                                                   .bodyMediumStyle
                                                   .copyWith(
-                                                    color: conduitTheme
+                                                    color: qonduitTheme
                                                         .textSecondary,
                                                   ),
                                             ),
@@ -864,7 +864,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                                                     enabled:
                                                         !_isGeneratingTitle,
                                                     style: TextStyle(
-                                                      color: conduitTheme
+                                                      color: qonduitTheme
                                                           .textPrimary,
                                                       fontSize: AppTypography
                                                           .bodySmall,
@@ -885,14 +885,14 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                                                     cupertinoDecoration:
                                                         const BoxDecoration(),
                                                     decoration: context
-                                                        .conduitInputStyles
+                                                        .qonduitInputStyles
                                                         .borderless(
                                                           hint: l10n.untitled,
                                                         )
                                                         .copyWith(
                                                           hintStyle:
                                                               TextStyle(
-                                                                    color: conduitTheme
+                                                                    color: qonduitTheme
                                                                         .textSecondary
                                                                         .withValues(
                                                                           alpha:
@@ -928,13 +928,13 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                                                               _titleController
                                                                   .text
                                                                   .isEmpty
-                                                              ? conduitTheme
+                                                              ? qonduitTheme
                                                                     .textSecondary
                                                                     .withValues(
                                                                       alpha:
                                                                           0.6,
                                                                     )
-                                                              : conduitTheme
+                                                              : qonduitTheme
                                                                     .textPrimary,
                                                           fontSize:
                                                               AppTypography
@@ -957,7 +957,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                                       width: 8,
                                       height: 8,
                                       decoration: BoxDecoration(
-                                        color: conduitTheme.warning,
+                                        color: qonduitTheme.warning,
                                         shape: BoxShape.circle,
                                       ),
                                     ),
@@ -973,7 +973,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                                       child: CircularProgressIndicator(
                                         strokeWidth: BorderWidth.medium,
                                         valueColor: AlwaysStoppedAnimation(
-                                          conduitTheme.loadingIndicator,
+                                          qonduitTheme.loadingIndicator,
                                         ),
                                       ),
                                     ),
@@ -1035,7 +1035,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                               Platform.isIOS
                                   ? CupertinoIcons.ellipsis
                                   : Icons.more_vert_rounded,
-                              color: conduitTheme.textPrimary,
+                              color: qonduitTheme.textPrimary,
                               size: IconSize.appBar,
                             ),
                             isCircular: true,
@@ -1119,7 +1119,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         child: content,
       );
     }
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     return Container(
       decoration: BoxDecoration(
         color: theme.surfaceContainerHighest,
@@ -1141,7 +1141,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         style: AppTypography.tiny.copyWith(
           color: (!kIsWeb && Platform.isIOS)
               ? GlassColors.secondaryLabel(context).withValues(alpha: 0.5)
-              : context.conduitTheme.textSecondary.withValues(alpha: 0.5),
+              : context.qonduitTheme.textSecondary.withValues(alpha: 0.5),
         ),
       ),
     );
@@ -1154,7 +1154,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   }) {
     final secondaryColor = (!kIsWeb && Platform.isIOS)
         ? GlassColors.secondaryLabel(context)
-        : context.conduitTheme.textSecondary;
+        : context.qonduitTheme.textSecondary;
 
     return Padding(
       padding: const EdgeInsets.symmetric(
@@ -1200,7 +1200,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   }
 
   Widget _buildEditor(BuildContext context) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final topPadding = MediaQuery.of(context).padding.top;
     // App bar height: kTextTabBarHeight + metadata bar (~40)
@@ -1247,7 +1247,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
               keyboardType: TextInputType.multiline,
               padding: EdgeInsets.zero,
               cupertinoDecoration: const BoxDecoration(),
-              decoration: context.conduitInputStyles
+              decoration: context.qonduitInputStyles
                   .borderless(hint: l10n.writeNote)
                   .copyWith(
                     hintStyle:
@@ -1354,7 +1354,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   }
 
   Widget _buildFloatingActionsRow(BuildContext context) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final l10n = AppLocalizations.of(context)!;
 
     return Row(
@@ -1401,7 +1401,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     final l10n = AppLocalizations.of(context)!;
     final glassLabel = (!kIsWeb && Platform.isIOS)
         ? GlassColors.label(context)
-        : context.conduitTheme.textPrimary;
+        : context.qonduitTheme.textPrimary;
 
     final borderRadius = BorderRadius.circular(AppBorderRadius.floatingButton);
     final buttonContent = SizedBox(
@@ -1429,7 +1429,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         child: buttonContent,
       );
     } else {
-      final theme = context.conduitTheme;
+      final theme = context.qonduitTheme;
       buttonChild = Container(
         decoration: BoxDecoration(
           color: theme.surfaceContainerHighest,
@@ -1488,7 +1488,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   }
 
   Widget _buildNotFoundState(BuildContext context) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final sidebarTheme = context.sidebarTheme;
     final l10n = AppLocalizations.of(context)!;
 

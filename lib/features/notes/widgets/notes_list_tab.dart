@@ -1,4 +1,4 @@
-import 'package:conduit/l10n/app_localizations.dart';
+import 'package:qonduit/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,7 +8,7 @@ import '../../../core/models/note.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
-import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/qonduit_components.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../providers/notes_providers.dart';
 
@@ -93,7 +93,7 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final notes = _query.isEmpty
         ? ref.watch(notesListProvider)
@@ -108,7 +108,7 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
           child: Row(
             children: [
               Expanded(
-                child: ConduitGlassSearchField(
+                child: QonduitGlassSearchField(
                   controller: _searchController,
                   hintText: l10n.searchNotes,
                   onChanged: _onSearchChanged,
@@ -185,7 +185,7 @@ class _NoteListTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final title = note.title.isEmpty ? l10n.untitled : note.title;
     final preview = note.markdownContent.isNotEmpty

@@ -168,7 +168,7 @@ document.addEventListener('DOMContentLoaded', () => {
       let githubTotal = 0;
       try {
         const githubResponse = await fetch(
-          'https://img.shields.io/github/downloads/cogwheel0/conduit/total.json'
+          'https://img.shields.io/github/downloads/cogwheel0/qonduit/total.json'
         );
         const githubJson = await githubResponse.json();
         if (githubJson.value) {
@@ -187,7 +187,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch {
       hydrateBadge(
         'mobile-downloads',
-        'https://img.shields.io/github/downloads/cogwheel0/conduit/total.json',
+        'https://img.shields.io/github/downloads/cogwheel0/qonduit/total.json',
         '—'
       );
     }
@@ -195,7 +195,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   hydrateBadge(
     'github-stars',
-    'https://img.shields.io/github/stars/cogwheel0/conduit.json',
+    'https://img.shields.io/github/stars/cogwheel0/qonduit.json',
     '★'
   );
   hydrateMobileDownloads();

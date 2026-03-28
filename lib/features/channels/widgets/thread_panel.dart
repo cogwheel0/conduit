@@ -86,7 +86,7 @@ class _ThreadPanelState extends ConsumerState<ThreadPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
+    final theme = context.qonduitTheme;
     final api = ref.read(apiServiceProvider);
     final threadAsync = ref.watch(
       threadMessagesProvider(widget.channelId, widget.parentMessage.id),
@@ -144,7 +144,7 @@ class _ThreadPanelState extends ConsumerState<ThreadPanel> {
 class _ThreadHeader extends StatelessWidget {
   const _ThreadHeader({required this.theme, required this.onClose});
 
-  final ConduitThemeExtension theme;
+  final QonduitThemeExtension theme;
   final VoidCallback onClose;
 
   @override
@@ -183,7 +183,7 @@ class _ParentMessageTile extends StatelessWidget {
 
   final ChannelMessage message;
   final ApiService? api;
-  final ConduitThemeExtension theme;
+  final QonduitThemeExtension theme;
 
   @override
   Widget build(BuildContext context) {
@@ -248,7 +248,7 @@ class _ThreadReplies extends StatelessWidget {
 
   final List<ChannelMessage> messages;
   final ApiService? api;
-  final ConduitThemeExtension theme;
+  final QonduitThemeExtension theme;
 
   @override
   Widget build(BuildContext context) {

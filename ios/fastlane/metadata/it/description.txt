@@ -1,4 +1,4 @@
-Conduit è un client mobile nativo open-source per Open‑WebUI. Connettiti al tuo server per chattare con modelli di IA, gestire conversazioni e portare con te la tua IA self-hosted—in modo sicuro e in movimento.
+Qonduit è un client mobile nativo open-source per Open‑WebUI. Connettiti al tuo server per chattare con modelli di IA, gestire conversazioni e portare con te la tua IA self-hosted—in modo sicuro e in movimento.
 
 Funzionalità
 - Chat in streaming in tempo reale
@@ -13,7 +13,7 @@ Funzionalità
 - Archiviazione sicura credenziali (Keychain/Keystore)
 
 Requisiti
-- Richiede un server Open‑WebUI esistente. Conduit non ospita né fornisce modelli di IA.
+- Richiede un server Open‑WebUI esistente. Qonduit non ospita né fornisce modelli di IA.
 - Nessun dato viene inviato a servizi di terze parti per impostazione predefinita; tutto rimane sul tuo server configurato.
 
 Autorizzazioni
@@ -22,9 +22,9 @@ Autorizzazioni
 - Rete: Connessione al tuo server Open‑WebUI
 
 Open Source:
-Conduit è un progetto open-source. Per supporto, per segnalare problemi o per visualizzare il codice sorgente, visita il nostro repository GitHub:
+Qonduit è un progetto open-source. Per supporto, per segnalare problemi o per visualizzare il codice sorgente, visita il nostro repository GitHub:
 
-https://github.com/cogwheel0/conduit
+https://github.com/cogwheel0/qonduit
 
 -----
 

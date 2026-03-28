@@ -15,12 +15,12 @@ if (keystorePropertiesFile.exists()) {
 }
 
 android {
-    namespace = "app.cogwheel.conduit"
+    namespace = "app.cogwheel.qonduit"
     compileSdk = 36
     ndkVersion = "29.0.14206865"
 
     defaultConfig {
-    applicationId = "app.cogwheel.conduit"
+    applicationId = "app.cogwheel.qonduit"
     minSdk = flutter.minSdkVersion
     targetSdk = 36
     versionCode = flutter.versionCode
@@ -41,23 +41,19 @@ android {
     }
 
     signingConfigs {
-        if (keystorePropertiesFile.exists()) {
-            create("release") {
-                storeFile = file(keystoreProperties["storeFile"] as String)
-                storePassword = keystoreProperties["storePassword"] as String
-                keyAlias = keystoreProperties["keyAlias"] as String
-                keyPassword = keystoreProperties["keyPassword"] as String
-            }
+        create("release") {
+            keyAlias = keystoreProperties["keyAlias"] as String
+            keyPassword = keystoreProperties["keyPassword"] as String
+            storeFile = file(keystoreProperties["storeFile"] as String)
+            storePassword = keystoreProperties["storePassword"] as String
         }
     }
 
     buildTypes {
         getByName("release") {
-            if (keystorePropertiesFile.exists()) {
-                signingConfig = signingConfigs.getByName("release")
-            }
-            isMinifyEnabled = true
-            isShrinkResources = true
+            signingConfig = signingConfigs.getByName("release")
+            isMinifyEnabled = false
+            isShrinkResources = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

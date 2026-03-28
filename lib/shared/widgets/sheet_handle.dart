@@ -15,7 +15,7 @@ class SheetHandle extends StatelessWidget {
         width: 40,
         height: 4,
         decoration: BoxDecoration(
-          color: context.conduitTheme.textPrimary.withValues(
+          color: context.qonduitTheme.textPrimary.withValues(
             alpha: Alpha.medium,
           ),
           borderRadius: BorderRadius.circular(AppBorderRadius.xs),

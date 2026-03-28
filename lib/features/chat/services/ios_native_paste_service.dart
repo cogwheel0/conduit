@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 
-const _iosNativePasteChannel = MethodChannel('conduit/native_paste');
+const _iosNativePasteChannel = MethodChannel('qonduit/native_paste');
 
 /// Streams paste payloads delivered by the native iOS text input bridge.
 class IosNativePasteService {

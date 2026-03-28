@@ -35,7 +35,7 @@ class InlineRenderer {
   ]);
 
   /// The style configuration for rendering.
-  final ConduitMarkdownStyle style;
+  final QonduitMarkdownStyle style;
 
   /// Preprocessor for restoring LaTeX placeholders.
   final LatexPreprocessor latexPreprocessor;
@@ -296,7 +296,7 @@ class _InlineCodeWidget extends StatelessWidget {
   const _InlineCodeWidget({required this.code, required this.style});
 
   final String code;
-  final ConduitMarkdownStyle style;
+  final QonduitMarkdownStyle style;
 
   @override
   Widget build(BuildContext context) {

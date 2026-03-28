@@ -1,5 +1,5 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/core/utils/citation_parser.dart';
+import 'package:qonduit/core/utils/citation_parser.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

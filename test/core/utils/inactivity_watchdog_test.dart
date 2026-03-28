@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:checks/checks.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:conduit/core/utils/inactivity_watchdog.dart';
+import 'package:qonduit/core/utils/inactivity_watchdog.dart';
 
 void main() {
   group('InactivityWatchdog', () {

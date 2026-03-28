@@ -20,16 +20,16 @@ import '../../shared/services/tasks/task_queue.dart';
 
 part 'app_intents_service.g.dart';
 
-const _askIntentId = 'app.cogwheel.conduit.ask_chat';
-const _voiceCallIntentId = 'app.cogwheel.conduit.start_voice_call';
-const _sendTextIntentId = 'app.cogwheel.conduit.send_text';
-const _sendUrlIntentId = 'app.cogwheel.conduit.send_url';
-const _sendImageIntentId = 'app.cogwheel.conduit.send_image';
+const _askIntentId = 'app.cogwheel.qonduit.ask_chat';
+const _voiceCallIntentId = 'app.cogwheel.qonduit.start_voice_call';
+const _sendTextIntentId = 'app.cogwheel.qonduit.send_text';
+const _sendUrlIntentId = 'app.cogwheel.qonduit.send_url';
+const _sendImageIntentId = 'app.cogwheel.qonduit.send_image';
 
 /// Method channel for receiving App Intent invocations from native iOS code.
 /// Native Swift code defines the intents with proper titles and metadata.
 /// This Flutter code handles the business logic (navigation, state management).
-const _appIntentsChannel = MethodChannel('conduit/app_intents');
+const _appIntentsChannel = MethodChannel('qonduit/app_intents');
 
 /// Handles iOS App Intents for Siri/Shortcuts.
 ///
@@ -88,7 +88,7 @@ class AppIntentCoordinator extends _$AppIntentCoordinator {
       await _prepareChat(prompt: prompt);
       final summary = prompt != null && prompt.isNotEmpty
           ? 'Opening chat for "$prompt"'
-          : 'Opening Conduit chat';
+          : 'Opening Qonduit chat';
 
       return {'success': true, 'value': summary};
     } catch (error, stackTrace) {
@@ -132,7 +132,7 @@ class AppIntentCoordinator extends _$AppIntentCoordinator {
     try {
       await _startVoiceCall();
       DebugLogger.log('Voice call launched from Siri/Shortcuts', scope: 'siri');
-      return {'success': true, 'value': 'Starting Conduit voice call'};
+      return {'success': true, 'value': 'Starting Qonduit voice call'};
     } catch (error, stackTrace) {
       DebugLogger.error(
         'app-intents-voice',
@@ -158,7 +158,7 @@ class AppIntentCoordinator extends _$AppIntentCoordinator {
         focusComposer: true,
         resetChat: true,
       );
-      return {'success': true, 'value': 'Sent to Conduit'};
+      return {'success': true, 'value': 'Sent to Qonduit'};
     } catch (error, stackTrace) {
       DebugLogger.error(
         'app-intents-text',
@@ -240,13 +240,13 @@ class AppIntentCoordinator extends _$AppIntentCoordinator {
         return {
           'success': true,
           'value': isYoutube
-              ? 'YouTube video attached in Conduit'
-              : 'Webpage attached in Conduit',
+              ? 'YouTube video attached in Qonduit'
+              : 'Webpage attached in Qonduit',
         };
       } else {
         return {
           'success': true,
-          'value': 'Opening Conduit with URL (content could not be fetched)',
+          'value': 'Opening Qonduit with URL (content could not be fetched)',
         };
       }
     } catch (error, stackTrace) {
@@ -276,7 +276,7 @@ class AppIntentCoordinator extends _$AppIntentCoordinator {
       );
       await _attachFiles([file]);
       await _prepareChatWithOptions(focusComposer: true, resetChat: true);
-      return {'success': true, 'value': 'Image attached in Conduit'};
+      return {'success': true, 'value': 'Image attached in Qonduit'};
     } catch (error, stackTrace) {
       DebugLogger.error(
         'app-intents-image',
@@ -354,7 +354,7 @@ class AppIntentCoordinator extends _$AppIntentCoordinator {
     final tempDir = await getTemporaryDirectory();
     final safeName = (preferredName != null && preferredName.isNotEmpty)
         ? preferredName
-        : 'conduit_image_${DateTime.now().millisecondsSinceEpoch}.jpg';
+        : 'qonduit_image_${DateTime.now().millisecondsSinceEpoch}.jpg';
     final sanitizedName = safeName.replaceAll(RegExp(r'[^\w\.\-]'), '_');
     final file = File(p.join(tempDir.path, sanitizedName));
     await file.writeAsBytes(bytes, flush: true);
