@@ -80,4 +80,28 @@ stdout: line 2
     expect(containsTag(body.single, 'br'), isTrue);
     expect(flattenText(body.single), 'stdout: line 1\nstdout: line 2');
   });
+
+  test('preserves trailing content after a closing details tag', () {
+    final document = md.Document(blockSyntaxes: const [DetailsBlockSyntax()]);
+    final nodes = document.parse('''
+<details type="reasoning">
+<summary>Thinking…</summary>
+Reasoning body
+</details>Visible response
+''');
+
+    expect(nodes, hasLength(1));
+    expect(nodes.single, isA<md.Element>());
+
+    final root = nodes.single as md.Element;
+    expect(root.tag, 'div');
+
+    final children = (root.children ?? const <md.Node>[])
+        .whereType<md.Element>()
+        .toList(growable: false);
+    expect(children, hasLength(2));
+    expect(children.first.tag, 'details');
+    expect(children.last.tag, 'p');
+    expect(flattenText(children.last), 'Visible response');
+  });
 }

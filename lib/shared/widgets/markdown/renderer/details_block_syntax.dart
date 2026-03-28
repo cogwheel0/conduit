@@ -99,13 +99,29 @@ class DetailsBlockSyntax extends md.BlockSyntax {
             parser.document,
           ).parseLines();
 
-    final element = md.Element('details', [
+    final detailsElement = md.Element('details', [
       if (summaryText != null && summaryText.isNotEmpty)
         md.Element('summary', [md.Text(summaryText)]),
       ...childNodes,
     ]);
-    element.attributes.addAll(attributes);
-    return element;
+    detailsElement.attributes.addAll(attributes);
+
+    final trailingContent = _decode(
+      rawBlock.substring(closingIndex + '</details>'.length),
+    ).trimLeft();
+    if (trailingContent.trim().isEmpty) {
+      return detailsElement;
+    }
+
+    final trailingNodes = md.BlockParser(
+      trailingContent.split('\n').map(md.Line.new).toList(growable: false),
+      parser.document,
+    ).parseLines();
+    if (trailingNodes.isEmpty) {
+      return detailsElement;
+    }
+
+    return md.Element('div', [detailsElement, ...trailingNodes]);
   }
 
   static String _decode(String input) => _detailsHtmlUnescape.convert(input);

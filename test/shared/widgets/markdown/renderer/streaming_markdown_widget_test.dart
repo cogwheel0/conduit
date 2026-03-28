@@ -367,6 +367,23 @@ Reasoning body
   });
 
   testWidgets(
+    'renders text that trails a closing details tag on the same line',
+    (tester) async {
+      const content = '''
+<details type="reasoning" done="true" duration="5">
+<summary>Thinking…</summary>
+Reasoning body
+</details>Visible response
+''';
+
+      await tester.pumpWidget(buildHarness(content));
+
+      expect(find.text('Thought for 5 seconds'), findsOneWidget);
+      expect(find.text('Visible response'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
     'keeps reasoning inline while streaming and moves it to the modal when done',
     (tester) async {
       var content = '''
