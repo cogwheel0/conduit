@@ -1,0 +1,2 @@
+# Prefer published Cargokit artifacts over local Rust builds for iOS/macOS.
+use_precompiled_binaries: true
