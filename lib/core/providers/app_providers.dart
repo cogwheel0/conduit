@@ -16,6 +16,7 @@ import '../models/conversation.dart';
 import '../models/chat_message.dart';
 import '../models/backend_config.dart';
 import '../models/folder.dart';
+import '../models/folder_tree.dart';
 import '../models/user_settings.dart';
 import '../models/file_info.dart';
 import '../models/tool.dart';
@@ -2255,6 +2256,14 @@ class Folders extends _$Folders {
     sorted.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
     return List<Folder>.unmodifiable(sorted);
   }
+}
+
+@riverpod
+List<FolderTreeNode> folderTree(Ref ref) {
+  final folders = ref
+      .watch(foldersProvider)
+      .maybeWhen(data: (value) => value, orElse: () => const <Folder>[]);
+  return FolderTreeNode.buildTree(folders);
 }
 
 // Files provider
