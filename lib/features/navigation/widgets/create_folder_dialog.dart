@@ -1,6 +1,5 @@
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:flutter/widgets.dart';
-import 'package:flutter/services.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -19,10 +18,12 @@ class CreateFolderDialog {
   /// [context] is used for dialog presentation and localization.
   /// [ref] is used for reading providers (API service, folders).
   /// [onError] is called with an error message if creation fails.
+  /// [parentId] optionally nests the new folder beneath an existing folder.
   static Future<void> show(
     BuildContext context,
     WidgetRef ref, {
     required Future<void> Function(String message) onError,
+    String? parentId,
   }) async {
     final l10n = AppLocalizations.of(context)!;
     final name = await ThemedDialogs.promptTextInput(
@@ -34,11 +35,15 @@ class CreateFolderDialog {
     );
 
     if (name == null) return;
-    if (name.isEmpty) return;
+    final trimmedName = name.trim();
+    if (trimmedName.isEmpty) return;
     try {
       final api = ref.read(apiServiceProvider);
       if (api == null) throw Exception('No API service');
-      final created = await api.createFolder(name: name);
+      final created = await api.createFolder(
+        name: trimmedName,
+        parentId: parentId,
+      );
       final folder = Folder.fromJson(Map<String, dynamic>.from(created));
       ConduitHaptics.lightImpact();
       ref.read(foldersProvider.notifier).upsertFolder(folder);

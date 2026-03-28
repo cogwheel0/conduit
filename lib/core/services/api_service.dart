@@ -1640,21 +1640,19 @@ class ApiService {
     return response.data as Map<String, dynamic>;
   }
 
-  Future<void> updateFolder(String id, {String? name, String? parentId}) async {
+  Future<void> updateFolder(String id, {String? name}) async {
     _traceApi('Updating folder: $id');
-    // OpenWebUI folder update endpoints:
-    // - POST /api/v1/folders/{id}/update          -> rename (FolderForm)
-    // - POST /api/v1/folders/{id}/update/parent   -> move parent (FolderParentIdForm)
     if (name != null) {
       await _dio.post('/api/v1/folders/$id/update', data: {'name': name});
     }
+  }
 
-    if (parentId != null) {
-      await _dio.post(
-        '/api/v1/folders/$id/update/parent',
-        data: {'parent_id': parentId},
-      );
-    }
+  Future<void> updateFolderParent(String id, String? parentId) async {
+    _traceApi('Updating folder parent: $id -> $parentId');
+    await _dio.post(
+      '/api/v1/folders/$id/update/parent',
+      data: {'parent_id': parentId},
+    );
   }
 
   Future<void> deleteFolder(String id) async {
