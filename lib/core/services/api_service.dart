@@ -235,7 +235,7 @@ class ApiService {
     BaseOptions(
       baseUrl: serverConfig.url,
       connectTimeout: const Duration(seconds: 30),
-      receiveTimeout: const Duration(seconds: 30),
+      receiveTimeout: const Duration(seconds: 300),
       followRedirects: true,
       maxRedirects: 5,
       validateStatus: (status) => status != null && status < 400,
@@ -3833,6 +3833,9 @@ class ApiService {
         data: gatewayData,
         options: Options(
           responseType: ResponseType.stream,
+          headers: const {
+            'Accept': 'text/event-stream',
+          },
           validateStatus: (status) => status != null && status < 600,
         ),
         cancelToken: cancelToken,
@@ -4986,7 +4989,7 @@ $content
           'model': modelId,
           'stream': false,
           'messages': [
-             {'role': 'user', 'content': prompt},
+            {'role': 'user', 'content': prompt},
           ],
         },
       );
