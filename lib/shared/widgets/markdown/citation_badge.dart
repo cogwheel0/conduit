@@ -4,95 +4,16 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/models/chat_message.dart';
 import '../../theme/theme_extensions.dart';
+import 'source_reference_helper.dart';
 
-/// Helper utilities for working with source references.
-class SourceHelper {
-  const SourceHelper._();
-
-  /// Extracts a URL from a source reference, checking multiple fields.
-  static String? getSourceUrl(ChatSourceReference source) {
-    String? url = source.url;
-    if (url == null || url.isEmpty) {
-      if (source.id != null && source.id!.startsWith('http')) {
-        url = source.id;
-      } else if (source.title != null && source.title!.startsWith('http')) {
-        url = source.title;
-      } else if (source.metadata != null) {
-        url =
-            source.metadata!['url']?.toString() ??
-            source.metadata!['source']?.toString() ??
-            source.metadata!['link']?.toString();
-      }
+Future<void> _launchSourceUrl(String url) async {
+  try {
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
     }
-    return (url != null && url.startsWith('http')) ? url : null;
-  }
-
-  /// Gets a display title for a source.
-  ///
-  /// For web sources (with URLs), shows the domain name like "wikipedia.org".
-  /// This matches OpenWebUI's behavior where web search results show domains.
-  static String getSourceTitle(ChatSourceReference source, int index) {
-    // For web sources, prefer showing the URL domain
-    final url = getSourceUrl(source);
-    if (url != null) {
-      return extractDomain(url);
-    }
-
-    // If title is a URL, extract domain
-    if (source.title != null && source.title!.isNotEmpty) {
-      final title = source.title!;
-      if (title.startsWith('http')) {
-        return extractDomain(title);
-      }
-      return title;
-    }
-
-    // Check if ID is a URL
-    if (source.id != null && source.id!.isNotEmpty) {
-      final id = source.id!;
-      if (id.startsWith('http')) {
-        return extractDomain(id);
-      }
-      return id;
-    }
-
-    return 'Source ${index + 1}';
-  }
-
-  /// Extracts the domain from a URL for display.
-  static String extractDomain(String url) {
-    try {
-      final uri = Uri.parse(url);
-      String domain = uri.host;
-      if (domain.startsWith('www.')) {
-        domain = domain.substring(4);
-      }
-      return domain;
-    } catch (e) {
-      return url;
-    }
-  }
-
-  /// Formats a title for display, truncating if needed.
-  /// Matches OpenWebUI's getDisplayTitle behavior.
-  static String formatDisplayTitle(String title) {
-    if (title.isEmpty) return 'N/A';
-    if (title.length > 25) {
-      return '${title.substring(0, 12)}…${title.substring(title.length - 8)}';
-    }
-    return title;
-  }
-
-  /// Launches a URL in an external browser.
-  static Future<void> launchSourceUrl(String url) async {
-    try {
-      final uri = Uri.parse(url);
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-      }
-    } catch (e) {
-      // Handle error silently
-    }
+  } catch (_) {
+    // Ignore source launch failures.
   }
 }
 
@@ -126,9 +47,9 @@ class CitationBadge extends StatelessWidget {
     }
 
     final source = sources[sourceIndex];
-    final url = SourceHelper.getSourceUrl(source);
-    final title = SourceHelper.getSourceTitle(source, sourceIndex);
-    final displayTitle = SourceHelper.formatDisplayTitle(title);
+    final url = SourceReferenceHelper.getSourceUrl(source);
+    final title = SourceReferenceHelper.getSourceLabel(source, sourceIndex);
+    final displayTitle = SourceReferenceHelper.formatDisplayTitle(title);
 
     return AdaptiveTooltip(
       message: title,
@@ -140,28 +61,22 @@ class CitationBadge extends StatelessWidget {
             if (onTap != null) {
               onTap!();
             } else if (url != null) {
-              SourceHelper.launchSourceUrl(url);
+              _launchSourceUrl(url);
             }
           },
           borderRadius: BorderRadius.circular(20),
           child: Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: Spacing.sm,
-              vertical: Spacing.xxs,
-            ),
-            margin: const EdgeInsets.symmetric(horizontal: 2),
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+            margin: const EdgeInsets.symmetric(horizontal: 1),
             decoration: BoxDecoration(
-              color: theme.surfaceContainer.withValues(alpha: 0.3),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: theme.dividerColor.withValues(alpha: 0.5),
-                width: 1,
-              ),
+              color: theme.surfaceContainer.withValues(alpha: 0.24),
+              borderRadius: BorderRadius.circular(12),
             ),
             child: Text(
               displayTitle,
               style: TextStyle(
-                fontSize: AppTypography.labelSmall,
+                fontSize: 10,
+                height: 1,
                 fontWeight: FontWeight.w500,
                 color: theme.textSecondary,
               ),
@@ -223,18 +138,21 @@ class CitationBadgeGroup extends StatelessWidget {
     }
 
     final firstSource = sources[firstIndex];
-    final firstTitle = SourceHelper.getSourceTitle(firstSource, firstIndex);
-    final displayTitle = SourceHelper.formatDisplayTitle(firstTitle);
+    final firstTitle = SourceReferenceHelper.getSourceLabel(
+      firstSource,
+      firstIndex,
+    );
+    final displayTitle = SourceReferenceHelper.formatDisplayTitle(firstTitle);
     final additionalCount = sourceIndices.length - 1;
 
     final menuItems = sourceIndices
         .where((index) => index >= 0 && index < sources.length)
         .map((index) {
           final source = sources[index];
-          final title = SourceHelper.getSourceTitle(source, index);
+          final title = SourceReferenceHelper.getSourceLabel(source, index);
           return AdaptivePopupMenuItem<int>(
             value: index,
-            label: SourceHelper.formatDisplayTitle(title),
+            label: SourceReferenceHelper.formatDisplayTitle(title),
             icon: PlatformInfo.isIOS ? 'link' : Icons.link_rounded,
           );
         })
@@ -252,47 +170,41 @@ class CitationBadgeGroup extends StatelessWidget {
         }
 
         if (index >= 0 && index < sources.length) {
-          final url = SourceHelper.getSourceUrl(sources[index]);
+          final url = SourceReferenceHelper.getSourceUrl(sources[index]);
           if (url != null) {
-            SourceHelper.launchSourceUrl(url);
+            _launchSourceUrl(url);
           }
         }
       },
       buttonStyle: PopupButtonStyle.glass,
       child: Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: Spacing.sm,
-          vertical: Spacing.xxs,
-        ),
-        margin: const EdgeInsets.symmetric(horizontal: 2),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+        margin: const EdgeInsets.symmetric(horizontal: 1),
         decoration: BoxDecoration(
-          color: theme.surfaceContainer.withValues(alpha: 0.6),
-          borderRadius: BorderRadius.circular(AppBorderRadius.chip),
-          border: Border.all(
-            color: theme.cardBorder.withValues(alpha: 0.5),
-            width: BorderWidth.thin,
-          ),
+          color: theme.surfaceContainer.withValues(alpha: 0.24),
+          borderRadius: BorderRadius.circular(12),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
               Icons.link_rounded,
-              size: 10,
+              size: 9,
               color: theme.textSecondary.withValues(alpha: 0.7),
             ),
-            const SizedBox(width: Spacing.xxs),
+            const SizedBox(width: 3),
             Text(
               displayTitle,
               style: TextStyle(
-                fontSize: AppTypography.labelSmall,
+                fontSize: 10,
+                height: 1,
                 fontWeight: FontWeight.w500,
                 color: theme.textSecondary,
               ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
-            const SizedBox(width: Spacing.xxs),
+            const SizedBox(width: 3),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
               decoration: BoxDecoration(

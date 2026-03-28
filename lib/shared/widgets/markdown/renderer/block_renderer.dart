@@ -366,10 +366,20 @@ class BlockRenderer {
     required String nodePath,
   }) {
     final children = element.children;
-    final hasBlocks = _containsBlockElements(children);
+    final inlineNodes = <md.Node>[];
+    final blockNodes = <md.Node>[];
+
+    for (final child in children ?? const <md.Node>[]) {
+      if (_appendInlineListChild(child, inlineNodes)) {
+        continue;
+      }
+      blockNodes.add(child);
+    }
 
     Widget content;
-    if (hasBlocks && children != null) {
+    if (inlineNodes.isNotEmpty && blockNodes.isEmpty) {
+      content = Text.rich(inlineRenderer.render(inlineNodes));
+    } else if (blockNodes.isNotEmpty) {
       final inner = BlockRenderer(
         context,
         style,
@@ -380,9 +390,20 @@ class BlockRenderer {
         stateScopeId,
         nodePath,
       );
-      content = inner.renderBlocks(children);
-    } else if (children != null && children.isNotEmpty) {
-      content = Text.rich(inlineRenderer.render(children));
+      final blockContent = inner.renderBlocks(blockNodes);
+
+      if (inlineNodes.isEmpty) {
+        content = blockContent;
+      } else {
+        content = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text.rich(inlineRenderer.render(inlineNodes)),
+            const SizedBox(height: Spacing.xs),
+            blockContent,
+          ],
+        );
+      }
     } else {
       content = Text(element.textContent, style: style.body);
     }
@@ -402,10 +423,67 @@ class BlockRenderer {
     );
   }
 
+  bool _appendInlineListChild(md.Node child, List<md.Node> inlineNodes) {
+    if (child is md.Text) {
+      _appendInlineChunkSeparator(inlineNodes);
+      inlineNodes.add(child);
+      return true;
+    }
+
+    if (child is! md.Element) {
+      return false;
+    }
+
+    if (child.tag == 'p') {
+      final singleImage = _extractSingleImage(child);
+      final paragraphChildren = child.children;
+      if (singleImage != null ||
+          paragraphChildren == null ||
+          paragraphChildren.isEmpty ||
+          _containsBlockElements(paragraphChildren)) {
+        return false;
+      }
+
+      _appendInlineChunkSeparator(inlineNodes);
+      inlineNodes.addAll(paragraphChildren);
+      return true;
+    }
+
+    if (_isBlockElementTag(child.tag)) {
+      return false;
+    }
+
+    _appendInlineChunkSeparator(inlineNodes);
+    inlineNodes.add(child);
+    return true;
+  }
+
+  void _appendInlineChunkSeparator(List<md.Node> inlineNodes) {
+    if (inlineNodes.isEmpty) {
+      return;
+    }
+
+    final lastNode = inlineNodes.last;
+    if (lastNode is md.Text && RegExp(r'\s$').hasMatch(lastNode.text)) {
+      return;
+    }
+
+    inlineNodes.add(md.Text(' '));
+  }
+
   /// Returns `true` if [nodes] contain block-level
   /// elements like paragraphs, lists, or headings.
   bool _containsBlockElements(List<md.Node>? nodes) {
     if (nodes == null) return false;
+    for (final node in nodes) {
+      if (node is md.Element && _isBlockElementTag(node.tag)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool _isBlockElementTag(String tag) {
     const blockTags = {
       'p',
       'h1',
@@ -421,13 +499,10 @@ class BlockRenderer {
       'table',
       'hr',
       'details',
+      'div',
+      'section',
     };
-    for (final node in nodes) {
-      if (node is md.Element && blockTags.contains(node.tag)) {
-        return true;
-      }
-    }
-    return false;
+    return blockTags.contains(tag);
   }
 
   // -- Table --

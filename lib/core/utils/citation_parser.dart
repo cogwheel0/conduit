@@ -40,12 +40,14 @@ class CitationSegment {
 class CitationParser {
   const CitationParser._();
 
-  // Matches one or more adjacent [N] or [N,M,...] blocks
-  // Examples: "[1]", "[1,2,3]", "[1][2]", "[1,2][3,4]"
-  static final _citationPattern = RegExp(r'(\[(?:\d[\d,\s]*)\])+');
+  // Matches one or more adjacent [N], [N,M,...], or [N#suffix] blocks.
+  // Examples: "[1]", "[1,2,3]", "[1][2]", "[1,2][3,4#foo]"
+  static final _citationPattern = RegExp(
+    r'(\[(?:\d+(?:#[^,\]\s]+)?(?:,\s*\d+(?:#[^,\]\s]+)?)*)\])+',
+  );
 
   // Matches individual bracket groups within a citation match
-  static final _bracketGroupPattern = RegExp(r'\[([\d,\s]+)\]');
+  static final _bracketGroupPattern = RegExp(r'\[([^\]]+)\]');
 
   // Avoids matching footnotes like [^1]
   static final _footnotePattern = RegExp(r'^\[\^');
@@ -84,7 +86,8 @@ class CitationParser {
         final idsStr = bracketMatch.group(1) ?? '';
         final parsed = idsStr
             .split(',')
-            .map((s) => int.tryParse(s.trim()))
+            .map((part) => RegExp(r'^(\d+)(?:#.+)?$').firstMatch(part.trim()))
+            .map((match) => int.tryParse(match?.group(1) ?? ''))
             .whereType<int>()
             .where((n) => n > 0) // Only positive indices
             .toList();

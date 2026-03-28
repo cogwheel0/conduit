@@ -42,8 +42,7 @@ void main() {
       final segments = CitationParser.parse('text[1][2]end');
       check(segments).isNotNull();
 
-      final citations =
-          segments!.where((s) => s.isCitation).toList();
+      final citations = segments!.where((s) => s.isCitation).toList();
       // Adjacent brackets are merged into a single citation
       check(citations.length).equals(1);
       check(citations[0].citation!.sourceIds).deepEquals([1, 2]);
@@ -56,6 +55,15 @@ void main() {
 
       final citation = segments!.firstWhere((s) => s.isCitation);
       check(citation.citation!.sourceIds).deepEquals([1, 2]);
+    });
+
+    test('citation suffixes [1#foo, 2#bar] keep numeric IDs', () {
+      final segments = CitationParser.parse('text[1#foo, 2#bar]end');
+      check(segments).isNotNull();
+
+      final citation = segments!.firstWhere((s) => s.isCitation);
+      check(citation.citation!.sourceIds).deepEquals([1, 2]);
+      check(citation.citation!.raw).equals('[1#foo, 2#bar]');
     });
 
     test('footnote [^1] is ignored', () {
@@ -95,12 +103,10 @@ void main() {
     });
 
     test('multiple separate citations', () {
-      final segments =
-          CitationParser.parse('A[1] and B[2] done');
+      final segments = CitationParser.parse('A[1] and B[2] done');
       check(segments).isNotNull();
 
-      final citations =
-          segments!.where((s) => s.isCitation).toList();
+      final citations = segments!.where((s) => s.isCitation).toList();
       check(citations.length).equals(2);
       check(citations[0].citation!.sourceIds).deepEquals([1]);
       check(citations[1].citation!.sourceIds).deepEquals([2]);
@@ -127,31 +133,26 @@ void main() {
 
   group('CitationParser.extractSourceIds', () {
     test('no citations returns empty list', () {
-      check(CitationParser.extractSourceIds('hello'))
-          .deepEquals(<int>[]);
+      check(CitationParser.extractSourceIds('hello')).deepEquals(<int>[]);
     });
 
     test('returns sorted unique IDs', () {
-      final ids =
-          CitationParser.extractSourceIds('a[3] b[1] c[2,1]');
+      final ids = CitationParser.extractSourceIds('a[3] b[1] c[2,1]');
       check(ids).deepEquals([1, 2, 3]);
     });
 
     test('empty string returns empty list', () {
-      check(CitationParser.extractSourceIds(''))
-          .deepEquals(<int>[]);
+      check(CitationParser.extractSourceIds('')).deepEquals(<int>[]);
     });
 
     test('single citation returns its ID', () {
-      check(CitationParser.extractSourceIds('text[5]'))
-          .deepEquals([5]);
+      check(CitationParser.extractSourceIds('text[5]')).deepEquals([5]);
     });
   });
 
   group('Citation', () {
     test('zeroBasedIndices converts 1-based to 0-based', () {
-      const citation =
-          Citation(sourceIds: [1, 2, 3], raw: '[1,2,3]');
+      const citation = Citation(sourceIds: [1, 2, 3], raw: '[1,2,3]');
       check(citation.zeroBasedIndices).deepEquals([0, 1, 2]);
     });
 

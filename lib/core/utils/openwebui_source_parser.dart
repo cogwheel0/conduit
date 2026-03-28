@@ -77,6 +77,7 @@ List<ChatSourceReference> parseOpenWebUISourceList(dynamic raw) {
           source: Map<String, dynamic>.from(baseSource),
         ),
       );
+      final isFirstOccurrence = !accumulator.hasMergedData;
 
       accumulator.explicitId ??= idCandidate?.toString();
       accumulator.explicitType ??= _firstNonEmpty([
@@ -90,7 +91,11 @@ List<ChatSourceReference> parseOpenWebUISourceList(dynamic raw) {
         metadataMap['title'],
       ])?.toString();
       if (metadataName != null && metadataName.isNotEmpty) {
-        accumulator.source['name'] = metadataName;
+        if (isFirstOccurrence) {
+          accumulator.source['name'] = metadataName;
+        } else {
+          accumulator.source['name'] ??= metadataName;
+        }
         accumulator.source['title'] ??= metadataName;
       }
 
@@ -99,14 +104,22 @@ List<ChatSourceReference> parseOpenWebUISourceList(dynamic raw) {
         accumulator.source['name'] ??= idCandidate;
       }
 
-      final metadataUrl = _firstNonEmpty([
+      final preferredUrl = _firstUrl([
+        accumulator.source['url'],
+        baseSource['url'],
         metadataMap['url'],
         metadataMap['link'],
-        metadataMap['source'],
-        accumulator.source['url'],
-      ])?.toString();
-      if (_looksLikeUrl(metadataUrl)) {
-        accumulator.source['url'] = metadataUrl;
+        _looksLikeUrl(idCandidate) ? idCandidate : null,
+      ]);
+      if (preferredUrl != null) {
+        if (isFirstOccurrence || accumulator.source['url'] == null) {
+          accumulator.source['url'] = preferredUrl;
+        }
+      } else {
+        final fallbackUrl = _firstUrl([metadataMap['source']]);
+        if (fallbackUrl != null) {
+          accumulator.source['url'] ??= fallbackUrl;
+        }
       }
 
       final snippet = _extractSnippet(document);
@@ -121,6 +134,8 @@ List<ChatSourceReference> parseOpenWebUISourceList(dynamic raw) {
       if (distance != null) {
         accumulator.distances.add(distance);
       }
+
+      accumulator.hasMergedData = true;
     }
   }
 
@@ -205,6 +220,16 @@ bool _looksLikeUrl(String? value) {
   return value.startsWith('http://') || value.startsWith('https://');
 }
 
+String? _firstUrl(Iterable<dynamic> values) {
+  for (final value in values) {
+    final url = value?.toString();
+    if (_looksLikeUrl(url)) {
+      return url;
+    }
+  }
+  return null;
+}
+
 String? _extractSnippet(dynamic document) {
   if (document == null) {
     return null;
@@ -225,4 +250,5 @@ class _CitationAccumulator {
   final List<dynamic> distances = [];
   String? explicitId;
   String? explicitType;
+  bool hasMergedData = false;
 }

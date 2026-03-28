@@ -3,6 +3,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../core/models/chat_message.dart';
 import '../../../../shared/theme/theme_extensions.dart';
+import '../../../../shared/widgets/markdown/source_reference_helper.dart';
 
 /// OpenWebUI-style sources component with compact button and expandable list
 class OpenWebUISourcesWidget extends StatefulWidget {
@@ -32,21 +33,8 @@ class _OpenWebUISourcesWidgetState extends State<OpenWebUISourcesWidget> {
     // debugPrint('OpenWebUI Sources: ${widget.sources.length} sources');
 
     final theme = context.conduitTheme;
-    final urlSources = widget.sources.where((s) {
-      // Check multiple possible URL fields
-      String? url = s.url;
-      if (url == null || url.isEmpty) {
-        if (s.id != null && s.id!.startsWith('http')) {
-          url = s.id;
-        } else if (s.title != null && s.title!.startsWith('http')) {
-          url = s.title;
-        } else if (s.metadata != null) {
-          url =
-              s.metadata!['url']?.toString() ??
-              s.metadata!['source']?.toString();
-        }
-      }
-      return url != null && url.isNotEmpty && url.startsWith('http');
+    final urlSources = widget.sources.where((source) {
+      return SourceReferenceHelper.getSourceUrl(source) != null;
     }).toList();
 
     return Column(
@@ -122,7 +110,7 @@ class _OpenWebUISourcesWidgetState extends State<OpenWebUISourcesWidget> {
                                     child: ClipRRect(
                                       borderRadius: BorderRadius.circular(7),
                                       child: Image.network(
-                                        'https://www.google.com/s2/favicons?sz=32&domain=${_extractDomain(_getSourceUrl(urlSources[i])!)}',
+                                        'https://www.google.com/s2/favicons?sz=32&domain=${SourceReferenceHelper.extractDomain(SourceReferenceHelper.getSourceUrl(urlSources[i])!)}',
                                         width: 14,
                                         height: 14,
                                         errorBuilder:
@@ -190,23 +178,9 @@ class _OpenWebUISourcesWidgetState extends State<OpenWebUISourcesWidget> {
   ) {
     final theme = context.conduitTheme;
 
-    // Get URL using helper method
-    final url = _getSourceUrl(source);
-    final isUrl = url != null && url.isNotEmpty && url.startsWith('http');
-
-    // Debug: debugPrint('Building source item $index: $displayText');
-
-    // Determine display text - for URL sources, show just the URL
-    String displayText;
-    if (isUrl) {
-      displayText = url;
-    } else if (source.title != null && source.title!.isNotEmpty) {
-      displayText = source.title!;
-    } else if (source.id != null && source.id!.isNotEmpty) {
-      displayText = source.id!;
-    } else {
-      displayText = 'Source $index';
-    }
+    final url = SourceReferenceHelper.getSourceUrl(source);
+    final isUrl = url != null;
+    final displayText = SourceReferenceHelper.getSourceLabel(source, index - 1);
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
@@ -249,7 +223,7 @@ class _OpenWebUISourcesWidgetState extends State<OpenWebUISourcesWidget> {
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(7),
                   child: Image.network(
-                    'https://www.google.com/s2/favicons?sz=32&domain=${_extractDomain(url)}',
+                    'https://www.google.com/s2/favicons?sz=32&domain=${SourceReferenceHelper.extractDomain(url)}',
                     width: 14,
                     height: 14,
                     errorBuilder: (context, error, stackTrace) {
@@ -312,37 +286,6 @@ class _OpenWebUISourcesWidgetState extends State<OpenWebUISourcesWidget> {
       }
     } catch (e) {
       // Handle error silently
-    }
-  }
-
-  String? _getSourceUrl(ChatSourceReference source) {
-    String? url = source.url;
-    if (url == null || url.isEmpty) {
-      if (source.id != null && source.id!.startsWith('http')) {
-        url = source.id;
-      } else if (source.title != null && source.title!.startsWith('http')) {
-        url = source.title;
-      } else if (source.metadata != null) {
-        // Check multiple possible metadata keys for URL
-        url =
-            source.metadata!['source']?.toString() ??
-            source.metadata!['url']?.toString() ??
-            source.metadata!['link']?.toString();
-      }
-    }
-    return url;
-  }
-
-  String _extractDomain(String url) {
-    try {
-      final uri = Uri.parse(url);
-      String domain = uri.host;
-      if (domain.startsWith('www.')) {
-        domain = domain.substring(4);
-      }
-      return domain;
-    } catch (e) {
-      return url;
     }
   }
 }

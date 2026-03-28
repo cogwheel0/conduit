@@ -89,6 +89,7 @@ void main() {
     String content, {
     bool isStreaming = false,
     String? stateScopeId,
+    List<ChatSourceReference> sources = const <ChatSourceReference>[],
   }) {
     return MaterialApp(
       theme: AppTheme.light(TweakcnThemes.t3Chat),
@@ -100,6 +101,7 @@ void main() {
             content: content,
             isStreaming: isStreaming,
             stateScopeId: stateScopeId,
+            sources: sources,
           ),
         ),
       ),
@@ -127,6 +129,46 @@ void main() {
       ),
     );
   }
+
+  testWidgets(
+    'renders loose list item paragraphs inline like the web renderer',
+    (tester) async {
+      const content = '- First paragraph.\n\n  Second paragraph.';
+
+      await tester.pumpWidget(buildHarness(content));
+
+      final row = tester.widget<Row>(
+        find.ancestor(of: find.text('•'), matching: find.byType(Row)),
+      );
+      final expanded = row.children.last as Expanded;
+      final textWidget = expanded.child as Text;
+
+      expect(
+        textWidget.textSpan?.toPlainText(),
+        'First paragraph. Second paragraph.',
+      );
+    },
+  );
+
+  testWidgets(
+    'inline citation badges prefer normalized labels and use compact text',
+    (tester) async {
+      const sources = <ChatSourceReference>[
+        ChatSourceReference(
+          title: 'crypto.com',
+          url: 'https://vertexaisearch.cloud.google.com/result',
+        ),
+      ];
+
+      await tester.pumpWidget(buildHarness('See [1]', sources: sources));
+
+      expect(find.text('crypto.com'), findsOneWidget);
+      expect(find.textContaining('vertexaisearch'), findsNothing);
+
+      final chipText = tester.widget<Text>(find.text('crypto.com'));
+      expect(chipText.style?.fontSize, 10);
+    },
+  );
 
   testWidgets(
     'renders tool call details through markdown and expands attributes',

@@ -44,11 +44,7 @@ void main() {
 
       test('with top-level fields merged into source', () {
         final result = parseOpenWebUISourceList([
-          {
-            'id': 'top-id',
-            'name': 'Top Name',
-            'url': 'https://top.com',
-          },
+          {'id': 'top-id', 'name': 'Top Name', 'url': 'https://top.com'},
         ]);
 
         check(result).length.equals(1);
@@ -62,10 +58,7 @@ void main() {
           {
             'id': 'top-id',
             'name': 'Top Name',
-            'source': {
-              'id': 'source-id',
-              'name': 'Source Name',
-            },
+            'source': {'id': 'source-id', 'name': 'Source Name'},
           },
         ]);
 
@@ -94,8 +87,12 @@ void main() {
 
       test('different IDs produce separate results', () {
         final result = parseOpenWebUISourceList([
-          {'source': {'id': 'id-1', 'name': 'First'}},
-          {'source': {'id': 'id-2', 'name': 'Second'}},
+          {
+            'source': {'id': 'id-1', 'name': 'First'},
+          },
+          {
+            'source': {'id': 'id-2', 'name': 'Second'},
+          },
         ]);
 
         check(result).length.equals(2);
@@ -130,8 +127,7 @@ void main() {
 
         check(result).length.equals(1);
         check(result.first.metadata).isNotNull();
-        final items =
-            result.first.metadata!['items'] as List<dynamic>;
+        final items = result.first.metadata!['items'] as List<dynamic>;
         check(items.length).equals(2);
       });
 
@@ -139,20 +135,53 @@ void main() {
         final result = parseOpenWebUISourceList([
           {
             'source': {'id': 'u-src'},
-            'metadata': {
-              'url': 'https://meta-url.com/page',
-            },
+            'metadata': {'url': 'https://meta-url.com/page'},
           },
         ]);
 
         check(result).length.equals(1);
         check(result.first.url).equals('https://meta-url.com/page');
       });
+
+      test('metadata source does not clobber canonical source url', () {
+        final result = parseOpenWebUISourceList([
+          {
+            'source': {
+              'id': 'src-1',
+              'name': 'Canonical Source',
+              'url': 'https://crypto.com/article',
+            },
+            'metadata': {
+              'name': 'crypto.com',
+              'source': 'https://vertexaisearch.cloud.google.com/result',
+            },
+          },
+        ]);
+
+        check(result).length.equals(1);
+        check(result.first.title).equals('crypto.com');
+        check(result.first.url).equals('https://crypto.com/article');
+      });
+
+      test('duplicate IDs keep the first metadata label', () {
+        final result = parseOpenWebUISourceList([
+          {
+            'source': {'id': 'shared'},
+            'metadata': {'name': 'crypto.com'},
+          },
+          {
+            'source': {'id': 'shared'},
+            'metadata': {'name': 'vertexaisearch.google.com'},
+          },
+        ]);
+
+        check(result).length.equals(1);
+        check(result.first.title).equals('crypto.com');
+      });
     });
 
     group('generates fallback IDs', () {
-      test('missing source ID gets fallback and result id is null',
-          () {
+      test('missing source ID gets fallback and result id is null', () {
         final result = parseOpenWebUISourceList([
           {
             'source': {'name': 'No ID'},
@@ -166,8 +195,12 @@ void main() {
 
       test('multiple missing IDs get unique fallbacks', () {
         final result = parseOpenWebUISourceList([
-          {'source': {'name': 'A'}},
-          {'source': {'name': 'B'}},
+          {
+            'source': {'name': 'A'},
+          },
+          {
+            'source': {'name': 'B'},
+          },
         ]);
 
         check(result).length.equals(2);
@@ -186,10 +219,8 @@ void main() {
 
         check(result).length.equals(1);
         check(result.first.id).equals('https://example.com/article');
-        check(result.first.url)
-            .equals('https://example.com/article');
-        check(result.first.title)
-            .equals('https://example.com/article');
+        check(result.first.url).equals('https://example.com/article');
+        check(result.first.title).equals('https://example.com/article');
       });
     });
 
@@ -203,8 +234,7 @@ void main() {
         ]);
 
         check(result).length.equals(1);
-        check(result.first.snippet)
-            .equals('This is the snippet text.');
+        check(result.first.snippet).equals('This is the snippet text.');
       });
 
       test('empty document list yields null snippet', () {
@@ -241,8 +271,7 @@ void main() {
 
         check(result).length.equals(1);
         check(result.first.snippet).equals('first');
-        final docs =
-            result.first.metadata!['documents'] as List<dynamic>;
+        final docs = result.first.metadata!['documents'] as List<dynamic>;
         check(docs).length.equals(2);
       });
     });
@@ -260,10 +289,7 @@ void main() {
 
       test('type from top-level entry', () {
         final result = parseOpenWebUISourceList([
-          {
-            'id': 'typed',
-            'type': 'collection',
-          },
+          {'id': 'typed', 'type': 'collection'},
         ]);
 
         check(result.first.type).equals('collection');
