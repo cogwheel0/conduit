@@ -86,15 +86,15 @@ class ToggleTile extends StatelessWidget {
             IgnorePointer(
               child: Platform.isIOS
                   ? CupertinoSwitch(
-                      value: selected,
-                      onChanged: (_) {},
-                      activeTrackColor: theme.buttonPrimary,
-                    )
+                value: selected,
+                onChanged: (_) {},
+                activeTrackColor: theme.buttonPrimary,
+              )
                   : Switch(
-                      value: selected,
-                      onChanged: (_) {},
-                      activeThumbColor: theme.buttonPrimary,
-                    ),
+                value: selected,
+                onChanged: (_) {},
+                activeThumbColor: theme.buttonPrimary,
+              ),
             ),
           ],
         ),
@@ -122,12 +122,14 @@ class ComposerOverflowSheet extends ConsumerStatefulWidget {
     this.onImageAttachment,
     this.onCameraCapture,
     this.onWebAttachment,
+    this.onKnowledgeTool,
   });
 
   final VoidCallback? onFileAttachment;
   final VoidCallback? onImageAttachment;
   final VoidCallback? onCameraCapture;
   final VoidCallback? onWebAttachment;
+  final VoidCallback? onKnowledgeTool;
 
   @override
   ConsumerState<ComposerOverflowSheet> createState() =>
@@ -148,9 +150,9 @@ class _ComposerOverflowSheetState
         onTap: widget.onFileAttachment == null
             ? null
             : () {
-                HapticFeedback.lightImpact();
-                widget.onFileAttachment!();
-              },
+          HapticFeedback.lightImpact();
+          widget.onFileAttachment!();
+        },
       ),
       _buildAction(
         icon: Platform.isIOS ? CupertinoIcons.photo : Icons.image,
@@ -158,9 +160,9 @@ class _ComposerOverflowSheetState
         onTap: widget.onImageAttachment == null
             ? null
             : () {
-                HapticFeedback.lightImpact();
-                widget.onImageAttachment!();
-              },
+          HapticFeedback.lightImpact();
+          widget.onImageAttachment!();
+        },
       ),
       _buildAction(
         icon: Platform.isIOS ? CupertinoIcons.camera : Icons.camera_alt,
@@ -168,9 +170,9 @@ class _ComposerOverflowSheetState
         onTap: widget.onCameraCapture == null
             ? null
             : () {
-                HapticFeedback.lightImpact();
-                widget.onCameraCapture!();
-              },
+          HapticFeedback.lightImpact();
+          widget.onCameraCapture!();
+        },
       ),
       _buildAction(
         icon: Icons.public,
@@ -178,9 +180,19 @@ class _ComposerOverflowSheetState
         onTap: widget.onWebAttachment == null
             ? null
             : () {
-                HapticFeedback.lightImpact();
-                widget.onWebAttachment!();
-              },
+          HapticFeedback.lightImpact();
+          widget.onWebAttachment!();
+        },
+      ),
+      _buildAction(
+        icon: Icons.school_outlined,
+        label: 'Knowledge',
+        onTap: widget.onKnowledgeTool == null
+            ? null
+            : () {
+          HapticFeedback.lightImpact();
+          widget.onKnowledgeTool?.call();
+        },
       ),
     ];
 
@@ -387,9 +399,9 @@ class _ComposerOverflowSheetState
         onTap: onTap == null
             ? null
             : () {
-                Navigator.of(context).pop();
-                Future.microtask(onTap);
-              },
+          Navigator.of(context).pop();
+          Future.microtask(onTap);
+        },
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -401,7 +413,7 @@ class _ComposerOverflowSheetState
                     ? iconColor.withValues(alpha: 0.1)
                     : theme.surfaceContainer.withValues(alpha: 0.60),
                 borderRadius:
-                    BorderRadius.circular(AppBorderRadius.small),
+                BorderRadius.circular(AppBorderRadius.small),
                 border: Border.all(
                   color: enabled
                       ? iconColor.withValues(alpha: 0.2)
@@ -536,17 +548,17 @@ class _ComposerOverflowSheetState
       alignment: Alignment.center,
       child: iconUrl != null && iconUrl.isNotEmpty
           ? ClipRRect(
-              borderRadius: BorderRadius.circular(AppBorderRadius.small),
-              child: Image.network(
-                iconUrl,
-                width: 40,
-                height: 40,
-                fit: BoxFit.cover,
-                color: iconUrl.endsWith('.svg') ? color : null,
-                colorBlendMode: BlendMode.srcIn,
-                errorBuilder: (_, _, _) => fallback,
-              ),
-            )
+        borderRadius: BorderRadius.circular(AppBorderRadius.small),
+        child: Image.network(
+          iconUrl,
+          width: 40,
+          height: 40,
+          fit: BoxFit.cover,
+          color: iconUrl.endsWith('.svg') ? color : null,
+          colorBlendMode: BlendMode.srcIn,
+          errorBuilder: (_, _, _) => fallback,
+        ),
+      )
           : fallback,
     );
   }

@@ -343,6 +343,30 @@ class ApiService {
     }
   }
 
+  Future<Map<String, dynamic>> deleteRagCollection(String name) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) {
+      throw Exception('Collection name cannot be empty');
+    }
+
+    final resp = await _memoryGatewayDio.post(
+      '/rag/collections/delete',
+      data: {'name': trimmed},
+    );
+
+    final status = resp.statusCode ?? 0;
+    if (status < 200 || status >= 300) {
+      throw Exception('Failed to delete RAG collection: ${resp.data}');
+    }
+
+    final data = resp.data;
+    if (data is Map<String, dynamic>) {
+      return data;
+    }
+
+    throw Exception('Invalid delete collection response from memory gateway');
+  }
+
   Future<void> addTextToRagCollection({
     required String text,
     required String collection,
@@ -373,6 +397,38 @@ class ApiService {
     if (status < 200 || status >= 300) {
       throw Exception('Failed to add text to RAG collection: ${resp.data}');
     }
+  }
+
+  Future<Map<String, dynamic>> uploadDocumentToRagCollection({
+    required File file,
+    required String collection,
+    String source = 'qonduit_app_upload',
+  }) async {
+
+    final fileName = file.path.split(Platform.pathSeparator).last;
+
+    final formData = FormData.fromMap({
+      'collection': collection,
+      'source': source,
+      'file': await MultipartFile.fromFile(
+        file.path,
+        filename: fileName,
+      ),
+    });
+
+    final resp = await _memoryGatewayDio.post(
+      '/rag/upload',
+      data: formData,
+      options: Options(
+        contentType: 'multipart/form-data',
+      ),
+    );
+
+    if (resp.statusCode != 200) {
+      throw Exception('Upload failed: ${resp.data}');
+    }
+
+    return Map<String, dynamic>.from(resp.data);
   }
 
   void updateAuthToken(String? token) {

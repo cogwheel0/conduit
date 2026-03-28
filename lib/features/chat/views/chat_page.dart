@@ -10,7 +10,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import 'dart:io' show Platform;
+import 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
 
 import '../../../shared/widgets/responsive_drawer_layout.dart';
@@ -46,6 +46,7 @@ import '../../../shared/widgets/qonduit_components.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
 import 'package:flutter/gestures.dart' show DragStartBehavior;
 import 'package:qonduit/features/rag/providers/rag_collections_providers.dart';
+import 'package:file_picker/file_picker.dart';
 
 class ChatPage extends ConsumerStatefulWidget {
   const ChatPage({super.key});
@@ -146,7 +147,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
       // Generate title from first user message
       final firstUserMsg = messages.firstWhere(
-        (m) => m.role == 'user',
+            (m) => m.role == 'user',
         orElse: () => messages.first,
       );
       final title = firstUserMsg.content.length > 50
@@ -172,11 +173,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       ref
           .read(conversationsProvider.notifier)
           .upsertConversation(
-            updatedConversation.copyWith(
-              messages: const [],
-              updatedAt: DateTime.now(),
-            ),
-          );
+        updatedConversation.copyWith(
+          messages: const [],
+          updatedAt: DateTime.now(),
+        ),
+      );
       ref.read(temporaryChatEnabledProvider.notifier).set(false);
       refreshConversationsCache(ref);
 
@@ -241,7 +242,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       if (conversationsAsync.hasValue && conversationsAsync.value!.isNotEmpty) {
         // Find and load the welcome conversation
         final welcomeConv = conversationsAsync.value!.firstWhere(
-          (conv) => conv.id == 'demo-conv-1',
+              (conv) => conv.id == 'demo-conv-1',
           orElse: () => conversationsAsync.value!.first,
         );
 
@@ -360,9 +361,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       final uploadedFileIds = attachedFiles
           .where(
             (file) =>
-                file.status == FileUploadStatus.completed &&
-                file.fileId != null,
-          )
+        file.status == FileUploadStatus.completed &&
+            file.fileId != null,
+      )
           .map((file) => file.fileId!)
           .toList();
 
@@ -374,11 +375,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       await ref
           .read(taskQueueProvider.notifier)
           .enqueueSendText(
-            conversationId: activeConv?.id,
-            text: text,
-            attachments: uploadedFileIds.isNotEmpty ? uploadedFileIds : null,
-            toolIds: toolIds.isNotEmpty ? toolIds : null,
-          );
+        conversationId: activeConv?.id,
+        text: text,
+        attachments: uploadedFileIds.isNotEmpty ? uploadedFileIds : null,
+        toolIds: toolIds.isNotEmpty ? toolIds : null,
+      );
 
       // Clear attachments after successful send
       ref.read(attachedFilesProvider.notifier).clearAll();
@@ -433,11 +434,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           await ref
               .read(taskQueueProvider.notifier)
               .enqueueUploadMedia(
-                conversationId: activeConv?.id,
-                filePath: attachment.file.path,
-                fileName: attachment.displayName,
-                fileSize: await attachment.file.length(),
-              );
+            conversationId: activeConv?.id,
+            filePath: attachment.file.path,
+            fileName: attachment.displayName,
+            fileSize: await attachment.file.length(),
+          );
         } catch (e) {
           if (!mounted) return;
           DebugLogger.log('Enqueue upload failed: $e', scope: 'chat/page');
@@ -509,11 +510,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         await ref
             .read(taskQueueProvider.notifier)
             .enqueueUploadMedia(
-              conversationId: activeConv?.id,
-              filePath: attachment.file.path,
-              fileName: attachment.displayName,
-              fileSize: imageSize,
-            );
+          conversationId: activeConv?.id,
+          filePath: attachment.file.path,
+          fileName: attachment.displayName,
+          fileSize: imageSize,
+        );
       } catch (e) {
         DebugLogger.log('Enqueue image upload failed: $e', scope: 'chat/page');
       }
@@ -525,8 +526,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   /// Handles images/files pasted from clipboard into the chat input.
   Future<void> _handlePastedAttachments(
-    List<LocalAttachment> attachments,
-  ) async {
+      List<LocalAttachment> attachments,
+      ) async {
     if (attachments.isEmpty) return;
 
     DebugLogger.log(
@@ -549,11 +550,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         await ref
             .read(taskQueueProvider.notifier)
             .enqueueUploadMedia(
-              conversationId: activeConv?.id,
-              filePath: attachment.file.path,
-              fileName: attachment.displayName,
-              fileSize: fileSize,
-            );
+          conversationId: activeConv?.id,
+          filePath: attachment.file.path,
+          fileName: attachment.displayName,
+          fileSize: fileSize,
+        );
       } catch (e) {
         DebugLogger.log('Enqueue pasted upload failed: $e', scope: 'chat/page');
       }
@@ -609,9 +610,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                       placeholder: 'https://example.com/article',
                       decoration: innerContext.qonduitInputStyles
                           .standard(
-                            hint: 'https://example.com/article',
-                            error: errorText,
-                          )
+                        hint: 'https://example.com/article',
+                        error: errorText,
+                      )
                           .copyWith(labelText: 'Webpage URL'),
                       onChanged: (value) {
                         url = value;
@@ -628,8 +629,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   onPressed: submitting
                       ? null
                       : () {
-                          Navigator.of(dialogContext).pop();
-                        },
+                    Navigator.of(dialogContext).pop();
+                  },
                   label: l10n.cancel,
                   style: AdaptiveButtonStyle.plain,
                 ),
@@ -638,85 +639,85 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   onPressed: submitting
                       ? null
                       : () async {
-                          final parsed = Uri.tryParse(url.trim());
-                          if (parsed == null ||
-                              !(parsed.isScheme('http') ||
-                                  parsed.isScheme('https'))) {
-                            setError('Enter a valid http(s) URL.');
-                            return;
-                          }
-                          setState(() {
-                            submitting = true;
-                            errorText = null;
-                          });
-                          try {
-                            final trimmedUrl = url.trim();
-                            final isYoutube = _isYoutubeUrl(trimmedUrl);
+                    final parsed = Uri.tryParse(url.trim());
+                    if (parsed == null ||
+                        !(parsed.isScheme('http') ||
+                            parsed.isScheme('https'))) {
+                      setError('Enter a valid http(s) URL.');
+                      return;
+                    }
+                    setState(() {
+                      submitting = true;
+                      errorText = null;
+                    });
+                    try {
+                      final trimmedUrl = url.trim();
+                      final isYoutube = _isYoutubeUrl(trimmedUrl);
 
-                            // Use appropriate API based on URL type
-                            final result = isYoutube
-                                ? await api.processYoutube(url: trimmedUrl)
-                                : await api.processWebpage(url: trimmedUrl);
+                      // Use appropriate API based on URL type
+                      final result = isYoutube
+                          ? await api.processYoutube(url: trimmedUrl)
+                          : await api.processWebpage(url: trimmedUrl);
 
-                            final file = (result?['file'] as Map?)
-                                ?.cast<String, dynamic>();
-                            final fileData = (file?['data'] as Map?)
-                                ?.cast<String, dynamic>();
-                            final content =
-                                fileData?['content']?.toString() ?? '';
-                            if (content.isEmpty) {
-                              setError(
-                                isYoutube
-                                    ? 'Could not fetch YouTube transcript.'
-                                    : 'The page had no readable content.',
-                              );
-                              return;
-                            }
-                            final meta = (file?['meta'] as Map?)
-                                ?.cast<String, dynamic>();
-                            final name =
-                                meta?['name']?.toString() ?? parsed.host;
-                            final collectionName = result?['collection_name']
-                                ?.toString();
+                      final file = (result?['file'] as Map?)
+                          ?.cast<String, dynamic>();
+                      final fileData = (file?['data'] as Map?)
+                          ?.cast<String, dynamic>();
+                      final content =
+                          fileData?['content']?.toString() ?? '';
+                      if (content.isEmpty) {
+                        setError(
+                          isYoutube
+                              ? 'Could not fetch YouTube transcript.'
+                              : 'The page had no readable content.',
+                        );
+                        return;
+                      }
+                      final meta = (file?['meta'] as Map?)
+                          ?.cast<String, dynamic>();
+                      final name =
+                          meta?['name']?.toString() ?? parsed.host;
+                      final collectionName = result?['collection_name']
+                          ?.toString();
 
-                            // Add as appropriate type
-                            final notifier = ref.read(
-                              contextAttachmentsProvider.notifier,
-                            );
-                            if (isYoutube) {
-                              notifier.addYoutube(
-                                displayName: name,
-                                content: content,
-                                url: trimmedUrl,
-                                collectionName: collectionName,
-                              );
-                            } else {
-                              notifier.addWeb(
-                                displayName: name,
-                                content: content,
-                                url: trimmedUrl,
-                                collectionName: collectionName,
-                              );
-                            }
+                      // Add as appropriate type
+                      final notifier = ref.read(
+                        contextAttachmentsProvider.notifier,
+                      );
+                      if (isYoutube) {
+                        notifier.addYoutube(
+                          displayName: name,
+                          content: content,
+                          url: trimmedUrl,
+                          collectionName: collectionName,
+                        );
+                      } else {
+                        notifier.addWeb(
+                          displayName: name,
+                          content: content,
+                          url: trimmedUrl,
+                          collectionName: collectionName,
+                        );
+                      }
 
-                            if (!mounted || !dialogContext.mounted) {
-                              return;
-                            }
-                            Navigator.of(dialogContext).pop();
-                          } catch (_) {
-                            setError('Failed to attach content.');
-                          } finally {
-                            if (mounted) {
-                              setState(() => submitting = false);
-                            }
-                          }
-                        },
+                      if (!mounted || !dialogContext.mounted) {
+                        return;
+                      }
+                      Navigator.of(dialogContext).pop();
+                    } catch (_) {
+                      setError('Failed to attach content.');
+                    } finally {
+                      if (mounted) {
+                        setState(() => submitting = false);
+                      }
+                    }
+                  },
                   child: submitting
                       ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
                       : const Text('Attach'),
                 ),
               ],
@@ -926,19 +927,19 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       _endPinToTopInFlight = true;
       _scrollController
           .animateTo(
-            targetOffset,
-            duration: const Duration(milliseconds: 250),
-            curve: Curves.easeOut,
-          )
+        targetOffset,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOut,
+      )
           .whenComplete(() {
-            _endPinToTopInFlight = false;
-            if (mounted) {
-              setState(() {
-                _wantsPinToTop = false;
-                _pinnedStreamingId = null;
-              });
-            }
+        _endPinToTopInFlight = false;
+        if (mounted) {
+          setState(() {
+            _wantsPinToTop = false;
+            _pinnedStreamingId = null;
           });
+        }
+      });
     }
   }
 
@@ -979,14 +980,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   /// Builds a styled container with high-contrast background for app bar
   /// widgets, matching the floating chat input styling.
   Widget _buildScrollToBottomButton(
-    BuildContext context, {
-    required bool isResuming,
-  }) {
+      BuildContext context, {
+        required bool isResuming,
+      }) {
     final icon = isResuming
         ? (Platform.isIOS ? CupertinoIcons.play_fill : Icons.play_arrow)
         : (Platform.isIOS
-              ? CupertinoIcons.chevron_down
-              : Icons.keyboard_arrow_down);
+        ? CupertinoIcons.chevron_down
+        : Icons.keyboard_arrow_down);
 
     if (!kIsWeb && Platform.isIOS) {
       return AdaptiveButton.child(
@@ -1124,8 +1125,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   decoration: BoxDecoration(
                     color: isUser
                         ? context.qonduitTheme.buttonPrimary.withValues(
-                            alpha: 0.15,
-                          )
+                      alpha: 0.15,
+                    )
                         : context.qonduitTheme.cardBackground,
                     borderRadius: BorderRadius.circular(
                       AppBorderRadius.messageBubble,
@@ -1190,11 +1191,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   /// System messages are skipped, matching the original per-item scan
   /// behavior.
   List<({bool hasUserBelow, bool hasAssistantBelow})> _computeBubbleAdjacency(
-    List<ChatMessage> messages,
-  ) {
+      List<ChatMessage> messages,
+      ) {
     final result = List.filled(messages.length, (
-      hasUserBelow: false,
-      hasAssistantBelow: false,
+    hasUserBelow: false,
+    hasAssistantBelow: false,
     ));
 
     // Track the role of the nearest user/assistant message seen
@@ -1204,8 +1205,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     for (var i = messages.length - 1; i >= 0; i--) {
       // Record what's below *this* index before updating.
       result[i] = (
-        hasUserBelow: nextRelevantRole == 'user',
-        hasAssistantBelow: nextRelevantRole == 'assistant',
+      hasUserBelow: nextRelevantRole == 'user',
+      hasAssistantBelow: nextRelevantRole == 'assistant',
       );
 
       // Update the tracked role if this message is user or assistant.
@@ -1262,7 +1263,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
     // Add top padding for floating app bar, bottom padding for floating input.
     final topPadding =
-        MediaQuery.of(context).padding.top + kTextTabBarHeight + 72 + Spacing.md;
+        MediaQuery.of(context).padding.top + kTextTabBarHeight + Spacing.md;
     final bottomPadding = Spacing.lg + _inputHeight;
 
     // Check if any message is currently streaming
@@ -1374,7 +1375,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                     try {
                       // Prefer exact ID match; fall back to exact name match
                       final match = models.firstWhere(
-                        (m) => m.id == rawModel || m.name == rawModel,
+                            (m) => m.id == rawModel || m.name == rawModel,
                       );
                       matchedModel = match;
                       displayModelName = _formatModelDisplayName(match.name);
@@ -1416,9 +1417,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   // Scrollable.ensureVisible to target.
                   final isPinTarget =
                       _wantsPinToTop &&
-                      message.role == 'user' &&
-                      index == messages.length - 2 &&
-                      messages.last.isStreaming;
+                          message.role == 'user' &&
+                          index == messages.length - 2 &&
+                          messages.last.isStreaming;
                   messageWidget = KeyedSubtree(
                     key: isPinTarget
                         ? _pinnedUserMessageKey
@@ -1514,8 +1515,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
       // Mark previous assistant as archived for UI; keep it for server history
       ref.read(chatMessagesProvider.notifier).updateLastMessageWithFunction((
-        m,
-      ) {
+          m,
+          ) {
         final meta = Map<String, dynamic>.from(m.metadata ?? const {});
         meta['archivedVariant'] = true;
         return m.copyWith(metadata: meta, isStreaming: false);
@@ -1695,6 +1696,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 },
               ),
               ListTile(
+                leading: const Icon(Icons.upload_file_outlined),
+                title: const Text('Upload document'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  _promptUploadDocumentToSelectedRagCollection();
+                },
+              ),
+              ListTile(
                 leading: const Icon(Icons.refresh),
                 title: const Text('Refresh collections'),
                 onTap: () {
@@ -1830,13 +1839,266 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
   }
 
+  Future<void> _promptUploadDocumentToSelectedRagCollection() async {
+    final selectedCollection = ref.read(selectedRagCollectionProvider);
+
+    if (selectedCollection == null || selectedCollection.trim().isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Select a collection first')),
+      );
+      return;
+    }
+
+    final result = await FilePicker.platform.pickFiles(
+      allowMultiple: false,
+      withData: false,
+      withReadStream: false,
+      type: FileType.custom,
+      allowedExtensions: const [
+        'pdf',
+        'docx',
+        'xlsx',
+        'xls',
+        'csv',
+        'txt',
+        'md',
+        'json',
+        'cpp',
+        'c',
+        'h',
+        'hpp',
+        'py',
+        'java',
+        'kt',
+        'kts',
+        'xml',
+        'html',
+        'css',
+        'js',
+        'ts',
+        'sql',
+        'yaml',
+        'yml',
+        'toml',
+        'ini',
+        'sh',
+        'go',
+        'rs',
+        'swift',
+        'php',
+        'rb',
+        'pl',
+        'lua',
+        'vhdl',
+        'vhd',
+        'v',
+        'dart',
+        'cs',
+        'scala',
+        'groovy',
+        'm',
+        'mm',
+        'jl',
+        'zig',
+        'nim',
+        'gradle',
+        'cmake',
+        'make',
+        'mk',
+        'bazel',
+        'bzl',
+        'env',
+        'properties',
+        'conf',
+        'cfg',
+        'rst',
+        'adoc',
+        'tex',
+        'tsv',
+        'log',
+        'dat',
+      ],
+    );
+
+    if (result == null || result.files.isEmpty) {
+      return;
+    }
+
+    final picked = result.files.first;
+    final filePath = picked.path;
+    if (filePath == null || filePath.trim().isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not access selected file')),
+      );
+      return;
+    }
+
+    try {
+      final api = ref.read(apiServiceProvider);
+      if (api == null) return;
+
+      final uploadResult = await api.uploadDocumentToRagCollection(
+        file: File(filePath),
+        collection: selectedCollection,
+      );
+
+      ref.invalidate(ragCollectionsProvider);
+      ref
+          .read(selectedRagCollectionProvider.notifier)
+          .setCollection(selectedCollection);
+
+      if (!mounted) return;
+      final docName =
+          uploadResult['document_name']?.toString() ?? picked.name;
+      final chunksAdded = uploadResult['chunks_added']?.toString() ?? '?';
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Uploaded "$docName" to $selectedCollection ($chunksAdded chunks)',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to upload document: $e')),
+      );
+    }
+  }
+
+  Future<void> _showKnowledgeToolSheet() async {
+    final hadFocus = ref.read(composerHasFocusProvider);
+    try {
+      ref.read(composerAutofocusEnabledProvider.notifier).set(false);
+      FocusManager.instance.primaryFocus?.unfocus();
+      SystemChannels.textInput.invokeMethod('TextInput.hide');
+    } catch (_) {}
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => KnowledgeToolSheet(
+        onSelectCollection: _promptSelectRagCollection,
+        onCreateCollection: _promptCreateRagCollection,
+        onAddText: _promptAddTextToSelectedRagCollection,
+        onUploadDocument: _promptUploadDocumentToSelectedRagCollection,
+        onDeleteCollection: _promptDeleteRagCollection,
+      ),
+    ).whenComplete(() {
+      if (!mounted) return;
+      if (hadFocus) {
+        try {
+          ref.read(composerAutofocusEnabledProvider.notifier).set(true);
+        } catch (_) {}
+        final cur = ref.read(inputFocusTriggerProvider);
+        ref.read(inputFocusTriggerProvider.notifier).set(cur + 1);
+      }
+    });
+  }
+
+  Future<void> _promptSelectRagCollection() async {
+    final collectionsValue = ref.read(ragCollectionsProvider);
+    final collections = collectionsValue.asData?.value ?? <String>[];
+    final currentCollection = ref.read(selectedRagCollectionProvider);
+
+    if (collections.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No collections available')),
+      );
+      return;
+    }
+
+    final selected = await showDialog<String?>(
+      context: context,
+      builder: (dialogContext) {
+        return SimpleDialog(
+          title: const Text('Select collection'),
+          children: [
+            SimpleDialogOption(
+              onPressed: () => Navigator.of(dialogContext).pop(null),
+              child: const Text('No collection'),
+            ),
+            ...collections.map(
+                  (name) => SimpleDialogOption(
+                onPressed: () => Navigator.of(dialogContext).pop(name),
+                child: Row(
+                  children: [
+                    Expanded(child: Text(name)),
+                    if (name == currentCollection)
+                      const Icon(Icons.check, size: 18),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    ref.read(selectedRagCollectionProvider.notifier).setCollection(selected);
+  }
+
+  Future<void> _promptDeleteRagCollection() async {
+    final selectedCollection = ref.read(selectedRagCollectionProvider);
+
+    if (selectedCollection == null || selectedCollection.trim().isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Select a collection first')),
+      );
+      return;
+    }
+
+    final confirmed = await ThemedDialogs.confirm(
+      context,
+      title: 'Delete collection',
+      message:
+      'Delete collection "$selectedCollection"? This will remove its indexed chunks and uploaded files.',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      isDestructive: true,
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      final api = ref.read(apiServiceProvider);
+      if (api == null) return;
+
+      final result = await api.deleteRagCollection(selectedCollection);
+
+      ref.invalidate(ragCollectionsProvider);
+      ref.read(selectedRagCollectionProvider.notifier).setCollection(null);
+
+      if (!mounted) return;
+      final deletedPoints = result['deleted_points']?.toString() ?? '0';
+      final deletedFiles = result['deleted_files']?.toString() ?? '0';
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Deleted "$selectedCollection" ($deletedPoints chunks, $deletedFiles files)',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to delete collection: $e')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context)!;
 
-    final ragCollectionsAsync = ref.watch(ragCollectionsProvider);
-    final selectedRagCollection = ref.watch(selectedRagCollectionProvider);
     // Use select to watch only the selected model to reduce rebuilds
     final selectedModel = ref.watch(
       selectedModelProvider.select((model) => model),
@@ -1892,7 +2154,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     // Whether the messages list can actually scroll (avoids showing button when not needed)
     final canScroll =
         _scrollController.hasClients &&
-        _scrollController.position.maxScrollExtent > 0;
+            _scrollController.position.maxScrollExtent > 0;
     // Use dedicated streaming provider to avoid iterating all messages on rebuild
     final isStreamingAnyMessage = ref.watch(isChatStreamingProvider);
 
@@ -2031,303 +2293,303 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             leadingWidth: 44 + Spacing.inputPadding + Spacing.xs,
             leading: _isSelectionMode
                 ? Padding(
-                    padding: const EdgeInsets.only(left: Spacing.inputPadding),
-                    child: Center(
-                      child: _buildAppBarIconButton(
-                        context: context,
-                        onPressed: _clearSelection,
-                        fallbackIcon: Platform.isIOS
-                            ? CupertinoIcons.xmark
-                            : Icons.close,
-                        sfSymbol: 'xmark',
-                        color: context.qonduitTheme.textPrimary,
-                      ),
-                    ),
-                  )
+              padding: const EdgeInsets.only(left: Spacing.inputPadding),
+              child: Center(
+                child: _buildAppBarIconButton(
+                  context: context,
+                  onPressed: _clearSelection,
+                  fallbackIcon: Platform.isIOS
+                      ? CupertinoIcons.xmark
+                      : Icons.close,
+                  sfSymbol: 'xmark',
+                  color: context.qonduitTheme.textPrimary,
+                ),
+              ),
+            )
                 : Builder(
-                    builder: (ctx) => Padding(
-                      padding: const EdgeInsets.only(
-                        left: Spacing.inputPadding,
-                      ),
-                      child: Center(
-                        child: _buildAppBarIconButton(
-                          context: ctx,
-                          onPressed: () {
-                            final layout = ResponsiveDrawerLayout.of(ctx);
-                            if (layout == null) return;
+              builder: (ctx) => Padding(
+                padding: const EdgeInsets.only(
+                  left: Spacing.inputPadding,
+                ),
+                child: Center(
+                  child: _buildAppBarIconButton(
+                    context: ctx,
+                    onPressed: () {
+                      final layout = ResponsiveDrawerLayout.of(ctx);
+                      if (layout == null) return;
 
-                            final isDrawerOpen = layout.isOpen;
-                            if (!isDrawerOpen) {
-                              try {
-                                ref
-                                    .read(
-                                      composerAutofocusEnabledProvider.notifier,
-                                    )
-                                    .set(false);
-                                FocusManager.instance.primaryFocus?.unfocus();
-                                SystemChannels.textInput.invokeMethod(
-                                  'TextInput.hide',
-                                );
-                              } catch (_) {}
-                            }
-                            layout.toggle();
-                          },
-                          fallbackIcon: Platform.isIOS
-                              ? CupertinoIcons.line_horizontal_3
-                              : Icons.menu,
-                          sfSymbol: 'line.3.horizontal',
-                          color: context.qonduitTheme.textPrimary,
-                        ),
-                      ),
-                    ),
+                      final isDrawerOpen = layout.isOpen;
+                      if (!isDrawerOpen) {
+                        try {
+                          ref
+                              .read(
+                            composerAutofocusEnabledProvider.notifier,
+                          )
+                              .set(false);
+                          FocusManager.instance.primaryFocus?.unfocus();
+                          SystemChannels.textInput.invokeMethod(
+                            'TextInput.hide',
+                          );
+                        } catch (_) {}
+                      }
+                      layout.toggle();
+                    },
+                    fallbackIcon: Platform.isIOS
+                        ? CupertinoIcons.line_horizontal_3
+                        : Icons.menu,
+                    sfSymbol: 'line.3.horizontal',
+                    color: context.qonduitTheme.textPrimary,
                   ),
+                ),
+              ),
+            ),
             title: _isSelectionMode
                 ? _buildAppBarPill(
+              context: context,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: Spacing.md,
+                  vertical: Spacing.sm,
+                ),
+                child: Text(
+                  '${_selectedMessageIds.length} selected',
+                  style: AppTypography.headlineSmallStyle.copyWith(
+                    color: context.qonduitTheme.textPrimary,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            )
+                : LayoutBuilder(
+              builder: (context, constraints) {
+                // Build model selector pill
+                // Show skeleton when loading, actual model selector otherwise
+                final Widget modelPill;
+                if (isLoadingConversation) {
+                  // Show skeleton pill while loading conversation
+                  modelPill = _buildAppBarPill(
                     context: context,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: Spacing.md,
-                        vertical: Spacing.sm,
-                      ),
-                      child: Text(
-                        '${_selectedMessageIds.length} selected',
-                        style: AppTypography.headlineSmallStyle.copyWith(
-                          color: context.qonduitTheme.textPrimary,
-                          fontWeight: FontWeight.w500,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(minHeight: 44),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: Spacing.sm,
+                        ),
+                        child: Center(
+                          widthFactor: 1,
+                          child: QonduitLoading.skeleton(
+                            width: 80,
+                            height: 14,
+                            borderRadius: BorderRadius.circular(
+                              AppBorderRadius.sm,
+                            ),
+                          ),
                         ),
                       ),
                     ),
-                  )
-                : LayoutBuilder(
-                    builder: (context, constraints) {
-                      // Build model selector pill
-                      // Show skeleton when loading, actual model selector otherwise
-                      final Widget modelPill;
-                      if (isLoadingConversation) {
-                        // Show skeleton pill while loading conversation
-                        modelPill = _buildAppBarPill(
-                          context: context,
-                          child: ConstrainedBox(
-                            constraints: const BoxConstraints(minHeight: 44),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: Spacing.sm,
-                              ),
-                              child: Center(
-                                widthFactor: 1,
-                                child: QonduitLoading.skeleton(
-                                  width: 80,
-                                  height: 14,
-                                  borderRadius: BorderRadius.circular(
-                                    AppBorderRadius.sm,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
+                  );
+                } else {
+                  Future<void> openModelSelector() async {
+                    final modelsAsync = ref.read(modelsProvider);
+
+                    if (modelsAsync.isLoading) {
+                      try {
+                        final models = await ref.read(
+                          modelsProvider.future,
                         );
-                      } else {
-                        Future<void> openModelSelector() async {
-                          final modelsAsync = ref.read(modelsProvider);
-
-                          if (modelsAsync.isLoading) {
-                            try {
-                              final models = await ref.read(
-                                modelsProvider.future,
-                              );
-                              if (!mounted) return;
-                              // ignore: use_build_context_synchronously
-                              _showModelDropdown(context, ref, models);
-                            } catch (e) {
-                              DebugLogger.error(
-                                'model-load-failed',
-                                scope: 'chat/model-selector',
-                                error: e,
-                              );
-                            }
-                          } else if (modelsAsync.hasValue) {
-                            _showModelDropdown(
-                              context,
-                              ref,
-                              modelsAsync.value!,
-                            );
-                          } else if (modelsAsync.hasError) {
-                            try {
-                              ref.invalidate(modelsProvider);
-                              final models = await ref.read(
-                                modelsProvider.future,
-                              );
-                              if (!mounted) return;
-                              // ignore: use_build_context_synchronously
-                              _showModelDropdown(context, ref, models);
-                            } catch (e) {
-                              DebugLogger.error(
-                                'model-refresh-failed',
-                                scope: 'chat/model-selector',
-                                error: e,
-                              );
-                            }
-                          }
-                        }
-
-                        final maxPillWidth =
-                            (constraints.maxWidth - Spacing.xxl)
-                                .clamp(140.0, 300.0)
-                                .toDouble();
-
-                        if (PlatformInfo.isIOS26OrHigher()) {
-                          final textPainter = TextPainter(
-                            text: TextSpan(
-                              text: modelLabel,
-                              style: modelTextStyle,
-                            ),
-                            maxLines: 1,
-                            textScaler: MediaQuery.textScalerOf(context),
-                            textDirection: Directionality.of(context),
-                          )..layout(maxWidth: maxPillWidth);
-
-                          final targetPillWidth =
-                              (textPainter.width +
-                                      10 +
-                                      Spacing.xs +
-                                      IconSize.xs +
-                                      Spacing.xs +
-                                      12)
-                                  .clamp(0.0, maxPillWidth)
-                                  .toDouble();
-
-                          modelPill = AdaptiveButton.child(
-                            onPressed: () {
-                              openModelSelector();
-                            },
-                            style: AdaptiveButtonStyle.glass,
-                            size: AdaptiveButtonSize.large,
-                            minSize: Size(targetPillWidth, 44),
-                            useSmoothRectangleBorder: false,
-                            child: Padding(
-                              padding: const EdgeInsets.only(
-                                left: 10,
-                                right: Spacing.xs,
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Flexible(
-                                    child: MiddleEllipsisText(
-                                      modelLabel,
-                                      style: modelTextStyle,
-                                      textAlign: TextAlign.center,
-                                      semanticsLabel: modelLabel,
-                                    ),
-                                  ),
-                                  const SizedBox(width: Spacing.xs),
-                                  Icon(
-                                    CupertinoIcons.chevron_down,
-                                    color: context.qonduitTheme.iconSecondary,
-                                    size: IconSize.small,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        } else {
-                          modelPill = GestureDetector(
-                            onTap: openModelSelector,
-                            child: _buildAppBarPill(
-                              context: context,
-                              child: ConstrainedBox(
-                                constraints: const BoxConstraints(
-                                  minHeight: 44,
-                                ),
-                                child: Padding(
-                                  padding: const EdgeInsets.only(
-                                    left: 12.0,
-                                    right: Spacing.sm,
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      ConstrainedBox(
-                                        constraints: BoxConstraints(
-                                          maxWidth:
-                                              constraints.maxWidth -
-                                              Spacing.xxl,
-                                        ),
-                                        child: MiddleEllipsisText(
-                                          modelLabel,
-                                          style: modelTextStyle,
-                                          textAlign: TextAlign.center,
-                                          semanticsLabel: modelLabel,
-                                        ),
-                                      ),
-                                      const SizedBox(width: Spacing.xs),
-                                      Icon(
-                                        Platform.isIOS
-                                            ? CupertinoIcons.chevron_down
-                                            : Icons.keyboard_arrow_down,
-                                        color:
-                                            context.qonduitTheme.iconSecondary,
-                                        size: IconSize.medium,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          );
-                        }
+                        if (!mounted) return;
+                        // ignore: use_build_context_synchronously
+                        _showModelDropdown(context, ref, models);
+                      } catch (e) {
+                        DebugLogger.error(
+                          'model-load-failed',
+                          scope: 'chat/model-selector',
+                          error: e,
+                        );
                       }
+                    } else if (modelsAsync.hasValue) {
+                      _showModelDropdown(
+                        context,
+                        ref,
+                        modelsAsync.value!,
+                      );
+                    } else if (modelsAsync.hasError) {
+                      try {
+                        ref.invalidate(modelsProvider);
+                        final models = await ref.read(
+                          modelsProvider.future,
+                        );
+                        if (!mounted) return;
+                        // ignore: use_build_context_synchronously
+                        _showModelDropdown(context, ref, models);
+                      } catch (e) {
+                        DebugLogger.error(
+                          'model-refresh-failed',
+                          scope: 'chat/model-selector',
+                          error: e,
+                        );
+                      }
+                    }
+                  }
 
-                      return Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          AnimatedSwitcher(
-                            duration: const Duration(milliseconds: 200),
-                            switchInCurve: Curves.easeOut,
-                            switchOutCurve: Curves.easeIn,
-                            child: KeyedSubtree(
-                              key: ValueKey(
-                                isLoadingConversation
-                                    ? 'model-loading'
-                                    : 'model-$modelLabel',
+                  final maxPillWidth =
+                  (constraints.maxWidth - Spacing.xxl)
+                      .clamp(140.0, 300.0)
+                      .toDouble();
+
+                  if (PlatformInfo.isIOS26OrHigher()) {
+                    final textPainter = TextPainter(
+                      text: TextSpan(
+                        text: modelLabel,
+                        style: modelTextStyle,
+                      ),
+                      maxLines: 1,
+                      textScaler: MediaQuery.textScalerOf(context),
+                      textDirection: Directionality.of(context),
+                    )..layout(maxWidth: maxPillWidth);
+
+                    final targetPillWidth =
+                    (textPainter.width +
+                        10 +
+                        Spacing.xs +
+                        IconSize.xs +
+                        Spacing.xs +
+                        12)
+                        .clamp(0.0, maxPillWidth)
+                        .toDouble();
+
+                    modelPill = AdaptiveButton.child(
+                      onPressed: () {
+                        openModelSelector();
+                      },
+                      style: AdaptiveButtonStyle.glass,
+                      size: AdaptiveButtonSize.large,
+                      minSize: Size(targetPillWidth, 44),
+                      useSmoothRectangleBorder: false,
+                      child: Padding(
+                        padding: const EdgeInsets.only(
+                          left: 10,
+                          right: Spacing.xs,
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Flexible(
+                              child: MiddleEllipsisText(
+                                modelLabel,
+                                style: modelTextStyle,
+                                textAlign: TextAlign.center,
+                                semanticsLabel: modelLabel,
                               ),
-                              child: modelPill,
+                            ),
+                            const SizedBox(width: Spacing.xs),
+                            Icon(
+                              CupertinoIcons.chevron_down,
+                              color: context.qonduitTheme.iconSecondary,
+                              size: IconSize.small,
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  } else {
+                    modelPill = GestureDetector(
+                      onTap: openModelSelector,
+                      child: _buildAppBarPill(
+                        context: context,
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(
+                            minHeight: 44,
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.only(
+                              left: 12.0,
+                              right: Spacing.sm,
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                ConstrainedBox(
+                                  constraints: BoxConstraints(
+                                    maxWidth:
+                                    constraints.maxWidth -
+                                        Spacing.xxl,
+                                  ),
+                                  child: MiddleEllipsisText(
+                                    modelLabel,
+                                    style: modelTextStyle,
+                                    textAlign: TextAlign.center,
+                                    semanticsLabel: modelLabel,
+                                  ),
+                                ),
+                                const SizedBox(width: Spacing.xs),
+                                Icon(
+                                  Platform.isIOS
+                                      ? CupertinoIcons.chevron_down
+                                      : Icons.keyboard_arrow_down,
+                                  color:
+                                  context.qonduitTheme.iconSecondary,
+                                  size: IconSize.medium,
+                                ),
+                              ],
                             ),
                           ),
-                          if (isReviewerMode)
-                            Padding(
-                              padding: const EdgeInsets.only(top: Spacing.xs),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: Spacing.sm,
-                                  vertical: 1.0,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: context.qonduitTheme.success
-                                      .withValues(alpha: 0.1),
-                                  borderRadius: BorderRadius.circular(
-                                    AppBorderRadius.badge,
-                                  ),
-                                  border: Border.all(
-                                    color: context.qonduitTheme.success
-                                        .withValues(alpha: 0.3),
-                                    width: BorderWidth.thin,
-                                  ),
-                                ),
-                                child: Text(
-                                  'REVIEWER MODE',
-                                  style: AppTypography.captionStyle.copyWith(
-                                    color: context.qonduitTheme.success,
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 9,
-                                  ),
-                                ),
-                              ),
+                        ),
+                      ),
+                    );
+                  }
+                }
+
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 200),
+                      switchInCurve: Curves.easeOut,
+                      switchOutCurve: Curves.easeIn,
+                      child: KeyedSubtree(
+                        key: ValueKey(
+                          isLoadingConversation
+                              ? 'model-loading'
+                              : 'model-$modelLabel',
+                        ),
+                        child: modelPill,
+                      ),
+                    ),
+                    if (isReviewerMode)
+                      Padding(
+                        padding: const EdgeInsets.only(top: Spacing.xs),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: Spacing.sm,
+                            vertical: 1.0,
+                          ),
+                          decoration: BoxDecoration(
+                            color: context.qonduitTheme.success
+                                .withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(
+                              AppBorderRadius.badge,
                             ),
-                        ],
-                      );
-                    },
-                  ),
+                            border: Border.all(
+                              color: context.qonduitTheme.success
+                                  .withValues(alpha: 0.3),
+                              width: BorderWidth.thin,
+                            ),
+                          ),
+                          child: Text(
+                            'REVIEWER MODE',
+                            style: AppTypography.captionStyle.copyWith(
+                              color: context.qonduitTheme.success,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 9,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
             actions: [
               if (!_isSelectionMode) ...[
                 // Temporary chat toggle / Save chat button
@@ -2345,7 +2607,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
                     final showToggle =
                         activeConversation == null ||
-                        isTemporaryChat(activeConversation.id);
+                            isTemporaryChat(activeConversation.id);
 
                     if (!showToggle) {
                       return const SizedBox.shrink();
@@ -2388,11 +2650,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                         },
                         fallbackIcon: isTemporary
                             ? (Platform.isIOS
-                                  ? CupertinoIcons.eye_slash
-                                  : Icons.visibility_off)
+                            ? CupertinoIcons.eye_slash
+                            : Icons.visibility_off)
                             : (Platform.isIOS
-                                  ? CupertinoIcons.eye
-                                  : Icons.visibility_outlined),
+                            ? CupertinoIcons.eye
+                            : Icons.visibility_outlined),
                         sfSymbol: isTemporary ? 'eye.slash' : 'eye',
                         color: isTemporary
                             ? Colors.blue
@@ -2451,7 +2713,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   child: QonduitRefreshIndicator(
                     // Position indicator below the floating app bar
                     edgeOffset:
-                        MediaQuery.of(context).padding.top + kTextTabBarHeight,
+                    MediaQuery.of(context).padding.top + kTextTabBarHeight,
                     onRefresh: () async {
                       // Reload active conversation messages from server
                       final api = ref.read(apiServiceProvider);
@@ -2501,74 +2763,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   ),
                 ),
 
-            // Floating RAG collection selector
-            Positioned(
-              top: MediaQuery.of(context).padding.top + kTextTabBarHeight + Spacing.md,
-              left: Spacing.inputPadding,
-              right: Spacing.inputPadding,
-              child: Material(
-                color: Colors.transparent,
-                child: ragCollectionsAsync.when(
-                  data: (collections) {
-                    final items = <DropdownMenuItem<String?>>[
-                      const DropdownMenuItem<String?>(
-                        value: null,
-                        child: Text('No knowledge collection'),
-                      ),
-                      ...collections.map(
-                            (name) => DropdownMenuItem<String?>(
-                          value: name,
-                          child: Text(name),
-                        ),
-                      ),
-                    ];
-
-                    final currentValue =
-                    (selectedRagCollection != null &&
-                        collections.contains(selectedRagCollection))
-                        ? selectedRagCollection
-                        : null;
-
-                    return Row(
-                      children: [
-                        Expanded(
-                          child: DropdownButtonFormField<String?>(
-                            initialValue: currentValue,
-                            decoration: const InputDecoration(
-                              labelText: 'Knowledge collection',
-                              border: OutlineInputBorder(),
-                              isDense: true,
-                              filled: true,
-                            ),
-                            items: items,
-                            onChanged: (value) {
-                              ref
-                                  .read(selectedRagCollectionProvider.notifier)
-                                  .setCollection(value);
-                            },
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        IconButton(
-                          tooltip: 'Knowledge actions',
-                          onPressed: () {
-                            _showRagCollectionActionsSheet(context);
-                          },
-                          icon: const Icon(Icons.tune),
-                        ),
-                      ],
-                    );
-                  },
-                  loading: () => const LinearProgressIndicator(),
-                  error: (error, stack) => Material(
-                    color: Colors.transparent,
-                    child: Text('RAG collections error: $error'),
-                  ),
-                ),
-              ),
-            ),
-
-            // Floating Scroll to Bottom Button...
 
                 // Floating input area with attachments and blur background
                 Positioned(
@@ -2624,6 +2818,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                                 onCameraCapture: () =>
                                     _handleImageAttachment(fromCamera: true),
                                 onWebAttachment: _promptAttachWebpage,
+                                onKnowledgeTool: _showKnowledgeToolSheet,
                                 onPastedAttachments: _handlePastedAttachments,
                               ),
                             ),
@@ -2642,7 +2837,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   child: IgnorePointer(
                     child: Container(
                       height:
-                          MediaQuery.of(context).padding.top +
+                      MediaQuery.of(context).padding.top +
                           kTextTabBarHeight +
                           Spacing.xl,
                       decoration: BoxDecoration(
@@ -2690,29 +2885,29 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                       );
                     },
                     child:
-                        (_showScrollToBottom &&
-                            !_wantsPinToTop &&
-                            !keyboardVisible &&
-                            canScroll &&
-                            ref.watch(chatMessagesProvider).isNotEmpty)
+                    (_showScrollToBottom &&
+                        !_wantsPinToTop &&
+                        !keyboardVisible &&
+                        canScroll &&
+                        ref.watch(chatMessagesProvider).isNotEmpty)
                         ? Center(
-                            key: const ValueKey('scroll_to_bottom_visible'),
-                            child: AdaptiveTooltip(
-                              message:
-                                  _userPausedAutoScroll && isStreamingAnyMessage
-                                  ? 'Resume auto-scroll'
-                                  : 'Scroll to bottom',
-                              child: _buildScrollToBottomButton(
-                                context,
-                                isResuming:
-                                    _userPausedAutoScroll &&
-                                    isStreamingAnyMessage,
-                              ),
-                            ),
-                          )
+                      key: const ValueKey('scroll_to_bottom_visible'),
+                      child: AdaptiveTooltip(
+                        message:
+                        _userPausedAutoScroll && isStreamingAnyMessage
+                            ? 'Resume auto-scroll'
+                            : 'Scroll to bottom',
+                        child: _buildScrollToBottomButton(
+                          context,
+                          isResuming:
+                          _userPausedAutoScroll &&
+                              isStreamingAnyMessage,
+                        ),
+                      ),
+                    )
                         : const SizedBox.shrink(
-                            key: ValueKey('scroll_to_bottom_hidden'),
-                          ),
+                      key: ValueKey('scroll_to_bottom_hidden'),
+                    ),
                   ),
                 ),
                 // Edge overlay removed; rely on native interactive drawer drag
@@ -2727,10 +2922,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   // Removed legacy save-before-leave hook; server manages chat state via background pipeline.
 
   void _showModelDropdown(
-    BuildContext context,
-    WidgetRef ref,
-    List<Model> models,
-  ) {
+      BuildContext context,
+      WidgetRef ref,
+      List<Model> models,
+      ) {
     // Ensure keyboard is closed before presenting modal
     final hadFocus = ref.read(composerHasFocusProvider);
     try {
@@ -2773,6 +2968,127 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         _clearSelection();
       }
     });
+  }
+}
+
+class KnowledgeToolSheet extends ConsumerWidget {
+  const KnowledgeToolSheet({
+    super.key,
+    required this.onSelectCollection,
+    required this.onCreateCollection,
+    required this.onAddText,
+    required this.onUploadDocument,
+    required this.onDeleteCollection,
+  });
+
+  final Future<void> Function() onSelectCollection;
+  final Future<void> Function() onCreateCollection;
+  final Future<void> Function() onAddText;
+  final Future<void> Function() onUploadDocument;
+  final Future<void> Function() onDeleteCollection;
+
+  @override
+  Widget build(BuildContext context, WidgetRef widgetRef) {
+    final collectionsValue = widgetRef.watch(ragCollectionsProvider);
+    final currentCollection = widgetRef.watch(selectedRagCollectionProvider);
+
+    return Material(
+      color: Theme.of(context).scaffoldBackgroundColor,
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+          child: collectionsValue.when(
+            data: (collections) {
+              return SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Knowledge',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      currentCollection == null || currentCollection.trim().isEmpty
+                          ? 'Current collection: none'
+                          : 'Current collection: $currentCollection',
+                    ),
+                    const SizedBox(height: 16),
+                    ListTile(
+                      leading: const Icon(Icons.folder_open_outlined),
+                      title: const Text('Select collection'),
+                      subtitle: Text(
+                        collections.isEmpty
+                            ? 'No collections available'
+                            : 'Choose from ${collections.length} collections',
+                      ),
+                      onTap: () async {
+                        Navigator.of(context).pop();
+                        await onSelectCollection();
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.create_new_folder_outlined),
+                      title: const Text('Create collection'),
+                      onTap: () async {
+                        Navigator.of(context).pop();
+                        await onCreateCollection();
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.note_add_outlined),
+                      title: const Text('Add text'),
+                      onTap: () async {
+                        Navigator.of(context).pop();
+                        await onAddText();
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.upload_file_outlined),
+                      title: const Text('Upload document'),
+                      onTap: () async {
+                        Navigator.of(context).pop();
+                        await onUploadDocument();
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.delete_outline),
+                      title: const Text('Delete collection'),
+                      onTap: () async {
+                        Navigator.of(context).pop();
+                        await onDeleteCollection();
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.refresh),
+                      title: const Text('Refresh collections'),
+                      onTap: () {
+                        widgetRef.invalidate(ragCollectionsProvider);
+                        Navigator.of(context).pop();
+                      },
+                    ),
+                  ],
+                ),
+              );
+            },
+            loading: () => const Padding(
+              padding: EdgeInsets.symmetric(vertical: 24),
+              child: Center(child: CircularProgressIndicator()),
+            ),
+            error: (error, stack) => Padding(
+              padding: const EdgeInsets.symmetric(vertical: 24),
+              child: Text('Failed to load collections: $error'),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
