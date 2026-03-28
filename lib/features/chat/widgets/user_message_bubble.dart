@@ -9,7 +9,6 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:io' show Platform;
 import 'package:conduit/l10n/app_localizations.dart';
-import 'package:flutter/services.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import '../../../core/providers/app_providers.dart';
 import '../providers/chat_providers.dart';
@@ -17,6 +16,7 @@ import '../../../shared/services/tasks/task_queue.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../tools/providers/tools_providers.dart';
 import '../utils/file_utils.dart';
+import '../../../core/services/navigation_service.dart';
 
 // Pre-compiled regex for extracting file IDs from URLs (performance optimization)
 // Handles both /api/v1/files/{id} and /api/v1/files/{id}/content formats
@@ -95,10 +95,16 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
               file is Map && isImageFile(file) && getFileUrl(file) != null,
         )
         .toList();
+    final noteFiles = allFiles
+        .where((file) => file is Map && _isRenderableNoteAttachment(file))
+        .toList();
     final nonImageFiles = allFiles
         .where(
           (file) =>
-              file is Map && !isImageFile(file) && getFileUrl(file) != null,
+              file is Map &&
+              !_isRenderableNoteAttachment(file) &&
+              !isImageFile(file) &&
+              getFileUrl(file) != null,
         )
         .toList();
 
@@ -116,6 +122,13 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
     }
 
     // Add non-image files
+    if (noteFiles.isNotEmpty) {
+      if (widgets.isNotEmpty) {
+        widgets.add(const SizedBox(height: Spacing.xs));
+      }
+      widgets.add(_buildUserNoteFiles(noteFiles));
+    }
+
     if (nonImageFiles.isNotEmpty) {
       if (widgets.isNotEmpty) {
         widgets.add(const SizedBox(height: Spacing.xs));
@@ -131,6 +144,13 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
       crossAxisAlignment: CrossAxisAlignment.end,
       children: widgets,
     );
+  }
+
+  bool _isRenderableNoteAttachment(dynamic file) {
+    if (file is! Map) {
+      return false;
+    }
+    return file['type'] == 'note';
   }
 
   Widget _buildFileImageLayout(List<dynamic> imageFiles, int imageCount) {
@@ -416,6 +436,93 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
     );
   }
 
+  Widget _buildUserNoteFiles(List<dynamic> noteFiles) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.end,
+      children: [
+        Flexible(
+          child: Wrap(
+            alignment: WrapAlignment.end,
+            spacing: Spacing.xs,
+            runSpacing: Spacing.xs,
+            children: noteFiles.map<Widget>(_buildNoteAttachmentCard).toList(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildNoteAttachmentCard(dynamic file) {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = context.conduitTheme;
+    final noteId = file is Map ? file['id']?.toString() : null;
+    final rawTitle = file is Map
+        ? (file['name'] ?? file['title'])?.toString().trim() ?? ''
+        : '';
+    final title = rawTitle.isEmpty ? l10n.untitled : rawTitle;
+
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 280),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(AppBorderRadius.md),
+          onTap: noteId == null || noteId.isEmpty
+              ? null
+              : () {
+                  ConduitHaptics.selectionClick();
+                  NavigationService.router.go('/notes/$noteId');
+                },
+          child: Ink(
+            padding: const EdgeInsets.all(Spacing.md),
+            decoration: BoxDecoration(
+              color: theme.cardBackground,
+              borderRadius: BorderRadius.circular(AppBorderRadius.md),
+              border: Border.all(
+                color: theme.textPrimary.withValues(alpha: 0.12),
+                width: BorderWidth.regular,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: theme.buttonPrimary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(AppBorderRadius.small),
+                  ),
+                  alignment: Alignment.center,
+                  child: Icon(
+                    Platform.isIOS
+                        ? CupertinoIcons.doc_text
+                        : Icons.sticky_note_2_outlined,
+                    color: theme.buttonPrimary,
+                    size: IconSize.medium,
+                  ),
+                ),
+                const SizedBox(width: Spacing.sm),
+                Flexible(
+                  child: Text(
+                    title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.bodySmallStyle.copyWith(
+                      color: theme.textPrimary,
+                      fontWeight: FontWeight.w600,
+                      height: 1.3,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Map<String, String>? _headersForFile(dynamic file) {
     if (file is! Map) return null;
     final rawHeaders = file['headers'];
@@ -483,7 +590,10 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
     final hasText = widget.message.content.isNotEmpty;
     final hasFilesFromArray =
         widget.message.files != null &&
-        (widget.message.files as List).any((f) => f is Map && f['url'] != null);
+        (widget.message.files as List).any(
+          (f) =>
+              f is Map && (f['url'] != null || _isRenderableNoteAttachment(f)),
+        );
     // Prefer input/textPrimary colors during inline editing to avoid low contrast
     final inlineEditTextColor = context.conduitTheme.textPrimary;
     final inlineEditFill = context.conduitTheme.surfaceContainer.withValues(

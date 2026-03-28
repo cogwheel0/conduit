@@ -52,6 +52,8 @@ class ContextAttachmentWidget extends ConsumerWidget {
         return Icons.play_circle_outline;
       case ChatContextAttachmentType.knowledge:
         return Icons.folder_outlined;
+      case ChatContextAttachmentType.note:
+        return Icons.sticky_note_2_outlined;
     }
   }
 }

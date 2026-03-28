@@ -2034,6 +2034,79 @@ class ApiService {
     return [];
   }
 
+  /// Search knowledge bases globally.
+  Future<List<Map<String, dynamic>>> searchKnowledgeBases({
+    String? query,
+    String? viewOption,
+    int? page,
+  }) async {
+    _traceApi('Searching knowledge bases: $query');
+    final queryParams = <String, dynamic>{};
+    if (query != null && query.isNotEmpty) {
+      queryParams['query'] = query;
+    }
+    if (viewOption != null && viewOption.isNotEmpty) {
+      queryParams['view_option'] = viewOption;
+    }
+    if (page != null) {
+      queryParams['page'] = page;
+    }
+
+    final response = await _dio.get(
+      '/api/v1/knowledge/search',
+      queryParameters: queryParams.isEmpty ? null : queryParams,
+    );
+    final data = response.data;
+    if (data is Map<String, dynamic>) {
+      final items = data['items'];
+      if (items is List) {
+        return items.whereType<Map<String, dynamic>>().toList(growable: false);
+      }
+    } else if (data is List) {
+      return data.whereType<Map<String, dynamic>>().toList(growable: false);
+    }
+    return const <Map<String, dynamic>>[];
+  }
+
+  /// Search knowledge files globally.
+  Future<List<Map<String, dynamic>>> searchKnowledgeFiles({
+    String? query,
+    String? viewOption,
+    String? orderBy,
+    String? direction,
+    int page = 1,
+  }) async {
+    _traceApi('Searching knowledge files: $query');
+    final queryParams = <String, dynamic>{'page': page};
+    if (query != null && query.isNotEmpty) {
+      queryParams['query'] = query;
+    }
+    if (viewOption != null && viewOption.isNotEmpty) {
+      queryParams['view_option'] = viewOption;
+    }
+    if (orderBy != null && orderBy.isNotEmpty) {
+      queryParams['order_by'] = orderBy;
+    }
+    if (direction != null && direction.isNotEmpty) {
+      queryParams['direction'] = direction;
+    }
+
+    final response = await _dio.get(
+      '/api/v1/knowledge/search/files',
+      queryParameters: queryParams,
+    );
+    final data = response.data;
+    if (data is Map<String, dynamic>) {
+      final items = data['items'];
+      if (items is List) {
+        return items.whereType<Map<String, dynamic>>().toList(growable: false);
+      }
+    } else if (data is List) {
+      return data.whereType<Map<String, dynamic>>().toList(growable: false);
+    }
+    return const <Map<String, dynamic>>[];
+  }
+
   /// Fetches files for a knowledge base with pagination support.
   ///
   /// Returns a record with the list of files and the total count.
@@ -4702,6 +4775,36 @@ class ApiService {
       return data.cast<Map<String, dynamic>>();
     }
     return [];
+  }
+
+  /// Search notes by title/content.
+  Future<List<Map<String, dynamic>>> searchNotes({
+    String? query,
+    int? page,
+  }) async {
+    _traceApi('Searching notes: $query');
+    final queryParams = <String, dynamic>{};
+    if (query != null && query.isNotEmpty) {
+      queryParams['query'] = query;
+    }
+    if (page != null) {
+      queryParams['page'] = page;
+    }
+
+    final response = await _dio.get(
+      '/api/v1/notes/search',
+      queryParameters: queryParams.isEmpty ? null : queryParams,
+    );
+    final data = response.data;
+    if (data is Map<String, dynamic>) {
+      final items = data['items'];
+      if (items is List) {
+        return items.whereType<Map<String, dynamic>>().toList(growable: false);
+      }
+    } else if (data is List) {
+      return data.whereType<Map<String, dynamic>>().toList(growable: false);
+    }
+    return const <Map<String, dynamic>>[];
   }
 
   /// Get a single note by ID

@@ -1,6 +1,5 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -109,6 +108,17 @@ List<Widget> withVerticalSpacing(List<Widget> children, double gap) {
   for (var i = 0; i < children.length; i++) {
     spaced.add(children[i]);
     if (i != children.length - 1) spaced.add(SizedBox(height: gap));
+  }
+  return spaced;
+}
+
+/// Inserts [SizedBox] spacers of [gap] width between [children].
+List<Widget> withHorizontalSpacing(List<Widget> children, double gap) {
+  if (children.length <= 1) return List<Widget>.from(children);
+  final spaced = <Widget>[];
+  for (var i = 0; i < children.length; i++) {
+    spaced.add(children[i]);
+    if (i != children.length - 1) spaced.add(SizedBox(width: gap));
   }
   return spaced;
 }
@@ -249,10 +259,17 @@ class _ComposerOverflowSheetState extends ConsumerState<ComposerOverflowSheet> {
       Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          for (var i = 0; i < attachments.length; i++) ...[
-            if (i != 0) const SizedBox(width: Spacing.sm),
-            Expanded(child: attachments[i]),
-          ],
+          Expanded(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: withHorizontalSpacing(
+                attachments
+                    .map((attachment) => Expanded(child: attachment))
+                    .toList(),
+                Spacing.sm,
+              ),
+            ),
+          ),
         ],
       ),
       if (featureTiles.isNotEmpty) ...[

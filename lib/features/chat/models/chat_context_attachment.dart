@@ -1,8 +1,8 @@
 import 'package:flutter/foundation.dart';
 
 /// Represents a non-file attachment that enriches a chat message,
-/// such as a web page, YouTube video transcript, or an existing
-/// knowledge base document reference.
+/// such as a web page, YouTube video transcript, existing note,
+/// or knowledge base document reference.
 @immutable
 class ChatContextAttachment {
   const ChatContextAttachment({
@@ -24,4 +24,4 @@ class ChatContextAttachment {
   final String? fileId;
 }
 
-enum ChatContextAttachmentType { web, youtube, knowledge }
+enum ChatContextAttachmentType { web, youtube, knowledge, note }

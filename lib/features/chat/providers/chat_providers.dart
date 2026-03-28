@@ -1795,6 +1795,13 @@ List<Map<String, dynamic>> _contextAttachmentsToFiles(
           if (attachment.url != null) 'source': attachment.url,
         };
         return map;
+      case ChatContextAttachmentType.note:
+        return <String, dynamic>{
+          'type': 'note',
+          'id': attachment.id,
+          'name': attachment.displayName,
+          'title': attachment.displayName,
+        };
     }
   }).toList();
 }

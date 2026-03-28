@@ -68,6 +68,25 @@ class ContextAttachmentsNotifier extends Notifier<List<ChatContextAttachment>> {
     );
   }
 
+  void addNote({required String noteId, required String displayName}) {
+    final alreadyAttached = state.any(
+      (attachment) =>
+          attachment.type == ChatContextAttachmentType.note &&
+          attachment.id == noteId,
+    );
+    if (alreadyAttached) {
+      return;
+    }
+
+    add(
+      ChatContextAttachment(
+        id: noteId,
+        type: ChatContextAttachmentType.note,
+        displayName: displayName,
+      ),
+    );
+  }
+
   void remove(String id) {
     state = state.where((item) => item.id != id).toList();
   }

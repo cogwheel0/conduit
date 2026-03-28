@@ -1,4 +1,5 @@
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
@@ -90,6 +91,9 @@ class ModernChatInput extends ConsumerStatefulWidget {
 
 class _ModernChatInputState extends ConsumerState<ModernChatInput>
     with TickerProviderStateMixin {
+  static const Duration _contextSuggestionDelay = Duration(milliseconds: 250);
+  static const int _maxContextSuggestionsPerType = 4;
+
   bool get _useIOS26NativeControls => PlatformInfo.isIOS26OrHigher();
 
   static const double _composerRadius = AppBorderRadius.card;
@@ -114,6 +118,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   StreamSubscription<IosNativePastePayload>? _pasteSubscription;
   late VoiceInputService _voiceService;
   StreamSubscription<String>? _textSub;
+  Timer? _contextSuggestionDebounce;
   String _baseTextAtStart = '';
   bool _isDeactivated = false;
   int _lastHandledFocusTick = 0;
@@ -123,6 +128,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   String _currentPromptCommand = '';
   TextRange? _currentPromptRange;
   int _promptSelectionIndex = 0;
+  bool _isContextSuggestionLoading = false;
+  List<_ComposerContextSuggestion> _contextSuggestions =
+      const <_ComposerContextSuggestion>[];
+  int _contextSuggestionRequestId = 0;
 
   /// Service for handling clipboard paste operations.
   final ClipboardAttachmentService _clipboardService =
@@ -202,6 +211,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     _voiceStreamSubscription?.cancel();
     _pasteSubscription?.cancel();
     _textSub?.cancel();
+    _contextSuggestionDebounce?.cancel();
     _voiceService.stopListening();
     super.dispose();
   }
@@ -534,6 +544,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       selection,
       widget.enabled,
     );
+    final bool isContextTrigger = match?.command.startsWith('#') ?? false;
     final bool shouldShow = match != null;
     final bool wasShowing = _showPromptOverlay;
     final String previousCommand = _currentPromptCommand;
@@ -575,13 +586,24 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         _currentPromptCommand = match.command;
         _currentPromptRange = TextRange(start: match.start, end: match.end);
         _showPromptOverlay = true;
+        if (!isContextTrigger) {
+          _clearContextSuggestions();
+        }
       } else {
+        _clearContextSuggestions();
         _currentPromptCommand = '';
         _currentPromptRange = null;
         _promptSelectionIndex = 0;
         _showPromptOverlay = false;
       }
     });
+
+    if (isContextTrigger) {
+      _scheduleContextSuggestionSearch(match!.command);
+    } else {
+      _contextSuggestionDebounce?.cancel();
+      _contextSuggestionDebounce = null;
+    }
 
     if (!wasShowing && shouldShow) {
       // Trigger data fetch lazily when overlay first appears.
@@ -670,6 +692,272 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         .toList();
   }
 
+  void _clearContextSuggestions() {
+    _contextSuggestionDebounce?.cancel();
+    _contextSuggestionDebounce = null;
+    _contextSuggestionRequestId++;
+    _isContextSuggestionLoading = false;
+    _contextSuggestions = const <_ComposerContextSuggestion>[];
+  }
+
+  void _scheduleContextSuggestionSearch(String command) {
+    _contextSuggestionDebounce?.cancel();
+    _contextSuggestionDebounce = null;
+
+    final int requestId = ++_contextSuggestionRequestId;
+
+    setState(() {
+      _isContextSuggestionLoading = true;
+      _contextSuggestions = const <_ComposerContextSuggestion>[];
+      _promptSelectionIndex = 0;
+    });
+
+    final String query = command.length > 1 ? command.substring(1).trim() : '';
+    _contextSuggestionDebounce = Timer(_contextSuggestionDelay, () {
+      unawaited(_loadContextSuggestions(command, query, requestId));
+    });
+  }
+
+  Future<void> _loadContextSuggestions(
+    String command,
+    String query,
+    int requestId,
+  ) async {
+    final api = ref.read(apiServiceProvider);
+    if (api == null) {
+      if (!mounted || _isDeactivated) return;
+      if (requestId != _contextSuggestionRequestId) return;
+      setState(() {
+        _isContextSuggestionLoading = false;
+        _contextSuggestions = const <_ComposerContextSuggestion>[];
+        _promptSelectionIndex = 0;
+      });
+      return;
+    }
+
+    final l10n = AppLocalizations.of(context)!;
+    final normalizedQuery = query.isEmpty ? null : query;
+    final notesEnabled = ref.read(notesFeatureEnabledProvider);
+
+    List<Map<String, dynamic>> noteResults = const <Map<String, dynamic>>[];
+    List<Map<String, dynamic>> baseResults = const <Map<String, dynamic>>[];
+    List<Map<String, dynamic>> fileResults = const <Map<String, dynamic>>[];
+
+    Future<List<Map<String, dynamic>>> safeSearch(
+      Future<List<Map<String, dynamic>>> Function() loader,
+    ) async {
+      try {
+        return await loader();
+      } catch (_) {
+        return const <Map<String, dynamic>>[];
+      }
+    }
+
+    await Future.wait<void>([
+      if (notesEnabled)
+        () async {
+          try {
+            noteResults = await api.searchNotes(query: normalizedQuery);
+          } on DioException catch (error) {
+            final statusCode = error.response?.statusCode;
+            if (statusCode == 401 || statusCode == 403) {
+              ref.read(notesFeatureEnabledProvider.notifier).setEnabled(false);
+            }
+            noteResults = const <Map<String, dynamic>>[];
+          } catch (_) {
+            noteResults = const <Map<String, dynamic>>[];
+          }
+        }(),
+      () async {
+        baseResults = await safeSearch(
+          () => api.searchKnowledgeBases(query: normalizedQuery),
+        );
+      }(),
+      () async {
+        fileResults = await safeSearch(
+          () => api.searchKnowledgeFiles(query: normalizedQuery),
+        );
+      }(),
+    ]);
+
+    if (!mounted || _isDeactivated) return;
+    if (requestId != _contextSuggestionRequestId) return;
+    if (!_currentPromptCommand.startsWith('#')) return;
+    if (_currentPromptCommand != command) return;
+
+    String titleForNote(Map<String, dynamic> json) {
+      final title = _ComposerContextSuggestion.stringValue(json['title']);
+      return title ?? l10n.untitled;
+    }
+
+    String titleForBase(Map<String, dynamic> json) {
+      return _ComposerContextSuggestion.stringValue(json['name']) ??
+          _ComposerContextSuggestion.stringValue(json['title']) ??
+          l10n.knowledgeBase;
+    }
+
+    String titleForFile(Map<String, dynamic> json) {
+      final meta = _ComposerContextSuggestion.mapValue(json['meta']);
+      return _ComposerContextSuggestion.stringValue(meta?['name']) ??
+          _ComposerContextSuggestion.stringValue(meta?['filename']) ??
+          _ComposerContextSuggestion.stringValue(json['filename']) ??
+          _ComposerContextSuggestion.stringValue(json['name']) ??
+          l10n.file;
+    }
+
+    String? fileCollectionName(Map<String, dynamic> json) {
+      final collection = _ComposerContextSuggestion.mapValue(
+        json['collection'],
+      );
+      return _ComposerContextSuggestion.stringValue(collection?['name']) ??
+          _ComposerContextSuggestion.stringValue(json['collection_name']);
+    }
+
+    String? fileSource(Map<String, dynamic> json) {
+      final meta = _ComposerContextSuggestion.mapValue(json['meta']);
+      return _ComposerContextSuggestion.stringValue(meta?['source']) ??
+          _ComposerContextSuggestion.stringValue(json['source']);
+    }
+
+    final List<_ComposerContextSuggestion> suggestions =
+        <_ComposerContextSuggestion>[
+          ...noteResults.take(_maxContextSuggestionsPerType).map((json) {
+            final id = _ComposerContextSuggestion.stringValue(json['id']);
+            if (id == null) return null;
+            return _ComposerContextSuggestion(
+              type: _ComposerContextSuggestionType.note,
+              id: id,
+              displayName: titleForNote(json),
+              icon: Theme.of(context).platform == TargetPlatform.iOS
+                  ? CupertinoIcons.doc_text
+                  : Icons.sticky_note_2_outlined,
+            );
+          }).whereType<_ComposerContextSuggestion>(),
+          ...baseResults.take(_maxContextSuggestionsPerType).map((json) {
+            final id = _ComposerContextSuggestion.stringValue(json['id']);
+            if (id == null) return null;
+            return _ComposerContextSuggestion(
+              type: _ComposerContextSuggestionType.knowledgeBase,
+              id: id,
+              displayName: titleForBase(json),
+              subtitle: _ComposerContextSuggestion.stringValue(
+                json['description'],
+              ),
+              icon: Theme.of(context).platform == TargetPlatform.iOS
+                  ? CupertinoIcons.folder
+                  : Icons.folder_outlined,
+            );
+          }).whereType<_ComposerContextSuggestion>(),
+          ...fileResults.take(_maxContextSuggestionsPerType).map((json) {
+            final id = _ComposerContextSuggestion.stringValue(json['id']);
+            if (id == null) return null;
+
+            final collectionName = fileCollectionName(json);
+            final source = fileSource(json);
+            final subtitle = collectionName ?? source;
+
+            return _ComposerContextSuggestion(
+              type: _ComposerContextSuggestionType.knowledgeFile,
+              id: id,
+              displayName: titleForFile(json),
+              subtitle: subtitle,
+              collectionName: collectionName,
+              source: source,
+              icon: Theme.of(context).platform == TargetPlatform.iOS
+                  ? CupertinoIcons.doc
+                  : Icons.description_outlined,
+            );
+          }).whereType<_ComposerContextSuggestion>(),
+        ];
+
+    setState(() {
+      _isContextSuggestionLoading = false;
+      _contextSuggestions = suggestions;
+      if (suggestions.isEmpty) {
+        _promptSelectionIndex = 0;
+      } else if (_promptSelectionIndex >= suggestions.length) {
+        _promptSelectionIndex = suggestions.length - 1;
+      }
+    });
+  }
+
+  ({String text, int cursorOffset}) _removeCommandToken(
+    String text,
+    TextRange range,
+  ) {
+    final String before = text.substring(0, range.start);
+
+    int tokenEnd = range.end;
+    while (tokenEnd < text.length) {
+      final nextCharacter = text.substring(tokenEnd, tokenEnd + 1);
+      if (_promptCommandBoundary.hasMatch(nextCharacter)) {
+        break;
+      }
+      tokenEnd++;
+    }
+
+    String after = text.substring(tokenEnd);
+    final String? previousBoundary = before.isEmpty
+        ? null
+        : before.substring(before.length - 1);
+    final String? nextBoundary = after.isEmpty ? null : after.substring(0, 1);
+
+    if (previousBoundary != null &&
+        nextBoundary != null &&
+        _promptCommandBoundary.hasMatch(previousBoundary) &&
+        _promptCommandBoundary.hasMatch(nextBoundary)) {
+      after = after.substring(1);
+    } else if (before.isEmpty &&
+        nextBoundary != null &&
+        _promptCommandBoundary.hasMatch(nextBoundary)) {
+      after = after.substring(1);
+    }
+
+    return (text: '$before$after', cursorOffset: before.length);
+  }
+
+  void _applyContextSuggestion(_ComposerContextSuggestion suggestion) {
+    final TextRange? range = _currentPromptRange;
+    if (range == null) return;
+
+    ConduitHaptics.selectionClick();
+
+    final result = _removeCommandToken(_controller.text, range);
+    _controller.value = TextEditingValue(
+      text: result.text,
+      selection: TextSelection.collapsed(offset: result.cursorOffset),
+      composing: TextRange.empty,
+    );
+
+    switch (suggestion.type) {
+      case _ComposerContextSuggestionType.note:
+        ref
+            .read(contextAttachmentsProvider.notifier)
+            .addNote(
+              noteId: suggestion.id,
+              displayName: suggestion.displayName,
+            );
+        break;
+      case _ComposerContextSuggestionType.knowledgeBase:
+        _hidePromptOverlay();
+        unawaited(_openKnowledgePicker(initialBaseId: suggestion.id));
+        return;
+      case _ComposerContextSuggestionType.knowledgeFile:
+        ref
+            .read(contextAttachmentsProvider.notifier)
+            .addKnowledge(
+              displayName: suggestion.displayName,
+              fileId: suggestion.id,
+              collectionName: suggestion.collectionName,
+              url: suggestion.source,
+            );
+        break;
+    }
+
+    _hidePromptOverlay();
+    _ensureFocusedIfEnabled();
+  }
+
   void _applyModel(Model model) {
     final TextRange? range = _currentPromptRange;
     if (range == null) return;
@@ -712,7 +1000,20 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   void _movePromptSelection(int delta) {
     if (_currentPromptCommand.startsWith('#')) {
-      // Only a single option in knowledge overlay; nothing to move.
+      final int itemCount = _contextSuggestions.length;
+      if (itemCount == 0) return;
+
+      int newIndex = _promptSelectionIndex + delta;
+      if (newIndex < 0) {
+        newIndex = 0;
+      } else if (newIndex >= itemCount) {
+        newIndex = itemCount - 1;
+      }
+      if (newIndex == _promptSelectionIndex) return;
+
+      setState(() {
+        _promptSelectionIndex = newIndex;
+      });
       return;
     }
 
@@ -744,7 +1045,16 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   void _confirmPromptSelection() {
     if (_currentPromptCommand.startsWith('#')) {
-      _openKnowledgePicker();
+      if (_contextSuggestions.isEmpty) {
+        _openKnowledgePicker();
+        return;
+      }
+
+      final int index = _promptSelectionIndex.clamp(
+        0,
+        _contextSuggestions.length - 1,
+      );
+      _applyContextSuggestion(_contextSuggestions[index]);
       return;
     }
 
@@ -873,6 +1183,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   void _hidePromptOverlay() {
     if (!_showPromptOverlay) return;
     setState(() {
+      _clearContextSuggestions();
       _showPromptOverlay = false;
       _currentPromptCommand = '';
       _currentPromptRange = null;
@@ -880,7 +1191,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     });
   }
 
-  Future<void> _openKnowledgePicker() async {
+  Future<void> _openKnowledgePicker({String? initialBaseId}) async {
     _hidePromptOverlay();
 
     // Ensure bases are loaded in the centralized cache
@@ -889,7 +1200,18 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     if (!mounted) return;
 
     // Track selected base ID outside the builder so it persists across rebuilds
-    String? selectedBaseId;
+    String? selectedBaseId = initialBaseId;
+
+    if (selectedBaseId != null) {
+      final cacheState = ref.read(knowledgeCacheProvider);
+      final hasBase = cacheState.bases.any((base) => base.id == selectedBaseId);
+      if (hasBase) {
+        await cacheNotifier.fetchFilesForBase(selectedBaseId);
+        if (!mounted) return;
+      } else {
+        selectedBaseId = null;
+      }
+    }
 
     await showModalBottomSheet(
       context: context,
@@ -1022,14 +1344,13 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   /// Returns the correct overlay widget for the current trigger character.
   Widget _buildActiveOverlay() {
+    final overlayColor = context.conduitTheme.cardBackground;
+    final borderColor = context.conduitTheme.cardBorder.withValues(
+      alpha: Theme.of(context).brightness == Brightness.dark ? 0.6 : 0.4,
+    );
+
     if (_currentPromptCommand.startsWith('#')) {
-      return _buildKnowledgeOverlay(
-        context,
-        context.conduitTheme.cardBackground,
-        context.conduitTheme.cardBorder.withValues(
-          alpha: Theme.of(context).brightness == Brightness.dark ? 0.6 : 0.4,
-        ),
-      );
+      return _buildContextSuggestionOverlay(context, overlayColor, borderColor);
     }
     if (_currentPromptCommand.startsWith('@')) {
       return ModelSuggestionOverlay(
@@ -1045,11 +1366,179 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     );
   }
 
-  Widget _buildKnowledgeOverlay(
+  Widget _buildContextSuggestionOverlay(
     BuildContext context,
     Color overlayColor,
     Color borderColor,
   ) {
+    if (_isContextSuggestionLoading) {
+      return _buildSuggestionOverlayContainer(
+        context,
+        overlayColor: overlayColor,
+        borderColor: borderColor,
+        child: _ContextSuggestionPlaceholder(
+          leading: SizedBox(
+            width: IconSize.large,
+            height: IconSize.large,
+            child: CircularProgressIndicator(
+              strokeWidth: BorderWidth.regular,
+              valueColor: AlwaysStoppedAnimation<Color>(
+                context.conduitTheme.loadingIndicator,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (_contextSuggestions.isEmpty) {
+      return _buildKnowledgeOverlay(context, overlayColor, borderColor);
+    }
+
+    final l10n = AppLocalizations.of(context)!;
+    final int activeIndex = _promptSelectionIndex.clamp(
+      0,
+      _contextSuggestions.length - 1,
+    );
+
+    return _buildSuggestionOverlayContainer(
+      context,
+      overlayColor: overlayColor,
+      borderColor: borderColor,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxHeight: 280),
+        child: ListView.builder(
+          padding: const EdgeInsets.symmetric(vertical: Spacing.xs),
+          shrinkWrap: true,
+          physics: const ClampingScrollPhysics(),
+          itemCount: _contextSuggestions.length,
+          itemBuilder: (context, index) {
+            final suggestion = _contextSuggestions[index];
+            final previousType = index == 0
+                ? null
+                : _contextSuggestions[index - 1].type;
+            final bool showSectionHeader = previousType != suggestion.type;
+            final bool isSelected = index == activeIndex;
+            final highlight = isSelected
+                ? context.conduitTheme.navigationSelectedBackground.withValues(
+                    alpha: 0.4,
+                  )
+                : Colors.transparent;
+
+            String sectionTitle(_ComposerContextSuggestionType type) {
+              return switch (type) {
+                _ComposerContextSuggestionType.note => l10n.notes,
+                _ComposerContextSuggestionType.knowledgeBase =>
+                  l10n.knowledgeBase,
+                _ComposerContextSuggestionType.knowledgeFile => l10n.file,
+              };
+            }
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (showSectionHeader)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      Spacing.sm,
+                      Spacing.xs,
+                      Spacing.sm,
+                      Spacing.xs,
+                    ),
+                    child: Text(
+                      sectionTitle(suggestion.type),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: context.conduitTheme.textSecondary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(AppBorderRadius.card),
+                    onTap: () {
+                      _applyContextSuggestion(suggestion);
+                    },
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: highlight,
+                        borderRadius: BorderRadius.circular(
+                          AppBorderRadius.card,
+                        ),
+                      ),
+                      margin: const EdgeInsets.symmetric(
+                        horizontal: Spacing.xs,
+                        vertical: Spacing.xxs,
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: Spacing.sm,
+                        vertical: Spacing.xs,
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            suggestion.icon,
+                            size: IconSize.medium,
+                            color: context.conduitTheme.textSecondary,
+                          ),
+                          const SizedBox(width: Spacing.sm),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  suggestion.displayName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context).textTheme.bodyMedium
+                                      ?.copyWith(
+                                        color: context.conduitTheme.textPrimary,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                ),
+                                if (suggestion.subtitle != null &&
+                                    suggestion.subtitle!.isNotEmpty)
+                                  Padding(
+                                    padding: const EdgeInsets.only(
+                                      top: Spacing.xxs,
+                                    ),
+                                    child: Text(
+                                      suggestion.subtitle!,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall
+                                          ?.copyWith(
+                                            color: context
+                                                .conduitTheme
+                                                .textSecondary,
+                                          ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSuggestionOverlayContainer(
+    BuildContext context, {
+    required Color overlayColor,
+    required Color borderColor,
+    required Widget child,
+  }) {
     return Container(
       decoration: BoxDecoration(
         color: overlayColor,
@@ -1068,11 +1557,24 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           ),
         ],
       ),
+      child: child,
+    );
+  }
+
+  Widget _buildKnowledgeOverlay(
+    BuildContext context,
+    Color overlayColor,
+    Color borderColor,
+  ) {
+    return _buildSuggestionOverlayContainer(
+      context,
+      overlayColor: overlayColor,
+      borderColor: borderColor,
       child: AdaptiveListTile(
         title: const Text('Browse knowledge base'),
         subtitle: const Text('Press Enter to pick a document'),
         leading: const Icon(Icons.folder_outlined),
-        onTap: _openKnowledgePicker,
+        onTap: () => _openKnowledgePicker(),
       ),
     );
   }
@@ -2452,6 +2954,68 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       message: message,
       type: AdaptiveSnackBarType.warning,
       duration: const Duration(seconds: 2),
+    );
+  }
+}
+
+enum _ComposerContextSuggestionType { note, knowledgeBase, knowledgeFile }
+
+class _ComposerContextSuggestion {
+  const _ComposerContextSuggestion({
+    required this.type,
+    required this.id,
+    required this.displayName,
+    required this.icon,
+    this.subtitle,
+    this.collectionName,
+    this.source,
+  });
+
+  final _ComposerContextSuggestionType type;
+  final String id;
+  final String displayName;
+  final String? subtitle;
+  final String? collectionName;
+  final String? source;
+  final IconData icon;
+
+  static String? stringValue(Object? value) {
+    final text = value?.toString().trim();
+    if (text == null || text.isEmpty) {
+      return null;
+    }
+    return text;
+  }
+
+  static Map<String, dynamic>? mapValue(Object? value) {
+    if (value is Map<String, dynamic>) {
+      return value;
+    }
+    if (value is Map) {
+      return value.map(
+        (key, entryValue) => MapEntry(key.toString(), entryValue),
+      );
+    }
+    return null;
+  }
+}
+
+class _ContextSuggestionPlaceholder extends StatelessWidget {
+  const _ContextSuggestionPlaceholder({required this.leading});
+
+  final Widget leading;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: Spacing.sm,
+        vertical: Spacing.md,
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [leading],
+      ),
     );
   }
 }
