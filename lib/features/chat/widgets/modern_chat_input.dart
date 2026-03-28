@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
@@ -20,6 +21,7 @@ import '../services/file_attachment_service.dart';
 import '../services/ios_native_paste_service.dart';
 import '../providers/context_attachments_provider.dart';
 import '../providers/knowledge_cache_provider.dart';
+import '../../notes/providers/notes_providers.dart';
 import '../../tools/providers/tools_providers.dart';
 import '../../prompts/providers/prompts_providers.dart';
 import '../../../core/models/tool.dart';
@@ -27,6 +29,7 @@ import '../../../core/models/model.dart';
 import '../../../core/models/prompt.dart';
 import '../../../core/models/toggle_filter.dart';
 import '../../../core/providers/app_providers.dart';
+import '../../../core/services/navigation_service.dart';
 import '../../../core/services/settings_service.dart';
 import '../../chat/services/voice_input_service.dart';
 import '../../../core/models/knowledge_base.dart';
@@ -1624,6 +1627,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final webSearchAvailable = ref.watch(webSearchAvailableProvider);
     final imageGenEnabled = ref.watch(imageGenerationEnabledProvider);
     final imageGenAvailable = ref.watch(imageGenerationAvailableProvider);
+    final notesEnabled = ref.watch(notesFeatureEnabledProvider);
+    final isCreatingDraftNote = ref.watch(
+      noteCreatorProvider.select((state) => state.isLoading),
+    );
     final selectedQuickPills = ref.watch(
       appSettingsProvider.select((s) => s.quickPills),
     );
@@ -1787,6 +1794,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     }
 
     final bool showCompactComposer = quickPills.isEmpty;
+    final bool showCreateDraftNoteAction =
+        !showCompactComposer &&
+        notesEnabled &&
+        _hasText &&
+        !isGenerating &&
+        !_isRecording;
 
     // Keep iOS 26 single-line composer as capsule.
     // Switch multiline to rounded rectangle to avoid oval morphing.
@@ -1892,6 +1905,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   ),
                 ),
               ),
+              if (showCreateDraftNoteAction) ...[
+                const SizedBox(width: Spacing.xs),
+                _buildCreateDraftNoteButton(isLoading: isCreatingDraftNote),
+              ],
               if (!_hasText && voiceAvailable && !isGenerating) ...[
                 const SizedBox(width: Spacing.xs),
                 _buildInlineMicAction(voiceAvailable),
@@ -2463,6 +2480,40 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     );
   }
 
+  Widget _buildCreateDraftNoteButton({required bool isLoading}) {
+    final l10n = AppLocalizations.of(context)!;
+    final bool enabled = widget.enabled && !isLoading && !_isRecording;
+    final iconColor = enabled
+        ? context.conduitTheme.textSecondary.withValues(alpha: Alpha.strong)
+        : context.conduitTheme.textSecondary.withValues(alpha: Alpha.disabled);
+
+    return AdaptiveTooltip(
+      message: l10n.createNote,
+      child: _buildComposerIconButton(
+        key: const ValueKey('create-draft-note-button'),
+        onPressed: enabled ? _createNoteFromDraft : null,
+        size: 36.0,
+        isProminent: false,
+        child: isLoading
+            ? SizedBox(
+                width: IconSize.large,
+                height: IconSize.large,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  color: context.conduitTheme.textSecondary,
+                ),
+              )
+            : Icon(
+                Platform.isIOS
+                    ? CupertinoIcons.doc_text
+                    : Icons.note_add_outlined,
+                size: IconSize.large,
+                color: iconColor,
+              ),
+      ),
+    );
+  }
+
   Widget _buildPrimaryButton(
     bool hasText,
     bool isGenerating,
@@ -2955,6 +3006,45 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       type: AdaptiveSnackBarType.warning,
       duration: const Duration(seconds: 2),
     );
+  }
+
+  Future<void> _createNoteFromDraft() async {
+    if (!widget.enabled) {
+      return;
+    }
+
+    final draftText = _controller.text;
+    if (draftText.trim().isEmpty) {
+      return;
+    }
+
+    ConduitHaptics.lightImpact();
+
+    final title = DateFormat('yyyy-MM-dd').format(DateTime.now());
+    final note = await ref
+        .read(noteCreatorProvider.notifier)
+        .createNote(title: title, markdownContent: draftText);
+
+    if (!mounted || _isDeactivated) {
+      return;
+    }
+
+    if (note == null) {
+      ConduitHaptics.error();
+      AdaptiveSnackBar.show(
+        context,
+        message: AppLocalizations.of(context)!.errorMessage,
+        type: AdaptiveSnackBarType.error,
+        duration: const Duration(seconds: 2),
+      );
+      return;
+    }
+
+    _controller.clearMentions();
+    _controller.clear();
+    _hidePromptOverlay();
+    ConduitHaptics.success();
+    NavigationService.router.go('/notes/${note.id}');
   }
 }
 
