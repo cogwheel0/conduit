@@ -187,6 +187,67 @@ void main() {
     });
   });
 
+  group('isKnownOpenWebUiProxyAuthPath', () {
+    test('returns true for OpenWebUI auth paths', () {
+      expect(isKnownOpenWebUiProxyAuthPath('/auth'), isTrue);
+      expect(isKnownOpenWebUiProxyAuthPath('/auth/oidc'), isTrue);
+      expect(isKnownOpenWebUiProxyAuthPath('/oauth/oidc/callback'), isTrue);
+      expect(isKnownOpenWebUiProxyAuthPath('/api/v1/auths/signin'), isTrue);
+    });
+
+    test('returns false for proxy login pages on the same host', () {
+      expect(isKnownOpenWebUiProxyAuthPath('/'), isFalse);
+      expect(isKnownOpenWebUiProxyAuthPath('/login'), isFalse);
+      expect(isKnownOpenWebUiProxyAuthPath('/oauth2/sign_in'), isFalse);
+    });
+  });
+
+  group('shouldAttemptAutomaticProxyAuthCapture', () {
+    test('waits on same-host pages that do not look like OpenWebUI', () {
+      expect(
+        shouldAttemptAutomaticProxyAuthCapture(
+          looksLikeOpenWebUi: false,
+          path: '/login',
+        ),
+        isFalse,
+      );
+      expect(
+        shouldAttemptAutomaticProxyAuthCapture(
+          looksLikeOpenWebUi: false,
+          path: '/',
+        ),
+        isFalse,
+      );
+    });
+
+    test('allows automatic capture for detected OpenWebUI pages', () {
+      expect(
+        shouldAttemptAutomaticProxyAuthCapture(
+          looksLikeOpenWebUi: true,
+          path: '/',
+        ),
+        isTrue,
+      );
+    });
+
+    test('allows automatic capture on known OpenWebUI auth routes', () {
+      expect(
+        shouldAttemptAutomaticProxyAuthCapture(
+          looksLikeOpenWebUi: false,
+          path: '/auth',
+        ),
+        isTrue,
+      );
+      expect(
+        shouldAttemptAutomaticProxyAuthCapture(
+          looksLikeOpenWebUi: false,
+          path: '/oauth/oidc/callback',
+        ),
+        isTrue,
+      );
+    });
+  });
+
   group('shouldCompleteProxyAuthCapture', () {
     test('manual completion proceeds without a JWT', () {
       expect(

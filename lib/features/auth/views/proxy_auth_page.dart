@@ -105,6 +105,36 @@ bool shouldRequireJwtForAutomaticCapture({
   return hasPendingJwtWait || currentPageShouldWait;
 }
 
+/// Returns whether the current path is owned by OpenWebUI's auth flow.
+///
+/// Proxy login pages can live on the same host as the target server, so host
+/// matching alone is not enough to decide that automatic capture should run.
+@visibleForTesting
+bool isKnownOpenWebUiProxyAuthPath(String path) {
+  final normalizedPath = path.toLowerCase();
+  if (normalizedPath.contains('/oauth/')) return true;
+
+  final isAuthPath =
+      normalizedPath == '/auth' || normalizedPath.startsWith('/auth/');
+  if (isAuthPath) return true;
+
+  return normalizedPath.contains('/api/v1/auths/');
+}
+
+/// Returns whether automatic proxy capture should run for the current page.
+///
+/// Automatic capture should wait until the WebView has either loaded an
+/// OpenWebUI page or reached an OpenWebUI-owned auth callback path. This
+/// avoids prematurely completing on proxy login pages that happen to share the
+/// same host as the configured server.
+@visibleForTesting
+bool shouldAttemptAutomaticProxyAuthCapture({
+  required bool looksLikeOpenWebUi,
+  required String path,
+}) {
+  return looksLikeOpenWebUi || isKnownOpenWebUiProxyAuthPath(path);
+}
+
 /// Capture request mode for proxy auth.
 @visibleForTesting
 enum ProxyAuthCaptureMode { automatic, manual }
@@ -387,18 +417,30 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
 
     final controller = _controller;
     if (controller == null) return;
+    final path = Uri.tryParse(url)?.path ?? '/';
 
     try {
       // Check if this is an OpenWebUI page by looking for specific elements
       // or the /api/config endpoint being accessible
       final result = await controller.runJavaScriptReturningResult('''
         (function() {
-          // Check for OpenWebUI specific elements or title
-          var isOpenWebUI = 
+          var title = (document.title || "").toLowerCase();
+          var hasKnownIds =
+            document.getElementById("auth-page") !== null ||
+            document.getElementById("auth-container") !== null;
+          var hasBrandMarkers =
+            document.querySelector('meta[name="apple-mobile-web-app-title"]') !== null ||
+            document.querySelector('link[rel*="icon"][href*="/static/favicon"]') !== null;
+          var hasUiMarkers =
             document.querySelector('div[class*="chat"]') !== null ||
-            document.querySelector('[data-testid]') !== null ||
-            document.title.toLowerCase().includes('open webui') ||
-            document.title.toLowerCase().includes('chat');
+            document.querySelector('[data-testid]') !== null;
+          // Check for OpenWebUI specific elements or title
+          var isOpenWebUI =
+            hasKnownIds ||
+            hasBrandMarkers ||
+            hasUiMarkers ||
+            title.includes('open webui') ||
+            title.includes('chat');
           return isOpenWebUI ? "true" : "false";
         })()
         ''');
@@ -410,20 +452,31 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
         'OpenWebUI detection: $isOpenWebUI (on target server: $_isOnTargetServer)',
       );
 
-      // If we're on the target server, capture cookies
-      // The user might be on a login page or the main page
-      if (_isOnTargetServer) {
+      if (!_isOnTargetServer) {
+        return;
+      }
+
+      if (shouldAttemptAutomaticProxyAuthCapture(
+        looksLikeOpenWebUi: isOpenWebUI,
+        path: path,
+      )) {
         final request = await _buildAutomaticCaptureRequest(url);
         await _requestProxyCookieCapture(request);
+        return;
       }
+
+      DebugLogger.auth(
+        'Same-host page does not look like OpenWebUI yet; waiting on $path',
+      );
     } catch (e) {
       DebugLogger.log(
         'OpenWebUI detection failed: ${e.toString().split('\n').first}',
         scope: 'auth/proxy',
       );
 
-      // If detection fails but we're on target server, still try to capture
-      if (_isOnTargetServer) {
+      // If detection fails, only fall back to automatic capture on OpenWebUI's
+      // own auth routes. Same-host proxy login pages must stay in the WebView.
+      if (_isOnTargetServer && isKnownOpenWebUiProxyAuthPath(path)) {
         try {
           final request = await _buildAutomaticCaptureRequest(url);
           await _requestProxyCookieCapture(request);
@@ -433,6 +486,10 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
             _error = captureError.toString();
           });
         }
+      } else {
+        DebugLogger.auth(
+          'Skipping automatic proxy capture on non-OpenWebUI page: $path',
+        );
       }
     }
   }

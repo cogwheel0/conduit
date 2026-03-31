@@ -154,7 +154,7 @@ echo "$LINK" > "$ANDROID_CHANGELOG_DIR/default.txt"
 # iOS release notes in Deliverfile
 IOS_DELIVERFILE="ios/fastlane/Deliverfile"
 print_status "Updating iOS Deliverfile with release notes..."
-sed -i.bak "s|'default' => \".*\"|'default' => \"$LINK\"|" "$IOS_DELIVERFILE"
+sed -i.bak "/^release_notes(/ s|'default' => \".*\"|'default' => \"$LINK\"|" "$IOS_DELIVERFILE"
 rm "${IOS_DELIVERFILE}.bak"
 
 # Commit changes
