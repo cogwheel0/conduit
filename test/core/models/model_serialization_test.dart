@@ -403,6 +403,13 @@ void main() {
         'lastConnected': '2024-06-15T12:00:00.000Z',
         'isActive': true,
         'allowSelfSignedCertificates': false,
+        'mtlsCertificateChainPem':
+            '-----BEGIN CERTIFICATE-----\ncert\n-----END CERTIFICATE-----',
+        'mtlsCertificateLabel': 'client-cert.pem',
+        'mtlsPrivateKeyPem':
+            '-----BEGIN PRIVATE KEY-----\nkey\n-----END PRIVATE KEY-----',
+        'mtlsPrivateKeyLabel': 'client-key.pem',
+        'mtlsPrivateKeyPassword': 'secret',
       };
 
       final config = ServerConfig.fromJson(json);
@@ -412,12 +419,18 @@ void main() {
       check(config.apiKey).equals('key123');
       check(config.isActive).isTrue();
       check(config.allowSelfSignedCertificates).isFalse();
+      check(config.mtlsCertificateLabel).equals('client-cert.pem');
+      check(config.mtlsPrivateKeyLabel).equals('client-key.pem');
+      check(config.mtlsPrivateKeyPassword).equals('secret');
+      check(config.hasMutualTlsCredentials).isTrue();
 
       final output = config.toJson();
       check(output['id']).equals('srv1');
       check(output['name']).equals('Production');
       check(output['url']).equals('https://api.example.com');
       check(output['isActive']).equals(true);
+      check(output['mtlsCertificateLabel']).equals('client-cert.pem');
+      check(output['mtlsPrivateKeyLabel']).equals('client-key.pem');
     });
 
     test('defaults', () {
@@ -429,6 +442,7 @@ void main() {
       check(config.isActive).isFalse();
       check(config.allowSelfSignedCertificates).isFalse();
       check(config.customHeaders).deepEquals({});
+      check(config.hasMutualTlsCredentials).isFalse();
     });
   });
 

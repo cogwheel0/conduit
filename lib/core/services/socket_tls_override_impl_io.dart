@@ -1,15 +1,15 @@
-import 'dart:io'
-    show HttpOverrides, SecurityContext, HttpClient, X509Certificate;
+import 'dart:io' show HttpOverrides, SecurityContext, HttpClient;
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
 import '../models/server_config.dart';
+import 'server_tls_http_client_factory.dart';
 
 io.Socket createSocketWithOptionalBadCertOverride(
   String base,
   io.OptionBuilder builder,
   ServerConfig serverConfig,
 ) {
-  if (!serverConfig.allowSelfSignedCertificates) {
+  if (!ServerTlsHttpClientFactory.requiresCustomHttpClient(serverConfig)) {
     return io.io(base, builder.build());
   }
 
@@ -18,11 +18,9 @@ io.Socket createSocketWithOptionalBadCertOverride(
     return io.io(base, builder.build());
   }
 
-  final host = target.host.toLowerCase();
-  final port = target.hasPort ? target.port : null;
   return HttpOverrides.runWithHttpOverrides<io.Socket>(
     () => io.io(base, builder.build()),
-    _ScopedBadCertOverrides(host: host, port: port),
+    _ScopedServerTlsOverrides(serverConfig),
   );
 }
 
@@ -34,21 +32,16 @@ Uri? _tryParseUri(String url) {
   return null;
 }
 
-class _ScopedBadCertOverrides extends HttpOverrides {
-  _ScopedBadCertOverrides({required this.host, this.port});
+class _ScopedServerTlsOverrides extends HttpOverrides {
+  _ScopedServerTlsOverrides(this.serverConfig);
 
-  final String host;
-  final int? port;
+  final ServerConfig serverConfig;
 
   @override
   HttpClient createHttpClient(SecurityContext? context) {
-    final client = super.createHttpClient(context);
-    client.badCertificateCallback =
-        (X509Certificate cert, String requestHost, int requestPort) {
-          if (requestHost.toLowerCase() != host) return false;
-          if (port == null) return true;
-          return requestPort == port;
-        };
-    return client;
+    return ServerTlsHttpClientFactory.createHttpClient(
+      serverConfig,
+      fallbackContext: context,
+    );
   }
 }

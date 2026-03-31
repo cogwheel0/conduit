@@ -1,11 +1,13 @@
-import 'dart:io' show Platform;
+import 'dart:convert';
+import 'dart:io' show File, Platform;
 
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:flutter/services.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:uuid/uuid.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -39,9 +41,15 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   final Map<String, String> _customHeaders = {};
   final TextEditingController _headerKeyController = TextEditingController();
   final TextEditingController _headerValueController = TextEditingController();
+  final TextEditingController _mtlsPrivateKeyPasswordController =
+      TextEditingController();
   final FocusNode _headerValueFocusNode = FocusNode();
 
   String? _connectionError;
+  String? _mtlsCertificateChainPem;
+  String? _mtlsCertificateLabel;
+  String? _mtlsPrivateKeyPem;
+  String? _mtlsPrivateKeyLabel;
   bool _isConnecting = false;
   bool _showAdvancedSettings = false;
   bool _allowSelfSignedCertificates = false;
@@ -57,7 +65,23 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     if (!mounted || activeServer == null) return;
     setState(() {
       _urlController.text = activeServer.url;
+      _customHeaders
+        ..clear()
+        ..addAll(activeServer.customHeaders);
+      _showAdvancedSettings =
+          activeServer.allowSelfSignedCertificates ||
+          activeServer.customHeaders.isNotEmpty ||
+          (!kIsWeb && activeServer.hasMutualTlsCredentials);
       _allowSelfSignedCertificates = activeServer.allowSelfSignedCertificates;
+      _mtlsCertificateChainPem = kIsWeb
+          ? null
+          : activeServer.mtlsCertificateChainPem;
+      _mtlsCertificateLabel = kIsWeb ? null : activeServer.mtlsCertificateLabel;
+      _mtlsPrivateKeyPem = kIsWeb ? null : activeServer.mtlsPrivateKeyPem;
+      _mtlsPrivateKeyLabel = kIsWeb ? null : activeServer.mtlsPrivateKeyLabel;
+      _mtlsPrivateKeyPasswordController.text = kIsWeb
+          ? ''
+          : (activeServer.mtlsPrivateKeyPassword ?? '');
     });
   }
 
@@ -66,6 +90,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     _urlController.dispose();
     _headerKeyController.dispose();
     _headerValueController.dispose();
+    _mtlsPrivateKeyPasswordController.dispose();
     _headerValueFocusNode.dispose();
     super.dispose();
   }
@@ -88,6 +113,14 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       return;
     }
 
+    final mutualTlsValidationError = _validateMutualTlsSelection();
+    if (mutualTlsValidationError != null) {
+      setState(() {
+        _connectionError = mutualTlsValidationError;
+      });
+      return;
+    }
+
     setState(() {
       _isConnecting = true;
       _connectionError = null;
@@ -103,6 +136,11 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         customHeaders: Map<String, String>.from(_customHeaders),
         isActive: true,
         allowSelfSignedCertificates: _allowSelfSignedCertificates,
+        mtlsCertificateChainPem: _mtlsCertificateChainPem,
+        mtlsCertificateLabel: _mtlsCertificateLabel,
+        mtlsPrivateKeyPem: _mtlsPrivateKeyPem,
+        mtlsPrivateKeyLabel: _mtlsPrivateKeyLabel,
+        mtlsPrivateKeyPassword: _normalizedMtlsPrivateKeyPassword,
       );
 
       final workerManager = ref.read(workerManagerProvider);
@@ -272,6 +310,11 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       customHeaders: updatedHeaders,
       isActive: tempConfig.isActive,
       allowSelfSignedCertificates: tempConfig.allowSelfSignedCertificates,
+      mtlsCertificateChainPem: tempConfig.mtlsCertificateChainPem,
+      mtlsCertificateLabel: tempConfig.mtlsCertificateLabel,
+      mtlsPrivateKeyPem: tempConfig.mtlsPrivateKeyPem,
+      mtlsPrivateKeyLabel: tempConfig.mtlsPrivateKeyLabel,
+      mtlsPrivateKeyPassword: tempConfig.mtlsPrivateKeyPassword,
       // If we got a JWT token, store it as apiKey for API auth
       apiKey: result.jwtToken,
     );
@@ -457,11 +500,180 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     return 'Server';
   }
 
+  String? get _normalizedMtlsPrivateKeyPassword {
+    final trimmed = _mtlsPrivateKeyPasswordController.text.trim();
+    if (trimmed.isEmpty) {
+      return null;
+    }
+    return trimmed;
+  }
+
+  bool get _hasMutualTlsCertificate =>
+      _mtlsCertificateChainPem != null && _mtlsCertificateChainPem!.isNotEmpty;
+
+  bool get _hasMutualTlsPrivateKey =>
+      _mtlsPrivateKeyPem != null && _mtlsPrivateKeyPem!.isNotEmpty;
+
+  bool get _hasAnyMutualTlsInput =>
+      _hasMutualTlsCertificate ||
+      _hasMutualTlsPrivateKey ||
+      _normalizedMtlsPrivateKeyPassword != null;
+
+  String? _validateMutualTlsSelection() {
+    final hasPassword = _normalizedMtlsPrivateKeyPassword != null;
+    if (!_hasMutualTlsCertificate && !_hasMutualTlsPrivateKey) {
+      if (!hasPassword) {
+        return null;
+      }
+      return AppLocalizations.of(context)!.mutualTlsMissingCredentialPair;
+    }
+
+    if (_hasMutualTlsCertificate && _hasMutualTlsPrivateKey) {
+      return null;
+    }
+
+    return AppLocalizations.of(context)!.mutualTlsMissingCredentialPair;
+  }
+
+  Future<void> _pickMtlsCertificateChain() async {
+    await _pickMutualTlsFile(isPrivateKey: false);
+  }
+
+  Future<void> _pickMtlsPrivateKey() async {
+    await _pickMutualTlsFile(isPrivateKey: true);
+  }
+
+  Future<void> _pickMutualTlsFile({required bool isPrivateKey}) async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        allowMultiple: false,
+        type: FileType.custom,
+        allowedExtensions: isPrivateKey
+            ? const ['pem', 'key']
+            : const ['pem', 'crt', 'cer'],
+      );
+
+      if (result == null || result.files.isEmpty) {
+        return;
+      }
+
+      final file = result.files.single;
+      final pemContent = await _readPickedPemFile(file);
+      final validationError = _validatePickedPemContent(
+        pemContent,
+        isPrivateKey: isPrivateKey,
+      );
+
+      if (validationError != null) {
+        _showHeaderError(validationError);
+        return;
+      }
+
+      final fileLabel = _resolvePickedFileLabel(
+        file,
+        fallback: isPrivateKey ? 'client-key.pem' : 'client-cert.pem',
+      );
+
+      setState(() {
+        if (isPrivateKey) {
+          _mtlsPrivateKeyPem = pemContent;
+          _mtlsPrivateKeyLabel = fileLabel;
+        } else {
+          _mtlsCertificateChainPem = pemContent;
+          _mtlsCertificateLabel = fileLabel;
+        }
+        _connectionError = null;
+      });
+      ConduitHaptics.lightImpact();
+    } catch (error) {
+      _showHeaderError(error.toString().replaceFirst('Exception: ', ''));
+    }
+  }
+
+  Future<String> _readPickedPemFile(PlatformFile file) async {
+    final l10n = AppLocalizations.of(context)!;
+    final bytes =
+        file.bytes ??
+        (file.path != null ? await File(file.path!).readAsBytes() : null);
+    if (bytes == null || bytes.isEmpty) {
+      throw Exception(l10n.mutualTlsFileReadFailed);
+    }
+
+    try {
+      return utf8.decode(bytes).trim();
+    } catch (_) {
+      throw Exception(l10n.mutualTlsFileReadFailed);
+    }
+  }
+
+  String _resolvePickedFileLabel(
+    PlatformFile file, {
+    required String fallback,
+  }) {
+    final trimmedName = file.name.trim();
+    if (trimmedName.isNotEmpty) {
+      return trimmedName;
+    }
+
+    final path = file.path?.trim();
+    if (path != null && path.isNotEmpty) {
+      final normalized = path.replaceAll('\\', '/');
+      final segments = normalized.split('/');
+      if (segments.isNotEmpty && segments.last.isNotEmpty) {
+        return segments.last;
+      }
+    }
+
+    return fallback;
+  }
+
+  String? _validatePickedPemContent(
+    String content, {
+    required bool isPrivateKey,
+  }) {
+    if (isPrivateKey) {
+      if (content.contains('BEGIN ') && content.contains('PRIVATE KEY')) {
+        return null;
+      }
+      return AppLocalizations.of(context)!.mutualTlsPrivateKeyPemRequired;
+    }
+
+    if (content.contains('BEGIN CERTIFICATE')) {
+      return null;
+    }
+    return AppLocalizations.of(context)!.mutualTlsCertificatePemRequired;
+  }
+
+  void _clearMutualTlsCredentials() {
+    setState(() {
+      _mtlsCertificateChainPem = null;
+      _mtlsCertificateLabel = null;
+      _mtlsPrivateKeyPem = null;
+      _mtlsPrivateKeyLabel = null;
+      _mtlsPrivateKeyPasswordController.clear();
+      _connectionError = null;
+    });
+    ConduitHaptics.lightImpact();
+  }
+
   String _formatConnectionError(String error) {
     // Clean up the error message
     String cleanError = error.replaceFirst('Exception: ', '');
 
     // Handle specific error types
+    if (error.contains('mTLS certificate setup failed')) {
+      return cleanError;
+    } else if (error.contains('HandshakeException') && _hasAnyMutualTlsInput) {
+      return AppLocalizations.of(context)!.mutualTlsHandshakeFailed;
+    } else if (error.contains('TlsException') && _hasAnyMutualTlsInput) {
+      return AppLocalizations.of(context)!.mutualTlsHandshakeFailed;
+    } else if (error.contains('CERTIFICATE_VERIFY_FAILED') &&
+        _hasAnyMutualTlsInput) {
+      return AppLocalizations.of(context)!.mutualTlsHandshakeFailed;
+    } else if (error.contains('alert bad certificate') &&
+        _hasAnyMutualTlsInput) {
+      return AppLocalizations.of(context)!.mutualTlsHandshakeFailed;
+    }
     if (error.contains('SocketException')) {
       return AppLocalizations.of(context)!.weCouldntReachServer;
     } else if (error.contains('timeout')) {
@@ -878,11 +1090,113 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
           ),
         ),
 
-        Divider(
-          height: BorderWidth.thin,
-          thickness: BorderWidth.thin,
-          color: theme.cardBorder,
-        ),
+        if (!kIsWeb) ...[
+          Divider(
+            height: BorderWidth.thin,
+            thickness: BorderWidth.thin,
+            color: theme.cardBorder,
+          ),
+
+          Padding(
+            padding: const EdgeInsets.all(Spacing.md),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  l10n.mutualTlsSectionTitle,
+                  style: theme.bodySmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: theme.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: Spacing.xxs),
+                Text(
+                  l10n.mutualTlsSectionDescription,
+                  style: TextStyle(
+                    fontSize: AppTypography.labelSmall,
+                    color: theme.textSecondary,
+                    height: 1.3,
+                  ),
+                ),
+                const SizedBox(height: Spacing.md),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ConduitButton(
+                        text: l10n.mutualTlsSelectCertificate,
+                        onPressed: _pickMtlsCertificateChain,
+                        isSecondary: true,
+                        isCompact: true,
+                        isFullWidth: true,
+                      ),
+                    ),
+                    const SizedBox(width: Spacing.sm),
+                    Expanded(
+                      child: ConduitButton(
+                        text: l10n.mutualTlsSelectPrivateKey,
+                        onPressed: _pickMtlsPrivateKey,
+                        isSecondary: true,
+                        isCompact: true,
+                        isFullWidth: true,
+                      ),
+                    ),
+                  ],
+                ),
+                if (_mtlsCertificateLabel != null ||
+                    _mtlsPrivateKeyLabel != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: Spacing.md),
+                    child: Wrap(
+                      spacing: Spacing.xs,
+                      runSpacing: Spacing.xs,
+                      children: [
+                        if (_mtlsCertificateLabel != null)
+                          _buildMutualTlsBadge(
+                            label:
+                                '${l10n.mutualTlsCertificateReady}: '
+                                '$_mtlsCertificateLabel',
+                          ),
+                        if (_mtlsPrivateKeyLabel != null)
+                          _buildMutualTlsBadge(
+                            label:
+                                '${l10n.mutualTlsPrivateKeyReady}: '
+                                '$_mtlsPrivateKeyLabel',
+                          ),
+                      ],
+                    ),
+                  ),
+                if (_hasAnyMutualTlsInput) ...[
+                  const SizedBox(height: Spacing.md),
+                  AdaptiveTextFormField(
+                    controller: _mtlsPrivateKeyPasswordController,
+                    placeholder: l10n.mutualTlsPrivateKeyPasswordHint,
+                    obscureText: true,
+                    keyboardType: TextInputType.visiblePassword,
+                    textInputAction: TextInputAction.done,
+                    cupertinoDecoration: BoxDecoration(
+                      color: CupertinoColors.tertiarySystemBackground,
+                      border: Border.all(color: theme.inputBorder),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  const SizedBox(height: Spacing.sm),
+                  ConduitButton(
+                    text: l10n.mutualTlsClearCredentials,
+                    onPressed: _clearMutualTlsCredentials,
+                    isSecondary: true,
+                    isCompact: true,
+                  ),
+                ],
+              ],
+            ),
+          ),
+
+          Divider(
+            height: BorderWidth.thin,
+            thickness: BorderWidth.thin,
+            color: theme.cardBorder,
+          ),
+        ],
 
         // Custom headers section
         Padding(
@@ -1007,6 +1321,19 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildMutualTlsBadge({required String label}) {
+    final theme = context.conduitTheme;
+
+    return ConduitBadge(
+      text: label,
+      isCompact: true,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      backgroundColor: theme.buttonPrimary.withValues(alpha: 0.08),
+      textColor: theme.buttonPrimary,
     );
   }
 

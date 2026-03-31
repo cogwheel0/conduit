@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
@@ -286,6 +287,48 @@ void main() {
       }
       check(caught).isNotNull();
       check(caught).isA<Exception>();
+    });
+  });
+
+  group('TLS handshake detection', () {
+    test('detects handshake exception payloads', () {
+      final error = DioException(
+        requestOptions: RequestOptions(path: '/health'),
+        type: DioExceptionType.unknown,
+        error: HandshakeException('alert bad certificate'),
+      );
+
+      check(isTlsHandshakeFailureForTest(error)).isTrue();
+    });
+
+    test('detects certificate verify errors from message text', () {
+      final error = DioException(
+        requestOptions: RequestOptions(path: '/health'),
+        type: DioExceptionType.unknown,
+        error: 'CERTIFICATE_VERIFY_FAILED',
+      );
+
+      check(isTlsHandshakeFailureForTest(error)).isTrue();
+    });
+
+    test('detects mTLS setup failures from message text', () {
+      final error = DioException(
+        requestOptions: RequestOptions(path: '/health'),
+        type: DioExceptionType.unknown,
+        error: 'mTLS certificate setup failed',
+      );
+
+      check(isTlsHandshakeFailureForTest(error)).isTrue();
+    });
+
+    test('ignores ordinary connection errors', () {
+      final error = DioException(
+        requestOptions: RequestOptions(path: '/health'),
+        type: DioExceptionType.connectionError,
+        error: 'connection refused',
+      );
+
+      check(isTlsHandshakeFailureForTest(error)).isFalse();
     });
   });
 

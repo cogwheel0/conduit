@@ -1042,6 +1042,58 @@
   "@allowSelfSignedCertificatesDescription": {
     "description": "Helper text clarifying the risks of enabling the self-signed certificate toggle."
   },
+  "mutualTlsSectionTitle": "mTLS client certificate",
+  "@mutualTlsSectionTitle": {
+    "description": "Section title for configuring a client certificate and private key for mutual TLS."
+  },
+  "mutualTlsSectionDescription": "Attach a PEM certificate chain and PEM private key when your server requires mutual TLS during connection setup.",
+  "@mutualTlsSectionDescription": {
+    "description": "Helper text explaining when to use the mTLS configuration section."
+  },
+  "mutualTlsSelectCertificate": "Select certificate",
+  "@mutualTlsSelectCertificate": {
+    "description": "Button label for picking a PEM client certificate chain file."
+  },
+  "mutualTlsSelectPrivateKey": "Select private key",
+  "@mutualTlsSelectPrivateKey": {
+    "description": "Button label for picking a PEM private key file."
+  },
+  "mutualTlsCertificateReady": "Certificate",
+  "@mutualTlsCertificateReady": {
+    "description": "Short label used in a badge once an mTLS certificate file has been selected."
+  },
+  "mutualTlsPrivateKeyReady": "Private key",
+  "@mutualTlsPrivateKeyReady": {
+    "description": "Short label used in a badge once an mTLS private key file has been selected."
+  },
+  "mutualTlsPrivateKeyPasswordHint": "Private key password (optional)",
+  "@mutualTlsPrivateKeyPasswordHint": {
+    "description": "Placeholder for the optional password used to decrypt an mTLS private key."
+  },
+  "mutualTlsClearCredentials": "Clear mTLS files",
+  "@mutualTlsClearCredentials": {
+    "description": "Button label that removes selected mTLS certificate material from the form."
+  },
+  "mutualTlsMissingCredentialPair": "Select both a client certificate and private key to use mTLS.",
+  "@mutualTlsMissingCredentialPair": {
+    "description": "Validation message shown when only one half of the mTLS credential pair is configured."
+  },
+  "mutualTlsCertificatePemRequired": "The selected certificate file must contain a PEM certificate chain.",
+  "@mutualTlsCertificatePemRequired": {
+    "description": "Error shown when the selected mTLS certificate file does not look like PEM certificate content."
+  },
+  "mutualTlsPrivateKeyPemRequired": "The selected private key file must contain a PEM private key.",
+  "@mutualTlsPrivateKeyPemRequired": {
+    "description": "Error shown when the selected mTLS private key file does not look like PEM private key content."
+  },
+  "mutualTlsFileReadFailed": "Could not read the selected mTLS file.",
+  "@mutualTlsFileReadFailed": {
+    "description": "Error shown when a picked certificate or key file cannot be read as text."
+  },
+  "mutualTlsHandshakeFailed": "The server rejected the mTLS credentials. Confirm that the certificate, private key, and password are correct.",
+  "@mutualTlsHandshakeFailed": {
+    "description": "Connection error shown when the TLS handshake fails while mTLS credentials are configured."
+  },
   "headerNameTooLong": "Header name too long (max 64 characters)",
   "@headerNameTooLong": {
     "description": "Validation message for header name length."

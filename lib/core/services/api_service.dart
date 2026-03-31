@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:dio/dio.dart';
-import 'package:dio/io.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http_parser/http_parser.dart';
 import 'package:uuid/uuid.dart';
@@ -25,6 +24,7 @@ import '../utils/debug_logger.dart';
 import '../utils/embed_utils.dart';
 import 'conversation_parsing.dart';
 import 'worker_manager.dart';
+import 'server_tls_http_client_factory.dart';
 
 const bool _traceApiLogs = false;
 
@@ -33,6 +33,21 @@ void _traceApi(String message) {
     return;
   }
   DebugLogger.log(message, scope: 'api/trace');
+}
+
+@visibleForTesting
+bool isTlsHandshakeFailureForTest(DioException error) {
+  final rawError = error.error;
+  if (rawError is HandshakeException || rawError is TlsException) {
+    return true;
+  }
+
+  final message = (rawError?.toString() ?? error.message ?? '').toLowerCase();
+  return message.contains('mtls certificate setup failed') ||
+      message.contains('handshakeexception') ||
+      message.contains('tlsexception') ||
+      message.contains('certificate_verify_failed') ||
+      message.contains('alert bad certificate');
 }
 
 /// Get MIME type from file extension.
@@ -243,7 +258,7 @@ class ApiService {
          ),
        ),
        _workerManager = workerManager {
-    _configureSelfSignedSupport();
+    ServerTlsHttpClientFactory.configureDio(_dio, serverConfig);
 
     // Use API key from server config if provided and no explicit auth token
     final effectiveAuthToken = authToken ?? serverConfig.apiKey;
@@ -311,68 +326,6 @@ class ApiService {
     }
   }
 
-  /// Configures this Dio instance to accept self-signed certificates.
-  ///
-  /// When [ServerConfig.allowSelfSignedCertificates] is enabled, this method
-  /// sets up a [badCertificateCallback] that trusts certificates from the
-  /// configured server's host and port.
-  ///
-  /// Security considerations:
-  /// - Only certificates from the exact host/port are trusted
-  /// - If no port is specified, all ports on the host are trusted
-  /// - Web platforms ignore this (browsers handle TLS validation)
-  void _configureSelfSignedSupport() {
-    if (kIsWeb || !serverConfig.allowSelfSignedCertificates) {
-      return;
-    }
-
-    final baseUri = _parseBaseUri(serverConfig.url);
-    if (baseUri == null) {
-      return;
-    }
-
-    final adapter = _dio.httpClientAdapter;
-    if (adapter is! IOHttpClientAdapter) {
-      return;
-    }
-
-    adapter.createHttpClient = () {
-      final client = HttpClient();
-      final host = baseUri.host.toLowerCase();
-      final port = baseUri.hasPort ? baseUri.port : null;
-      client.badCertificateCallback =
-          (X509Certificate cert, String requestHost, int requestPort) {
-            // Only trust certificates from our configured server
-            if (requestHost.toLowerCase() != host) {
-              return false;
-            }
-            // If no specific port configured, trust any port on this host
-            if (port == null) {
-              return true;
-            }
-            // Otherwise, port must match exactly
-            return requestPort == port;
-          };
-      return client;
-    };
-  }
-
-  Uri? _parseBaseUri(String baseUrl) {
-    final trimmed = baseUrl.trim();
-    if (trimmed.isEmpty) {
-      return null;
-    }
-    Uri? parsed = Uri.tryParse(trimmed);
-    if (parsed == null) {
-      return null;
-    }
-    if (!parsed.hasScheme) {
-      parsed =
-          Uri.tryParse('https://$trimmed') ?? Uri.tryParse('http://$trimmed');
-    }
-    return parsed;
-  }
-
   /// Basic health check - just verifies the server is reachable.
   Future<bool> checkHealth() async {
     try {
@@ -409,25 +362,7 @@ class ApiService {
         ),
       );
 
-      // Configure self-signed cert support if needed
-      if (!kIsWeb && serverConfig.allowSelfSignedCertificates) {
-        final baseUri = _parseBaseUri(serverConfig.url);
-        if (baseUri != null) {
-          final host = baseUri.host.toLowerCase();
-          final port = baseUri.hasPort ? baseUri.port : null;
-          (tempDio.httpClientAdapter as IOHttpClientAdapter)
-              .createHttpClient = () {
-            final client = HttpClient();
-            client.badCertificateCallback =
-                (X509Certificate cert, String requestHost, int requestPort) {
-                  if (requestHost.toLowerCase() != host) return false;
-                  if (port == null) return true;
-                  return requestPort == port;
-                };
-            return client;
-          };
-        }
-      }
+      ServerTlsHttpClientFactory.configureDio(tempDio, serverConfig);
 
       final response = await tempDio.get('/health');
       final statusCode = response.statusCode ?? 0;
@@ -499,6 +434,10 @@ class ApiService {
         scope: 'api/proxy-detect',
       );
 
+      if (isTlsHandshakeFailureForTest(e)) {
+        rethrow;
+      }
+
       // Connection errors mean unreachable
       if (e.type == DioExceptionType.connectionTimeout ||
           e.type == DioExceptionType.connectionError ||
@@ -523,6 +462,11 @@ class ApiService {
 
       return HealthCheckResult.unreachable;
     } catch (e) {
+      if (e.toString().toLowerCase().contains(
+        'mtls certificate setup failed',
+      )) {
+        rethrow;
+      }
       DebugLogger.error(
         'proxy-detection-failed',
         scope: 'api/proxy-detect',

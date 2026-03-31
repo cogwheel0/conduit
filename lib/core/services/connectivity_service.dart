@@ -1,15 +1,13 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:dio/dio.dart';
-import 'package:dio/io.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../providers/app_providers.dart';
+import 'server_tls_http_client_factory.dart';
 
 part 'connectivity_service.g.dart';
 
@@ -303,60 +301,6 @@ class ConnectivityService with WidgetsBindingObserver {
     }
   }
 
-  /// Configures the Dio instance to accept self-signed certificates.
-  ///
-  /// This method sets up a [badCertificateCallback] that trusts certificates
-  /// from the specified server's host and port for health check requests.
-  ///
-  /// Security considerations:
-  /// - Only certificates from the exact host/port are trusted
-  /// - If no port is specified in the URL, all ports on the host are trusted
-  /// - Web platforms ignore this (browsers handle TLS validation)
-  ///
-  /// This is called per-Dio-instance rather than using global HttpOverrides.
-  static void configureSelfSignedCerts(Dio dio, String serverUrl) {
-    if (kIsWeb) return;
-
-    final uri = _parseStaticUri(serverUrl);
-    if (uri == null) return;
-
-    final adapter = dio.httpClientAdapter;
-    if (adapter is! IOHttpClientAdapter) return;
-
-    adapter.createHttpClient = () {
-      final client = HttpClient();
-      final host = uri.host.toLowerCase();
-      final port = uri.hasPort ? uri.port : null;
-
-      client.badCertificateCallback =
-          (X509Certificate cert, String requestHost, int requestPort) {
-            // Only trust certificates from our configured server
-            if (requestHost.toLowerCase() != host) return false;
-            // If no specific port configured, trust any port on this host
-            if (port == null) return true;
-            // Otherwise, port must match exactly
-            return requestPort == port;
-          };
-
-      return client;
-    };
-  }
-
-  static Uri? _parseStaticUri(String url) {
-    if (url.trim().isEmpty) return null;
-
-    Uri? parsed = Uri.tryParse(url.trim());
-    if (parsed == null) return null;
-
-    if (!parsed.hasScheme) {
-      parsed =
-          Uri.tryParse('https://${url.trim()}') ??
-          Uri.tryParse('http://${url.trim()}');
-    }
-
-    return parsed;
-  }
-
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     switch (state) {
@@ -408,8 +352,8 @@ final connectivityServiceProvider = Provider<ConnectivityService>((ref) {
         ),
       );
 
-      if (server.allowSelfSignedCertificates) {
-        ConnectivityService.configureSelfSignedCerts(dio, server.url);
+      if (ServerTlsHttpClientFactory.requiresCustomHttpClient(server)) {
+        ServerTlsHttpClientFactory.configureDio(dio, server);
       }
 
       final service = ConnectivityService(dio, ref);

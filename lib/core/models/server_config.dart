@@ -32,8 +32,39 @@ sealed class ServerConfig with _$ServerConfig {
 
     /// Whether to trust self-signed TLS certificates for this server.
     @Default(false) bool allowSelfSignedCertificates,
+
+    /// PEM-encoded client certificate chain used for mTLS authentication.
+    String? mtlsCertificateChainPem,
+
+    /// Display label for the selected mTLS certificate file.
+    String? mtlsCertificateLabel,
+
+    /// PEM-encoded private key paired with [mtlsCertificateChainPem].
+    String? mtlsPrivateKeyPem,
+
+    /// Display label for the selected mTLS private key file.
+    String? mtlsPrivateKeyLabel,
+
+    /// Optional passphrase for the selected mTLS private key.
+    String? mtlsPrivateKeyPassword,
   }) = _ServerConfig;
 
   factory ServerConfig.fromJson(Map<String, dynamic> json) =>
       _$ServerConfigFromJson(json);
+}
+
+extension ServerConfigTls on ServerConfig {
+  /// Whether both client certificate inputs are present for mTLS.
+  bool get hasMutualTlsCredentials {
+    final certificate = mtlsCertificateChainPem?.trim();
+    final privateKey = mtlsPrivateKeyPem?.trim();
+    return certificate != null &&
+        certificate.isNotEmpty &&
+        privateKey != null &&
+        privateKey.isNotEmpty;
+  }
+
+  /// Whether the configuration requires a custom `dart:io` TLS client.
+  bool get needsCustomTlsClient =>
+      allowSelfSignedCertificates || hasMutualTlsCredentials;
 }
