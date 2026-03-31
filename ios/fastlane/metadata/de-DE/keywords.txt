@@ -1,1 +1,0 @@
-conduit, openwebui, ki chat, llm chat, selbst gehostete ki, ollama

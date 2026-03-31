@@ -108,6 +108,8 @@ lib/l10n/app_localizations_*.dart
 **/fastlane/Preview.html
 **/fastlane/screenshots
 **/fastlane/test_output
+**/ios/fastlane/
+**/android/fastlane/
 
 # Firebase
 google-services.json

@@ -1,7 +1,0 @@
-app_identifier("app.cogwheel.conduit") # The bundle identifier of your app
-
-itc_team_id("128030454") # App Store Connect Team ID
-team_id("X2662V5DT2") # Developer Portal Team ID
-
-# For more information about the Appfile, see:
-#     https://docs.fastlane.tools/advanced/#appfile
