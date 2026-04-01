@@ -5,9 +5,11 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 import httpx
 import json
+import ast
 import csv
 import os
 import time
+import asyncio
 from pathlib import Path
 import re
 import uuid
@@ -329,6 +331,37 @@ def is_code_edit_request(text: str) -> bool:
     )
 
 
+def unwrap_structured_text_payload(text: str) -> str:
+    raw = text.strip()
+    if not raw.startswith("[") or "text" not in raw:
+        return text
+
+    parsed: Any | None = None
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        try:
+            parsed = ast.literal_eval(raw)
+        except Exception:
+            return text
+
+    if not isinstance(parsed, list):
+        return text
+
+    parts: list[str] = []
+    for item in parsed:
+        if isinstance(item, dict):
+            kind = str(item.get("type", "")).lower()
+            if kind in {"text", "input_text"}:
+                value = item.get("text")
+                if isinstance(value, str) and value.strip():
+                    parts.append(value)
+
+    if not parts:
+        return text
+    return "\n".join(parts)
+
+
 def extract_requested_filename(text: str) -> str | None:
     patterns = [
         r"file:\s*([^\n\r]+)",
@@ -345,13 +378,14 @@ def extract_requested_filename(text: str) -> str | None:
 
 
 def extract_inline_file_contents(text: str) -> str:
+    normalized = unwrap_structured_text_payload(text)
     patterns = [
         r"Current file contents:\s*\n(?P<body>.*)$",
         r"Current file:\s*\n(?P<body>.*)$",
         r"<<<FILE\s*\n(?P<body>.*?)\nFILE\s*$",
     ]
     for pattern in patterns:
-        match = re.search(pattern, text, flags=re.IGNORECASE | re.DOTALL)
+        match = re.search(pattern, normalized, flags=re.IGNORECASE | re.DOTALL)
         if match:
             body = match.group("body").strip("\n\r")
             if body.strip():
@@ -360,7 +394,7 @@ def extract_inline_file_contents(text: str) -> str:
 
 
 def extract_code_edit_instruction(text: str) -> str:
-    working = text
+    working = unwrap_structured_text_payload(text)
 
     working = re.sub(
         r"^\s*Code edit request for file:\s*[^\n\r]+\s*",
@@ -436,6 +470,29 @@ def build_code_edit_contract_system_prompt(requested_filename: str | None) -> st
     )
 
 
+def coerce_model_content_to_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict):
+                text = item.get("text")
+                if isinstance(text, str) and text.strip():
+                    parts.append(text)
+            elif isinstance(item, str) and item.strip():
+                parts.append(item)
+        return "\n".join(parts).strip()
+
+    if isinstance(content, dict):
+        text = content.get("text")
+        if isinstance(text, str):
+            return text
+
+    return str(content or "")
+
+
 def extract_json_object(raw: str) -> str | None:
     start = raw.find("{")
     end = raw.rfind("}")
@@ -471,7 +528,47 @@ def normalize_patch_confidence(value: Any) -> str:
     return "low"
 
 
-def parse_code_edit_response(raw: str, requested_filename: str | None) -> dict[str, Any]:
+def extract_fenced_code_block(raw: str) -> str:
+    blocks = re.findall(
+        r"```(?:[a-zA-Z0-9_+\-#.]+)?\s*\n(.*?)```",
+        raw,
+        flags=re.DOTALL,
+    )
+    cleaned_blocks = [block.strip("\n\r") for block in blocks if block.strip()]
+    if not cleaned_blocks:
+        return ""
+
+    cleaned_blocks.sort(key=len, reverse=True)
+    return cleaned_blocks[0]
+
+
+def build_non_json_code_edit_fallback(
+    raw: str,
+    requested_filename: str | None,
+) -> dict[str, Any] | None:
+    recovered = extract_fenced_code_block(raw)
+    if not recovered.strip():
+        return None
+
+    fallback_name = requested_filename or "modified_file.txt"
+    return {
+        "executive_summary": [
+            "Recovered a code-edit result from a non-JSON model response."
+        ],
+        "change_summary": [
+            "The model did not follow the JSON contract, so the gateway extracted "
+            "the largest fenced code block as the modified file content."
+        ],
+        "patch_confidence": "low",
+        "modified_file": {
+            "name": Path(fallback_name).name or "modified_file.txt",
+            "content": recovered,
+        },
+    }
+
+
+def parse_code_edit_response(raw: Any, requested_filename: str | None) -> dict[str, Any]:
+    raw_text = coerce_model_content_to_text(raw)
     default_name = requested_filename or "modified_file.txt"
     default = {
         "executive_summary": [
@@ -487,13 +584,19 @@ def parse_code_edit_response(raw: str, requested_filename: str | None) -> dict[s
         },
     }
 
-    blob = extract_json_object(raw)
+    blob = extract_json_object(raw_text)
     if not blob:
+        recovered = build_non_json_code_edit_fallback(raw_text, requested_filename)
+        if recovered is not None:
+            return recovered
         return default
 
     try:
         parsed = json.loads(blob)
     except Exception:
+        recovered = build_non_json_code_edit_fallback(raw_text, requested_filename)
+        if recovered is not None:
+            return recovered
         return default
 
     executive_summary = normalize_summary_lines(parsed.get("executive_summary"))
@@ -515,6 +618,17 @@ def parse_code_edit_response(raw: str, requested_filename: str | None) -> dict[s
         or parsed.get("modified_file_content")
         or ""
     )
+
+    if not modified_content.strip():
+        recovered_content = extract_fenced_code_block(raw_text)
+        if recovered_content.strip():
+            modified_content = recovered_content
+            if not change_summary:
+                change_summary = [
+                    "Recovered modified file content from a fenced code block "
+                    "because modified_file.content was empty."
+                ]
+            patch_confidence = "low"
 
     if not executive_summary:
         executive_summary = ["Prepared a code-edit response."]
@@ -584,6 +698,66 @@ def split_for_stream(text: str, chunk_size: int = 180) -> list[str]:
         parts.append(text[start:start + chunk_size])
         start += chunk_size
     return parts
+
+
+def strip_markdown_fences(text: str) -> str:
+    trimmed = text.strip()
+    if not trimmed.startswith("```"):
+        return trimmed
+
+    match = re.match(r"^```[^\n]*\n(?P<body>.*)\n```$", trimmed, flags=re.DOTALL)
+    if not match:
+        return trimmed
+    return match.group("body").strip("\n\r")
+
+
+async def recover_modified_file_with_retry(
+    model: str,
+    requested_filename: str | None,
+    instruction: str,
+    original_file_contents: str,
+) -> str:
+    target_name = requested_filename or "modified_file.txt"
+    retry_messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are repairing a failed code-edit response. "
+                "Return only the full updated file contents. "
+                "Do not return JSON. "
+                "Do not return markdown fences. "
+                "Do not explain anything."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Target file: {target_name}\n\n"
+                f"Edit instruction:\n{instruction.strip()}\n\n"
+                "Current file contents:\n"
+                f"{original_file_contents}"
+            ),
+        },
+    ]
+
+    retry_payload = {
+        "model": model,
+        "messages": retry_messages,
+        "max_tokens": 8192,
+        "temperature": 0.0,
+        "stream": False,
+    }
+
+    async with httpx.AsyncClient(timeout=45.0) as client:
+        retry_response = await client.post(
+            f"{LLAMA_BASE}/v1/chat/completions",
+            json=retry_payload,
+        )
+        retry_response.raise_for_status()
+        retry_data = retry_response.json()
+
+    raw_content = str(retry_data["choices"][0]["message"]["content"] or "")
+    return strip_markdown_fences(raw_content)
 
 
 @app.post("/rag/test-ingest")
@@ -881,10 +1055,18 @@ async def chat(req: GatewayChatRequest, request: Request) -> dict:
     state["last_reserved_output"] = budget.reserved_output
     save_conversation(req.conversation_id, state)
 
+    code_edit_max_tokens = max_tokens
+    if code_edit_mode:
+        # Code edit responses must include the full updated file content.
+        # Prefer a larger generation budget so the model can return full files.
+        code_edit_input_tokens = estimate_tokens(code_edit_file_contents)
+        requested_output = max(4096, code_edit_input_tokens + 1024)
+        code_edit_max_tokens = min(max(requested_output, max_tokens), 12288)
+
     payload = {
         "model": req.model,
         "messages": final_messages,
-        "max_tokens": max_tokens,
+        "max_tokens": code_edit_max_tokens if code_edit_mode else max_tokens,
         "temperature": min(req.temperature, 0.2) if code_edit_mode else req.temperature,
         "stream": not code_edit_mode,
     }
@@ -921,19 +1103,87 @@ async def chat(req: GatewayChatRequest, request: Request) -> dict:
                 async with httpx.AsyncClient(timeout=300.0) as client:
                     r = await client.post(f"{LLAMA_BASE}/v1/chat/completions", json=payload)
                     if r.status_code >= 400:
-                        raise HTTPException(status_code=r.status_code, detail=r.text)
-                    data = r.json()
+                        debug_code_edit_event(
+                            "code_edit_llama_upstream_error",
+                            status_code=r.status_code,
+                            body_preview=_debug_preview(r.text),
+                        )
+                        parsed = {
+                            "executive_summary": [
+                                "The code-edit model call failed before a patch could be generated."
+                            ],
+                            "change_summary": [
+                                "Upstream model service returned an error response. "
+                                "Please retry the request."
+                            ],
+                            "patch_confidence": "low",
+                            "modified_file": {
+                                "name": requested_filename or "modified_file.txt",
+                                "content": "",
+                            },
+                        }
+                        r = None
+                    else:
+                        data = r.json()
+                        raw_assistant = data["choices"][0]["message"]["content"]
+                        raw_assistant_text = coerce_model_content_to_text(raw_assistant)
+                        parsed = parse_code_edit_response(raw_assistant_text, requested_filename)
+                        debug_code_edit_event(
+                            "code_edit_llama_response",
+                            raw_preview=_debug_preview(raw_assistant_text),
+                            parsed_filename=parsed.get("modified_file", {}).get("name", ""),
+                            parsed_content_chars=len(str(parsed.get("modified_file", {}).get("content", ""))),
+                            patch_confidence=parsed.get("patch_confidence", ""),
+                        )
 
-                raw_assistant = data["choices"][0]["message"]["content"]
-                parsed = parse_code_edit_response(raw_assistant, requested_filename)
+                parsed_modified = parsed.get("modified_file", {})
+                parsed_content = ""
+                if isinstance(parsed_modified, dict):
+                    parsed_content = str(parsed_modified.get("content") or "")
 
-                debug_code_edit_event(
-                    "code_edit_llama_response",
-                    raw_preview=_debug_preview(raw_assistant),
-                    parsed_filename=parsed.get("modified_file", {}).get("name", ""),
-                    parsed_content_chars=len(str(parsed.get("modified_file", {}).get("content", ""))),
-                    patch_confidence=parsed.get("patch_confidence", ""),
-                )
+                if (not parsed_content.strip()) and code_edit_file_contents.strip():
+                    debug_code_edit_event(
+                        "code_edit_retry_missing_content",
+                        requested_filename=requested_filename or "",
+                        retry_reason="empty_modified_file_content",
+                    )
+                    try:
+                        recovered_content = await asyncio.wait_for(
+                            recover_modified_file_with_retry(
+                                model=req.model,
+                                requested_filename=requested_filename,
+                                instruction=code_edit_instruction,
+                                original_file_contents=code_edit_file_contents,
+                            ),
+                            timeout=50.0,
+                        )
+                    except Exception as retry_error:
+                        debug_code_edit_event(
+                            "code_edit_retry_failed",
+                            error=str(retry_error),
+                        )
+                    else:
+                        if recovered_content.strip():
+                            modified = parsed.get("modified_file")
+                            if not isinstance(modified, dict):
+                                modified = {}
+                            modified["name"] = (
+                                modified.get("name")
+                                or requested_filename
+                                or "modified_file.txt"
+                            )
+                            modified["content"] = recovered_content
+                            parsed["modified_file"] = modified
+                            parsed["patch_confidence"] = "low"
+                            change_summary = parsed.get("change_summary")
+                            if isinstance(change_summary, list):
+                                change_summary.append(
+                                    "Recovered full file content through a strict retry pass."
+                                )
+                            debug_code_edit_event(
+                                "code_edit_retry_recovered",
+                                recovered_chars=len(recovered_content),
+                            )
 
             artifact = None
             modified_file = parsed.get("modified_file", {})

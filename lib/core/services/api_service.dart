@@ -309,12 +309,23 @@ class ApiService {
     try {
       final response = await _dio.get('/api/v1/auths/');
       final data = response.data;
+      final records = <Map<String, dynamic>>[];
       if (data is Map<String, dynamic>) {
+        records.add(data);
+        final nestedUser = data['user'];
+        if (nestedUser is Map<String, dynamic>) {
+          records.add(nestedUser);
+        }
+      } else if (data is List) {
+        records.addAll(data.whereType<Map<String, dynamic>>());
+      }
+
+      for (final record in records) {
         final candidates = <Object?>[
-          data['id'],
-          data['email'],
-          data['username'],
-          data['name'],
+          record['id'],
+          record['email'],
+          record['username'],
+          record['name'],
         ];
         for (final candidate in candidates) {
           final value = candidate?.toString().trim() ?? '';
@@ -3957,6 +3968,7 @@ class ApiService {
     List<String>? toolIds,
     List<String>? filterIds,
     List<String>? skillIds,
+    String? ragCollection,
     bool enableWebSearch = false,
     bool enableImageGeneration = false,
     bool enableCodeInterpreter = false,
@@ -3966,6 +3978,11 @@ class ApiService {
     Map<String, dynamic>? backgroundTasks,
     Map<String, dynamic>? parentMessage,
   }) {
+    final latestUser = _latestUserMessage(messages);
+    final latestContent = latestUser?['content']?.toString() ?? '';
+    final hasRagCollection = ragCollection != null && ragCollection.trim().isNotEmpty;
+    final hasInlineCodeEdit = _looksLikeInlineCodeEditPayload(latestContent);
+
     if (enableWebSearch ||
         enableImageGeneration ||
         enableCodeInterpreter ||
@@ -3978,12 +3995,21 @@ class ApiService {
       return false;
     }
 
+    if (hasInlineCodeEdit) {
+      _traceApi('Memory gateway enabled: inline code edit payload detected');
+      return true;
+    }
+
+    if (hasRagCollection) {
+      _traceApi('Memory gateway enabled: explicit RAG collection requested');
+      return true;
+    }
+
     if ((toolIds?.isNotEmpty ?? false) ||
         (filterIds?.isNotEmpty ?? false) ||
         (skillIds?.isNotEmpty ?? false) ||
         (toolServers?.isNotEmpty ?? false) ||
-        (backgroundTasks?.isNotEmpty ?? false) ||
-        parentMessage != null) {
+        (backgroundTasks?.isNotEmpty ?? false)) {
       _traceApi(
         'Memory gateway disabled: advanced routing context present '
             '(tools=${toolIds?.length ?? 0} filters=${filterIds?.length ?? 0} '
@@ -3991,14 +4017,6 @@ class ApiService {
             'hasBackground=${backgroundTasks != null} hasParent=${parentMessage != null})',
       );
       return false;
-    }
-
-    final latestUser = _latestUserMessage(messages);
-    final latestContent = latestUser?['content']?.toString() ?? '';
-
-    if (_looksLikeInlineCodeEditPayload(latestContent)) {
-      _traceApi('Memory gateway enabled: inline code edit payload detected');
-      return true;
     }
 
     for (final msg in messages) {
@@ -4141,6 +4159,7 @@ class ApiService {
       toolIds: toolIds,
       filterIds: filterIds,
       skillIds: skillIds,
+      ragCollection: ragCollection,
       enableWebSearch: enableWebSearch,
       enableImageGeneration: enableImageGeneration,
       enableCodeInterpreter: enableCodeInterpreter,
