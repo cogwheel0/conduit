@@ -471,6 +471,45 @@ def normalize_patch_confidence(value: Any) -> str:
     return "low"
 
 
+def extract_fenced_code_block(raw: str) -> str:
+    blocks = re.findall(
+        r"```(?:[a-zA-Z0-9_+\-#.]+)?\s*\n(.*?)```",
+        raw,
+        flags=re.DOTALL,
+    )
+    cleaned_blocks = [block.strip("\n\r") for block in blocks if block.strip()]
+    if not cleaned_blocks:
+        return ""
+
+    cleaned_blocks.sort(key=len, reverse=True)
+    return cleaned_blocks[0]
+
+
+def build_non_json_code_edit_fallback(
+    raw: str,
+    requested_filename: str | None,
+) -> dict[str, Any] | None:
+    recovered = extract_fenced_code_block(raw)
+    if not recovered.strip():
+        return None
+
+    fallback_name = requested_filename or "modified_file.txt"
+    return {
+        "executive_summary": [
+            "Recovered a code-edit result from a non-JSON model response."
+        ],
+        "change_summary": [
+            "The model did not follow the JSON contract, so the gateway extracted "
+            "the largest fenced code block as the modified file content."
+        ],
+        "patch_confidence": "low",
+        "modified_file": {
+            "name": Path(fallback_name).name or "modified_file.txt",
+            "content": recovered,
+        },
+    }
+
+
 def parse_code_edit_response(raw: str, requested_filename: str | None) -> dict[str, Any]:
     default_name = requested_filename or "modified_file.txt"
     default = {
@@ -489,11 +528,17 @@ def parse_code_edit_response(raw: str, requested_filename: str | None) -> dict[s
 
     blob = extract_json_object(raw)
     if not blob:
+        recovered = build_non_json_code_edit_fallback(raw, requested_filename)
+        if recovered is not None:
+            return recovered
         return default
 
     try:
         parsed = json.loads(blob)
     except Exception:
+        recovered = build_non_json_code_edit_fallback(raw, requested_filename)
+        if recovered is not None:
+            return recovered
         return default
 
     executive_summary = normalize_summary_lines(parsed.get("executive_summary"))
@@ -515,6 +560,17 @@ def parse_code_edit_response(raw: str, requested_filename: str | None) -> dict[s
         or parsed.get("modified_file_content")
         or ""
     )
+
+    if not modified_content.strip():
+        recovered_content = extract_fenced_code_block(raw)
+        if recovered_content.strip():
+            modified_content = recovered_content
+            if not change_summary:
+                change_summary = [
+                    "Recovered modified file content from a fenced code block "
+                    "because modified_file.content was empty."
+                ]
+            patch_confidence = "low"
 
     if not executive_summary:
         executive_summary = ["Prepared a code-edit response."]
