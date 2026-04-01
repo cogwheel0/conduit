@@ -648,7 +648,26 @@ class BackgroundStreamingHandler(private val activity: MainActivity) : MethodCal
         try {
             val serviceIntent = Intent(context, BackgroundStreamingService::class.java)
             serviceIntent.action = BackgroundStreamingService.ACTION_STOP
-            context.stopService(serviceIntent)
+            serviceIntent.putExtra(
+                BackgroundStreamingService.EXTRA_STREAM_COUNT,
+                activeStreams.size,
+            )
+            serviceIntent.putExtra(
+                BackgroundStreamingService.EXTRA_REQUIRES_MICROPHONE,
+                streamsRequiringMic.isNotEmpty(),
+            )
+
+            // IMPORTANT: Avoid stopService() here.
+            //
+            // If Android has already received a startForegroundService() request,
+            // calling stopService() in a tight start/stop race can destroy the
+            // instance before that start request is fully satisfied, which can
+            // trigger ForegroundServiceDidNotStartInTimeException.
+            //
+            // By sending an explicit STOP command through startService(), the
+            // service lifecycle can complete onCreate/onStartCommand safely, then
+            // stop itself via stopStreaming().
+            context.startService(serviceIntent)
         } catch (e: Exception) {
             println("BackgroundStreamingHandler: Failed to stop foreground service: ${e.message}")
         }
