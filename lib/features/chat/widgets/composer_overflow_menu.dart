@@ -123,6 +123,8 @@ class ComposerOverflowSheet extends ConsumerStatefulWidget {
     this.onCameraCapture,
     this.onWebAttachment,
     this.onKnowledgeTool,
+    this.onCodeEdit,
+    this.onCodeEditTool,
   });
 
   final VoidCallback? onFileAttachment;
@@ -130,6 +132,8 @@ class ComposerOverflowSheet extends ConsumerStatefulWidget {
   final VoidCallback? onCameraCapture;
   final VoidCallback? onWebAttachment;
   final VoidCallback? onKnowledgeTool;
+  final VoidCallback? onCodeEdit;
+  final VoidCallback? onCodeEditTool;
 
   @override
   ConsumerState<ComposerOverflowSheet> createState() =>
@@ -258,6 +262,17 @@ class _ComposerOverflowSheetState
       error: (_, _) => _buildInfoCard('Failed to load tools'),
     );
 
+    final Widget? codeEditAction = widget.onCodeEditTool == null
+        ? null
+        : _buildAction(
+      icon: Icons.edit_note_outlined,
+      label: 'Code Edit',
+      onTap: () {
+        HapticFeedback.lightImpact();
+        widget.onCodeEditTool?.call();
+      },
+    );
+
     final listItems = <Widget>[
       const SheetHandle(),
       const SizedBox(height: Spacing.sm),
@@ -270,6 +285,18 @@ class _ComposerOverflowSheetState
           ],
         ],
       ),
+      if (codeEditAction != null) ...[
+        const SizedBox(height: Spacing.sm),
+        Row(
+          children: [
+            Expanded(child: codeEditAction),
+            const Expanded(child: SizedBox.shrink()),
+            const Expanded(child: SizedBox.shrink()),
+            const Expanded(child: SizedBox.shrink()),
+            const Expanded(child: SizedBox.shrink()),
+          ],
+        ),
+      ],
       if (featureTiles.isNotEmpty) ...[
         const SizedBox(height: Spacing.sm),
         ...withVerticalSpacing(featureTiles, Spacing.xxs),

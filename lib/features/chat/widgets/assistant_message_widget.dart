@@ -3,6 +3,7 @@ import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../shared/theme/theme_extensions.dart';
@@ -41,6 +42,13 @@ import 'reasoning_tile.dart';
 final _base64ImagePattern = RegExp(r'data:image/[^;]+;base64,[A-Za-z0-9+/]+=*');
 // Handle both URL formats: /api/v1/files/{id} and /api/v1/files/{id}/content
 final _fileIdPattern = RegExp(r'/api/v1/files/([^/]+)(?:/content)?$');
+
+class _CodeEditArtifactInfo {
+  final String name;
+  final String savedPath;
+
+  const _CodeEditArtifactInfo({required this.name, required this.savedPath});
+}
 
 class AssistantMessageWidget extends ConsumerStatefulWidget {
   final dynamic message;
@@ -206,7 +214,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   Future<void> _reparseSections([String? overrideContent]) async {
     final raw0 = _activeVersionIndex >= 0
         ? (widget.message.versions[_activeVersionIndex].content as String?) ??
-              ''
+        ''
         : (overrideContent ?? widget.message.content ?? '');
     // Strip any leftover placeholders from content before parsing
     const ti = '[TYPING_INDICATOR]';
@@ -394,7 +402,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   void _scheduleTtsPlainTextBuild(List<String> segments, String raw) {
     final hasContent =
         segments.any((segment) => segment.trim().isNotEmpty) ||
-        raw.trim().isNotEmpty;
+            raw.trim().isNotEmpty;
     if (!hasContent) {
       _pendingTtsPlainTextPayload = null;
       _pendingTtsPlainTextSource = null;
@@ -452,10 +460,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   }
 
   Future<void> _executeTtsPlainTextBuild(
-    Map<String, dynamic> payload,
-    String raw,
-    int requestId,
-  ) async {
+      Map<String, dynamic> payload,
+      String raw,
+      int requestId,
+      ) async {
     final segments = (payload['segments'] as List).cast<String>();
     String speechText;
     try {
@@ -519,15 +527,15 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         // Wrap the last text segment with fade-in overlay during streaming
         final isLastTextSeg =
             widget.isStreaming &&
-            _segments.skip(idx + 1).every((s) => !s.isText);
+                _segments.skip(idx + 1).every((s) => !s.isText);
         children.add(
           isLastTextSeg
               ? RepaintBoundary(
-                  child: _StreamingFadeOverlay(
-                    animation: _chunkFadeController,
-                    child: markdownWidget,
-                  ),
-                )
+            child: _StreamingFadeOverlay(
+              animation: _chunkFadeController,
+              child: markdownWidget,
+            ),
+          )
               : markdownWidget,
         );
       }
@@ -539,9 +547,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final ttsState = ref.watch(textToSpeechControllerProvider);
     final isActive =
         ttsState.activeMessageId == _messageId &&
-        (ttsState.status == TtsPlaybackStatus.speaking ||
-            ttsState.status == TtsPlaybackStatus.paused ||
-            ttsState.status == TtsPlaybackStatus.loading);
+            (ttsState.status == TtsPlaybackStatus.speaking ||
+                ttsState.status == TtsPlaybackStatus.paused ||
+                ttsState.status == TtsPlaybackStatus.loading);
     if (isActive && ttsState.activeSentenceIndex >= 0) {
       children.add(const SizedBox(height: Spacing.sm));
       children.add(_buildKaraokeBar(ttsState));
@@ -628,7 +636,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         .where((status) => status.hidden != true)
         .toList();
     final hasPendingStatus = visibleStatuses.any(
-      (status) => status.done != true,
+          (status) => status.done != true,
     );
     if (hasPendingStatus) {
       // Pending status has shimmer effect, no need for typing indicator
@@ -651,7 +659,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         ToolCallsParser.segments(
           content,
         )?.any((segment) => segment.isToolCall) ??
-        false;
+            false;
     return !hasToolCalls;
   }
 
@@ -663,18 +671,18 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final Widget leading = hasIcon
         ? ModelAvatar(size: 20, imageUrl: iconUrl, label: widget.modelName)
         : Container(
-            width: 20,
-            height: 20,
-            decoration: BoxDecoration(
-              color: theme.buttonPrimary,
-              borderRadius: BorderRadius.circular(AppBorderRadius.small),
-            ),
-            child: Icon(
-              Icons.auto_awesome,
-              color: theme.buttonPrimaryText,
-              size: 12,
-            ),
-          );
+      width: 20,
+      height: 20,
+      decoration: BoxDecoration(
+        color: theme.buttonPrimary,
+        borderRadius: BorderRadius.circular(AppBorderRadius.small),
+      ),
+      child: Icon(
+        Icons.auto_awesome,
+        color: theme.buttonPrimaryText,
+        size: 12,
+      ),
+    );
 
     _cachedAvatar = Padding(
       padding: const EdgeInsets.only(bottom: Spacing.md),
@@ -753,9 +761,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
     if (widget.isStreaming) {
       _streamingContentSub = ref.listenManual(streamingContentProvider, (
-        prev,
-        next,
-      ) {
+          prev,
+          next,
+          ) {
         if (next != null && next != _lastStreamingContent) {
           _lastStreamingContent = next;
           unawaited(_reparseSections(next));
@@ -790,13 +798,19 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final hasCodeExecutions = widget.message.codeExecutions.isNotEmpty;
     final hasFollowUps =
         widget.showFollowUps &&
-        widget.message.followUps.isNotEmpty &&
-        !widget.isStreaming;
+            widget.message.followUps.isNotEmpty &&
+            !widget.isStreaming;
     final bool showingVersion = _activeVersionIndex >= 0;
     final activeFiles = showingVersion
         ? widget.message.versions[_activeVersionIndex].files
         : widget.message.files;
     final hasSources = widget.message.sources.isNotEmpty;
+    final codeEditArtifact = _extractCodeEditArtifactInfo(
+      ((_activeVersionIndex >= 0
+          ? widget.message.versions[_activeVersionIndex].content
+          : widget.message.content) ?? '')
+          .toString(),
+    );
 
     final content = Container(
       width: double.infinity,
@@ -851,13 +865,13 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
                   },
                   child: (_allowTypingIndicator && _shouldShowTypingIndicator)
                       ? KeyedSubtree(
-                          key: const ValueKey('typing'),
-                          child: _buildTypingIndicator(),
-                        )
+                    key: const ValueKey('typing'),
+                    child: _buildTypingIndicator(),
+                  )
                       : KeyedSubtree(
-                          key: const ValueKey('content'),
-                          child: _buildSegmentedContent(),
-                        ),
+                    key: const ValueKey('content'),
+                    child: _buildSegmentedContent(),
+                  ),
                 ),
 
                 // Display error banner if message or active version has an error
@@ -879,6 +893,11 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
                     sources: widget.message.sources,
                     messageId: widget.message.id,
                   ),
+                ],
+
+                if (codeEditArtifact != null) ...[
+                  const SizedBox(height: Spacing.md),
+                  _buildCodeEditArtifactCard(codeEditArtifact),
                 ],
 
                 // Version switcher moved inline with action buttons below
@@ -915,11 +934,11 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       child: SlideTransition(
         position: Tween<Offset>(begin: const Offset(0, 0.1), end: Offset.zero)
             .animate(
-              CurvedAnimation(
-                parent: _slideController,
-                curve: Curves.easeOutCubic,
-              ),
-            ),
+          CurvedAnimation(
+            parent: _slideController,
+            curve: Curves.easeOutCubic,
+          ),
+        ),
         child: content,
       ),
     );
@@ -967,6 +986,101 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
             child: Text(
               displayText,
               style: theme.textTheme.bodyMedium?.copyWith(color: errorColor),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  _CodeEditArtifactInfo? _extractCodeEditArtifactInfo(String content) {
+    final preparedMatch = RegExp(
+      r'Prepared File:\s*(.+)',
+      multiLine: true,
+    ).firstMatch(content);
+    final pathMatch = RegExp(
+      r'Saved Path:\s*(.+)',
+      multiLine: true,
+    ).firstMatch(content);
+
+    if (preparedMatch == null || pathMatch == null) {
+      return null;
+    }
+
+    final name = preparedMatch.group(1)?.trim() ?? '';
+    final savedPath = pathMatch.group(1)?.trim() ?? '';
+    if (name.isEmpty || savedPath.isEmpty) {
+      return null;
+    }
+
+    return _CodeEditArtifactInfo(name: name, savedPath: savedPath);
+  }
+
+  Widget _buildCodeEditArtifactCard(_CodeEditArtifactInfo artifact) {
+    final theme = Theme.of(context);
+    final border = context.qonduitTheme.cardBorder;
+    final bg = context.qonduitTheme.cardBackground;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(Spacing.md),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(AppBorderRadius.card),
+        border: Border.all(color: border, width: BorderWidth.thin),
+        boxShadow: QonduitShadows.messageBubble(context),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Platform.isIOS ? CupertinoIcons.doc_text : Icons.description_outlined,
+                size: 18,
+                color: context.qonduitTheme.textPrimary,
+              ),
+              const SizedBox(width: Spacing.xs),
+              Expanded(
+                child: Text(
+                  artifact.name,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: context.qonduitTheme.textPrimary,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: Spacing.sm),
+          Text(
+            'Modified file saved by Qonduit',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: context.qonduitTheme.textSecondary,
+            ),
+          ),
+          const SizedBox(height: Spacing.xs),
+          SelectableText(
+            artifact.savedPath,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: context.qonduitTheme.textSecondary,
+            ),
+          ),
+          const SizedBox(height: Spacing.sm),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: ChatActionButton(
+              icon: Platform.isIOS ? CupertinoIcons.doc_on_doc : Icons.copy_outlined,
+              label: 'Copy path',
+              onTap: () async {
+                await Clipboard.setData(ClipboardData(text: artifact.savedPath));
+                if (!mounted) return;
+                ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+                  const SnackBar(content: Text('Saved path copied')),
+                );
+              },
             ),
           ),
         ],
@@ -1057,38 +1171,38 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       switchInCurve: Curves.easeInOut,
       child: imageCount == 1
           ? Container(
-              key: ValueKey('single_item_${widget.message.attachmentIds![0]}'),
-              child: EnhancedAttachment(
-                attachmentId: widget.message.attachmentIds![0],
-                isMarkdownFormat: true,
-                constraints: const BoxConstraints(
-                  maxWidth: 500,
-                  maxHeight: 400,
-                ),
-                disableAnimation: widget.isStreaming,
-              ),
-            )
+        key: ValueKey('single_item_${widget.message.attachmentIds![0]}'),
+        child: EnhancedAttachment(
+          attachmentId: widget.message.attachmentIds![0],
+          isMarkdownFormat: true,
+          constraints: const BoxConstraints(
+            maxWidth: 500,
+            maxHeight: 400,
+          ),
+          disableAnimation: widget.isStreaming,
+        ),
+      )
           : Wrap(
-              key: ValueKey(
-                'multi_items_${widget.message.attachmentIds!.join('_')}',
-              ),
-              spacing: Spacing.sm,
-              runSpacing: Spacing.sm,
-              children: widget.message.attachmentIds!.map<Widget>((
-                attachmentId,
-              ) {
-                return EnhancedAttachment(
-                  key: ValueKey('attachment_$attachmentId'),
-                  attachmentId: attachmentId,
-                  isMarkdownFormat: true,
-                  constraints: BoxConstraints(
-                    maxWidth: imageCount == 2 ? 245 : 160,
-                    maxHeight: imageCount == 2 ? 245 : 160,
-                  ),
-                  disableAnimation: widget.isStreaming,
-                );
-              }).toList(),
+        key: ValueKey(
+          'multi_items_${widget.message.attachmentIds!.join('_')}',
+        ),
+        spacing: Spacing.sm,
+        runSpacing: Spacing.sm,
+        children: widget.message.attachmentIds!.map<Widget>((
+            attachmentId,
+            ) {
+          return EnhancedAttachment(
+            key: ValueKey('attachment_$attachmentId'),
+            attachmentId: attachmentId,
+            isMarkdownFormat: true,
+            constraints: BoxConstraints(
+              maxWidth: imageCount == 2 ? 245 : 160,
+              maxHeight: imageCount == 2 ? 245 : 160,
             ),
+            disableAnimation: widget.isStreaming,
+          );
+        }).toList(),
+      ),
     );
   }
 
@@ -1142,51 +1256,51 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       switchInCurve: Curves.easeInOut,
       child: imageCount == 1
           ? Container(
-              key: ValueKey('file_single_${imageFiles[0]['url']}'),
-              child: Builder(
-                builder: (context) {
-                  final imageUrl = getFileUrl(imageFiles[0]);
-                  if (imageUrl == null) return const SizedBox.shrink();
+        key: ValueKey('file_single_${imageFiles[0]['url']}'),
+        child: Builder(
+          builder: (context) {
+            final imageUrl = getFileUrl(imageFiles[0]);
+            if (imageUrl == null) return const SizedBox.shrink();
 
-                  return EnhancedImageAttachment(
-                    attachmentId:
-                        imageUrl, // Pass URL directly as it handles URLs
-                    isMarkdownFormat: true,
-                    constraints: const BoxConstraints(
-                      maxWidth: 500,
-                      maxHeight: 400,
-                    ),
-                    disableAnimation:
-                        false, // Keep animations enabled to prevent black display
-                    httpHeaders: _headersForFile(imageFiles[0]),
-                  );
-                },
+            return EnhancedImageAttachment(
+              attachmentId:
+              imageUrl, // Pass URL directly as it handles URLs
+              isMarkdownFormat: true,
+              constraints: const BoxConstraints(
+                maxWidth: 500,
+                maxHeight: 400,
               ),
-            )
+              disableAnimation:
+              false, // Keep animations enabled to prevent black display
+              httpHeaders: _headersForFile(imageFiles[0]),
+            );
+          },
+        ),
+      )
           : Wrap(
-              key: ValueKey(
-                'file_multi_${imageFiles.map((f) => f['url']).join('_')}',
-              ),
-              spacing: Spacing.sm,
-              runSpacing: Spacing.sm,
-              children: imageFiles.map<Widget>((file) {
-                final imageUrl = getFileUrl(file);
-                if (imageUrl == null) return const SizedBox.shrink();
+        key: ValueKey(
+          'file_multi_${imageFiles.map((f) => f['url']).join('_')}',
+        ),
+        spacing: Spacing.sm,
+        runSpacing: Spacing.sm,
+        children: imageFiles.map<Widget>((file) {
+          final imageUrl = getFileUrl(file);
+          if (imageUrl == null) return const SizedBox.shrink();
 
-                return EnhancedImageAttachment(
-                  key: ValueKey('gen_attachment_$imageUrl'),
-                  attachmentId: imageUrl, // Pass URL directly
-                  isMarkdownFormat: true,
-                  constraints: BoxConstraints(
-                    maxWidth: imageCount == 2 ? 245 : 160,
-                    maxHeight: imageCount == 2 ? 245 : 160,
-                  ),
-                  disableAnimation:
-                      false, // Keep animations enabled to prevent black display
-                  httpHeaders: _headersForFile(file),
-                );
-              }).toList(),
+          return EnhancedImageAttachment(
+            key: ValueKey('gen_attachment_$imageUrl'),
+            attachmentId: imageUrl, // Pass URL directly
+            isMarkdownFormat: true,
+            constraints: BoxConstraints(
+              maxWidth: imageCount == 2 ? 245 : 160,
+              maxHeight: imageCount == 2 ? 245 : 160,
             ),
+            disableAnimation:
+            false, // Keep animations enabled to prevent black display
+            httpHeaders: _headersForFile(file),
+          );
+        }).toList(),
+      ),
     );
   }
 
@@ -1252,29 +1366,29 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       final delay = Duration(milliseconds: 150 * index);
 
       return Container(
-            width: dotSize,
-            height: dotSize,
-            decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle),
-          )
+        width: dotSize,
+        height: dotSize,
+        decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle),
+      )
           .animate(onPlay: (controller) => controller.repeat())
           .then(delay: delay)
           .fadeIn(
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeOut,
-          )
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      )
           .scale(
-            duration: const Duration(milliseconds: 600),
-            curve: Curves.easeInOut,
-            begin: const Offset(0.4, 0.4),
-            end: const Offset(1, 1),
-          )
+        duration: const Duration(milliseconds: 600),
+        curve: Curves.easeInOut,
+        begin: const Offset(0.4, 0.4),
+        end: const Offset(1, 1),
+      )
           .then()
           .scale(
-            duration: const Duration(milliseconds: 600),
-            curve: Curves.easeInOut,
-            begin: const Offset(1.2, 1.2),
-            end: const Offset(0.5, 0.5),
-          );
+        duration: const Duration(milliseconds: 600),
+        curve: Curves.easeInOut,
+        begin: const Offset(1.2, 1.2),
+        end: const Offset(0.5, 0.5),
+      );
     });
 
     return Padding(
@@ -1306,10 +1420,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final hasErrorField = activeError != null;
     final isErrorMessage =
         hasErrorField ||
-        widget.message.content.contains('⚠️') ||
-        widget.message.content.contains('Error') ||
-        widget.message.content.contains('timeout') ||
-        widget.message.content.contains('retry options');
+            widget.message.content.contains('⚠️') ||
+            widget.message.content.contains('Error') ||
+            widget.message.content.contains('timeout') ||
+            widget.message.content.contains('retry options');
 
     final isActiveMessage = ttsState.activeMessageId == messageId;
     final isSpeaking =
@@ -1318,8 +1432,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         isActiveMessage && ttsState.status == TtsPlaybackStatus.paused;
     final isBusy =
         isActiveMessage &&
-        (ttsState.status == TtsPlaybackStatus.loading ||
-            ttsState.status == TtsPlaybackStatus.initializing);
+            (ttsState.status == TtsPlaybackStatus.loading ||
+                ttsState.status == TtsPlaybackStatus.initializing);
     final bool disableDueToStreaming = widget.isStreaming && !isActiveMessage;
     final bool ttsAvailable = !ttsState.initialized || ttsState.available;
     final bool showStopState =
@@ -1392,7 +1506,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           ),
           QonduitChip(
             label:
-                '${_activeVersionIndex < 0 ? (widget.message.versions.length + 1) : (_activeVersionIndex + 1)}/${widget.message.versions.length + 1}',
+            '${_activeVersionIndex < 0 ? (widget.message.versions.length + 1) : (_activeVersionIndex + 1)}/${widget.message.versions.length + 1}',
             isCompact: true,
           ),
           ChatActionButton(

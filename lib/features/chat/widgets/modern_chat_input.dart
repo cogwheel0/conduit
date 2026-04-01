@@ -62,6 +62,7 @@ class ModernChatInput extends ConsumerStatefulWidget {
   final Function()? onCameraCapture;
   final Function()? onWebAttachment;
   final VoidCallback? onKnowledgeTool;
+  final VoidCallback? onCodeEditTool;
 
   /// Callback invoked when images or files are pasted from clipboard.
   final Future<void> Function(List<LocalAttachment>)? onPastedAttachments;
@@ -80,6 +81,7 @@ class ModernChatInput extends ConsumerStatefulWidget {
     this.onWebAttachment,
     this.onPastedAttachments,
     this.onKnowledgeTool,
+    this.onCodeEditTool,
   });
 
   @override
@@ -95,7 +97,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   static const double _composerRadius = AppBorderRadius.card;
 
   final MentionTextEditingController _controller =
-      MentionTextEditingController();
+  MentionTextEditingController();
   final FocusNode _focusNode = FocusNode();
 
   /// Preserves the text field widget across parent shell swaps (e.g. when the
@@ -126,7 +128,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   /// Service for handling clipboard paste operations.
   final ClipboardAttachmentService _clipboardService =
-      ClipboardAttachmentService();
+  ClipboardAttachmentService();
 
   @override
   void initState() {
@@ -152,8 +154,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
     if (!kIsWeb && Platform.isIOS) {
       _pasteSubscription = IosNativePasteService.instance.onPaste.listen((
-        payload,
-      ) {
+          payload,
+          ) {
         unawaited(_handleNativePastePayload(payload));
       });
     }
@@ -369,9 +371,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         for (final item in items) {
           final attachment = await _clipboardService
               .createAttachmentFromImageData(
-                imageData: item.data,
-                mimeType: item.mimeType,
-              );
+            imageData: item.data,
+            mimeType: item.mimeType,
+          );
           if (attachment != null) {
             attachments.add(attachment);
           }
@@ -385,9 +387,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   }
 
   Widget _buildIosContextMenu(
-    BuildContext context,
-    EditableTextState editableTextState,
-  ) {
+      BuildContext context,
+      EditableTextState editableTextState,
+      ) {
     if (SystemContextMenu.isSupportedByField(editableTextState)) {
       return SystemContextMenu.editableText(
         editableTextState: editableTextState,
@@ -399,8 +401,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   }
 
   List<IOSSystemContextMenuItem> _buildIosSystemContextMenuItems(
-    EditableTextState editableTextState,
-  ) {
+      EditableTextState editableTextState,
+      ) {
     final items = List<IOSSystemContextMenuItem>.from(
       SystemContextMenu.getDefaultItems(editableTextState),
     );
@@ -412,8 +414,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
     final pasteItem = const IOSSystemContextMenuItemPaste();
     final insertionIndex = items.indexWhere(
-      (item) =>
-          item is IOSSystemContextMenuItemSelectAll ||
+          (item) =>
+      item is IOSSystemContextMenuItemSelectAll ||
           item is IOSSystemContextMenuItemLookUp ||
           item is IOSSystemContextMenuItemSearchWeb ||
           item is IOSSystemContextMenuItemShare ||
@@ -431,9 +433,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   /// Builds a Flutter-rendered fallback menu with "Paste Image".
   Widget _buildFallbackContextMenu(
-    BuildContext context,
-    EditableTextState editableTextState,
-  ) {
+      BuildContext context,
+      EditableTextState editableTextState,
+      ) {
     final List<ContextMenuButtonItem> buttonItems = List.from(
       editableTextState.contextMenuButtonItems,
     );
@@ -458,15 +460,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           final pasteImageLabel =
               AppLocalizations.of(context)?.pasteImage ?? 'Paste Image';
           final alreadyHasPasteImage = buttonItems.any(
-            (item) =>
-                item.label != null &&
+                (item) =>
+            item.label != null &&
                 item.label!.toLowerCase().contains('image'),
           );
 
           if (!alreadyHasPasteImage) {
             // Find the index of the standard Paste button to insert after it
             final pasteIndex = buttonItems.indexWhere(
-              (item) => item.type == ContextMenuButtonType.paste,
+                  (item) => item.type == ContextMenuButtonType.paste,
             );
 
             // Capture imageData in closure to avoid re-reading clipboard
@@ -540,18 +542,18 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
     bool needsUpdate =
         hasText != _hasText ||
-        isMultiline != _isMultiline ||
-        shouldShow != _showPromptOverlay ||
-        showExpand != _showExpandButton;
+            isMultiline != _isMultiline ||
+            shouldShow != _showPromptOverlay ||
+            showExpand != _showExpandButton;
 
     if (!needsUpdate) {
       if (match != null) {
         final TextRange? range = _currentPromptRange;
         needsUpdate =
             previousCommand != match.command ||
-            range == null ||
-            range.start != match.start ||
-            range.end != match.end;
+                range == null ||
+                range.start != match.start ||
+                range.end != match.end;
       } else {
         needsUpdate =
             _currentPromptCommand.isNotEmpty || _currentPromptRange != null;
@@ -594,10 +596,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   }
 
   PromptCommandMatch? _resolvePromptCommand(
-    String text,
-    TextSelection selection,
-    bool enabled,
-  ) {
+      String text,
+      TextSelection selection,
+      bool enabled,
+      ) {
     if (!enabled) return null;
     if (!selection.isValid || !selection.isCollapsed) return null;
 
@@ -634,20 +636,20 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         : query;
 
     final List<Prompt> filtered =
-        prompts
-            .where(
-              (prompt) =>
-                  prompt.command.toLowerCase().contains(searchQuery) &&
-                  prompt.content.isNotEmpty,
-            )
-            .toList()
-          ..sort((a, b) {
-            final int titleCompare = a.title.toLowerCase().compareTo(
-              b.title.toLowerCase(),
-            );
-            if (titleCompare != 0) return titleCompare;
-            return a.command.toLowerCase().compareTo(b.command.toLowerCase());
-          });
+    prompts
+        .where(
+          (prompt) =>
+      prompt.command.toLowerCase().contains(searchQuery) &&
+          prompt.content.isNotEmpty,
+    )
+        .toList()
+      ..sort((a, b) {
+        final int titleCompare = a.title.toLowerCase().compareTo(
+          b.title.toLowerCase(),
+        );
+        if (titleCompare != 0) return titleCompare;
+        return a.command.toLowerCase().compareTo(b.command.toLowerCase());
+      });
 
     return filtered;
   }
@@ -664,9 +666,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     return models
         .where(
           (m) =>
-              m.name.toLowerCase().contains(searchQuery) ||
-              m.id.toLowerCase().contains(searchQuery),
-        )
+      m.name.toLowerCase().contains(searchQuery) ||
+          m.id.toLowerCase().contains(searchQuery),
+    )
         .toList();
   }
 
@@ -788,9 +790,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   }
 
   Future<void> _processPromptWithVariables(
-    Prompt prompt,
-    TextRange range,
-  ) async {
+      Prompt prompt,
+      TextRange range,
+      ) async {
     // Hide overlay first
     setState(() {
       _showPromptOverlay = false;
@@ -911,8 +913,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                       : const <KnowledgeBaseItem>[];
                   final loading =
                       cacheState.isLoading ||
-                      (selectedBaseId != null &&
-                          !itemsMap.containsKey(selectedBaseId));
+                          (selectedBaseId != null &&
+                              !itemsMap.containsKey(selectedBaseId));
 
                   Future<void> loadItems(KnowledgeBase base) async {
                     setModalState(() {
@@ -956,59 +958,59 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                             flex: 2,
                             child: loading
                                 ? const Center(
-                                    child: CircularProgressIndicator(),
-                                  )
+                              child: CircularProgressIndicator(),
+                            )
                                 : ListView.builder(
-                                    itemCount: items.length,
-                                    itemBuilder: (context, index) {
-                                      final item = items[index];
-                                      final KnowledgeBase? selectedBase =
-                                          bases.isEmpty
-                                          ? null
-                                          : bases.firstWhere(
-                                              (b) => b.id == selectedBaseId,
-                                              orElse: () => bases.first,
-                                            );
-                                      return AdaptiveListTile(
-                                        title: Text(
-                                          item.title ??
-                                              item.metadata['name']
-                                                  ?.toString() ??
-                                              'Document',
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                        subtitle: Text(
-                                          item.metadata['source']?.toString() ??
-                                              item.content,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                        onTap: () {
-                                          innerRef
-                                              .read(
-                                                contextAttachmentsProvider
-                                                    .notifier,
-                                              )
-                                              .addKnowledge(
-                                                displayName:
-                                                    item.title ??
-                                                    item.metadata['name']
-                                                        ?.toString() ??
-                                                    'Document',
-                                                fileId: item.id,
-                                                collectionName:
-                                                    selectedBase?.name ??
-                                                    'Unknown',
-                                                url: item.metadata['source']
-                                                    ?.toString(),
-                                              );
-                                          if (modalContext.mounted) {
-                                            Navigator.of(modalContext).pop();
-                                          }
-                                        },
-                                      );
-                                    },
+                              itemCount: items.length,
+                              itemBuilder: (context, index) {
+                                final item = items[index];
+                                final KnowledgeBase? selectedBase =
+                                bases.isEmpty
+                                    ? null
+                                    : bases.firstWhere(
+                                      (b) => b.id == selectedBaseId,
+                                  orElse: () => bases.first,
+                                );
+                                return AdaptiveListTile(
+                                  title: Text(
+                                    item.title ??
+                                        item.metadata['name']
+                                            ?.toString() ??
+                                        'Document',
+                                    overflow: TextOverflow.ellipsis,
                                   ),
+                                  subtitle: Text(
+                                    item.metadata['source']?.toString() ??
+                                        item.content,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  onTap: () {
+                                    innerRef
+                                        .read(
+                                      contextAttachmentsProvider
+                                          .notifier,
+                                    )
+                                        .addKnowledge(
+                                      displayName:
+                                      item.title ??
+                                          item.metadata['name']
+                                              ?.toString() ??
+                                          'Document',
+                                      fileId: item.id,
+                                      collectionName:
+                                      selectedBase?.name ??
+                                          'Unknown',
+                                      url: item.metadata['source']
+                                          ?.toString(),
+                                    );
+                                    if (modalContext.mounted) {
+                                      Navigator.of(modalContext).pop();
+                                    }
+                                  },
+                                );
+                              },
+                            ),
                           ),
                         ],
                       ),
@@ -1049,10 +1051,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   }
 
   Widget _buildKnowledgeOverlay(
-    BuildContext context,
-    Color overlayColor,
-    Color borderColor,
-  ) {
+      BuildContext context,
+      Color overlayColor,
+      Color borderColor,
+      ) {
     return Container(
       decoration: BoxDecoration(
         color: overlayColor,
@@ -1113,13 +1115,13 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     // Check if file uploads are in progress or complete
     final attachedFiles = ref.watch(attachedFilesProvider);
     final hasUploadsInProgress = attachedFiles.any(
-      (f) =>
-          f.status == FileUploadStatus.uploading ||
+          (f) =>
+      f.status == FileUploadStatus.uploading ||
           f.status == FileUploadStatus.pending,
     );
     final allUploadsComplete =
         attachedFiles.isEmpty ||
-        attachedFiles.every((f) => f.status == FileUploadStatus.completed);
+            attachedFiles.every((f) => f.status == FileUploadStatus.completed);
 
     final webSearchEnabled = ref.watch(webSearchEnabledProvider);
     final webSearchAvailable = ref.watch(webSearchAvailableProvider);
@@ -1492,43 +1494,43 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           _useIOS26NativeControls && !_isMultiline;
       final Widget textFieldShell = useNativeCompactGlass
           ? LayoutBuilder(
-              key: const ValueKey('compact-native-glass'),
-              builder: (context, constraints) {
-                final width = constraints.maxWidth.isFinite
-                    ? constraints.maxWidth
-                    : MediaQuery.of(context).size.width * 0.58;
+        key: const ValueKey('compact-native-glass'),
+        builder: (context, constraints) {
+          final width = constraints.maxWidth.isFinite
+              ? constraints.maxWidth
+              : MediaQuery.of(context).size.width * 0.58;
 
-                return ClipRRect(
-                  borderRadius: shellRadius,
-                  child: SizedBox(
-                    height: TouchTarget.input,
-                    child: Stack(
-                      children: [
-                        Positioned.fill(
-                          child: IgnorePointer(
-                            child: AdaptiveButton.child(
-                              onPressed: () {},
-                              enabled: true,
-                              style: AdaptiveButtonStyle.glass,
-                              size: AdaptiveButtonSize.large,
-                              minSize: Size(width, TouchTarget.input),
-                              useSmoothRectangleBorder: false,
-                              child: const SizedBox.shrink(),
-                            ),
-                          ),
-                        ),
-                        textFieldContent,
-                      ],
+          return ClipRRect(
+            borderRadius: shellRadius,
+            child: SizedBox(
+              height: TouchTarget.input,
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: AdaptiveButton.child(
+                        onPressed: () {},
+                        enabled: true,
+                        style: AdaptiveButtonStyle.glass,
+                        size: AdaptiveButtonSize.large,
+                        minSize: Size(width, TouchTarget.input),
+                        useSmoothRectangleBorder: false,
+                        child: const SizedBox.shrink(),
+                      ),
                     ),
                   ),
-                );
-              },
-            )
+                  textFieldContent,
+                ],
+              ),
+            ),
+          );
+        },
+      )
           : _buildComposerShell(
-              key: const ValueKey('compact-glass-fallback'),
-              borderRadius: shellRadius,
-              child: textFieldContent,
-            );
+        key: const ValueKey('compact-glass-fallback'),
+        borderRadius: shellRadius,
+        child: textFieldContent,
+      );
 
       final bottomPadding = MediaQuery.of(context).viewPadding.bottom;
       return Padding(
@@ -1655,26 +1657,26 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         shortcuts: () {
           final map = <LogicalKeySet, Intent>{
             LogicalKeySet(LogicalKeyboardKey.meta, LogicalKeyboardKey.enter):
-                const SendMessageIntent(),
+            const SendMessageIntent(),
             LogicalKeySet(LogicalKeyboardKey.control, LogicalKeyboardKey.enter):
-                const SendMessageIntent(),
+            const SendMessageIntent(),
           };
           if (sendOnEnter) {
             map[LogicalKeySet(LogicalKeyboardKey.enter)] =
-                const SendMessageIntent();
+            const SendMessageIntent();
             map[LogicalKeySet(
-                  LogicalKeyboardKey.shift,
-                  LogicalKeyboardKey.enter,
-                )] =
-                const InsertNewlineIntent();
+              LogicalKeyboardKey.shift,
+              LogicalKeyboardKey.enter,
+            )] =
+            const InsertNewlineIntent();
           }
           if (_showPromptOverlay) {
             map[LogicalKeySet(LogicalKeyboardKey.arrowDown)] =
-                const SelectNextPromptIntent();
+            const SelectNextPromptIntent();
             map[LogicalKeySet(LogicalKeyboardKey.arrowUp)] =
-                const SelectPreviousPromptIntent();
+            const SelectPreviousPromptIntent();
             map[LogicalKeySet(LogicalKeyboardKey.escape)] =
-                const DismissPromptIntent();
+            const DismissPromptIntent();
           }
           return map;
         }(),
@@ -1703,12 +1705,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               },
             ),
             SelectPreviousPromptIntent:
-                CallbackAction<SelectPreviousPromptIntent>(
-                  onInvoke: (intent) {
-                    _movePromptSelection(-1);
-                    return null;
-                  },
-                ),
+            CallbackAction<SelectPreviousPromptIntent>(
+              onInvoke: (intent) {
+                _movePromptSelection(-1);
+                return null;
+              },
+            ),
             DismissPromptIntent: CallbackAction<DismissPromptIntent>(
               onInvoke: (intent) {
                 _hidePromptOverlay();
@@ -1749,7 +1751,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   controller: _controller,
                   focusNode: _focusNode,
                   placeholder:
-                      widget.placeholder ??
+                  widget.placeholder ??
                       AppLocalizations.of(context)!.messageHintText,
                   placeholderStyle: baseChatStyle.copyWith(
                     color: animatedPlaceholder,
@@ -1821,22 +1823,22 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 ),
                 decoration: context.qonduitInputStyles
                     .borderless(
-                      hint:
-                          widget.placeholder ??
-                          AppLocalizations.of(context)!.messageHintText,
-                    )
+                  hint:
+                  widget.placeholder ??
+                      AppLocalizations.of(context)!.messageHintText,
+                )
                     .copyWith(
-                      hintStyle: baseChatStyle.copyWith(
-                        color: animatedPlaceholder,
-                        fontWeight: recordingWeight,
-                        fontStyle: _isRecording
-                            ? FontStyle.italic
-                            : FontStyle.normal,
-                      ),
-                      contentPadding: contentPadding,
-                      isDense: true,
-                      alignLabelWithHint: true,
-                    ),
+                  hintStyle: baseChatStyle.copyWith(
+                    color: animatedPlaceholder,
+                    fontWeight: recordingWeight,
+                    fontStyle: _isRecording
+                        ? FontStyle.italic
+                        : FontStyle.normal,
+                  ),
+                  contentPadding: contentPadding,
+                  isDense: true,
+                  alignLabelWithHint: true,
+                ),
                 // Enable pasting images and files from clipboard
                 contentInsertionConfiguration: ContentInsertionConfiguration(
                   allowedMimeTypes: ClipboardAttachmentService
@@ -1895,16 +1897,16 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         : context.qonduitTheme.textPrimary.withValues(alpha: Alpha.strong);
 
     final IconData overflowIcon = switch ((
-      webSearchActive,
-      imageGenerationActive,
-      toolsActive,
-      filtersActive,
+    webSearchActive,
+    imageGenerationActive,
+    toolsActive,
+    filtersActive,
     )) {
       (true, _, _, _) => Platform.isIOS ? CupertinoIcons.search : Icons.search,
       (_, true, _, _) => Platform.isIOS ? CupertinoIcons.photo : Icons.image,
       (_, _, true, _) => Platform.isIOS ? CupertinoIcons.wrench : Icons.build,
       (_, _, _, true) =>
-        Platform.isIOS ? CupertinoIcons.sparkles : Icons.auto_awesome,
+      Platform.isIOS ? CupertinoIcons.sparkles : Icons.auto_awesome,
       _ => Platform.isIOS ? CupertinoIcons.add : Icons.add,
     };
 
@@ -1913,9 +1915,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       child: _buildComposerIconButton(
         onPressed: enabled
             ? () {
-                HapticFeedback.selectionClick();
-                _showOverflowSheet();
-              }
+          HapticFeedback.selectionClick();
+          _showOverflowSheet();
+        }
             : null,
         size: buttonSize,
         isProminent: isActive,
@@ -1945,9 +1947,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       behavior: HitTestBehavior.opaque,
       onTap: enabledMic
           ? () {
-              HapticFeedback.selectionClick();
-              _toggleVoice();
-            }
+        HapticFeedback.selectionClick();
+        _toggleVoice();
+      }
           : null,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
@@ -1957,22 +1959,22 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           color: _isRecording
               ? context.qonduitTheme.buttonPrimary
               : context.qonduitTheme.textSecondary.withValues(
-                  alpha: enabledMic ? Alpha.strong : Alpha.disabled,
-                ),
+            alpha: enabledMic ? Alpha.strong : Alpha.disabled,
+          ),
         ),
       ),
     );
   }
 
   Widget _buildPrimaryButton(
-    bool hasText,
-    bool isGenerating,
-    void Function() stopGeneration,
-    bool voiceAvailable,
-    bool allUploadsComplete,
-    bool hasUploadsInProgress, {
-    bool dense = false,
-  }) {
+      bool hasText,
+      bool isGenerating,
+      void Function() stopGeneration,
+      bool voiceAvailable,
+      bool allUploadsComplete,
+      bool hasUploadsInProgress, {
+        bool dense = false,
+      }) {
     final double buttonSize = dense ? 36.0 : TouchTarget.minimum;
 
     // Don't allow sending until all uploads are complete
@@ -2004,27 +2006,27 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     if (hasText) {
       final onPressed = enabled
           ? () {
-              _sendMessage();
-            }
+        _sendMessage();
+      }
           : null;
       final sendChild = hasUploadsInProgress
           ? SizedBox(
-              width: IconSize.large,
-              height: IconSize.large,
-              child: CircularProgressIndicator(
-                strokeWidth: 2.5,
-                color: context.qonduitTheme.textSecondary,
-              ),
-            )
+        width: IconSize.large,
+        height: IconSize.large,
+        child: CircularProgressIndicator(
+          strokeWidth: 2.5,
+          color: context.qonduitTheme.textSecondary,
+        ),
+      )
           : Icon(
-              CupertinoIcons.arrow_up,
-              size: IconSize.large,
-              color: enabled
-                  ? context.qonduitTheme.buttonPrimaryText
-                  : context.qonduitTheme.textPrimary.withValues(
-                      alpha: Alpha.disabled,
-                    ),
-            );
+        CupertinoIcons.arrow_up,
+        size: IconSize.large,
+        color: enabled
+            ? context.qonduitTheme.buttonPrimaryText
+            : context.qonduitTheme.textPrimary.withValues(
+          alpha: Alpha.disabled,
+        ),
+      );
       return AdaptiveTooltip(
         message: enabled
             ? AppLocalizations.of(context)!.sendMessage
@@ -2049,9 +2051,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           key: const ValueKey('primary-btn-voice-call'),
           onPressed: enabledVoiceCall
               ? () {
-                  PlatformUtils.lightHaptic();
-                  widget.onVoiceCall!();
-                }
+            PlatformUtils.lightHaptic();
+            widget.onVoiceCall!();
+          }
               : null,
           size: buttonSize,
           isProminent: true,
@@ -2061,8 +2063,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
             color: enabledVoiceCall
                 ? context.qonduitTheme.buttonPrimaryText
                 : context.qonduitTheme.textPrimary.withValues(
-                    alpha: Alpha.disabled,
-                  ),
+              alpha: Alpha.disabled,
+            ),
           ),
         ),
       );
@@ -2119,9 +2121,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           onTap: onTap == null
               ? null
               : () {
-                  HapticFeedback.mediumImpact();
-                  onTap();
-                },
+            HapticFeedback.mediumImpact();
+            onTap();
+          },
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 200),
             curve: Curves.easeOutCubic,
@@ -2139,26 +2141,26 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               children: [
                 iconUrl != null && iconUrl.isNotEmpty
                     ? SizedBox(
-                        width: dense ? IconSize.small : IconSize.small + 1,
-                        height: dense ? IconSize.small : IconSize.small + 1,
-                        child: Image.network(
-                          iconUrl,
-                          width: dense ? IconSize.small : IconSize.small + 1,
-                          height: dense ? IconSize.small : IconSize.small + 1,
-                          color: iconUrl.endsWith('.svg') ? iconColor : null,
-                          colorBlendMode: BlendMode.srcIn,
-                          errorBuilder: (_, _, _) => Icon(
-                            icon,
-                            size: dense ? IconSize.small : IconSize.small + 1,
-                            color: iconColor,
-                          ),
-                        ),
-                      )
+                  width: dense ? IconSize.small : IconSize.small + 1,
+                  height: dense ? IconSize.small : IconSize.small + 1,
+                  child: Image.network(
+                    iconUrl,
+                    width: dense ? IconSize.small : IconSize.small + 1,
+                    height: dense ? IconSize.small : IconSize.small + 1,
+                    color: iconUrl.endsWith('.svg') ? iconColor : null,
+                    colorBlendMode: BlendMode.srcIn,
+                    errorBuilder: (_, _, _) => Icon(
+                      icon,
+                      size: dense ? IconSize.small : IconSize.small + 1,
+                      color: iconColor,
+                    ),
+                  ),
+                )
                     : Icon(
-                        icon,
-                        size: dense ? IconSize.small : IconSize.small + 1,
-                        color: iconColor,
-                      ),
+                  icon,
+                  size: dense ? IconSize.small : IconSize.small + 1,
+                  color: iconColor,
+                ),
                 SizedBox(width: dense ? Spacing.xs : Spacing.xs + 1),
                 AnimatedDefaultTextStyle(
                   duration: const Duration(milliseconds: 200),
@@ -2272,11 +2274,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   }
 
   Widget _wrapIosSurfaceShadow(
-    Widget child, {
-    BorderRadius borderRadius = const BorderRadius.all(
-      Radius.circular(AppBorderRadius.round),
-    ),
-  }) {
+      Widget child, {
+        BorderRadius borderRadius = const BorderRadius.all(
+          Radius.circular(AppBorderRadius.round),
+        ),
+      }) {
     final isLight = Theme.of(context).brightness == Brightness.light;
     if (!isLight) return child;
     return DecoratedBox(
@@ -2321,6 +2323,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         onCameraCapture: widget.onCameraCapture,
         onWebAttachment: widget.onWebAttachment,
         onKnowledgeTool: widget.onKnowledgeTool,
+        onCodeEditTool: widget.onCodeEditTool,
       ),
     ).whenComplete(() {
       if (mounted) {
@@ -2411,7 +2414,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       });
       _textSub?.cancel();
       _textSub = stream.listen(
-        (text) async {
+            (text) async {
           final updated = _baseTextAtStart.isEmpty
               ? text
               : '${_baseTextAtStart.trimRight()} $text';

@@ -15,6 +15,8 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import 'dart:async';
+import 'dart:convert';
+import 'dart:math' as math;
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/settings_service.dart';
 import '../../auth/providers/unified_auth_providers.dart';
@@ -48,6 +50,60 @@ import 'package:flutter/gestures.dart' show DragStartBehavior;
 import 'package:qonduit/features/rag/providers/rag_collections_providers.dart';
 import 'package:file_picker/file_picker.dart';
 
+
+class _UnifiedDiffHunk {
+  final int oldStart;
+  final int oldCount;
+  final int newStart;
+  final int newCount;
+  final List<String> lines;
+
+  const _UnifiedDiffHunk({
+    required this.oldStart,
+    required this.oldCount,
+    required this.newStart,
+    required this.newCount,
+    required this.lines,
+  });
+}
+
+class _ParsedUnifiedDiff {
+  final String fileName;
+  final String rawPatch;
+  final List<_UnifiedDiffHunk> hunks;
+
+  const _ParsedUnifiedDiff({
+    required this.fileName,
+    required this.rawPatch,
+    required this.hunks,
+  });
+
+  int get addedLines =>
+      hunks.fold<int>(0, (sum, h) => sum + h.lines.where((line) => line.startsWith('+')).length);
+
+  int get removedLines =>
+      hunks.fold<int>(0, (sum, h) => sum + h.lines.where((line) => line.startsWith('-')).length);
+
+  String get signature => '$fileName::$rawPatch';
+}
+
+
+class _CodeEditArtifactPreview {
+  final String fileName;
+  final String savedPath;
+  final List<String> executiveSummary;
+  final List<String> changeSummary;
+  final String patchConfidence;
+
+  const _CodeEditArtifactPreview({
+    required this.fileName,
+    required this.savedPath,
+    required this.executiveSummary,
+    required this.changeSummary,
+    required this.patchConfidence,
+  });
+}
+
 class ChatPage extends ConsumerStatefulWidget {
   const ChatPage({super.key});
 
@@ -74,6 +130,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   bool _userPausedAutoScroll = false; // user scrolled away during generation
   // Pin-to-top: scroll user message to top of viewport when sending
   bool _wantsPinToTop = false;
+  // Code edit attachment state
+  String? _pendingCodeEditFileName;
+  String? _pendingCodeEditFilePath;
+  String? _pendingCodeEditContent;
+  String? _lastCodeEditFileName;
+  String? _lastCodeEditFilePath;
+  String? _dismissedPatchSignature;
   GlobalKey _pinnedUserMessageKey = GlobalKey();
   String? _pinnedStreamingId; // tracks which streaming msg triggered pin
   String? _cachedGreetingName;
@@ -367,6 +430,58 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           .map((file) => file.fileId!)
           .toList();
 
+      final pendingCodeFileName = _pendingCodeEditFileName;
+      final pendingCodeFilePath = _pendingCodeEditFilePath;
+      final pendingCodeContent = _pendingCodeEditContent;
+      String visibleText = text;
+      String outgoingText = text;
+      final attachmentIds = <String>[...uploadedFileIds];
+
+      if (pendingCodeFileName != null &&
+          pendingCodeFileName.trim().isNotEmpty &&
+          pendingCodeFilePath != null &&
+          pendingCodeFilePath.trim().isNotEmpty) {
+        final api = ref.read(apiServiceProvider);
+        if (api != null) {
+          final uploadedCodeFileId = await api.uploadFile(
+            pendingCodeFilePath,
+            pendingCodeFileName,
+            contentType: 'text/plain',
+          );
+          attachmentIds.add(uploadedCodeFileId);
+        }
+
+        if (pendingCodeContent != null && pendingCodeContent.isNotEmpty) {
+          outgoingText = _buildCodeEditPrompt(
+            fileName: pendingCodeFileName,
+            instruction: text,
+            fileContent: pendingCodeContent,
+          );
+        } else {
+          outgoingText = _buildCodeEditInstruction(
+            fileName: pendingCodeFileName,
+            instruction: text,
+          );
+        }
+      } else if (pendingCodeFileName != null &&
+          pendingCodeFileName.trim().isNotEmpty &&
+          pendingCodeContent != null &&
+          pendingCodeContent.isNotEmpty) {
+        outgoingText = _buildCodeEditPrompt(
+          fileName: pendingCodeFileName,
+          instruction: text,
+          fileContent: pendingCodeContent,
+        );
+      }
+
+      final queuedText =
+      outgoingText == visibleText
+          ? visibleText
+          : packQueuedSendPayload(
+        visibleText: visibleText,
+        payloadText: outgoingText,
+      );
+
       // Get selected tools
       final toolIds = ref.read(selectedToolIdsProvider);
 
@@ -376,13 +491,27 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           .read(taskQueueProvider.notifier)
           .enqueueSendText(
         conversationId: activeConv?.id,
-        text: text,
-        attachments: uploadedFileIds.isNotEmpty ? uploadedFileIds : null,
+        text: queuedText,
+        attachments: attachmentIds.isNotEmpty ? attachmentIds : null,
         toolIds: toolIds.isNotEmpty ? toolIds : null,
       );
 
       // Clear attachments after successful send
       ref.read(attachedFilesProvider.notifier).clearAll();
+      if (mounted) {
+        setState(() {
+          if (pendingCodeFileName != null && pendingCodeFileName.trim().isNotEmpty) {
+            _lastCodeEditFileName = pendingCodeFileName;
+          }
+          if (pendingCodeFilePath != null && pendingCodeFilePath.trim().isNotEmpty) {
+            _lastCodeEditFilePath = pendingCodeFilePath;
+          }
+          _pendingCodeEditFileName = null;
+          _pendingCodeEditFilePath = null;
+          _pendingCodeEditContent = null;
+          _dismissedPatchSignature = null;
+        });
+      }
 
       // Reset auto-scroll pause when user sends a new message
       _userPausedAutoScroll = false;
@@ -1969,6 +2098,1124 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
   }
 
+
+
+  String _buildCodeEditInstruction({
+    required String fileName,
+    required String instruction,
+  }) {
+    return '''
+Code edit request for file: $fileName
+
+Please apply the requested change to the attached file.
+
+Requested change:
+$instruction
+''';
+  }
+
+  Future<void> _promptCodeEditTool() async {
+    final result = await FilePicker.platform.pickFiles(
+      allowMultiple: false,
+      type: FileType.custom,
+      allowedExtensions: [
+        'cpp','c','h','hpp','py','java','kt','kts','xml','html','css','js','ts',
+        'sql','yaml','yml','toml','ini','sh','go','rs','swift','php','rb','pl',
+        'lua','vhdl','vhd','v','dart','json','md','txt'
+      ],
+    );
+
+    if (result == null) return;
+
+    final file = result.files.single;
+    final path = file.path;
+    if (path == null) return;
+
+    final content = await File(path).readAsString();
+
+    setState(() {
+      _pendingCodeEditFileName = file.name;
+      _pendingCodeEditFilePath = path;
+      _pendingCodeEditContent = content;
+    });
+  }
+
+  String _buildCodeEditPrompt({
+    required String fileName,
+    required String instruction,
+    required String fileContent,
+  }) {
+    return '''
+Code edit request for file: $fileName
+
+Please apply the requested change to this file.
+
+Requested change:
+$instruction
+
+Current file contents:
+<<<FILE
+$fileContent
+FILE
+''';
+  }
+
+  Widget _buildPendingCodeEditAttachment() {
+    final fileName = _pendingCodeEditFileName;
+    final content = _pendingCodeEditContent;
+    if (fileName == null ||
+        fileName.trim().isEmpty ||
+        content == null ||
+        content.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final lineCount = '\n'.allMatches(content).length + 1;
+    final theme = context.qonduitTheme;
+    final Color chipBackground = theme.surfaceContainerHighest;
+    final Color chipBorder = theme.cardBorder;
+    final Color iconBackground = theme.buttonPrimary.withValues(alpha: 0.10);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        Spacing.screenPadding,
+        0,
+        Spacing.screenPadding,
+        Spacing.sm,
+      ),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 460),
+          child: Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: Spacing.md,
+              vertical: Spacing.sm,
+            ),
+            decoration: BoxDecoration(
+              color: chipBackground,
+              borderRadius: BorderRadius.circular(AppBorderRadius.card),
+              border: Border.all(
+                color: chipBorder,
+                width: BorderWidth.thin,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: iconBackground,
+                    borderRadius: BorderRadius.circular(AppBorderRadius.sm),
+                  ),
+                  child: Icon(
+                    Platform.isIOS
+                        ? CupertinoIcons.doc_text
+                        : Icons.code_outlined,
+                    size: IconSize.medium,
+                    color: theme.buttonPrimary,
+                  ),
+                ),
+                const SizedBox(width: Spacing.sm),
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        fileName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.labelStyle.copyWith(
+                          color: theme.textPrimary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Code file • $lineCount lines',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.captionStyle.copyWith(
+                          color: theme.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: Spacing.xs),
+                Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(AppBorderRadius.round),
+                    onTap: () {
+                      setState(() {
+                        _pendingCodeEditFileName = null;
+                        _pendingCodeEditFilePath = null;
+                        _pendingCodeEditContent = null;
+                      });
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.all(Spacing.xs),
+                      child: Icon(
+                        Platform.isIOS ? CupertinoIcons.xmark : Icons.close,
+                        size: IconSize.small,
+                        color: theme.textSecondary,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+
+  String _normalizeDiffPath(String rawPath) {
+    var normalized = rawPath.trim();
+    if (normalized.startsWith('a/')) {
+      normalized = normalized.substring(2);
+    } else if (normalized.startsWith('b/')) {
+      normalized = normalized.substring(2);
+    }
+    return normalized;
+  }
+
+  List<String> _splitNormalizedLines(String input) {
+    final normalized = input.replaceAll('\r\n', '\n');
+    final lines = normalized.split('\n');
+    if (normalized.endsWith('\n') && lines.isNotEmpty) {
+      lines.removeLast();
+    }
+    return lines;
+  }
+
+  _ParsedUnifiedDiff? _parseUnifiedDiffFromContent(
+      String content, {
+        String? expectedFileName,
+      }) {
+    if (content.trim().isEmpty) return null;
+    final sanitized = content
+        .replaceAll('```diff', '')
+        .replaceAll('```patch', '')
+        .replaceAll('```', '')
+        .trim();
+
+    final lines = sanitized.replaceAll('\r\n', '\n').split('\n');
+    final startIndex = lines.indexWhere((line) => line.startsWith('--- '));
+    if (startIndex < 0 || startIndex + 1 >= lines.length) {
+      return null;
+    }
+
+    final oldPath = lines[startIndex].substring(4).trim();
+    final newHeader = lines[startIndex + 1];
+    if (!newHeader.startsWith('+++ ')) {
+      return null;
+    }
+    final newPath = newHeader.substring(4).trim();
+
+    final normalizedOld = _normalizeDiffPath(oldPath);
+    final normalizedNew = _normalizeDiffPath(newPath);
+    if (normalizedOld.isEmpty || normalizedNew.isEmpty) {
+      return null;
+    }
+    if (normalizedOld != normalizedNew) {
+      return null;
+    }
+    if (expectedFileName != null &&
+        expectedFileName.trim().isNotEmpty &&
+        normalizedNew != expectedFileName.trim()) {
+      return null;
+    }
+
+    final hunks = <_UnifiedDiffHunk>[];
+    final headerRegExp = RegExp(r'^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@');
+    var index = startIndex + 2;
+    while (index < lines.length) {
+      while (index < lines.length && lines[index].trim().isEmpty) {
+        index++;
+      }
+      if (index >= lines.length) break;
+      final headerLine = lines[index];
+      final match = headerRegExp.firstMatch(headerLine);
+      if (match == null) {
+        index++;
+        continue;
+      }
+
+      final oldStart = int.parse(match.group(1)!);
+      final oldCount = int.parse(match.group(2) ?? '1');
+      final newStart = int.parse(match.group(3)!);
+      final newCount = int.parse(match.group(4) ?? '1');
+
+      index++;
+      final hunkLines = <String>[];
+      while (index < lines.length && !lines[index].startsWith('@@ ')) {
+        final line = lines[index];
+        if (line.startsWith('--- ') && hunkLines.isEmpty) {
+          break;
+        }
+        if (line.isNotEmpty &&
+            !(line.startsWith(' ') ||
+                line.startsWith('+') ||
+                line.startsWith('-') ||
+                line.startsWith(r'\'))) {
+          break;
+        }
+        hunkLines.add(line);
+        index++;
+      }
+
+      if (hunkLines.isNotEmpty) {
+        hunks.add(
+          _UnifiedDiffHunk(
+            oldStart: oldStart,
+            oldCount: oldCount,
+            newStart: newStart,
+            newCount: newCount,
+            lines: hunkLines,
+          ),
+        );
+      }
+    }
+
+    if (hunks.isEmpty) return null;
+
+    final patchLines = <String>['--- $normalizedOld', '+++ $normalizedNew'];
+    for (final h in hunks) {
+      patchLines.add('@@ -${h.oldStart},${h.oldCount} +${h.newStart},${h.newCount} @@');
+      patchLines.addAll(h.lines);
+    }
+
+    return _ParsedUnifiedDiff(
+      fileName: normalizedNew,
+      rawPatch: patchLines.join('\n'),
+      hunks: hunks,
+    );
+  }
+
+  _ParsedUnifiedDiff? _findLatestUnifiedDiff(List<ChatMessage> messages) {
+    final expectedFile = _lastCodeEditFileName;
+    if (expectedFile == null || expectedFile.trim().isEmpty) {
+      return null;
+    }
+
+    for (final message in messages.reversed) {
+      if (message.role != 'assistant') continue;
+      final parsed = _parseUnifiedDiffFromContent(
+        message.content,
+        expectedFileName: expectedFile,
+      );
+      if (parsed != null) {
+        if (_dismissedPatchSignature == parsed.signature) {
+          return null;
+        }
+        return parsed;
+      }
+    }
+    return null;
+  }
+
+  String _normalizePatchComparableLine(String line) {
+    return line.replaceAll('\t', '    ').replaceAll(RegExp(r'[ \t]+$'), '');
+  }
+
+  int _lineMatchStrength(String source, String expected) {
+    if (source == expected) return 3;
+
+    final normalizedSource = _normalizePatchComparableLine(source);
+    final normalizedExpected = _normalizePatchComparableLine(expected);
+    if (normalizedSource == normalizedExpected) return 2;
+    if (normalizedSource.trimLeft() == normalizedExpected.trimLeft()) return 1;
+    return 0;
+  }
+
+  ({List<String> outputLines, int consumed, int score})? _evaluateUnifiedDiffHunkAt(
+      List<String> sourceLines,
+      _UnifiedDiffHunk hunk,
+      int startIndex,
+      ) {
+    final outputLines = <String>[];
+    var cursor = startIndex;
+    var score = 0;
+
+    for (final line in hunk.lines) {
+      if (line.isEmpty) {
+        return null;
+      }
+
+      final marker = line[0];
+      final value = line.length > 1 ? line.substring(1) : '';
+
+      if (marker == ' ' || marker == '-') {
+        if (cursor >= sourceLines.length) {
+          return null;
+        }
+
+        final sourceLine = sourceLines[cursor];
+        final matchStrength = _lineMatchStrength(sourceLine, value);
+        if (matchStrength == 0) {
+          return null;
+        }
+
+        score += matchStrength;
+        if (marker == ' ') {
+          // Preserve the local file's exact line when context matches fuzzily.
+          outputLines.add(sourceLine);
+        }
+        cursor++;
+      } else if (marker == '+') {
+        outputLines.add(value);
+        score += 2;
+      } else if (marker == r'\') {
+        // Ignore "\ No newline at end of file"
+      } else {
+        return null;
+      }
+    }
+
+    return (outputLines: outputLines, consumed: cursor - startIndex, score: score);
+  }
+
+  ({int startIndex, List<String> outputLines, int consumed})? _findBestUnifiedDiffHunkApplication(
+      List<String> sourceLines,
+      _UnifiedDiffHunk hunk,
+      int minStartIndex,
+      int targetIndex,
+      ) {
+    final normalizedTarget = math.max(minStartIndex, targetIndex);
+    final searchStart = math.max(minStartIndex, normalizedTarget - 80);
+    final searchEnd = math.min(sourceLines.length, normalizedTarget + 80);
+
+    ({int startIndex, List<String> outputLines, int consumed, int score})? bestMatch;
+
+    for (var candidate = searchStart; candidate <= searchEnd; candidate++) {
+      final evaluated = _evaluateUnifiedDiffHunkAt(sourceLines, hunk, candidate);
+      if (evaluated == null) {
+        continue;
+      }
+
+      final currentMatch = (
+      startIndex: candidate,
+      outputLines: evaluated.outputLines,
+      consumed: evaluated.consumed,
+      score: evaluated.score,
+      );
+
+      if (bestMatch == null) {
+        bestMatch = currentMatch;
+        continue;
+      }
+
+      final isBetterScore = currentMatch.score > bestMatch.score;
+      final sameScore = currentMatch.score == bestMatch.score;
+      final currentDistance = (candidate - normalizedTarget).abs();
+      final bestDistance = (bestMatch.startIndex - normalizedTarget).abs();
+      final isCloser = currentDistance < bestDistance;
+
+      if (isBetterScore || (sameScore && isCloser)) {
+        bestMatch = currentMatch;
+      }
+    }
+
+    if (bestMatch == null) {
+      return null;
+    }
+
+    return (
+    startIndex: bestMatch.startIndex,
+    outputLines: bestMatch.outputLines,
+    consumed: bestMatch.consumed,
+    );
+  }
+
+
+  List<String> _extractRemovedBlockLines(_UnifiedDiffHunk hunk) {
+    final lines = <String>[];
+    for (final line in hunk.lines) {
+      if (line.isEmpty) continue;
+      if (line[0] == '-') {
+        lines.add(line.length > 1 ? line.substring(1) : '');
+      }
+    }
+    return lines;
+  }
+
+  List<String> _extractAddedBlockLines(_UnifiedDiffHunk hunk) {
+    final lines = <String>[];
+    for (final line in hunk.lines) {
+      if (line.isEmpty) continue;
+      if (line[0] == '+') {
+        lines.add(line.length > 1 ? line.substring(1) : '');
+      }
+    }
+    return lines;
+  }
+
+
+  bool _lineMatchesLoosely(String source, String expected) {
+    if (source == expected) return true;
+
+    final normalizedSource = source.trim().replaceAll(RegExp(r'\s+'), ' ');
+    final normalizedExpected = expected.trim().replaceAll(RegExp(r'\s+'), ' ');
+
+    if (normalizedSource == normalizedExpected) return true;
+    if (normalizedSource.isEmpty || normalizedExpected.isEmpty) return false;
+
+    return normalizedSource.contains(normalizedExpected) ||
+        normalizedExpected.contains(normalizedSource);
+  }
+
+  ({int startIndex, List<String> outputLines, int consumed})? _findRemovedBlockReplacement(
+      List<String> sourceLines,
+      _UnifiedDiffHunk hunk,
+      int minStartIndex,
+      ) {
+    final removedLines = _extractRemovedBlockLines(hunk);
+    final addedLines = _extractAddedBlockLines(hunk);
+    if (removedLines.isEmpty) {
+      return null;
+    }
+
+    final maxStart = sourceLines.length - removedLines.length;
+    for (var candidate = math.max(0, minStartIndex); candidate <= maxStart; candidate++) {
+      var matches = true;
+      for (var i = 0; i < removedLines.length; i++) {
+        if (!_lineMatchesLoosely(sourceLines[candidate + i], removedLines[i])) {
+          matches = false;
+          break;
+        }
+      }
+      if (matches) {
+        return (
+        startIndex: candidate,
+        outputLines: addedLines,
+        consumed: removedLines.length,
+        );
+      }
+    }
+    return null;
+  }
+
+  String? _applyUnifiedDiffToContent(String originalContent, _ParsedUnifiedDiff diff) {
+    final originalHadTrailingNewline = originalContent.replaceAll('\r\n', '\n').endsWith('\n');
+    final sourceLines = _splitNormalizedLines(originalContent);
+    final result = <String>[];
+    var cursor = 0;
+
+    for (final hunk in diff.hunks) {
+      final targetIndex = (hunk.oldStart <= 0) ? 0 : hunk.oldStart - 1;
+      final resolvedHunk = _findBestUnifiedDiffHunkApplication(
+        sourceLines,
+        hunk,
+        cursor,
+        targetIndex,
+      );
+      final appliedHunk = resolvedHunk ?? _findRemovedBlockReplacement(
+        sourceLines,
+        hunk,
+        cursor,
+      );
+      if (appliedHunk == null) {
+        return null;
+      }
+
+      result.addAll(sourceLines.sublist(cursor, appliedHunk.startIndex));
+      result.addAll(appliedHunk.outputLines);
+      cursor = appliedHunk.startIndex + appliedHunk.consumed;
+    }
+
+    if (cursor > sourceLines.length) {
+      return null;
+    }
+    result.addAll(sourceLines.sublist(cursor));
+
+    final output = result.join('\n');
+    return originalHadTrailingNewline ? '$output\n' : output;
+  }
+
+
+  String _truncateDiffSnippet(String value, {int maxLength = 84}) {
+    final normalized = value.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (normalized.length <= maxLength) {
+      return normalized;
+    }
+    return '${normalized.substring(0, maxLength - 1).trimRight()}…';
+  }
+
+  bool _isMeaningfulDiffSnippet(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return false;
+    if (trimmed.startsWith('@@') ||
+        trimmed.startsWith('--- ') ||
+        trimmed.startsWith('+++ ')) {
+      return false;
+    }
+    if (RegExp(r'^[{}\[\]();,]+$').hasMatch(trimmed)) {
+      return false;
+    }
+    return true;
+  }
+
+  String? _firstMeaningfulDiffLine(
+      Iterable<String> lines,
+      String prefix,
+      ) {
+    for (final line in lines) {
+      if (!line.startsWith(prefix)) continue;
+      final raw = line.length > 1 ? line.substring(1).trim() : '';
+      if (!_isMeaningfulDiffSnippet(raw)) continue;
+      return raw;
+    }
+    return null;
+  }
+
+  List<String> _extractTouchedDiffSymbols(_ParsedUnifiedDiff diff) {
+    final symbols = <String>[];
+    final seen = <String>{};
+    final blocked = <String>{
+      'if',
+      'for',
+      'while',
+      'switch',
+      'return',
+      'catch',
+      'else',
+      'await',
+      'setState',
+      'Text',
+      'Icon',
+      'Row',
+      'Column',
+      'Container',
+      'Padding',
+    };
+    final patterns = <RegExp>[
+      RegExp(r'\b(?:class|enum|mixin|extension|typedef)\s+([A-Za-z_]\w*)'),
+      RegExp(
+        r'\b([A-Za-z_]\w*)\s*\([^)]*\)\s*(?:async\s*)?(?:\{|=>)',
+      ),
+      RegExp(r'\b([A-Za-z_]\w*)\s*=\s*'),
+    ];
+
+    for (final hunk in diff.hunks) {
+      for (final line in hunk.lines) {
+        if (!(line.startsWith('+') || line.startsWith('-'))) continue;
+        final source = line.length > 1 ? line.substring(1).trim() : '';
+        if (source.isEmpty) continue;
+        for (final pattern in patterns) {
+          final match = pattern.firstMatch(source);
+          if (match == null) continue;
+          final symbol = match.group(1)?.trim();
+          if (symbol == null ||
+              symbol.isEmpty ||
+              blocked.contains(symbol) ||
+              seen.contains(symbol)) {
+            continue;
+          }
+          seen.add(symbol);
+          symbols.add(symbol);
+          if (symbols.length >= 4) {
+            return symbols;
+          }
+        }
+      }
+    }
+    return symbols;
+  }
+
+  List<String> _buildUnifiedDiffSummary(_ParsedUnifiedDiff diff) {
+    final summary = <String>[];
+    summary.add(
+      'Adds ${diff.addedLines} line${diff.addedLines == 1 ? '' : 's'} and removes '
+          '${diff.removedLines} line${diff.removedLines == 1 ? '' : 's'}.',
+    );
+
+    final touchedSymbols = _extractTouchedDiffSymbols(diff);
+    if (touchedSymbols.isNotEmpty) {
+      summary.add('Touches: ${touchedSymbols.join(', ')}.');
+    }
+
+    for (final hunk in diff.hunks) {
+      final removed = _firstMeaningfulDiffLine(hunk.lines, '-');
+      final added = _firstMeaningfulDiffLine(hunk.lines, '+');
+
+      if (removed != null && added != null) {
+        summary.add(
+          'Replaces "${_truncateDiffSnippet(removed)}" with '
+              '"${_truncateDiffSnippet(added)}".',
+        );
+      } else if (added != null) {
+        summary.add('Adds "${_truncateDiffSnippet(added)}".');
+      } else if (removed != null) {
+        summary.add('Removes "${_truncateDiffSnippet(removed)}".');
+      }
+
+      if (summary.length >= 4) {
+        break;
+      }
+    }
+
+    return summary.take(4).toList(growable: false);
+  }
+
+  Future<void> _copyUnifiedDiffPatch(_ParsedUnifiedDiff diff) async {
+    await Clipboard.setData(ClipboardData(text: diff.rawPatch));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Patch copied to clipboard')),
+    );
+  }
+
+  Future<void> _applyUnifiedDiffPatch(_ParsedUnifiedDiff diff) async {
+    final filePath = _lastCodeEditFilePath;
+    if (filePath == null || filePath.trim().isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Original local file path is not available')),
+      );
+      return;
+    }
+
+    try {
+      final file = File(filePath);
+      if (!await file.exists()) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('File not found: $filePath')),
+        );
+        return;
+      }
+
+      final original = await file.readAsString();
+      final updated = _applyUnifiedDiffToContent(original, diff);
+      if (updated == null) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Patch could not be applied cleanly')),
+        );
+        return;
+      }
+
+      await file.writeAsString(updated);
+      if (!mounted) return;
+      setState(() {
+        _dismissedPatchSignature = diff.signature;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Applied patch to ${diff.fileName}')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to apply patch: $e')),
+      );
+    }
+  }
+
+  Widget _buildUnifiedDiffReviewCard(List<ChatMessage> messages) {
+    final diff = _findLatestUnifiedDiff(messages);
+    if (diff == null) {
+      return const SizedBox.shrink();
+    }
+
+    final theme = context.qonduitTheme;
+    final summaryLines = _buildUnifiedDiffSummary(diff);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        Spacing.screenPadding,
+        0,
+        Spacing.screenPadding,
+        Spacing.sm,
+      ),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: Container(
+            padding: const EdgeInsets.all(Spacing.md),
+            decoration: BoxDecoration(
+              color: theme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(AppBorderRadius.card),
+              border: Border.all(
+                color: theme.cardBorder,
+                width: BorderWidth.thin,
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        color: theme.buttonPrimary.withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(AppBorderRadius.sm),
+                      ),
+                      child: Icon(
+                        Platform.isIOS
+                            ? CupertinoIcons.doc_plaintext
+                            : Icons.alt_route,
+                        size: IconSize.medium,
+                        color: theme.buttonPrimary,
+                      ),
+                    ),
+                    const SizedBox(width: Spacing.sm),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Patch ready for ${diff.fileName}',
+                            style: AppTypography.labelStyle.copyWith(
+                              color: theme.textPrimary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '+${diff.addedLines}  -${diff.removedLines}  • unified diff',
+                            style: AppTypography.captionStyle.copyWith(
+                              color: theme.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(AppBorderRadius.round),
+                        onTap: () {
+                          setState(() {
+                            _dismissedPatchSignature = diff.signature;
+                          });
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.all(Spacing.xs),
+                          child: Icon(
+                            Platform.isIOS ? CupertinoIcons.xmark : Icons.close,
+                            size: IconSize.small,
+                            color: theme.textSecondary,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                if (summaryLines.isNotEmpty) ...[
+                  const SizedBox(height: Spacing.sm),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(Spacing.sm),
+                    decoration: BoxDecoration(
+                      color: theme.surfaceBackground.withValues(alpha: 0.55),
+                      borderRadius: BorderRadius.circular(AppBorderRadius.sm),
+                      border: Border.all(
+                        color: theme.cardBorder.withValues(alpha: 0.7),
+                        width: BorderWidth.thin,
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Quick summary',
+                          style: AppTypography.captionStyle.copyWith(
+                            color: theme.textSecondary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: Spacing.xs),
+                        for (final line in summaryLines)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: Spacing.xs),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 4),
+                                  child: Container(
+                                    width: 5,
+                                    height: 5,
+                                    decoration: BoxDecoration(
+                                      color: theme.buttonPrimary,
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: Spacing.xs),
+                                Expanded(
+                                  child: Text(
+                                    line,
+                                    style: AppTypography.captionStyle.copyWith(
+                                      color: theme.textPrimary,
+                                      height: 1.35,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+                const SizedBox(height: Spacing.sm),
+                Wrap(
+                  spacing: Spacing.xs,
+                  runSpacing: Spacing.xs,
+                  children: [
+                    AdaptiveButton.child(
+                      onPressed: () => _applyUnifiedDiffPatch(diff),
+                      style: AdaptiveButtonStyle.filled,
+                      child: const Text('Apply patch'),
+                    ),
+                    AdaptiveButton.child(
+                      onPressed: () => _copyUnifiedDiffPatch(diff),
+                      style: AdaptiveButtonStyle.plain,
+                      child: const Text('Copy patch'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+
+  List<String> _extractSummaryBullets(String sectionBody) {
+    final lines = sectionBody
+        .split('\n')
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .map((line) => line.replaceFirst(RegExp(r'^[-•*]\s*'), '').trim())
+        .where((line) => line.isNotEmpty)
+        .toList(growable: false);
+    return lines;
+  }
+
+  _CodeEditArtifactPreview? _findLatestCodeEditArtifactPreview(List<ChatMessage> messages) {
+    final preparedFileRegExp = RegExp(r'^Prepared File:\s*(.+)$', multiLine: true);
+    final savedPathRegExp = RegExp(r'^Saved Path:\s*(.+)$', multiLine: true);
+    final confidenceRegExp = RegExp(r'^Patch Confidence:\s*(HIGH|MEDIUM|LOW)\s*$', multiLine: true);
+
+    for (final message in messages.reversed) {
+      if (message.role != 'assistant') continue;
+      final content = message.content;
+      if (content.trim().isEmpty) continue;
+
+      final preparedMatch = preparedFileRegExp.firstMatch(content);
+      final pathMatch = savedPathRegExp.firstMatch(content);
+      if (preparedMatch == null || pathMatch == null) {
+        continue;
+      }
+
+      final fileName = preparedMatch.group(1)?.trim() ?? '';
+      final savedPath = pathMatch.group(1)?.trim() ?? '';
+      if (fileName.isEmpty || savedPath.isEmpty) {
+        continue;
+      }
+
+      final executiveSection = RegExp(
+        r'Executive Summary\s*(.*?)\s*(?:Change Summary|Patch Confidence:|Prepared File:|$)',
+        dotAll: true,
+      ).firstMatch(content)?.group(1) ?? '';
+      final changeSection = RegExp(
+        r'Change Summary\s*(.*?)\s*(?:Patch Confidence:|Prepared File:|$)',
+        dotAll: true,
+      ).firstMatch(content)?.group(1) ?? '';
+      final confidence = confidenceRegExp.firstMatch(content)?.group(1)?.toLowerCase() ?? 'low';
+
+      return _CodeEditArtifactPreview(
+        fileName: fileName,
+        savedPath: savedPath,
+        executiveSummary: _extractSummaryBullets(executiveSection),
+        changeSummary: _extractSummaryBullets(changeSection),
+        patchConfidence: confidence,
+      );
+    }
+
+    return null;
+  }
+
+  Future<void> _copyCodeEditArtifactPath(_CodeEditArtifactPreview artifact) async {
+    await Clipboard.setData(ClipboardData(text: artifact.savedPath));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Saved file path copied to clipboard')),
+    );
+  }
+
+  Widget _buildCodeEditArtifactCard(List<ChatMessage> messages) {
+    final artifact = _findLatestCodeEditArtifactPreview(messages);
+    if (artifact == null) {
+      return const SizedBox.shrink();
+    }
+
+    final theme = context.qonduitTheme;
+    final confidenceLabel = artifact.patchConfidence.toUpperCase();
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        Spacing.screenPadding,
+        0,
+        Spacing.screenPadding,
+        Spacing.sm,
+      ),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: Container(
+            padding: const EdgeInsets.all(Spacing.md),
+            decoration: BoxDecoration(
+              color: theme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(AppBorderRadius.card),
+              border: Border.all(
+                color: theme.cardBorder,
+                width: BorderWidth.thin,
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        color: theme.buttonPrimary.withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(AppBorderRadius.sm),
+                      ),
+                      child: Icon(
+                        Platform.isIOS
+                            ? CupertinoIcons.doc_text
+                            : Icons.insert_drive_file_outlined,
+                        size: IconSize.medium,
+                        color: theme.buttonPrimary,
+                      ),
+                    ),
+                    const SizedBox(width: Spacing.sm),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            artifact.fileName,
+                            style: AppTypography.labelStyle.copyWith(
+                              color: theme.textPrimary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Modified file ready • Patch confidence: $confidenceLabel',
+                            style: AppTypography.captionStyle.copyWith(
+                              color: theme.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                if (artifact.executiveSummary.isNotEmpty) ...[
+                  const SizedBox(height: Spacing.sm),
+                  Text(
+                    'Executive Summary',
+                    style: AppTypography.captionStyle.copyWith(
+                      color: theme.textSecondary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: Spacing.xs),
+                  for (final item in artifact.executiveSummary)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: Spacing.xs),
+                      child: Text(
+                        '• $item',
+                        style: AppTypography.captionStyle.copyWith(
+                          color: theme.textPrimary,
+                          height: 1.35,
+                        ),
+                      ),
+                    ),
+                ],
+                if (artifact.changeSummary.isNotEmpty) ...[
+                  const SizedBox(height: Spacing.xs),
+                  Text(
+                    'Change Summary',
+                    style: AppTypography.captionStyle.copyWith(
+                      color: theme.textSecondary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: Spacing.xs),
+                  for (final item in artifact.changeSummary)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: Spacing.xs),
+                      child: Text(
+                        '• $item',
+                        style: AppTypography.captionStyle.copyWith(
+                          color: theme.textPrimary,
+                          height: 1.35,
+                        ),
+                      ),
+                    ),
+                ],
+                const SizedBox(height: Spacing.sm),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(Spacing.sm),
+                  decoration: BoxDecoration(
+                    color: theme.surfaceBackground.withValues(alpha: 0.55),
+                    borderRadius: BorderRadius.circular(AppBorderRadius.sm),
+                    border: Border.all(
+                      color: theme.cardBorder.withValues(alpha: 0.7),
+                      width: BorderWidth.thin,
+                    ),
+                  ),
+                  child: Text(
+                    artifact.savedPath,
+                    style: AppTypography.captionStyle.copyWith(
+                      color: theme.textSecondary,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: Spacing.sm),
+                Wrap(
+                  spacing: Spacing.xs,
+                  runSpacing: Spacing.xs,
+                  children: [
+                    AdaptiveButton.child(
+                      onPressed: () => _copyCodeEditArtifactPath(artifact),
+                      style: AdaptiveButtonStyle.filled,
+                      child: const Text('Copy path'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _showKnowledgeToolSheet() async {
     final hadFocus = ref.read(composerHasFocusProvider);
     try {
@@ -2102,6 +3349,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     // Use select to watch only the selected model to reduce rebuilds
     final selectedModel = ref.watch(
       selectedModelProvider.select((model) => model),
+    );
+    final currentMessages = ref.watch(
+      chatMessagesProvider.select((messages) => messages),
     );
 
     // Watch reviewer mode and auto-select model if needed
@@ -2804,6 +4054,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                             // File attachments
                             const FileAttachmentWidget(),
                             const ContextAttachmentWidget(),
+                            _buildCodeEditArtifactCard(currentMessages),
+                            _buildPendingCodeEditAttachment(),
                             // RepaintBoundary prevents BackdropFilter
                             // (AdaptiveBlurView) from going blank when
                             // a modal sheet scrolls over it.
@@ -2819,6 +4071,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                                     _handleImageAttachment(fromCamera: true),
                                 onWebAttachment: _promptAttachWebpage,
                                 onKnowledgeTool: _showKnowledgeToolSheet,
+                                onCodeEditTool: _promptCodeEditTool,
                                 onPastedAttachments: _handlePastedAttachments,
                               ),
                             ),
@@ -2889,7 +4142,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                         !_wantsPinToTop &&
                         !keyboardVisible &&
                         canScroll &&
-                        ref.watch(chatMessagesProvider).isNotEmpty)
+                        currentMessages.isNotEmpty)
                         ? Center(
                       key: const ValueKey('scroll_to_bottom_visible'),
                       child: AdaptiveTooltip(

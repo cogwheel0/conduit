@@ -305,8 +305,55 @@ class ApiService {
     );
   }
 
+  Future<String> _getMemoryGatewayUserHeaderValue() async {
+    try {
+      final response = await _dio.get('/api/v1/auths/');
+      final data = response.data;
+      if (data is Map<String, dynamic>) {
+        final candidates = <Object?>[
+          data['id'],
+          data['email'],
+          data['username'],
+          data['name'],
+        ];
+        for (final candidate in candidates) {
+          final value = candidate?.toString().trim() ?? '';
+          if (value.isNotEmpty) {
+            return value;
+          }
+        }
+      }
+    } catch (_) {
+      // Fall through to default when user resolution is unavailable.
+    }
+    return 'default';
+  }
+
+  Future<Options> _memoryGatewayJsonOptions() async {
+    final userValue = await _getMemoryGatewayUserHeaderValue();
+    return Options(
+      headers: <String, dynamic>{
+        'Content-Type': 'application/json',
+        'X-Qonduit-User': userValue,
+      },
+    );
+  }
+
+  Future<Options> _memoryGatewayMultipartOptions() async {
+    final userValue = await _getMemoryGatewayUserHeaderValue();
+    return Options(
+      contentType: 'multipart/form-data',
+      headers: <String, dynamic>{
+        'X-Qonduit-User': userValue,
+      },
+    );
+  }
+
   Future<List<String>> getRagCollections() async {
-    final resp = await _memoryGatewayDio.get('/rag/collections');
+    final resp = await _memoryGatewayDio.get(
+      '/rag/collections',
+      options: await _memoryGatewayJsonOptions(),
+    );
 
     final status = resp.statusCode ?? 0;
     if (status < 200 || status >= 300) {
@@ -335,6 +382,7 @@ class ApiService {
     final resp = await _memoryGatewayDio.post(
       '/rag/collections/create',
       data: {'name': trimmed},
+      options: await _memoryGatewayJsonOptions(),
     );
 
     final status = resp.statusCode ?? 0;
@@ -352,6 +400,7 @@ class ApiService {
     final resp = await _memoryGatewayDio.post(
       '/rag/collections/delete',
       data: {'name': trimmed},
+      options: await _memoryGatewayJsonOptions(),
     );
 
     final status = resp.statusCode ?? 0;
@@ -391,6 +440,7 @@ class ApiService {
         'collection': trimmedCollection,
         'document_name': documentName,
       },
+      options: await _memoryGatewayJsonOptions(),
     );
 
     final status = resp.statusCode ?? 0;
@@ -419,9 +469,7 @@ class ApiService {
     final resp = await _memoryGatewayDio.post(
       '/rag/upload',
       data: formData,
-      options: Options(
-        contentType: 'multipart/form-data',
-      ),
+      options: await _memoryGatewayMultipartOptions(),
     );
 
     if (resp.statusCode != 200) {
@@ -3695,6 +3743,215 @@ class ApiService {
     return data;
   }
 
+
+  bool _looksLikeShortCodeEditInstruction(String content) {
+    final lowered = content.toLowerCase().trim();
+    if (lowered.isEmpty) {
+      return false;
+    }
+
+    final editSignals = <String>[
+      'add ',
+      'change ',
+      'update ',
+      'modify ',
+      'edit ',
+      'refactor ',
+      'rename ',
+      'remove ',
+      'replace ',
+      'fix ',
+      'convert ',
+      'make ',
+    ];
+
+    return editSignals.any(lowered.startsWith) ||
+        lowered.contains(' file extension') ||
+        lowered.contains(' this file') ||
+        lowered.contains(' in this file');
+  }
+
+  bool _looksLikeInlineCodeEditPayload(String content) {
+    final lowered = content.toLowerCase();
+    return lowered.contains('code edit request for file:') &&
+        lowered.contains('current file contents:');
+  }
+
+  Map<String, dynamic>? _latestUserMessage(
+      List<Map<String, dynamic>> messages,
+      ) {
+    for (final msg in messages.reversed) {
+      if ((msg['role']?.toString() ?? '') == 'user') {
+        return msg;
+      }
+    }
+    return null;
+  }
+
+  Future<String?> _fetchAttachedTextFileContent(
+      Map<String, dynamic> message,
+      ) async {
+    final rawFiles = message['files'];
+    if (rawFiles is! List || rawFiles.isEmpty) {
+      return null;
+    }
+
+    final files = rawFiles.whereType<Map<String, dynamic>>().toList();
+    if (files.isEmpty) {
+      return null;
+    }
+
+    final file = files.first;
+    final fileId =
+        file['id']?.toString() ??
+            file['file_id']?.toString() ??
+            file['fileId']?.toString();
+
+    if (fileId == null || fileId.isEmpty) {
+      _traceApi('No file id available on latest user attachment');
+      return null;
+    }
+
+    try {
+      final response = await _dio.get<List<int>>(
+        '/api/v1/files/$fileId/content',
+        options: Options(responseType: ResponseType.bytes),
+      );
+
+      final data = response.data;
+      if (data == null || data.isEmpty) {
+        _traceApi('Attached file content fetch returned empty body for $fileId');
+        return null;
+      }
+
+      final decoded = utf8.decode(data, allowMalformed: true);
+      if (decoded.trim().isEmpty) {
+        _traceApi('Attached file content decoded empty for $fileId');
+        return null;
+      }
+
+      _traceApi(
+        'Fetched attached text file content for $fileId '
+            '(chars=${decoded.length})',
+      );
+      return decoded;
+    } catch (e) {
+      _traceApi('Failed to fetch attached text file content: $e');
+      return null;
+    }
+  }
+
+  String _attachedFileDisplayName(Map<String, dynamic> message) {
+    final rawFiles = message['files'];
+    if (rawFiles is List && rawFiles.isNotEmpty) {
+      final file = rawFiles.first;
+      if (file is Map<String, dynamic>) {
+        final candidates = <Object?>[
+          file['name'],
+          file['filename'],
+          file['file_name'],
+          file['title'],
+          file['meta'] is Map ? (file['meta'] as Map)['name'] : null,
+          file['meta'] is Map ? (file['meta'] as Map)['filename'] : null,
+        ];
+        for (final candidate in candidates) {
+          final value = candidate?.toString().trim() ?? '';
+          if (value.isNotEmpty) {
+            return value;
+          }
+        }
+      }
+    }
+    return 'attached_file.txt';
+  }
+
+  String _buildInlineCodeEditPayload({
+    required String instruction,
+    required String fileName,
+    required String fileContent,
+  }) {
+    return [
+      'Code edit request for file: $fileName',
+      '',
+      'Requested change:',
+      instruction.trim(),
+      '',
+      'Current file contents:',
+      '<<<FILE',
+      fileContent,
+      'FILE',
+    ].join('\n');
+  }
+
+  Future<List<Map<String, dynamic>>> _prepareMessagesForMemoryGateway(
+      List<Map<String, dynamic>> messages,
+      ) async {
+    final latestUser = _latestUserMessage(messages);
+    if (latestUser == null) {
+      return messages;
+    }
+
+    final latestContent = latestUser['content']?.toString() ?? '';
+    if (_looksLikeInlineCodeEditPayload(latestContent)) {
+      _traceApi(
+        'Memory gateway message prep: inline code edit payload already present',
+      );
+      return messages;
+    }
+
+    final rawFiles = latestUser['files'];
+    final hasFiles = rawFiles is List && rawFiles.isNotEmpty;
+    if (!hasFiles) {
+      return messages;
+    }
+
+    if (!_looksLikeShortCodeEditInstruction(latestContent)) {
+      _traceApi(
+        'Memory gateway message prep: latest user message has files but '
+            'does not look like a short code edit instruction',
+      );
+      return messages;
+    }
+
+    final attachedContent = await _fetchAttachedTextFileContent(latestUser);
+    if (attachedContent == null || attachedContent.trim().isEmpty) {
+      _traceApi(
+        'Memory gateway message prep: could not fetch attached text file content',
+      );
+      return messages;
+    }
+
+    final fileName = _attachedFileDisplayName(latestUser);
+    final rebuilt = messages.map((msg) => Map<String, dynamic>.from(msg)).toList();
+
+    var targetIndex = -1;
+    for (var i = rebuilt.length - 1; i >= 0; i--) {
+      if ((rebuilt[i]['role']?.toString() ?? '') == 'user') {
+        targetIndex = i;
+        break;
+      }
+    }
+    if (targetIndex == -1) {
+      return messages;
+    }
+
+    rebuilt[targetIndex] = {
+      ...rebuilt[targetIndex],
+      'content': _buildInlineCodeEditPayload(
+        instruction: latestContent,
+        fileName: fileName,
+        fileContent: attachedContent,
+      ),
+    };
+
+    _traceApi(
+      'Memory gateway message prep: rebuilt latest user message as inline '
+          'code edit payload for $fileName',
+    );
+    return rebuilt;
+  }
+
+
   bool _shouldUseMemoryGateway({
     required List<Map<String, dynamic>> messages,
     List<String>? toolIds,
@@ -3713,21 +3970,55 @@ class ApiService {
         enableImageGeneration ||
         enableCodeInterpreter ||
         isVoiceMode) {
+      _traceApi(
+        'Memory gateway disabled: feature flags active '
+            '(web=$enableWebSearch image=$enableImageGeneration '
+            'code=$enableCodeInterpreter voice=$isVoiceMode)',
+      );
       return false;
+    }
+
+    if ((toolIds?.isNotEmpty ?? false) ||
+        (filterIds?.isNotEmpty ?? false) ||
+        (skillIds?.isNotEmpty ?? false) ||
+        (toolServers?.isNotEmpty ?? false) ||
+        (backgroundTasks?.isNotEmpty ?? false) ||
+        parentMessage != null) {
+      _traceApi(
+        'Memory gateway disabled: advanced routing context present '
+            '(tools=${toolIds?.length ?? 0} filters=${filterIds?.length ?? 0} '
+            'skills=${skillIds?.length ?? 0} toolServers=${toolServers?.length ?? 0} '
+            'hasBackground=${backgroundTasks != null} hasParent=${parentMessage != null})',
+      );
+      return false;
+    }
+
+    final latestUser = _latestUserMessage(messages);
+    final latestContent = latestUser?['content']?.toString() ?? '';
+
+    if (_looksLikeInlineCodeEditPayload(latestContent)) {
+      _traceApi('Memory gateway enabled: inline code edit payload detected');
+      return true;
     }
 
     for (final msg in messages) {
       final content = msg['content'];
       if (content is! String) {
+        _traceApi(
+          'Memory gateway disabled: non-string message content detected '
+              '(${content.runtimeType})',
+        );
         return false;
       }
 
       final rawFiles = msg['files'];
       if (rawFiles is List && rawFiles.isNotEmpty) {
+        _traceApi('Memory gateway disabled: attached files present on a non-code-edit request');
         return false;
       }
     }
 
+    _traceApi('Memory gateway enabled: plain text-only conversation');
     return true;
   }
 
@@ -3843,8 +4134,10 @@ class ApiService {
 
     _streamCancelActions[messageId] = abort;
 
+    final preparedMessages = await _prepareMessagesForMemoryGateway(messages);
+
     final useMemoryGateway = _shouldUseMemoryGateway(
-      messages: messages,
+      messages: preparedMessages,
       toolIds: toolIds,
       filterIds: filterIds,
       skillIds: skillIds,
@@ -3860,7 +4153,8 @@ class ApiService {
 
     _traceApi(
       'sendMessageSession: useMemoryGateway=$useMemoryGateway '
-          'model=$model conversationId=$conversationId',
+          'model=$model conversationId=$conversationId '
+          'preparedLatestInline=${_looksLikeInlineCodeEditPayload((_latestUserMessage(preparedMessages)?['content'] ?? '').toString())}',
     );
 
     if (useMemoryGateway) {
@@ -3870,7 +4164,7 @@ class ApiService {
           : messageId;
 
       final gatewayData = _buildMemoryGatewayPayload(
-        messages: messages,
+        messages: preparedMessages,
         model: model,
         conversationId: gatewayConversationId,
         contextSize: contextSize,
@@ -3884,13 +4178,15 @@ class ApiService {
             '(model=$model, conversationId=$gatewayConversationId, contextSize=$contextSize)',
       );
 
+      final gatewayUserValue = await _getMemoryGatewayUserHeaderValue();
       final resp = await _memoryGatewayDio.post<ResponseBody>(
         '/v1/chat/completions',
         data: gatewayData,
         options: Options(
           responseType: ResponseType.stream,
-          headers: const {
+          headers: {
             'Accept': 'text/event-stream',
+            'X-Qonduit-User': gatewayUserValue,
           },
           validateStatus: (status) => status != null && status < 600,
         ),

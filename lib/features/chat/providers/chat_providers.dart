@@ -29,9 +29,9 @@ part 'chat_providers.g.dart';
 
 // Chat messages for current conversation
 final chatMessagesProvider =
-    NotifierProvider<ChatMessagesNotifier, List<ChatMessage>>(
-      ChatMessagesNotifier.new,
-    );
+NotifierProvider<ChatMessagesNotifier, List<ChatMessage>>(
+  ChatMessagesNotifier.new,
+);
 
 /// Whether chat is currently streaming a response.
 /// Used by router to avoid showing connection issues during active streaming.
@@ -138,9 +138,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     if (!_initialized) {
       _initialized = true;
       _conversationListener = ref.listen(activeConversationProvider, (
-        previous,
-        next,
-      ) {
+          previous,
+          next,
+          ) {
         DebugLogger.log(
           'Conversation changed: ${previous?.id} -> ${next?.id}',
           scope: 'chat/providers',
@@ -175,7 +175,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
             if (_messageStream != null) {
               DebugLogger.log(
                 'Skipping server state adoption during active streaming '
-                '(message: ${state.lastOrNull?.id ?? "unknown"})',
+                    '(message: ${state.lastOrNull?.id ?? "unknown"})',
                 scope: 'chat/providers',
               );
               return;
@@ -286,7 +286,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
     // Find the local streaming assistant message
     final localStreamingMsg = state.lastWhere(
-      (m) => m.role == 'assistant' && m.isStreaming,
+          (m) => m.role == 'assistant' && m.isStreaming,
       orElse: () => state.last,
     );
 
@@ -306,7 +306,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       // Server has additional messages, so any local streaming must have completed
       DebugLogger.log(
         'Server has more messages (${serverMessages.length} vs ${state.length}) - '
-        'streaming must be complete',
+            'streaming must be complete',
         scope: 'chat/providers',
       );
       return true;
@@ -395,7 +395,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
             if (serverMessages.length > state.length) {
               DebugLogger.log(
                 'Server sync: server has more messages '
-                '(${serverMessages.length} vs ${state.length})',
+                    '(${serverMessages.length} vs ${state.length})',
                 scope: 'chat/providers',
               );
               state = serverMessages;
@@ -421,9 +421,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
                 if (serverHasContent) {
                   DebugLogger.log(
                     'Server sync: adopting server state '
-                    '(serverHasContent=$serverHasContent, '
-                    'serverLen=${serverVersion.content.length}, '
-                    'localLen=${localLast.content.length})',
+                        '(serverHasContent=$serverHasContent, '
+                        'serverLen=${serverVersion.content.length}, '
+                        'localLen=${localLast.content.length})',
                     scope: 'chat/providers',
                   );
                   state = serverMessages;
@@ -543,9 +543,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   }
 
   void setSocketSubscriptions(
-    List<VoidCallback> subscriptions, {
-    VoidCallback? onDispose,
-  }) {
+      List<VoidCallback> subscriptions, {
+        VoidCallback? onDispose,
+      }) {
     cancelSocketSubscriptions();
     _socketSubscriptions.addAll(subscriptions);
     _socketTeardown = onDispose;
@@ -602,8 +602,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   }
 
   void updateLastMessageWithFunction(
-    ChatMessage Function(ChatMessage) updater,
-  ) {
+      ChatMessage Function(ChatMessage) updater,
+      ) {
     if (state.isEmpty) return;
 
     final lastMessage = state.last;
@@ -616,9 +616,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   }
 
   void updateMessageById(
-    String messageId,
-    ChatMessage Function(ChatMessage current) updater,
-  ) {
+      String messageId,
+      ChatMessage Function(ChatMessage current) updater,
+      ) {
     final index = state.indexWhere((m) => m.id == messageId);
     if (index == -1) return;
     final original = state[index];
@@ -685,7 +685,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
             last.action != null && last.action == withTimestamp.action;
         final sameDescription =
             (withTimestamp.description?.isNotEmpty ?? false) &&
-            withTimestamp.description == last.description;
+                withTimestamp.description == last.description;
         if (sameAction && sameDescription) {
           history[history.length - 1] = withTimestamp;
           return current.copyWith(statusHistory: history);
@@ -743,7 +743,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     if (!lastMessage.isStreaming) {
       DebugLogger.log(
         'Ignoring late chunk for finished message: '
-        '${lastMessage.id}',
+            '${lastMessage.id}',
         scope: 'chat/providers',
       );
       return;
@@ -766,7 +766,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     // every chunk.
     _streamingSyncTimer ??= Timer.periodic(
       _streamingSyncInterval,
-      (_) => _syncStreamingBufferToState(),
+          (_) => _syncStreamingBufferToState(),
     );
 
     _touchStreamingActivity();
@@ -856,7 +856,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       final prev = state[state.length - 2];
       final isArchivedAssistant =
           prev.role == 'assistant' &&
-          (prev.metadata?['archivedVariant'] == true);
+              (prev.metadata?['archivedVariant'] == true);
       if (isArchivedAssistant) {
         final snapshot = ChatMessageVersion(
           id: prev.id,
@@ -903,9 +903,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           orElse: () {},
         );
         final updatedSummary =
-            (summary ?? updatedActive.copyWith(messages: const [])).copyWith(
-              updatedAt: updatedActive.updatedAt,
-            );
+        (summary ?? updatedActive.copyWith(messages: const [])).copyWith(
+          updatedAt: updatedActive.updatedAt,
+        );
 
         ref
             .read(conversationsProvider.notifier)
@@ -925,14 +925,14 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 // Pre-seed an assistant skeleton message (with a given id or a new one),
 // persist it to the server to establish the message structure, and return the id.
 Future<String> _preseedAssistantAndPersist(
-  dynamic ref, {
-  String? existingAssistantId,
-  required String modelId,
-  String? systemPrompt,
-}) async {
+    dynamic ref, {
+      String? existingAssistantId,
+      required String modelId,
+      String? systemPrompt,
+    }) async {
   // Choose id: reuse existing if provided, else create new
   final String assistantMessageId =
-      (existingAssistantId != null && existingAssistantId.isNotEmpty)
+  (existingAssistantId != null && existingAssistantId.isNotEmpty)
       ? existingAssistantId
       : const Uuid().v4();
 
@@ -960,7 +960,7 @@ Future<String> _preseedAssistantAndPersist(
         (ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier)
             .updateLastMessageWithFunction(
               (ChatMessage m) => m.copyWith(isStreaming: true),
-            );
+        );
       }
     } catch (_) {}
   }
@@ -975,7 +975,7 @@ Future<String> _preseedAssistantAndPersist(
     final activeConv = ref.read(activeConversationProvider);
     if (api != null && activeConv != null && !isTemporaryChat(activeConv.id)) {
       final resolvedSystemPrompt =
-          (systemPrompt != null && systemPrompt.trim().isNotEmpty)
+      (systemPrompt != null && systemPrompt.trim().isNotEmpty)
           ? systemPrompt.trim()
           : activeConv.systemPrompt;
       final current = ref.read(chatMessagesProvider);
@@ -1059,33 +1059,33 @@ Future<void> restoreDefaultModel(dynamic ref) async {
 
 // Available tools provider
 final availableToolsProvider =
-    NotifierProvider<AvailableToolsNotifier, List<String>>(
-      AvailableToolsNotifier.new,
-    );
+NotifierProvider<AvailableToolsNotifier, List<String>>(
+  AvailableToolsNotifier.new,
+);
 
 // Web search enabled state for API-based web search
 final webSearchEnabledProvider =
-    NotifierProvider<WebSearchEnabledNotifier, bool>(
-      WebSearchEnabledNotifier.new,
-    );
+NotifierProvider<WebSearchEnabledNotifier, bool>(
+  WebSearchEnabledNotifier.new,
+);
 
 // Image generation enabled state - behaves like web search
 final imageGenerationEnabledProvider =
-    NotifierProvider<ImageGenerationEnabledNotifier, bool>(
-      ImageGenerationEnabledNotifier.new,
-    );
+NotifierProvider<ImageGenerationEnabledNotifier, bool>(
+  ImageGenerationEnabledNotifier.new,
+);
 
 // Vision capable models provider
 final visionCapableModelsProvider =
-    NotifierProvider<VisionCapableModelsNotifier, List<String>>(
-      VisionCapableModelsNotifier.new,
-    );
+NotifierProvider<VisionCapableModelsNotifier, List<String>>(
+  VisionCapableModelsNotifier.new,
+);
 
 // File upload capable models provider
 final fileUploadCapableModelsProvider =
-    NotifierProvider<FileUploadCapableModelsNotifier, List<String>>(
-      FileUploadCapableModelsNotifier.new,
-    );
+NotifierProvider<FileUploadCapableModelsNotifier, List<String>>(
+  FileUploadCapableModelsNotifier.new,
+);
 
 class AvailableToolsNotifier extends Notifier<List<String>> {
   @override
@@ -1255,12 +1255,12 @@ String _getMimeTypeFromFileName(String fileName) {
 }
 
 List<Map<String, dynamic>> _contextAttachmentsToFiles(
-  List<ChatContextAttachment> attachments,
-) {
+    List<ChatContextAttachment> attachments,
+    ) {
   return attachments.map((attachment) {
     switch (attachment.type) {
       case ChatContextAttachmentType.web:
-        // Web pages use type 'text' with file data nested under 'file' key
+      // Web pages use type 'text' with file data nested under 'file' key
         return {
           'type': 'text',
           'name': attachment.url ?? attachment.displayName,
@@ -1276,7 +1276,7 @@ List<Map<String, dynamic>> _contextAttachmentsToFiles(
           },
         };
       case ChatContextAttachmentType.youtube:
-        // YouTube uses type 'text' with context 'full' for full transcript
+      // YouTube uses type 'text' with context 'full' for full transcript
         return {
           'type': 'text',
           'name': attachment.url ?? attachment.displayName,
@@ -1293,7 +1293,7 @@ List<Map<String, dynamic>> _contextAttachmentsToFiles(
           },
         };
       case ChatContextAttachmentType.knowledge:
-        // Knowledge base files use type 'file' with id for lookup
+      // Knowledge base files use type 'file' with id for lookup
         final map = <String, dynamic>{
           'type': 'file',
           'id': attachment.fileId ?? attachment.id,
@@ -1310,11 +1310,11 @@ List<Map<String, dynamic>> _contextAttachmentsToFiles(
 
 // Regenerate message function that doesn't duplicate user message
 Future<void> regenerateMessage(
-  dynamic ref,
-  String userMessageContent,
-  List<String>? attachments, [
-  String? existingAssistantId,
-]) async {
+    dynamic ref,
+    String userMessageContent,
+    List<String>? attachments, [
+      String? existingAssistantId,
+    ]) async {
   final reviewerMode = ref.read(reviewerModeProvider);
   final api = ref.read(apiServiceProvider);
   final selectedModel = ref.read(selectedModelProvider);
@@ -1369,7 +1369,7 @@ Future<void> regenerateMessage(
     } catch (_) {}
 
     if ((activeConversation.systemPrompt == null ||
-            activeConversation.systemPrompt!.trim().isEmpty) &&
+        activeConversation.systemPrompt!.trim().isEmpty) &&
         (userSystemPrompt?.isNotEmpty ?? false)) {
       final updated = activeConversation.copyWith(
         systemPrompt: userSystemPrompt,
@@ -1385,7 +1385,7 @@ Future<void> regenerateMessage(
     // Get conversation history for context (excluding the removed assistant message)
     final List<ChatMessage> messages = ref.read(chatMessagesProvider);
     final List<Map<String, dynamic>> conversationMessages =
-        <Map<String, dynamic>>[];
+    <Map<String, dynamic>>[];
 
     for (int i = 0; i < messages.length; i++) {
       final msg = messages[i];
@@ -1396,7 +1396,7 @@ Future<void> regenerateMessage(
         final bool isLastUser =
             (i == messages.length - 1) && msg.role == 'user';
         final List<String> messageAttachments =
-            (isLastUser && (attachments != null && attachments.isNotEmpty))
+        (isLastUser && (attachments != null && attachments.isNotEmpty))
             ? List<String>.from(attachments)
             : (msg.attachmentIds ?? const <String>[]);
 
@@ -1416,13 +1416,13 @@ Future<void> regenerateMessage(
 
     final conversationSystemPrompt = activeConversation.systemPrompt?.trim();
     final effectiveSystemPrompt =
-        (conversationSystemPrompt != null &&
-            conversationSystemPrompt.isNotEmpty)
+    (conversationSystemPrompt != null &&
+        conversationSystemPrompt.isNotEmpty)
         ? conversationSystemPrompt
         : userSystemPrompt;
     if (effectiveSystemPrompt != null && effectiveSystemPrompt.isNotEmpty) {
       final hasSystemMessage = conversationMessages.any(
-        (m) => (m['role']?.toString().toLowerCase() ?? '') == 'system',
+            (m) => (m['role']?.toString().toLowerCase() ?? '') == 'system',
       );
       if (!hasSystemMessage) {
         conversationMessages.insert(0, {
@@ -1463,8 +1463,8 @@ Future<void> regenerateMessage(
           (ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier)
               .updateLastMessageWithFunction(
                 (ChatMessage m) =>
-                    m.copyWith(versions: [...m.versions, snapshot]),
-              );
+                m.copyWith(versions: [...m.versions, snapshot]),
+          );
         }
       }
     } catch (_) {}
@@ -1472,7 +1472,7 @@ Future<void> regenerateMessage(
     // Feature toggles
     final webSearchEnabled =
         ref.read(webSearchEnabledProvider) &&
-        ref.read(webSearchAvailableProvider);
+            ref.read(webSearchAvailableProvider);
     final imageGenerationEnabled = ref.read(imageGenerationEnabledProvider);
 
     final modelItem = _buildLocalModelItem(selectedModel);
@@ -1504,8 +1504,8 @@ Future<void> regenerateMessage(
             .length;
         shouldGenerateTitle =
             (conv == null) ||
-            ((conv.title == 'New Chat' || (conv.title.isEmpty)) &&
-                nonSystemCount == 1);
+                ((conv.title == 'New Chat' || (conv.title.isEmpty)) &&
+                    nonSystemCount == 1);
       } catch (_) {}
     }
 
@@ -1519,7 +1519,7 @@ Future<void> regenerateMessage(
 
     final bool isBackgroundToolsFlowPre =
         (selectedToolIds.isNotEmpty) ||
-        (toolServers != null && toolServers.isNotEmpty);
+            (toolServers != null && toolServers.isNotEmpty);
     final bool isBackgroundWebSearchPre = webSearchEnabled;
 
     // Find the last user message ID for proper parent linking
@@ -1541,9 +1541,9 @@ Future<void> regenerateMessage(
         '{{USER_EMAIL}}': '',
         '{{CURRENT_DATETIME}}': now2.toIso8601String(),
         '{{CURRENT_DATE}}':
-            '${now2.year}-${now2.month.toString().padLeft(2, '0')}-${now2.day.toString().padLeft(2, '0')}',
+        '${now2.year}-${now2.month.toString().padLeft(2, '0')}-${now2.day.toString().padLeft(2, '0')}',
         '{{CURRENT_TIME}}':
-            '${now2.hour.toString().padLeft(2, '0')}:${now2.minute.toString().padLeft(2, '0')}',
+        '${now2.hour.toString().padLeft(2, '0')}:${now2.minute.toString().padLeft(2, '0')}',
         '{{CURRENT_WEEKDAY}}': [
           'Monday',
           'Tuesday',
@@ -1608,16 +1608,16 @@ Future<void> regenerateMessage(
     final modelLower = selectedModel.id.toLowerCase();
     final modelUsesReasoning =
         modelLower.contains('o1') ||
-        modelLower.contains('o3') ||
-        modelLower.contains('deepseek-r1') ||
-        modelLower.contains('reasoning') ||
-        modelLower.contains('think');
+            modelLower.contains('o3') ||
+            modelLower.contains('deepseek-r1') ||
+            modelLower.contains('reasoning') ||
+            modelLower.contains('think');
 
     final bool isBackgroundFlow =
         isBackgroundToolsFlowPre ||
-        isBackgroundWebSearchPre ||
-        imageGenerationEnabled ||
-        bgTasks.isNotEmpty;
+            isBackgroundWebSearchPre ||
+            imageGenerationEnabled ||
+            bgTasks.isNotEmpty;
 
     await dispatchChatTransport(
       ref: ref,
@@ -1634,7 +1634,7 @@ Future<void> regenerateMessage(
       isBackgroundFlow: isBackgroundFlow,
       modelUsesReasoning: modelUsesReasoning,
       toolsEnabled:
-          selectedToolIds.isNotEmpty ||
+      selectedToolIds.isNotEmpty ||
           (toolServers != null && toolServers.isNotEmpty) ||
           imageGenerationEnabled,
       isTemporary: isTemporary,
@@ -1646,42 +1646,106 @@ Future<void> regenerateMessage(
   }
 }
 
+
+
+class _QueuedSendPayload {
+  final String visibleText;
+  final String? payloadText;
+
+  const _QueuedSendPayload({
+    required this.visibleText,
+    this.payloadText,
+  });
+}
+
+const String _qonduitVisibleMarker = '\u0000QONDUIT_VISIBLE\u0000';
+const String _qonduitPayloadMarker = '\u0000QONDUIT_PAYLOAD\u0000';
+
+String packQueuedSendPayload({
+  required String visibleText,
+  required String payloadText,
+}) {
+  return '$_qonduitVisibleMarker$visibleText$_qonduitPayloadMarker$payloadText';
+}
+
+_QueuedSendPayload unpackQueuedSendPayload(String text) {
+  if (!text.startsWith(_qonduitVisibleMarker)) {
+    return _QueuedSendPayload(visibleText: text);
+  }
+
+  final payloadIndex = text.indexOf(_qonduitPayloadMarker);
+  if (payloadIndex == -1) {
+    final visible = text.substring(_qonduitVisibleMarker.length);
+    return _QueuedSendPayload(visibleText: visible);
+  }
+
+  final visible = text.substring(_qonduitVisibleMarker.length, payloadIndex);
+  final payload = text.substring(payloadIndex + _qonduitPayloadMarker.length);
+
+  return _QueuedSendPayload(
+    visibleText: visible,
+    payloadText: payload.isEmpty ? null : payload,
+  );
+}
+
 // Send message function for widgets
 Future<void> sendMessage(
-  WidgetRef ref,
-  String message,
-  List<String>? attachments, [
-  List<String>? toolIds,
-]) async {
-  await _sendMessageInternal(ref, message, attachments, toolIds);
+    WidgetRef ref,
+    String message,
+    List<String>? attachments, [
+      List<String>? toolIds,
+    ]) async {
+  final queued = unpackQueuedSendPayload(message);
+  await _sendMessageInternal(
+    ref,
+    queued.visibleText,
+    attachments,
+    toolIds,
+    queued.payloadText,
+  );
 }
 
 // Service-friendly wrapper (accepts generic Ref)
 Future<void> sendMessageFromService(
-  Ref ref,
-  String message,
-  List<String>? attachments, [
-  List<String>? toolIds,
-]) async {
-  await _sendMessageInternal(ref, message, attachments, toolIds);
+    Ref ref,
+    String message,
+    List<String>? attachments, [
+      List<String>? toolIds,
+    ]) async {
+  final queued = unpackQueuedSendPayload(message);
+  await _sendMessageInternal(
+    ref,
+    queued.visibleText,
+    attachments,
+    toolIds,
+    queued.payloadText,
+  );
 }
 
 Future<void> sendMessageWithContainer(
-  ProviderContainer container,
-  String message,
-  List<String>? attachments, [
-  List<String>? toolIds,
-]) async {
-  await _sendMessageInternal(container, message, attachments, toolIds);
+    ProviderContainer container,
+    String message,
+    List<String>? attachments, [
+      List<String>? toolIds,
+    ]) async {
+  final queued = unpackQueuedSendPayload(message);
+  await _sendMessageInternal(
+    container,
+    queued.visibleText,
+    attachments,
+    toolIds,
+    queued.payloadText,
+  );
 }
 
 // Internal send message implementation
 Future<void> _sendMessageInternal(
-  dynamic ref,
-  String message,
-  List<String>? attachments, [
-  List<String>? toolIds,
-]) async {
+    dynamic ref,
+    String message,
+    List<String>? attachments, [
+      List<String>? toolIds,
+      String? payloadMessage,
+    ]) async {
   final reviewerMode = ref.read(reviewerModeProvider);
   final api = ref.read(apiServiceProvider);
   final selectedModel = ref.read(selectedModelProvider);
@@ -1713,7 +1777,7 @@ Future<void> _sendMessageInternal(
 
   // Build initial user files with legacy base64 and context (server files added later)
   final List<Map<String, dynamic>>? initialUserFiles =
-      (legacyBase64Images.isNotEmpty || contextFiles.isNotEmpty)
+  (legacyBase64Images.isNotEmpty || contextFiles.isNotEmpty)
       ? [...legacyBase64Images, ...contextFiles]
       : null;
 
@@ -1802,9 +1866,9 @@ Future<void> _sendMessageInternal(
       ref
           .read(chatMessagesProvider.notifier)
           .updateMessageById(
-            userMessageId,
+        userMessageId,
             (ChatMessage m) => m.copyWith(files: allFiles),
-          );
+      );
     }
   }
 
@@ -1883,8 +1947,8 @@ Future<void> _sendMessageInternal(
           ref
               .read(conversationsProvider.notifier)
               .upsertConversation(
-                updatedConversation.copyWith(updatedAt: DateTime.now()),
-              );
+            updatedConversation.copyWith(updatedAt: DateTime.now()),
+          );
 
           // Invalidate conversations provider to refresh the list
           // Adding a small delay to prevent rapid invalidations that could cause duplicates
@@ -1962,14 +2026,18 @@ Future<void> _sendMessageInternal(
   // Get conversation history for context
   final List<ChatMessage> messages = ref.read(chatMessagesProvider);
   final List<Map<String, dynamic>> conversationMessages =
-      <Map<String, dynamic>>[];
+  <Map<String, dynamic>>[];
 
   for (final msg in messages) {
     // Skip only empty assistant message placeholders that are currently streaming
     // Include completed messages (both user and assistant) for conversation history
     if (msg.role.isNotEmpty && msg.content.isNotEmpty && !msg.isStreaming) {
       // Prepare cleaned text content (strip tool details etc.)
-      final cleaned = ToolCallsParser.sanitizeForApi(msg.content);
+      final contentForApi =
+      (msg.id == userMessageId && payloadMessage != null && payloadMessage.isNotEmpty)
+          ? payloadMessage
+          : msg.content;
+      final cleaned = ToolCallsParser.sanitizeForApi(contentForApi);
 
       final List<String> ids = msg.attachmentIds ?? const <String>[];
       if (ids.isNotEmpty) {
@@ -2007,12 +2075,12 @@ Future<void> _sendMessageInternal(
 
   final conversationSystemPrompt = activeConversation?.systemPrompt?.trim();
   final effectiveSystemPrompt =
-      (conversationSystemPrompt != null && conversationSystemPrompt.isNotEmpty)
+  (conversationSystemPrompt != null && conversationSystemPrompt.isNotEmpty)
       ? conversationSystemPrompt
       : userSystemPrompt;
   if (effectiveSystemPrompt != null && effectiveSystemPrompt.isNotEmpty) {
     final hasSystemMessage = conversationMessages.any(
-      (m) => (m['role']?.toString().toLowerCase() ?? '') == 'system',
+          (m) => (m['role']?.toString().toLowerCase() ?? '') == 'system',
     );
     if (!hasSystemMessage) {
       conversationMessages.insert(0, {
@@ -2025,7 +2093,7 @@ Future<void> _sendMessageInternal(
   // Check feature toggles for API (gated by server availability)
   final webSearchEnabled =
       ref.read(webSearchEnabledProvider) &&
-      ref.read(webSearchAvailableProvider);
+          ref.read(webSearchAvailableProvider);
   final imageGenerationEnabled = ref.read(imageGenerationEnabledProvider);
 
   // Prepare tools list - pass tool IDs directly
@@ -2089,8 +2157,8 @@ Future<void> _sendMessageInternal(
             .length;
         shouldGenerateTitle =
             (conv == null) ||
-            ((conv.title == 'New Chat' || (conv.title.isEmpty)) &&
-                nonSystemCount == 1);
+                ((conv.title == 'New Chat' || (conv.title.isEmpty)) &&
+                    nonSystemCount == 1);
       } catch (_) {}
     }
 
@@ -2119,7 +2187,7 @@ Future<void> _sendMessageInternal(
     // Determine if we need background task flow (tools/tool servers or web search)
     final bool isBackgroundToolsFlowPre =
         (toolIdsForApi != null && toolIdsForApi.isNotEmpty) ||
-        (toolServers != null && toolServers.isNotEmpty);
+            (toolServers != null && toolServers.isNotEmpty);
     final bool isBackgroundWebSearchPre = webSearchEnabled;
 
     // Find the last user message ID for proper parent linking
@@ -2161,9 +2229,9 @@ Future<void> _sendMessageInternal(
         '{{USER_EMAIL}}': userEmail,
         '{{CURRENT_DATETIME}}': now.toIso8601String(),
         '{{CURRENT_DATE}}':
-            '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}',
+        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}',
         '{{CURRENT_TIME}}':
-            '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}',
+        '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}',
         '{{CURRENT_WEEKDAY}}': [
           'Monday',
           'Tuesday',
@@ -2237,16 +2305,16 @@ Future<void> _sendMessageInternal(
     final modelLower2 = selectedModel.id.toLowerCase();
     final modelUsesReasoning2 =
         modelLower2.contains('o1') ||
-        modelLower2.contains('o3') ||
-        modelLower2.contains('deepseek-r1') ||
-        modelLower2.contains('reasoning') ||
-        modelLower2.contains('think');
+            modelLower2.contains('o3') ||
+            modelLower2.contains('deepseek-r1') ||
+            modelLower2.contains('reasoning') ||
+            modelLower2.contains('think');
 
     final bool isBackgroundFlow =
         isBackgroundToolsFlowPre ||
-        isBackgroundWebSearchPre ||
-        imageGenerationEnabled ||
-        bgTasks.isNotEmpty;
+            isBackgroundWebSearchPre ||
+            imageGenerationEnabled ||
+            bgTasks.isNotEmpty;
 
     await dispatchChatTransport(
       ref: ref,
@@ -2263,7 +2331,7 @@ Future<void> _sendMessageInternal(
       isBackgroundFlow: isBackgroundFlow,
       modelUsesReasoning: modelUsesReasoning2,
       toolsEnabled:
-          (toolIdsForApi != null && toolIdsForApi.isNotEmpty) ||
+      (toolIdsForApi != null && toolIdsForApi.isNotEmpty) ||
           (toolServers != null && toolServers.isNotEmpty) ||
           imageGenerationEnabled,
       isTemporary: isTemporary,
@@ -2299,19 +2367,19 @@ Future<void> _sendMessageInternal(
     // Explicit ChatMessage type on closures is required because `ref` is
     // `dynamic` — without it Dart infers (dynamic) => dynamic at runtime.
     final ChatMessagesNotifier notifier =
-        ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
+    ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
     final chatError = ChatMessageError(content: errorContent);
     if (e.toString().contains('401') || e.toString().contains('403')) {
       // Authentication errors - clear auth state and redirect to login.
       // Still convert the placeholder so the UI is consistent.
       notifier.updateLastMessageWithFunction(
-        (ChatMessage m) => m.copyWith(error: chatError),
+            (ChatMessage m) => m.copyWith(error: chatError),
       );
       notifier.finishStreaming();
       ref.invalidate(authStateManagerProvider);
     } else {
       notifier.updateLastMessageWithFunction(
-        (ChatMessage m) => m.copyWith(error: chatError),
+            (ChatMessage m) => m.copyWith(error: chatError),
       );
       notifier.finishStreaming();
     }
@@ -2360,13 +2428,13 @@ Future<void> _saveConversationLocally(dynamic ref) async {
     // Create or update conversation locally
     final conversation =
         activeConversation ??
-        Conversation(
-          id: const Uuid().v4(),
-          title: _generateConversationTitle(messages),
-          createdAt: DateTime.now(),
-          updatedAt: DateTime.now(),
-          messages: messages,
-        );
+            Conversation(
+              id: const Uuid().v4(),
+              title: _generateConversationTitle(messages),
+              createdAt: DateTime.now(),
+              updatedAt: DateTime.now(),
+              messages: messages,
+            );
 
     final updatedConversation = conversation.copyWith(
       messages: messages,
@@ -2379,7 +2447,7 @@ Future<void> _saveConversationLocally(dynamic ref) async {
 
     // Find and update or add the conversation
     final existingIndex = conversations.indexWhere(
-      (c) => c['id'] == updatedConversation.id,
+          (c) => c['id'] == updatedConversation.id,
     );
     if (existingIndex >= 0) {
       conversations[existingIndex] = updatedConversation.toJson();
@@ -2397,7 +2465,7 @@ Future<void> _saveConversationLocally(dynamic ref) async {
 
 String _generateConversationTitle(List<ChatMessage> messages) {
   final firstUserMessage = messages.firstWhere(
-    (msg) => msg.role == 'user',
+        (msg) => msg.role == 'user',
     orElse: () => ChatMessage(
       id: '',
       role: 'user',
@@ -2416,10 +2484,10 @@ String _generateConversationTitle(List<ChatMessage> messages) {
 
 // Pin/Unpin conversation
 Future<void> pinConversation(
-  WidgetRef ref,
-  String conversationId,
-  bool pinned,
-) async {
+    WidgetRef ref,
+    String conversationId,
+    bool pinned,
+    ) async {
   try {
     final api = ref.read(apiServiceProvider);
     if (api == null) throw Exception('No API service available');
@@ -2429,10 +2497,10 @@ Future<void> pinConversation(
     ref
         .read(conversationsProvider.notifier)
         .updateConversation(
-          conversationId,
+      conversationId,
           (conversation) =>
-              conversation.copyWith(pinned: pinned, updatedAt: DateTime.now()),
-        );
+          conversation.copyWith(pinned: pinned, updatedAt: DateTime.now()),
+    );
 
     // Refresh conversations list to reflect the change
     refreshConversationsCache(ref);
@@ -2455,10 +2523,10 @@ Future<void> pinConversation(
 
 // Archive/Unarchive conversation
 Future<void> archiveConversation(
-  WidgetRef ref,
-  String conversationId,
-  bool archived,
-) async {
+    WidgetRef ref,
+    String conversationId,
+    bool archived,
+    ) async {
   final api = ref.read(apiServiceProvider);
   final activeConversation = ref.read(activeConversationProvider);
 
@@ -2476,12 +2544,12 @@ Future<void> archiveConversation(
     ref
         .read(conversationsProvider.notifier)
         .updateConversation(
-          conversationId,
+      conversationId,
           (conversation) => conversation.copyWith(
-            archived: archived,
-            updatedAt: DateTime.now(),
-          ),
-        );
+        archived: archived,
+        updatedAt: DateTime.now(),
+      ),
+    );
 
     // Refresh conversations list to reflect the change
     refreshConversationsCache(ref);
@@ -2512,12 +2580,12 @@ Future<String?> shareConversation(WidgetRef ref, String conversationId) async {
     ref
         .read(conversationsProvider.notifier)
         .updateConversation(
-          conversationId,
+      conversationId,
           (conversation) => conversation.copyWith(
-            shareId: shareId,
-            updatedAt: DateTime.now(),
-          ),
-        );
+        shareId: shareId,
+        updatedAt: DateTime.now(),
+      ),
+    );
 
     // Refresh conversations list to reflect the change
     refreshConversationsCache(ref);
@@ -2546,8 +2614,8 @@ Future<void> cloneConversation(WidgetRef ref, String conversationId) async {
     ref
         .read(conversationsProvider.notifier)
         .upsertConversation(
-          clonedConversation.copyWith(updatedAt: DateTime.now()),
-        );
+      clonedConversation.copyWith(updatedAt: DateTime.now()),
+    );
     refreshConversationsCache(ref);
   } catch (e) {
     DebugLogger.log('Error cloning conversation: $e', scope: 'chat/providers');
@@ -2581,7 +2649,7 @@ final regenerateLastMessageProvider = Provider<Future<void> Function()>((ref) {
         : null;
     final bool lastAssistantHadImages =
         lastAssistantMessage != null &&
-        assistantHasNormalizedImageFiles(lastAssistantMessage);
+            assistantHasNormalizedImageFiles(lastAssistantMessage);
     for (int i = messages.length - 2; i >= 0 && i < messages.length; i--) {
       if (i >= 0 && messages[i].role == 'user') {
         lastUserMessage = messages[i];
@@ -2687,9 +2755,9 @@ final stopGenerationProvider = Provider<void Function()>((ref) {
 // ========== Tool Servers (OpenAPI) Helpers ==========
 
 Future<List<Map<String, dynamic>>> _resolveToolServers(
-  List rawServers,
-  dynamic api,
-) async {
+    List rawServers,
+    dynamic api,
+    ) async {
   final List<Map<String, dynamic>> resolved = [];
   for (final s in rawServers) {
     try {
@@ -2743,9 +2811,9 @@ Future<List<Map<String, dynamic>>> _resolveToolServers(
 }
 
 Map<String, dynamic>? _resolveRef(
-  String ref,
-  Map<String, dynamic>? components,
-) {
+    String ref,
+    Map<String, dynamic>? components,
+    ) {
   // e.g., #/components/schemas/MySchema
   if (!ref.startsWith('#/')) return null;
   final parts = ref.split('/');
@@ -2763,9 +2831,9 @@ Map<String, dynamic>? _resolveRef(
 }
 
 Map<String, dynamic> _resolveSchemaSimple(
-  dynamic schema,
-  Map<String, dynamic>? components,
-) {
+    dynamic schema,
+    Map<String, dynamic>? components,
+    ) {
   if (schema is Map<String, dynamic>) {
     if (schema.containsKey(r'$ref')) {
       final ref = schema[r'$ref'] as String;
@@ -2800,8 +2868,8 @@ Map<String, dynamic> _resolveSchemaSimple(
 }
 
 List<Map<String, dynamic>> _convertOpenApiToToolPayload(
-  Map<String, dynamic> openApi,
-) {
+    Map<String, dynamic> openApi,
+    ) {
   final tools = <Map<String, dynamic>>[];
   final paths = openApi['paths'];
   if (paths is! Map) return tools;
@@ -2812,7 +2880,7 @@ List<Map<String, dynamic>> _convertOpenApiToToolPayload(
         final tool = <String, dynamic>{
           'name': operation['operationId'],
           'description':
-              operation['description'] ??
+          operation['description'] ??
               operation['summary'] ??
               'No description available.',
           'parameters': {
@@ -2833,7 +2901,7 @@ List<Map<String, dynamic>> _convertOpenApiToToolPayload(
                     .toString();
                 if (schema['enum'] is List) {
                   desc =
-                      '$desc. Possible values: ${(schema['enum'] as List).join(', ')}';
+                  '$desc. Possible values: ${(schema['enum'] as List).join(', ')}';
                 }
                 tool['parameters']['properties'][name] = {
                   'type': schema['type'],
@@ -2889,7 +2957,7 @@ Map<String, dynamic> _buildLocalModelItem(dynamic selectedModel) {
     'id': selectedModel.id,
     'name': selectedModel.name,
     'supported_parameters':
-        selectedModel.supportedParameters ??
+    selectedModel.supportedParameters ??
         [
           'max_tokens',
           'tool_choice',
