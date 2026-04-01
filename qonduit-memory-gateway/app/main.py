@@ -1185,6 +1185,55 @@ async def chat(req: GatewayChatRequest, request: Request) -> dict:
                                 recovered_chars=len(recovered_content),
                             )
 
+                parsed_modified = parsed.get("modified_file", {})
+                parsed_content = ""
+                if isinstance(parsed_modified, dict):
+                    parsed_content = str(parsed_modified.get("content") or "")
+
+                if (not parsed_content.strip()) and code_edit_file_contents.strip():
+                    debug_code_edit_event(
+                        "code_edit_retry_missing_content",
+                        requested_filename=requested_filename or "",
+                        retry_reason="empty_modified_file_content",
+                    )
+                    try:
+                        recovered_content = await asyncio.wait_for(
+                            recover_modified_file_with_retry(
+                                model=req.model,
+                                requested_filename=requested_filename,
+                                instruction=code_edit_instruction,
+                                original_file_contents=code_edit_file_contents,
+                            ),
+                            timeout=50.0,
+                        )
+                    except Exception as retry_error:
+                        debug_code_edit_event(
+                            "code_edit_retry_failed",
+                            error=str(retry_error),
+                        )
+                    else:
+                        if recovered_content.strip():
+                            modified = parsed.get("modified_file")
+                            if not isinstance(modified, dict):
+                                modified = {}
+                            modified["name"] = (
+                                modified.get("name")
+                                or requested_filename
+                                or "modified_file.txt"
+                            )
+                            modified["content"] = recovered_content
+                            parsed["modified_file"] = modified
+                            parsed["patch_confidence"] = "low"
+                            change_summary = parsed.get("change_summary")
+                            if isinstance(change_summary, list):
+                                change_summary.append(
+                                    "Recovered full file content through a strict retry pass."
+                                )
+                            debug_code_edit_event(
+                                "code_edit_retry_recovered",
+                                recovered_chars=len(recovered_content),
+                            )
+
             artifact = None
             modified_file = parsed.get("modified_file", {})
             if isinstance(modified_file, dict):
