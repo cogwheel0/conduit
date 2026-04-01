@@ -471,6 +471,45 @@ def normalize_patch_confidence(value: Any) -> str:
     return "low"
 
 
+def extract_fenced_code_block(raw: str) -> str:
+    blocks = re.findall(
+        r"```(?:[a-zA-Z0-9_+\-#.]+)?\s*\n(.*?)```",
+        raw,
+        flags=re.DOTALL,
+    )
+    cleaned_blocks = [block.strip("\n\r") for block in blocks if block.strip()]
+    if not cleaned_blocks:
+        return ""
+
+    cleaned_blocks.sort(key=len, reverse=True)
+    return cleaned_blocks[0]
+
+
+def build_non_json_code_edit_fallback(
+    raw: str,
+    requested_filename: str | None,
+) -> dict[str, Any] | None:
+    recovered = extract_fenced_code_block(raw)
+    if not recovered.strip():
+        return None
+
+    fallback_name = requested_filename or "modified_file.txt"
+    return {
+        "executive_summary": [
+            "Recovered a code-edit result from a non-JSON model response."
+        ],
+        "change_summary": [
+            "The model did not follow the JSON contract, so the gateway extracted "
+            "the largest fenced code block as the modified file content."
+        ],
+        "patch_confidence": "low",
+        "modified_file": {
+            "name": Path(fallback_name).name or "modified_file.txt",
+            "content": recovered,
+        },
+    }
+
+
 def parse_code_edit_response(raw: str, requested_filename: str | None) -> dict[str, Any]:
     default_name = requested_filename or "modified_file.txt"
     default = {
@@ -489,11 +528,17 @@ def parse_code_edit_response(raw: str, requested_filename: str | None) -> dict[s
 
     blob = extract_json_object(raw)
     if not blob:
+        recovered = build_non_json_code_edit_fallback(raw, requested_filename)
+        if recovered is not None:
+            return recovered
         return default
 
     try:
         parsed = json.loads(blob)
     except Exception:
+        recovered = build_non_json_code_edit_fallback(raw, requested_filename)
+        if recovered is not None:
+            return recovered
         return default
 
     executive_summary = normalize_summary_lines(parsed.get("executive_summary"))
@@ -515,6 +560,17 @@ def parse_code_edit_response(raw: str, requested_filename: str | None) -> dict[s
         or parsed.get("modified_file_content")
         or ""
     )
+
+    if not modified_content.strip():
+        recovered_content = extract_fenced_code_block(raw)
+        if recovered_content.strip():
+            modified_content = recovered_content
+            if not change_summary:
+                change_summary = [
+                    "Recovered modified file content from a fenced code block "
+                    "because modified_file.content was empty."
+                ]
+            patch_confidence = "low"
 
     if not executive_summary:
         executive_summary = ["Prepared a code-edit response."]
@@ -584,6 +640,66 @@ def split_for_stream(text: str, chunk_size: int = 180) -> list[str]:
         parts.append(text[start:start + chunk_size])
         start += chunk_size
     return parts
+
+
+def strip_markdown_fences(text: str) -> str:
+    trimmed = text.strip()
+    if not trimmed.startswith("```"):
+        return trimmed
+
+    match = re.match(r"^```[^\n]*\n(?P<body>.*)\n```$", trimmed, flags=re.DOTALL)
+    if not match:
+        return trimmed
+    return match.group("body").strip("\n\r")
+
+
+async def recover_modified_file_with_retry(
+    model: str,
+    requested_filename: str | None,
+    instruction: str,
+    original_file_contents: str,
+) -> str:
+    target_name = requested_filename or "modified_file.txt"
+    retry_messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are repairing a failed code-edit response. "
+                "Return only the full updated file contents. "
+                "Do not return JSON. "
+                "Do not return markdown fences. "
+                "Do not explain anything."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Target file: {target_name}\n\n"
+                f"Edit instruction:\n{instruction.strip()}\n\n"
+                "Current file contents:\n"
+                f"{original_file_contents}"
+            ),
+        },
+    ]
+
+    retry_payload = {
+        "model": model,
+        "messages": retry_messages,
+        "max_tokens": 8192,
+        "temperature": 0.0,
+        "stream": False,
+    }
+
+    async with httpx.AsyncClient(timeout=300.0) as client:
+        retry_response = await client.post(
+            f"{LLAMA_BASE}/v1/chat/completions",
+            json=retry_payload,
+        )
+        retry_response.raise_for_status()
+        retry_data = retry_response.json()
+
+    raw_content = str(retry_data["choices"][0]["message"]["content"] or "")
+    return strip_markdown_fences(raw_content)
 
 
 @app.post("/rag/test-ingest")
@@ -934,6 +1050,52 @@ async def chat(req: GatewayChatRequest, request: Request) -> dict:
                     parsed_content_chars=len(str(parsed.get("modified_file", {}).get("content", ""))),
                     patch_confidence=parsed.get("patch_confidence", ""),
                 )
+
+                parsed_modified = parsed.get("modified_file", {})
+                parsed_content = ""
+                if isinstance(parsed_modified, dict):
+                    parsed_content = str(parsed_modified.get("content") or "")
+
+                if (not parsed_content.strip()) and code_edit_file_contents.strip():
+                    debug_code_edit_event(
+                        "code_edit_retry_missing_content",
+                        requested_filename=requested_filename or "",
+                        retry_reason="empty_modified_file_content",
+                    )
+                    try:
+                        recovered_content = await recover_modified_file_with_retry(
+                            model=req.model,
+                            requested_filename=requested_filename,
+                            instruction=code_edit_instruction,
+                            original_file_contents=code_edit_file_contents,
+                        )
+                    except Exception as retry_error:
+                        debug_code_edit_event(
+                            "code_edit_retry_failed",
+                            error=str(retry_error),
+                        )
+                    else:
+                        if recovered_content.strip():
+                            modified = parsed.get("modified_file")
+                            if not isinstance(modified, dict):
+                                modified = {}
+                            modified["name"] = (
+                                modified.get("name")
+                                or requested_filename
+                                or "modified_file.txt"
+                            )
+                            modified["content"] = recovered_content
+                            parsed["modified_file"] = modified
+                            parsed["patch_confidence"] = "low"
+                            change_summary = parsed.get("change_summary")
+                            if isinstance(change_summary, list):
+                                change_summary.append(
+                                    "Recovered full file content through a strict retry pass."
+                                )
+                            debug_code_edit_event(
+                                "code_edit_retry_recovered",
+                                recovered_chars=len(recovered_content),
+                            )
 
             artifact = None
             modified_file = parsed.get("modified_file", {})
