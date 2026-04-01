@@ -19,7 +19,7 @@ from pypdf import PdfReader
 from docx import Document
 from openpyxl import load_workbook
 
-from .budget import build_budget, trim_recent_messages
+from .budget import build_budget, estimate_tokens, trim_recent_messages
 from .store import load_conversation, save_conversation
 from .summarizer import summarize_messages
 from .rag import (
@@ -711,6 +711,59 @@ def strip_markdown_fences(text: str) -> str:
     return match.group("body").strip("\n\r")
 
 
+def try_apply_extension_edit_locally(instruction: str, original_file: str) -> str | None:
+    lowered = instruction.lower()
+    if "add" not in lowered or "extension" not in lowered:
+        return None
+
+    ext_match = re.search(r"(\.[a-z0-9_+-]+)", instruction, flags=re.IGNORECASE)
+    if not ext_match:
+        return None
+    extension = ext_match.group(1).lower()
+
+    collection_match = re.search(
+        r"(?P<prefix>\b[A-Z_]*EXTENSIONS\b\s*=\s*)(?P<open>[\[\(\{])(?P<body>.*?)(?P<close>[\]\)\}])",
+        original_file,
+        flags=re.DOTALL,
+    )
+    if not collection_match:
+        return None
+
+    body = collection_match.group("body")
+    if re.search(rf"['\"]{re.escape(extension)}['\"]", body, flags=re.IGNORECASE):
+        return original_file
+
+    quote = "'" if "'" in body else '"'
+    updated_body = body.rstrip()
+    if updated_body and not updated_body.endswith(","):
+        updated_body = f"{updated_body},"
+
+    insertion = f"\n    {quote}{extension}{quote},"
+    replaced = (
+        f"{collection_match.group('prefix')}"
+        f"{collection_match.group('open')}"
+        f"{updated_body}{insertion}\n"
+        f"{collection_match.group('close')}"
+    )
+
+    start, end = collection_match.span()
+    return f"{original_file[:start]}{replaced}{original_file[end:]}"
+
+
+def looks_like_full_file_content(original_file: str, candidate_file: str) -> bool:
+    candidate = candidate_file.strip()
+    if not candidate:
+        return False
+
+    if len(candidate) < max(120, int(len(original_file) * 0.2)):
+        return False
+
+    if "\n" not in candidate and len(original_file) > 400:
+        return False
+
+    return True
+
+
 async def recover_modified_file_with_retry(
     model: str,
     requested_filename: str | None,
@@ -1141,54 +1194,21 @@ async def chat(req: GatewayChatRequest, request: Request) -> dict:
                 if isinstance(parsed_modified, dict):
                     parsed_content = str(parsed_modified.get("content") or "")
 
-                if (not parsed_content.strip()) and code_edit_file_contents.strip():
-                    debug_code_edit_event(
-                        "code_edit_retry_missing_content",
-                        requested_filename=requested_filename or "",
-                        retry_reason="empty_modified_file_content",
+                if (
+                    parsed_content.strip()
+                    and code_edit_file_contents.strip()
+                    and not looks_like_full_file_content(
+                        code_edit_file_contents,
+                        parsed_content,
                     )
-                    try:
-                        recovered_content = await asyncio.wait_for(
-                            recover_modified_file_with_retry(
-                                model=req.model,
-                                requested_filename=requested_filename,
-                                instruction=code_edit_instruction,
-                                original_file_contents=code_edit_file_contents,
-                            ),
-                            timeout=50.0,
-                        )
-                    except Exception as retry_error:
-                        debug_code_edit_event(
-                            "code_edit_retry_failed",
-                            error=str(retry_error),
-                        )
-                    else:
-                        if recovered_content.strip():
-                            modified = parsed.get("modified_file")
-                            if not isinstance(modified, dict):
-                                modified = {}
-                            modified["name"] = (
-                                modified.get("name")
-                                or requested_filename
-                                or "modified_file.txt"
-                            )
-                            modified["content"] = recovered_content
-                            parsed["modified_file"] = modified
-                            parsed["patch_confidence"] = "low"
-                            change_summary = parsed.get("change_summary")
-                            if isinstance(change_summary, list):
-                                change_summary.append(
-                                    "Recovered full file content through a strict retry pass."
-                                )
-                            debug_code_edit_event(
-                                "code_edit_retry_recovered",
-                                recovered_chars=len(recovered_content),
-                            )
-
-                parsed_modified = parsed.get("modified_file", {})
-                parsed_content = ""
-                if isinstance(parsed_modified, dict):
-                    parsed_content = str(parsed_modified.get("content") or "")
+                ):
+                    debug_code_edit_event(
+                        "code_edit_parsed_content_rejected",
+                        reason="content_not_full_file",
+                        parsed_chars=len(parsed_content),
+                    )
+                    parsed_content = ""
+                    parsed["modified_file"]["content"] = ""
 
                 if (not parsed_content.strip()) and code_edit_file_contents.strip():
                     debug_code_edit_event(
@@ -1212,7 +1232,10 @@ async def chat(req: GatewayChatRequest, request: Request) -> dict:
                             error=str(retry_error),
                         )
                     else:
-                        if recovered_content.strip():
+                        if recovered_content.strip() and looks_like_full_file_content(
+                            code_edit_file_contents,
+                            recovered_content,
+                        ):
                             modified = parsed.get("modified_file")
                             if not isinstance(modified, dict):
                                 modified = {}
@@ -1233,11 +1256,55 @@ async def chat(req: GatewayChatRequest, request: Request) -> dict:
                                 "code_edit_retry_recovered",
                                 recovered_chars=len(recovered_content),
                             )
+                        elif recovered_content.strip():
+                            debug_code_edit_event(
+                                "code_edit_retry_rejected",
+                                reason="content_not_full_file",
+                                recovered_chars=len(recovered_content),
+                            )
+
+                parsed_modified_after_retry = parsed.get("modified_file", {})
+                parsed_content_after_retry = ""
+                if isinstance(parsed_modified_after_retry, dict):
+                    parsed_content_after_retry = str(
+                        parsed_modified_after_retry.get("content") or ""
+                    )
+
+                if (not parsed_content_after_retry.strip()) and code_edit_file_contents.strip():
+                    local_fallback = try_apply_extension_edit_locally(
+                        instruction=code_edit_instruction,
+                        original_file=code_edit_file_contents,
+                    )
+                    if local_fallback is not None and local_fallback != code_edit_file_contents:
+                        if not isinstance(parsed_modified_after_retry, dict):
+                            parsed_modified_after_retry = {}
+                        parsed_modified_after_retry["name"] = (
+                            parsed_modified_after_retry.get("name")
+                            or requested_filename
+                            or "modified_file.txt"
+                        )
+                        parsed_modified_after_retry["content"] = local_fallback
+                        parsed["modified_file"] = parsed_modified_after_retry
+                        parsed["patch_confidence"] = "low"
+                        local_summary = parsed.get("change_summary")
+                        if isinstance(local_summary, list):
+                            local_summary.append(
+                                "Applied a best-effort local extension update because "
+                                "model output did not include modified file content."
+                            )
+                        debug_code_edit_event(
+                            "code_edit_local_fallback_applied",
+                            recovered_chars=len(local_fallback),
+                        )
 
             artifact = None
             modified_file = parsed.get("modified_file", {})
             if isinstance(modified_file, dict):
-                modified_name = str(modified_file.get("name") or requested_filename or "modified_file.txt")
+                modified_name = str(
+                    requested_filename
+                    or modified_file.get("name")
+                    or "modified_file.txt"
+                )
                 modified_content = str(modified_file.get("content") or "")
                 if modified_content.strip():
                     artifact = save_code_edit_artifact(user_id, modified_name, modified_content)
