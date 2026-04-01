@@ -1,0 +1,18 @@
+{
+  "conversation_id": "test123",
+  "summary": "",
+  "recent_messages": [
+    {
+      "role": "user",
+      "content": "Hello gateway. My name is Quinton."
+    },
+    {
+      "role": "assistant",
+      "content": "Hello, Quinton! How can I assist you today?"
+    }
+  ],
+  "last_model": "REPLACE_WITH_YOUR_MODEL_NAME",
+  "last_context_size": 8192,
+  "last_prompt_tokens": 49,
+  "last_reserved_output": 1024
+}

@@ -1,0 +1,18 @@
+{
+  "conversation_id": "21743504-dbf1-4c62-88ff-4f09b11e488b",
+  "summary": "",
+  "recent_messages": [
+    {
+      "role": "user",
+      "content": "Hi, my name is Quinton"
+    },
+    {
+      "role": "assistant",
+      "content": "Hi Quinton! Nice to meet you. How can I help you today? 😊"
+    }
+  ],
+  "last_model": "Qwen3-Coder-Next-IQ4_NL.gguf",
+  "last_context_size": 32768,
+  "last_prompt_tokens": 47,
+  "last_reserved_output": 4096
+}
