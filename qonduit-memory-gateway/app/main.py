@@ -5,9 +5,11 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 import httpx
 import json
+import ast
 import csv
 import os
 import time
+import asyncio
 from pathlib import Path
 import re
 import uuid
@@ -329,6 +331,33 @@ def is_code_edit_request(text: str) -> bool:
     )
 
 
+def unwrap_structured_text_payload(text: str) -> str:
+    raw = text.strip()
+    if not raw.startswith("[") or "text" not in raw:
+        return text
+
+    try:
+        parsed = ast.literal_eval(raw)
+    except Exception:
+        return text
+
+    if not isinstance(parsed, list):
+        return text
+
+    parts: list[str] = []
+    for item in parsed:
+        if isinstance(item, dict):
+            kind = str(item.get("type", "")).lower()
+            if kind in {"text", "input_text"}:
+                value = item.get("text")
+                if isinstance(value, str) and value.strip():
+                    parts.append(value)
+
+    if not parts:
+        return text
+    return "\n".join(parts)
+
+
 def extract_requested_filename(text: str) -> str | None:
     patterns = [
         r"file:\s*([^\n\r]+)",
@@ -345,13 +374,14 @@ def extract_requested_filename(text: str) -> str | None:
 
 
 def extract_inline_file_contents(text: str) -> str:
+    normalized = unwrap_structured_text_payload(text)
     patterns = [
         r"Current file contents:\s*\n(?P<body>.*)$",
         r"Current file:\s*\n(?P<body>.*)$",
         r"<<<FILE\s*\n(?P<body>.*?)\nFILE\s*$",
     ]
     for pattern in patterns:
-        match = re.search(pattern, text, flags=re.IGNORECASE | re.DOTALL)
+        match = re.search(pattern, normalized, flags=re.IGNORECASE | re.DOTALL)
         if match:
             body = match.group("body").strip("\n\r")
             if body.strip():
@@ -360,7 +390,7 @@ def extract_inline_file_contents(text: str) -> str:
 
 
 def extract_code_edit_instruction(text: str) -> str:
-    working = text
+    working = unwrap_structured_text_payload(text)
 
     working = re.sub(
         r"^\s*Code edit request for file:\s*[^\n\r]+\s*",
@@ -690,7 +720,7 @@ async def recover_modified_file_with_retry(
         "stream": False,
     }
 
-    async with httpx.AsyncClient(timeout=300.0) as client:
+    async with httpx.AsyncClient(timeout=45.0) as client:
         retry_response = await client.post(
             f"{LLAMA_BASE}/v1/chat/completions",
             json=retry_payload,
@@ -1063,11 +1093,14 @@ async def chat(req: GatewayChatRequest, request: Request) -> dict:
                         retry_reason="empty_modified_file_content",
                     )
                     try:
-                        recovered_content = await recover_modified_file_with_retry(
-                            model=req.model,
-                            requested_filename=requested_filename,
-                            instruction=code_edit_instruction,
-                            original_file_contents=code_edit_file_contents,
+                        recovered_content = await asyncio.wait_for(
+                            recover_modified_file_with_retry(
+                                model=req.model,
+                                requested_filename=requested_filename,
+                                instruction=code_edit_instruction,
+                                original_file_contents=code_edit_file_contents,
+                            ),
+                            timeout=50.0,
                         )
                     except Exception as retry_error:
                         debug_code_edit_event(
