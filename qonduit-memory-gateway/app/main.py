@@ -138,6 +138,7 @@ async def health() -> dict:
 
 
 @app.get("/v1/models")
+@app.get("/models")
 async def list_models() -> dict:
     async with httpx.AsyncClient(timeout=20.0) as client:
         r = await client.get(f"{LLAMA_BASE}/v1/models")
@@ -987,7 +988,17 @@ async def rag_upload_document(
         raise HTTPException(status_code=500, detail=f"Failed to upload document: {e}")
 
 
+@app.get("/v1/chat/completions")
+@app.get("/chat/completions")
+async def chat_completions_help() -> dict:
+    return {
+        "ok": True,
+        "message": "Use POST /v1/chat/completions (or /chat/completions) with a JSON body.",
+    }
+
+
 @app.post("/v1/chat/completions")
+@app.post("/chat/completions")
 async def chat(req: GatewayChatRequest, request: Request) -> Any:
     user_id = get_request_user_id(request)
     context_size = req.resolved_context_size()
