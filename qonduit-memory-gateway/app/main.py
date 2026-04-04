@@ -90,7 +90,7 @@ DEFAULT_SYSTEM_PROMPT = (
 
 class ChatMessage(BaseModel):
     role: str
-    content: str
+    content: Any
 
 
 class GatewayChatRequest(BaseModel):
@@ -318,7 +318,7 @@ def extract_text_from_file(file_path: str, suffix: str) -> str:
 def latest_user_text(messages: list[ChatMessage]) -> str:
     for msg in reversed(messages):
         if msg.role == "user":
-            return msg.content
+            return coerce_model_content_to_text(msg.content)
     return ""
 
 
@@ -1013,7 +1013,13 @@ async def chat(req: GatewayChatRequest, request: Request) -> Any:
     prior_recent = state.get("recent_messages", [])
     summary = state.get("summary", "")
 
-    incoming = [m.model_dump() for m in req.messages]
+    incoming = [
+        {
+            "role": m.role,
+            "content": coerce_model_content_to_text(m.content),
+        }
+        for m in req.messages
+    ]
     combined_recent = prior_recent + incoming
 
     trimmed_recent, _ = trim_recent_messages(
