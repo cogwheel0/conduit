@@ -1106,33 +1106,51 @@ async def chat(req: GatewayChatRequest, request: Request) -> Any:
 
     async def event_stream():
         assistant_text_parts = []
+        stream_failed = False
 
-        async with httpx.AsyncClient(timeout=None) as client:
-            async with client.stream("POST", f"{LLAMA_BASE}/v1/chat/completions", json=payload) as r:
-                if r.status_code >= 400:
-                    body = await r.aread()
-                    raise HTTPException(status_code=r.status_code, detail=body.decode("utf-8", errors="ignore"))
+        try:
+            async with httpx.AsyncClient(timeout=None) as client:
+                async with client.stream(
+                    "POST",
+                    f"{LLAMA_BASE}/v1/chat/completions",
+                    json=payload,
+                ) as r:
+                    if r.status_code >= 400:
+                        body = await r.aread()
+                        detail = body.decode("utf-8", errors="ignore")
+                        yield sse_chunk(
+                            req.model,
+                            content=f"Upstream error ({r.status_code}): {detail}",
+                        )
+                        yield sse_chunk(req.model, finish_reason="stop")
+                        yield "data: [DONE]\n\n"
+                        return
 
-                async for line in r.aiter_lines():
-                    if not line:
-                        continue
-                    yield line + "\n\n"
-
-                    if line.startswith("data: "):
-                        raw = line[6:].strip()
-                        if raw == "[DONE]":
+                    async for line in r.aiter_lines():
+                        if not line:
                             continue
-                        try:
-                            obj = json.loads(raw)
-                            delta = (
-                                obj.get("choices", [{}])[0]
-                                .get("delta", {})
-                                .get("content")
-                            )
-                            if delta:
-                                assistant_text_parts.append(delta)
-                        except Exception:
-                            pass
+                        yield line + "\n\n"
+
+                        if line.startswith("data: "):
+                            raw = line[6:].strip()
+                            if raw == "[DONE]":
+                                continue
+                            try:
+                                obj = json.loads(raw)
+                                delta = (
+                                    obj.get("choices", [{}])[0]
+                                    .get("delta", {})
+                                    .get("content")
+                                )
+                                if delta:
+                                    assistant_text_parts.append(delta)
+                            except Exception:
+                                pass
+        except Exception as e:
+            stream_failed = True
+            yield sse_chunk(req.model, content=f"Gateway streaming error: {str(e)}")
+            yield sse_chunk(req.model, finish_reason="stop")
+            yield "data: [DONE]\n\n"
 
         assistant_message = {
             "role": "assistant",
@@ -1145,7 +1163,8 @@ async def chat(req: GatewayChatRequest, request: Request) -> Any:
         state["last_context_size"] = context_size
         state["last_prompt_tokens"] = prompt_tokens
         state["last_reserved_output"] = budget.reserved_output
-        save_conversation(conversation_id, state)
+        if not stream_failed:
+            save_conversation(conversation_id, state)
 
     if req.stream:
         return StreamingResponse(
