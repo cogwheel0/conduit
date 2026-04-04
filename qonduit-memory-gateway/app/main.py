@@ -8,6 +8,7 @@ import json
 import ast
 import csv
 import os
+import logging
 import time
 import asyncio
 from pathlib import Path
@@ -34,6 +35,7 @@ from .rag import (
 from qdrant_client.models import Filter, FieldCondition, MatchValue
 
 app = FastAPI(title="Qonduit Memory Gateway")
+logger = logging.getLogger("qonduit.memory_gateway")
 
 
 @app.on_event("startup")
@@ -1107,6 +1109,8 @@ async def chat(req: GatewayChatRequest, request: Request) -> Any:
     async def event_stream():
         stream_payload = dict(payload)
         stream_payload["stream"] = False
+        stream_start = time.perf_counter()
+        emitted_chunks = 0
 
         try:
             async with httpx.AsyncClient(timeout=180.0) as client:
@@ -1115,10 +1119,25 @@ async def chat(req: GatewayChatRequest, request: Request) -> Any:
                     json=stream_payload,
                 )
         except Exception as e:
+            logger.exception(
+                "stream_request_failed conversation_id=%s model=%s error=%s",
+                conversation_id,
+                req.model,
+                str(e),
+            )
             yield sse_chunk(req.model, content=f"Gateway streaming error: {str(e)}")
             yield sse_chunk(req.model, finish_reason="stop")
             yield "data: [DONE]\n\n"
             return
+
+        upstream_ms = int((time.perf_counter() - stream_start) * 1000)
+        logger.info(
+            "stream_upstream_response conversation_id=%s model=%s status=%s latency_ms=%s",
+            conversation_id,
+            req.model,
+            r.status_code,
+            upstream_ms,
+        )
 
         if r.status_code >= 400:
             yield sse_chunk(req.model, content=f"Upstream error ({r.status_code}): {r.text}")
@@ -1135,10 +1154,18 @@ async def chat(req: GatewayChatRequest, request: Request) -> Any:
         assistant_content = coerce_model_content_to_text(message_content)
 
         for chunk in split_for_stream(assistant_content):
+            emitted_chunks += 1
             yield sse_chunk(req.model, content=chunk)
 
         yield sse_chunk(req.model, finish_reason="stop")
         yield "data: [DONE]\n\n"
+        logger.info(
+            "stream_complete conversation_id=%s model=%s chunks=%s chars=%s",
+            conversation_id,
+            req.model,
+            emitted_chunks,
+            len(assistant_content),
+        )
 
         assistant_message = {
             "role": "assistant",
@@ -1154,6 +1181,12 @@ async def chat(req: GatewayChatRequest, request: Request) -> Any:
         save_conversation(conversation_id, state)
 
     if req.stream:
+        logger.info(
+            "chat_request stream=true conversation_id=%s model=%s messages=%s",
+            conversation_id,
+            req.model,
+            len(req.messages),
+        )
         return StreamingResponse(
             event_stream(),
             media_type="text/event-stream",
@@ -1163,11 +1196,20 @@ async def chat(req: GatewayChatRequest, request: Request) -> Any:
             },
         )
 
+    non_stream_start = time.perf_counter()
     async with httpx.AsyncClient(timeout=120.0) as client:
         r = await client.post(f"{LLAMA_BASE}/v1/chat/completions", json=payload)
         if r.status_code >= 400:
             raise HTTPException(status_code=r.status_code, detail=r.text)
         data = r.json()
+    non_stream_ms = int((time.perf_counter() - non_stream_start) * 1000)
+    logger.info(
+        "chat_request stream=false conversation_id=%s model=%s latency_ms=%s messages=%s",
+        conversation_id,
+        req.model,
+        non_stream_ms,
+        len(req.messages),
+    )
 
     message_content = (
         data.get("choices", [{}])[0]
