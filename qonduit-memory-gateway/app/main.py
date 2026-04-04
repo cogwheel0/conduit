@@ -97,7 +97,7 @@ class GatewayChatRequest(BaseModel):
     conversation_id: str | None = None
     messages: list[ChatMessage]
     model: str
-    context_size: int = Field(default=65536)
+    context_size: int | None = Field(default=None)
     max_tokens: int = Field(default=2048)
     temperature: float = Field(default=0.7)
     stream: bool = False
@@ -105,6 +105,10 @@ class GatewayChatRequest(BaseModel):
     rag_collection: str | None = None
 
     model_config = {"extra": "allow"}
+
+    def resolved_context_size(self) -> int:
+        value = self.context_size or 65536
+        return max(value, 1024)
 
 
 class RagIngestRequest(BaseModel):
@@ -986,6 +990,7 @@ async def rag_upload_document(
 @app.post("/v1/chat/completions")
 async def chat(req: GatewayChatRequest, request: Request) -> Any:
     user_id = get_request_user_id(request)
+    context_size = req.resolved_context_size()
     conversation_id = (
         (req.conversation_id or "").strip()
         or (request.headers.get("X-Qonduit-Conversation", "").strip())
@@ -1004,7 +1009,7 @@ async def chat(req: GatewayChatRequest, request: Request) -> Any:
         combined_recent,
         summary=summary,
         system_prompt=DEFAULT_SYSTEM_PROMPT,
-        context_size=req.context_size,
+        context_size=context_size,
     )
 
     overflow_count = len(combined_recent) - len(trimmed_recent)
@@ -1018,10 +1023,10 @@ async def chat(req: GatewayChatRequest, request: Request) -> Any:
         remaining_recent,
         summary=summary,
         system_prompt=DEFAULT_SYSTEM_PROMPT,
-        context_size=req.context_size,
+        context_size=context_size,
     )
 
-    budget = build_budget(req.context_size)
+    budget = build_budget(context_size)
     max_tokens = min(req.max_tokens, budget.reserved_output)
 
     latest_text = latest_user_text(req.messages)
@@ -1069,7 +1074,7 @@ async def chat(req: GatewayChatRequest, request: Request) -> Any:
     state["summary"] = summary
     state["recent_messages"] = trimmed_recent[-8:]
     state["last_model"] = req.model
-    state["last_context_size"] = req.context_size
+    state["last_context_size"] = context_size
     state["last_prompt_tokens"] = prompt_tokens
     state["last_reserved_output"] = budget.reserved_output
     save_conversation(conversation_id, state)
@@ -1120,7 +1125,7 @@ async def chat(req: GatewayChatRequest, request: Request) -> Any:
         state["summary"] = summary
         state["recent_messages"] = (trimmed_recent + [assistant_message])[-8:]
         state["last_model"] = req.model
-        state["last_context_size"] = req.context_size
+        state["last_context_size"] = context_size
         state["last_prompt_tokens"] = prompt_tokens
         state["last_reserved_output"] = budget.reserved_output
         save_conversation(conversation_id, state)
@@ -1156,7 +1161,7 @@ async def chat(req: GatewayChatRequest, request: Request) -> Any:
     state["summary"] = summary
     state["recent_messages"] = (trimmed_recent + [assistant_message])[-8:]
     state["last_model"] = req.model
-    state["last_context_size"] = req.context_size
+    state["last_context_size"] = context_size
     state["last_prompt_tokens"] = prompt_tokens
     state["last_reserved_output"] = budget.reserved_output
     save_conversation(conversation_id, state)
