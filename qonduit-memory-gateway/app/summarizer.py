@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import httpx
+import logging
 
 LLAMA_BASE = "http://192.168.5.5:8080"
+logger = logging.getLogger("qonduit.memory_gateway")
 
 
 async def summarize_messages(
@@ -42,8 +44,27 @@ async def summarize_messages(
         "temperature": 0.2,
     }
 
-    async with httpx.AsyncClient(timeout=180.0) as client:
-        r = await client.post(f"{LLAMA_BASE}/v1/chat/completions", json=payload)
-        r.raise_for_status()
-        data = r.json()
-        return data["choices"][0]["message"]["content"].strip()
+    try:
+        async with httpx.AsyncClient(timeout=180.0) as client:
+            r = await client.post(f"{LLAMA_BASE}/v1/chat/completions", json=payload)
+            r.raise_for_status()
+            data = r.json()
+            return data["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        logger.warning(
+            "summary_fallback_used model=%s older_messages=%s error=%s",
+            model,
+            len(older_messages),
+            str(e),
+        )
+
+        fallback_items: list[str] = []
+        if existing_summary.strip():
+            fallback_items.append(existing_summary.strip())
+        fallback_items.extend(
+            f"{m.get('role', 'user')}: {str(m.get('content', '')).strip()}"
+            for m in older_messages[-6:]
+            if str(m.get("content", "")).strip()
+        )
+        compact = "\n".join(fallback_items).strip()
+        return compact[:2000] if compact else existing_summary
