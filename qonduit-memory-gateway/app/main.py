@@ -1105,56 +1105,44 @@ async def chat(req: GatewayChatRequest, request: Request) -> Any:
     }
 
     async def event_stream():
-        assistant_text_parts = []
-        stream_failed = False
+        stream_payload = dict(payload)
+        stream_payload["stream"] = False
 
         try:
-            async with httpx.AsyncClient(timeout=None) as client:
-                async with client.stream(
-                    "POST",
+            async with httpx.AsyncClient(timeout=180.0) as client:
+                r = await client.post(
                     f"{LLAMA_BASE}/v1/chat/completions",
-                    json=payload,
-                ) as r:
-                    if r.status_code >= 400:
-                        body = await r.aread()
-                        detail = body.decode("utf-8", errors="ignore")
-                        yield sse_chunk(
-                            req.model,
-                            content=f"Upstream error ({r.status_code}): {detail}",
-                        )
-                        yield sse_chunk(req.model, finish_reason="stop")
-                        yield "data: [DONE]\n\n"
-                        return
-
-                    async for line in r.aiter_lines():
-                        if not line:
-                            continue
-                        yield line + "\n\n"
-
-                        if line.startswith("data: "):
-                            raw = line[6:].strip()
-                            if raw == "[DONE]":
-                                continue
-                            try:
-                                obj = json.loads(raw)
-                                delta = (
-                                    obj.get("choices", [{}])[0]
-                                    .get("delta", {})
-                                    .get("content")
-                                )
-                                if delta:
-                                    assistant_text_parts.append(delta)
-                            except Exception:
-                                pass
+                    json=stream_payload,
+                )
         except Exception as e:
-            stream_failed = True
             yield sse_chunk(req.model, content=f"Gateway streaming error: {str(e)}")
             yield sse_chunk(req.model, finish_reason="stop")
             yield "data: [DONE]\n\n"
+            return
+
+        if r.status_code >= 400:
+            yield sse_chunk(req.model, content=f"Upstream error ({r.status_code}): {r.text}")
+            yield sse_chunk(req.model, finish_reason="stop")
+            yield "data: [DONE]\n\n"
+            return
+
+        data = r.json()
+        message_content = (
+            data.get("choices", [{}])[0]
+            .get("message", {})
+            .get("content", "")
+        )
+        assistant_content = coerce_model_content_to_text(message_content)
+
+        for chunk in split_for_stream(assistant_content):
+            yield sse_chunk(req.model, content=chunk)
+
+        yield sse_chunk(req.model, finish_reason="stop")
+        yield "data: [DONE]\n\n"
 
         assistant_message = {
             "role": "assistant",
-            "content": "".join(assistant_text_parts),
+            "content": assistant_content,
         }
 
         state["summary"] = summary
@@ -1163,8 +1151,7 @@ async def chat(req: GatewayChatRequest, request: Request) -> Any:
         state["last_context_size"] = context_size
         state["last_prompt_tokens"] = prompt_tokens
         state["last_reserved_output"] = budget.reserved_output
-        if not stream_failed:
-            save_conversation(conversation_id, state)
+        save_conversation(conversation_id, state)
 
     if req.stream:
         return StreamingResponse(
