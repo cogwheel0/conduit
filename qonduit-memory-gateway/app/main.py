@@ -94,13 +94,17 @@ class ChatMessage(BaseModel):
 
 
 class GatewayChatRequest(BaseModel):
-    conversation_id: str
+    conversation_id: str | None = None
     messages: list[ChatMessage]
     model: str
     context_size: int = Field(default=65536)
     max_tokens: int = Field(default=2048)
     temperature: float = Field(default=0.7)
+    stream: bool = False
+    user: str | None = None
     rag_collection: str | None = None
+
+    model_config = {"extra": "allow"}
 
 
 class RagIngestRequest(BaseModel):
@@ -127,6 +131,16 @@ class RagCollectionDeleteRequest(BaseModel):
 @app.get("/health")
 async def health() -> dict:
     return {"ok": True, "service": "qonduit-memory-gateway"}
+
+
+@app.get("/v1/models")
+async def list_models() -> dict:
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        r = await client.get(f"{LLAMA_BASE}/v1/models")
+        if r.status_code >= 400:
+            raise HTTPException(status_code=r.status_code, detail=r.text)
+        data = r.json()
+    return data
 
 
 def get_request_user_id(request: Request) -> str:
@@ -970,9 +984,15 @@ async def rag_upload_document(
 
 
 @app.post("/v1/chat/completions")
-async def chat(req: GatewayChatRequest, request: Request) -> dict:
+async def chat(req: GatewayChatRequest, request: Request) -> Any:
     user_id = get_request_user_id(request)
-    state = load_conversation(req.conversation_id)
+    conversation_id = (
+        (req.conversation_id or "").strip()
+        or (request.headers.get("X-Qonduit-Conversation", "").strip())
+        or (req.user or "").strip()
+        or "default"
+    )
+    state = load_conversation(conversation_id)
 
     prior_recent = state.get("recent_messages", [])
     summary = state.get("summary", "")
@@ -1005,21 +1025,6 @@ async def chat(req: GatewayChatRequest, request: Request) -> dict:
     max_tokens = min(req.max_tokens, budget.reserved_output)
 
     latest_text = latest_user_text(req.messages)
-    requested_filename = extract_requested_filename(latest_text)
-    code_edit_mode = is_code_edit_request(latest_text)
-    code_edit_instruction = extract_code_edit_instruction(latest_text) if code_edit_mode else ""
-    code_edit_file_contents = extract_inline_file_contents(latest_text) if code_edit_mode else ""
-
-    debug_code_edit_event(
-        "incoming_request",
-        conversation_id=req.conversation_id,
-        user_id=user_id,
-        latest_user_preview=_debug_preview(latest_text),
-        requested_filename=requested_filename or "",
-        code_edit_mode=code_edit_mode,
-        inline_file_chars=len(code_edit_file_contents),
-        inline_file_present=bool(code_edit_file_contents.strip()),
-    )
 
     rag_results = []
     rag_chunks = []
@@ -1029,7 +1034,7 @@ async def chat(req: GatewayChatRequest, request: Request) -> dict:
             rag_results = await search_documents(
                 latest_text,
                 limit=2,
-                collection=req.rag_collection or req.conversation_id,
+                collection=req.rag_collection or conversation_id,
                 user_id=user_id,
             )
             rag_chunks = [
@@ -1042,13 +1047,6 @@ async def chat(req: GatewayChatRequest, request: Request) -> dict:
             rag_chunks = []
 
     rag_context = "\n\n".join(rag_chunks)
-
-    debug_code_edit_event(
-        "retrieval_result",
-        rag_results=len(rag_results),
-        rag_context_chars=len(rag_context),
-        rag_preview=_debug_preview(rag_context),
-    )
 
     final_messages = [
         {"role": "system", "content": DEFAULT_SYSTEM_PROMPT},
@@ -1066,39 +1064,7 @@ async def chat(req: GatewayChatRequest, request: Request) -> dict:
             }
         )
 
-    recent_for_model = list(trimmed_recent)
-
-    if code_edit_mode:
-        final_messages.append(
-            {
-                "role": "system",
-                "content": build_code_edit_contract_system_prompt(requested_filename),
-            }
-        )
-
-        if recent_for_model and recent_for_model[-1].get("role") == "user":
-            recent_for_model = recent_for_model[:-1]
-
-        if code_edit_file_contents.strip():
-            recent_for_model.append(
-                {
-                    "role": "user",
-                    "content": build_code_edit_model_input(
-                        requested_filename,
-                        code_edit_instruction,
-                        code_edit_file_contents,
-                    ),
-                }
-            )
-
-    final_messages.extend(recent_for_model)
-
-    if code_edit_mode:
-        debug_code_edit_event(
-            "code_edit_model_input",
-            final_user_preview=_debug_preview(recent_for_model[-1]["content"]) if recent_for_model and recent_for_model[-1].get("role") == "user" else "",
-            final_user_chars=len(recent_for_model[-1]["content"]) if recent_for_model and recent_for_model[-1].get("role") == "user" else 0,
-        )
+    final_messages.extend(trimmed_recent)
 
     state["summary"] = summary
     state["recent_messages"] = trimmed_recent[-8:]
@@ -1106,246 +1072,17 @@ async def chat(req: GatewayChatRequest, request: Request) -> dict:
     state["last_context_size"] = req.context_size
     state["last_prompt_tokens"] = prompt_tokens
     state["last_reserved_output"] = budget.reserved_output
-    save_conversation(req.conversation_id, state)
-
-    code_edit_max_tokens = max_tokens
-    if code_edit_mode:
-        # Code edit responses must include the full updated file content.
-        # Prefer a larger generation budget so the model can return full files.
-        code_edit_input_tokens = estimate_tokens(code_edit_file_contents)
-        requested_output = max(4096, code_edit_input_tokens + 1024)
-        code_edit_max_tokens = min(max(requested_output, max_tokens), 12288)
+    save_conversation(conversation_id, state)
 
     payload = {
         "model": req.model,
         "messages": final_messages,
-        "max_tokens": code_edit_max_tokens if code_edit_mode else max_tokens,
-        "temperature": min(req.temperature, 0.2) if code_edit_mode else req.temperature,
-        "stream": not code_edit_mode,
+        "max_tokens": max_tokens,
+        "temperature": req.temperature,
+        "stream": req.stream,
     }
 
     async def event_stream():
-        if code_edit_mode:
-            if not code_edit_file_contents.strip():
-                debug_code_edit_event(
-                    "code_edit_missing_file_contents",
-                    requested_filename=requested_filename or "",
-                    latest_user_preview=_debug_preview(latest_text),
-                )
-                parsed = {
-                    "executive_summary": [
-                        "No file contents were included with this code edit request."
-                    ],
-                    "change_summary": [
-                        "The gateway only received the instruction text, so no modified file could be produced."
-                    ],
-                    "patch_confidence": "low",
-                    "modified_file": {
-                        "name": requested_filename or "modified_file.txt",
-                        "content": "",
-                    },
-                }
-            else:
-                debug_code_edit_event(
-                    "code_edit_llama_request",
-                    requested_filename=requested_filename or "",
-                    instruction_preview=_debug_preview(code_edit_instruction),
-                    file_chars=len(code_edit_file_contents),
-                    final_message_count=len(final_messages),
-                )
-                async with httpx.AsyncClient(timeout=300.0) as client:
-                    r = await client.post(f"{LLAMA_BASE}/v1/chat/completions", json=payload)
-                    if r.status_code >= 400:
-                        debug_code_edit_event(
-                            "code_edit_llama_upstream_error",
-                            status_code=r.status_code,
-                            body_preview=_debug_preview(r.text),
-                        )
-                        parsed = {
-                            "executive_summary": [
-                                "The code-edit model call failed before a patch could be generated."
-                            ],
-                            "change_summary": [
-                                "Upstream model service returned an error response. "
-                                "Please retry the request."
-                            ],
-                            "patch_confidence": "low",
-                            "modified_file": {
-                                "name": requested_filename or "modified_file.txt",
-                                "content": "",
-                            },
-                        }
-                        r = None
-                    else:
-                        data = r.json()
-                        raw_assistant = data["choices"][0]["message"]["content"]
-                        raw_assistant_text = coerce_model_content_to_text(raw_assistant)
-                        parsed = parse_code_edit_response(raw_assistant_text, requested_filename)
-                        debug_code_edit_event(
-                            "code_edit_llama_response",
-                            raw_preview=_debug_preview(raw_assistant_text),
-                            parsed_filename=parsed.get("modified_file", {}).get("name", ""),
-                            parsed_content_chars=len(str(parsed.get("modified_file", {}).get("content", ""))),
-                            patch_confidence=parsed.get("patch_confidence", ""),
-                        )
-
-                parsed_modified = parsed.get("modified_file", {})
-                parsed_content = ""
-                if isinstance(parsed_modified, dict):
-                    parsed_content = str(parsed_modified.get("content") or "")
-
-                if (
-                    parsed_content.strip()
-                    and code_edit_file_contents.strip()
-                    and not looks_like_full_file_content(
-                        code_edit_file_contents,
-                        parsed_content,
-                    )
-                ):
-                    debug_code_edit_event(
-                        "code_edit_parsed_content_rejected",
-                        reason="content_not_full_file",
-                        parsed_chars=len(parsed_content),
-                    )
-                    parsed_content = ""
-                    parsed["modified_file"]["content"] = ""
-
-                if (not parsed_content.strip()) and code_edit_file_contents.strip():
-                    debug_code_edit_event(
-                        "code_edit_retry_missing_content",
-                        requested_filename=requested_filename or "",
-                        retry_reason="empty_modified_file_content",
-                    )
-                    try:
-                        recovered_content = await asyncio.wait_for(
-                            recover_modified_file_with_retry(
-                                model=req.model,
-                                requested_filename=requested_filename,
-                                instruction=code_edit_instruction,
-                                original_file_contents=code_edit_file_contents,
-                            ),
-                            timeout=50.0,
-                        )
-                    except Exception as retry_error:
-                        debug_code_edit_event(
-                            "code_edit_retry_failed",
-                            error=str(retry_error),
-                        )
-                    else:
-                        if recovered_content.strip() and looks_like_full_file_content(
-                            code_edit_file_contents,
-                            recovered_content,
-                        ):
-                            modified = parsed.get("modified_file")
-                            if not isinstance(modified, dict):
-                                modified = {}
-                            modified["name"] = (
-                                modified.get("name")
-                                or requested_filename
-                                or "modified_file.txt"
-                            )
-                            modified["content"] = recovered_content
-                            parsed["modified_file"] = modified
-                            parsed["patch_confidence"] = "low"
-                            change_summary = parsed.get("change_summary")
-                            if isinstance(change_summary, list):
-                                change_summary.append(
-                                    "Recovered full file content through a strict retry pass."
-                                )
-                            debug_code_edit_event(
-                                "code_edit_retry_recovered",
-                                recovered_chars=len(recovered_content),
-                            )
-                        elif recovered_content.strip():
-                            debug_code_edit_event(
-                                "code_edit_retry_rejected",
-                                reason="content_not_full_file",
-                                recovered_chars=len(recovered_content),
-                            )
-
-                parsed_modified_after_retry = parsed.get("modified_file", {})
-                parsed_content_after_retry = ""
-                if isinstance(parsed_modified_after_retry, dict):
-                    parsed_content_after_retry = str(
-                        parsed_modified_after_retry.get("content") or ""
-                    )
-
-                if (not parsed_content_after_retry.strip()) and code_edit_file_contents.strip():
-                    local_fallback = try_apply_extension_edit_locally(
-                        instruction=code_edit_instruction,
-                        original_file=code_edit_file_contents,
-                    )
-                    if local_fallback is not None and local_fallback != code_edit_file_contents:
-                        if not isinstance(parsed_modified_after_retry, dict):
-                            parsed_modified_after_retry = {}
-                        parsed_modified_after_retry["name"] = (
-                            parsed_modified_after_retry.get("name")
-                            or requested_filename
-                            or "modified_file.txt"
-                        )
-                        parsed_modified_after_retry["content"] = local_fallback
-                        parsed["modified_file"] = parsed_modified_after_retry
-                        parsed["patch_confidence"] = "low"
-                        local_summary = parsed.get("change_summary")
-                        if isinstance(local_summary, list):
-                            local_summary.append(
-                                "Applied a best-effort local extension update because "
-                                "model output did not include modified file content."
-                            )
-                        debug_code_edit_event(
-                            "code_edit_local_fallback_applied",
-                            recovered_chars=len(local_fallback),
-                        )
-
-            artifact = None
-            modified_file = parsed.get("modified_file", {})
-            if isinstance(modified_file, dict):
-                modified_name = str(
-                    requested_filename
-                    or modified_file.get("name")
-                    or "modified_file.txt"
-                )
-                modified_content = str(modified_file.get("content") or "")
-                if modified_content.strip():
-                    artifact = save_code_edit_artifact(user_id, modified_name, modified_content)
-
-            debug_code_edit_event(
-                "code_edit_artifact",
-                artifact_saved=bool(artifact),
-                artifact_name=artifact.get("name", "") if artifact else "",
-                artifact_path=artifact.get("saved_path", "") if artifact else "",
-            )
-
-            summary_text = format_code_edit_summary(parsed, artifact)
-
-            for chunk in split_for_stream(summary_text):
-                yield sse_chunk(req.model, content=chunk)
-
-            yield sse_chunk(req.model, finish_reason="stop")
-            yield "data: [DONE]\n\n"
-
-            assistant_message: dict[str, Any] = {
-                "role": "assistant",
-                "content": summary_text,
-                "qonduit_code_edit": {
-                    "executive_summary": parsed["executive_summary"],
-                    "change_summary": parsed["change_summary"],
-                    "patch_confidence": parsed["patch_confidence"],
-                },
-            }
-
-            if artifact is not None:
-                assistant_message["qonduit_artifact"] = artifact
-
-            state["summary"] = summary
-            state["recent_messages"] = (trimmed_recent + [assistant_message])[-8:]
-            state["last_model"] = req.model
-            state["last_context_size"] = req.context_size
-            state["last_prompt_tokens"] = prompt_tokens
-            state["last_reserved_output"] = budget.reserved_output
-            save_conversation(req.conversation_id, state)
-            return
-
         assistant_text_parts = []
 
         async with httpx.AsyncClient(timeout=None) as client:
@@ -1386,13 +1123,60 @@ async def chat(req: GatewayChatRequest, request: Request) -> dict:
         state["last_context_size"] = req.context_size
         state["last_prompt_tokens"] = prompt_tokens
         state["last_reserved_output"] = budget.reserved_output
-        save_conversation(req.conversation_id, state)
+        save_conversation(conversation_id, state)
 
-    return StreamingResponse(
-        event_stream(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-        },
+    if req.stream:
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+            },
+        )
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        r = await client.post(f"{LLAMA_BASE}/v1/chat/completions", json=payload)
+        if r.status_code >= 400:
+            raise HTTPException(status_code=r.status_code, detail=r.text)
+        data = r.json()
+
+    message_content = (
+        data.get("choices", [{}])[0]
+        .get("message", {})
+        .get("content", "")
     )
+    assistant_content = coerce_model_content_to_text(message_content)
+
+    assistant_message = {
+        "role": "assistant",
+        "content": assistant_content,
+    }
+
+    state["summary"] = summary
+    state["recent_messages"] = (trimmed_recent + [assistant_message])[-8:]
+    state["last_model"] = req.model
+    state["last_context_size"] = req.context_size
+    state["last_prompt_tokens"] = prompt_tokens
+    state["last_reserved_output"] = budget.reserved_output
+    save_conversation(conversation_id, state)
+
+    return {
+        "id": data.get("id", f"chatcmpl-qonduit-{uuid.uuid4().hex}"),
+        "object": "chat.completion",
+        "created": data.get("created", int(time.time())),
+        "model": data.get("model", req.model),
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": assistant_content,
+                },
+                "finish_reason": (
+                    data.get("choices", [{}])[0].get("finish_reason") or "stop"
+                ),
+            }
+        ],
+        "usage": data.get("usage", {}),
+    }
