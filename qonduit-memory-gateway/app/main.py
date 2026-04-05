@@ -44,6 +44,10 @@ async def startup() -> None:
 
 
 LLAMA_BASE = "http://192.168.5.5:8080"
+UPSTREAM_CONNECT_TIMEOUT_SECONDS = 10.0
+UPSTREAM_WRITE_TIMEOUT_SECONDS = 60.0
+UPSTREAM_POOL_TIMEOUT_SECONDS = 60.0
+STREAM_KEEPALIVE_INTERVAL_SECONDS = 2.0
 
 UPLOAD_DIR = "/mnt/models/qonduit_uploads"
 
@@ -1108,16 +1112,101 @@ async def chat(req: GatewayChatRequest, request: Request) -> Any:
 
     async def event_stream():
         stream_payload = dict(payload)
-        stream_payload["stream"] = False
+        stream_payload["stream"] = True
         stream_start = time.perf_counter()
         emitted_chunks = 0
+        emitted_chars = 0
+        assistant_parts: list[str] = []
+        sent_done = False
+        timeout = httpx.Timeout(
+            connect=UPSTREAM_CONNECT_TIMEOUT_SECONDS,
+            read=None,
+            write=UPSTREAM_WRITE_TIMEOUT_SECONDS,
+            pool=UPSTREAM_POOL_TIMEOUT_SECONDS,
+        )
 
         try:
-            async with httpx.AsyncClient(timeout=180.0) as client:
-                r = await client.post(
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                async with client.stream(
+                    "POST",
                     f"{LLAMA_BASE}/v1/chat/completions",
                     json=stream_payload,
-                )
+                ) as r:
+                    upstream_ms = int((time.perf_counter() - stream_start) * 1000)
+                    logger.info(
+                        "stream_upstream_response conversation_id=%s model=%s "
+                        "status=%s latency_ms=%s",
+                        conversation_id,
+                        req.model,
+                        r.status_code,
+                        upstream_ms,
+                    )
+
+                    if r.status_code >= 400:
+                        upstream_error = await r.aread()
+                        error_text = upstream_error.decode(
+                            "utf-8",
+                            errors="replace",
+                        )
+                        yield sse_chunk(
+                            req.model,
+                            content=f"Upstream error ({r.status_code}): "
+                            f"{error_text}",
+                        )
+                        yield sse_chunk(req.model, finish_reason="stop")
+                        yield "data: [DONE]\n\n"
+                        return
+
+                    upstream_lines = r.aiter_lines()
+                    while True:
+                        try:
+                            line = await asyncio.wait_for(
+                                anext(upstream_lines),
+                                timeout=STREAM_KEEPALIVE_INTERVAL_SECONDS,
+                            )
+                        except asyncio.TimeoutError:
+                            yield ": keep-alive\n\n"
+                            continue
+                        except StopAsyncIteration:
+                            break
+
+                        if not line:
+                            continue
+                        if not line.startswith("data:"):
+                            continue
+
+                        data_line = line[5:].strip()
+                        if not data_line:
+                            continue
+
+                        if data_line == "[DONE]":
+                            sent_done = True
+                            yield "data: [DONE]\n\n"
+                            break
+
+                        emitted_chunks += 1
+                        yield f"data: {data_line}\n\n"
+
+                        try:
+                            parsed = json.loads(data_line)
+                        except json.JSONDecodeError:
+                            continue
+
+                        choices = parsed.get("choices", [])
+                        if not choices:
+                            continue
+
+                        delta = choices[0].get("delta", {})
+                        text_delta = coerce_model_content_to_text(
+                            delta.get("content", ""),
+                        )
+                        if text_delta:
+                            emitted_chars += len(text_delta)
+                            assistant_parts.append(text_delta)
+
+                    if not sent_done:
+                        yield sse_chunk(req.model, finish_reason="stop")
+                        yield "data: [DONE]\n\n"
         except Exception as e:
             logger.exception(
                 "stream_request_failed conversation_id=%s model=%s error=%s",
@@ -1130,41 +1219,13 @@ async def chat(req: GatewayChatRequest, request: Request) -> Any:
             yield "data: [DONE]\n\n"
             return
 
-        upstream_ms = int((time.perf_counter() - stream_start) * 1000)
-        logger.info(
-            "stream_upstream_response conversation_id=%s model=%s status=%s latency_ms=%s",
-            conversation_id,
-            req.model,
-            r.status_code,
-            upstream_ms,
-        )
-
-        if r.status_code >= 400:
-            yield sse_chunk(req.model, content=f"Upstream error ({r.status_code}): {r.text}")
-            yield sse_chunk(req.model, finish_reason="stop")
-            yield "data: [DONE]\n\n"
-            return
-
-        data = r.json()
-        message_content = (
-            data.get("choices", [{}])[0]
-            .get("message", {})
-            .get("content", "")
-        )
-        assistant_content = coerce_model_content_to_text(message_content)
-
-        for chunk in split_for_stream(assistant_content):
-            emitted_chunks += 1
-            yield sse_chunk(req.model, content=chunk)
-
-        yield sse_chunk(req.model, finish_reason="stop")
-        yield "data: [DONE]\n\n"
+        assistant_content = "".join(assistant_parts)
         logger.info(
             "stream_complete conversation_id=%s model=%s chunks=%s chars=%s",
             conversation_id,
             req.model,
             emitted_chunks,
-            len(assistant_content),
+            emitted_chars,
         )
 
         assistant_message = {
