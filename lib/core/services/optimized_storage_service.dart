@@ -253,6 +253,7 @@ class OptimizedStorageService {
       await _preferencesBox.delete(_activeServerIdKey);
     }
     _cacheManager.write(_activeServerIdKey, serverId, ttl: _serverIdTtl);
+    await _syncActiveServerConfigFlags(serverId);
   }
 
   Future<String?> getActiveServerId() async {
@@ -265,6 +266,32 @@ class OptimizedStorageService {
     final serverId = _preferencesBox.get(_activeServerIdKey) as String?;
     _cacheManager.write(_activeServerIdKey, serverId, ttl: _serverIdTtl);
     return serverId;
+  }
+
+  Future<void> _syncActiveServerConfigFlags(String? serverId) async {
+    final configs = await getServerConfigs();
+    if (configs.isEmpty) {
+      return;
+    }
+
+    var didChange = false;
+    final updatedConfigs = configs
+        .map((config) {
+          final shouldBeActive = serverId != null && config.id == serverId;
+          if (config.isActive == shouldBeActive) {
+            return config;
+          }
+
+          didChange = true;
+          return config.copyWith(isActive: shouldBeActive);
+        })
+        .toList(growable: false);
+
+    if (!didChange) {
+      return;
+    }
+
+    await saveServerConfigs(updatedConfigs);
   }
 
   String? getThemeMode() {
