@@ -159,7 +159,7 @@ rm "${IOS_DELIVERFILE}.bak"
 
 # Commit changes
 print_status "Committing changes..."
-git add pubspec.yaml "$ANDROID_CHANGELOG_DIR/default.txt" "$IOS_DELIVERFILE"
+git add pubspec.yaml
 git commit -m "chore: bump version to $NEW_VERSION"
 
 git push origin main
