@@ -35,6 +35,7 @@ import '../widgets/user_message_bubble.dart';
 import '../widgets/assistant_message_widget.dart' as assistant;
 import '../widgets/file_attachment_widget.dart';
 import '../widgets/context_attachment_widget.dart';
+import '../widgets/server_file_picker_sheet.dart';
 import '../services/file_attachment_service.dart';
 import '../voice_call/presentation/voice_call_launcher.dart';
 import '../../../shared/services/tasks/task_queue.dart';
@@ -454,6 +455,24 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       if (!mounted) return;
       DebugLogger.log('File selection failed: $e', scope: 'chat/page');
     }
+  }
+
+  void _handleServerFileAttachment() {
+    final fileUploadCapableModels = ref.read(fileUploadCapableModelsProvider);
+    if (fileUploadCapableModels.isEmpty || !mounted) {
+      return;
+    }
+
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => ServerFilePickerSheet(
+        onSelected: (file) {
+          ref.read(attachedFilesProvider.notifier).addRemoteFile(file);
+        },
+      ),
+    );
   }
 
   void _handleImageAttachment({bool fromCamera = false}) async {
@@ -2496,6 +2515,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                                 onVoiceInput: null,
                                 onVoiceCall: _handleVoiceCall,
                                 onFileAttachment: _handleFileAttachment,
+                                onServerFileAttachment:
+                                    _handleServerFileAttachment,
                                 onImageAttachment: _handleImageAttachment,
                                 onCameraCapture: () =>
                                     _handleImageAttachment(fromCamera: true),

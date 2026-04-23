@@ -809,20 +809,26 @@ final modelToolsAutoSelectionProvider = Provider<void>((ref) {
   ref.keepAlive();
 
   Future<void> applyTools(Model? model) async {
+    List<String> preserveDirectServerSelections(List<String> ids) {
+      return ids.where((id) => id.startsWith('direct_server:')).toList();
+    }
+
     // Skip if not authenticated - prevents API calls after logout
     final authState = ref.read(authStateManagerProvider).asData?.value;
     if (authState == null || !authState.isAuthenticated) {
       final current = ref.read(selectedToolIdsProvider);
-      if (current.isNotEmpty) {
-        ref.read(selectedToolIdsProvider.notifier).set([]);
+      final preserved = preserveDirectServerSelections(current);
+      if (!listEquals(current, preserved)) {
+        ref.read(selectedToolIdsProvider.notifier).set(preserved);
       }
       return;
     }
 
     if (model == null) {
       final current = ref.read(selectedToolIdsProvider);
-      if (current.isNotEmpty) {
-        ref.read(selectedToolIdsProvider.notifier).set([]);
+      final preserved = preserveDirectServerSelections(current);
+      if (!listEquals(current, preserved)) {
+        ref.read(selectedToolIdsProvider.notifier).set(preserved);
       }
       return;
     }
@@ -830,8 +836,9 @@ final modelToolsAutoSelectionProvider = Provider<void>((ref) {
     final modelToolIds = model.toolIds ?? [];
     if (modelToolIds.isEmpty) {
       final current = ref.read(selectedToolIdsProvider);
-      if (current.isNotEmpty) {
-        ref.read(selectedToolIdsProvider.notifier).set([]);
+      final preserved = preserveDirectServerSelections(current);
+      if (!listEquals(current, preserved)) {
+        ref.read(selectedToolIdsProvider.notifier).set(preserved);
       }
       return;
     }
@@ -842,15 +849,17 @@ final modelToolsAutoSelectionProvider = Provider<void>((ref) {
           .toList();
 
       final currentSelection = ref.read(selectedToolIdsProvider);
+      final preserved = preserveDirectServerSelections(currentSelection);
+      final nextSelection = [...validToolIds, ...preserved];
       if (validToolIds.isEmpty) {
-        if (currentSelection.isNotEmpty) {
-          ref.read(selectedToolIdsProvider.notifier).set([]);
+        if (!listEquals(currentSelection, preserved)) {
+          ref.read(selectedToolIdsProvider.notifier).set(preserved);
         }
         return;
       }
-      if (listEquals(currentSelection, validToolIds)) return;
+      if (listEquals(currentSelection, nextSelection)) return;
 
-      ref.read(selectedToolIdsProvider.notifier).set(validToolIds);
+      ref.read(selectedToolIdsProvider.notifier).set(nextSelection);
       DebugLogger.log(
         'auto-apply-tools',
         scope: 'models/tools',
@@ -894,6 +903,56 @@ final modelToolsAutoSelectionProvider = Provider<void>((ref) {
   ref.listen(toolsListProvider, (previous, next) {
     if (!next.hasValue) return;
     Future.microtask(() => scheduleApply(ref.read(selectedModelProvider)));
+  });
+});
+
+// Auto-apply model-specific terminal defaults when model changes.
+final modelTerminalAutoSelectionProvider = Provider<void>((ref) {
+  ref.keepAlive();
+
+  String? extractModelTerminalId(Model? model) {
+    final info = model?.metadata?['info'];
+    if (info is! Map) {
+      return null;
+    }
+
+    final infoMeta = info['meta'];
+    if (infoMeta is! Map) {
+      return null;
+    }
+
+    final terminalId = infoMeta['terminalId']?.toString().trim();
+    if (terminalId == null || terminalId.isEmpty) {
+      return null;
+    }
+
+    return terminalId;
+  }
+
+  void applyTerminalSelection(Model? model) {
+    final terminalId = extractModelTerminalId(model);
+    if (terminalId == null) {
+      return;
+    }
+
+    if (ref.read(selectedTerminalIdProvider) == terminalId) {
+      return;
+    }
+
+    ref.read(selectedTerminalIdProvider.notifier).set(terminalId);
+    DebugLogger.log(
+      'auto-apply-terminal',
+      scope: 'models/terminal',
+      data: {'modelId': model?.id},
+    );
+  }
+
+  Future.microtask(
+    () => applyTerminalSelection(ref.read(selectedModelProvider)),
+  );
+
+  ref.listen<Model?>(selectedModelProvider, (previous, next) {
+    Future.microtask(() => applyTerminalSelection(next));
   });
 });
 
@@ -948,6 +1007,7 @@ final defaultModelAutoSelectionProvider = Provider<void>((ref) {
 
   // Initialize the model tools and filters auto-selection
   ref.watch(modelToolsAutoSelectionProvider);
+  ref.watch(modelTerminalAutoSelectionProvider);
   ref.watch(modelFiltersAutoSelectionProvider);
 
   ref.listen<AppSettings>(appSettingsProvider, (previous, next) {
@@ -2260,6 +2320,8 @@ class Folders extends _$Folders {
 // Files provider
 @Riverpod(keepAlive: true)
 class UserFiles extends _$UserFiles {
+  int _loadGeneration = 0;
+
   @override
   Future<List<FileInfo>> build() async {
     if (!ref.watch(isAuthenticatedProvider2)) {
@@ -2287,7 +2349,11 @@ class UserFiles extends _$UserFiles {
   }
 
   void upsert(FileInfo file) {
-    final current = state.asData?.value ?? const <FileInfo>[];
+    if (!state.hasValue) {
+      return;
+    }
+
+    final current = state.requireValue;
     final updated = <FileInfo>[...current];
     final index = updated.indexWhere((existing) => existing.id == file.id);
     if (index >= 0) {
@@ -2309,16 +2375,38 @@ class UserFiles extends _$UserFiles {
 
   Future<List<FileInfo>> _load(ApiService api) async {
     try {
-      final files = await api.getUserFiles();
-      return _sort(files);
-    } catch (e, stackTrace) {
+      final loadGeneration = ++_loadGeneration;
+      final firstPage = await api.getUserFilesPage(page: 1);
+      final initialFiles = _sort(firstPage.items);
+
+      final shouldLoadMore =
+          firstPage.isPaginated &&
+          firstPage.items.isNotEmpty &&
+          (firstPage.total == null ||
+              firstPage.items.length < firstPage.total!);
+
+      if (shouldLoadMore) {
+        unawaited(
+          Future<void>.delayed(Duration.zero, () {
+            return _loadRemainingPages(
+              api,
+              loadGeneration: loadGeneration,
+              initialFiles: initialFiles,
+              total: firstPage.total,
+            );
+          }),
+        );
+      }
+
+      return initialFiles;
+    } catch (error, stackTrace) {
       DebugLogger.error(
         'files-failed',
         scope: 'files',
-        error: e,
+        error: error,
         stackTrace: stackTrace,
       );
-      return const [];
+      rethrow;
     }
   }
 
@@ -2326,6 +2414,132 @@ class UserFiles extends _$UserFiles {
     final sorted = [...input];
     sorted.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
     return List<FileInfo>.unmodifiable(sorted);
+  }
+
+  Future<void> _loadRemainingPages(
+    ApiService api, {
+    required int loadGeneration,
+    required List<FileInfo> initialFiles,
+    required int? total,
+  }) async {
+    if (!_isCurrentLoad(loadGeneration)) {
+      return;
+    }
+
+    var page = 2;
+    var totalCount = total;
+    var loadedFiles = initialFiles;
+
+    try {
+      while (true) {
+        final pageResult = await api.getUserFilesPage(page: page);
+        if (!_isCurrentLoad(loadGeneration)) {
+          return;
+        }
+        if (pageResult.items.isEmpty) {
+          return;
+        }
+
+        loadedFiles = _mergeFiles(loadedFiles, pageResult.items);
+        totalCount ??= pageResult.total;
+
+        final currentFiles = state.asData?.value ?? initialFiles;
+        state = AsyncData<List<FileInfo>>(
+          _sort(_mergeFiles(currentFiles, pageResult.items)),
+        );
+
+        if (!pageResult.isPaginated) {
+          return;
+        }
+        if (totalCount != null && loadedFiles.length >= totalCount) {
+          return;
+        }
+
+        page += 1;
+      }
+    } catch (error, stackTrace) {
+      if (!_isCurrentLoad(loadGeneration)) {
+        return;
+      }
+      DebugLogger.error(
+        'files-page-load-failed',
+        scope: 'files',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'generation': loadGeneration, 'page': page},
+      );
+    }
+  }
+
+  bool _isCurrentLoad(int loadGeneration) =>
+      ref.mounted && _loadGeneration == loadGeneration;
+
+  List<FileInfo> _mergeFiles(
+    List<FileInfo> current,
+    Iterable<FileInfo> incoming,
+  ) {
+    final merged = <String, FileInfo>{
+      for (final file in current) file.id: file,
+    };
+    for (final file in incoming) {
+      merged[file.id] = file;
+    }
+    return merged.values.toList(growable: false);
+  }
+}
+
+@riverpod
+Future<List<FileInfo>> searchUserFiles(Ref ref, String query) async {
+  if (!ref.watch(isAuthenticatedProvider2)) {
+    return const [];
+  }
+
+  final api = ref.watch(apiServiceProvider);
+  if (api == null) {
+    return const [];
+  }
+
+  final trimmedQuery = query.trim();
+  if (trimmedQuery.isEmpty) {
+    return const [];
+  }
+
+  try {
+    const pageSize = 100;
+    final files = <FileInfo>[];
+    var offset = 0;
+
+    while (true) {
+      final page = await api.searchFiles(
+        query: trimmedQuery,
+        limit: pageSize,
+        offset: offset,
+      );
+      if (page.isEmpty) {
+        break;
+      }
+
+      files.addAll(page);
+      if (page.length < pageSize) {
+        break;
+      }
+
+      offset += page.length;
+    }
+
+    final deduped = <String, FileInfo>{for (final file in files) file.id: file};
+    final sorted = deduped.values.toList(growable: false)
+      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    return List<FileInfo>.unmodifiable(sorted);
+  } catch (error, stackTrace) {
+    DebugLogger.error(
+      'files-search-failed',
+      scope: 'files/search',
+      error: error,
+      stackTrace: stackTrace,
+      data: {'query': trimmedQuery},
+    );
+    rethrow;
   }
 }
 

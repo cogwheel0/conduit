@@ -99,9 +99,9 @@ enough for daily use.
 | Area | Included |
 | --- | --- |
 | Chat | Real-time streaming, model selection, temporary chats, conversation search, and folder management |
-| AI workflows | File and image uploads, multimodal prompts, server-side tools, saved prompts with variables, model-specific toggle filters, and optional web search or image generation when supported by your server |
+| AI workflows | File and image uploads, re-attaching previously uploaded server files, multimodal prompts, server-side tools, saved prompts with variables, model-specific toggle filters, and optional web search or image generation when supported by your server |
 | Authentication | Username and password, LDAP, JWT, custom headers, SSO/OAuth, and reverse proxy login flows |
-| Productivity | Notes with autosave, AI-generated titles, AI enhancement, audio attachments, channels with threads and reactions when enabled by the server, and sharing from other apps |
+| Productivity | Notes with autosave, pinning, AI-generated titles, AI enhancement, audio attachments, channels with threads and reactions when enabled by the server, and sharing from other apps |
 | Rendering | Syntax-highlighted code, LaTeX, Mermaid, Chart.js, citations, follow-up suggestions, reasoning blocks, tool-call details, and code execution rendering |
 | Mobile UX | Voice input, full voice-call mode, home screen widgets, app quick actions, clipboard image paste, haptics, and adaptive Material/Cupertino UI |
 | Personalization | Light, dark, and system themes plus a localized interface across 10 supported locales |

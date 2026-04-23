@@ -80,8 +80,33 @@ class _FakeAdapter implements HttpClientAdapter {
   void close({bool force = false}) {}
 }
 
+/// Queues multiple fake responses for sequential requests.
+class _QueuedFakeAdapter implements HttpClientAdapter {
+  _QueuedFakeAdapter(this.responses);
+
+  final List<_FakeAdapter> responses;
+  final requests = <RequestOptions>[];
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelOnError,
+  ) async {
+    requests.add(options);
+    if (responses.isEmpty) {
+      throw StateError('No queued fake responses left');
+    }
+
+    return responses.removeAt(0).fetch(options, requestStream, cancelOnError);
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
 /// Builds an [ApiService] for testing whose Dio adapter is [adapter].
-ApiService _buildApiServiceForTest(_FakeAdapter adapter) {
+ApiService _buildApiServiceForTest(HttpClientAdapter adapter) {
   final service = ApiService(
     serverConfig: const ServerConfig(
       id: 'test',
@@ -104,6 +129,29 @@ const _minimalMessages = <Map<String, dynamic>>[
   {'role': 'user', 'content': 'hi'},
 ];
 const _model = 'gpt-test';
+
+Map<String, dynamic> _legacyChatPayload({
+  required Map<String, dynamic> historyMessages,
+  required String currentId,
+}) {
+  return {
+    'id': 'chat-1',
+    'user_id': 'user-test',
+    'title': 'Legacy chat',
+    'chat': {
+      'title': 'Legacy chat',
+      'models': [_model],
+      'history': {'messages': historyMessages, 'currentId': currentId},
+      'messages': const <Map<String, dynamic>>[],
+      'params': const <String, dynamic>{},
+      'files': const <Map<String, dynamic>>[],
+    },
+    'updated_at': 1774458297,
+    'created_at': 1774458200,
+    'archived': false,
+    'pinned': false,
+  };
+}
 
 void main() {
   // -----------------------------------------------------------------------
@@ -288,6 +336,283 @@ void main() {
       check(caught).isNotNull();
       check(caught).isA<Exception>();
     });
+
+    test('sendMessageSession forwards explicit request files', () async {
+      final adapter = _FakeAdapter.json({
+        'choices': [
+          {
+            'message': {'content': 'Hello!'},
+          },
+        ],
+      });
+      final api = _buildApiServiceForTest(adapter);
+
+      await api.sendMessageSession(
+        messages: const [
+          {'role': 'system', 'content': 'System'},
+        ],
+        model: _model,
+        files: const [
+          {
+            'type': 'file',
+            'id': 'doc-1',
+            'url': 'doc-1',
+            'name': 'spec.pdf',
+            'content_type': 'application/pdf',
+          },
+          {
+            'type': 'image',
+            'id': 'img-1',
+            'url': 'img-1',
+            'content_type': 'image/png',
+          },
+        ],
+      );
+
+      final request = adapter.lastRequest;
+      check(request).isNotNull();
+      final body = request!.data as Map<String, dynamic>;
+      check(body['files']).isA<List<dynamic>>().deepEquals(const [
+        {
+          'type': 'file',
+          'id': 'doc-1',
+          'url': 'doc-1',
+          'name': 'spec.pdf',
+          'content_type': 'application/pdf',
+        },
+      ]);
+    });
+
+    test('sendMessageSession retries with legacy metadata and persists '
+        'pending turns on pre-v0.9 servers', () async {
+      const userMessage1 = <String, dynamic>{
+        'id': 'user-1',
+        'parentId': 'assistant-0',
+        'childrenIds': ['assistant-1'],
+        'role': 'user',
+        'content': 'hello',
+        'models': ['gpt-test'],
+        'timestamp': 1774458297,
+      };
+      const userMessage2 = <String, dynamic>{
+        'id': 'user-2',
+        'parentId': 'assistant-1',
+        'childrenIds': ['assistant-2'],
+        'role': 'user',
+        'content': 'follow up',
+        'models': ['gpt-test'],
+        'timestamp': 1774458397,
+      };
+
+      final adapter = _QueuedFakeAdapter([
+        _FakeAdapter.json({
+          'detail': 'user_message is unsupported when sending a prompt.',
+        }, statusCode: 400),
+        _FakeAdapter.json(
+          _legacyChatPayload(
+            currentId: 'assistant-0',
+            historyMessages: const {
+              'user-0': {
+                'id': 'user-0',
+                'parentId': null,
+                'childrenIds': ['assistant-0'],
+                'role': 'user',
+                'content': 'before',
+                'models': ['gpt-test'],
+                'timestamp': 1774458197,
+              },
+              'assistant-0': {
+                'id': 'assistant-0',
+                'parentId': 'user-0',
+                'childrenIds': [],
+                'role': 'assistant',
+                'content': 'before answer',
+                'model': 'gpt-test',
+                'modelName': 'gpt-test',
+                'modelIdx': 0,
+                'done': true,
+                'timestamp': 1774458198,
+              },
+            },
+          ),
+        ),
+        _FakeAdapter.json({}),
+        _FakeAdapter.json({'task_id': 'task-legacy', 'status': true}),
+        _FakeAdapter.json(
+          _legacyChatPayload(
+            currentId: 'assistant-1',
+            historyMessages: const {
+              'user-0': {
+                'id': 'user-0',
+                'parentId': null,
+                'childrenIds': ['assistant-0'],
+                'role': 'user',
+                'content': 'before',
+                'models': ['gpt-test'],
+                'timestamp': 1774458197,
+              },
+              'assistant-0': {
+                'id': 'assistant-0',
+                'parentId': 'user-0',
+                'childrenIds': ['user-1'],
+                'role': 'assistant',
+                'content': 'before answer',
+                'model': 'gpt-test',
+                'modelName': 'gpt-test',
+                'modelIdx': 0,
+                'done': true,
+                'timestamp': 1774458198,
+              },
+              'user-1': {
+                'id': 'user-1',
+                'parentId': 'assistant-0',
+                'childrenIds': ['assistant-1'],
+                'role': 'user',
+                'content': 'hello',
+                'models': ['gpt-test'],
+                'timestamp': 1774458297,
+              },
+              'assistant-1': {
+                'id': 'assistant-1',
+                'parentId': 'user-1',
+                'childrenIds': [],
+                'role': 'assistant',
+                'content': 'legacy reply',
+                'model': 'gpt-test',
+                'modelName': 'gpt-test',
+                'modelIdx': 0,
+                'done': true,
+                'timestamp': 1774458298,
+              },
+            },
+          ),
+        ),
+        _FakeAdapter.json({}),
+        _FakeAdapter.json({'task_id': 'task-cached', 'status': true}),
+      ]);
+      final api = _buildApiServiceForTest(adapter);
+
+      final firstSession = await api.sendMessageSession(
+        messages: _minimalMessages,
+        model: _model,
+        conversationId: 'chat-1',
+        responseMessageId: 'assistant-1',
+        parentId: 'assistant-0',
+        userMessage: userMessage1,
+      );
+
+      final secondSession = await api.sendMessageSession(
+        messages: _minimalMessages,
+        model: _model,
+        conversationId: 'chat-1',
+        responseMessageId: 'assistant-2',
+        parentId: 'assistant-1',
+        userMessage: userMessage2,
+      );
+
+      check(firstSession.transport).equals(ChatCompletionTransport.taskSocket);
+      check(firstSession.taskId).equals('task-legacy');
+      check(secondSession.transport).equals(ChatCompletionTransport.taskSocket);
+      check(secondSession.taskId).equals('task-cached');
+      check(adapter.requests).has((it) => it.length, 'length').equals(7);
+
+      final modernBody = adapter.requests[0].data as Map<String, dynamic>;
+      check(adapter.requests[0].path).equals('/api/chat/completions');
+      check(modernBody['parent_id']).equals('assistant-0');
+      check(
+        modernBody['user_message'],
+      ).isA<Map<String, dynamic>>().deepEquals(userMessage1);
+      check(modernBody.containsKey('parent_message')).isFalse();
+
+      check(adapter.requests[1].method).equals('GET');
+      check(adapter.requests[1].path).equals('/api/v1/chats/chat-1');
+      check(adapter.requests[2].method).equals('POST');
+      check(adapter.requests[2].path).equals('/api/v1/chats/chat-1');
+      final firstPersistBody = adapter.requests[2].data as Map<String, dynamic>;
+      final firstPersistChat = firstPersistBody['chat'] as Map<String, dynamic>;
+      final firstPersistHistory =
+          firstPersistChat['history'] as Map<String, dynamic>;
+      final firstPersistMessages =
+          firstPersistHistory['messages'] as Map<String, dynamic>;
+      final firstPersistUser =
+          firstPersistMessages['user-1'] as Map<String, dynamic>;
+      final firstPersistAssistant =
+          firstPersistMessages['assistant-1'] as Map<String, dynamic>;
+      final firstPersistParent =
+          firstPersistMessages['assistant-0'] as Map<String, dynamic>;
+      check(firstPersistHistory['currentId']).equals('assistant-1');
+      check(
+        firstPersistParent['childrenIds'],
+      ).isA<List<dynamic>>().deepEquals(const ['user-1']);
+      check(
+        firstPersistUser['childrenIds'],
+      ).isA<List<dynamic>>().deepEquals(const ['assistant-1']);
+      check(firstPersistAssistant['parentId']).equals('user-1');
+      check(firstPersistAssistant['role']).equals('assistant');
+      check(firstPersistAssistant['content']).equals('');
+      check(firstPersistAssistant.containsKey('done')).isFalse();
+      check(
+        (firstPersistChat['messages'] as List<dynamic>)
+            .map((entry) => (entry as Map<String, dynamic>)['id'])
+            .toList(growable: false),
+      ).deepEquals(const ['user-0', 'assistant-0', 'user-1', 'assistant-1']);
+
+      final legacyRetryBody = adapter.requests[3].data as Map<String, dynamic>;
+      check(adapter.requests[3].path).equals('/api/chat/completions');
+      check(legacyRetryBody['parent_id']).equals('user-1');
+      check(
+        legacyRetryBody['parent_message'],
+      ).isA<Map<String, dynamic>>().deepEquals(userMessage1);
+      check(legacyRetryBody.containsKey('user_message')).isFalse();
+
+      check(adapter.requests[4].method).equals('GET');
+      check(adapter.requests[4].path).equals('/api/v1/chats/chat-1');
+      check(adapter.requests[5].method).equals('POST');
+      check(adapter.requests[5].path).equals('/api/v1/chats/chat-1');
+      final secondPersistBody =
+          adapter.requests[5].data as Map<String, dynamic>;
+      final secondPersistChat =
+          secondPersistBody['chat'] as Map<String, dynamic>;
+      final secondPersistHistory =
+          secondPersistChat['history'] as Map<String, dynamic>;
+      final secondPersistMessages =
+          secondPersistHistory['messages'] as Map<String, dynamic>;
+      final secondPersistParent =
+          secondPersistMessages['assistant-1'] as Map<String, dynamic>;
+      final secondPersistUser =
+          secondPersistMessages['user-2'] as Map<String, dynamic>;
+      final secondPersistAssistant =
+          secondPersistMessages['assistant-2'] as Map<String, dynamic>;
+      check(secondPersistHistory['currentId']).equals('assistant-2');
+      check(
+        secondPersistParent['childrenIds'],
+      ).isA<List<dynamic>>().deepEquals(const ['user-2']);
+      check(
+        secondPersistUser['childrenIds'],
+      ).isA<List<dynamic>>().deepEquals(const ['assistant-2']);
+      check(secondPersistAssistant['parentId']).equals('user-2');
+      check(secondPersistAssistant.containsKey('done')).isFalse();
+      check(
+        (secondPersistChat['messages'] as List<dynamic>)
+            .map((entry) => (entry as Map<String, dynamic>)['id'])
+            .toList(growable: false),
+      ).deepEquals(const [
+        'user-0',
+        'assistant-0',
+        'user-1',
+        'assistant-1',
+        'user-2',
+        'assistant-2',
+      ]);
+
+      final cachedLegacyBody = adapter.requests[6].data as Map<String, dynamic>;
+      check(adapter.requests[6].path).equals('/api/chat/completions');
+      check(cachedLegacyBody['parent_id']).equals('user-2');
+      check(
+        cachedLegacyBody['parent_message'],
+      ).isA<Map<String, dynamic>>().deepEquals(userMessage2);
+      check(cachedLegacyBody.containsKey('user_message')).isFalse();
+    });
   });
 
   group('TLS handshake detection', () {
@@ -365,8 +690,9 @@ void main() {
         'image_generation': false,
         'code_interpreter': false,
       });
-      // parent_message always present (OWUI 0.6.42+ compat)
-      check(payload['parent_message']).isNotNull();
+      check(payload.containsKey('parent_id')).isTrue();
+      check(payload['parent_id']).isNull();
+      check(payload['user_message']).isNotNull();
     });
 
     test('includes features with image_generation when enabled', () {
@@ -410,11 +736,156 @@ void main() {
       });
     });
 
-    test('preserves pipe-friendly empty collections and parent payload', () {
+    test('treats content_type image files as image_url content', () {
       final api = _buildApiServiceForTest(_FakeAdapter.json({}));
-      const parentMessage = <String, dynamic>{
+
+      final payload = api.buildChatCompletionPayloadForTest(
+        messages: const [
+          {
+            'role': 'user',
+            'content': 'describe this',
+            'files': [
+              {
+                'type': 'file',
+                'content_type': 'image/png',
+                'url': 'file-image-id',
+              },
+            ],
+          },
+        ],
+        model: 'gpt-4',
+        messageId: 'msg-img-file',
+        sessionId: 'sess-img-file',
+      );
+
+      final messages = payload['messages'] as List<dynamic>;
+      final first = messages.first as Map<String, dynamic>;
+      check(first['content']).isA<List<dynamic>>();
+      final content = first['content'] as List<dynamic>;
+      check(content[0]).isA<Map<String, dynamic>>().deepEquals({
+        'type': 'text',
+        'text': 'describe this',
+      });
+      check(content[1]).isA<Map<String, dynamic>>().deepEquals({
+        'type': 'image_url',
+        'image_url': {'url': 'file-image-id'},
+      });
+      check(payload.containsKey('files')).isFalse();
+    });
+
+    test('merges explicit top-level files and filters image duplicates', () {
+      final api = _buildApiServiceForTest(_FakeAdapter.json({}));
+
+      final payload = api.buildChatCompletionPayloadForTest(
+        messages: const [
+          {
+            'role': 'user',
+            'content': 'Review this reference',
+            'files': [
+              {
+                'type': 'file',
+                'id': 'doc-1',
+                'url': 'doc-1',
+                'name': 'spec.pdf',
+                'content_type': 'application/pdf',
+              },
+            ],
+          },
+        ],
+        model: 'gpt-4',
+        messageId: 'msg-request-files',
+        sessionId: 'sess-request-files',
+        files: const [
+          {
+            'type': 'file',
+            'id': 'doc-1',
+            'url': 'doc-1',
+            'name': 'spec.pdf',
+            'content_type': 'application/pdf',
+          },
+          {'type': 'note', 'id': 'note-1', 'name': 'scratch-note'},
+          {
+            'type': 'image',
+            'id': 'image-1',
+            'url': 'image-1',
+            'content_type': 'image/png',
+          },
+        ],
+      );
+
+      check(payload['files']).isA<List<dynamic>>().deepEquals(const [
+        {
+          'type': 'file',
+          'id': 'doc-1',
+          'url': 'doc-1',
+          'name': 'spec.pdf',
+          'content_type': 'application/pdf',
+        },
+        {'type': 'note', 'id': 'note-1', 'name': 'scratch-note'},
+      ]);
+    });
+
+    test('preserves output items on outbound messages', () {
+      final api = _buildApiServiceForTest(_FakeAdapter.json({}));
+
+      final payload = api.buildChatCompletionPayloadForTest(
+        messages: const [
+          {
+            'role': 'assistant',
+            'content': 'Used a tool',
+            'output': [
+              {'type': 'message', 'content': 'Used a tool'},
+              {'type': 'reasoning', 'content': 'tool reasoning'},
+            ],
+          },
+        ],
+        model: 'gpt-4',
+        messageId: 'msg-output',
+        sessionId: 'sess-output',
+      );
+
+      final messages = payload['messages'] as List<dynamic>;
+      final first = messages.first as Map<String, dynamic>;
+      check(first['output']).isA<List<dynamic>>().deepEquals(const [
+        {'type': 'message', 'content': 'Used a tool'},
+        {'type': 'reasoning', 'content': 'tool reasoning'},
+      ]);
+    });
+
+    test('includes terminal_id when provided', () {
+      final api = _buildApiServiceForTest(_FakeAdapter.json({}));
+
+      final payload = api.buildChatCompletionPayloadForTest(
+        messages: const [
+          {'role': 'system', 'content': 'You can use a terminal.'},
+        ],
+        model: 'gpt-4',
+        messageId: 'msg-terminal',
+        sessionId: 'sess-terminal',
+        terminalId: 'terminal-1',
+      );
+
+      check(payload['terminal_id'] as String).equals('terminal-1');
+    });
+
+    test('omits messages key when request history is empty', () {
+      final api = _buildApiServiceForTest(_FakeAdapter.json({}));
+
+      final payload = api.buildChatCompletionPayloadForTest(
+        messages: const [],
+        model: 'gpt-4',
+        messageId: 'msg-empty',
+        sessionId: 'sess-empty',
+      );
+
+      check(payload.containsKey('messages')).isFalse();
+    });
+
+    test('preserves pipe-friendly empty collections and user payload', () {
+      final api = _buildApiServiceForTest(_FakeAdapter.json({}));
+      const userMessage = <String, dynamic>{
         'id': 'user-1',
-        'parentId': null,
+        'parentId': 'assistant-0',
         'childrenIds': ['assistant-1'],
         'role': 'user',
         'content': 'Tell me another joke',
@@ -446,8 +917,8 @@ void main() {
         userSettings: const {
           'ui': {'memory': true},
         },
-        parentMessageId: 'user-1',
-        parentMessage: parentMessage,
+        parentId: 'assistant-0',
+        userMessage: userMessage,
         variables: variables,
       );
 
@@ -458,10 +929,10 @@ void main() {
       check(
         payload['background_tasks'],
       ).isA<Map<String, dynamic>>().deepEquals(backgroundTasks);
-      check(payload['parent_id'] as String).equals('user-1');
+      check(payload['parent_id'] as String).equals('assistant-0');
       check(
-        payload['parent_message'],
-      ).isA<Map<String, dynamic>>().deepEquals(parentMessage);
+        payload['user_message'],
+      ).isA<Map<String, dynamic>>().deepEquals(userMessage);
       check(
         payload['variables'],
       ).isA<Map<String, dynamic>>().deepEquals(variables);
@@ -475,6 +946,35 @@ void main() {
         'code_interpreter': false,
         'memory': true,
       });
+    });
+
+    test('supports the legacy pre-v0.9 chat metadata shape', () {
+      final api = _buildApiServiceForTest(_FakeAdapter.json({}));
+      const userMessage = <String, dynamic>{
+        'id': 'user-1',
+        'parentId': 'assistant-0',
+        'role': 'user',
+        'content': 'hello',
+      };
+
+      final payload = api.buildChatCompletionPayloadForTest(
+        messages: const [
+          {'role': 'user', 'content': 'hello'},
+        ],
+        model: 'gpt-4',
+        messageId: 'assistant-1',
+        sessionId: 'sess-legacy',
+        conversationId: 'chat-legacy',
+        parentId: 'assistant-0',
+        userMessage: userMessage,
+        useLegacyChatMetadata: true,
+      );
+
+      check(payload['parent_id']).equals('user-1');
+      check(
+        payload['parent_message'],
+      ).isA<Map<String, dynamic>>().deepEquals(userMessage);
+      check(payload.containsKey('user_message')).isFalse();
     });
   });
 

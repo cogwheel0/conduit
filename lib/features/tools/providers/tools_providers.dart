@@ -64,6 +64,20 @@ class SelectedToolIds extends _$SelectedToolIds {
   void set(List<String> ids) => state = List<String>.from(ids);
 }
 
+/// Tracks the currently selected terminal server for chat completions.
+///
+/// This mirrors OpenWebUI's `selectedTerminalId` behavior. The value may be a
+/// backend-managed terminal `id` or a direct terminal `url`.
+@Riverpod(keepAlive: true)
+class SelectedTerminalId extends _$SelectedTerminalId {
+  @override
+  String? build() => null;
+
+  void set(String? id) => state = id;
+
+  void clear() => state = null;
+}
+
 /// Provider for selected filter IDs (toggle filters enabled by user).
 ///
 /// These filters are dynamically created by OpenWebUI filters with

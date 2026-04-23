@@ -1157,13 +1157,17 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   // Bind the late reference now that updateImagesFromCurrentContent is defined
   syncImages = updateImagesFromCurrentContent;
 
-  /// Sends the chatCompleted notification to the backend, processes the
-  /// response for outlet filter modifications, then syncs the conversation.
+  /// Sends the chatCompleted notification to the backend and processes any
+  /// outlet-filter modifications returned by the server.
   ///
   /// Mirrors OpenWebUI's `chatCompletedHandler` in Chat.svelte:
   /// 1. POST to `/api/chat/completed` with the full message list
   /// 2. Merge any filter-modified messages back into local state
-  /// 3. Sync the conversation to persist the (potentially modified) content
+  ///
+  /// Persisted chats intentionally avoid a follow-up full-history sync here.
+  /// OpenWebUI 0.9.1+ already persists outlet changes server-side, and
+  /// pushing the local buffer back can truncate chats when the client only
+  /// has a partial history snapshot in memory.
   void sendChatCompletedAndSync() {
     unawaited(
       Future(() async {
@@ -1224,20 +1228,6 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                 return current.copyWith(content: newContent, metadata: meta);
               });
             }
-          }
-        } catch (_) {}
-
-        // 3. Sync conversation to persist (potentially modified) content.
-        // Runs AFTER chatCompleted so filter changes are included.
-        try {
-          final chatId = activeConversationId;
-          if (!isObsoleteStream && chatId != null && chatId.isNotEmpty) {
-            final updatedMessages = getMessages();
-            await api.syncConversationMessages(
-              chatId,
-              updatedMessages,
-              model: modelId,
-            );
           }
         } catch (_) {}
       }),
@@ -1683,38 +1673,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
               scope: 'streaming/helper',
             );
 
-            // Sync to server to persist follow-ups (they arrive after done:true)
-            final chatId = activeConversationId;
-            if (chatId != null &&
-                chatId.isNotEmpty &&
-                !isTemporaryChat(chatId) &&
-                suggestions.isNotEmpty) {
-              Future.microtask(() async {
-                if (isObsoleteStream) {
-                  return;
-                }
-                try {
-                  final currentMessages = getMessages();
-                  await api.syncConversationMessages(
-                    chatId,
-                    currentMessages,
-                    model: modelId,
-                  );
-                  if (isObsoleteStream) {
-                    return;
-                  }
-                  DebugLogger.log(
-                    'Follow-ups persisted to server',
-                    scope: 'streaming/helper',
-                  );
-                } catch (e) {
-                  DebugLogger.log(
-                    'Failed to persist follow-ups: $e',
-                    scope: 'streaming/helper',
-                  );
-                }
-              });
-            }
+            // OpenWebUI persists follow-ups server-side. Avoid writing the
+            // entire local chat history back here because the local buffer may
+            // still be incomplete for large persisted conversations.
           } else {
             final isForeignSession =
                 incomingSessionId != null &&

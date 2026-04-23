@@ -1229,13 +1229,14 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   }
 }
 
-// Pre-seed an assistant skeleton message (with a given id or a new one),
-// persist it to the server to establish the message structure, and return the id.
+// Pre-seed an assistant skeleton message (with a given id or a new one) and
+// return the id. Persisted chats rely on `/api/chat/completions` to update the
+// server-side history; pushing the local buffer back first can truncate chats
+// when the client has only partially loaded history.
 Future<String> _preseedAssistantAndPersist(
   dynamic ref, {
   String? existingAssistantId,
   required String modelId,
-  String? systemPrompt,
 }) async {
   // Choose id: reuse existing if provided, else create new
   final String assistantMessageId =
@@ -1270,31 +1271,6 @@ Future<String> _preseedAssistantAndPersist(
             );
       }
     } catch (_) {}
-  }
-
-  // Sync conversation state to establish the full message structure on the server.
-  // The server's upsert only sets parentId and model - we need to set role,
-  // timestamp, childrenIds, etc. for proper message rendering.
-  // Streaming placeholders are intentionally persisted without `done:true`
-  // so the backend can finish them in place, matching OpenWebUI's flow.
-  try {
-    final api = ref.read(apiServiceProvider);
-    final activeConv = ref.read(activeConversationProvider);
-    if (api != null && activeConv != null && !isTemporaryChat(activeConv.id)) {
-      final resolvedSystemPrompt =
-          (systemPrompt != null && systemPrompt.trim().isNotEmpty)
-          ? systemPrompt.trim()
-          : activeConv.systemPrompt;
-      final current = ref.read(chatMessagesProvider);
-      await api.syncConversationMessages(
-        activeConv.id,
-        current,
-        model: modelId,
-        systemPrompt: resolvedSystemPrompt,
-      );
-    }
-  } catch (_) {
-    // Non-critical - continue if sync fails
   }
 
   return assistantMessageId;
@@ -1444,29 +1420,50 @@ Map<String, dynamic> _buildOpenWebUiPromptVariables({
   };
 }
 
-Map<String, dynamic>? _buildOpenWebUiParentMessage({
+String? _resolveOpenWebUiParentIdForNewUserMessage(List<ChatMessage> messages) {
+  for (var index = messages.length - 1; index >= 0; index--) {
+    final messageId = messages[index].id.trim();
+    if (messageId.isNotEmpty) {
+      return messageId;
+    }
+  }
+  return null;
+}
+
+Map<String, dynamic>? _buildOpenWebUiUserMessage({
   required List<ChatMessage> messages,
-  required String? parentMessageId,
+  required String? userMessageId,
   required String modelId,
-  String? childMessageId,
+  String? assistantChildMessageId,
 }) {
-  if (parentMessageId == null || parentMessageId.isEmpty) {
+  if (userMessageId == null || userMessageId.isEmpty) {
     return null;
   }
 
-  ChatMessage? parentMessage;
-  for (final message in messages) {
-    if (message.id == parentMessageId) {
-      parentMessage = message;
+  ChatMessage? userMessage;
+  ChatMessage? previousMessage;
+  for (var index = 0; index < messages.length; index++) {
+    final message = messages[index];
+    if (message.id == userMessageId) {
+      userMessage = message;
+      if (index > 0) {
+        previousMessage = messages[index - 1];
+      }
       break;
     }
   }
-  if (parentMessage == null) {
+  if (userMessage == null) {
     return null;
   }
 
-  final metadata = parentMessage.metadata;
-  final parentId = metadata?['parentId']?.toString();
+  final metadata = userMessage.metadata;
+  final parentId = (() {
+    final rawParentId = metadata?['parentId']?.toString().trim();
+    if (rawParentId != null && rawParentId.isNotEmpty) {
+      return rawParentId;
+    }
+    return previousMessage?.id;
+  })();
   final rawChildren = metadata?['childrenIds'];
   final childrenIds = rawChildren is List
       ? rawChildren
@@ -1474,10 +1471,10 @@ Map<String, dynamic>? _buildOpenWebUiParentMessage({
             .where((child) => child.isNotEmpty)
             .toList(growable: true)
       : <String>[];
-  if (childMessageId != null &&
-      childMessageId.isNotEmpty &&
-      !childrenIds.contains(childMessageId)) {
-    childrenIds.add(childMessageId);
+  if (assistantChildMessageId != null &&
+      assistantChildMessageId.isNotEmpty &&
+      !childrenIds.contains(assistantChildMessageId)) {
+    childrenIds.add(assistantChildMessageId);
   }
 
   final rawModels = metadata?['models'];
@@ -1489,20 +1486,259 @@ Map<String, dynamic>? _buildOpenWebUiParentMessage({
       : <String>[];
 
   return <String, dynamic>{
-    'id': parentMessage.id,
+    'id': userMessage.id,
     'parentId': parentId,
     'childrenIds': childrenIds,
-    'role': parentMessage.role,
-    'content': parentMessage.content,
-    if (parentMessage.role == 'user')
+    'role': userMessage.role,
+    'content': userMessage.content,
+    if (userMessage.role == 'user')
       'models': models.isNotEmpty ? models : <String>[modelId],
-    'timestamp': parentMessage.timestamp.millisecondsSinceEpoch ~/ 1000,
-    if (parentMessage.files != null && parentMessage.files!.isNotEmpty)
-      'files': parentMessage.files,
-    if (parentMessage.attachmentIds != null &&
-        parentMessage.attachmentIds!.isNotEmpty)
-      'attachment_ids': List<String>.from(parentMessage.attachmentIds!),
+    'timestamp': userMessage.timestamp.millisecondsSinceEpoch ~/ 1000,
+    if (userMessage.files != null && userMessage.files!.isNotEmpty)
+      'files': userMessage.files,
+    if (userMessage.attachmentIds != null &&
+        userMessage.attachmentIds!.isNotEmpty)
+      'attachment_ids': List<String>.from(userMessage.attachmentIds!),
   };
+}
+
+List<Map<String, dynamic>>? _extractTopLevelRequestFiles(
+  Map<String, dynamic>? userMessage,
+) {
+  final rawFiles = userMessage?['files'];
+  if (rawFiles is! List) {
+    return null;
+  }
+
+  final files = rawFiles
+      .whereType<Map>()
+      .map((file) => file.map((key, value) => MapEntry(key.toString(), value)))
+      .toList(growable: false);
+  return files.isEmpty ? null : files;
+}
+
+bool _isDirectServerToolSelection(String id) {
+  return id.startsWith('direct_server:');
+}
+
+List<String> _extractToolIdsForApi(Iterable<String> selectedToolIds) {
+  return selectedToolIds
+      .where((id) => !_isDirectServerToolSelection(id))
+      .toList(growable: false);
+}
+
+List _extractConfiguredServerList(Map<String, dynamic>? settings, String key) {
+  if (settings == null) {
+    return const [];
+  }
+
+  final rootValue = settings[key];
+  if (rootValue is List) {
+    return rootValue;
+  }
+
+  final uiValue = settings['ui'];
+  if (uiValue is Map && uiValue[key] is List) {
+    return uiValue[key] as List;
+  }
+
+  return const [];
+}
+
+List _extractConfiguredToolServers(Map<String, dynamic>? settings) {
+  return _extractConfiguredServerList(settings, 'toolServers');
+}
+
+List _extractConfiguredTerminalServers(Map<String, dynamic>? settings) {
+  return _extractConfiguredServerList(settings, 'terminalServers');
+}
+
+bool _isConfiguredServerEnabled(dynamic server) {
+  if (server is! Map) {
+    return false;
+  }
+
+  final config = server['config'];
+  if (config is Map && config.containsKey('enable')) {
+    return config['enable'] == true;
+  }
+
+  final enabled = server['enabled'];
+  if (enabled is bool) {
+    return enabled;
+  }
+
+  return true;
+}
+
+List _filterSelectedConfiguredToolServers(
+  List rawServers,
+  Iterable<String> selectedToolIds,
+) {
+  final selectedServerIds = selectedToolIds
+      .where(_isDirectServerToolSelection)
+      .map((id) => id.substring('direct_server:'.length).trim())
+      .where((id) => id.isNotEmpty)
+      .toSet();
+  if (selectedServerIds.isEmpty) {
+    return const [];
+  }
+
+  final filtered = <dynamic>[];
+  for (var index = 0; index < rawServers.length; index++) {
+    final server = rawServers[index];
+    if (server is! Map || !_isConfiguredServerEnabled(server)) {
+      continue;
+    }
+
+    final serverId = server['id']?.toString().trim();
+    final matchesSelection =
+        selectedServerIds.contains(index.toString()) ||
+        (serverId != null &&
+            serverId.isNotEmpty &&
+            selectedServerIds.contains(serverId));
+    if (matchesSelection) {
+      filtered.add(server);
+    }
+  }
+
+  return filtered;
+}
+
+List _filterEnabledDirectTerminalServers(List rawServers) {
+  final filtered = <dynamic>[];
+  for (final server in rawServers) {
+    if (server is! Map || !_isConfiguredServerEnabled(server)) {
+      continue;
+    }
+
+    final serverId = server['id']?.toString().trim();
+    final url = server['url']?.toString().trim() ?? '';
+    if ((serverId == null || serverId.isEmpty) && url.isNotEmpty) {
+      filtered.add(server);
+    }
+  }
+
+  return filtered;
+}
+
+Future<List<Map<String, dynamic>>?> _resolveToolServersForRequest({
+  required dynamic api,
+  required Map<String, dynamic>? userSettings,
+  required List<String> selectedToolIds,
+}) async {
+  final selectedRawToolServers = _filterSelectedConfiguredToolServers(
+    _extractConfiguredToolServers(userSettings),
+    selectedToolIds,
+  );
+  final directTerminalServers = _filterEnabledDirectTerminalServers(
+    _extractConfiguredTerminalServers(userSettings),
+  );
+
+  if (selectedRawToolServers.isEmpty && directTerminalServers.isEmpty) {
+    return null;
+  }
+
+  final resolved = <Map<String, dynamic>>[];
+  if (selectedRawToolServers.isNotEmpty) {
+    resolved.addAll(await _resolveToolServers(selectedRawToolServers, api));
+  }
+  if (directTerminalServers.isNotEmpty) {
+    resolved.addAll(await _resolveToolServers(directTerminalServers, api));
+  }
+
+  return resolved.isEmpty ? null : resolved;
+}
+
+List<Map<String, dynamic>> _buildChatCompletionMessages({
+  required List<Map<String, dynamic>> conversationMessages,
+  required bool isTemporary,
+}) {
+  final requestMessages = isTemporary
+      ? conversationMessages
+      : conversationMessages.where((message) {
+          return (message['role']?.toString().toLowerCase() ?? '') == 'system';
+        });
+
+  return requestMessages
+      .map((message) => Map<String, dynamic>.from(message))
+      .toList(growable: false);
+}
+
+bool _coerceBool(dynamic value, {required bool fallback}) {
+  if (value is bool) {
+    return value;
+  }
+  if (value is String) {
+    final normalized = value.trim().toLowerCase();
+    if (normalized == 'true' || normalized == '1') {
+      return true;
+    }
+    if (normalized == 'false' || normalized == '0') {
+      return false;
+    }
+  }
+  if (value is num) {
+    return value != 0;
+  }
+  return fallback;
+}
+
+bool modelSupportsTerminal(dynamic selectedModel) {
+  final metadata = selectedModel?.metadata as Map<String, dynamic>?;
+  final info = metadata?['info'] as Map<String, dynamic>?;
+  final infoMeta = info?['meta'] as Map<String, dynamic>?;
+  final capabilities = infoMeta?['capabilities'];
+  if (capabilities is Map) {
+    return _coerceBool(capabilities['terminal'], fallback: true);
+  }
+  return true;
+}
+
+String? _resolveTerminalIdForRequest({required String? selectedTerminalId}) {
+  String? normalize(dynamic value) {
+    final text = value?.toString().trim();
+    if (text == null || text.isEmpty) {
+      return null;
+    }
+    return text;
+  }
+
+  final explicitSelection = normalize(selectedTerminalId);
+  if (explicitSelection != null) {
+    return explicitSelection;
+  }
+
+  return null;
+}
+
+@visibleForTesting
+List<String> extractToolIdsForApiForTest(List<String> selectedToolIds) {
+  return _extractToolIdsForApi(selectedToolIds);
+}
+
+@visibleForTesting
+List filterSelectedConfiguredToolServersForTest({
+  required List rawServers,
+  required List<String> selectedToolIds,
+}) {
+  return _filterSelectedConfiguredToolServers(rawServers, selectedToolIds);
+}
+
+@visibleForTesting
+List<Map<String, dynamic>> buildChatCompletionMessagesForTest({
+  required List<Map<String, dynamic>> conversationMessages,
+  required bool isTemporary,
+}) {
+  return _buildChatCompletionMessages(
+    conversationMessages: conversationMessages,
+    isTemporary: isTemporary,
+  );
+}
+
+@visibleForTesting
+String? resolveTerminalIdForRequestForTest(String? selectedTerminalId) {
+  return _resolveTerminalIdForRequest(selectedTerminalId: selectedTerminalId);
 }
 
 // Start a new chat (unified function for both "New Chat" button and home screen)
@@ -1878,6 +2114,8 @@ Future<void> regenerateMessage(
 
     // Include selected tool ids so provider-native tool calling is triggered
     final selectedToolIds = ref.read(selectedToolIdsProvider);
+    final toolIdsForApi = _extractToolIdsForApi(selectedToolIds);
+    final selectedTerminalId = ref.read(selectedTerminalIdProvider);
     // Include selected filter ids (toggle filters enabled by user)
     final selectedFilterIds = ref.read(selectedFilterIdsProvider);
     // Get conversation history for context (excluding the removed assistant message)
@@ -1905,9 +2143,27 @@ Future<void> regenerateMessage(
             cleanedText: cleaned,
             attachmentIds: messageAttachments,
           );
+          if (msg.files != null && msg.files!.isNotEmpty) {
+            final rawFiles = messageMap['files'];
+            final existingFiles = rawFiles is List
+                ? rawFiles.whereType<Map<String, dynamic>>().toList()
+                : <Map<String, dynamic>>[];
+            messageMap['files'] = <Map<String, dynamic>>[
+              ...existingFiles,
+              ...msg.files!,
+            ];
+          }
+          if (msg.output != null && msg.output!.isNotEmpty) {
+            messageMap['output'] = msg.output;
+          }
           conversationMessages.add(messageMap);
         } else {
-          conversationMessages.add({'role': msg.role, 'content': cleaned});
+          conversationMessages.add({
+            'role': msg.role,
+            'content': cleaned,
+            'files': ?msg.files,
+            'output': ?msg.output,
+          });
         }
       }
     }
@@ -1929,6 +2185,13 @@ Future<void> regenerateMessage(
         });
       }
     }
+    final isTemporary =
+        isTemporaryChat(activeConversation.id) ||
+        ref.read(temporaryChatEnabledProvider);
+    final requestMessages = _buildChatCompletionMessages(
+      conversationMessages: conversationMessages,
+      isTemporary: isTemporary,
+    );
 
     // Pre-seed assistant skeleton and persist chain; always use a new id so
     // server history can branch like OpenWebUI.
@@ -1936,7 +2199,6 @@ Future<void> regenerateMessage(
       ref,
       existingAssistantId: null,
       modelId: selectedModel.id,
-      systemPrompt: effectiveSystemPrompt,
     );
 
     // Attach previous assistant as a version snapshot to the new assistant
@@ -1979,21 +2241,20 @@ Future<void> regenerateMessage(
     final socketService = ref.read(socketServiceProvider);
     final socketSessionId = socketService?.sessionId;
 
-    // Resolve tool servers from user settings (if any)
     List<Map<String, dynamic>>? toolServers;
-    final uiSettings = userSettingsData?['ui'] as Map<String, dynamic>?;
-    final rawServers = uiSettings != null
-        ? (uiSettings['toolServers'] as List?)
+    try {
+      toolServers = await _resolveToolServersForRequest(
+        api: api,
+        userSettings: userSettingsData,
+        selectedToolIds: selectedToolIds,
+      );
+    } catch (_) {}
+    final terminalIdForApi = modelSupportsTerminal(selectedModel)
+        ? _resolveTerminalIdForRequest(selectedTerminalId: selectedTerminalId)
         : null;
-    if (rawServers != null && rawServers.isNotEmpty) {
-      try {
-        toolServers = await _resolveToolServers(rawServers, api);
-      } catch (_) {}
-    }
 
     // Background tasks should follow backend-synced user settings instead of
     // forcing local defaults.
-    final isTemporary = ref.read(temporaryChatEnabledProvider);
     bool shouldGenerateTitle = false;
     if (!isTemporary) {
       try {
@@ -2016,7 +2277,8 @@ Future<void> regenerateMessage(
     );
 
     final bool isBackgroundToolsFlowPre =
-        (selectedToolIds.isNotEmpty) ||
+        toolIdsForApi.isNotEmpty ||
+        terminalIdForApi != null ||
         (toolServers != null && toolServers.isNotEmpty);
     final bool isBackgroundWebSearchPre = webSearchEnabled;
 
@@ -2079,11 +2341,11 @@ Future<void> regenerateMessage(
     } catch (_) {}
 
     try {
-      parentMsgMap = _buildOpenWebUiParentMessage(
+      parentMsgMap = _buildOpenWebUiUserMessage(
         messages: messages,
-        parentMessageId: lastUserMessageId,
+        userMessageId: lastUserMessageId,
         modelId: selectedModel.id,
-        childMessageId: assistantMessageId,
+        assistantChildMessageId: assistantMessageId,
       );
     } catch (_) {}
 
@@ -2100,10 +2362,11 @@ Future<void> regenerateMessage(
     try {
       // Use transport-aware session dispatch
       final session = await api!.sendMessageSession(
-        messages: conversationMessages,
+        messages: requestMessages,
         model: selectedModel.id,
         conversationId: activeConversation.id,
-        toolIds: selectedToolIds.isNotEmpty ? selectedToolIds : null,
+        terminalId: terminalIdForApi,
+        toolIds: toolIdsForApi.isNotEmpty ? toolIdsForApi : null,
         filterIds: selectedFilterIds.isNotEmpty ? selectedFilterIds : null,
         enableWebSearch: webSearchEnabled,
         enableImageGeneration: imageGenerationEnabled,
@@ -2113,9 +2376,10 @@ Future<void> regenerateMessage(
         backgroundTasks: bgTasks,
         responseMessageId: assistantMessageId,
         userSettings: userSettingsData,
-        parentMessageId: lastUserMessageId,
-        parentMessage: parentMsgMap,
+        parentId: parentMsgMap?['parentId']?.toString(),
+        userMessage: parentMsgMap,
         variables: promptVars2,
+        files: _extractTopLevelRequestFiles(parentMsgMap),
       );
 
       // Check if model uses reasoning based on common naming patterns
@@ -2148,7 +2412,8 @@ Future<void> regenerateMessage(
         isBackgroundFlow: isBackgroundFlow,
         modelUsesReasoning: modelUsesReasoning,
         toolsEnabled:
-            selectedToolIds.isNotEmpty ||
+            toolIdsForApi.isNotEmpty ||
+            terminalIdForApi != null ||
             (toolServers != null && toolServers.isNotEmpty) ||
             imageGenerationEnabled,
         isTemporary: isTemporary,
@@ -2248,8 +2513,15 @@ Future<void> _sendMessageInternal(
       ? [...legacyBase64Images, ...contextFiles]
       : null;
 
-  // Create user message - files will be updated after fetching server info
+  final existingMessages = ref.read(chatMessagesProvider);
+  final openWebUiParentId = _resolveOpenWebUiParentIdForNewUserMessage(
+    existingMessages,
+  );
+
+  // Create OpenWebUI-shaped user/assistant messages. Files will be updated
+  // after fetching server info.
   final userMessageId = const Uuid().v4();
+  final String assistantMessageId = const Uuid().v4();
   var userMessage = ChatMessage(
     id: userMessageId,
     role: 'user',
@@ -2258,13 +2530,17 @@ Future<void> _sendMessageInternal(
     model: selectedModel.id,
     attachmentIds: attachments,
     files: initialUserFiles,
+    metadata: {
+      'parentId': openWebUiParentId,
+      'childrenIds': <String>[assistantMessageId],
+      'models': <String>[selectedModel.id],
+    },
   );
 
   // Add user message to UI immediately for instant feedback
   ref.read(chatMessagesProvider.notifier).addMessage(userMessage);
 
   // Add assistant placeholder immediately to show typing indicator right away
-  final String assistantMessageId = const Uuid().v4();
   final assistantPlaceholder = ChatMessage(
     id: assistantMessageId,
     role: 'assistant',
@@ -2272,6 +2548,7 @@ Future<void> _sendMessageInternal(
     timestamp: DateTime.now(),
     model: selectedModel.id,
     isStreaming: true,
+    metadata: {'parentId': userMessageId, 'childrenIds': const <String>[]},
   );
   ref.read(chatMessagesProvider.notifier).addMessage(assistantPlaceholder);
 
@@ -2521,12 +2798,16 @@ Future<void> _sendMessageInternal(
             ...msg.files!,
           ];
         }
+        if (msg.output != null && msg.output!.isNotEmpty) {
+          messageMap['output'] = msg.output;
+        }
         conversationMessages.add(messageMap);
       } else {
         // Regular text-only message
         final Map<String, dynamic> messageMap = {
           'role': msg.role,
           'content': cleaned,
+          'output': ?msg.output,
         };
         if (msg.files != null && msg.files!.isNotEmpty) {
           messageMap['files'] = msg.files;
@@ -2552,17 +2833,22 @@ Future<void> _sendMessageInternal(
       });
     }
   }
+  final selectedToolIds = toolIds ?? const <String>[];
+  final toolIdsForApi = _extractToolIdsForApi(selectedToolIds);
+  final selectedTerminalId = ref.read(selectedTerminalIdProvider);
+  final isTemporary =
+      (activeConversation != null && isTemporaryChat(activeConversation.id)) ||
+      ref.read(temporaryChatEnabledProvider);
+  final requestMessages = _buildChatCompletionMessages(
+    conversationMessages: conversationMessages,
+    isTemporary: isTemporary,
+  );
 
   // Check feature toggles for API (gated by server availability)
   final webSearchEnabled =
       ref.read(webSearchEnabledProvider) &&
       ref.read(webSearchAvailableProvider);
   final imageGenerationEnabled = ref.read(imageGenerationEnabledProvider);
-
-  // Prepare tools list - pass tool IDs directly
-  final List<String>? toolIdsForApi = (toolIds != null && toolIds.isNotEmpty)
-      ? toolIds
-      : null;
 
   // Get selected toggle filter IDs
   final selectedFilterIds = ref.read(selectedFilterIdsProvider);
@@ -2574,45 +2860,27 @@ Future<void> _sendMessageInternal(
   String? sessionIdForBuffer;
   String? messageIdForBuffer;
   try {
-    // Assistant placeholder was already added above (after user message)
-    // to show typing indicator immediately. Sync conversation state to server.
-    // Sync conversation state to ensure WebUI can load conversation history
-    try {
-      final activeConvForSeed = ref.read(activeConversationProvider);
-      if (activeConvForSeed != null && !isTemporaryChat(activeConvForSeed.id)) {
-        final msgsForSeed = ref.read(chatMessagesProvider);
-        await api.syncConversationMessages(
-          activeConvForSeed.id,
-          msgsForSeed,
-          model: selectedModel.id,
-          systemPrompt: effectiveSystemPrompt,
-        );
-      }
-    } catch (_) {
-      // Non-critical - continue if sync fails
-    }
     final modelItem = _buildLocalModelItem(selectedModel);
 
     // Socket is optional — only needed for taskSocket transport.
     final socketService = ref.read(socketServiceProvider);
     final socketSessionId = socketService?.sessionId;
 
-    // Resolve tool servers from user settings (if any)
     List<Map<String, dynamic>>? toolServers;
-    final uiSettings = userSettingsData?['ui'] as Map<String, dynamic>?;
-    final rawServers = uiSettings != null
-        ? (uiSettings['toolServers'] as List?)
+    try {
+      toolServers = await _resolveToolServersForRequest(
+        api: api,
+        userSettings: userSettingsData,
+        selectedToolIds: selectedToolIds,
+      );
+    } catch (_) {}
+    final terminalIdForApi = modelSupportsTerminal(selectedModel)
+        ? _resolveTerminalIdForRequest(selectedTerminalId: selectedTerminalId)
         : null;
-    if (rawServers != null && rawServers.isNotEmpty) {
-      try {
-        toolServers = await _resolveToolServers(rawServers, api);
-      } catch (_) {}
-    }
 
     // Background tasks should follow backend-synced user settings instead of
     // forcing local defaults. Enable title/tags generation only on the first
     // user turn of a new chat.
-    final isTemporary = ref.read(temporaryChatEnabledProvider);
     bool shouldGenerateTitle = false;
     if (!isTemporary) {
       try {
@@ -2635,7 +2903,8 @@ Future<void> _sendMessageInternal(
 
     // Determine if we need background task flow (tools/tool servers or web search)
     final bool isBackgroundToolsFlowPre =
-        (toolIdsForApi != null && toolIdsForApi.isNotEmpty) ||
+        toolIdsForApi.isNotEmpty ||
+        terminalIdForApi != null ||
         (toolServers != null && toolServers.isNotEmpty);
     final bool isBackgroundWebSearchPre = webSearchEnabled;
 
@@ -2653,7 +2922,7 @@ Future<void> _sendMessageInternal(
     // getPromptVariables). The backend replaces {{USER_NAME}} etc. in system
     // prompts and tool descriptions.
     Map<String, dynamic>? promptVariables;
-    Map<String, dynamic>? parentMessageMap;
+    Map<String, dynamic>? userMessageMap;
     try {
       final now = DateTime.now();
       String userName = 'User';
@@ -2704,11 +2973,11 @@ Future<void> _sendMessageInternal(
     }
 
     try {
-      parentMessageMap = _buildOpenWebUiParentMessage(
+      userMessageMap = _buildOpenWebUiUserMessage(
         messages: messages,
-        parentMessageId: lastUserMessageId,
+        userMessageId: lastUserMessageId,
         modelId: selectedModel.id,
-        childMessageId: assistantMessageId,
+        assistantChildMessageId: assistantMessageId,
       );
     } catch (_) {}
 
@@ -2728,10 +2997,11 @@ Future<void> _sendMessageInternal(
 
     try {
       final session = await api.sendMessageSession(
-        messages: conversationMessages,
+        messages: requestMessages,
         model: selectedModel.id,
         conversationId: activeConversation?.id,
-        toolIds: toolIdsForApi,
+        terminalId: terminalIdForApi,
+        toolIds: toolIdsForApi.isNotEmpty ? toolIdsForApi : null,
         filterIds: filterIdsForApi,
         enableWebSearch: webSearchEnabled,
         enableImageGeneration: imageGenerationEnabled,
@@ -2742,9 +3012,10 @@ Future<void> _sendMessageInternal(
         backgroundTasks: bgTasks,
         responseMessageId: assistantMessageId,
         userSettings: userSettingsData,
-        parentMessageId: lastUserMessageId,
-        parentMessage: parentMessageMap,
+        parentId: userMessageMap?['parentId']?.toString(),
+        userMessage: userMessageMap,
         variables: promptVariables,
+        files: _extractTopLevelRequestFiles(userMessageMap),
       );
 
       // Check if model uses reasoning based on common naming patterns
@@ -2777,7 +3048,8 @@ Future<void> _sendMessageInternal(
         isBackgroundFlow: isBackgroundFlow,
         modelUsesReasoning: modelUsesReasoning2,
         toolsEnabled:
-            (toolIdsForApi != null && toolIdsForApi.isNotEmpty) ||
+            toolIdsForApi.isNotEmpty ||
+            terminalIdForApi != null ||
             (toolServers != null && toolServers.isNotEmpty) ||
             imageGenerationEnabled,
         isTemporary: isTemporary,

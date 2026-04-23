@@ -372,6 +372,46 @@ Map<String, dynamic>? _extractErrorData(
   return null;
 }
 
+Map<String, dynamic>? _extractOpenWebUiMessageMetadata(
+  Map<String, dynamic> msgData, {
+  Map<String, dynamic>? historyMsg,
+  required String role,
+}) {
+  final metadata = <String, dynamic>{
+    ..._coerceJsonMap(msgData['metadata']),
+    ..._coerceJsonMap(historyMsg?['metadata']),
+  };
+
+  final rawParentId = historyMsg?['parentId'] ?? msgData['parentId'];
+  if (rawParentId != null) {
+    final parentId = rawParentId.toString().trim();
+    if (parentId.isNotEmpty) {
+      metadata['parentId'] = parentId;
+    }
+  }
+
+  final rawChildrenIds = historyMsg?['childrenIds'] ?? msgData['childrenIds'];
+  if (rawChildrenIds is List) {
+    metadata['childrenIds'] = rawChildrenIds
+        .map((child) => child?.toString().trim() ?? '')
+        .where((child) => child.isNotEmpty)
+        .toList(growable: false);
+  }
+
+  final rawModels = historyMsg?['models'] ?? msgData['models'];
+  if (role == 'user' && rawModels is List) {
+    final models = rawModels
+        .map((model) => model?.toString().trim() ?? '')
+        .where((model) => model.isNotEmpty)
+        .toList(growable: false);
+    if (models.isNotEmpty) {
+      metadata['models'] = models;
+    }
+  }
+
+  return metadata.isEmpty ? null : metadata;
+}
+
 Map<String, dynamic> _parseOpenWebUIMessageToJson(
   Map<String, dynamic> msgData, {
   Map<String, dynamic>? historyMsg,
@@ -438,6 +478,11 @@ Map<String, dynamic> _parseOpenWebUIMessageToJson(
   final errorData = _extractErrorData(msgData, historyMsg);
 
   final role = _resolveRole(msgData);
+  final metadata = _extractOpenWebUiMessageMetadata(
+    msgData,
+    historyMsg: historyMsg,
+    role: role,
+  );
 
   final effectiveFiles = msgData['files'] ?? historyMsg?['files'];
   List<String>? attachmentIds;
@@ -517,7 +562,7 @@ Map<String, dynamic> _parseOpenWebUIMessageToJson(
     'attachmentIds': ?attachmentIds,
     'files': ?files,
     if (embeds.isNotEmpty) 'embeds': embeds,
-    'metadata': _coerceJsonMap(msgData['metadata']),
+    'metadata': metadata ?? const <String, dynamic>{},
     'statusHistory': _parseStatusHistoryField(statusHistoryRaw),
     'followUps': _coerceStringList(followUpsRaw),
     'codeExecutions': _parseCodeExecutionsField(codeExecRaw),

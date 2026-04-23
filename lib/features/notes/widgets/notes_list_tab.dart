@@ -140,16 +140,67 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
                     ),
                   );
                 }
+                final pinnedNotes = noteList
+                    .where((note) => note.isPinned)
+                    .toList(growable: false);
+                final otherNotes = noteList
+                    .where((note) => !note.isPinned)
+                    .toList(growable: false);
+                final hasPinnedSection = pinnedNotes.isNotEmpty;
+                final itemCount =
+                    otherNotes.length +
+                    pinnedNotes.length +
+                    (hasPinnedSection ? 2 : 0);
+
                 return RefreshIndicator(
                   onRefresh: () async {
                     ConduitHaptics.lightImpact();
                     await ref.read(notesListProvider.notifier).refresh();
                   },
                   child: ListView.builder(
-                    itemCount: noteList.length,
                     padding: EdgeInsets.zero,
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    itemCount: itemCount,
                     itemBuilder: (context, index) {
-                      final note = noteList[index];
+                      if (hasPinnedSection) {
+                        if (index == 0) {
+                          return Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                            child: Text(
+                              l10n.pinned,
+                              style: AppTypography.labelStyle.copyWith(
+                                color: theme.textSecondary,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          );
+                        }
+
+                        final pinnedStartIndex = 1;
+                        final pinnedEndIndex =
+                            pinnedStartIndex + pinnedNotes.length;
+                        if (index < pinnedEndIndex) {
+                          final note = pinnedNotes[index - pinnedStartIndex];
+                          return _NoteListTile(
+                            note: note,
+                            selected: note.id == _activeNoteId,
+                            onTap: () => _onNoteTap(note),
+                          );
+                        }
+
+                        if (index == pinnedEndIndex) {
+                          return const SizedBox(height: Spacing.xs);
+                        }
+
+                        final note = otherNotes[index - pinnedEndIndex - 1];
+                        return _NoteListTile(
+                          note: note,
+                          selected: note.id == _activeNoteId,
+                          onTap: () => _onNoteTap(note),
+                        );
+                      }
+
+                      final note = otherNotes[index];
                       return _NoteListTile(
                         note: note,
                         selected: note.id == _activeNoteId,
@@ -232,6 +283,14 @@ class _NoteListTile extends StatelessWidget {
                           ),
                         ),
                       ),
+                      if (note.isPinned) ...[
+                        Icon(
+                          UiUtils.pinIcon,
+                          size: 14,
+                          color: theme.buttonPrimary,
+                        ),
+                        const SizedBox(width: 6),
+                      ],
                       const SizedBox(width: 8),
                       Text(
                         timeAgo,

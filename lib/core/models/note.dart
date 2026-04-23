@@ -109,6 +109,9 @@ sealed class Note with _$Note {
     /// Additional metadata
     @_MetadataConverter() Map<String, dynamic>? meta,
 
+    /// Whether the note is pinned in the sidebar.
+    @JsonKey(name: 'is_pinned') @Default(false) bool isPinned,
+
     /// Access control settings
     @JsonKey(name: 'access_control')
     @_MetadataConverter()

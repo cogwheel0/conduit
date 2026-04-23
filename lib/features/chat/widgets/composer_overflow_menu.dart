@@ -128,12 +128,14 @@ class ComposerOverflowSheet extends ConsumerStatefulWidget {
   const ComposerOverflowSheet({
     super.key,
     this.onFileAttachment,
+    this.onServerFileAttachment,
     this.onImageAttachment,
     this.onCameraCapture,
     this.onWebAttachment,
   });
 
   final VoidCallback? onFileAttachment;
+  final VoidCallback? onServerFileAttachment;
   final VoidCallback? onImageAttachment;
   final VoidCallback? onCameraCapture;
   final VoidCallback? onWebAttachment;
@@ -144,6 +146,27 @@ class ComposerOverflowSheet extends ConsumerStatefulWidget {
 }
 
 class _ComposerOverflowSheetState extends ConsumerState<ComposerOverflowSheet> {
+  Future<Map<String, dynamic>?>? _userSettingsFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _userSettingsFuture = _loadUserSettings();
+  }
+
+  Future<Map<String, dynamic>?> _loadUserSettings() async {
+    final api = ref.read(apiServiceProvider);
+    if (api == null) {
+      return null;
+    }
+
+    try {
+      return await api.getUserSettings();
+    } catch (_) {
+      return null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -158,6 +181,16 @@ class _ComposerOverflowSheetState extends ConsumerState<ComposerOverflowSheet> {
             : () {
                 ConduitHaptics.lightImpact();
                 widget.onFileAttachment!();
+              },
+      ),
+      _buildAction(
+        icon: Platform.isIOS ? CupertinoIcons.folder : Icons.folder_rounded,
+        label: l10n.files,
+        onTap: widget.onServerFileAttachment == null
+            ? null
+            : () {
+                ConduitHaptics.lightImpact();
+                widget.onServerFileAttachment!();
               },
       ),
       _buildAction(
@@ -223,6 +256,7 @@ class _ComposerOverflowSheetState extends ConsumerState<ComposerOverflowSheet> {
     }
 
     final selectedToolIds = ref.watch(selectedToolIdsProvider);
+    final selectedTerminalId = ref.watch(selectedTerminalIdProvider);
     final toolsAsync = ref.watch(toolsListProvider);
     final toolsSection = toolsAsync.when(
       data: (tools) {
@@ -252,6 +286,108 @@ class _ComposerOverflowSheetState extends ConsumerState<ComposerOverflowSheet> {
       ),
       error: (_, _) => _buildInfoCard('Failed to load tools'),
     );
+    final integrationsSection = FutureBuilder<Map<String, dynamic>?>(
+      future: _userSettingsFuture,
+      builder: (context, snapshot) {
+        final settings = snapshot.data;
+        final directToolServers = _extractConfiguredServers(
+          settings,
+          'toolServers',
+        );
+        final directToolTiles = <Widget>[];
+        for (var index = 0; index < directToolServers.length; index++) {
+          final server = directToolServers[index];
+          if (!_isServerEnabled(server)) {
+            continue;
+          }
+
+          final selectionId = _directServerSelectionId(server, index);
+          final isSelected = selectedToolIds.contains(selectionId);
+          directToolTiles.add(
+            _buildToggleTile(
+              icon: Platform.isIOS
+                  ? CupertinoIcons.square_stack_3d_down_right
+                  : Icons.hub_outlined,
+              title: _serverTitle(server, fallbackPrefix: l10n.toolServer),
+              subtitle: _serverSubtitle(server),
+              value: isSelected,
+              onChanged: (_) {
+                final current = List<String>.from(
+                  ref.read(selectedToolIdsProvider),
+                );
+                if (isSelected) {
+                  current.remove(selectionId);
+                } else {
+                  current.add(selectionId);
+                }
+                ref.read(selectedToolIdsProvider.notifier).set(current);
+              },
+            ),
+          );
+        }
+
+        final terminalServers = _extractConfiguredServers(
+          settings,
+          'terminalServers',
+        );
+        final terminalTiles = <Widget>[];
+        for (var index = 0; index < terminalServers.length; index++) {
+          final server = terminalServers[index];
+          if (!_isServerEnabled(server)) {
+            continue;
+          }
+
+          final terminalValue = _terminalSelectionValue(server);
+          if (terminalValue == null) {
+            continue;
+          }
+
+          final isSelected = selectedTerminalId == terminalValue;
+          terminalTiles.add(
+            _buildToggleTile(
+              icon: Platform.isIOS
+                  ? CupertinoIcons.chevron_left_slash_chevron_right
+                  : Icons.terminal_rounded,
+              title: _serverTitle(server, fallbackPrefix: l10n.terminal),
+              subtitle: _serverSubtitle(server),
+              value: isSelected,
+              onChanged: (_) {
+                ref
+                    .read(selectedTerminalIdProvider.notifier)
+                    .set(isSelected ? null : terminalValue);
+              },
+            ),
+          );
+        }
+
+        if (directToolTiles.isEmpty && terminalTiles.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
+        final children = <Widget>[];
+        if (directToolTiles.isNotEmpty) {
+          children
+            ..add(_buildSectionLabel(l10n.toolServers))
+            ..add(
+              Column(
+                children: withVerticalSpacing(directToolTiles, Spacing.xxs),
+              ),
+            );
+        }
+        if (terminalTiles.isNotEmpty) {
+          if (children.isNotEmpty) {
+            children.add(const SizedBox(height: Spacing.sm));
+          }
+          children
+            ..add(_buildSectionLabel(l10n.terminal))
+            ..add(
+              Column(children: withVerticalSpacing(terminalTiles, Spacing.xxs)),
+            );
+        }
+
+        return Column(children: children);
+      },
+    );
 
     final listItems = <Widget>[
       const SheetHandle(),
@@ -279,6 +415,7 @@ class _ComposerOverflowSheetState extends ConsumerState<ComposerOverflowSheet> {
       const SizedBox(height: Spacing.sm),
       _buildSectionLabel(l10n.tools),
       toolsSection,
+      integrationsSection,
     ];
 
     final selectedModel = ref.watch(selectedModelProvider);
@@ -375,6 +512,108 @@ class _ComposerOverflowSheetState extends ConsumerState<ComposerOverflowSheet> {
         ),
       ),
     );
+  }
+
+  List _extractConfiguredServers(Map<String, dynamic>? settings, String key) {
+    if (settings == null) {
+      return const [];
+    }
+
+    final rootValue = settings[key];
+    if (rootValue is List) {
+      return rootValue;
+    }
+
+    final uiValue = settings['ui'];
+    if (uiValue is Map && uiValue[key] is List) {
+      return uiValue[key] as List;
+    }
+
+    return const [];
+  }
+
+  bool _isServerEnabled(dynamic server) {
+    if (server is! Map) {
+      return false;
+    }
+
+    final config = server['config'];
+    if (config is Map && config.containsKey('enable')) {
+      return config['enable'] == true;
+    }
+
+    final enabled = server['enabled'];
+    if (enabled is bool) {
+      return enabled;
+    }
+
+    return true;
+  }
+
+  String _directServerSelectionId(dynamic server, int index) {
+    final serverId = server is Map ? server['id']?.toString().trim() : null;
+    final suffix = serverId != null && serverId.isNotEmpty
+        ? serverId
+        : index.toString();
+    return 'direct_server:$suffix';
+  }
+
+  String? _terminalSelectionValue(dynamic server) {
+    if (server is! Map) {
+      return null;
+    }
+
+    final id = server['id']?.toString().trim();
+    if (id != null && id.isNotEmpty) {
+      return id;
+    }
+
+    final url = server['url']?.toString().trim();
+    if (url != null && url.isNotEmpty) {
+      return url;
+    }
+
+    return null;
+  }
+
+  String _serverTitle(dynamic server, {required String fallbackPrefix}) {
+    if (server is Map) {
+      final values = <dynamic>[
+        server['name'],
+        server['title'],
+        server['info'] is Map ? (server['info'] as Map)['title'] : null,
+        server['id'],
+        server['url'],
+      ];
+      for (final value in values) {
+        final text = value?.toString().trim();
+        if (text != null && text.isNotEmpty) {
+          return text;
+        }
+      }
+    }
+
+    return fallbackPrefix;
+  }
+
+  String? _serverSubtitle(dynamic server) {
+    if (server is! Map) {
+      return null;
+    }
+
+    final values = <dynamic>[
+      server['description'],
+      server['url'],
+      server['path'],
+    ];
+    for (final value in values) {
+      final text = value?.toString().trim();
+      if (text != null && text.isNotEmpty) {
+        return text;
+      }
+    }
+
+    return null;
   }
 
   Widget _buildAction({

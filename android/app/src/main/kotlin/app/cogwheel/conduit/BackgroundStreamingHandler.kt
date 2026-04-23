@@ -17,6 +17,8 @@ import android.os.Looper
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -95,7 +97,7 @@ class BackgroundStreamingService : Service() {
                 ensureNotificationChannel()
                 val fallbackNotification = NotificationCompat.Builder(this, CHANNEL_ID)
                     .setContentTitle("Conduit")
-                    .setSmallIcon(R.mipmap.ic_launcher)
+                    .setSmallIcon(R.drawable.ic_hub)
                     .setSilent(true)
                     .setOngoing(true)  // Prevent user from dismissing foreground service notification
                     .build()
@@ -266,9 +268,9 @@ class BackgroundStreamingService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Conduit")
             .setContentText("Background service active")
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_hub)
             .setContentIntent(pendingIntent)
-            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setVisibility(NotificationCompat.VISIBILITY_SECRET)
             .setOngoing(true)
@@ -287,7 +289,7 @@ class BackgroundStreamingService : Service() {
         val channel = NotificationChannel(
             CHANNEL_ID,
             "Background Service",
-            NotificationManager.IMPORTANCE_MIN,
+            NotificationManager.IMPORTANCE_LOW,
         ).apply {
             description = "Background service for Conduit"
             setShowBadge(false)
@@ -462,6 +464,34 @@ class BackgroundStreamingHandler(private val activity: MainActivity) : MethodCal
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var broadcastReceiver: android.content.BroadcastReceiver? = null
     private var receiverRegistered = false
+    private var isActivityForeground = true
+    private var lifecycleObserverRegistered = false
+    private val activityLifecycleObserver = object : DefaultLifecycleObserver {
+        override fun onStart(owner: LifecycleOwner) {
+            isActivityForeground = true
+
+            // Foreground services are only needed once the activity is backgrounded.
+            // Stop the service when the UI returns so active streams can continue
+            // without a persistent notification.
+            if (activeStreams.isNotEmpty()) {
+                stopForegroundService()
+            }
+        }
+
+        override fun onStop(owner: LifecycleOwner) {
+            // Ignore configuration changes to avoid foreground-service churn
+            // during rotations and other activity recreation events.
+            if (activity.isChangingConfigurations) {
+                return
+            }
+
+            isActivityForeground = false
+
+            if (activeStreams.isNotEmpty()) {
+                startForegroundService()
+            }
+        }
+    }
     
     companion object {
         private const val CHANNEL_NAME = "conduit/background_streaming"
@@ -471,9 +501,14 @@ class BackgroundStreamingHandler(private val activity: MainActivity) : MethodCal
         channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL_NAME)
         channel.setMethodCallHandler(this)
         context = activity.applicationContext
-        
+        isActivityForeground = !activity.isFinishing
+
         createNotificationChannel()
         setupBroadcastReceiver()
+        if (!lifecycleObserverRegistered) {
+            activity.lifecycle.addObserver(activityLifecycleObserver)
+            lifecycleObserverRegistered = true
+        }
     }
     
     private fun hasNotificationPermission(): Boolean {
@@ -603,6 +638,13 @@ class BackgroundStreamingHandler(private val activity: MainActivity) : MethodCal
         }
 
         if (activeStreams.isNotEmpty()) {
+            if (isActivityForeground) {
+                // Mirror iOS behavior: track active streams immediately, but only
+                // start the Android foreground service once the activity actually
+                // backgrounds.
+                startBackgroundMonitoring()
+                return
+            }
             startForegroundService()
             startBackgroundMonitoring()
         }
@@ -700,6 +742,13 @@ class BackgroundStreamingHandler(private val activity: MainActivity) : MethodCal
             stopForegroundService()
             return
         }
+
+        // Keep-alive is only meaningful once the activity has actually moved
+        // to the background. While foregrounded, track streams locally and let
+        // normal in-app execution continue without a foreground service.
+        if (isActivityForeground) {
+            return
+        }
         
         // Use Flutter's user-visible stream count for logging (excludes socket-keepalive)
         // Fall back to local count if not provided
@@ -729,8 +778,39 @@ class BackgroundStreamingHandler(private val activity: MainActivity) : MethodCal
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val name = "Background Service"
             val descriptionText = "Background service for Conduit"
-            val importance = NotificationManager.IMPORTANCE_MIN
-            val channel = NotificationChannel(BackgroundStreamingService.CHANNEL_ID, name, importance).apply {
+            val importance = NotificationManager.IMPORTANCE_LOW
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val existingChannel = notificationManager.getNotificationChannel(
+                BackgroundStreamingService.CHANNEL_ID
+            )
+
+            if (existingChannel != null && existingChannel.importance == importance) {
+                return
+            }
+
+            val canSafelyRecreate =
+                existingChannel != null &&
+                    existingChannel.importance == NotificationManager.IMPORTANCE_MIN &&
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                    !existingChannel.hasUserSetImportance()
+
+            // Only migrate the old IMPORTANCE_MIN channel when Android can tell
+            // the user has not customized it. Otherwise preserve user settings.
+            if (existingChannel != null && !canSafelyRecreate) {
+                return
+            }
+
+            if (canSafelyRecreate) {
+                notificationManager.deleteNotificationChannel(
+                    BackgroundStreamingService.CHANNEL_ID
+                )
+            }
+
+            val channel = NotificationChannel(
+                BackgroundStreamingService.CHANNEL_ID,
+                name,
+                importance,
+            ).apply {
                 description = descriptionText
                 setShowBadge(false)
                 enableLights(false)
@@ -739,7 +819,6 @@ class BackgroundStreamingHandler(private val activity: MainActivity) : MethodCal
                 lockscreenVisibility = Notification.VISIBILITY_SECRET
             }
 
-            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.createNotificationChannel(channel)
         }
     }
@@ -748,6 +827,10 @@ class BackgroundStreamingHandler(private val activity: MainActivity) : MethodCal
         scope.cancel()
         stopBackgroundMonitoring()
         stopForegroundService()
+        if (lifecycleObserverRegistered) {
+            activity.lifecycle.removeObserver(activityLifecycleObserver)
+            lifecycleObserverRegistered = false
+        }
         
         // Unregister broadcast receiver
         if (receiverRegistered) {

@@ -84,6 +84,10 @@
   "@failedToLoadModels": {
     "description": "Error message shown when model list cannot be retrieved."
   },
+  "failedToLoadFiles": "Failed to load files",
+  "@failedToLoadFiles": {
+    "description": "Error message shown when the user file list cannot be retrieved."
+  },
   "availableModels": "Available Models",
   "@availableModels": {
     "description": "Header above a list of models to select from."
@@ -103,6 +107,10 @@
   "searchModels": "Search models...",
   "@searchModels": {
     "description": "Hint text for model search input."
+  },
+  "searchFiles": "Search files...",
+  "@searchFiles": {
+    "description": "Hint text for searching files already stored on the server."
   },
   "errorMessage": "Something went wrong. Please try again.",
   "@errorMessage": {
@@ -179,6 +187,10 @@
   "attachments": "Attachments",
   "@attachments": {
     "description": "Header above list of attached files in compose area."
+  },
+  "files": "Files",
+  "@files": {
+    "description": "Generic plural label for files."
   },
   "takePhoto": "Take a photo",
   "@takePhoto": {
@@ -381,6 +393,18 @@
   "tools": "Tools",
   "@tools": {
     "description": "Header for a tools/actions section."
+  },
+  "toolServer": "Tool Server",
+  "@toolServer": {
+    "description": "Singular label for a direct tool server integration."
+  },
+  "toolServers": "Tool Servers",
+  "@toolServers": {
+    "description": "Plural label for the direct tool server integrations section."
+  },
+  "terminal": "Terminal",
+  "@terminal": {
+    "description": "Label for terminal integrations in the composer."
   },
   "filters": "Filters",
   "@filters": {

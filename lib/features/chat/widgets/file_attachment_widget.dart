@@ -212,9 +212,11 @@ class _FileAttachmentCard extends ConsumerWidget {
 
   void _removeAttachment(WidgetRef ref) {
     ref.read(attachedFilesProvider.notifier).removeFile(fileState.file.path);
-    ref
-        .read(taskQueueProvider.notifier)
-        .cancelUploadsForFile(fileState.file.path);
+    if (!fileState.isRemote) {
+      ref
+          .read(taskQueueProvider.notifier)
+          .cancelUploadsForFile(fileState.file.path);
+    }
   }
 
   Widget _buildProgressBar(BuildContext context) {
@@ -247,6 +249,9 @@ class _FileAttachmentCard extends ConsumerWidget {
   }
 
   bool _canPreviewImage() {
+    if (fileState.isRemote) {
+      return false;
+    }
     if (fileState.isImage != null) {
       return fileState.isImage!;
     }

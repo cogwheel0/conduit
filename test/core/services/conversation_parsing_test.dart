@@ -208,6 +208,7 @@ void main() {
                   'role': 'user',
                   'content': 'Hello',
                   'timestamp': 1700000000,
+                  'models': ['llama-3'],
                   'childrenIds': ['msg-2'],
                 },
                 'msg-2': {
@@ -227,6 +228,13 @@ void main() {
         check(messages[0]['content']).equals('Hello');
         check(messages[1]['role']).equals('assistant');
         check(messages[1]['content']).equals('Hi!');
+        check(messages[0]['metadata']).isA<Map<String, dynamic>>().deepEquals({
+          'childrenIds': ['msg-2'],
+          'models': ['llama-3'],
+        });
+        check(
+          messages[1]['metadata'],
+        ).isA<Map<String, dynamic>>().deepEquals({'parentId': 'msg-1'});
       });
     });
 

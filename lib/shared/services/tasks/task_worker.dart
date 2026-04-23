@@ -5,6 +5,7 @@ import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'dart:typed_data';
+import '../../../core/models/file_info.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/attachment_upload_queue.dart';
 import '../../../core/services/worker_manager.dart';
@@ -74,6 +75,27 @@ class TaskWorker {
       try {
         _ref.read(contextAttachmentsProvider.notifier).clear();
       } catch (_) {}
+    }
+  }
+
+  Future<void> _syncUploadedFile(String fileId) async {
+    final api = _ref.read(apiServiceProvider);
+    if (api == null) {
+      return;
+    }
+
+    try {
+      final raw = await api.getFileInfo(fileId);
+      final file = FileInfo.fromJson(raw);
+      _ref.read(userFilesProvider.notifier).upsert(file);
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'upload-sync-failed',
+        scope: 'files',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'fileId': fileId},
+      );
     }
   }
 
@@ -161,6 +183,10 @@ class TaskWorker {
               entry.fileId != null &&
               cachedBytes != null) {
             preCacheImageBytes(entry.fileId!, cachedBytes);
+          }
+
+          if (status == FileUploadStatus.completed && entry.fileId != null) {
+            unawaited(_syncUploadedFile(entry.fileId!));
           }
 
           final newState = FileUploadState(

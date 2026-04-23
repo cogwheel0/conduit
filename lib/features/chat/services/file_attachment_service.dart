@@ -8,6 +8,7 @@ import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as path;
 import '../../../core/providers/app_providers.dart';
+import '../../../core/models/file_info.dart';
 import '../../../shared/utils/file_type_utils.dart';
 import '../../../core/services/worker_manager.dart';
 import '../../../core/utils/debug_logger.dart';
@@ -499,6 +500,9 @@ class FileUploadState {
   /// Human-readable file size string.
   String get formattedSize => FileTypeUtils.formatFileSize(fileSize);
 
+  /// Whether this attachment references a previously uploaded server file.
+  bool get isRemote => file.path.startsWith('remote://');
+
   /// Emoji icon representing the file type.
   String get fileIcon {
     final ext = path.extension(fileName).toLowerCase();
@@ -620,6 +624,25 @@ class AttachedFilesNotifier extends Notifier<List<FileUploadState>> {
         .toList();
 
     state = [...state, ...newStates];
+  }
+
+  void addRemoteFile(FileInfo file) {
+    if (state.any((entry) => entry.fileId == file.id)) {
+      return;
+    }
+
+    state = [
+      ...state,
+      FileUploadState(
+        file: File('remote://${file.id}'),
+        fileName: file.displayName,
+        fileSize: file.size,
+        progress: 1.0,
+        status: FileUploadStatus.completed,
+        fileId: file.id,
+        isImage: false,
+      ),
+    ];
   }
 
   void updateFileState(String filePath, FileUploadState newState) {

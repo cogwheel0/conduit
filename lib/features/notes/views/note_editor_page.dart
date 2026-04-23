@@ -289,6 +289,23 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     }
   }
 
+  Future<void> _togglePin() async {
+    final note = _note;
+    if (note == null) {
+      return;
+    }
+
+    final updated = await ref
+        .read(notePinTogglerProvider.notifier)
+        .togglePin(note);
+    if (updated == null || !mounted) {
+      return;
+    }
+
+    setState(() => _note = updated);
+    ConduitHaptics.selectionClick();
+  }
+
   // Get the selected model ID for AI operations
   String? _getSelectedModelId() {
     final selectedModel = ref.read(selectedModelProvider);
@@ -999,6 +1016,19 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                                   ? 'doc.on.clipboard'
                                   : Icons.copy_rounded,
                             ),
+                            AdaptivePopupMenuItem<String>(
+                              label: _note?.isPinned == true
+                                  ? l10n.unpin
+                                  : l10n.pin,
+                              value: 'pin',
+                              icon: Platform.isIOS
+                                  ? (_note?.isPinned == true
+                                        ? 'pin.slash'
+                                        : 'pin')
+                                  : (_note?.isPinned == true
+                                        ? UiUtils.unpinIcon
+                                        : UiUtils.pinIcon),
+                            ),
                             const AdaptivePopupMenuDivider(),
                             AdaptivePopupMenuItem<String>(
                               label: l10n.delete,
@@ -1016,6 +1046,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                               case 'copy':
                                 ConduitHaptics.selectionClick();
                                 _copyToClipboard();
+                              case 'pin':
+                                _togglePin();
                               case 'delete':
                                 ConduitHaptics.mediumImpact();
                                 _deleteNote();

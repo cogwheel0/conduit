@@ -94,6 +94,8 @@ final class _SniffJson extends _SniffResult {
   final Map<String, dynamic> json;
 }
 
+enum _ChatRequestMetadataFormat { modernV09, legacyPreV09 }
+
 /// Result of a health check with proxy detection.
 ///
 /// This enum distinguishes between different failure modes:
@@ -227,6 +229,7 @@ class ApiService {
   final ServerConfig serverConfig;
   final WorkerManager _workerManager;
   late final ApiAuthInterceptor _authInterceptor;
+  _ChatRequestMetadataFormat? _chatRequestMetadataFormat;
   // Public getter for dio instance
   Dio get dio => _dio;
 
@@ -506,6 +509,7 @@ class ApiService {
         return null;
       }
 
+      _setChatRequestMetadataFormatFromVersion(data['version']);
       return _enrichBackendConfigWithAudioConfig(BackendConfig.fromJson(data));
     } catch (e) {
       return null;
@@ -528,6 +532,7 @@ class ApiService {
       if (jsonMap == null) {
         return null;
       }
+      _setChatRequestMetadataFormatFromVersion(jsonMap['version']);
       return _enrichBackendConfigWithAudioConfig(
         BackendConfig.fromJson(jsonMap),
       );
@@ -1214,7 +1219,12 @@ class ApiService {
     return Conversation.fromJson(json);
   }
 
-  // Sync conversation messages to ensure WebUI can load conversation history
+  /// Replaces the server's stored chat history with the provided message list.
+  ///
+  /// Only use this when the caller has a complete, authoritative snapshot of
+  /// the conversation, such as an explicit repair or migration flow. Do not
+  /// call it from normal persisted-chat send/regenerate/completion paths,
+  /// because replaying a partial local buffer can truncate server history.
   Future<void> syncConversationMessages(
     String conversationId,
     List<ChatMessage> messages, {
@@ -1401,6 +1411,180 @@ class ApiService {
     await _dio.post('/api/v1/chats/$conversationId', data: chatData);
 
     DebugLogger.log('sync-ok', scope: 'api/conversation');
+  }
+
+  Map<String, dynamic> _deepCloneJsonMap(Map<String, dynamic> source) {
+    final cloned = json.decode(json.encode(source));
+    if (cloned is Map<String, dynamic>) {
+      return cloned;
+    }
+    return Map<String, dynamic>.from(source);
+  }
+
+  Map<String, dynamic>? _coerceJsonMap(dynamic value) {
+    if (value is Map<String, dynamic>) {
+      return value;
+    }
+    if (value is Map) {
+      return value.map((key, value) => MapEntry(key?.toString() ?? '', value));
+    }
+    return null;
+  }
+
+  List<String> _coerceStringList(dynamic value) {
+    if (value is! List) {
+      return <String>[];
+    }
+
+    return value
+        .map((item) => item?.toString().trim() ?? '')
+        .where((item) => item.isNotEmpty)
+        .toList(growable: true);
+  }
+
+  List<Map<String, dynamic>> _buildHistoryChainMessages(
+    Map<String, dynamic> messagesMap,
+    String currentId,
+  ) {
+    final chain = <Map<String, dynamic>>[];
+    final visited = <String>{};
+    String? nextId = currentId;
+
+    while (nextId != null && nextId.isNotEmpty && !visited.contains(nextId)) {
+      final message = _coerceJsonMap(messagesMap[nextId]);
+      if (message == null) {
+        break;
+      }
+
+      chain.add(_deepCloneJsonMap(message));
+      visited.add(nextId);
+
+      final parentId = message['parentId']?.toString().trim();
+      nextId = parentId != null && parentId.isNotEmpty ? parentId : null;
+    }
+
+    return chain.reversed.toList(growable: false);
+  }
+
+  Future<void> _persistLegacyPendingTurn({
+    required String conversationId,
+    required String assistantMessageId,
+    required String model,
+    required Map<String, dynamic> userMessage,
+    Map<String, dynamic>? modelItem,
+  }) async {
+    _traceApi(
+      'Persisting legacy pending turn for chat=$conversationId '
+      'assistant=$assistantMessageId',
+    );
+
+    final response = await _dio.get('/api/v1/chats/$conversationId');
+    final rawConversation = _coerceJsonMap(response.data);
+    final rawChat = _coerceJsonMap(rawConversation?['chat']);
+    if (rawConversation == null || rawChat == null) {
+      throw Exception(
+        'Legacy chat persistence failed: invalid chat payload for '
+        '$conversationId',
+      );
+    }
+
+    final chat = _deepCloneJsonMap(rawChat);
+    final history = _coerceJsonMap(chat['history']) ?? <String, dynamic>{};
+    final rawMessagesMap =
+        _coerceJsonMap(history['messages']) ?? <String, dynamic>{};
+    final messagesMap = <String, dynamic>{};
+
+    for (final entry in rawMessagesMap.entries) {
+      final message = _coerceJsonMap(entry.value);
+      if (message == null) {
+        continue;
+      }
+      messagesMap[entry.key] = _deepCloneJsonMap(message);
+    }
+
+    final normalizedUserMessage = _deepCloneJsonMap(userMessage)
+      ..removeWhere((_, value) => value == null);
+    final userMessageId = normalizedUserMessage['id']?.toString().trim() ?? '';
+    if (userMessageId.isEmpty) {
+      throw Exception(
+        'Legacy chat persistence failed: missing user message id',
+      );
+    }
+
+    final existingUserMessage = _coerceJsonMap(messagesMap[userMessageId]);
+    final mergedUserMessage = <String, dynamic>{
+      if (existingUserMessage != null)
+        ..._deepCloneJsonMap(existingUserMessage),
+      ...normalizedUserMessage,
+    };
+    final userChildrenIds = <String>[
+      ..._coerceStringList(existingUserMessage?['childrenIds']),
+      ..._coerceStringList(normalizedUserMessage['childrenIds']),
+    ];
+    if (!userChildrenIds.contains(assistantMessageId)) {
+      userChildrenIds.add(assistantMessageId);
+    }
+    mergedUserMessage['childrenIds'] = userChildrenIds;
+    messagesMap[userMessageId] = mergedUserMessage;
+
+    final parentId = mergedUserMessage['parentId']?.toString().trim();
+    if (parentId != null && parentId.isNotEmpty) {
+      final existingParentMessage = _coerceJsonMap(messagesMap[parentId]);
+      if (existingParentMessage != null) {
+        final mergedParentMessage = _deepCloneJsonMap(existingParentMessage);
+        final parentChildrenIds = _coerceStringList(
+          existingParentMessage['childrenIds'],
+        );
+        if (!parentChildrenIds.contains(userMessageId)) {
+          parentChildrenIds.add(userMessageId);
+        }
+        mergedParentMessage['childrenIds'] = parentChildrenIds;
+        messagesMap[parentId] = mergedParentMessage;
+      }
+    }
+
+    final existingAssistantMessage = _coerceJsonMap(
+      messagesMap[assistantMessageId],
+    );
+    final assistantModelName =
+        modelItem?['name']?.toString().trim().isNotEmpty == true
+        ? modelItem!['name'].toString().trim()
+        : model;
+    final assistantTimestamp =
+        existingAssistantMessage?['timestamp'] ??
+        DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final mergedAssistantMessage = <String, dynamic>{
+      if (existingAssistantMessage != null)
+        ..._deepCloneJsonMap(existingAssistantMessage),
+      'id': assistantMessageId,
+      'parentId': userMessageId,
+      'childrenIds': _coerceStringList(
+        existingAssistantMessage?['childrenIds'],
+      ),
+      'role': 'assistant',
+      'content': existingAssistantMessage?['content'] ?? '',
+      'timestamp': assistantTimestamp,
+      'model': model,
+      'modelName': assistantModelName,
+      'modelIdx': existingAssistantMessage?['modelIdx'] ?? 0,
+    }..remove('done');
+    messagesMap[assistantMessageId] = mergedAssistantMessage;
+
+    history['messages'] = messagesMap;
+    history['currentId'] = assistantMessageId;
+    chat['history'] = history;
+    chat['messages'] = _buildHistoryChainMessages(
+      messagesMap,
+      assistantMessageId,
+    );
+
+    final models = _coerceStringList(chat['models']);
+    if (!models.contains(model)) {
+      models.add(model);
+    }
+    chat['models'] = models;
+
+    await _dio.post('/api/v1/chats/$conversationId', data: {'chat': chat});
   }
 
   Future<void> updateConversation(
@@ -1723,16 +1907,46 @@ class ApiService {
 
   Future<List<FileInfo>> getUserFiles() async {
     _traceApi('Fetching user files');
-    final response = await _dio.get('/api/v1/files/');
-    final data = response.data;
-    if (data is List) {
-      final normalized = await _normalizeList(
-        data,
-        debugLabel: 'parse_file_list',
-      );
-      return normalized.map(FileInfo.fromJson).toList(growable: false);
+    final files = <FileInfo>[];
+    var page = 1;
+    int? total;
+
+    while (true) {
+      final pageResult = await getUserFilesPage(page: page);
+
+      files.addAll(pageResult.items);
+      total ??= pageResult.total;
+
+      if (pageResult.items.isEmpty) {
+        break;
+      }
+      if (!pageResult.isPaginated) {
+        break;
+      }
+      if (total != null && files.length >= total) {
+        break;
+      }
+
+      page += 1;
     }
-    return const [];
+
+    return List<FileInfo>.unmodifiable(files);
+  }
+
+  /// Fetches a single page of the current user's files.
+  ///
+  /// Supports both the current paginated OpenWebUI response shape and the
+  /// legacy plain-list payload used by older servers.
+  Future<({List<FileInfo> items, int? total, bool isPaginated})>
+  getUserFilesPage({int page = 1}) async {
+    final response = await _dio.get(
+      '/api/v1/files/',
+      queryParameters: {'page': page, 'content': false},
+    );
+    return _parseFileInfoCollection(
+      response.data,
+      debugLabel: 'parse_file_list_page_$page',
+    );
   }
 
   // Enhanced File Operations
@@ -1743,39 +1957,50 @@ class ApiService {
     int? offset,
   }) async {
     _traceApi('Searching files with query: $query');
-    final queryParams = <String, dynamic>{};
-    if (query != null) queryParams['q'] = query;
-    if (contentType != null) queryParams['content_type'] = contentType;
-    if (limit != null) queryParams['limit'] = limit;
-    if (offset != null) queryParams['offset'] = offset;
-
-    final response = await _dio.get(
-      '/api/v1/files/search',
-      queryParameters: queryParams,
-    );
-    final data = response.data;
-    if (data is List) {
-      final normalized = await _normalizeList(
-        data,
-        debugLabel: 'parse_file_search',
-      );
-      return normalized.map(FileInfo.fromJson).toList(growable: false);
+    final trimmedQuery = query?.trim();
+    if (trimmedQuery == null || trimmedQuery.isEmpty) {
+      return const [];
     }
-    return const [];
+
+    final queryParams = <String, dynamic>{};
+    queryParams['filename'] = trimmedQuery.contains('*')
+        ? trimmedQuery
+        : '*$trimmedQuery*';
+    queryParams['content'] = false;
+    if (limit != null) queryParams['limit'] = limit;
+    if (offset != null) queryParams['skip'] = offset;
+
+    try {
+      final response = await _dio.get(
+        '/api/v1/files/search',
+        queryParameters: queryParams,
+      );
+      final data = response.data;
+      if (data is List) {
+        final normalized = await _normalizeList(
+          data,
+          debugLabel: 'parse_file_search',
+        );
+        var results = normalized.map(FileInfo.fromJson).toList(growable: false);
+        if (contentType != null && contentType.trim().isNotEmpty) {
+          results = results
+              .where((file) => file.mimeType.startsWith(contentType))
+              .toList(growable: false);
+        }
+        return results;
+      }
+      return const [];
+    } on DioException catch (error) {
+      if (error.response?.statusCode == 404) {
+        return const [];
+      }
+      rethrow;
+    }
   }
 
   Future<List<FileInfo>> getAllFiles() async {
     _traceApi('Fetching all files (admin)');
-    final response = await _dio.get('/api/v1/files/all');
-    final data = response.data;
-    if (data is List) {
-      final normalized = await _normalizeList(
-        data,
-        debugLabel: 'parse_file_all',
-      );
-      return normalized.map(FileInfo.fromJson).toList(growable: false);
-    }
-    return const [];
+    return getUserFiles();
   }
 
   Future<String> uploadFileWithProgress(
@@ -1874,6 +2099,40 @@ class ApiService {
     _traceApi('Fetching file statistics');
     final response = await _dio.get('/api/v1/files/stats');
     return response.data as Map<String, dynamic>;
+  }
+
+  Future<({List<FileInfo> items, int? total, bool isPaginated})>
+  _parseFileInfoCollection(dynamic data, {required String debugLabel}) async {
+    if (data is List) {
+      final normalized = await _normalizeList(data, debugLabel: debugLabel);
+      return (
+        items: normalized.map(FileInfo.fromJson).toList(growable: false),
+        total: null,
+        isPaginated: false,
+      );
+    }
+
+    if (data is Map<String, dynamic>) {
+      final items = data['items'];
+      final totalValue = data['total'];
+      final total = switch (totalValue) {
+        int raw => raw,
+        num raw => raw.toInt(),
+        String raw => int.tryParse(raw),
+        _ => null,
+      };
+
+      if (items is List) {
+        final normalized = await _normalizeList(items, debugLabel: debugLabel);
+        return (
+          items: normalized.map(FileInfo.fromJson).toList(growable: false),
+          total: total,
+          isPaginated: true,
+        );
+      }
+    }
+
+    return (items: const <FileInfo>[], total: null, isPaginated: false);
   }
 
   // Knowledge Base
@@ -2174,6 +2433,39 @@ class ApiService {
       _traceApi('Process webpage failed: $e');
       return null;
     }
+  }
+
+  void _setChatRequestMetadataFormatFromVersion(dynamic rawVersion) {
+    final inferred = _inferChatRequestMetadataFormatFromVersion(rawVersion);
+    if (inferred != null) {
+      _chatRequestMetadataFormat = inferred;
+    }
+  }
+
+  _ChatRequestMetadataFormat? _inferChatRequestMetadataFormatFromVersion(
+    dynamic rawVersion,
+  ) {
+    final version = rawVersion?.toString().trim();
+    if (version == null || version.isEmpty) {
+      return null;
+    }
+
+    final match = RegExp(r'(\d+)\.(\d+)').firstMatch(version);
+    if (match == null) {
+      return null;
+    }
+
+    final major = int.tryParse(match.group(1)!);
+    final minor = int.tryParse(match.group(2)!);
+    if (major == null || minor == null) {
+      return null;
+    }
+
+    if (major > 0 || minor >= 9) {
+      return _ChatRequestMetadataFormat.modernV09;
+    }
+
+    return _ChatRequestMetadataFormat.legacyPreV09;
   }
 
   Future<Map<String, dynamic>?> processYoutube({
@@ -3383,6 +3675,7 @@ class ApiService {
     required String messageId,
     String? sessionId,
     String? conversationId,
+    String? terminalId,
     List<String>? toolIds,
     List<String>? filterIds,
     List<String>? skillIds,
@@ -3394,29 +3687,39 @@ class ApiService {
     List<Map<String, dynamic>>? toolServers,
     Map<String, dynamic>? backgroundTasks,
     Map<String, dynamic>? userSettings,
-    String? parentMessageId,
-    Map<String, dynamic>? parentMessage,
+    String? parentId,
+    Map<String, dynamic>? userMessage,
     Map<String, dynamic>? variables,
+    List<Map<String, dynamic>>? files,
+    _ChatRequestMetadataFormat metadataFormat =
+        _ChatRequestMetadataFormat.modernV09,
   }) {
+    bool isImageFile(Map<String, dynamic> file) {
+      if (file['type'] == 'image') {
+        return true;
+      }
+      final contentType = file['content_type']?.toString() ?? '';
+      return contentType.startsWith('image/');
+    }
+
     // Process messages to match OpenWebUI format
     final processedMessages = messages.map((message) {
       final role = message['role'] as String;
       final content = message['content'];
+      final output = message['output'];
       final rawFiles = message['files'];
       final files = rawFiles is List
           ? rawFiles.whereType<Map<String, dynamic>>().toList()
           : <Map<String, dynamic>>[];
 
       final isContentArray = content is List;
-      final hasImages =
-          files.isNotEmpty && files.any((file) => file['type'] == 'image');
+      final hasImages = files.isNotEmpty && files.any(isImageFile);
+      final messageBase = <String, dynamic>{'role': role, 'output': ?output};
 
       if (isContentArray) {
-        return {'role': role, 'content': content};
+        return {...messageBase, 'content': content};
       } else if (hasImages && role == 'user') {
-        final imageFiles = files
-            .where((file) => file['type'] == 'image')
-            .toList();
+        final imageFiles = files.where(isImageFile).toList();
         final contentText = content is String ? content : '';
         final contentArray = <Map<String, dynamic>>[
           {'type': 'text', 'text': contentText},
@@ -3427,23 +3730,58 @@ class ApiService {
             'image_url': {'url': file['url']},
           });
         }
-        return {'role': role, 'content': contentArray};
+        return {...messageBase, 'content': contentArray};
       } else {
         final contentText = content is String ? content : '';
-        return {'role': role, 'content': contentText};
+        return {...messageBase, 'content': contentText};
       }
     }).toList();
 
-    // Separate non-image files from messages
+    String requestFileKey(Map<String, dynamic> file) {
+      final id = file['id']?.toString().trim();
+      if (id != null && id.isNotEmpty) {
+        return 'id:$id';
+      }
+
+      final url = file['url']?.toString().trim();
+      if (url != null && url.isNotEmpty) {
+        return 'url:$url';
+      }
+
+      final type = file['type']?.toString().trim() ?? 'file';
+      final name = file['name']?.toString().trim();
+      if (name != null && name.isNotEmpty) {
+        return 'name:$type:$name';
+      }
+
+      return 'json:${jsonEncode(file)}';
+    }
+
+    // Separate non-image files from explicit request files and messages.
     final allFiles = <Map<String, dynamic>>[];
+    final seenFileKeys = <String>{};
+
+    void addRequestFiles(Iterable<Map<String, dynamic>> requestFiles) {
+      for (final file in requestFiles) {
+        final normalizedFile = Map<String, dynamic>.from(file);
+        if (isImageFile(normalizedFile)) {
+          continue;
+        }
+
+        final fileKey = requestFileKey(normalizedFile);
+        if (seenFileKeys.add(fileKey)) {
+          allFiles.add(normalizedFile);
+        }
+      }
+    }
+
+    if (files != null && files.isNotEmpty) {
+      addRequestFiles(files);
+    }
     for (final message in messages) {
       final rawFiles = message['files'];
       if (rawFiles is List) {
-        final files = rawFiles.whereType<Map<String, dynamic>>().toList();
-        final nonImageFiles = files
-            .where((file) => file['type'] != 'image')
-            .toList();
-        allFiles.addAll(nonImageFiles);
+        addRequestFiles(rawFiles.whereType<Map<String, dynamic>>());
       }
     }
 
@@ -3451,7 +3789,7 @@ class ApiService {
     final data = <String, dynamic>{
       'stream': true,
       'model': model,
-      'messages': processedMessages,
+      if (processedMessages.isNotEmpty) 'messages': processedMessages,
       'params': <String, dynamic>{},
     };
 
@@ -3588,15 +3926,28 @@ class ApiService {
     if (conversationId != null) {
       data['chat_id'] = conversationId;
     }
-    if (parentMessageId != null) {
-      data['parent_id'] = parentMessageId;
+    if (terminalId != null && terminalId.isNotEmpty) {
+      data['terminal_id'] = terminalId;
     }
-
-    // Include the full parent (user) message so the backend has context
-    // for filters and pipelines. Falls back to an empty object to prevent
-    // NoneType error in OWUI 0.6.42+.
-    // See: https://github.com/cogwheel0/conduit/issues/311
-    data['parent_message'] = parentMessage ?? <String, dynamic>{};
+    switch (metadataFormat) {
+      case _ChatRequestMetadataFormat.modernV09:
+        // Match OpenWebUI 0.9+'s request shape: `parent_id` is the user
+        // message's parent (the grandparent of the pending assistant
+        // response), and `user_message` is the full OpenWebUI-style user
+        // message object.
+        data['parent_id'] = parentId;
+        data['user_message'] = userMessage ?? <String, dynamic>{};
+      case _ChatRequestMetadataFormat.legacyPreV09:
+        // OpenWebUI <0.9 expects the full message under `parent_message`,
+        // while `parent_id` points at the current user message id.
+        final legacyParentId = userMessage?['id']?.toString().trim();
+        data['parent_id'] = legacyParentId != null && legacyParentId.isNotEmpty
+            ? legacyParentId
+            : parentId;
+        if (userMessage != null) {
+          data['parent_message'] = userMessage;
+        }
+    }
 
     data['background_tasks'] = backgroundTasks ?? <String, dynamic>{};
 
@@ -3624,6 +3975,7 @@ class ApiService {
     required List<Map<String, dynamic>> messages,
     required String model,
     String? conversationId,
+    String? terminalId,
     List<String>? toolIds,
     List<String>? filterIds,
     List<String>? skillIds,
@@ -3637,9 +3989,10 @@ class ApiService {
     Map<String, dynamic>? backgroundTasks,
     String? responseMessageId,
     Map<String, dynamic>? userSettings,
-    String? parentMessageId,
-    Map<String, dynamic>? parentMessage,
+    String? parentId,
+    Map<String, dynamic>? userMessage,
     Map<String, dynamic>? variables,
+    List<Map<String, dynamic>>? files,
   }) async {
     // Generate unique IDs
     final messageId =
@@ -3656,60 +4009,122 @@ class ApiService {
         (sessionIdOverride != null && sessionIdOverride.isNotEmpty)
         ? sessionIdOverride
         : null;
-
-    final data = _buildChatCompletionPayload(
-      messages: messages,
-      model: model,
-      messageId: messageId,
-      sessionId: sessionId,
-      conversationId: conversationId,
-      toolIds: toolIds,
-      filterIds: filterIds,
-      skillIds: skillIds,
-      enableWebSearch: enableWebSearch,
-      enableImageGeneration: enableImageGeneration,
-      enableCodeInterpreter: enableCodeInterpreter,
-      isVoiceMode: isVoiceMode,
-      modelItem: modelItem,
-      toolServers: toolServers,
-      backgroundTasks: backgroundTasks,
-      userSettings: userSettings,
-      parentMessageId: parentMessageId,
-      parentMessage: parentMessage,
-      variables: variables,
-    );
-
-    _traceApi(
-      'sendMessageSession: posting to /api/chat/completions '
-      '(model=$model, sessionId=$sessionId)',
-    );
-
-    final cancelToken = CancelToken();
+    CancelToken? activeCancelToken;
     Future<void> abort() async {
-      if (!cancelToken.isCancelled) {
+      final cancelToken = activeCancelToken;
+      if (cancelToken != null && !cancelToken.isCancelled) {
         cancelToken.cancel('User cancelled');
       }
     }
 
     _streamCancelActions[messageId] = abort;
+    var legacyPendingTurnPersisted = false;
 
-    final resp = await _dio.post<ResponseBody>(
-      '/api/chat/completions',
-      data: data,
-      options: Options(
-        responseType: ResponseType.stream,
-        // Accept all non-5xx so we can inspect error bodies ourselves.
-        validateStatus: (status) => status != null && status < 600,
-      ),
-      cancelToken: cancelToken,
-    );
+    Future<void> ensureLegacyPendingTurnPersisted() async {
+      if (legacyPendingTurnPersisted ||
+          conversationId == null ||
+          conversationId.isEmpty ||
+          conversationId.startsWith('local:') ||
+          userMessage == null ||
+          userMessage.isEmpty) {
+        return;
+      }
 
-    final status = resp.statusCode ?? 0;
+      await _persistLegacyPendingTurn(
+        conversationId: conversationId,
+        assistantMessageId: messageId,
+        model: model,
+        userMessage: userMessage,
+        modelItem: modelItem,
+      );
+      legacyPendingTurnPersisted = true;
+    }
+
+    Future<Response<ResponseBody>> postWithMetadataFormat(
+      _ChatRequestMetadataFormat metadataFormat,
+    ) async {
+      final data = _buildChatCompletionPayload(
+        messages: messages,
+        model: model,
+        messageId: messageId,
+        sessionId: sessionId,
+        conversationId: conversationId,
+        terminalId: terminalId,
+        toolIds: toolIds,
+        filterIds: filterIds,
+        skillIds: skillIds,
+        enableWebSearch: enableWebSearch,
+        enableImageGeneration: enableImageGeneration,
+        enableCodeInterpreter: enableCodeInterpreter,
+        isVoiceMode: isVoiceMode,
+        modelItem: modelItem,
+        toolServers: toolServers,
+        backgroundTasks: backgroundTasks,
+        userSettings: userSettings,
+        parentId: parentId,
+        userMessage: userMessage,
+        variables: variables,
+        files: files,
+        metadataFormat: metadataFormat,
+      );
+
+      _traceApi(
+        'sendMessageSession: posting to /api/chat/completions '
+        '(model=$model, sessionId=$sessionId, '
+        'metadataFormat=${metadataFormat.name})',
+      );
+
+      final cancelToken = CancelToken();
+      activeCancelToken = cancelToken;
+
+      return _dio.post<ResponseBody>(
+        '/api/chat/completions',
+        data: data,
+        options: Options(
+          responseType: ResponseType.stream,
+          // Accept all non-5xx so we can inspect error bodies ourselves.
+          validateStatus: (status) => status != null && status < 600,
+        ),
+        cancelToken: cancelToken,
+      );
+    }
+
+    var metadataFormat =
+        _chatRequestMetadataFormat ?? _ChatRequestMetadataFormat.modernV09;
+    if (metadataFormat == _ChatRequestMetadataFormat.legacyPreV09) {
+      await ensureLegacyPendingTurnPersisted();
+    }
+    var resp = await postWithMetadataFormat(metadataFormat);
+    var status = resp.statusCode ?? 0;
 
     // Surface structured errors before transport binding.
     if (status < 200 || status >= 300) {
       final error = await _decodeChatCompletionError(resp);
-      throw Exception('Chat completion failed ($status): $error');
+      final shouldRetryWithLegacy =
+          metadataFormat == _ChatRequestMetadataFormat.modernV09 &&
+          _isUnsupportedModernChatMetadataError(error);
+
+      if (!shouldRetryWithLegacy) {
+        throw Exception('Chat completion failed ($status): $error');
+      }
+
+      _traceApi(
+        'sendMessageSession: retrying with legacy pre-v0.9 chat metadata '
+        'after error: $error',
+      );
+
+      metadataFormat = _ChatRequestMetadataFormat.legacyPreV09;
+      _chatRequestMetadataFormat = metadataFormat;
+      await ensureLegacyPendingTurnPersisted();
+      resp = await postWithMetadataFormat(metadataFormat);
+      status = resp.statusCode ?? 0;
+
+      if (status < 200 || status >= 300) {
+        final retryError = await _decodeChatCompletionError(resp);
+        throw Exception('Chat completion failed ($status): $retryError');
+      }
+    } else {
+      _chatRequestMetadataFormat ??= metadataFormat;
     }
 
     final session = await classifyChatCompletionResponse(
@@ -3724,6 +4139,18 @@ class ApiService {
       'taskId=${session.taskId}, messageId=${session.messageId}',
     );
     return session;
+  }
+
+  bool _isUnsupportedModernChatMetadataError(String error) {
+    final normalized = error.toLowerCase();
+    if (!normalized.contains('user_message')) {
+      return false;
+    }
+
+    return normalized.contains('unsupported') ||
+        normalized.contains('extra_forbidden') ||
+        normalized.contains('extra inputs') ||
+        normalized.contains('not permitted');
   }
 
   // -----------------------------------------------------------------------
@@ -4009,6 +4436,7 @@ class ApiService {
     required String messageId,
     required String sessionId,
     String? conversationId,
+    String? terminalId,
     bool enableWebSearch = false,
     bool enableImageGeneration = false,
     bool enableCodeInterpreter = false,
@@ -4017,9 +4445,11 @@ class ApiService {
     List<Map<String, dynamic>>? toolServers,
     Map<String, dynamic>? backgroundTasks,
     Map<String, dynamic>? userSettings,
-    String? parentMessageId,
-    Map<String, dynamic>? parentMessage,
+    String? parentId,
+    Map<String, dynamic>? userMessage,
     Map<String, dynamic>? variables,
+    List<Map<String, dynamic>>? files,
+    bool useLegacyChatMetadata = false,
   }) {
     return _buildChatCompletionPayload(
       messages: messages,
@@ -4027,6 +4457,7 @@ class ApiService {
       messageId: messageId,
       sessionId: sessionId,
       conversationId: conversationId,
+      terminalId: terminalId,
       enableWebSearch: enableWebSearch,
       enableImageGeneration: enableImageGeneration,
       enableCodeInterpreter: enableCodeInterpreter,
@@ -4035,9 +4466,13 @@ class ApiService {
       toolServers: toolServers,
       backgroundTasks: backgroundTasks,
       userSettings: userSettings,
-      parentMessageId: parentMessageId,
-      parentMessage: parentMessage,
+      parentId: parentId,
+      userMessage: userMessage,
       variables: variables,
+      files: files,
+      metadataFormat: useLegacyChatMetadata
+          ? _ChatRequestMetadataFormat.legacyPreV09
+          : _ChatRequestMetadataFormat.modernV09,
     );
   }
 
@@ -4794,6 +5229,13 @@ class ApiService {
         'access_control': ?accessControl,
       },
     );
+    return response.data as Map<String, dynamic>;
+  }
+
+  /// Toggle a note's pinned state.
+  Future<Map<String, dynamic>> toggleNotePinned(String id) async {
+    _traceApi('Toggling note pin state: $id');
+    final response = await _dio.post('/api/v1/notes/$id/pin');
     return response.data as Map<String, dynamic>;
   }
 

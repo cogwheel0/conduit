@@ -64,6 +64,7 @@ class ModernChatInput extends ConsumerStatefulWidget {
   final Function()? onVoiceInput;
   final Function()? onVoiceCall;
   final Function()? onFileAttachment;
+  final Function()? onServerFileAttachment;
   final Function()? onImageAttachment;
   final Function()? onCameraCapture;
   final Function()? onWebAttachment;
@@ -80,6 +81,7 @@ class ModernChatInput extends ConsumerStatefulWidget {
     this.onVoiceInput,
     this.onVoiceCall,
     this.onFileAttachment,
+    this.onServerFileAttachment,
     this.onImageAttachment,
     this.onCameraCapture,
     this.onWebAttachment,
@@ -1650,11 +1652,14 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       orElse: () => false,
     );
     final selectedToolIds = ref.watch(selectedToolIdsProvider);
+    final selectedTerminalId = ref.watch(selectedTerminalIdProvider);
     final selectedFilterIds = ref.watch(selectedFilterIdsProvider);
 
     // Get filters from the selected model for quick pills
     final selectedModel = ref.watch(selectedModelProvider);
     final availableFilters = selectedModel?.filters ?? const [];
+    final terminalActive =
+        selectedTerminalId != null && modelSupportsTerminal(selectedModel);
 
     final focusTick = ref.watch(inputFocusTriggerProvider);
     final autofocusEnabled = ref.watch(composerAutofocusEnabledProvider);
@@ -1889,6 +1894,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 webSearchActive: webSearchEnabled,
                 imageGenerationActive: imageGenEnabled,
                 toolsActive: selectedToolIds.isNotEmpty,
+                terminalActive: terminalActive,
                 filtersActive: selectedFilterIds.isNotEmpty,
                 dense: true,
               ),
@@ -2071,6 +2077,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   webSearchActive: webSearchEnabled,
                   imageGenerationActive: imageGenEnabled,
                   toolsActive: selectedToolIds.isNotEmpty,
+                  terminalActive: terminalActive,
                   filtersActive: selectedFilterIds.isNotEmpty,
                 ),
                 const SizedBox(width: Spacing.sm),
@@ -2382,6 +2389,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     required bool webSearchActive,
     required bool imageGenerationActive,
     required bool toolsActive,
+    required bool terminalActive,
     required bool filtersActive,
     bool dense = false,
   }) {
@@ -2398,6 +2406,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     if (webSearchActive ||
         imageGenerationActive ||
         toolsActive ||
+        terminalActive ||
         filtersActive) {
       activeColor = context.conduitTheme.buttonPrimary;
     }
@@ -2410,19 +2419,24 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         ? context.conduitTheme.buttonPrimaryText
         : context.conduitTheme.textPrimary.withValues(alpha: Alpha.strong);
 
-    final IconData overflowIcon = switch ((
-      webSearchActive,
-      imageGenerationActive,
-      toolsActive,
-      filtersActive,
-    )) {
-      (true, _, _, _) => Platform.isIOS ? CupertinoIcons.search : Icons.search,
-      (_, true, _, _) => Platform.isIOS ? CupertinoIcons.photo : Icons.image,
-      (_, _, true, _) => Platform.isIOS ? CupertinoIcons.wrench : Icons.build,
-      (_, _, _, true) =>
-        Platform.isIOS ? CupertinoIcons.sparkles : Icons.auto_awesome,
-      _ => Platform.isIOS ? CupertinoIcons.add : Icons.add,
-    };
+    final IconData overflowIcon;
+    if (webSearchActive) {
+      overflowIcon = Platform.isIOS ? CupertinoIcons.search : Icons.search;
+    } else if (imageGenerationActive) {
+      overflowIcon = Platform.isIOS ? CupertinoIcons.photo : Icons.image;
+    } else if (toolsActive) {
+      overflowIcon = Platform.isIOS ? CupertinoIcons.wrench : Icons.build;
+    } else if (terminalActive) {
+      overflowIcon = Platform.isIOS
+          ? CupertinoIcons.chevron_left_slash_chevron_right
+          : Icons.terminal_rounded;
+    } else if (filtersActive) {
+      overflowIcon = Platform.isIOS
+          ? CupertinoIcons.sparkles
+          : Icons.auto_awesome;
+    } else {
+      overflowIcon = Platform.isIOS ? CupertinoIcons.add : Icons.add;
+    }
 
     return AdaptiveTooltip(
       message: tooltip,
@@ -2867,6 +2881,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       isScrollControlled: true,
       builder: (_) => ComposerOverflowSheet(
         onFileAttachment: widget.onFileAttachment,
+        onServerFileAttachment: widget.onServerFileAttachment,
         onImageAttachment: widget.onImageAttachment,
         onCameraCapture: widget.onCameraCapture,
         onWebAttachment: widget.onWebAttachment,

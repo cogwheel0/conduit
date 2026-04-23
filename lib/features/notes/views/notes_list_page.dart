@@ -21,6 +21,7 @@ import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
+import '../../../shared/utils/ui_utils.dart';
 import '../providers/notes_providers.dart';
 
 /// Page displaying the list of all notes with search and time grouping.
@@ -106,6 +107,17 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
     }
   }
 
+  Future<void> _togglePin(Note note) async {
+    final updated = await ref
+        .read(notePinTogglerProvider.notifier)
+        .togglePin(note);
+    if (updated == null || !mounted) {
+      return;
+    }
+
+    ConduitHaptics.selectionClick();
+  }
+
   @override
   Widget build(BuildContext context) {
     // Check if notes feature is enabled - redirect to chat if disabled
@@ -189,15 +201,50 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
       return _buildEmptyState(context);
     }
 
+    final pinnedNotes = notes
+        .where((note) => note.isPinned)
+        .toList(growable: false);
+    final unpinnedNotes = notes
+        .where((note) => !note.isPinned)
+        .toList(growable: false);
+
     // Group notes by time range
     final grouped = <TimeRange, List<Note>>{};
-    for (final note in notes) {
+    for (final note in unpinnedNotes) {
       final range = getTimeRangeForTimestamp(note.updatedDateTime);
       grouped.putIfAbsent(range, () => []).add(note);
     }
 
     // Build slivers
     final slivers = <Widget>[];
+
+    if (pinnedNotes.isNotEmpty) {
+      slivers.add(
+        SliverPadding(
+          padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
+          sliver: SliverToBoxAdapter(
+            child: _buildPinnedSectionHeader(context, pinnedNotes.length),
+          ),
+        ),
+      );
+      slivers.add(
+        const SliverToBoxAdapter(child: SizedBox(height: Spacing.xs)),
+      );
+      slivers.add(
+        SliverPadding(
+          padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
+          sliver: SliverList(
+            delegate: SliverChildBuilderDelegate(
+              (context, index) => _buildNoteCard(context, pinnedNotes[index]),
+              childCount: pinnedNotes.length,
+            ),
+          ),
+        ),
+      );
+      slivers.add(
+        const SliverToBoxAdapter(child: SizedBox(height: Spacing.md)),
+      );
+    }
 
     for (final range in TimeRange.values) {
       final rangeNotes = grouped[range];
@@ -259,6 +306,52 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
         controller: _scrollController,
         physics: const AlwaysScrollableScrollPhysics(),
         slivers: paddedSlivers,
+      ),
+    );
+  }
+
+  Widget _buildPinnedSectionHeader(BuildContext context, int count) {
+    final theme = context.conduitTheme;
+    final sidebarTheme = context.sidebarTheme;
+    final l10n = AppLocalizations.of(context)!;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        vertical: Spacing.sm,
+        horizontal: Spacing.xs,
+      ),
+      child: Row(
+        children: [
+          Icon(
+            UiUtils.pinIcon,
+            color: sidebarTheme.foreground.withValues(alpha: 0.55),
+            size: IconSize.sm,
+          ),
+          const SizedBox(width: Spacing.xs),
+          Text(
+            l10n.pinned,
+            style: AppTypography.labelStyle.copyWith(
+              color: sidebarTheme.foreground.withValues(alpha: 0.8),
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.2,
+            ),
+          ),
+          const SizedBox(width: Spacing.sm),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: theme.buttonPrimary.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(AppBorderRadius.pill),
+            ),
+            child: Text(
+              '$count',
+              style: AppTypography.tiny.copyWith(
+                color: theme.buttonPrimary.withValues(alpha: 0.9),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -441,13 +534,27 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           // Title
-                          MiddleEllipsisText(
-                            title,
-                            style: AppTypography.bodyMediumStyle.copyWith(
-                              color: sidebarTheme.foreground,
-                              fontWeight: FontWeight.w600,
-                              height: 1.3,
-                            ),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: MiddleEllipsisText(
+                                  title,
+                                  style: AppTypography.bodyMediumStyle.copyWith(
+                                    color: sidebarTheme.foreground,
+                                    fontWeight: FontWeight.w600,
+                                    height: 1.3,
+                                  ),
+                                ),
+                              ),
+                              if (note.isPinned) ...[
+                                const SizedBox(width: Spacing.xs),
+                                Icon(
+                                  UiUtils.pinIcon,
+                                  color: theme.buttonPrimary,
+                                  size: 14,
+                                ),
+                              ],
+                            ],
                           ),
                           if (hasContent) ...[
                             const SizedBox(height: Spacing.xxs),
@@ -567,6 +674,15 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
             duration: const Duration(seconds: 2),
           );
         },
+      ),
+      ConduitContextMenuAction(
+        cupertinoIcon: note.isPinned
+            ? CupertinoIcons.pin_slash
+            : CupertinoIcons.pin,
+        materialIcon: note.isPinned ? UiUtils.unpinIcon : UiUtils.pinIcon,
+        label: note.isPinned ? l10n.unpin : l10n.pin,
+        onBeforeClose: () => ConduitHaptics.selectionClick(),
+        onSelected: () async => _togglePin(note),
       ),
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.delete,
