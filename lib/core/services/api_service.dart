@@ -4255,16 +4255,32 @@ class ApiService {
     String? conversationId,
     required Future<void> Function() abort,
   }) {
+    String? taskId;
     if (json['task_id'] != null) {
+      taskId = json['task_id'].toString();
+    } else {
+      final rawTaskIds = json['task_ids'];
+      if (rawTaskIds is List) {
+        final taskIds = rawTaskIds
+            .map((taskId) => taskId?.toString().trim() ?? '')
+            .where((taskId) => taskId.isNotEmpty)
+            .toList(growable: false);
+        if (taskIds.isNotEmpty) {
+          taskId = taskIds.first;
+        }
+      }
+    }
+
+    if (taskId != null) {
       _traceApi(
         'classifyChatCompletionResponse → taskSocket '
-        '(task_id=${json['task_id']})',
+        '(task_id=$taskId)',
       );
       return ChatCompletionSession.taskSocket(
         messageId: messageId,
         sessionId: sessionId,
         conversationId: conversationId,
-        taskId: json['task_id'].toString(),
+        taskId: taskId,
         abort: abort,
       );
     }

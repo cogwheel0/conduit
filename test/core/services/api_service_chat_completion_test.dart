@@ -173,6 +173,29 @@ void main() {
       check(session.abort).isNotNull();
     });
 
+    test(
+      'taskSocket classification from JSON response with task_ids',
+      () async {
+        final adapter = _FakeAdapter.json({
+          'task_ids': ['task-42'],
+          'status': true,
+          'chat_id': 'chat-1',
+        });
+        final api = _buildApiServiceForTest(adapter);
+
+        final session = await api.sendMessageSession(
+          messages: _minimalMessages,
+          model: _model,
+          conversationId: 'chat-1',
+        );
+
+        check(session.transport).equals(ChatCompletionTransport.taskSocket);
+        check(session.taskId).equals('task-42');
+        check(session.jsonPayload).isNull();
+        check(session.abort).isNotNull();
+      },
+    );
+
     // 2. jsonCompletion classification from JSON without task_id
     test('jsonCompletion classification from JSON without task_id', () async {
       final adapter = _FakeAdapter.json({

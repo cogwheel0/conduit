@@ -31,6 +31,20 @@ class SourceReferenceHelper {
         'Source ${index + 1}';
   }
 
+  /// Returns the compact label used by inline citation chips.
+  ///
+  /// OpenWebUI prefers a stripped URL/domain for inline source chips whenever
+  /// a canonical URL is available, even if the expanded source list uses a
+  /// richer title.
+  static String getInlineSourceLabel(ChatSourceReference source, int index) {
+    final url = getSourceUrl(source);
+    if (url != null) {
+      return extractDomain(url);
+    }
+
+    return getSourceLabel(source, index);
+  }
+
   /// Returns the best launchable URL for a source, if any.
   ///
   /// Canonical URLs are preferred over metadata fallback fields like

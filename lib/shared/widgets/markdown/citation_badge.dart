@@ -49,7 +49,11 @@ class CitationBadge extends StatelessWidget {
     final source = sources[sourceIndex];
     final url = SourceReferenceHelper.getSourceUrl(source);
     final title = SourceReferenceHelper.getSourceLabel(source, sourceIndex);
-    final displayTitle = SourceReferenceHelper.formatDisplayTitle(title);
+    final inlineTitle = SourceReferenceHelper.getInlineSourceLabel(
+      source,
+      sourceIndex,
+    );
+    final displayTitle = SourceReferenceHelper.formatDisplayTitle(inlineTitle);
 
     return AdaptiveTooltip(
       message: title,
@@ -138,7 +142,7 @@ class CitationBadgeGroup extends StatelessWidget {
     }
 
     final firstSource = sources[firstIndex];
-    final firstTitle = SourceReferenceHelper.getSourceLabel(
+    final firstTitle = SourceReferenceHelper.getInlineSourceLabel(
       firstSource,
       firstIndex,
     );
@@ -149,7 +153,10 @@ class CitationBadgeGroup extends StatelessWidget {
         .where((index) => index >= 0 && index < sources.length)
         .map((index) {
           final source = sources[index];
-          final title = SourceReferenceHelper.getSourceLabel(source, index);
+          final title = SourceReferenceHelper.getInlineSourceLabel(
+            source,
+            index,
+          );
           return AdaptivePopupMenuItem<int>(
             value: index,
             label: SourceReferenceHelper.formatDisplayTitle(title),
