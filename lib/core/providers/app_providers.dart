@@ -2066,6 +2066,22 @@ Future<UserSettings> userSettings(Ref ref) async {
   }
 }
 
+final rawUserSettingsProvider = FutureProvider<Map<String, dynamic>>((
+  ref,
+) async {
+  final api = ref.watch(apiServiceProvider);
+  if (api == null) {
+    return const <String, dynamic>{};
+  }
+
+  try {
+    return await api.getUserSettings();
+  } catch (e) {
+    DebugLogger.error('raw-user-settings-failed', scope: 'settings', error: e);
+    return const <String, dynamic>{};
+  }
+});
+
 // Conversation Suggestions provider
 @Riverpod(keepAlive: true)
 Future<List<String>> conversationSuggestions(Ref ref) async {

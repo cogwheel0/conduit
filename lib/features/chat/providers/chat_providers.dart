@@ -9,6 +9,7 @@ import 'package:yaml/yaml.dart' as yaml;
 
 import '../../../core/auth/auth_state_manager.dart';
 import '../../../core/models/chat_message.dart';
+import '../../../core/models/model.dart';
 import '../../../core/models/conversation.dart';
 import '../../../core/providers/app_providers.dart';
 
@@ -1792,6 +1793,132 @@ Future<void> restoreDefaultModel(dynamic ref) async {
   }
 }
 
+typedef _ChatFeatureDefaults = ({
+  bool webSearchEnabled,
+  bool imageGenerationEnabled,
+});
+
+Map<String, dynamic>? _asStringDynamicMap(dynamic value) {
+  if (value is Map<String, dynamic>) {
+    return value;
+  }
+  if (value is Map) {
+    return value.map((key, value) => MapEntry(key.toString(), value));
+  }
+  return null;
+}
+
+Iterable<String> _stringList(dynamic value) {
+  if (value is! List) {
+    return const <String>[];
+  }
+  return value.map((item) => item.toString());
+}
+
+bool _isAlwaysOnChatFeatureSetting(
+  Map<String, dynamic>? userSettings, {
+  required String uiKey,
+  required String legacyKey,
+}) {
+  final uiMap = _asStringDynamicMap(userSettings?['ui']);
+  final raw = uiMap?[uiKey] ?? userSettings?[legacyKey];
+
+  if (raw is bool) {
+    return raw;
+  }
+  if (raw is num) {
+    return raw != 0;
+  }
+  if (raw is String) {
+    switch (raw.toLowerCase()) {
+      case 'always':
+      case 'enabled':
+      case 'on':
+      case 'true':
+      case '1':
+        return true;
+      default:
+        return false;
+    }
+  }
+  return false;
+}
+
+Set<String> _extractModelDefaultFeatureIds(Model? model) {
+  final metadata = model?.metadata;
+  final rootMeta = _asStringDynamicMap(metadata?['meta']);
+  final infoMeta = _asStringDynamicMap(
+    _asStringDynamicMap(metadata?['info'])?['meta'],
+  );
+  final defaultFeatureIds = <String>{};
+
+  for (final candidate in <dynamic>[
+    metadata?['defaultFeatureIds'],
+    metadata?['default_feature_ids'],
+    rootMeta?['defaultFeatureIds'],
+    rootMeta?['default_feature_ids'],
+    infoMeta?['defaultFeatureIds'],
+    infoMeta?['default_feature_ids'],
+  ]) {
+    defaultFeatureIds.addAll(_stringList(candidate));
+  }
+
+  return defaultFeatureIds;
+}
+
+_ChatFeatureDefaults _resolveChatFeatureDefaults({
+  required AppSettings appSettings,
+  required Map<String, dynamic>? userSettings,
+  required Model? model,
+}) {
+  final defaultFeatureIds = _extractModelDefaultFeatureIds(model);
+  final webSearchDefault =
+      _isAlwaysOnChatFeatureSetting(
+        userSettings,
+        uiKey: 'webSearch',
+        legacyKey: 'webSearchEnabled',
+      ) ||
+      defaultFeatureIds.contains('web_search');
+  final imageGenerationDefault =
+      _isAlwaysOnChatFeatureSetting(
+        userSettings,
+        uiKey: 'imageGeneration',
+        legacyKey: 'imageGenerationEnabled',
+      ) ||
+      defaultFeatureIds.contains('image_generation');
+
+  return (
+    webSearchEnabled: appSettings.chatWebSearchEnabled ?? webSearchDefault,
+    imageGenerationEnabled:
+        appSettings.chatImageGenerationEnabled ?? imageGenerationDefault,
+  );
+}
+
+@visibleForTesting
+({bool webSearchEnabled, bool imageGenerationEnabled})
+resolveChatFeatureDefaultsForTest({
+  required AppSettings appSettings,
+  Map<String, dynamic>? userSettings,
+  Model? model,
+}) {
+  return _resolveChatFeatureDefaults(
+    appSettings: appSettings,
+    userSettings: userSettings,
+    model: model,
+  );
+}
+
+final _chatFeatureDefaultsProvider = Provider<_ChatFeatureDefaults>((ref) {
+  final appSettings = ref.watch(appSettingsProvider);
+  final userSettings = ref.watch(rawUserSettingsProvider).asData?.value;
+  final selectedModel = ref.watch(selectedModelProvider);
+  return _resolveChatFeatureDefaults(
+    appSettings: appSettings,
+    userSettings: userSettings,
+    model: selectedModel,
+  );
+});
+
 // Available tools provider
 final availableToolsProvider =
     NotifierProvider<AvailableToolsNotifier, List<String>>(
@@ -1831,16 +1958,29 @@ class AvailableToolsNotifier extends Notifier<List<String>> {
 
 class WebSearchEnabledNotifier extends Notifier<bool> {
   @override
-  bool build() => false;
+  bool build() => ref.watch(_chatFeatureDefaultsProvider).webSearchEnabled;
 
-  void set(bool value) => state = value;
+  void set(bool value) {
+    state = value;
+    unawaited(
+      ref.read(appSettingsProvider.notifier).setChatWebSearchEnabled(value),
+    );
+  }
 }
 
 class ImageGenerationEnabledNotifier extends Notifier<bool> {
   @override
-  bool build() => false;
+  bool build() =>
+      ref.watch(_chatFeatureDefaultsProvider).imageGenerationEnabled;
 
-  void set(bool value) => state = value;
+  void set(bool value) {
+    state = value;
+    unawaited(
+      ref
+          .read(appSettingsProvider.notifier)
+          .setChatImageGenerationEnabled(value),
+    );
+  }
 }
 
 class VisionCapableModelsNotifier extends Notifier<List<String>> {
@@ -2239,7 +2379,9 @@ Future<void> regenerateMessage(
     final webSearchEnabled =
         ref.read(webSearchEnabledProvider) &&
         ref.read(webSearchAvailableProvider);
-    final imageGenerationEnabled = ref.read(imageGenerationEnabledProvider);
+    final imageGenerationEnabled =
+        ref.read(imageGenerationEnabledProvider) &&
+        ref.read(imageGenerationAvailableProvider);
 
     final modelItem = _buildLocalModelItem(selectedModel);
 
@@ -2854,7 +2996,9 @@ Future<void> _sendMessageInternal(
   final webSearchEnabled =
       ref.read(webSearchEnabledProvider) &&
       ref.read(webSearchAvailableProvider);
-  final imageGenerationEnabled = ref.read(imageGenerationEnabledProvider);
+  final imageGenerationEnabled =
+      ref.read(imageGenerationEnabledProvider) &&
+      ref.read(imageGenerationAvailableProvider);
 
   // Get selected toggle filter IDs
   final selectedFilterIds = ref.read(selectedFilterIdsProvider);

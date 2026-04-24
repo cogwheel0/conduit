@@ -1267,17 +1267,13 @@ class AppTypography {
 
   static TextStyle get large => bodyLargeStyle;
 
-  static TextStyle get sidebarTitleStyle =>
-      usesAppleRamp ? standard : bodyLargeStyle;
+  static TextStyle get sidebarTitleStyle => bodyLargeStyle;
 
-  static TextStyle get sidebarSupportingStyle =>
-      usesAppleRamp ? bodySmallStyle : bodyMediumStyle;
+  static TextStyle get sidebarSupportingStyle => bodyMediumStyle;
 
-  static TextStyle get sidebarLabelStyle =>
-      usesAppleRamp ? bodySmallStyle : labelStyle;
+  static TextStyle get sidebarLabelStyle => labelStyle;
 
-  static TextStyle get sidebarBadgeStyle =>
-      usesAppleRamp ? tiny : labelMediumStyle;
+  static TextStyle get sidebarBadgeStyle => labelMediumStyle;
 
   static TextStyle get extraLarge => titleLargeStyle;
 
