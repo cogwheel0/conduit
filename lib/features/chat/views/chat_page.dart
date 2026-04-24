@@ -777,6 +777,23 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     );
   }
 
+  /// Phase 4a — shared refresh path used by pull-to-refresh and the
+  /// app bar refresh button. Delegates the heavy lifting (server fetch,
+  /// stuck-stream cleanup, SQLite cache update) to [ChatMessagesNotifier]
+  /// and only adds the conversations-list reconcile + small UX delay
+  /// here so the spinner doesn't flicker on fast networks.
+  Future<void> _refreshActiveConversation({required String source}) async {
+    final notifier = ref.read(chatMessagesProvider.notifier);
+    await notifier.refreshActiveConversationFromServer(source: source);
+
+    try {
+      refreshConversationsCache(ref);
+      await ref.read(conversationsProvider.future);
+    } catch (_) {}
+
+    await Future.delayed(const Duration(milliseconds: 300));
+  }
+
   // Replaced bottom-sheet chat list with left drawer (see ChatsDrawer)
 
   void _onScroll() {
@@ -2372,6 +2389,44 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   },
                 ),
                 const SizedBox(width: Spacing.sm),
+                // Phase 4a — always-accessible refresh button for the
+                // active conversation. Recovers stuck-streaming messages
+                // (response completed server-side after disconnect)
+                // without requiring the user to scroll to the top of a
+                // long chat to trigger pull-to-refresh.
+                Consumer(
+                  builder: (context, ref, _) {
+                    final activeConversation = ref.watch(
+                      activeConversationProvider,
+                    );
+                    if (activeConversation == null ||
+                        isTemporaryChat(activeConversation.id)) {
+                      return const SizedBox.shrink();
+                    }
+                    return Padding(
+                      padding: const EdgeInsets.only(right: Spacing.sm),
+                      child: AdaptiveTooltip(
+                        message: 'Refresh',
+                        child: _buildAppBarIconButton(
+                          context: context,
+                          onPressed: () {
+                            ConduitHaptics.selectionClick();
+                            unawaited(
+                              _refreshActiveConversation(
+                                source: 'app bar button',
+                              ),
+                            );
+                          },
+                          fallbackIcon: Platform.isIOS
+                              ? CupertinoIcons.refresh
+                              : Icons.refresh,
+                          sfSymbol: 'arrow.clockwise',
+                          color: context.conduitTheme.textPrimary,
+                        ),
+                      ),
+                    );
+                  },
+                ),
                 Padding(
                   padding: const EdgeInsets.only(right: Spacing.inputPadding),
                   child: AdaptiveTooltip(
@@ -2422,42 +2477,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                     // Position indicator below the floating app bar
                     edgeOffset:
                         MediaQuery.of(context).padding.top + kTextTabBarHeight,
-                    onRefresh: () async {
-                      // Reload active conversation messages from server
-                      final api = ref.read(apiServiceProvider);
-                      final active = ref.read(activeConversationProvider);
-                      if (api != null && active != null) {
-                        try {
-                          final full = await api.getConversation(active.id);
-                          ref
-                              .read(activeConversationProvider.notifier)
-                              .set(full);
-                          // Phase 1.2: keep the per-conversation cache warm
-                          // so the next cold-start opens this chat instantly.
-                          unawaited(
-                            ref
-                                .read(optimizedStorageServiceProvider)
-                                .cacheConversation(full),
-                          );
-                        } catch (e) {
-                          DebugLogger.log(
-                            'Failed to refresh conversation: $e',
-                            scope: 'chat/page',
-                          );
-                        }
-                      }
-
-                      // Also refresh the conversations list to reconcile missed events
-                      // and keep timestamps/order in sync with the server.
-                      try {
-                        refreshConversationsCache(ref);
-                        // Best-effort await to stabilize UI; ignore errors.
-                        await ref.read(conversationsProvider.future);
-                      } catch (_) {}
-
-                      // Add small delay for better UX feedback
-                      await Future.delayed(const Duration(milliseconds: 300));
-                    },
+                    onRefresh: () =>
+                        _refreshActiveConversation(source: 'pull-to-refresh'),
                     child: GestureDetector(
                       behavior: HitTestBehavior.opaque,
                       onTap: () {
@@ -2632,9 +2653,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 // so the chat input can remain enabled (sends queue locally
                 // via TaskQueue) while signalling the connection issue.
                 Positioned(
-                  top:
-                      MediaQuery.of(context).padding.top +
-                      kTextTabBarHeight,
+                  top: MediaQuery.of(context).padding.top + kTextTabBarHeight,
                   left: 0,
                   right: 0,
                   child: const ServerReachabilityBanner(),
@@ -2692,8 +2711,16 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       cancelText: l10n.cancel,
       isDestructive: true,
     ).then((confirmed) async {
-      if (confirmed == true) {
-        _clearSelection();
+      if (confirmed != true) return;
+      // Phase 4c — actually delete: optimistic local removal, then
+      // persist to SQLite + best-effort server sync. The selection set
+      // is cleared regardless of network outcome.
+      final ids = selectedMessages.map((m) => m.id).toSet();
+      _clearSelection();
+      try {
+        await deleteMessages(ref, ids);
+      } catch (e) {
+        DebugLogger.log('Failed to delete messages: $e', scope: 'chat/page');
       }
     });
   }

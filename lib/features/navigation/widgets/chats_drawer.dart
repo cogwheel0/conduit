@@ -739,11 +739,67 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       );
     }
 
-    // Server-backed search
+    // Phase 4b — local-first search. Local SQLite results render
+    // immediately via [localSearchProvider] (FTS5, ~tens of ms). The
+    // server result enriches asynchronously via [serverSearchProvider]
+    // and merges in by id. Spinner only when both are still loading
+    // AND we have nothing to display; "no results" only after server
+    // has resolved (or failed) so we don't flash a false negative
+    // before the local index has filled in.
+    final localAsync = ref.watch(localSearchProvider(_query));
     final searchAsync = ref.watch(serverSearchProvider(_query));
-    return searchAsync.when(
-      data: (list) {
+
+    final localList = localAsync.maybeWhen(
+      data: (l) => l,
+      orElse: () => const <Conversation>[],
+    );
+    final serverList = searchAsync.maybeWhen(
+      data: (l) => l,
+      orElse: () => const <Conversation>[],
+    );
+
+    // Dedupe by id, preferring local (its cached payload may be richer
+    // than what the server search endpoint returns). Then sort by
+    // pinned + recency to match the main listing order.
+    final byId = <String, Conversation>{};
+    for (final c in localList) {
+      byId[c.id] = c;
+    }
+    for (final c in serverList) {
+      byId.putIfAbsent(c.id, () => c);
+    }
+    final list = byId.values.toList()
+      ..sort((a, b) {
+        if (a.pinned != b.pinned) return a.pinned ? -1 : 1;
+        return b.updatedAt.compareTo(a.updatedAt);
+      });
+
+    final bothLoading = localAsync.isLoading && searchAsync.isLoading;
+    final serverSettled = searchAsync.hasValue || searchAsync.hasError;
+
+    return Builder(
+      builder: (context) {
         if (list.isEmpty) {
+          if (bothLoading || !serverSettled) {
+            return const Center(
+              child: CircularProgressIndicator(strokeWidth: 2.0),
+            );
+          }
+          if (searchAsync.hasError) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(Spacing.md),
+                child: Text(
+                  'Search failed',
+                  style: AppTypography.bodyMediumStyle.copyWith(
+                    color: context.sidebarTheme.foreground.withValues(
+                      alpha: 0.7,
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }
           return Center(
             child: Padding(
               padding: const EdgeInsets.all(Spacing.lg),
@@ -925,19 +981,6 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
 
         return _buildRefreshableScrollableSlivers(slivers: slivers);
       },
-      loading: () =>
-          const Center(child: CircularProgressIndicator(strokeWidth: 2.0)),
-      error: (e, _) => Center(
-        child: Padding(
-          padding: const EdgeInsets.all(Spacing.md),
-          child: Text(
-            'Search failed',
-            style: AppTypography.bodyMediumStyle.copyWith(
-              color: context.sidebarTheme.foreground.withValues(alpha: 0.7),
-            ),
-          ),
-        ),
-      ),
     );
   }
 
@@ -2038,9 +2081,9 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
               final lightweight = (await container.read(
                 conversationsProvider.future,
               )).firstWhere((c) => c.id == id);
-              container.read(activeConversationProvider.notifier).set(
-                lightweight,
-              );
+              container
+                  .read(activeConversationProvider.notifier)
+                  .set(lightweight);
             } catch (_) {}
           }
         }

@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../providers/app_providers.dart';
+import '../../features/chat/providers/chat_providers.dart';
 import '../../features/auth/providers/unified_auth_providers.dart';
 import '../services/navigation_service.dart';
 import '../services/app_intents_service.dart';
@@ -284,6 +285,8 @@ class AppStartupFlow extends _$AppStartupFlow {
     Future<void>.delayed(const Duration(milliseconds: 48), () {
       if (!ref.mounted) return;
       keepAlive(foregroundRefreshProvider);
+      // Phase 4a — refresh stuck-streaming chat messages on resume.
+      keepAlive(chatLifecycleProvider);
     });
 
     // Keep Socket.IO connection alive in background within platform limits

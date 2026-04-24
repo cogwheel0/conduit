@@ -1852,6 +1852,19 @@ class SearchQuery extends _$SearchQuery {
   void set(String query) => state = query;
 }
 
+/// Phase 4b — instant local search backed by SQLite FTS5.
+///
+/// Returns cached conversations matching either the title (LIKE) or any
+/// message body (FTS5 prefix match). Used by the drawer to render
+/// results before the network search finishes; the server result then
+/// enriches.
+@riverpod
+Future<List<Conversation>> localSearch(Ref ref, String query) async {
+  if (query.trim().isEmpty) return const [];
+  final storage = ref.watch(optimizedStorageServiceProvider);
+  return storage.searchConversationsLocal(query, limit: 50);
+}
+
 // Server-side search provider for chats
 @riverpod
 Future<List<Conversation>> serverSearch(Ref ref, String query) async {
@@ -2392,9 +2405,7 @@ class UserFiles extends _$UserFiles {
     // unit tests (which don't always bootstrap Hive) don't blow up on the
     // optional cache dependency.
     try {
-      unawaited(
-        ref.read(optimizedStorageServiceProvider).cacheFileInfo(file),
-      );
+      unawaited(ref.read(optimizedStorageServiceProvider).cacheFileInfo(file));
     } catch (_) {
       // Storage not available (likely a unit-test container) — skip caching.
     }
