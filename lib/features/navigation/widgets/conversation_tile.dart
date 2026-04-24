@@ -84,7 +84,7 @@ class ConversationTileContent extends StatelessWidget {
     final theme = context.conduitTheme;
 
     // Enhanced typography with better visual hierarchy
-    final textStyle = AppTypography.standard.copyWith(
+    final textStyle = AppTypography.sidebarTitleStyle.copyWith(
       color: selected ? theme.textPrimary : theme.textSecondary,
       fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
       height: 1.4,

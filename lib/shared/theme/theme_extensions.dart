@@ -1267,6 +1267,18 @@ class AppTypography {
 
   static TextStyle get large => bodyLargeStyle;
 
+  static TextStyle get sidebarTitleStyle =>
+      usesAppleRamp ? standard : bodyLargeStyle;
+
+  static TextStyle get sidebarSupportingStyle =>
+      usesAppleRamp ? bodySmallStyle : bodyMediumStyle;
+
+  static TextStyle get sidebarLabelStyle =>
+      usesAppleRamp ? bodySmallStyle : labelStyle;
+
+  static TextStyle get sidebarBadgeStyle =>
+      usesAppleRamp ? tiny : labelMediumStyle;
+
   static TextStyle get extraLarge => titleLargeStyle;
 
   static TextStyle get huge => headlineLargeStyle;

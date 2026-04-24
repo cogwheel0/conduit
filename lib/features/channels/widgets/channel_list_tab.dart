@@ -328,7 +328,7 @@ class _ChannelTile extends ConsumerWidget {
                           _channelDisplayName(),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: AppTypography.bodyMediumStyle.copyWith(
+                          style: AppTypography.sidebarTitleStyle.copyWith(
                             color: selected
                                 ? theme.textPrimary
                                 : theme.textSecondary,
@@ -343,9 +343,8 @@ class _ChannelTile extends ConsumerWidget {
                             channel.description,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: AppTypography.bodySmallStyle.copyWith(
-                              color: theme.textSecondary,
-                            ),
+                            style: AppTypography.sidebarSupportingStyle
+                                .copyWith(color: theme.textSecondary),
                           ),
                         ],
                       ],
@@ -364,9 +363,8 @@ class _ChannelTile extends ConsumerWidget {
                       ),
                       child: Text(
                         unread > 99 ? '99+' : '$unread',
-                        style: TextStyle(
+                        style: AppTypography.sidebarBadgeStyle.copyWith(
                           color: Theme.of(context).colorScheme.onPrimary,
-                          fontSize: 12,
                           fontWeight: FontWeight.w600,
                         ),
                       ),

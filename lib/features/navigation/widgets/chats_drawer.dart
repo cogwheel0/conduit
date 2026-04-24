@@ -989,7 +989,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           ),
           child: Text(
             '$count',
-            style: AppTypography.tiny.copyWith(
+            style: AppTypography.sidebarBadgeStyle.copyWith(
               color: sidebarTheme.foreground.withValues(alpha: 0.8),
               decoration: TextDecoration.none,
             ),
@@ -1292,10 +1292,11 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
                                       name,
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
-                                      style: AppTypography.standard.copyWith(
-                                        color: theme.textPrimary,
-                                        fontWeight: FontWeight.w400,
-                                      ),
+                                      style: AppTypography.sidebarTitleStyle
+                                          .copyWith(
+                                            color: theme.textPrimary,
+                                            fontWeight: FontWeight.w400,
+                                          ),
                                     ),
                                   ),
                                   const SizedBox(width: Spacing.xs),
@@ -1318,11 +1319,14 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
                                     ),
                                     child: Text(
                                       '$itemCount',
-                                      style: AppTypography.tiny.copyWith(
-                                        color: context.sidebarTheme.foreground
-                                            .withValues(alpha: 0.8),
-                                        decoration: TextDecoration.none,
-                                      ),
+                                      style: AppTypography.sidebarBadgeStyle
+                                          .copyWith(
+                                            color: context
+                                                .sidebarTheme
+                                                .foreground
+                                                .withValues(alpha: 0.8),
+                                            decoration: TextDecoration.none,
+                                          ),
                                     ),
                                   ),
                                 ],
@@ -1758,7 +1762,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
             Expanded(
               child: Text(
                 'Drop here to move to top level',
-                style: AppTypography.bodySmallStyle.copyWith(
+                style: AppTypography.sidebarSupportingStyle.copyWith(
                   color: theme.textPrimary,
                   fontWeight: FontWeight.w500,
                 ),
@@ -1925,7 +1929,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
                         AppLocalizations.of(context)!.archived,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: AppTypography.standard.copyWith(
+                        style: AppTypography.sidebarTitleStyle.copyWith(
                           color: theme.textPrimary,
                           fontWeight: FontWeight.w400,
                         ),
@@ -1934,7 +1938,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
                     const SizedBox(width: Spacing.sm),
                     Text(
                       '$count',
-                      style: AppTypography.standard.copyWith(
+                      style: AppTypography.sidebarSupportingStyle.copyWith(
                         color: theme.textSecondary,
                       ),
                     ),
@@ -2066,7 +2070,7 @@ class _FolderDragFeedback extends StatelessWidget {
                 name,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: AppTypography.standard.copyWith(
+                style: AppTypography.sidebarTitleStyle.copyWith(
                   color: theme.textPrimary,
                   fontWeight: FontWeight.w500,
                 ),

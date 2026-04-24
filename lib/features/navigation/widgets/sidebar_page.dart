@@ -116,7 +116,7 @@ class _SidebarPillTabBar extends StatelessWidget {
                                 child: Center(
                                   child: Text(
                                     tabDefinitions[i].label,
-                                    style: AppTypography.bodySmallStyle
+                                    style: AppTypography.sidebarLabelStyle
                                         .copyWith(
                                           fontWeight: isActive
                                               ? FontWeight.w600

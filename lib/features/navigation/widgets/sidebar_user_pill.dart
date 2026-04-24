@@ -145,7 +145,7 @@ class _SidebarUserPill extends StatelessWidget {
                 displayName,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: AppTypography.bodySmallStyle.copyWith(
+                style: AppTypography.sidebarLabelStyle.copyWith(
                   color: conduitTheme.textPrimary,
                   fontWeight: FontWeight.w600,
                   decoration: TextDecoration.none,
