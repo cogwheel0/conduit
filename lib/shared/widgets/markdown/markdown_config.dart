@@ -17,6 +17,7 @@ import '../web_content_embed.dart';
 import '../webview_content_height.dart';
 import '../../theme/color_tokens.dart';
 import '../../theme/theme_extensions.dart';
+import 'renderer/markdown_style.dart';
 import 'package:conduit/core/network/self_signed_image_cache_manager.dart';
 import 'package:conduit/core/network/image_header_utils.dart';
 
@@ -39,6 +40,7 @@ class ConduitMarkdown {
     VoidCallback? onPreview,
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final markdownStyle = ConduitMarkdownStyle.fromTheme(context);
     final normalizedLanguage = language.trim().isEmpty
         ? 'plaintext'
         : language.trim();
@@ -103,11 +105,7 @@ class ConduitMarkdown {
             code: code,
             highlightLanguage: highlightLanguage,
             highlightTheme: highlightTheme,
-            codeStyle: AppTypography.codeStyle.copyWith(
-              fontFamily: AppTypography.monospaceFontFamily,
-              fontSize: 13,
-              height: 1.55,
-            ),
+            codeStyle: markdownStyle.codeBlock,
             isDark: isDark,
           ),
         ],
@@ -134,6 +132,7 @@ class ConduitMarkdown {
     required String language,
   }) {
     final theme = context.conduitTheme;
+    final markdownStyle = ConduitMarkdownStyle.fromTheme(context);
     final previewLabel = _previewTitleForLanguage(language);
 
     return Container(
@@ -152,11 +151,9 @@ class ConduitMarkdown {
         children: [
           Text(
             previewLabel,
-            style: AppTypography.codeStyle.copyWith(
+            style: markdownStyle.codeChrome.copyWith(
               color: theme.textSecondary,
-              fontSize: 11,
               fontWeight: FontWeight.w600,
-              letterSpacing: 0.35,
             ),
           ),
           const SizedBox(height: Spacing.xs),
@@ -184,6 +181,7 @@ class ConduitMarkdown {
         ),
       ),
       builder: (sheetContext) {
+        final markdownStyle = ConduitMarkdownStyle.fromTheme(sheetContext);
         return SafeArea(
           child: FractionallySizedBox(
             heightFactor: 0.9,
@@ -219,11 +217,7 @@ class ConduitMarkdown {
                         child: Text(
                           title,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: AppTypography.bodyLarge,
-                            fontWeight: FontWeight.w600,
-                            color: theme.textPrimary,
-                          ),
+                          style: markdownStyle.sheetTitle,
                         ),
                       ),
                       IconButton(
@@ -460,9 +454,8 @@ class ConduitMarkdown {
     required String code,
   }) {
     final l10n = AppLocalizations.of(context);
-    final textStyle = AppTypography.bodySmallStyle.copyWith(
-      color: conduitTheme.codeText.withValues(alpha: 0.7),
-    );
+    final markdownStyle = ConduitMarkdownStyle.fromTheme(context);
+    final textStyle = _unsupportedPreviewTextStyle(markdownStyle, conduitTheme);
 
     return Container(
       margin: const EdgeInsets.symmetric(vertical: Spacing.sm),
@@ -491,7 +484,7 @@ class ConduitMarkdown {
             textAlign: TextAlign.left,
             textDirection: TextDirection.ltr,
             textWidthBasis: TextWidthBasis.parent,
-            style: AppTypography.codeStyle.copyWith(
+            style: markdownStyle.detailCode.copyWith(
               color: conduitTheme.codeText,
             ),
           ),
@@ -570,9 +563,8 @@ class ConduitMarkdown {
     required ConduitThemeExtension conduitTheme,
   }) {
     final l10n = AppLocalizations.of(context);
-    final textStyle = AppTypography.bodySmallStyle.copyWith(
-      color: conduitTheme.codeText.withValues(alpha: 0.7),
-    );
+    final markdownStyle = ConduitMarkdownStyle.fromTheme(context);
+    final textStyle = _unsupportedPreviewTextStyle(markdownStyle, conduitTheme);
 
     return Container(
       margin: const EdgeInsets.symmetric(vertical: Spacing.sm),
@@ -590,6 +582,15 @@ class ConduitMarkdown {
             'Chart preview is not available on this platform.',
         style: textStyle,
       ),
+    );
+  }
+
+  static TextStyle _unsupportedPreviewTextStyle(
+    ConduitMarkdownStyle markdownStyle,
+    ConduitThemeExtension conduitTheme,
+  ) {
+    return markdownStyle.detailAction.copyWith(
+      color: conduitTheme.codeText.withValues(alpha: 0.7),
     );
   }
 }
@@ -688,6 +689,7 @@ class _CollapseToggle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final markdownStyle = ConduitMarkdownStyle.fromTheme(context);
     final labelColor = isDark
         ? const Color(0xFF9DA5B4)
         : const Color(0xFF57606A);
@@ -729,9 +731,8 @@ class _CollapseToggle extends StatelessWidget {
               child: Text(
                 isCollapsed ? 'Show $hiddenLineCount more lines' : 'Show less',
                 key: ValueKey(isCollapsed),
-                style: AppTypography.codeStyle.copyWith(
+                style: markdownStyle.codeChrome.copyWith(
                   color: labelColor,
-                  fontSize: 12,
                   fontWeight: FontWeight.w500,
                 ),
               ),
@@ -781,6 +782,7 @@ class _CodeBlockHeaderState extends State<CodeBlockHeader> {
 
   @override
   Widget build(BuildContext context) {
+    final markdownStyle = ConduitMarkdownStyle.fromTheme(context);
     final label = widget.language.isEmpty ? 'plaintext' : widget.language;
 
     // Colors derived from the code block theme for consistency
@@ -822,11 +824,9 @@ class _CodeBlockHeaderState extends State<CodeBlockHeader> {
           // Language label
           Text(
             label,
-            style: AppTypography.codeStyle.copyWith(
+            style: markdownStyle.codeChrome.copyWith(
               color: labelColor,
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-              letterSpacing: 0.3,
+              fontWeight: FontWeight.w600,
             ),
           ),
           const Spacer(),
@@ -878,9 +878,8 @@ class _CodeBlockHeaderState extends State<CodeBlockHeader> {
                         opacity: 1.0,
                         child: Text(
                           _isCopied ? 'Copied!' : 'Copy',
-                          style: AppTypography.codeStyle.copyWith(
+                          style: markdownStyle.codeChrome.copyWith(
                             color: _isCopied ? successColor : iconColor,
-                            fontSize: 11,
                             fontWeight: FontWeight.w500,
                           ),
                         ),
@@ -931,6 +930,7 @@ class _CodeBlockActionButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final markdownStyle = ConduitMarkdownStyle.fromTheme(context);
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
@@ -949,9 +949,8 @@ class _CodeBlockActionButton extends StatelessWidget {
             const SizedBox(width: Spacing.xs),
             Text(
               label,
-              style: AppTypography.codeStyle.copyWith(
+              style: markdownStyle.codeChrome.copyWith(
                 color: color,
-                fontSize: 11,
                 fontWeight: FontWeight.w500,
               ),
             ),

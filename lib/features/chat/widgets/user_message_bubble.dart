@@ -1,23 +1,25 @@
+import 'dart:io' show Platform;
+import 'dart:math' as math;
+
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:conduit/core/services/haptic_service.dart';
+import 'package:conduit/l10n/app_localizations.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../../core/providers/app_providers.dart';
+import '../../../core/services/navigation_service.dart';
+import '../../../shared/services/tasks/task_queue.dart';
 import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
-import 'enhanced_image_attachment.dart';
-import 'enhanced_attachment.dart';
-
-import 'package:flutter/cupertino.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'dart:io' show Platform;
-import 'package:conduit/l10n/app_localizations.dart';
-import 'package:conduit/core/services/haptic_service.dart';
-import '../../../core/providers/app_providers.dart';
-import '../providers/chat_providers.dart';
-import '../utils/message_targeting.dart';
-import '../../../shared/services/tasks/task_queue.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../tools/providers/tools_providers.dart';
+import '../providers/chat_providers.dart';
 import '../utils/file_utils.dart';
-import '../../../core/services/navigation_service.dart';
+import '../utils/message_targeting.dart';
+import 'enhanced_attachment.dart';
+import 'enhanced_image_attachment.dart';
 
 // Pre-compiled regex for extracting file IDs from URLs (performance optimization)
 // Handles both /api/v1/files/{id} and /api/v1/files/{id}/content formats
@@ -52,10 +54,11 @@ class UserMessageBubble extends ConsumerStatefulWidget {
 }
 
 class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
+  static const Key _bubbleSurfaceKey = Key('user-message-bubble-surface');
+
   bool _isEditing = false;
   late final TextEditingController _editController;
   final FocusNode _editFocusNode = FocusNode();
-  final GlobalKey _bubbleKey = GlobalKey();
 
   @override
   void initState() {
@@ -585,6 +588,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
   }
 
   Widget _buildUserMessage() {
+    final theme = context.conduitTheme;
     final hasImages =
         widget.message.attachmentIds != null &&
         widget.message.attachmentIds!.isNotEmpty;
@@ -596,24 +600,27 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
               f is Map && (f['url'] != null || _isRenderableNoteAttachment(f)),
         );
     // Prefer input/textPrimary colors during inline editing to avoid low contrast
-    final inlineEditTextColor = context.conduitTheme.textPrimary;
-    final inlineEditFill = context.conduitTheme.surfaceContainer.withValues(
-      alpha: 0.92,
+    final inlineEditTextColor = theme.textPrimary;
+    final inlineEditFill = theme.surfaceContainer.withValues(alpha: 0.92);
+    final bubbleMaxWidth = math.min(
+      MediaQuery.sizeOf(context).width * 0.78,
+      640.0,
     );
-    // Use rounded rectangle for multiline, pill for single-line (like chat input)
-    // Consider multiline if text exceeds ~50 chars or contains newlines
-    // Check length first (O(1)) to short-circuit before scanning for newlines
-    final content = widget.message.content;
-    final isMultiline = content.length > 50 || content.contains('\n');
-    final bubbleRadius = isMultiline
-        ? AppBorderRadius.xl
-        : AppBorderRadius.pill;
+    final bubbleBorderColor = theme.chatBubbleUserText.withValues(
+      alpha: theme.isDark ? 0.16 : 0.08,
+    );
+    const bubbleBorderRadius = BorderRadius.only(
+      topLeft: Radius.circular(AppBorderRadius.chatBubble),
+      topRight: Radius.circular(AppBorderRadius.chatBubble),
+      bottomLeft: Radius.circular(AppBorderRadius.chatBubble),
+      bottomRight: Radius.circular(AppBorderRadius.md),
+    );
 
     return ConduitContextMenu(
       actions: _buildMessageActions(context),
       child: Container(
         width: double.infinity,
-        margin: const EdgeInsets.only(bottom: Spacing.md, left: Spacing.xxxl),
+        margin: const EdgeInsets.only(bottom: Spacing.md, left: Spacing.xxl),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
@@ -633,18 +640,17 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
                 children: [
                   Flexible(
                     child: ConstrainedBox(
-                      constraints: BoxConstraints(
-                        maxWidth: MediaQuery.of(context).size.width * 0.82,
-                      ),
+                      constraints: BoxConstraints(maxWidth: bubbleMaxWidth),
                       child: Container(
-                        key: _bubbleKey,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: Spacing.md,
-                          vertical: Spacing.md,
-                        ),
+                        key: _bubbleSurfaceKey,
+                        padding: const EdgeInsets.all(Spacing.sm + Spacing.xs),
                         decoration: BoxDecoration(
-                          color: context.conduitTheme.chatBubbleUser,
-                          borderRadius: BorderRadius.circular(bubbleRadius),
+                          color: theme.chatBubbleUser,
+                          borderRadius: bubbleBorderRadius,
+                          border: Border.all(
+                            color: bubbleBorderColor,
+                            width: BorderWidth.thin,
+                          ),
                         ),
                         child: _isEditing
                             ? Focus(
@@ -657,9 +663,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
                                       AppBorderRadius.small,
                                     ),
                                     border: Border.all(
-                                      color: context
-                                          .conduitTheme
-                                          .inputBorderFocused
+                                      color: theme.inputBorderFocused
                                           .withValues(alpha: 0.5),
                                       width: BorderWidth.thin,
                                     ),
@@ -691,11 +695,11 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
                             : Text(
                                 widget.message.content,
                                 style: AppTypography.chatMessageStyle.copyWith(
-                                  color:
-                                      context.conduitTheme.chatBubbleUserText,
+                                  color: theme.chatBubbleUserText,
                                 ),
                                 softWrap: true,
                                 textAlign: TextAlign.left,
+                                textWidthBasis: TextWidthBasis.longestLine,
                                 textHeightBehavior: const TextHeightBehavior(
                                   applyHeightToFirstAscent: false,
                                   applyHeightToLastDescent: false,

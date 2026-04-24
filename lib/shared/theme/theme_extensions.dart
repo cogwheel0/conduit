@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 // Using system fonts; no GoogleFonts dependency required
 import 'tweakcn_themes.dart';
@@ -187,70 +188,40 @@ class ConduitThemeExtension extends ThemeExtension<ConduitThemeExtension> {
   Color get sidebarBorder => variant.sidebarBorder;
   Color get sidebarRing => variant.sidebarRing;
 
-  TextStyle? get headingLarge => TextStyle(
-    fontSize: AppTypography.displaySmall,
-    fontWeight: FontWeight.w700,
-    color: tokens.neutralOnSurface,
-    height: 1.2,
-  );
+  TextStyle? get headingLarge =>
+      AppTypography.displaySmallStyle.copyWith(color: tokens.neutralOnSurface);
 
-  TextStyle? get headingMedium => TextStyle(
-    fontSize: AppTypography.headlineLarge,
-    fontWeight: FontWeight.w600,
-    color: tokens.neutralOnSurface,
-    height: 1.3,
-  );
+  TextStyle? get headingMedium =>
+      AppTypography.headlineLargeStyle.copyWith(color: tokens.neutralOnSurface);
 
-  TextStyle? get headingSmall => TextStyle(
-    fontSize: AppTypography.headlineSmall,
-    fontWeight: FontWeight.w600,
-    color: tokens.neutralOnSurface,
-    height: 1.4,
-  );
+  TextStyle? get headingSmall =>
+      AppTypography.headlineSmallStyle.copyWith(color: tokens.neutralOnSurface);
 
-  TextStyle? get bodyLarge => TextStyle(
-    fontSize: AppTypography.bodyLarge,
-    fontWeight: FontWeight.w400,
-    color: tokens.neutralOnSurface,
-    height: 1.5,
-  );
+  TextStyle? get bodyLarge =>
+      AppTypography.bodyLargeStyle.copyWith(color: tokens.neutralOnSurface);
 
-  TextStyle? get bodyMedium => TextStyle(
-    fontSize: AppTypography.bodyMedium,
-    fontWeight: FontWeight.w400,
-    color: tokens.neutralOnSurface,
-    height: 1.5,
-  );
+  TextStyle? get bodyMedium =>
+      AppTypography.bodyMediumStyle.copyWith(color: tokens.neutralOnSurface);
 
-  TextStyle? get bodySmall => TextStyle(
-    fontSize: AppTypography.bodySmall,
-    fontWeight: FontWeight.w400,
+  TextStyle? get bodySmall => AppTypography.bodySmallStyle.copyWith(
     color: isDark ? tokens.neutralTone80 : tokens.neutralTone60,
-    height: 1.4,
   );
 
-  TextStyle? get caption => TextStyle(
-    fontSize: AppTypography.labelMedium,
-    fontWeight: FontWeight.w500,
+  TextStyle? get caption => AppTypography.labelSmallStyle.copyWith(
     color: isDark ? tokens.neutralTone80 : tokens.neutralTone60,
-    height: 1.3,
-    letterSpacing: 0.5,
   );
 
-  TextStyle? get label => TextStyle(
-    fontSize: AppTypography.labelLarge,
-    fontWeight: FontWeight.w500,
-    color: tokens.neutralTone80,
-    height: 1.3,
-  );
+  TextStyle? get label =>
+      AppTypography.labelStyle.copyWith(color: tokens.neutralTone80);
 
-  TextStyle? get code => TextStyle(
-    fontSize: AppTypography.bodySmall,
-    fontWeight: FontWeight.w400,
+  TextStyle? get code => AppTypography.codeStyle.copyWith(
     color: tokens.neutralOnSurface,
-    height: 1.4,
-    fontFamily: typography.monospaceFont,
-    fontFamilyFallback: typography.monospaceFallback,
+    fontFamily: typography.monospaceFont.isEmpty
+        ? AppTypography.monospaceFontFamily
+        : typography.monospaceFont,
+    fontFamilyFallback: typography.monospaceFallback.isEmpty
+        ? null
+        : typography.monospaceFallback,
   );
 
   @override
@@ -840,8 +811,7 @@ String _preferredFont(List<String> stack) => '';
 
 /// Returns an empty fallback list — the platform system
 /// font handles all glyph coverage including emoji.
-List<String> _fallbackForStack(List<String> stack) =>
-    const <String>[];
+List<String> _fallbackForStack(List<String> stack) => const <String>[];
 
 /// Consistent spacing values - Enhanced for production with better hierarchy
 class Spacing {
@@ -1133,165 +1103,427 @@ class ConduitShadows {
   }
 }
 
-/// Typography scale following Conduit design tokens - Enhanced for production
+@immutable
+class _AppTypographyScale {
+  const _AppTypographyScale({
+    required this.displayLargeStyle,
+    required this.displayMediumStyle,
+    required this.displaySmallStyle,
+    required this.headlineLargeStyle,
+    required this.headlineMediumStyle,
+    required this.headlineSmallStyle,
+    required this.titleLargeStyle,
+    required this.titleMediumStyle,
+    required this.titleSmallStyle,
+    required this.bodyLargeStyle,
+    required this.bodyMediumStyle,
+    required this.bodySmallStyle,
+    required this.labelLargeStyle,
+    required this.labelMediumStyle,
+    required this.labelSmallStyle,
+    required this.codeStyle,
+    required this.microStyle,
+    required this.inputVerticalPadding,
+    required this.compactInputVerticalPadding,
+    required this.borderlessInputVerticalPadding,
+    required this.chipHorizontalPadding,
+    required this.chipVerticalPadding,
+    required this.badgeHorizontalPadding,
+    required this.badgeVerticalPadding,
+    required this.badgeLargeSize,
+    required this.badgeSmallSize,
+  });
+
+  final TextStyle displayLargeStyle;
+  final TextStyle displayMediumStyle;
+  final TextStyle displaySmallStyle;
+  final TextStyle headlineLargeStyle;
+  final TextStyle headlineMediumStyle;
+  final TextStyle headlineSmallStyle;
+  final TextStyle titleLargeStyle;
+  final TextStyle titleMediumStyle;
+  final TextStyle titleSmallStyle;
+  final TextStyle bodyLargeStyle;
+  final TextStyle bodyMediumStyle;
+  final TextStyle bodySmallStyle;
+  final TextStyle labelLargeStyle;
+  final TextStyle labelMediumStyle;
+  final TextStyle labelSmallStyle;
+  final TextStyle codeStyle;
+  final TextStyle microStyle;
+  final double inputVerticalPadding;
+  final double compactInputVerticalPadding;
+  final double borderlessInputVerticalPadding;
+  final double chipHorizontalPadding;
+  final double chipVerticalPadding;
+  final double badgeHorizontalPadding;
+  final double badgeVerticalPadding;
+  final double badgeLargeSize;
+  final double badgeSmallSize;
+
+  TextTheme textTheme({
+    required Color primary,
+    required Color secondary,
+    required Color tertiary,
+  }) {
+    return TextTheme(
+      displayLarge: displayLargeStyle.copyWith(color: primary),
+      displayMedium: displayMediumStyle.copyWith(color: primary),
+      displaySmall: displaySmallStyle.copyWith(color: primary),
+      headlineLarge: headlineLargeStyle.copyWith(color: primary),
+      headlineMedium: headlineMediumStyle.copyWith(color: primary),
+      headlineSmall: headlineSmallStyle.copyWith(color: primary),
+      titleLarge: titleLargeStyle.copyWith(color: primary),
+      titleMedium: titleMediumStyle.copyWith(color: primary),
+      titleSmall: titleSmallStyle.copyWith(color: secondary),
+      bodyLarge: bodyLargeStyle.copyWith(color: primary),
+      bodyMedium: bodyMediumStyle.copyWith(color: primary),
+      bodySmall: bodySmallStyle.copyWith(color: secondary),
+      labelLarge: labelLargeStyle.copyWith(color: primary),
+      labelMedium: labelMediumStyle.copyWith(color: secondary),
+      labelSmall: labelSmallStyle.copyWith(color: tertiary),
+    );
+  }
+}
+
+bool _usesAppleTypographyRamp(TargetPlatform platform) {
+  return switch (platform) {
+    TargetPlatform.iOS || TargetPlatform.macOS => true,
+    _ => false,
+  };
+}
+
+/// Typography scale that follows the current platform convention:
+/// Cupertino/HIG on Apple platforms and Material 3 elsewhere.
 class AppTypography {
-  // Primary UI font now uses the platform default system font
+  // Primary UI font uses the platform default system font.
   static const String fontFamily = '';
   static const String monospaceFontFamily = 'monospace';
 
-  // Letter spacing values - Enhanced for better readability
-  static const double letterSpacingTight = -0.5;
+  // These semantic spacing values are used in a few custom layouts.
+  static const double letterSpacingTight = -0.1;
   static const double letterSpacingNormal = 0.0;
-  static const double letterSpacingWide = 0.5;
-  static const double letterSpacingExtraWide = 1.0;
+  static const double letterSpacingWide = 0.1;
+  static const double letterSpacingExtraWide = 0.2;
 
-  // Font sizes - Enhanced scale for better hierarchy
-  static const double displayLarge = 48;
-  static const double displayMedium = 36;
-  static const double displaySmall = 32;
-  static const double headlineLarge = 28;
-  static const double headlineMedium = 24;
-  static const double headlineSmall = 20;
-  static const double bodyLarge = 18;
-  static const double bodyMedium = 16;
-  static const double bodySmall = 14;
-  static const double labelLarge = 16;
-  static const double labelMedium = 14;
-  static const double labelSmall = 12;
+  static _AppTypographyScale get _scale =>
+      _usesAppleTypographyRamp(defaultTargetPlatform)
+      ? _appleScale
+      : _materialScale;
 
-  // Text styles following Conduit design - Enhanced for production
-  static final TextStyle displayLargeStyle = const TextStyle(
-    fontWeight: FontWeight.w700,
-    letterSpacing: -0.8,
-    height: 1.1,
-  ).copyWith(fontSize: displayLarge);
+  static bool get usesAppleRamp =>
+      _usesAppleTypographyRamp(defaultTargetPlatform);
 
-  static final TextStyle displayMediumStyle = const TextStyle(
-    fontWeight: FontWeight.w700,
-    letterSpacing: -0.6,
-    height: 1.2,
-  ).copyWith(fontSize: displayMedium);
+  static double get displayLarge => displayLargeStyle.fontSize!;
+  static double get displayMedium => displayMediumStyle.fontSize!;
+  static double get displaySmall => displaySmallStyle.fontSize!;
+  static double get headlineLarge => headlineLargeStyle.fontSize!;
+  static double get headlineMedium => headlineMediumStyle.fontSize!;
+  static double get headlineSmall => headlineSmallStyle.fontSize!;
+  static double get titleLarge => titleLargeStyle.fontSize!;
+  static double get titleMedium => titleMediumStyle.fontSize!;
+  static double get titleSmall => titleSmallStyle.fontSize!;
+  static double get bodyLarge => bodyLargeStyle.fontSize!;
+  static double get bodyMedium => bodyMediumStyle.fontSize!;
+  static double get bodySmall => bodySmallStyle.fontSize!;
+  static double get labelLarge => labelStyle.fontSize!;
+  static double get labelMedium => labelMediumStyle.fontSize!;
+  static double get labelSmall => labelSmallStyle.fontSize!;
 
-  static final TextStyle bodyLargeStyle = const TextStyle(
-    fontWeight: FontWeight.w400,
-    letterSpacing: 0,
-    height: 1.6,
-  ).copyWith(fontSize: bodyLarge);
+  static TextStyle get displayLargeStyle => _scale.displayLargeStyle;
+  static TextStyle get displayMediumStyle => _scale.displayMediumStyle;
+  static TextStyle get displaySmallStyle => _scale.displaySmallStyle;
+  static TextStyle get headlineLargeStyle => _scale.headlineLargeStyle;
+  static TextStyle get headlineMediumStyle => _scale.headlineMediumStyle;
+  static TextStyle get headlineSmallStyle => _scale.headlineSmallStyle;
+  static TextStyle get titleLargeStyle => _scale.titleLargeStyle;
+  static TextStyle get titleMediumStyle => _scale.titleMediumStyle;
+  static TextStyle get titleSmallStyle => _scale.titleSmallStyle;
+  static TextStyle get bodyLargeStyle => _scale.bodyLargeStyle;
+  static TextStyle get bodyMediumStyle => _scale.bodyMediumStyle;
+  static TextStyle get bodySmallStyle => _scale.bodySmallStyle;
 
-  static final TextStyle bodyMediumStyle = const TextStyle(
-    fontWeight: FontWeight.w400,
-    letterSpacing: 0,
-    height: 1.6,
-  ).copyWith(fontSize: bodyMedium);
+  static TextStyle get codeStyle => _scale.codeStyle;
 
-  static final TextStyle codeStyle = const TextStyle(
-    fontWeight: FontWeight.w400,
-    letterSpacing: 0,
-    height: 1.5,
-    fontFamily: monospaceFontFamily,
-  ).copyWith(fontSize: bodySmall);
+  static TextStyle get chatMessageStyle => bodyLargeStyle;
 
-  // Additional styled text getters for convenience - Enhanced
-  static TextStyle get headlineLargeStyle => const TextStyle(
-    fontWeight: FontWeight.w700,
-    letterSpacing: -0.4,
-    height: 1.3,
-  ).copyWith(fontSize: headlineLarge);
+  static TextStyle get chatCodeStyle => codeStyle;
 
-  static TextStyle get headlineMediumStyle => const TextStyle(
-    fontWeight: FontWeight.w600,
-    letterSpacing: -0.2,
-    height: 1.3,
-  ).copyWith(fontSize: headlineMedium);
+  static TextStyle get labelStyle => _scale.labelLargeStyle;
 
-  static TextStyle get headlineSmallStyle => const TextStyle(
-    fontWeight: FontWeight.w600,
-    letterSpacing: 0,
-    height: 1.4,
-  ).copyWith(fontSize: headlineSmall);
+  static TextStyle get labelMediumStyle => _scale.labelMediumStyle;
 
-  static TextStyle get bodySmallStyle => const TextStyle(
-    fontWeight: FontWeight.w400,
-    letterSpacing: 0,
-    height: 1.5,
-  ).copyWith(fontSize: bodySmall);
+  static TextStyle get labelSmallStyle => _scale.labelSmallStyle;
 
-  // Enhanced text styles for chat messages
-  static TextStyle get chatMessageStyle => const TextStyle(
-    fontWeight: FontWeight.w400,
-    letterSpacing: 0.0,
-    height: 1.4,
-  ).copyWith(fontSize: bodyMedium);
+  static TextStyle get captionStyle => labelSmallStyle;
 
-  static TextStyle get chatCodeStyle => const TextStyle(
-    fontWeight: FontWeight.w400,
-    letterSpacing: 0,
-    height: 1.5,
-    fontFamily: monospaceFontFamily,
-  ).copyWith(fontSize: bodySmall);
+  static TextStyle get micro => _scale.microStyle;
 
-  // Enhanced label styles
-  static TextStyle get labelStyle => const TextStyle(
-    fontWeight: FontWeight.w500,
-    letterSpacing: 0.2,
-    height: 1.4,
-  ).copyWith(fontSize: labelMedium);
+  static TextStyle get tiny => labelSmallStyle;
 
-  // Enhanced caption styles
-  static TextStyle get captionStyle => const TextStyle(
-    fontWeight: FontWeight.w500,
-    letterSpacing: 0.5,
-    height: 1.3,
-  ).copyWith(fontSize: labelSmall);
+  static TextStyle get small => bodySmallStyle;
 
-  // Enhanced typography for better hierarchy
-  static TextStyle get micro => const TextStyle(
-    fontWeight: FontWeight.w400,
-    letterSpacing: 0.1,
-    height: 1.4,
-  ).copyWith(fontSize: 10);
+  static TextStyle get standard => bodyMediumStyle;
 
-  static TextStyle get tiny => const TextStyle(
-    fontWeight: FontWeight.w400,
-    letterSpacing: 0.1,
-    height: 1.4,
-  ).copyWith(fontSize: 12);
+  static TextStyle get large => bodyLargeStyle;
 
-  static TextStyle get small => const TextStyle(
-    fontWeight: FontWeight.w400,
-    letterSpacing: 0,
-    height: 1.5,
-  ).copyWith(fontSize: 14);
+  static TextStyle get extraLarge => titleLargeStyle;
 
-  static TextStyle get standard => const TextStyle(
-    fontWeight: FontWeight.w400,
-    letterSpacing: 0,
-    height: 1.6,
-  ).copyWith(fontSize: 16);
+  static TextStyle get huge => headlineLargeStyle;
 
-  static TextStyle get large => const TextStyle(
-    fontWeight: FontWeight.w400,
-    letterSpacing: 0,
-    height: 1.6,
-  ).copyWith(fontSize: 18);
+  static TextStyle get massive => displaySmallStyle;
 
-  static TextStyle get extraLarge => const TextStyle(
-    fontWeight: FontWeight.w400,
-    letterSpacing: 0,
-    height: 1.5,
-  ).copyWith(fontSize: 20);
+  static double get inputVerticalPadding => _scale.inputVerticalPadding;
+  static double get compactInputVerticalPadding =>
+      _scale.compactInputVerticalPadding;
+  static double get borderlessInputVerticalPadding =>
+      _scale.borderlessInputVerticalPadding;
+  static double get chipHorizontalPadding => _scale.chipHorizontalPadding;
+  static double get chipVerticalPadding => _scale.chipVerticalPadding;
+  static double get badgeHorizontalPadding => _scale.badgeHorizontalPadding;
+  static double get badgeVerticalPadding => _scale.badgeVerticalPadding;
+  static double get badgeLargeSize => _scale.badgeLargeSize;
+  static double get badgeSmallSize => _scale.badgeSmallSize;
 
-  static TextStyle get huge => const TextStyle(
-    fontWeight: FontWeight.w600,
-    letterSpacing: -0.2,
-    height: 1.3,
-  ).copyWith(fontSize: 24);
+  static TextTheme textTheme({
+    required Color primary,
+    required Color secondary,
+    required Color tertiary,
+  }) => _scale.textTheme(
+    primary: primary,
+    secondary: secondary,
+    tertiary: tertiary,
+  );
 
-  static TextStyle get massive => const TextStyle(
-    fontWeight: FontWeight.w700,
-    letterSpacing: -0.4,
-    height: 1.2,
-  ).copyWith(fontSize: 32);
+  static const _AppTypographyScale _materialScale = _AppTypographyScale(
+    displayLargeStyle: TextStyle(
+      fontSize: 57,
+      fontWeight: FontWeight.w400,
+      letterSpacing: -0.25,
+      height: 1.12,
+    ),
+    displayMediumStyle: TextStyle(
+      fontSize: 45,
+      fontWeight: FontWeight.w400,
+      letterSpacing: 0,
+      height: 1.16,
+    ),
+    displaySmallStyle: TextStyle(
+      fontSize: 36,
+      fontWeight: FontWeight.w400,
+      letterSpacing: 0,
+      height: 1.22,
+    ),
+    headlineLargeStyle: TextStyle(
+      fontSize: 32,
+      fontWeight: FontWeight.w400,
+      letterSpacing: 0,
+      height: 1.25,
+    ),
+    headlineMediumStyle: TextStyle(
+      fontSize: 28,
+      fontWeight: FontWeight.w400,
+      letterSpacing: 0,
+      height: 1.29,
+    ),
+    headlineSmallStyle: TextStyle(
+      fontSize: 24,
+      fontWeight: FontWeight.w400,
+      letterSpacing: 0,
+      height: 1.33,
+    ),
+    titleLargeStyle: TextStyle(
+      fontSize: 22,
+      fontWeight: FontWeight.w400,
+      letterSpacing: 0,
+      height: 1.27,
+    ),
+    titleMediumStyle: TextStyle(
+      fontSize: 16,
+      fontWeight: FontWeight.w500,
+      letterSpacing: 0.15,
+      height: 1.5,
+    ),
+    titleSmallStyle: TextStyle(
+      fontSize: 14,
+      fontWeight: FontWeight.w500,
+      letterSpacing: 0.1,
+      height: 1.43,
+    ),
+    bodyLargeStyle: TextStyle(
+      fontSize: 16,
+      fontWeight: FontWeight.w400,
+      letterSpacing: 0.5,
+      height: 1.5,
+    ),
+    bodyMediumStyle: TextStyle(
+      fontSize: 14,
+      fontWeight: FontWeight.w400,
+      letterSpacing: 0.25,
+      height: 1.43,
+    ),
+    bodySmallStyle: TextStyle(
+      fontSize: 12,
+      fontWeight: FontWeight.w400,
+      letterSpacing: 0.4,
+      height: 1.33,
+    ),
+    labelLargeStyle: TextStyle(
+      fontSize: 14,
+      fontWeight: FontWeight.w500,
+      letterSpacing: 0.1,
+      height: 1.43,
+    ),
+    labelMediumStyle: TextStyle(
+      fontSize: 12,
+      fontWeight: FontWeight.w500,
+      letterSpacing: 0.5,
+      height: 1.33,
+    ),
+    labelSmallStyle: TextStyle(
+      fontSize: 11,
+      fontWeight: FontWeight.w500,
+      letterSpacing: 0.5,
+      height: 1.45,
+    ),
+    codeStyle: TextStyle(
+      fontSize: 12,
+      fontWeight: FontWeight.w400,
+      letterSpacing: 0,
+      height: 1.4,
+      fontFamily: monospaceFontFamily,
+    ),
+    microStyle: TextStyle(
+      fontSize: 10,
+      fontWeight: FontWeight.w500,
+      letterSpacing: 0.5,
+      height: 1.4,
+    ),
+    inputVerticalPadding: 14,
+    compactInputVerticalPadding: 10,
+    borderlessInputVerticalPadding: 8,
+    chipHorizontalPadding: Spacing.sm,
+    chipVerticalPadding: Spacing.xs,
+    badgeHorizontalPadding: Spacing.xs,
+    badgeVerticalPadding: Spacing.xxs,
+    badgeLargeSize: 24,
+    badgeSmallSize: 18,
+  );
+
+  static const _AppTypographyScale _appleScale = _AppTypographyScale(
+    displayLargeStyle: TextStyle(
+      fontSize: 34,
+      fontWeight: FontWeight.w700,
+      letterSpacing: 0.38,
+      height: 1.21,
+    ),
+    displayMediumStyle: TextStyle(
+      fontSize: 28,
+      fontWeight: FontWeight.w400,
+      letterSpacing: 0,
+      height: 1.21,
+    ),
+    displaySmallStyle: TextStyle(
+      fontSize: 24,
+      fontWeight: FontWeight.w600,
+      letterSpacing: 0,
+      height: 1.25,
+    ),
+    headlineLargeStyle: TextStyle(
+      fontSize: 22,
+      fontWeight: FontWeight.w600,
+      letterSpacing: 0,
+      height: 1.27,
+    ),
+    headlineMediumStyle: TextStyle(
+      fontSize: 20,
+      fontWeight: FontWeight.w600,
+      letterSpacing: 0,
+      height: 1.25,
+    ),
+    headlineSmallStyle: TextStyle(
+      fontSize: 17,
+      fontWeight: FontWeight.w600,
+      letterSpacing: -0.41,
+      height: 1.29,
+    ),
+    titleLargeStyle: TextStyle(
+      fontSize: 17,
+      fontWeight: FontWeight.w600,
+      letterSpacing: -0.41,
+      height: 1.29,
+    ),
+    titleMediumStyle: TextStyle(
+      fontSize: 15,
+      fontWeight: FontWeight.w400,
+      letterSpacing: -0.23,
+      height: 1.33,
+    ),
+    titleSmallStyle: TextStyle(
+      fontSize: 13,
+      fontWeight: FontWeight.w400,
+      letterSpacing: -0.08,
+      height: 1.38,
+    ),
+    bodyLargeStyle: TextStyle(
+      fontSize: 17,
+      fontWeight: FontWeight.w400,
+      letterSpacing: -0.41,
+      height: 1.29,
+    ),
+    bodyMediumStyle: TextStyle(
+      fontSize: 16,
+      fontWeight: FontWeight.w400,
+      letterSpacing: -0.32,
+      height: 1.31,
+    ),
+    bodySmallStyle: TextStyle(
+      fontSize: 13,
+      fontWeight: FontWeight.w400,
+      letterSpacing: -0.08,
+      height: 1.38,
+    ),
+    labelLargeStyle: TextStyle(
+      fontSize: 16,
+      fontWeight: FontWeight.w600,
+      letterSpacing: -0.32,
+      height: 1.31,
+    ),
+    labelMediumStyle: TextStyle(
+      fontSize: 13,
+      fontWeight: FontWeight.w600,
+      letterSpacing: -0.08,
+      height: 1.38,
+    ),
+    labelSmallStyle: TextStyle(
+      fontSize: 12,
+      fontWeight: FontWeight.w500,
+      letterSpacing: 0,
+      height: 1.33,
+    ),
+    codeStyle: TextStyle(
+      fontSize: 13,
+      fontWeight: FontWeight.w400,
+      letterSpacing: 0,
+      height: 1.38,
+      fontFamily: monospaceFontFamily,
+    ),
+    microStyle: TextStyle(
+      fontSize: 11,
+      fontWeight: FontWeight.w500,
+      letterSpacing: 0.06,
+      height: 1.18,
+    ),
+    inputVerticalPadding: 12,
+    compactInputVerticalPadding: 8,
+    borderlessInputVerticalPadding: 6,
+    chipHorizontalPadding: 10,
+    chipVerticalPadding: 5,
+    badgeHorizontalPadding: 5,
+    badgeVerticalPadding: 2,
+    badgeLargeSize: 22,
+    badgeSmallSize: 17,
+  );
 }
 
 /// Consistent icon sizes - Enhanced for production with better hierarchy

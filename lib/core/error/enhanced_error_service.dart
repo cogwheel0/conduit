@@ -102,13 +102,12 @@ class EnhancedErrorService {
     final isRetryableError = isRetryable(error);
     final retryDelay = getRetryDelay(error);
 
-    final String? actionLabel =
-        isRetryableError && onRetry != null
-            ? (retryDelay != null && retryDelay.inSeconds > 5
-                ? '${AppLocalizations.of(context)!.retry}'
+    final String? actionLabel = isRetryableError && onRetry != null
+        ? (retryDelay != null && retryDelay.inSeconds > 5
+              ? '${AppLocalizations.of(context)!.retry}'
                     ' (${retryDelay.inSeconds}s)'
-                : AppLocalizations.of(context)!.retry)
-            : null;
+              : AppLocalizations.of(context)!.retry)
+        : null;
 
     AdaptiveSnackBar.show(
       context,
@@ -229,8 +228,7 @@ class EnhancedErrorService {
           const SizedBox(height: Spacing.md),
           Text(
             _getErrorTitle(error),
-            style: const TextStyle(
-              fontSize: AppTypography.headlineSmall,
+            style: AppTypography.headlineSmallStyle.copyWith(
               fontWeight: FontWeight.bold,
             ),
             textAlign: TextAlign.center,

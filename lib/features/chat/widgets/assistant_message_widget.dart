@@ -456,11 +456,11 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final ws = ttsState.wordStartInSentence;
     final we = ttsState.wordEndInSentence;
 
-    final baseStyle = TextStyle(
-      color: theme.textPrimary,
-      height: 1.2,
-      fontSize: 14,
-    );
+    final baseStyle =
+        Theme.of(
+          context,
+        ).textTheme.bodyMedium?.copyWith(color: theme.textPrimary) ??
+        AppTypography.bodyMediumStyle.copyWith(color: theme.textPrimary);
     final highlightStyle = baseStyle.copyWith(
       backgroundColor: theme.buttonPrimary.withValues(alpha: 0.25),
       color: theme.textPrimary,
@@ -784,7 +784,6 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
           // Action buttons below the message content (only after streaming completes)
           if (!widget.isStreaming) ...[
-            const SizedBox(height: Spacing.sm),
             _buildActionButtons(),
             if (hasFollowUps) ...[
               const SizedBox(height: Spacing.md),
@@ -1325,10 +1324,17 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
               }
             },
           ),
-          ConduitChip(
-            label:
-                '${_activeVersionIndex < 0 ? (widget.message.versions.length + 1) : (_activeVersionIndex + 1)}/${widget.message.versions.length + 1}',
-            isCompact: true,
+          SizedBox(
+            height: 32,
+            child: Align(
+              alignment: Alignment.center,
+              widthFactor: 1,
+              child: ConduitChip(
+                label:
+                    '${_activeVersionIndex < 0 ? (widget.message.versions.length + 1) : (_activeVersionIndex + 1)}/${widget.message.versions.length + 1}',
+                isCompact: true,
+              ),
+            ),
           ),
           ChatActionButton(
             icon: Platform.isIOS

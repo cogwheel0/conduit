@@ -469,6 +469,7 @@ class _CallActionButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -483,7 +484,12 @@ class _CallActionButton extends StatelessWidget {
           child: Icon(icon, color: Colors.white, size: 30),
         ),
         const SizedBox(height: 8),
-        Text(label, style: TextStyle(fontSize: 12, color: color)),
+        Text(
+          label,
+          style:
+              textTheme.labelMedium?.copyWith(color: color) ??
+              AppTypography.labelMediumStyle.copyWith(color: color),
+        ),
       ],
     );
   }

@@ -17,6 +17,31 @@ Future<void> _launchSourceUrl(String url) async {
   }
 }
 
+TextStyle _badgeLabelTextStyle(BuildContext context, Color color) {
+  final textTheme = Theme.of(context).textTheme;
+  return textTheme.labelSmall?.copyWith(
+        color: color,
+        fontWeight: FontWeight.w500,
+        fontSize: AppTypography.micro.fontSize,
+        height: 1,
+      ) ??
+      AppTypography.micro.copyWith(
+        color: color,
+        fontWeight: FontWeight.w500,
+        height: 1,
+      );
+}
+
+TextStyle _badgeCountTextStyle(BuildContext context, Color color) {
+  final textTheme = Theme.of(context).textTheme;
+  return textTheme.labelSmall?.copyWith(
+        color: color,
+        fontWeight: FontWeight.w600,
+        fontSize: AppTypography.micro.fontSize,
+      ) ??
+      AppTypography.micro.copyWith(color: color, fontWeight: FontWeight.w600);
+}
+
 /// A compact inline citation badge showing source domain/title.
 ///
 /// Uses the app's design system for consistency with other chips and badges.
@@ -40,6 +65,7 @@ class CitationBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
+    final badgeTextStyle = _badgeLabelTextStyle(context, theme.textSecondary);
 
     // Check if index is valid
     if (sourceIndex < 0 || sourceIndex >= sources.length) {
@@ -78,12 +104,7 @@ class CitationBadge extends StatelessWidget {
             ),
             child: Text(
               displayTitle,
-              style: TextStyle(
-                fontSize: 10,
-                height: 1,
-                fontWeight: FontWeight.w500,
-                color: theme.textSecondary,
-              ),
+              style: badgeTextStyle,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
@@ -132,6 +153,8 @@ class CitationBadgeGroup extends StatelessWidget {
     }
 
     final theme = context.conduitTheme;
+    final badgeTextStyle = _badgeLabelTextStyle(context, theme.textSecondary);
+    final countTextStyle = _badgeCountTextStyle(context, theme.buttonPrimary);
 
     // Get first valid source for display
     final firstIndex = sourceIndices.first;
@@ -202,12 +225,7 @@ class CitationBadgeGroup extends StatelessWidget {
             const SizedBox(width: 3),
             Text(
               displayTitle,
-              style: TextStyle(
-                fontSize: 10,
-                height: 1,
-                fontWeight: FontWeight.w500,
-                color: theme.textSecondary,
-              ),
+              style: badgeTextStyle,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
@@ -218,14 +236,7 @@ class CitationBadgeGroup extends StatelessWidget {
                 color: theme.buttonPrimary.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(AppBorderRadius.small),
               ),
-              child: Text(
-                '+$additionalCount',
-                style: TextStyle(
-                  fontSize: 9,
-                  fontWeight: FontWeight.w600,
-                  color: theme.buttonPrimary,
-                ),
-              ),
+              child: Text('+$additionalCount', style: countTextStyle),
             ),
           ],
         ),

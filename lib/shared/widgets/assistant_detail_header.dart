@@ -27,6 +27,7 @@ class AssistantDetailHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
+    final textTheme = Theme.of(context).textTheme;
     final header = Row(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.center,
@@ -36,11 +37,13 @@ class AssistantDetailHeader extends StatelessWidget {
             title,
             overflow: allowWrap ? null : TextOverflow.ellipsis,
             maxLines: allowWrap ? null : 1,
-            style: TextStyle(
-              fontSize: AppTypography.bodyMedium,
-              color: theme.textPrimary.withValues(alpha: 0.6),
-              height: 1.3,
-            ),
+            style:
+                textTheme.bodyMedium?.copyWith(
+                  color: theme.textPrimary.withValues(alpha: 0.6),
+                ) ??
+                AppTypography.bodyMediumStyle.copyWith(
+                  color: theme.textPrimary.withValues(alpha: 0.6),
+                ),
           ),
         ),
         if (showChevron) ...[

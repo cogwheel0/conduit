@@ -1035,7 +1035,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
                           radius: 16,
                           child: Text(
                             name[0].toUpperCase(),
-                            style: const TextStyle(fontSize: 12),
+                            style: AppTypography.labelMediumStyle,
                           ),
                         ),
                         title: Text(
@@ -1047,7 +1047,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
                                 role,
                                 style: TextStyle(
                                   color: theme.textSecondary,
-                                  fontSize: 12,
+                                  fontSize: AppTypography.bodySmall,
                                 ),
                               )
                             : null,
@@ -1403,7 +1403,7 @@ class _MessageBubble extends StatelessWidget {
           return ActionChip(
             label: Text(
               '${reaction.name} ${reaction.count}',
-              style: const TextStyle(fontSize: 12),
+              style: AppTypography.labelMediumStyle,
             ),
             backgroundColor: isActive
                 ? primaryColor.withValues(alpha: 0.15)

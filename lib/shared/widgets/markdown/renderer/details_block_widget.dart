@@ -11,6 +11,7 @@ import '../../assistant_detail_header.dart';
 import '../../web_content_embed.dart';
 import '../../../theme/theme_extensions.dart';
 import '../markdown_config.dart';
+import 'markdown_style.dart';
 
 final _detailsWidgetUnescape = HtmlUnescape();
 
@@ -232,6 +233,7 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
           valueListenable: _sheetRevision,
           builder: (context, value, child) {
             final liveTheme = sheetContext.conduitTheme;
+            final markdownStyle = ConduitMarkdownStyle.fromTheme(sheetContext);
             final title = _modalTitle(sheetContext);
             final liveBody = _buildBody(sheetContext);
             if (liveBody == null) {
@@ -274,11 +276,7 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
                             child: Text(
                               title,
                               overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: AppTypography.bodyLarge,
-                                fontWeight: FontWeight.w600,
-                                color: liveTheme.textPrimary,
-                              ),
+                              style: markdownStyle.sheetTitle,
                             ),
                           ),
                           IconButton(
@@ -436,6 +434,7 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
     }
 
     final theme = context.conduitTheme;
+    final markdownStyle = ConduitMarkdownStyle.fromTheme(context);
     var expandedResult = false;
 
     return StatefulBuilder(
@@ -444,7 +443,7 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
 
         if (data.parsedArguments is Map<String, dynamic>) {
           final arguments = data.parsedArguments as Map<String, dynamic>;
-          children.add(_buildSectionTitle('Input', theme));
+          children.add(_buildSectionTitle('Input', markdownStyle));
           children.add(const SizedBox(height: 6));
           children.add(
             Column(
@@ -458,20 +457,12 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
                         children: [
                           Text(
                             '${entry.key}: ',
-                            style: TextStyle(
-                              color: theme.textSecondary,
-                              fontSize: AppTypography.bodySmall,
-                              fontWeight: FontWeight.w600,
-                            ),
+                            style: markdownStyle.detailLabel,
                           ),
                           Expanded(
                             child: SelectableText(
                               _stringifyValue(entry.value),
-                              style: TextStyle(
-                                color: theme.textPrimary,
-                                fontSize: AppTypography.bodySmall,
-                                height: 1.35,
-                              ),
+                              style: markdownStyle.detailValue,
                             ),
                           ),
                         ],
@@ -482,7 +473,7 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
             ),
           );
         } else if (data.argumentsText.isNotEmpty) {
-          children.add(_buildSectionTitle('Input', theme));
+          children.add(_buildSectionTitle('Input', markdownStyle));
           children.add(const SizedBox(height: 6));
           children.add(
             ConduitMarkdown.buildCodeBlock(
@@ -498,7 +489,7 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
           if (children.isNotEmpty) {
             children.add(const SizedBox(height: Spacing.sm));
           }
-          children.add(_buildSectionTitle('Output', theme));
+          children.add(_buildSectionTitle('Output', markdownStyle));
           children.add(const SizedBox(height: 6));
 
           final parsedResult = data.parsedResult;
@@ -520,12 +511,7 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
                 isTruncated
                     ? resultText.substring(0, _resultPreviewLimit)
                     : resultText,
-                style: TextStyle(
-                  color: theme.textPrimary,
-                  fontSize: AppTypography.bodySmall,
-                  fontFamily: AppTypography.monospaceFontFamily,
-                  height: 1.35,
-                ),
+                style: markdownStyle.detailCode,
               ),
             );
             if (isTruncated) {
@@ -543,10 +529,7 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
                   ),
                   child: Text(
                     'Show all (${resultText.length} characters)',
-                    style: TextStyle(
-                      color: theme.textSecondary,
-                      fontSize: AppTypography.bodySmall,
-                    ),
+                    style: markdownStyle.detailAction,
                   ),
                 ),
               );
@@ -573,16 +556,8 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
     );
   }
 
-  Widget _buildSectionTitle(String title, ConduitThemeExtension theme) {
-    return Text(
-      title,
-      style: TextStyle(
-        color: theme.textSecondary,
-        fontSize: AppTypography.labelSmall,
-        fontWeight: FontWeight.w600,
-        letterSpacing: 0.4,
-      ),
-    );
+  Widget _buildSectionTitle(String title, ConduitMarkdownStyle markdownStyle) {
+    return Text(title, style: markdownStyle.detailLabel);
   }
 
   List<Widget> _buildToolCallImages(BuildContext context) {

@@ -68,27 +68,37 @@ class ConduitMarkdownStyle {
   /// This is the recommended way to create an instance.
   factory ConduitMarkdownStyle.fromTheme(BuildContext context) {
     final theme = context.conduitTheme;
-    final typo = theme.typography;
+    final textTheme = Theme.of(context).textTheme;
+    final textScaler = MediaQuery.textScalerOf(context);
     final tokens = theme.tokens;
     final dark = theme.isDark;
+    TextStyle resolveHeadingStyle(
+      TextStyle? themedStyle,
+      TextStyle fallback, {
+      required Color color,
+    }) {
+      return themedStyle?.copyWith(color: color, fontWeight: FontWeight.w600) ??
+          fallback.copyWith(color: color);
+    }
 
     // Base body style used as the foundation for all
     // text styles.
-    final bodyStyle = TextStyle(
-      fontSize: AppTypography.bodyMedium,
-      fontWeight: FontWeight.w400,
-      color: theme.textPrimary,
-      height: 1.5,
-    );
+    final bodyStyle =
+        textTheme.bodyLarge?.copyWith(color: theme.textPrimary) ??
+        AppTypography.chatMessageStyle.copyWith(color: theme.textPrimary);
+    final bodyLineHeight =
+        textScaler.scale(bodyStyle.fontSize ?? AppTypography.bodyLarge) *
+        (bodyStyle.height ?? 1.0);
+    final paragraphSpacing = AppTypography.usesAppleRamp
+        ? Spacing.md
+        : (bodyLineHeight * 0.5)
+              .clamp(Spacing.sm + Spacing.xs, Spacing.md)
+              .toDouble();
 
     // Monospace base for code elements.
-    final monoBase = TextStyle(
-      fontFamily: typo.monospaceFont,
-      fontFamilyFallback: typo.monospaceFallback,
-      fontSize: AppTypography.bodySmall,
-      fontWeight: FontWeight.w400,
-      height: 1.5,
-    );
+    final monoBase =
+        theme.code?.copyWith(color: theme.codeText) ??
+        AppTypography.codeStyle.copyWith(color: theme.codeText);
 
     // Inline code highlight color that matches common
     // chat-UI conventions (#eb5757 light / #E06C75 dark).
@@ -101,62 +111,47 @@ class ConduitMarkdownStyle {
 
       // -- Text styles --
       body: bodyStyle,
-      h1: TextStyle(
-        fontSize: AppTypography.headlineLarge,
-        fontWeight: FontWeight.w700,
+      h1: resolveHeadingStyle(
+        textTheme.displaySmall,
+        AppTypography.displaySmallStyle,
         color: theme.textPrimary,
-        height: 1.3,
-        letterSpacing: -0.4,
       ),
-      h2: TextStyle(
-        fontSize: AppTypography.headlineMedium,
-        fontWeight: FontWeight.w600,
+      h2: resolveHeadingStyle(
+        textTheme.headlineLarge,
+        AppTypography.headlineLargeStyle,
         color: theme.textPrimary,
-        height: 1.3,
-        letterSpacing: -0.2,
       ),
-      h3: TextStyle(
-        fontSize: AppTypography.headlineSmall,
-        fontWeight: FontWeight.w600,
+      h3: resolveHeadingStyle(
+        textTheme.headlineMedium,
+        AppTypography.headlineMediumStyle,
         color: theme.textPrimary,
-        height: 1.4,
       ),
-      h4: TextStyle(
-        fontSize: AppTypography.bodyLarge,
-        fontWeight: FontWeight.w600,
+      h4: resolveHeadingStyle(
+        textTheme.headlineSmall,
+        AppTypography.headlineSmallStyle,
         color: theme.textPrimary,
-        height: 1.4,
       ),
-      h5: TextStyle(
-        fontSize: AppTypography.bodyMedium,
-        fontWeight: FontWeight.w600,
+      h5: resolveHeadingStyle(
+        textTheme.titleLarge,
+        AppTypography.titleLargeStyle,
         color: theme.textPrimary,
-        height: 1.5,
       ),
-      h6: TextStyle(
-        fontSize: AppTypography.bodySmall,
-        fontWeight: FontWeight.w600,
+      h6: resolveHeadingStyle(
+        textTheme.titleMedium,
+        AppTypography.titleMediumStyle,
         color: theme.textSecondary,
-        height: 1.5,
       ),
       codeSpan: monoBase.copyWith(color: codeSpanText),
       codeBlock: monoBase.copyWith(color: theme.codeText),
       blockquoteText: bodyStyle.copyWith(color: theme.textSecondary),
-      tableHeader: TextStyle(
-        fontSize: AppTypography.bodySmall,
+      tableHeader: bodyStyle.copyWith(
+        color: theme.textPrimary,
         fontWeight: FontWeight.w600,
-        color: theme.textPrimary,
-        height: 1.4,
       ),
-      tableCell: TextStyle(
-        fontSize: AppTypography.bodySmall,
-        fontWeight: FontWeight.w400,
-        color: theme.textPrimary,
-        height: 1.4,
-      ),
+      tableCell: bodyStyle.copyWith(color: theme.textPrimary),
 
-      // -- Spacing (screenshot-matched, readable) --
-      paragraphSpacing: Spacing.md,
+      // Paragraph rhythm follows the active platform ramp.
+      paragraphSpacing: paragraphSpacing,
       headingTopSpacing: Spacing.md,
       headingBottomSpacing: Spacing.sm,
       listItemSpacing: Spacing.sm,
@@ -297,6 +292,45 @@ class ConduitMarkdownStyle {
   final double tableRadius;
 
   // ----- Helpers -----
+
+  /// Title style used by markdown-owned sheets and dialogs.
+  TextStyle get sheetTitle =>
+      h5.copyWith(color: textPrimary, fontWeight: FontWeight.w600);
+
+  TextStyle get _detailTextBase => codeBlock.copyWith(
+    fontSize: AppTypography.bodySmallStyle.fontSize,
+    height: AppTypography.bodySmallStyle.height,
+    letterSpacing: AppTypography.bodySmallStyle.letterSpacing,
+  );
+
+  TextStyle get _detailCodeBase => codeBlock.copyWith(
+    fontSize: AppTypography.bodySmallStyle.fontSize,
+    height: AppTypography.bodySmallStyle.height,
+  );
+
+  /// Secondary label style used for section headings and metadata.
+  TextStyle get detailLabel => _detailTextBase.copyWith(
+    color: textSecondary,
+    fontWeight: FontWeight.w600,
+  );
+
+  /// Body style used for plain-text values inside tool call details.
+  TextStyle get detailValue => tableCell.copyWith(color: textPrimary);
+
+  /// Monospace body style used for code-like values inside tool call details.
+  TextStyle get detailCode => _detailCodeBase.copyWith(color: textPrimary);
+
+  /// Action style used for lightweight affordances in markdown chrome.
+  TextStyle get detailAction => _detailTextBase.copyWith(
+    color: textSecondary,
+    fontWeight: FontWeight.w500,
+  );
+
+  /// Monospace metadata style used for code block headers and preview chrome.
+  TextStyle get codeChrome => _detailTextBase.copyWith(
+    color: textSecondary,
+    fontWeight: FontWeight.w500,
+  );
 
   /// Returns the heading [TextStyle] for the given
   /// [level] (1-6).

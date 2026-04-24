@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/models/chat_message.dart';
 import '../../../core/utils/citation_parser.dart';
-import '../../theme/theme_extensions.dart';
+import 'renderer/markdown_style.dart';
 import 'citation_badge.dart';
 
 /// Renders text with inline citation badges.
@@ -33,20 +33,14 @@ class InlineCitationText extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final segments = CitationParser.parse(text);
+    final markdownStyle = ConduitMarkdownStyle.fromTheme(context);
 
     // If no citations found, render as plain text
     if (segments == null || segments.isEmpty) {
       return Text(text, style: style);
     }
 
-    final theme = context.conduitTheme;
-    final baseStyle =
-        style ??
-        TextStyle(
-          color: theme.textPrimary,
-          fontSize: AppTypography.bodyMedium,
-          height: 1.45,
-        );
+    final baseStyle = style ?? markdownStyle.body;
 
     final spans = <InlineSpan>[];
 

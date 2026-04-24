@@ -241,10 +241,7 @@ class _EnhancedAttachmentState extends ConsumerState<EnhancedAttachment> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            _fileIconFor(filename),
-            style: const TextStyle(fontSize: AppTypography.headlineLarge),
-          ),
+          Text(_fileIconFor(filename), style: AppTypography.headlineLargeStyle),
           const SizedBox(width: Spacing.sm),
           Flexible(
             child: Column(

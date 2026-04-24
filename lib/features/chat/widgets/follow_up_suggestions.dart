@@ -18,51 +18,26 @@ class FollowUpSuggestionBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
     final trimmedSuggestions = suggestions
         .map((s) => s.trim())
         .where((s) => s.isNotEmpty)
+        .take(3)
         .toList(growable: false);
 
     if (trimmedSuggestions.isEmpty) {
       return const SizedBox.shrink();
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Wrap(
+      spacing: Spacing.xs,
+      runSpacing: Spacing.xs,
       children: [
-        // Subtle header
-        Row(
-          children: [
-            Icon(
-              Icons.lightbulb_outline,
-              size: 12,
-              color: theme.textSecondary.withValues(alpha: 0.7),
-            ),
-            const SizedBox(width: Spacing.xxs),
-            Text(
-              'Continue with',
-              style: TextStyle(
-                fontSize: AppTypography.labelSmall,
-                color: theme.textSecondary.withValues(alpha: 0.7),
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: Spacing.xs),
-        Wrap(
-          spacing: Spacing.xs,
-          runSpacing: Spacing.xs,
-          children: [
-            for (final suggestion in trimmedSuggestions)
-              _MinimalFollowUpButton(
-                label: suggestion,
-                onPressed: isBusy ? null : () => onSelected(suggestion),
-                enabled: !isBusy,
-              ),
-          ],
-        ),
+        for (final suggestion in trimmedSuggestions)
+          _MinimalFollowUpButton(
+            label: suggestion,
+            onPressed: isBusy ? null : () => onSelected(suggestion),
+            enabled: !isBusy,
+          ),
       ],
     );
   }
@@ -82,48 +57,35 @@ class _MinimalFollowUpButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
+    final textStyle = AppTypography.chatMessageStyle.copyWith(
+      color: enabled
+          ? theme.buttonPrimary.withValues(alpha: 0.75)
+          : theme.textSecondary.withValues(alpha: 0.45),
+    );
+    final iconSize =
+        (textStyle.fontSize ?? AppTypography.chatMessageStyle.fontSize ?? 16) +
+        1;
 
     return InkWell(
       onTap: enabled ? onPressed : null,
       borderRadius: BorderRadius.circular(AppBorderRadius.small),
-      child: Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: Spacing.sm,
-          vertical: Spacing.xs,
-        ),
-        decoration: BoxDecoration(
-          color: enabled
-              ? theme.surfaceContainer.withValues(alpha: 0.2)
-              : theme.surfaceContainer.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(AppBorderRadius.small),
-          border: Border.all(
-            color: enabled
-                ? theme.buttonPrimary.withValues(alpha: 0.15)
-                : theme.dividerColor.withValues(alpha: 0.2),
-            width: BorderWidth.thin,
-          ),
-        ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: Spacing.xs),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              Icons.arrow_forward,
-              size: 11,
+              Icons.subdirectory_arrow_right_rounded,
+              size: iconSize,
               color: enabled
                   ? theme.buttonPrimary.withValues(alpha: 0.7)
                   : theme.textSecondary.withValues(alpha: 0.4),
             ),
-            const SizedBox(width: Spacing.xxs),
+            const SizedBox(width: Spacing.xs),
             Flexible(
               child: Text(
                 label,
-                style: TextStyle(
-                  color: enabled
-                      ? theme.buttonPrimary.withValues(alpha: 0.9)
-                      : theme.textSecondary.withValues(alpha: 0.5),
-                  fontSize: AppTypography.bodySmall,
-                  fontWeight: FontWeight.w500,
-                ),
+                style: textStyle,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),

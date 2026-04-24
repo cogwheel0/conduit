@@ -1667,12 +1667,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     } else if (!hasGreeting && _greetingReady) {
       _greetingReady = false;
     }
-    final greetingStyle = theme.textTheme.headlineSmall?.copyWith(
+    final baseGreetingStyle = AppTypography.usesAppleRamp
+        ? theme.textTheme.displaySmall ?? AppTypography.displaySmallStyle
+        : theme.textTheme.headlineSmall ?? AppTypography.headlineSmallStyle;
+    final greetingStyle = baseGreetingStyle.copyWith(
       fontWeight: FontWeight.w600,
       color: context.conduitTheme.textPrimary,
     );
     final greetingHeight =
-        (greetingStyle?.fontSize ?? 24) * (greetingStyle?.height ?? 1.1);
+        (greetingStyle.fontSize ?? 24) * (greetingStyle.height ?? 1.1);
     final String? resolvedGreetingName = hasGreeting ? greetingName : null;
     final greetingText = resolvedGreetingName != null
         ? l10n.greetingTitle(resolvedGreetingName)
