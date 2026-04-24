@@ -12,6 +12,7 @@ import '../models/server_config.dart';
 import '../models/user.dart';
 import '../models/tool.dart';
 import '../models/socket_transport_availability.dart';
+import '../persistence/conversation_store.dart';
 import '../persistence/hive_boxes.dart';
 import '../persistence/persistence_keys.dart';
 import '../utils/debug_logger.dart';
@@ -26,6 +27,7 @@ class OptimizedStorageService {
     required FlutterSecureStorage secureStorage,
     required HiveBoxes boxes,
     required WorkerManager workerManager,
+    required ConversationStore conversationStore,
   }) : _preferencesBox = boxes.preferences,
        _cachesBox = boxes.caches,
        _attachmentQueueBox = boxes.attachmentQueue,
@@ -33,7 +35,8 @@ class OptimizedStorageService {
        _secureCredentialStorage = SecureCredentialStorage(
          instance: secureStorage,
        ),
-       _workerManager = workerManager;
+       _workerManager = workerManager,
+       _conversationStore = conversationStore;
 
   final Box<dynamic> _preferencesBox;
   final Box<dynamic> _cachesBox;
@@ -41,6 +44,7 @@ class OptimizedStorageService {
   final Box<dynamic> _metadataBox;
   final SecureCredentialStorage _secureCredentialStorage;
   final WorkerManager _workerManager;
+  final ConversationStore _conversationStore;
   final CacheManager _cacheManager = CacheManager(maxEntries: 64);
 
   static const String _authTokenKey = 'auth_token_v3';
@@ -61,7 +65,8 @@ class OptimizedStorageService {
   static const String _reviewerModeKey = PreferenceKeys.reviewerMode;
 
   // Per-entity cache key prefixes (in _cachesBox / _preferencesBox).
-  static const String _cachedConversationPrefix = 'chat_history_';
+  // Per-conversation Hive blobs (chat_history_*) were retired in Phase 3a
+  // — conversations now live as rows in SQLite via [ConversationStore].
   static const String _cachedFileInfoPrefix = 'file_info_';
   static const String _draftPrefix = 'draft_';
   // Longer TTLs to reduce secure storage churn for OpenWebUI sessions.
@@ -338,17 +343,7 @@ class OptimizedStorageService {
 
   Future<List<Conversation>> getLocalConversations() async {
     try {
-      final stored = _cachesBox.get(_localConversationsKey);
-      if (stored == null) {
-        return const [];
-      }
-      final parsed = await _workerManager
-          .schedule<Map<String, dynamic>, List<Map<String, dynamic>>>(
-            _decodeStoredJsonListWorker,
-            {'stored': stored},
-            debugLabel: 'decode_local_conversations',
-          );
-      return parsed.map(Conversation.fromJson).toList(growable: false);
+      return await _conversationStore.getAllSummaries();
     } catch (error, stack) {
       DebugLogger.error(
         'Failed to retrieve local conversations',
@@ -362,14 +357,7 @@ class OptimizedStorageService {
 
   Future<void> saveLocalConversations(List<Conversation> conversations) async {
     try {
-      final jsonReady = conversations
-          .map((conversation) => conversation.toJson())
-          .toList();
-      final serialized = await _workerManager
-          .schedule<Map<String, dynamic>, String>(_encodeJsonListWorker, {
-            'items': jsonReady,
-          }, debugLabel: 'encode_local_conversations');
-      await _cachesBox.put(_localConversationsKey, serialized);
+      await _conversationStore.upsertConversations(conversations);
     } catch (error, stack) {
       DebugLogger.error(
         'Failed to save local conversations',
@@ -381,28 +369,14 @@ class OptimizedStorageService {
   }
 
   // ---------------------------------------------------------------------------
-  // Per-conversation cache (Phase 1.2 / 2.1 — granular storage layered on
-  // top of the existing single-blob conversation list cache).
+  // Per-conversation cache — backed by SQLite via [ConversationStore]
+  // (Phase 3a). The four methods below delegate so chat_providers and the
+  // drawer don't need to know the storage backing changed.
   // ---------------------------------------------------------------------------
-  String _conversationCacheKey(String id) => '$_cachedConversationPrefix$id';
-
   Future<Conversation?> getCachedConversation(String id) async {
     if (id.isEmpty) return null;
     try {
-      final stored = _cachesBox.get(_conversationCacheKey(id));
-      if (stored == null) return null;
-      Map<String, dynamic>? json;
-      if (stored is String && stored.isNotEmpty) {
-        final decoded = jsonDecode(stored);
-        if (decoded is Map<String, dynamic>) {
-          json = decoded;
-        } else if (decoded is Map) {
-          json = Map<String, dynamic>.from(decoded);
-        }
-      } else if (stored is Map) {
-        json = Map<String, dynamic>.from(stored);
-      }
-      return json == null ? null : Conversation.fromJson(json);
+      return await _conversationStore.getConversation(id);
     } catch (error, stack) {
       DebugLogger.error(
         'Failed to read cached conversation',
@@ -417,11 +391,7 @@ class OptimizedStorageService {
   Future<void> cacheConversation(Conversation conversation) async {
     if (conversation.id.isEmpty) return;
     try {
-      final serialized = jsonEncode(conversation.toJson());
-      await _cachesBox.put(
-        _conversationCacheKey(conversation.id),
-        serialized,
-      );
+      await _conversationStore.upsertConversation(conversation);
     } catch (error, stack) {
       DebugLogger.error(
         'Failed to cache conversation',
@@ -435,18 +405,13 @@ class OptimizedStorageService {
   Future<void> clearCachedConversation(String id) async {
     if (id.isEmpty) return;
     try {
-      await _cachesBox.delete(_conversationCacheKey(id));
+      await _conversationStore.deleteConversation(id);
     } catch (_) {}
   }
 
   Future<void> clearAllCachedConversations() async {
     try {
-      final keys = _cachesBox.keys
-          .whereType<String>()
-          .where((k) => k.startsWith(_cachedConversationPrefix))
-          .toList(growable: false);
-      if (keys.isEmpty) return;
-      await _cachesBox.deleteAll(keys);
+      await _conversationStore.deleteAll();
     } catch (_) {}
   }
 

@@ -10,6 +10,7 @@ import 'core/widgets/error_boundary.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'core/providers/app_providers.dart';
+import 'core/persistence/database/app_database.dart';
 import 'core/persistence/hive_bootstrap.dart';
 import 'core/persistence/persistence_migrator.dart';
 import 'core/persistence/persistence_providers.dart';
@@ -101,8 +102,15 @@ void main() {
       final hiveBoxes = await HiveBootstrap.instance.ensureInitialized();
       StartupTimeline.instant('hive_ready');
 
+      // Open the SQLite database that backs per-message storage (Phase 3a).
+      final database = await AppDatabase.open();
+      StartupTimeline.instant('database_ready');
+
       // Run migration check (now fast-pathed after first run)
-      final migrator = PersistenceMigrator(hiveBoxes: hiveBoxes);
+      final migrator = PersistenceMigrator(
+        hiveBoxes: hiveBoxes,
+        database: database,
+      );
       await migrator.migrateIfNeeded();
       StartupTimeline.instant('migration_complete');
 
@@ -120,6 +128,7 @@ void main() {
           overrides: [
             secureStorageProvider.overrideWithValue(secureStorage),
             hiveBoxesProvider.overrideWithValue(hiveBoxes),
+            appDatabaseProvider.overrideWithValue(database),
           ],
           child: const ConduitApp(),
         ),

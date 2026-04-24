@@ -28,6 +28,7 @@ dependencies:
   hive_ce: ^2.14.0
   hive_ce_flutter: ^2.3.2
   shared_preferences: ^2.3.2
+  sqflite: ^2.4.1
   
   # UI Components - Markdown Rendering
   cached_network_image: ^3.3.1
@@ -103,6 +104,7 @@ dev_dependencies:
   custom_lint: 0.8.1
   mocktail: ^1.0.4
   checks: ^0.3.1
+  sqflite_common_ffi: ^2.3.6
 
 dependency_overrides:
   riverpod_lint: 3.0.3
