@@ -4,6 +4,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:hive_ce/hive.dart';
 
 import '../models/backend_config.dart';
+import '../models/chat_message.dart';
 import '../models/conversation.dart';
 import '../models/file_info.dart';
 import '../models/folder.dart';
@@ -402,6 +403,62 @@ class OptimizedStorageService {
     }
   }
 
+  /// Persist a single message under [scaffold.id], scaffolding the
+  /// conversation row if it does not yet exist (Phase 3b — granular
+  /// streaming writes from the chat send path).
+  Future<void> persistMessageEnsuringConversation({
+    required Conversation scaffold,
+    required ChatMessage message,
+  }) async {
+    if (scaffold.id.isEmpty) return;
+    try {
+      await _conversationStore.upsertMessageEnsuringConversation(
+        scaffold: scaffold,
+        message: message,
+      );
+    } catch (error, stack) {
+      DebugLogger.error(
+        'Failed to persist message',
+        scope: 'storage/optimized',
+        error: error,
+        stackTrace: stack,
+      );
+    }
+  }
+
+  /// Update a single existing message in place. The conversation is
+  /// resolved from the message's row.
+  Future<void> persistUpdatedMessage(ChatMessage message) async {
+    try {
+      await _conversationStore.updateMessage(message);
+    } catch (error, stack) {
+      DebugLogger.error(
+        'Failed to persist message update',
+        scope: 'storage/optimized',
+        error: error,
+        stackTrace: stack,
+      );
+    }
+  }
+
+  /// Remove a single message row.
+  Future<void> persistMessageDeletion(
+    String conversationId,
+    String messageId,
+  ) async {
+    if (conversationId.isEmpty || messageId.isEmpty) return;
+    try {
+      await _conversationStore.deleteMessage(conversationId, messageId);
+    } catch (error, stack) {
+      DebugLogger.error(
+        'Failed to persist message deletion',
+        scope: 'storage/optimized',
+        error: error,
+        stackTrace: stack,
+      );
+    }
+  }
+
   Future<void> clearCachedConversation(String id) async {
     if (id.isEmpty) return;
     try {
@@ -413,6 +470,26 @@ class OptimizedStorageService {
     try {
       await _conversationStore.deleteAll();
     } catch (_) {}
+  }
+
+  /// Phase 4b — local full-text search over cached conversations and
+  /// messages. Returns immediately without any network round-trip;
+  /// callers are responsible for merging with server results if desired.
+  Future<List<Conversation>> searchConversationsLocal(
+    String query, {
+    int limit = 50,
+  }) async {
+    try {
+      return await _conversationStore.searchConversations(query, limit: limit);
+    } catch (error, stack) {
+      DebugLogger.error(
+        'Local conversation search failed',
+        scope: 'storage/optimized',
+        error: error,
+        stackTrace: stack,
+      );
+      return const [];
+    }
   }
 
   // ---------------------------------------------------------------------------

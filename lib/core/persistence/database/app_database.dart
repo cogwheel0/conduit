@@ -20,7 +20,7 @@ class AppDatabase {
   /// [ConversationStore]; this is exposed for tests and migrations.
   Database get raw => _db;
 
-  static const int _schemaVersion = 1;
+  static const int _schemaVersion = 2;
   static const String _fileName = 'conduit.db';
 
   /// Opens (or creates) the database at the app's documents directory.
@@ -101,6 +101,8 @@ class AppDatabase {
       'ON conversations (pinned DESC, updated_at DESC)',
     );
     await batch.commit(noResult: true);
+    // v2 — FTS5 over message content for offline full-text search.
+    await _createMessagesFtsAndTriggers(db);
   }
 
   static Future<void> _onUpgrade(
@@ -108,8 +110,79 @@ class AppDatabase {
     int oldVersion,
     int newVersion,
   ) async {
-    // No upgrade steps yet — schema v1 is the first release.
-    // When adding a v2 table change, add a step here:
-    //   if (oldVersion < 2) { await db.execute('ALTER TABLE ...'); }
+    if (oldVersion < 2) {
+      await _createMessagesFtsAndTriggers(db);
+      await _backfillMessagesFts(db);
+    }
+  }
+
+  /// Phase 4b — FTS5 virtual table mirroring message text.
+  ///
+  /// External-content design: the index lives in [messages_fts] but the
+  /// actual text stays in [messages.payload_json]. Triggers keep the two
+  /// in sync; FTS5 reads the source via `json_extract` only when
+  /// `snippet()` / `highlight()` need the original text. This avoids
+  /// double-storing message bodies on disk.
+  ///
+  /// Tokenizer: porter + unicode61 — case-insensitive, stems English
+  /// suffixes (`testing`/`tests`/`test` all match), strips diacritics.
+  /// Good defaults for chat search.
+  static Future<void> _createMessagesFtsAndTriggers(Database db) async {
+    final batch = db.batch();
+    batch.execute('''
+      CREATE VIRTUAL TABLE messages_fts USING fts5(
+        content,
+        content='messages',
+        content_rowid='rowid',
+        tokenize='porter unicode61'
+      )
+    ''');
+    batch.execute('''
+      CREATE TRIGGER messages_ai AFTER INSERT ON messages BEGIN
+        INSERT INTO messages_fts(rowid, content)
+        VALUES (
+          new.rowid,
+          COALESCE(json_extract(new.payload_json, '\$.content'), '')
+        );
+      END
+    ''');
+    batch.execute('''
+      CREATE TRIGGER messages_ad AFTER DELETE ON messages BEGIN
+        INSERT INTO messages_fts(messages_fts, rowid, content)
+        VALUES (
+          'delete',
+          old.rowid,
+          COALESCE(json_extract(old.payload_json, '\$.content'), '')
+        );
+      END
+    ''');
+    batch.execute('''
+      CREATE TRIGGER messages_au AFTER UPDATE ON messages BEGIN
+        INSERT INTO messages_fts(messages_fts, rowid, content)
+        VALUES (
+          'delete',
+          old.rowid,
+          COALESCE(json_extract(old.payload_json, '\$.content'), '')
+        );
+        INSERT INTO messages_fts(rowid, content)
+        VALUES (
+          new.rowid,
+          COALESCE(json_extract(new.payload_json, '\$.content'), '')
+        );
+      END
+    ''');
+    await batch.commit(noResult: true);
+  }
+
+  /// Populates the FTS index from existing rows. Called from [_onUpgrade]
+  /// when migrating an installed v1 database — fresh installs hit
+  /// [_onCreate] which sets up the empty index and lets triggers fill it
+  /// as messages are written.
+  static Future<void> _backfillMessagesFts(Database db) async {
+    await db.execute('''
+      INSERT INTO messages_fts(rowid, content)
+      SELECT rowid, COALESCE(json_extract(payload_json, '\$.content'), '')
+      FROM messages
+    ''');
   }
 }

@@ -69,10 +69,9 @@ void main() {
       await store.upsertConversation(edited);
 
       final loaded = await store.getConversation('c2');
-      check(loaded!.messages.map((m) => m.content).toList()).deepEquals([
-        'one (edited)',
-        'two',
-      ]);
+      check(
+        loaded!.messages.map((m) => m.content).toList(),
+      ).deepEquals(['one (edited)', 'two']);
     });
 
     test('upsert removes messages no longer present', () async {
@@ -101,7 +100,10 @@ void main() {
     test('deleteConversation cascades to its messages', () async {
       final conv = _conversation(
         id: 'c4',
-        messages: [_message(id: 'm1'), _message(id: 'm2')],
+        messages: [
+          _message(id: 'm1'),
+          _message(id: 'm2'),
+        ],
       );
       await store.upsertConversation(conv);
 
@@ -117,36 +119,36 @@ void main() {
     });
 
     test('getAllSummaries orders by pinned then updated_at desc', () async {
-      await store.upsertConversation(_conversation(
-        id: 'old',
-        updatedAt: DateTime(2026, 1, 1),
-      ));
-      await store.upsertConversation(_conversation(
-        id: 'newer',
-        updatedAt: DateTime(2026, 4, 1),
-      ));
-      await store.upsertConversation(_conversation(
-        id: 'pinned',
-        updatedAt: DateTime(2025, 1, 1),
-        pinned: true,
-      ));
+      await store.upsertConversation(
+        _conversation(id: 'old', updatedAt: DateTime(2026, 1, 1)),
+      );
+      await store.upsertConversation(
+        _conversation(id: 'newer', updatedAt: DateTime(2026, 4, 1)),
+      );
+      await store.upsertConversation(
+        _conversation(
+          id: 'pinned',
+          updatedAt: DateTime(2025, 1, 1),
+          pinned: true,
+        ),
+      );
 
       final summaries = await store.getAllSummaries();
-      check(summaries.map((c) => c.id).toList()).deepEquals([
-        'pinned',
-        'newer',
-        'old',
-      ]);
+      check(
+        summaries.map((c) => c.id).toList(),
+      ).deepEquals(['pinned', 'newer', 'old']);
     });
 
     test('summaries omit message bodies', () async {
-      await store.upsertConversation(_conversation(
-        id: 'c5',
-        messages: List.generate(
-          5,
-          (i) => _message(id: 'm$i', content: 'body-$i'),
+      await store.upsertConversation(
+        _conversation(
+          id: 'c5',
+          messages: List.generate(
+            5,
+            (i) => _message(id: 'm$i', content: 'body-$i'),
+          ),
         ),
-      ));
+      );
 
       final summaries = await store.getAllSummaries();
       final summary = summaries.firstWhere((c) => c.id == 'c5');
@@ -178,10 +180,7 @@ void main() {
       final conv = _conversation(
         id: 'c7',
         messages: [
-          _message(
-            id: 'child',
-            metadata: {'parentId': 'parent-msg-id'},
-          ),
+          _message(id: 'child', metadata: {'parentId': 'parent-msg-id'}),
         ],
       );
       await store.upsertConversation(conv);
@@ -196,13 +195,15 @@ void main() {
     });
 
     test('stores last_message_preview from final message', () async {
-      await store.upsertConversation(_conversation(
-        id: 'c8',
-        messages: [
-          _message(id: 'm1', content: 'first'),
-          _message(id: 'm2', content: 'this is the last reply'),
-        ],
-      ));
+      await store.upsertConversation(
+        _conversation(
+          id: 'c8',
+          messages: [
+            _message(id: 'm1', content: 'first'),
+            _message(id: 'm2', content: 'this is the last reply'),
+          ],
+        ),
+      );
 
       final rows = await database.raw.query(
         'conversations',
@@ -210,15 +211,19 @@ void main() {
         where: 'id = ?',
         whereArgs: ['c8'],
       );
-      check(rows.single['last_message_preview']).equals('this is the last reply');
+      check(
+        rows.single['last_message_preview'],
+      ).equals('this is the last reply');
       check(rows.single['message_count']).equals(2);
     });
 
     test('deleteAll wipes both tables', () async {
-      await store.upsertConversation(_conversation(
-        id: 'c9',
-        messages: [_message(id: 'm1')],
-      ));
+      await store.upsertConversation(
+        _conversation(
+          id: 'c9',
+          messages: [_message(id: 'm1')],
+        ),
+      );
 
       await store.deleteAll();
 
@@ -237,10 +242,12 @@ void main() {
     });
 
     test('appendMessage adds without losing siblings', () async {
-      await store.upsertConversation(_conversation(
-        id: 'c10',
-        messages: [_message(id: 'm1', content: 'one')],
-      ));
+      await store.upsertConversation(
+        _conversation(
+          id: 'c10',
+          messages: [_message(id: 'm1', content: 'one')],
+        ),
+      );
 
       await store.appendMessage(
         'c10',
@@ -248,17 +255,18 @@ void main() {
       );
 
       final loaded = await store.getConversation('c10');
-      check(loaded!.messages.map((m) => m.id).toList()).deepEquals([
-        'm1',
-        'm2',
-      ]);
+      check(
+        loaded!.messages.map((m) => m.id).toList(),
+      ).deepEquals(['m1', 'm2']);
     });
 
     test('updateMessage replaces existing payload', () async {
-      await store.upsertConversation(_conversation(
-        id: 'c11',
-        messages: [_message(id: 'm1', content: 'before')],
-      ));
+      await store.upsertConversation(
+        _conversation(
+          id: 'c11',
+          messages: [_message(id: 'm1', content: 'before')],
+        ),
+      );
 
       await store.updateMessage(_message(id: 'm1', content: 'after'));
 
@@ -267,18 +275,304 @@ void main() {
     });
 
     test('deleteMessage removes a single row only', () async {
-      await store.upsertConversation(_conversation(
-        id: 'c12',
-        messages: [
-          _message(id: 'm1'),
-          _message(id: 'm2'),
-        ],
-      ));
+      await store.upsertConversation(
+        _conversation(
+          id: 'c12',
+          messages: [
+            _message(id: 'm1'),
+            _message(id: 'm2'),
+          ],
+        ),
+      );
 
       await store.deleteMessage('c12', 'm1');
 
       final ids = await store.getMessageIds('c12');
       check(ids).deepEquals(['m2']);
+    });
+
+    test('upsertMessageEnsuringConversation creates the conversation row '
+        'when missing', () async {
+      final scaffold = _conversation(id: 'new-conv', title: 'Streaming…');
+      final msg = _message(id: 'm1', content: 'first chunk');
+
+      await store.upsertMessageEnsuringConversation(
+        scaffold: scaffold,
+        message: msg,
+      );
+
+      final loaded = await store.getConversation('new-conv');
+      check(loaded).isNotNull();
+      check(loaded!.title).equals('Streaming…');
+      check(loaded.messages.single.content).equals('first chunk');
+
+      final rows = await database.raw.query(
+        'conversations',
+        columns: ['message_count', 'last_message_preview'],
+        where: 'id = ?',
+        whereArgs: ['new-conv'],
+      );
+      check(rows.single['message_count']).equals(1);
+      check(rows.single['last_message_preview']).equals('first chunk');
+    });
+
+    test('upsertMessageEnsuringConversation leaves existing conversation '
+        'header intact', () async {
+      await store.upsertConversation(
+        _conversation(
+          id: 'c',
+          title: 'Original Title',
+          messages: [_message(id: 'm1', content: 'one')],
+        ),
+      );
+
+      await store.upsertMessageEnsuringConversation(
+        scaffold: _conversation(id: 'c', title: 'WRONG'),
+        message: _message(id: 'm2', content: 'two', timestamp: DateTime(2027)),
+      );
+
+      final loaded = await store.getConversation('c');
+      check(loaded!.title).equals('Original Title');
+      check(loaded.messages.map((m) => m.id).toList()).deepEquals(['m1', 'm2']);
+    });
+
+    test('upsertMessageEnsuringConversation replaces the same message id '
+        'across streaming updates', () async {
+      final scaffold = _conversation(id: 'stream', title: 'Live');
+      await store.upsertMessageEnsuringConversation(
+        scaffold: scaffold,
+        message: _message(id: 'a1', role: 'assistant', content: 'partial'),
+      );
+      await store.upsertMessageEnsuringConversation(
+        scaffold: scaffold,
+        message: _message(
+          id: 'a1',
+          role: 'assistant',
+          content: 'partial then final',
+        ),
+      );
+
+      final loaded = await store.getConversation('stream');
+      check(loaded!.messages.length).equals(1);
+      check(loaded.messages.single.content).equals('partial then final');
+    });
+
+    group('searchConversations (FTS5)', () {
+      test('returns empty list for empty / whitespace query', () async {
+        await store.upsertConversation(
+          _conversation(
+            id: 'a',
+            title: 'Greetings',
+            messages: [_message(id: 'm1', content: 'hello world')],
+          ),
+        );
+
+        check(await store.searchConversations('')).isEmpty();
+        check(await store.searchConversations('   ')).isEmpty();
+      });
+
+      test('matches by message content (FTS5)', () async {
+        await store.upsertConversation(
+          _conversation(
+            id: 'a',
+            title: 'Untitled',
+            messages: [_message(id: 'm1', content: 'pelican brief')],
+          ),
+        );
+        await store.upsertConversation(
+          _conversation(
+            id: 'b',
+            title: 'Other',
+            messages: [_message(id: 'm2', content: 'something else entirely')],
+          ),
+        );
+
+        final results = await store.searchConversations('pelican');
+        check(results.map((c) => c.id).toList()).deepEquals(['a']);
+      });
+
+      test('matches by title (LIKE)', () async {
+        await store.upsertConversation(
+          _conversation(
+            id: 'a',
+            title: 'Quarterly planning notes',
+            messages: [_message(id: 'm1', content: 'foo')],
+          ),
+        );
+        await store.upsertConversation(
+          _conversation(
+            id: 'b',
+            title: 'Vacation ideas',
+            messages: [_message(id: 'm2', content: 'foo')],
+          ),
+        );
+
+        final results = await store.searchConversations('quarterly');
+        check(results.map((c) => c.id).toList()).deepEquals(['a']);
+      });
+
+      test('dedupes when title and message both match', () async {
+        await store.upsertConversation(
+          _conversation(
+            id: 'a',
+            title: 'Pelican',
+            messages: [_message(id: 'm1', content: 'I saw a pelican')],
+          ),
+        );
+
+        final results = await store.searchConversations('pelican');
+        check(results.length).equals(1);
+        check(results.single.id).equals('a');
+      });
+
+      test('is case-insensitive and supports prefix matches', () async {
+        await store.upsertConversation(
+          _conversation(
+            id: 'a',
+            title: 'Hello World',
+            messages: [_message(id: 'm1', content: 'Testing the indexer')],
+          ),
+        );
+
+        final byTitle = await store.searchConversations('HELLO');
+        check(byTitle.map((c) => c.id).toList()).deepEquals(['a']);
+
+        final byPrefix = await store.searchConversations('test');
+        check(byPrefix.map((c) => c.id).toList()).deepEquals(['a']);
+      });
+
+      test('sorts pinned first, then by updated_at desc', () async {
+        await store.upsertConversation(
+          _conversation(
+            id: 'old',
+            title: 'pelican A',
+            updatedAt: DateTime(2026, 1, 1),
+            messages: [_message(id: 'm1', content: 'x')],
+          ),
+        );
+        await store.upsertConversation(
+          _conversation(
+            id: 'new',
+            title: 'pelican B',
+            updatedAt: DateTime(2026, 4, 1),
+            messages: [_message(id: 'm2', content: 'x')],
+          ),
+        );
+        await store.upsertConversation(
+          _conversation(
+            id: 'pinned',
+            title: 'pelican C',
+            updatedAt: DateTime(2025, 1, 1),
+            pinned: true,
+            messages: [_message(id: 'm3', content: 'x')],
+          ),
+        );
+
+        final results = await store.searchConversations('pelican');
+        check(
+          results.map((c) => c.id).toList(),
+        ).deepEquals(['pinned', 'new', 'old']);
+      });
+
+      test('excludes archived conversations by default', () async {
+        await store.upsertConversation(
+          _conversation(
+            id: 'live',
+            title: 'pelican live',
+            messages: [_message(id: 'm1', content: 'x')],
+          ),
+        );
+        await store.upsertConversation(
+          _conversation(
+            id: 'arch',
+            title: 'pelican arch',
+            archived: true,
+            messages: [_message(id: 'm2', content: 'x')],
+          ),
+        );
+
+        final visible = await store.searchConversations('pelican');
+        check(visible.map((c) => c.id).toList()).deepEquals(['live']);
+
+        final all = await store.searchConversations(
+          'pelican',
+          includeArchived: true,
+        );
+        check(all.map((c) => c.id).toSet()).deepEquals({'live', 'arch'});
+      });
+
+      test('FTS index reflects message updates', () async {
+        await store.upsertConversation(
+          _conversation(
+            id: 'a',
+            title: 'untitled',
+            messages: [_message(id: 'm1', content: 'before')],
+          ),
+        );
+
+        await store.updateMessage(_message(id: 'm1', content: 'pelican now'));
+
+        check(
+          (await store.searchConversations('before')).map((c) => c.id),
+        ).isEmpty();
+        check(
+          (await store.searchConversations(
+            'pelican',
+          )).map((c) => c.id).toList(),
+        ).deepEquals(['a']);
+      });
+
+      test('FTS index reflects message deletions', () async {
+        await store.upsertConversation(
+          _conversation(
+            id: 'a',
+            title: 'untitled',
+            messages: [_message(id: 'm1', content: 'pelican')],
+          ),
+        );
+
+        check(
+          (await store.searchConversations(
+            'pelican',
+          )).map((c) => c.id).toList(),
+        ).deepEquals(['a']);
+
+        await store.deleteMessage('a', 'm1');
+
+        check(
+          (await store.searchConversations('pelican')).map((c) => c.id),
+        ).isEmpty();
+      });
+
+      test('sanitizes FTS-special characters in user input', () async {
+        await store.upsertConversation(
+          _conversation(
+            id: 'a',
+            title: 'untitled',
+            messages: [_message(id: 'm1', content: 'hello world')],
+          ),
+        );
+
+        // Quotes / parens / asterisks would be FTS5 syntax — must be
+        // stripped, not passed through.
+        final results = await store.searchConversations('"hello"*(world');
+        check(results.map((c) => c.id).toList()).deepEquals(['a']);
+      });
+
+      test(
+        'returns empty when query strips to nothing rather than throwing',
+        () async {
+          await store.upsertConversation(
+            _conversation(
+              id: 'a',
+              messages: [_message(id: 'm1', content: 'hello')],
+            ),
+          );
+
+          final results = await store.searchConversations('***');
+          check(results).isEmpty();
+        },
+      );
     });
 
     test('payload_json strips messages list to avoid duplication', () async {

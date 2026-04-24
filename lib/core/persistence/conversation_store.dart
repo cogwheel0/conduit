@@ -65,6 +65,112 @@ class ConversationStore {
     return conv.copyWith(messages: messages);
   }
 
+  /// Phase 4b — local full-text search across conversations.
+  ///
+  /// Combines two sources:
+  ///   * **Title match** — substring LIKE on `conversations.title`. Cheap
+  ///     scan; the conversations table is small (hundreds at most).
+  ///   * **Message body match** — FTS5 search over `messages_fts` joined
+  ///     back to `messages.conversation_id`. Returns the parent
+  ///     conversation for any message whose content matches.
+  ///
+  /// Results are deduped by conversation id, sorted by `pinned DESC,
+  /// updated_at DESC` to mirror the drawer's main listing order, and
+  /// capped at [limit]. Archived conversations are excluded by default.
+  ///
+  /// The returned summaries have `messages` empty — callers needing
+  /// the full conversation should follow up with [getConversation].
+  ///
+  /// Returns an empty list for an empty / whitespace-only query.
+  Future<List<Conversation>> searchConversations(
+    String query, {
+    int limit = 50,
+    bool includeArchived = false,
+  }) async {
+    final trimmed = query.trim();
+    if (trimmed.isEmpty) return const [];
+
+    // Build the FTS5 MATCH expression. We treat each whitespace-separated
+    // token as required and append `*` so prefix matches hit (`hel*`
+    // matches `hello`). FTS5 special characters are stripped so user
+    // input can never inject query operators or unbalanced quotes.
+    final ftsQuery = _toFtsMatchExpression(trimmed);
+
+    final archivedClause = includeArchived ? '' : 'AND c.archived = 0';
+    final sql =
+        '''
+      WITH hits AS (
+        SELECT c.id AS id
+        FROM conversations c
+        WHERE c.title LIKE ? COLLATE NOCASE $archivedClause
+
+        UNION
+
+        SELECT m.conversation_id AS id
+        FROM messages_fts
+        JOIN messages m ON m.rowid = messages_fts.rowid
+        JOIN conversations c ON c.id = m.conversation_id
+        WHERE messages_fts MATCH ? $archivedClause
+      )
+      SELECT c.*
+      FROM conversations c
+      JOIN hits h ON h.id = c.id
+      ORDER BY c.pinned DESC, c.updated_at DESC
+      LIMIT ?
+    ''';
+
+    try {
+      final rows = await _db.rawQuery(sql, ['%$trimmed%', ftsQuery, limit]);
+      return rows.map(_decodeConversationRow).toList(growable: false);
+    } on DatabaseException catch (error, stack) {
+      DebugLogger.error(
+        'Local search failed (query=${trimmed.length} chars)',
+        scope: 'persistence/db',
+        error: error,
+        stackTrace: stack,
+      );
+      // Fall back to title-only — better to return something than nothing.
+      return _searchByTitleOnly(
+        trimmed,
+        limit: limit,
+        includeArchived: includeArchived,
+      );
+    }
+  }
+
+  Future<List<Conversation>> _searchByTitleOnly(
+    String trimmedQuery, {
+    required int limit,
+    required bool includeArchived,
+  }) async {
+    final archivedClause = includeArchived ? '' : 'AND archived = 0';
+    final rows = await _db.rawQuery(
+      '''
+      SELECT * FROM conversations
+      WHERE title LIKE ? COLLATE NOCASE $archivedClause
+      ORDER BY pinned DESC, updated_at DESC
+      LIMIT ?
+      ''',
+      ['%$trimmedQuery%', limit],
+    );
+    return rows.map(_decodeConversationRow).toList(growable: false);
+  }
+
+  /// Strips FTS5 syntax characters from user input and turns each token
+  /// into a prefix match. Empty tokens are dropped; if all tokens are
+  /// stripped to nothing, returns a no-match expression so the FTS5
+  /// query is always well-formed.
+  static String _toFtsMatchExpression(String input) {
+    final sanitized = input.replaceAll(RegExp(r'''[\"\*\(\):\^]'''), ' ');
+    final tokens = sanitized
+        .split(RegExp(r'\s+'))
+        .where((t) => t.isNotEmpty)
+        .map((t) => '"$t"*')
+        .toList(growable: false);
+    if (tokens.isEmpty) return '""';
+    return tokens.join(' ');
+  }
+
   /// Returns just the message IDs in a conversation (in storage order).
   /// Useful for cheap diff checks without decoding payloads.
   Future<List<String>> getMessageIds(String conversationId) async {
@@ -112,9 +218,7 @@ class ConversationStore {
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
 
-    final newIds = <String>{
-      for (final msg in conv.messages) msg.id,
-    };
+    final newIds = <String>{for (final msg in conv.messages) msg.id};
     final existingIdRows = await txn.query(
       'messages',
       columns: ['id'],
@@ -155,6 +259,44 @@ class ConversationStore {
     await _touchConversation(conversationId);
   }
 
+  /// Upserts [message] under [scaffold.id], creating a header row from
+  /// [scaffold] first if the conversation does not yet exist.
+  ///
+  /// Used by the chat send/streaming path (Phase 3b) where messages can
+  /// land before the full conversation has been cached. The scaffold's
+  /// `messages` list is ignored — only the header fields seed the row.
+  /// If the row already exists, the scaffold is discarded and the
+  /// existing header is left intact.
+  Future<void> upsertMessageEnsuringConversation({
+    required Conversation scaffold,
+    required ChatMessage message,
+  }) async {
+    await _db.transaction((txn) async {
+      final existing = await txn.query(
+        'conversations',
+        columns: ['id'],
+        where: 'id = ?',
+        whereArgs: [scaffold.id],
+        limit: 1,
+      );
+      if (existing.isEmpty) {
+        final now = DateTime.now().millisecondsSinceEpoch;
+        final header = scaffold.copyWith(messages: const []);
+        await txn.insert(
+          'conversations',
+          _encodeConversationRow(header, cachedAtMillis: now),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+      await txn.insert(
+        'messages',
+        _encodeMessageRow(scaffold.id, message),
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    });
+    await _touchConversation(scaffold.id);
+  }
+
   /// Update an existing message in place. Conversation row is touched so
   /// the drawer's `updated_at` ordering reflects the change.
   Future<void> updateMessage(ChatMessage message) async {
@@ -193,11 +335,7 @@ class ConversationStore {
 
   /// Remove a conversation and all of its messages.
   Future<void> deleteConversation(String id) async {
-    await _db.delete(
-      'conversations',
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    await _db.delete('conversations', where: 'id = ?', whereArgs: [id]);
   }
 
   /// Drop every conversation and message. Used by `clearAuthData`.
@@ -329,6 +467,8 @@ class ConversationStore {
     final trimmed = content.trim();
     if (trimmed.isEmpty) return null;
     final collapsed = trimmed.replaceAll(RegExp(r'\s+'), ' ');
-    return collapsed.length <= 120 ? collapsed : '${collapsed.substring(0, 119)}…';
+    return collapsed.length <= 120
+        ? collapsed
+        : '${collapsed.substring(0, 119)}…';
   }
 }
