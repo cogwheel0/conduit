@@ -29,6 +29,8 @@ dependencies:
   hive_ce_flutter: ^2.3.2
   shared_preferences: ^2.3.2
   sqflite: ^2.4.1
+  sqflite_common_ffi: ^2.3.6
+  sqlite3_flutter_libs: ^0.6.0
   
   # UI Components - Markdown Rendering
   cached_network_image: ^3.3.1
@@ -88,7 +90,7 @@ dependencies:
   super_clipboard: ^0.9.1
   super_sliver_list: ^0.4.1
   gaimon: ^1.4.2
-  
+
   # Clipboard functionality is available through flutter/services (part of Flutter SDK)
 
 dev_dependencies:
@@ -104,7 +106,6 @@ dev_dependencies:
   custom_lint: 0.8.1
   mocktail: ^1.0.4
   checks: ^0.3.1
-  sqflite_common_ffi: ^2.3.6
 
 dependency_overrides:
   riverpod_lint: 3.0.3

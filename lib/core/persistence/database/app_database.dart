@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../../utils/debug_logger.dart';
 
@@ -20,11 +22,19 @@ class AppDatabase {
   /// [ConversationStore]; this is exposed for tests and migrations.
   Database get raw => _db;
 
-  static const int _schemaVersion = 2;
+  static const int _schemaVersion = 3;
   static const String _fileName = 'conduit.db';
 
   /// Opens (or creates) the database at the app's documents directory.
+  ///
+  /// On Android, switches sqflite to FFI mode so it uses the sqlite3 library
+  /// bundled by [sqlite3_flutter_libs] instead of the system SQLite. The
+  /// system SQLite on Android omits FTS5; the bundled one includes it.
   static Future<AppDatabase> open() async {
+    if (Platform.isAndroid) {
+      sqfliteFfiInit();
+      databaseFactory = databaseFactoryFfi;
+    }
     final dir = await getApplicationDocumentsDirectory();
     final path = p.join(dir.path, _fileName);
     final db = await openDatabase(
@@ -110,7 +120,13 @@ class AppDatabase {
     int oldVersion,
     int newVersion,
   ) async {
-    if (oldVersion < 2) {
+    if (oldVersion < 3) {
+      // Drop any partial FTS artifacts from a broken v2 schema (FTS5 failed
+      // on Android because system SQLite omits that module).
+      await db.execute('DROP TABLE IF EXISTS messages_fts');
+      await db.execute('DROP TRIGGER IF EXISTS messages_ai');
+      await db.execute('DROP TRIGGER IF EXISTS messages_ad');
+      await db.execute('DROP TRIGGER IF EXISTS messages_au');
       await _createMessagesFtsAndTriggers(db);
       await _backfillMessagesFts(db);
     }
@@ -126,7 +142,9 @@ class AppDatabase {
   ///
   /// Tokenizer: porter + unicode61 — case-insensitive, stems English
   /// suffixes (`testing`/`tests`/`test` all match), strips diacritics.
-  /// Good defaults for chat search.
+  ///
+  /// Requires FTS5 — on Android this is provided by [sqlite3_flutter_libs]
+  /// which bundles a modern SQLite with FTS5 enabled via dart:ffi.
   static Future<void> _createMessagesFtsAndTriggers(Database db) async {
     final batch = db.batch();
     batch.execute('''

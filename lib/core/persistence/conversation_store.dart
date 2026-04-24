@@ -95,6 +95,13 @@ class ConversationStore {
     // matches `hello`). FTS5 special characters are stripped so user
     // input can never inject query operators or unbalanced quotes.
     final ftsQuery = _toFtsMatchExpression(trimmed);
+    if (ftsQuery.isEmpty) {
+      return _searchByTitleOnly(
+        trimmed,
+        limit: limit,
+        includeArchived: includeArchived,
+      );
+    }
 
     final archivedClause = includeArchived ? '' : 'AND c.archived = 0';
     final sql =
@@ -158,8 +165,8 @@ class ConversationStore {
 
   /// Strips FTS5 syntax characters from user input and turns each token
   /// into a prefix match. Empty tokens are dropped; if all tokens are
-  /// stripped to nothing, returns a no-match expression so the FTS5
-  /// query is always well-formed.
+  /// stripped to nothing, returns an empty string — callers must skip
+  /// the FTS query in that case.
   static String _toFtsMatchExpression(String input) {
     final sanitized = input.replaceAll(RegExp(r'''[\"\*\(\):\^]'''), ' ');
     final tokens = sanitized
@@ -167,7 +174,7 @@ class ConversationStore {
         .where((t) => t.isNotEmpty)
         .map((t) => '"$t"*')
         .toList(growable: false);
-    if (tokens.isEmpty) return '""';
+    if (tokens.isEmpty) return '';
     return tokens.join(' ');
   }
 
