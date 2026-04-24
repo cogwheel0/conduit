@@ -16,6 +16,7 @@ import '../../chat/providers/context_attachments_provider.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../shared/widgets/conduit_loading.dart';
+import '../../../shared/widgets/skeleton_loader.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
@@ -715,8 +716,15 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           ];
           return _buildRefreshableScrollableSlivers(slivers: slivers);
         },
-        loading: () =>
-            const Center(child: CircularProgressIndicator(strokeWidth: 2.0)),
+        loading: () => ListView.builder(
+          padding: const EdgeInsets.symmetric(vertical: Spacing.sm),
+          itemCount: 8,
+          itemBuilder: (_, _) => const SkeletonListItem(
+            showAvatar: false,
+            showSubtitle: true,
+            isCompact: true,
+          ),
+        ),
         error: (e, _) => Center(
           child: Padding(
             padding: const EdgeInsets.all(Spacing.md),
@@ -731,11 +739,67 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       );
     }
 
-    // Server-backed search
+    // Phase 4b — local-first search. Local SQLite results render
+    // immediately via [localSearchProvider] (FTS5, ~tens of ms). The
+    // server result enriches asynchronously via [serverSearchProvider]
+    // and merges in by id. Spinner only when both are still loading
+    // AND we have nothing to display; "no results" only after server
+    // has resolved (or failed) so we don't flash a false negative
+    // before the local index has filled in.
+    final localAsync = ref.watch(localSearchProvider(_query));
     final searchAsync = ref.watch(serverSearchProvider(_query));
-    return searchAsync.when(
-      data: (list) {
+
+    final localList = localAsync.maybeWhen(
+      data: (l) => l,
+      orElse: () => const <Conversation>[],
+    );
+    final serverList = searchAsync.maybeWhen(
+      data: (l) => l,
+      orElse: () => const <Conversation>[],
+    );
+
+    // Dedupe by id, preferring local (its cached payload may be richer
+    // than what the server search endpoint returns). Then sort by
+    // pinned + recency to match the main listing order.
+    final byId = <String, Conversation>{};
+    for (final c in localList) {
+      byId[c.id] = c;
+    }
+    for (final c in serverList) {
+      byId.putIfAbsent(c.id, () => c);
+    }
+    final list = byId.values.toList()
+      ..sort((a, b) {
+        if (a.pinned != b.pinned) return a.pinned ? -1 : 1;
+        return b.updatedAt.compareTo(a.updatedAt);
+      });
+
+    final bothLoading = localAsync.isLoading && searchAsync.isLoading;
+    final serverSettled = searchAsync.hasValue || searchAsync.hasError;
+
+    return Builder(
+      builder: (context) {
         if (list.isEmpty) {
+          if (bothLoading || !serverSettled) {
+            return const Center(
+              child: CircularProgressIndicator(strokeWidth: 2.0),
+            );
+          }
+          if (searchAsync.hasError) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(Spacing.md),
+                child: Text(
+                  'Search failed',
+                  style: AppTypography.bodyMediumStyle.copyWith(
+                    color: context.sidebarTheme.foreground.withValues(
+                      alpha: 0.7,
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }
           return Center(
             child: Padding(
               padding: const EdgeInsets.all(Spacing.lg),
@@ -917,19 +981,6 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
 
         return _buildRefreshableScrollableSlivers(slivers: slivers);
       },
-      loading: () =>
-          const Center(child: CircularProgressIndicator(strokeWidth: 2.0)),
-      error: (e, _) => Center(
-        child: Padding(
-          padding: const EdgeInsets.all(Spacing.md),
-          child: Text(
-            'Search failed',
-            style: AppTypography.bodyMediumStyle.copyWith(
-              color: context.sidebarTheme.foreground.withValues(alpha: 0.7),
-            ),
-          ),
-        ),
-      ),
     );
   }
 
@@ -1998,20 +2049,55 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         }
       }
 
-      // Load the full conversation details in the background
+      // Cache-first single-conversation load (Phase 1.2): consult the local
+      // per-conversation cache before hitting the network. On a hit, the chat
+      // shell becomes interactive immediately while a background refresh
+      // reconciles with the server.
+      final storage = container.read(optimizedStorageServiceProvider);
+      final cached = await storage.getCachedConversation(id);
+      if (cached != null && _pendingConversationId == id) {
+        container.read(activeConversationProvider.notifier).set(cached);
+        container.read(chat.isLoadingConversationProvider.notifier).set(false);
+      }
+
+      // Load the full conversation details in the background and update both
+      // the active state and the local cache on success.
       final api = container.read(apiServiceProvider);
       if (api != null) {
-        final full = await api.getConversation(id);
-        container.read(activeConversationProvider.notifier).set(full);
-      } else {
-        // Fallback: use the lightweight item to update the active conversation
-        container
-            .read(activeConversationProvider.notifier)
-            .set(
-              (await container.read(
+        try {
+          final full = await api.getConversation(id);
+          // Only apply if the user hasn't navigated to a different chat.
+          if (_pendingConversationId == id) {
+            container.read(activeConversationProvider.notifier).set(full);
+          }
+          unawaited(storage.cacheConversation(full));
+        } catch (e) {
+          // If the network fetch fails and we have no cache, fall back to the
+          // lightweight item from the conversation list. If we already showed
+          // a cached version, leave it visible — the reconnect banner will
+          // surface the underlying network problem.
+          if (cached == null && _pendingConversationId == id) {
+            try {
+              final lightweight = (await container.read(
                 conversationsProvider.future,
-              )).firstWhere((c) => c.id == id),
-            );
+              )).firstWhere((c) => c.id == id);
+              container
+                  .read(activeConversationProvider.notifier)
+                  .set(lightweight);
+            } catch (_) {}
+          }
+        }
+      } else if (cached == null) {
+        // No API service AND no cache — fall back to the lightweight item.
+        try {
+          container
+              .read(activeConversationProvider.notifier)
+              .set(
+                (await container.read(
+                  conversationsProvider.future,
+                )).firstWhere((c) => c.id == id),
+              );
+        } catch (_) {}
       }
 
       // Clear loading after data is ready

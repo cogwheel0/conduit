@@ -25,6 +25,7 @@ import '../services/optimized_storage_service.dart';
 import '../services/socket_service.dart';
 import '../services/connectivity_service.dart';
 import '../utils/debug_logger.dart';
+import '../utils/startup_timeline.dart';
 import '../services/worker_manager.dart';
 import '../../shared/theme/tweakcn_themes.dart';
 import '../../shared/theme/app_theme.dart';
@@ -1146,9 +1147,11 @@ class Conversations extends _$Conversations {
 
     final storage = ref.read(optimizedStorageServiceProvider);
     try {
+      StartupTimeline.instant('cache_hydration_started');
       final cached = await storage.getLocalConversations();
       if (cached.isNotEmpty) {
         final sortedCached = _sortByUpdatedAt(cached);
+        StartupTimeline.instant('cache_hydration_complete');
         Future.microtask(() async {
           try {
             await refresh(includeFolders: true);
@@ -1172,6 +1175,7 @@ class Conversations extends _$Conversations {
       );
     }
 
+    StartupTimeline.instant('cache_hydration_complete');
     final fresh = await _loadRemoteConversations();
     _persistConversationsAsync(fresh);
     return fresh;
@@ -1524,10 +1528,43 @@ class ActiveConversationNotifier extends Notifier<Conversation?> {
   void clear() => state = null;
 }
 
-// Provider to load full conversation with messages
+// Provider to load full conversation with messages.
+//
+// Cache-first (Phase 1.2): if a per-conversation cache entry exists we
+// return it immediately so consumers get a synchronous-feeling load, and
+// kick a background server refresh that updates the cache for next time.
+// Callers expecting a strict "freshest" value should invalidate this
+// provider after success.
 @riverpod
 Future<Conversation> loadConversation(Ref ref, String conversationId) async {
   final api = ref.watch(apiServiceProvider);
+  final storage = ref.read(optimizedStorageServiceProvider);
+
+  final cached = await storage.getCachedConversation(conversationId);
+  if (cached != null) {
+    DebugLogger.log(
+      'load-cache-hit',
+      scope: 'conversation',
+      data: {'id': conversationId, 'messages': cached.messages.length},
+    );
+    if (api != null) {
+      // Background refresh; failures are non-fatal — cache stays usable.
+      unawaited(() async {
+        try {
+          final fresh = await api.getConversation(conversationId);
+          await storage.cacheConversation(fresh);
+        } catch (error) {
+          DebugLogger.warning(
+            'background-refresh-failed',
+            scope: 'conversation',
+            data: {'id': conversationId, 'error': error.toString()},
+          );
+        }
+      }());
+    }
+    return cached;
+  }
+
   if (api == null) {
     throw Exception('No API service available');
   }
@@ -1543,6 +1580,7 @@ Future<Conversation> loadConversation(Ref ref, String conversationId) async {
     scope: 'conversation',
     data: {'messages': fullConversation.messages.length},
   );
+  unawaited(storage.cacheConversation(fullConversation));
 
   return fullConversation;
 }
@@ -1812,6 +1850,19 @@ class SearchQuery extends _$SearchQuery {
   String build() => '';
 
   void set(String query) => state = query;
+}
+
+/// Phase 4b — instant local search backed by SQLite FTS5.
+///
+/// Returns cached conversations matching either the title (LIKE) or any
+/// message body (FTS5 prefix match). Used by the drawer to render
+/// results before the network search finishes; the server result then
+/// enriches.
+@riverpod
+Future<List<Conversation>> localSearch(Ref ref, String query) async {
+  if (query.trim().isEmpty) return const [];
+  final storage = ref.watch(optimizedStorageServiceProvider);
+  return storage.searchConversationsLocal(query, limit: 50);
 }
 
 // Server-side search provider for chats
@@ -2349,6 +2400,16 @@ class UserFiles extends _$UserFiles {
   }
 
   void upsert(FileInfo file) {
+    // Phase 2.1: persist file info on every upsert so subsequent sends can
+    // skip the per-attachment getFileInfo round-trip. Wrapped defensively so
+    // unit tests (which don't always bootstrap Hive) don't blow up on the
+    // optional cache dependency.
+    try {
+      unawaited(ref.read(optimizedStorageServiceProvider).cacheFileInfo(file));
+    } catch (_) {
+      // Storage not available (likely a unit-test container) — skip caching.
+    }
+
     if (!state.hasValue) {
       return;
     }

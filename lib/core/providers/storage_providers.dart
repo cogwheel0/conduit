@@ -30,5 +30,6 @@ final optimizedStorageServiceProvider = Provider<OptimizedStorageService>((
     secureStorage: ref.watch(secureStorageProvider),
     boxes: ref.watch(hiveBoxesProvider),
     workerManager: ref.watch(workerManagerProvider),
+    conversationStore: ref.watch(conversationStoreProvider),
   );
 });

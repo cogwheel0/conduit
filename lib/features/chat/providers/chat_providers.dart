@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:uuid/uuid.dart';
@@ -10,6 +11,7 @@ import 'package:yaml/yaml.dart' as yaml;
 import '../../../core/auth/auth_state_manager.dart';
 import '../../../core/models/chat_message.dart';
 import '../../../core/models/conversation.dart';
+import '../../../core/models/file_info.dart';
 import '../../../core/providers/app_providers.dart';
 
 import '../../../core/services/settings_service.dart';
@@ -129,12 +131,20 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   DateTime? _lastStreamingActivity;
   StringBuffer? _streamingBuffer;
   Timer? _streamingSyncTimer;
+  // Phase 3b — count buffer-sync ticks so we can persist the streaming
+  // assistant message to SQLite roughly every [_streamingPersistEveryNTicks]
+  // ticks instead of on every chunk. Reset wherever the buffer/timer reset.
+  int _streamingSyncTickCount = 0;
+  static const int _streamingPersistEveryNTicks = 4; // 4 × 500ms ≈ 2s
   Timer? _taskStatusTimer;
   Timer? _passiveConversationRefreshTimer;
   bool _taskStatusCheckInFlight = false;
   bool _observedRemoteTask = false;
   bool _passiveConversationRefreshInFlight = false;
   bool _queuedPassiveConversationRefresh = false;
+  // Phase 4a — guard for refreshActiveConversationFromServer so back-to-back
+  // taps on the app bar refresh button don't fire concurrent fetches.
+  bool _manualRefreshInFlight = false;
   String? _passiveConversationId;
   String? _activeStreamingTransportMessageId;
 
@@ -197,6 +207,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         _stopRemoteTaskMonitor();
         _streamingSyncTimer?.cancel();
         _streamingSyncTimer = null;
+        _streamingSyncTickCount = 0;
 
         _conversationListener?.close();
         _conversationListener = null;
@@ -237,6 +248,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _streamingBuffer = null;
     _streamingSyncTimer?.cancel();
     _streamingSyncTimer = null;
+    _streamingSyncTickCount = 0;
     _clearStreamingContent();
     if (_hasTrackedStreamingTransport) {
       _dropStreamingTransportState(source: 'server adoption from $source');
@@ -392,6 +404,94 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     });
   }
 
+  /// Phase 4a — explicit refresh of the active conversation from the
+  /// server. Used by the chat app bar refresh button, pull-to-refresh,
+  /// and the foreground-resume observer to recover messages whose
+  /// streaming completed server-side after the client disconnected.
+  ///
+  /// Differs from [_refreshConversationFromServer] in that it:
+  ///   - bypasses the passive in-flight guard (this is explicit, not
+  ///     socket-driven — duplicate taps just early-return below)
+  ///   - drops stale transport state so the server snapshot can adopt
+  ///     even if a stuck `isStreaming: true` placeholder is present
+  ///   - persists the refreshed conversation to SQLite (Phase 3a cache)
+  ///
+  /// Safe to call when there is a live socket/stream — the
+  /// [_shouldProtectLocalStreamingState] check below skips the refresh
+  /// in that case so we don't truncate an in-flight response.
+  Future<void> refreshActiveConversationFromServer({
+    required String source,
+  }) async {
+    final activeConversation = ref.read(activeConversationProvider);
+    if (activeConversation == null) return;
+    if (isTemporaryChat(activeConversation.id)) return;
+
+    if (_shouldProtectLocalStreamingState) {
+      DebugLogger.log(
+        'Skipping manual refresh while live transport is active '
+        '(source: $source)',
+        scope: 'chat/providers',
+      );
+      return;
+    }
+
+    if (_manualRefreshInFlight) return;
+    _manualRefreshInFlight = true;
+
+    try {
+      final api = ref.read(apiServiceProvider);
+      if (api == null) return;
+
+      final conversationId = activeConversation.id;
+      final refreshed = await api.getConversation(conversationId);
+      if (!ref.mounted) return;
+
+      final currentActive = ref.read(activeConversationProvider);
+      if (currentActive == null || currentActive.id != conversationId) return;
+
+      // A stuck `isStreaming: true` placeholder is still tracked as the
+      // active transport message even though the stream is dead. Clear
+      // that bookkeeping so [_adoptServerMessages] (triggered by the
+      // setState below) can swap in the server's completed message
+      // instead of guarding against it.
+      _dropStreamingTransportState(source: 'manual refresh: $source');
+
+      ref.read(activeConversationProvider.notifier).set(refreshed);
+
+      try {
+        ref
+            .read(conversationsProvider.notifier)
+            .upsertConversation(refreshed.copyWith(messages: const []));
+      } catch (_) {}
+
+      try {
+        final storage = ref.read(optimizedStorageServiceProvider);
+        unawaited(storage.cacheConversation(refreshed));
+      } catch (_) {}
+
+      DebugLogger.log(
+        'Manually refreshed active conversation (source: $source, '
+        'messages: ${refreshed.messages.length})',
+        scope: 'chat/providers',
+      );
+    } catch (e) {
+      DebugLogger.log(
+        'Manual refresh failed (source: $source): $e',
+        scope: 'chat/providers',
+      );
+    } finally {
+      _manualRefreshInFlight = false;
+    }
+  }
+
+  /// Phase 4a — true when the active conversation has a streaming
+  /// assistant message but no live transport. A refresh would surface
+  /// the server's completed version. Used by the foreground-resume
+  /// observer to decide whether to fire a refresh on app resume.
+  bool get hasStuckStreamingMessage {
+    return _hasStreamingAssistant && !_shouldProtectLocalStreamingState;
+  }
+
   Future<void> _refreshConversationFromServer(
     String conversationId, {
     required String source,
@@ -474,6 +574,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _streamingBuffer = null;
     _streamingSyncTimer?.cancel();
     _streamingSyncTimer = null;
+    _streamingSyncTickCount = 0;
     if (clearStreamingContent) {
       _clearStreamingContent();
     }
@@ -575,6 +676,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _streamingBuffer = null;
     _streamingSyncTimer?.cancel();
     _streamingSyncTimer = null;
+    _streamingSyncTickCount = 0;
     _clearStreamingContent();
     _stopRemoteTaskMonitor();
   }
@@ -1050,22 +1152,54 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       // Streaming ended but timer still fired — cancel it.
       _streamingSyncTimer?.cancel();
       _streamingSyncTimer = null;
+      _streamingSyncTickCount = 0;
       return;
     }
     final lastMessage = state.last;
     if (lastMessage.role != 'assistant' || !lastMessage.isStreaming) {
       _streamingSyncTimer?.cancel();
       _streamingSyncTimer = null;
+      _streamingSyncTickCount = 0;
       return;
     }
 
     final accumulated = _streamingBuffer!.toString();
     if (accumulated == lastMessage.content) return;
 
-    state = [
-      ...state.sublist(0, state.length - 1),
-      lastMessage.copyWith(content: accumulated),
-    ];
+    final updated = lastMessage.copyWith(content: accumulated);
+    state = [...state.sublist(0, state.length - 1), updated];
+
+    // Phase 3b — throttled SQLite write of the streaming assistant
+    // message. Final write happens in [_completeStreamingMessage]; here
+    // we just keep the on-disk view within ~2s of the in-memory one.
+    _streamingSyncTickCount++;
+    if (_streamingSyncTickCount % _streamingPersistEveryNTicks == 0) {
+      _persistStreamingMessage(updated);
+    }
+  }
+
+  /// Phase 3b — fire-and-forget SQLite write for the in-progress (or
+  /// completed) assistant message. Gated by [_shouldPersistGranular] so
+  /// reviewer mode and temporary chats are no-ops. Wrapped in try/catch
+  /// because the synchronous provider reads can throw in test/restricted
+  /// environments where Hive/storage isn't initialized — persistence
+  /// failure must never break the streaming state machine.
+  void _persistStreamingMessage(ChatMessage assistantMessage) {
+    try {
+      final activeConv = ref.read(activeConversationProvider);
+      if (activeConv == null) return;
+      if (!_shouldPersistGranular(ref, conversationId: activeConv.id)) return;
+      final storage = ref.read(optimizedStorageServiceProvider);
+      unawaited(
+        storage.persistMessageEnsuringConversation(
+          scaffold: activeConv.copyWith(messages: const []),
+          message: assistantMessage,
+        ),
+      );
+    } catch (_) {
+      // Best-effort. The async error path inside the storage layer
+      // already logs; this catches sync provider-construction failures.
+    }
   }
 
   /// Flushes any pending streaming buffer content into the
@@ -1080,6 +1214,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _streamingBuffer = null;
     _streamingSyncTimer?.cancel();
     _streamingSyncTimer = null;
+    _streamingSyncTickCount = 0;
     _clearStreamingContent();
     if (state.isEmpty) return;
 
@@ -1182,6 +1317,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _streamingBuffer = null;
     _streamingSyncTimer?.cancel();
     _streamingSyncTimer = null;
+    _streamingSyncTickCount = 0;
     _clearStreamingContent();
 
     if (state.isEmpty) {
@@ -1216,6 +1352,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       cancelSocketSubscriptions();
       _stopRemoteTaskMonitor();
     }
+
+    // Phase 3b — final SQLite write of the now-complete assistant
+    // message. Independent of the throttled tick counter so the row is
+    // guaranteed to reflect `isStreaming: false` even if the last
+    // periodic tick didn't fall on a persist boundary.
+    _persistStreamingMessage(state.last);
 
     _syncConversationStateAfterStreamingUpdate();
   }
@@ -2447,11 +2589,19 @@ Future<void> sendMessage(
 Future<void> sendMessageFromService(
   Ref ref,
   String message,
-  List<String>? attachments, [
+  List<String>? attachments, {
   List<String>? toolIds,
   bool isVoiceMode = false,
-]) async {
-  await _sendMessageInternal(ref, message, attachments, toolIds, isVoiceMode);
+  String? outboundTaskId,
+}) async {
+  await _sendMessageInternal(
+    ref,
+    message,
+    attachments,
+    toolIds,
+    isVoiceMode,
+    outboundTaskId,
+  );
 }
 
 Future<void> sendMessageWithContainer(
@@ -2470,13 +2620,38 @@ Future<void> sendMessageWithContainer(
   );
 }
 
+// Build the request-shape file map from a locally cached [FileInfo].
+//
+// Mirrors the shape produced by the network branch in [_sendMessageInternal]
+// so cache hits and misses are interchangeable from the server's perspective.
+Map<String, dynamic> _fileMapFromCachedInfo(FileInfo info) {
+  final mimeType = info.mimeType;
+  final isImage = mimeType.startsWith('image/');
+  final collectionName = info.metadata?['collection_name'];
+  return <String, dynamic>{
+    'type': isImage ? 'image' : 'file',
+    'id': info.id,
+    'name': info.filename.isNotEmpty ? info.filename : 'file',
+    'url': info.id,
+    if (info.size > 0) 'size': info.size,
+    'collection_name': ?collectionName,
+    if (mimeType.isNotEmpty) 'content_type': mimeType,
+  };
+}
+
 // Internal send message implementation
+//
+// [outboundTaskId] (Phase 2.5) is the [OutboundTask.id] when this send was
+// dispatched through the persistent TaskQueue. Stored in the user message's
+// metadata so [messageDeliveryStatusProvider] can correlate the message back
+// to its queue task and surface a per-message status badge.
 Future<void> _sendMessageInternal(
   dynamic ref,
   String message,
   List<String>? attachments, [
   List<String>? toolIds,
   bool isVoiceMode = false,
+  String? outboundTaskId,
 ]) async {
   final reviewerMode = ref.read(reviewerModeProvider);
   final api = ref.read(apiServiceProvider);
@@ -2534,6 +2709,9 @@ Future<void> _sendMessageInternal(
       'parentId': openWebUiParentId,
       'childrenIds': <String>[assistantMessageId],
       'models': <String>[selectedModel.id],
+      // Phase 2.5: link this message to its persistent TaskQueue task so
+      // the per-message delivery badge can resolve queued/running/failed.
+      'outboundTaskId': ?outboundTaskId,
     },
   );
 
@@ -2557,10 +2735,31 @@ Future<void> _sendMessageInternal(
   Map<String, dynamic>? userSettingsData;
   final serverFiles = <Map<String, dynamic>>[];
 
+  // Phase 2.2: hoisted createConversation future. Kicked in parallel with
+  // file-info resolution once we know the system prompt, then awaited at the
+  // bottom of the new-chat branch. Lets the network call for the new server
+  // conversation overlap with attachment metadata fetches instead of running
+  // strictly afterwards.
+  Future<Conversation>? pendingCreateConversation;
+  Conversation? createConversationLocal;
+  String? createConversationFolderId;
   if (!reviewerMode && api != null) {
-    // Fetch user settings and server file info in parallel
+    // Fetch user settings and server file info in parallel.
+    //
+    // Phase 2.1: file info is cached locally on upload (UserFiles.upsert).
+    // We consult the cache first so re-using uploaded files makes zero
+    // network calls in the user-visible send path.
+    final storage = ref.read(optimizedStorageServiceProvider);
     final settingsFuture = api.getUserSettings().catchError((_) => null);
     final fileInfoFutures = serverFileIds.map((fileId) async {
+      // Cache hit: build the request shape entirely from local data.
+      try {
+        final cached = await storage.getCachedFileInfo(fileId);
+        if (cached != null) {
+          return _fileMapFromCachedInfo(cached);
+        }
+      } catch (_) {}
+      // Cache miss: fall back to the existing network fetch.
       try {
         final fileInfo = await api.getFileInfo(fileId);
         final fileName = fileInfo['filename'] ?? fileInfo['name'] ?? 'file';
@@ -2569,6 +2768,13 @@ Future<void> _sendMessageInternal(
             fileInfo['meta']?['content_type'] ?? fileInfo['content_type'] ?? '';
         final collectionName =
             fileInfo['meta']?['collection_name'] ?? fileInfo['collection_name'];
+
+        // Warm the cache for next time. Best-effort — wrapped in try/catch
+        // inside FileInfo.fromJson so a malformed response just skips caching.
+        try {
+          final parsed = FileInfo.fromJson(Map<String, dynamic>.from(fileInfo));
+          unawaited(storage.cacheFileInfo(parsed));
+        } catch (_) {}
 
         // Determine type: 'image' for image content types, 'file' for others
         // .toString() for safety against malformed API responses returning non-String
@@ -2594,13 +2800,52 @@ Future<void> _sendMessageInternal(
       }
     });
 
-    // Wait for all async work to complete in parallel
-    final fileInfoResults = await Future.wait(fileInfoFutures);
+    // Phase 2.2: resolve settings first so we know userSystemPrompt early,
+    // then kick the createConversation network call concurrently with the
+    // remaining file-info futures. This overlaps two previously-serial
+    // network round-trips for new-chat sends with attachments.
     userSettingsData = await settingsFuture;
-
     if (userSettingsData != null) {
       userSystemPrompt = _extractSystemPromptFromSettings(userSettingsData);
     }
+
+    final activeForCreate = ref.read(activeConversationProvider);
+    if (activeForCreate == null) {
+      final pendingFolderId = ref.read(pendingFolderIdProvider);
+      final isTemporary = ref.read(temporaryChatEnabledProvider);
+      if (!isTemporary) {
+        // Build the local placeholder now and set it as active so the chat
+        // UI keeps rendering the user message while the server call is in
+        // flight. Streaming send is gated below until createConversation
+        // resolves to obtain the server-assigned conversation id.
+        createConversationFolderId = pendingFolderId;
+        createConversationLocal = Conversation(
+          id: const Uuid().v4(),
+          title: 'New Chat',
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+          systemPrompt: userSystemPrompt,
+          messages: [userMessage, assistantPlaceholder],
+          folderId: pendingFolderId,
+        );
+        ref
+            .read(activeConversationProvider.notifier)
+            .set(createConversationLocal);
+        final lightweightForCreate = userMessage.copyWith(
+          attachmentIds: null,
+          files: null,
+        );
+        pendingCreateConversation = api.createConversation(
+          title: 'New Chat',
+          messages: [lightweightForCreate],
+          model: selectedModel.id,
+          systemPrompt: userSystemPrompt,
+          folderId: pendingFolderId,
+        );
+      }
+    }
+
+    final fileInfoResults = await Future.wait(fileInfoFutures);
     serverFiles.addAll(fileInfoResults);
 
     // Update user message with server file info if needed
@@ -2619,12 +2864,70 @@ Future<void> _sendMessageInternal(
   // Check if we need to create a new conversation first
   var activeConversation = ref.read(activeConversationProvider);
 
-  if (activeConversation == null) {
+  // Phase 2.2: if we kicked createConversation in parallel with the file
+  // info resolution above, await it now and apply the server-assigned id +
+  // folder. The local placeholder is already set as active, so the chat UI
+  // has been rendering the user message throughout this delay.
+  if (pendingCreateConversation != null && createConversationLocal != null) {
+    final localPlaceholder = createConversationLocal;
+    final pendingFolderId = createConversationFolderId;
+    try {
+      final serverConversation = await pendingCreateConversation;
+
+      ref.read(pendingFolderIdProvider.notifier).clear();
+
+      final currentMessages = ref.read(chatMessagesProvider);
+      final updatedConversation = localPlaceholder.copyWith(
+        id: serverConversation.id,
+        systemPrompt: serverConversation.systemPrompt ?? userSystemPrompt,
+        messages: currentMessages,
+        folderId: serverConversation.folderId ?? pendingFolderId,
+      );
+      ref.read(activeConversationProvider.notifier).set(updatedConversation);
+      activeConversation = updatedConversation;
+
+      ref
+          .read(conversationsProvider.notifier)
+          .upsertConversation(
+            updatedConversation.copyWith(updatedAt: DateTime.now()),
+          );
+
+      // Phase 3b — now that the server has returned a real conversation
+      // id, persist the full conversation (header + user message +
+      // assistant placeholder) to SQLite in a single upsert. This is the
+      // canonical "first write" for a new chat. Subsequent streaming
+      // chunks piggyback on _persistStreamingMessage under the same id.
+      try {
+        if (_shouldPersistGranular(
+          ref,
+          conversationId: updatedConversation.id,
+        )) {
+          final storage = ref.read(optimizedStorageServiceProvider);
+          unawaited(storage.cacheConversation(updatedConversation));
+        }
+      } catch (_) {}
+
+      Future.delayed(const Duration(milliseconds: 100), () {
+        try {
+          final isMounted = ref is Ref ? ref.mounted : true;
+          if (isMounted) {
+            refreshConversationsCache(
+              ref,
+              includeFolders: pendingFolderId != null,
+            );
+          }
+        } catch (_) {}
+      });
+    } catch (e) {
+      ref.read(pendingFolderIdProvider.notifier).clear();
+    }
+  } else if (activeConversation == null) {
+    // No createConversation was kicked: either temporary chat or reviewer
+    // mode. Build the appropriate local placeholder.
     final pendingFolderId = ref.read(pendingFolderIdProvider);
     final isTemporary = ref.read(temporaryChatEnabledProvider);
 
     if (isTemporary) {
-      // Temporary chat: use local ID, skip server creation entirely
       final socketId = ref.read(socketServiceProvider)?.sessionId ?? 'unknown';
       final localConversation = Conversation(
         id: 'local:${socketId}_${const Uuid().v4()}',
@@ -2639,8 +2942,7 @@ Future<void> _sendMessageInternal(
       activeConversation = localConversation;
       ref.read(pendingFolderIdProvider.notifier).clear();
     } else {
-      // Create new conversation with user message AND assistant placeholder
-      // so the listener doesn't remove the placeholder when setting active
+      // Reviewer mode new chat: build local placeholder, no server call.
       final localConversation = Conversation(
         id: const Uuid().v4(),
         title: 'New Chat',
@@ -2651,76 +2953,9 @@ Future<void> _sendMessageInternal(
         folderId: pendingFolderId,
       );
 
-      // Set as active conversation locally
       ref.read(activeConversationProvider.notifier).set(localConversation);
       activeConversation = localConversation;
-
-      if (!reviewerMode) {
-        // Try to create on server - use lightweight message without large
-        // base64 image data to avoid timeout (images sent in chat request)
-        try {
-          final lightweightMessage = userMessage.copyWith(
-            attachmentIds: null,
-            files: null,
-          );
-          final serverConversation = await api.createConversation(
-            title: 'New Chat',
-            messages: [lightweightMessage],
-            model: selectedModel.id,
-            systemPrompt: userSystemPrompt,
-            folderId: pendingFolderId,
-          );
-
-          // Clear the pending folder ID after successful creation
-          ref.read(pendingFolderIdProvider.notifier).clear();
-
-          // Keep local messages (user + assistant placeholder) instead of server
-          // messages, since we're in the middle of sending and streaming
-          final currentMessages = ref.read(chatMessagesProvider);
-          final updatedConversation = localConversation.copyWith(
-            id: serverConversation.id,
-            systemPrompt: serverConversation.systemPrompt ?? userSystemPrompt,
-            messages: currentMessages,
-            folderId: serverConversation.folderId ?? pendingFolderId,
-          );
-          ref
-              .read(activeConversationProvider.notifier)
-              .set(updatedConversation);
-          activeConversation = updatedConversation;
-
-          ref
-              .read(conversationsProvider.notifier)
-              .upsertConversation(
-                updatedConversation.copyWith(updatedAt: DateTime.now()),
-              );
-
-          // Invalidate conversations provider to refresh the list
-          // Adding a small delay to prevent rapid invalidations that could cause duplicates
-          Future.delayed(const Duration(milliseconds: 100), () {
-            try {
-              // Guard against using ref after provider disposal
-              // Only Ref has .mounted; WidgetRef/ProviderContainer don't support
-              // this check, so we proceed and let the underlying read operations
-              // handle any disposal gracefully.
-              final isMounted = ref is Ref ? ref.mounted : true;
-              if (isMounted) {
-                refreshConversationsCache(
-                  ref,
-                  includeFolders: pendingFolderId != null,
-                );
-              }
-            } catch (_) {
-              // If ref is disposed or invalid, skip
-            }
-          });
-        } catch (e) {
-          // Clear the pending folder ID on failure to prevent stale state
-          ref.read(pendingFolderIdProvider.notifier).clear();
-        }
-      } else {
-        // Clear the pending folder ID even in reviewer mode
-        ref.read(pendingFolderIdProvider.notifier).clear();
-      }
+      ref.read(pendingFolderIdProvider.notifier).clear();
     }
   }
 
@@ -2732,6 +2967,25 @@ Future<void> _sendMessageInternal(
     ref.read(activeConversationProvider.notifier).set(updated);
     activeConversation = updated;
   }
+
+  // Phase 3b — persist the user message to SQLite as soon as we have a
+  // real (non-temp, non-pending) conversation id. unawaited so the
+  // disk write never blocks the network send below; failures log and
+  // are swallowed by the storage layer. The new-chat full upsert above
+  // already covers that branch — this catches existing chats where the
+  // user message addMessage at line ~2620 was a no-op.
+  try {
+    if (activeConversation != null &&
+        _shouldPersistGranular(ref, conversationId: activeConversation.id)) {
+      final storage = ref.read(optimizedStorageServiceProvider);
+      unawaited(
+        storage.persistMessageEnsuringConversation(
+          scaffold: activeConversation.copyWith(messages: const []),
+          message: userMessage,
+        ),
+      );
+    }
+  } catch (_) {}
 
   // Reviewer mode: simulate a response locally and return
   if (reviewerMode) {
@@ -3104,6 +3358,28 @@ Future<void> _sendMessageInternal(
         (ChatMessage m) => m.copyWith(error: chatError),
       );
       notifier.finishStreaming();
+
+      // Phase 3b — persist the error state so the failed message
+      // survives a restart with its `error` populated. Skipped in the
+      // 401/403 branch above since that's a sign-out event; the
+      // conversation cache shouldn't record a failure that's about to
+      // be invalidated anyway.
+      try {
+        final activeConv = ref.read(activeConversationProvider);
+        if (activeConv != null &&
+            _shouldPersistGranular(ref, conversationId: activeConv.id)) {
+          final storage = ref.read(optimizedStorageServiceProvider);
+          final msgs = ref.read(chatMessagesProvider);
+          if (msgs.isNotEmpty) {
+            unawaited(
+              storage.persistMessageEnsuringConversation(
+                scaffold: activeConv.copyWith(messages: const []),
+                message: msgs.last,
+              ),
+            );
+          }
+        }
+      } catch (_) {}
     }
   }
 }
@@ -3137,6 +3413,21 @@ String _errorContentForException(Object e) {
 
 // Save current conversation to OpenWebUI server
 // Removed server persistence; only local caching is used in mobile app.
+
+/// Phase 3b — gates granular SQLite writes from the chat send/streaming
+/// path. Returns false in cases where there is no real persistent
+/// conversation to write to:
+///   - reviewer mode (handled by [_saveConversationLocally] / Hive blob)
+///   - temporary chats (`local:` prefix — never persisted by design)
+///   - no active conversation, or empty/null id (new-chat window before
+///     `createConversation` resolves with a server id)
+bool _shouldPersistGranular(dynamic ref, {String? conversationId}) {
+  if (ref.read(reviewerModeProvider) as bool) return false;
+  final id = conversationId ?? ref.read(activeConversationProvider)?.id;
+  if (id == null || id.isEmpty) return false;
+  if (isTemporaryChat(id)) return false;
+  return true;
+}
 
 // Fallback: Save current conversation to local storage
 Future<void> _saveConversationLocally(dynamic ref) async {
@@ -3343,6 +3634,95 @@ Future<void> cloneConversation(WidgetRef ref, String conversationId) async {
     DebugLogger.log('Error cloning conversation: $e', scope: 'chat/providers');
     rethrow;
   }
+}
+
+/// Phase 4c — delete a set of messages from the active conversation.
+///
+/// Local-first: removes from the in-memory chat state and SQLite cache
+/// immediately so the UI feels instant, then best-effort syncs the new
+/// authoritative message list to the server. Server failure is logged
+/// but does NOT roll back the local deletion — the next refresh from
+/// server will reconcile if the deletion never landed.
+///
+/// Skips no-op deletions (empty set or no active conversation).
+/// Temporary chats persist nothing to SQLite or server — the local
+/// state update is the entire delete.
+///
+/// Returns the number of messages actually removed from local state.
+Future<int> deleteMessages(WidgetRef ref, Set<String> messageIds) async {
+  if (messageIds.isEmpty) return 0;
+  final activeConversation = ref.read(activeConversationProvider);
+  if (activeConversation == null) return 0;
+
+  final currentMessages = ref.read(chatMessagesProvider);
+  final remaining = currentMessages
+      .where((m) => !messageIds.contains(m.id))
+      .toList(growable: false);
+  if (remaining.length == currentMessages.length) {
+    // None of the requested ids were present — nothing to do.
+    return 0;
+  }
+
+  // Optimistic local removal: chat list, active conversation, drawer
+  // summary all update before any network call.
+  final notifier = ref.read(chatMessagesProvider.notifier);
+  notifier.setMessages(remaining);
+
+  final updatedConversation = activeConversation.copyWith(
+    messages: remaining,
+    updatedAt: DateTime.now(),
+  );
+  ref.read(activeConversationProvider.notifier).set(updatedConversation);
+
+  if (!isTemporaryChat(activeConversation.id)) {
+    try {
+      ref
+          .read(conversationsProvider.notifier)
+          .upsertConversation(updatedConversation.copyWith(messages: const []));
+    } catch (_) {}
+
+    // SQLite: drop the message rows. Triggers from Phase 4b also remove
+    // them from the FTS index so search results don't include zombies.
+    try {
+      final storage = ref.read(optimizedStorageServiceProvider);
+      for (final id in messageIds) {
+        unawaited(storage.persistMessageDeletion(activeConversation.id, id));
+      }
+    } catch (_) {}
+
+    // Best-effort server sync. We hold the authoritative post-delete
+    // snapshot, so syncConversationMessages is safe here (its docstring
+    // warns against partial buffers — this is the explicit-snapshot
+    // case it allows).
+    try {
+      final api = ref.read(apiServiceProvider);
+      if (api != null) {
+        unawaited(
+          api
+              .syncConversationMessages(
+                activeConversation.id,
+                remaining,
+                title: updatedConversation.title,
+                model: updatedConversation.model,
+                systemPrompt: updatedConversation.systemPrompt,
+              )
+              .catchError((Object e) {
+                DebugLogger.log(
+                  'deleteMessages server sync failed: $e',
+                  scope: 'chat/providers',
+                );
+              }),
+        );
+      }
+    } catch (e) {
+      DebugLogger.log(
+        'deleteMessages server sync threw: $e',
+        scope: 'chat/providers',
+      );
+    }
+  }
+
+  return currentMessages.length - remaining.length;
 }
 
 /// Whether [message] is an assistant message whose normalized [files]
@@ -3704,4 +4084,40 @@ Map<String, dynamic> _buildLocalModelItem(dynamic selectedModel) {
           .map((f) => f.toJson())
           .toList(),
   };
+}
+
+/// Phase 4a — when the app returns to the foreground, refresh the
+/// active conversation if it has a stuck `isStreaming: true` message.
+/// The OpenWebUI server keeps generating after the client disconnects;
+/// the completed response gets persisted server-side. This observer
+/// surfaces it without the user having to manually pull-to-refresh.
+///
+/// Mounted from [appStartupOrchestrationProvider] alongside the other
+/// lifecycle observers.
+final chatLifecycleProvider = Provider<void>((ref) {
+  final observer = _ChatLifecycleObserver(ref);
+  WidgetsBinding.instance.addObserver(observer);
+  ref.onDispose(() => WidgetsBinding.instance.removeObserver(observer));
+});
+
+class _ChatLifecycleObserver extends WidgetsBindingObserver {
+  _ChatLifecycleObserver(this._ref);
+
+  final Ref _ref;
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    Future.microtask(() {
+      try {
+        final notifier = _ref.read(chatMessagesProvider.notifier);
+        if (!notifier.hasStuckStreamingMessage) return;
+        unawaited(
+          notifier.refreshActiveConversationFromServer(
+            source: 'app foreground',
+          ),
+        );
+      } catch (_) {}
+    });
+  }
 }

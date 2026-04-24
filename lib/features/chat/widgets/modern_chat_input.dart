@@ -142,13 +142,23 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   final ClipboardAttachmentService _clipboardService =
       ClipboardAttachmentService();
 
+  // Phase 2.6: per-conversation draft persistence. The composer text is
+  // saved on a 300ms debounce while typing, hydrated on conversation switch
+  // and on cold start, and cleared on send. Falls back to the literal key
+  // 'new' when no conversation is active so unsent drafts survive into the
+  // first message of a fresh chat.
+  static const String _draftKeyForNew = 'new';
+  String _activeDraftKey = _draftKeyForNew;
+  Timer? _draftSaveTimer;
+  bool _draftHydrated = false;
+
   @override
   void initState() {
     super.initState();
     _voiceService = ref.read(voiceInputServiceProvider);
 
     // Apply any prefilled text on first frame (focus handled via inputFocusTrigger)
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted || _isDeactivated) return;
       final text = ref.read(prefilledInputTextProvider);
       if (text != null && text.isNotEmpty) {
@@ -156,7 +166,25 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         _controller.selection = TextSelection.collapsed(offset: text.length);
         // Clear after applying so it doesn't re-apply on rebuilds
         ref.read(prefilledInputTextProvider.notifier).clear();
+        _draftHydrated = true; // prefilled wins over a saved draft
+        return;
       }
+      // Phase 2.6: hydrate the persisted draft for the active chat.
+      final activeId =
+          ref.read(activeConversationProvider)?.id ?? _draftKeyForNew;
+      _activeDraftKey = activeId;
+      try {
+        final storage = ref.read(optimizedStorageServiceProvider);
+        final draft = await storage.getDraft(activeId);
+        if (!mounted || _isDeactivated) return;
+        if (draft != null && draft.isNotEmpty && _controller.text.isEmpty) {
+          _controller.text = draft;
+          _controller.selection = TextSelection.collapsed(
+            offset: draft.length,
+          );
+        }
+      } catch (_) {}
+      _draftHydrated = true;
     });
 
     // Removed ref.listen here; it must be used from build in this Riverpod version
@@ -217,6 +245,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     _pasteSubscription?.cancel();
     _textSub?.cancel();
     _contextSuggestionDebounce?.cancel();
+    _draftSaveTimer?.cancel();
     _voiceService.stopListening();
     super.dispose();
   }
@@ -287,6 +316,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     widget.onSendMessage(wireText);
     _controller.clearMentions();
     _controller.clear();
+    // Phase 2.6: drop the saved draft for this chat once the message is on
+    // its way to the queue. The send is optimistic + persisted via TaskQueue
+    // so we don't need to keep the draft around as a fallback.
+    _draftSaveTimer?.cancel();
+    unawaited(
+      ref
+          .read(optimizedStorageServiceProvider)
+          .clearDraft(_activeDraftKey),
+    );
     _focusNode.unfocus();
     try {
       SystemChannels.textInput.invokeMethod('TextInput.hide');
@@ -536,6 +574,20 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     _lastEditTime = DateTime.now();
 
     final String text = _controller.text;
+    // Phase 2.6: schedule debounced draft save. Skip until the initial
+    // hydration has run so we don't overwrite the saved draft with the
+    // composer's initial empty state on widget mount.
+    if (_draftHydrated) {
+      _draftSaveTimer?.cancel();
+      _draftSaveTimer = Timer(const Duration(milliseconds: 300), () {
+        if (!mounted || _isDeactivated) return;
+        unawaited(
+          ref
+              .read(optimizedStorageServiceProvider)
+              .saveDraft(_activeDraftKey, _controller.text),
+        );
+      });
+    }
     final TextSelection selection = _controller.selection;
     final bool hasText = text.trim().isNotEmpty;
     // Consider multiline if text contains newlines or exceeds ~50 chars
@@ -1586,6 +1638,36 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   @override
   Widget build(BuildContext context) {
+    // Phase 2.6: when the active conversation changes, persist the outgoing
+    // chat's draft and hydrate the incoming chat's draft so the user keeps
+    // their typing across switches. Triggered before any UI rebuilds so the
+    // controller swap happens in the same frame.
+    ref.listen<String?>(
+      activeConversationProvider.select((c) => c?.id),
+      (previous, next) async {
+        if (!_draftHydrated) return;
+        final outgoingKey = _activeDraftKey;
+        final incomingKey = next ?? _draftKeyForNew;
+        if (outgoingKey == incomingKey) return;
+        final storage = ref.read(optimizedStorageServiceProvider);
+        // Flush any in-flight debounced save synchronously to the outgoing
+        // key before swapping.
+        _draftSaveTimer?.cancel();
+        try {
+          await storage.saveDraft(outgoingKey, _controller.text);
+        } catch (_) {}
+        _activeDraftKey = incomingKey;
+        try {
+          final draft = await storage.getDraft(incomingKey);
+          if (!mounted || _isDeactivated) return;
+          final newText = draft ?? '';
+          _controller.text = newText;
+          _controller.selection = TextSelection.collapsed(
+            offset: newText.length,
+          );
+        } catch (_) {}
+      },
+    );
     ref.listen<bool>(composerAutofocusEnabledProvider, (previous, next) {
       if ((previous ?? true) && !next && _focusNode.hasFocus) {
         WidgetsBinding.instance.addPostFrameCallback((_) {

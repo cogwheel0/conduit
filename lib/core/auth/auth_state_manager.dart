@@ -10,7 +10,9 @@ import '../services/optimized_storage_service.dart';
 import 'token_validator.dart';
 import 'auth_cache_manager.dart';
 import 'webview_cookie_helper.dart';
+import '../services/connectivity_service.dart';
 import '../utils/debug_logger.dart';
+import '../utils/startup_timeline.dart';
 import '../utils/user_avatar_utils.dart';
 
 part 'auth_state_manager.g.dart';
@@ -24,6 +26,7 @@ class AuthState {
     this.user,
     this.error,
     this.isLoading = false,
+    this.serverReachable = true,
   });
 
   final AuthStatus status;
@@ -31,6 +34,14 @@ class AuthState {
   final User? user;
   final String? error;
   final bool isLoading;
+
+  /// Whether the configured Open WebUI server has been reached recently.
+  ///
+  /// On cold start the local-first path renders the UI from cached state
+  /// before the readiness probe completes — this flag goes false if the
+  /// background `/health` check fails so the chat shell can show a
+  /// non-blocking reconnect banner without flipping out of `authenticated`.
+  final bool serverReachable;
 
   bool get isAuthenticated =>
       status == AuthStatus.authenticated && token != null;
@@ -44,6 +55,7 @@ class AuthState {
     User? user,
     String? error,
     bool? isLoading,
+    bool? serverReachable,
     bool clearToken = false,
     bool clearUser = false,
     bool clearError = false,
@@ -54,6 +66,7 @@ class AuthState {
       user: clearUser ? null : (user ?? this.user),
       error: clearError ? null : (error ?? this.error),
       isLoading: isLoading ?? this.isLoading,
+      serverReachable: serverReachable ?? this.serverReachable,
     );
   }
 
@@ -65,15 +78,17 @@ class AuthState {
         other.token == token &&
         other.user == user &&
         other.error == error &&
-        other.isLoading == isLoading;
+        other.isLoading == isLoading &&
+        other.serverReachable == serverReachable;
   }
 
   @override
-  int get hashCode => Object.hash(status, token, user, error, isLoading);
+  int get hashCode =>
+      Object.hash(status, token, user, error, isLoading, serverReachable);
 
   @override
   String toString() =>
-      'AuthState(status: $status, hasToken: ${token != null}, hasUser: ${user != null}, error: $error, isLoading: $isLoading)';
+      'AuthState(status: $status, hasToken: ${token != null}, hasUser: ${user != null}, error: $error, isLoading: $isLoading, serverReachable: $serverReachable)';
 }
 
 enum AuthStatus {
@@ -172,6 +187,18 @@ class AuthStateManager extends _$AuthStateManager {
 
   @override
   Future<AuthState> build() async {
+    // Phase 2.4: re-probe server reachability whenever connectivity flips
+    // back online. This pairs with the TaskQueue's connectivity drain so the
+    // reconnect banner clears as soon as the server is reachable again.
+    ref.listen<ConnectivityStatus>(connectivityStatusProvider, (prev, next) {
+      if (next == ConnectivityStatus.online &&
+          prev != ConnectivityStatus.online) {
+        final state = _current;
+        if (state.isAuthenticated && !state.serverReachable) {
+          unawaited(probeServerReachability());
+        }
+      }
+    });
     await _initialize();
     return _current;
   }
@@ -227,101 +254,39 @@ class AuthStateManager extends _$AuthStateManager {
         // Fast path: trust token format to avoid blocking startup on network
         final formatOk = _isValidTokenFormat(token);
         if (formatOk) {
-          // Network readiness gate: Wait for API to be reachable before
-          // transitioning to authenticated state. This prevents race conditions
-          // on cold starts with Cloudflare tunnels where the tunnel connection
-          // may not be established yet.
-          final apiReady = await _waitForApiReadiness();
-          if (!apiReady) {
-            DebugLogger.auth(
-              'API not reachable on cold start - keeping loading state',
-            );
-            // Keep loading state and retry via silent login if we have creds
-            final hasCreds = await storage.hasCredentials();
-            if (hasCreds) {
-              DebugLogger.auth(
-                'Has credentials - attempting silent login after API ready',
-              );
-              // Schedule a delayed retry that will wait for network.
-              // Allow time for network stack to stabilize after initial failure.
-              unawaited(
-                Future.delayed(const Duration(milliseconds: 500), () async {
-                  if (!ref.mounted) return;
-                  try {
-                    final retryReady = await _waitForApiReadiness(
-                      timeout: const Duration(seconds: 10),
-                    );
-                    if (!ref.mounted) return;
-                    if (retryReady) {
-                      await _performSilentLogin();
-                    } else {
-                      _update(
-                        (current) => current.copyWith(
-                          status: AuthStatus.error,
-                          error: 'Unable to connect to server',
-                          isLoading: false,
-                        ),
-                      );
-                    }
-                  } catch (e, stack) {
-                    if (!ref.mounted) return;
-                    DebugLogger.error(
-                      'delayed-retry-failed',
-                      scope: 'auth/state',
-                      error: e,
-                      stackTrace: stack,
-                    );
-                    _update(
-                      (current) => current.copyWith(
-                        status: AuthStatus.error,
-                        error: 'Connection retry failed',
-                        isLoading: false,
-                      ),
-                    );
-                  }
-                }),
-              );
-              return;
+          // Local-first path: transition to authenticated immediately using
+          // the cached user (if any) so the chat UI can render in the same
+          // frame. The /health probe runs in the background and only flips
+          // `serverReachable` to false on failure — never demotes status.
+          User? cachedUser;
+          try {
+            cachedUser = await storage.getLocalUser();
+            if (cachedUser != null) {
+              final cachedAvatar = await storage.getLocalUserAvatar();
+              if (cachedAvatar != null &&
+                  cachedAvatar.isNotEmpty &&
+                  cachedUser.profileImage != cachedAvatar) {
+                cachedUser = cachedUser.copyWith(profileImage: cachedAvatar);
+              }
+              DebugLogger.auth('Restored user from cache');
             }
-            // No credentials - show error
-            _update(
-              (current) => current.copyWith(
-                status: AuthStatus.error,
-                error: 'Unable to connect to server',
-                isLoading: false,
-              ),
-            );
-            return;
+          } catch (_) {
+            cachedUser = null;
           }
 
           _update(
             (current) => current.copyWith(
               status: AuthStatus.authenticated,
               token: token,
+              user: cachedUser,
               isLoading: false,
+              serverReachable: true,
               clearError: true,
             ),
             cache: true,
           );
 
-          try {
-            final cachedUser = await storage.getLocalUser();
-            if (cachedUser != null) {
-              // Restore cached avatar as well
-              final cachedAvatar = await storage.getLocalUserAvatar();
-              final userWithAvatar =
-                  cachedAvatar != null &&
-                      cachedAvatar.isNotEmpty &&
-                      cachedUser.profileImage != cachedAvatar
-                  ? cachedUser.copyWith(profileImage: cachedAvatar)
-                  : cachedUser;
-              _update(
-                (current) => current.copyWith(user: userWithAvatar),
-                cache: true,
-              );
-              DebugLogger.auth('Restored user from cache');
-            }
-          } catch (_) {}
+          StartupTimeline.instant('auth_state_resolved');
 
           // Update API service with token and kick off dependent background work
           _updateApiServiceToken(token);
@@ -329,17 +294,12 @@ class AuthStateManager extends _$AuthStateManager {
           _loadUserData();
           _prefetchConversations();
 
-          // Background server validation; if it fails, invalidate token gracefully
+          // Background server reachability probe. On failure we set
+          // serverReachable=false so the chat shell can show a non-blocking
+          // reconnect banner. We do NOT demote status — the cached UI stays
+          // usable, and outbound sends will queue via TaskQueue with retry.
           final validToken = token; // Capture non-null token for closure
-          Future.microtask(() async {
-            try {
-              final ok = await _validateToken(validToken);
-              DebugLogger.auth('Deferred token validation result: $ok');
-              if (!ok) {
-                await onTokenInvalidated();
-              }
-            } catch (_) {}
-          });
+          unawaited(_probeReachabilityAndValidate(validToken));
         } else {
           // Token format invalid; clear and require login
           DebugLogger.auth('Token format invalid, deleting token');
@@ -773,6 +733,58 @@ class AuthStateManager extends _$AuthStateManager {
       'API readiness timed out after ${stopwatch.elapsedMilliseconds}ms',
     );
     return false;
+  }
+
+  /// Background reachability probe + deferred token validation. Used after
+  /// the local-first cold-start path sets `authenticated` from cache; never
+  /// demotes status, only updates `serverReachable` and (on definitive
+  /// server-side rejection) calls [onTokenInvalidated].
+  Future<void> _probeReachabilityAndValidate(String token) async {
+    try {
+      final ready = await _waitForApiReadiness();
+      if (!ref.mounted) return;
+      _update((current) => current.copyWith(serverReachable: ready));
+      if (!ready) {
+        DebugLogger.auth(
+          'Server unreachable after cold-start probe — banner will surface',
+        );
+        return;
+      }
+      try {
+        final ok = await _validateToken(token);
+        DebugLogger.auth('Deferred token validation result: $ok');
+        if (!ok && ref.mounted) {
+          await onTokenInvalidated();
+        }
+      } catch (_) {}
+    } catch (e, stack) {
+      DebugLogger.warning(
+        'reachability-probe-failed',
+        scope: 'auth/state',
+        data: {'error': e.toString()},
+      );
+      // Surface as unreachable; user can manually retry from the banner.
+      if (ref.mounted) {
+        _update((current) => current.copyWith(serverReachable: false));
+      }
+      // Stack is captured for debug builds; rethrow swallowed intentionally.
+      assert(() {
+        debugPrintStack(stackTrace: stack);
+        return true;
+      }());
+    }
+  }
+
+  /// Manually re-probe server reachability. Called by the reconnect banner
+  /// retry action and by connectivity-online transitions (Phase 2.4 wiring).
+  Future<bool> probeServerReachability() async {
+    final ready = await _waitForApiReadiness(
+      timeout: const Duration(seconds: 5),
+    );
+    if (ref.mounted) {
+      _update((current) => current.copyWith(serverReachable: ready));
+    }
+    return ready;
   }
 
   /// Perform silent auto-login with saved credentials
@@ -1450,4 +1462,15 @@ class AuthStateManager extends _$AuthStateManager {
 
 extension _StringFallbackExtension on String {
   String ifEmptyReturn(String fallback) => isEmpty ? fallback : this;
+}
+
+/// Whether the configured Open WebUI server has been reachable via the
+/// background `/health` probe. Watched by the chat shell's reconnect banner
+/// so it can surface a non-blocking "Reconnecting…" hint without blocking
+/// the UI on cold start.
+@Riverpod(keepAlive: true)
+bool serverReachable(Ref ref) {
+  final state = ref.watch(authStateManagerProvider).asData?.value;
+  // Default to true so we never flash a banner before the first probe lands.
+  return state?.serverReachable ?? true;
 }

@@ -17,6 +17,8 @@ abstract class OutboundTask with _$OutboundTask {
     @Default(<String>[]) List<String> toolIds,
     @Default(TaskStatus.queued) TaskStatus status,
     @Default(0) int attempt,
+    @Default(8) int maxAttempts,
+    DateTime? nextAttemptAt,
     String? idempotencyKey,
     DateTime? enqueuedAt,
     DateTime? startedAt,
@@ -34,6 +36,8 @@ abstract class OutboundTask with _$OutboundTask {
     String? checksum,
     @Default(TaskStatus.queued) TaskStatus status,
     @Default(0) int attempt,
+    @Default(8) int maxAttempts,
+    DateTime? nextAttemptAt,
     String? idempotencyKey,
     DateTime? enqueuedAt,
     DateTime? startedAt,
@@ -48,6 +52,8 @@ abstract class OutboundTask with _$OutboundTask {
     @Default(<String, dynamic>{}) Map<String, dynamic> arguments,
     @Default(TaskStatus.queued) TaskStatus status,
     @Default(0) int attempt,
+    @Default(8) int maxAttempts,
+    DateTime? nextAttemptAt,
     String? idempotencyKey,
     DateTime? enqueuedAt,
     DateTime? startedAt,
@@ -61,6 +67,8 @@ abstract class OutboundTask with _$OutboundTask {
     required String prompt,
     @Default(TaskStatus.queued) TaskStatus status,
     @Default(0) int attempt,
+    @Default(8) int maxAttempts,
+    DateTime? nextAttemptAt,
     String? idempotencyKey,
     DateTime? enqueuedAt,
     DateTime? startedAt,
@@ -75,6 +83,8 @@ abstract class OutboundTask with _$OutboundTask {
     required String fileName,
     @Default(TaskStatus.queued) TaskStatus status,
     @Default(0) int attempt,
+    @Default(8) int maxAttempts,
+    DateTime? nextAttemptAt,
     String? idempotencyKey,
     DateTime? enqueuedAt,
     DateTime? startedAt,
@@ -98,4 +108,36 @@ abstract class OutboundTask with _$OutboundTask {
       (maybeConversationId == null || maybeConversationId!.isEmpty)
       ? 'new'
       : maybeConversationId!;
+
+  /// Unified accessor for the next-attempt timestamp across variants. Used by
+  /// [TaskQueue] to defer pickup of tasks that have been scheduled for retry
+  /// after exponential backoff.
+  DateTime? get scheduledNextAttemptAt => map(
+    sendTextMessage: (t) => t.nextAttemptAt,
+    uploadMedia: (t) => t.nextAttemptAt,
+    executeToolCall: (t) => t.nextAttemptAt,
+    generateImage: (t) => t.nextAttemptAt,
+    imageToDataUrl: (t) => t.nextAttemptAt,
+  );
+
+  /// Maximum number of attempts before a task is treated as terminally failed.
+  int get attemptBudget => map(
+    sendTextMessage: (t) => t.maxAttempts,
+    uploadMedia: (t) => t.maxAttempts,
+    executeToolCall: (t) => t.maxAttempts,
+    generateImage: (t) => t.maxAttempts,
+    imageToDataUrl: (t) => t.maxAttempts,
+  );
+}
+
+/// Marker exception thrown by [TaskWorker] when a task fails in a way that
+/// will not succeed on retry (e.g. 4xx auth/validation errors). The queue
+/// catches this and skips backoff scheduling, marking the task as failed.
+class PermanentTaskError implements Exception {
+  PermanentTaskError(this.message);
+
+  final String message;
+
+  @override
+  String toString() => 'PermanentTaskError: $message';
 }

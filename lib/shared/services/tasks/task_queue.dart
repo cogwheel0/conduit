@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../../core/persistence/persistence_providers.dart';
 import '../../../core/persistence/hive_boxes.dart';
+import '../../../core/services/connectivity_service.dart';
 import 'outbound_task.dart';
 import 'task_worker.dart';
 import '../../../core/utils/debug_logger.dart';
@@ -19,6 +20,17 @@ class TaskQueueNotifier extends Notifier<List<OutboundTask>> {
   static const _storageKey = HiveStoreKeys.taskQueue;
   final _uuid = const Uuid();
   bool _bootstrapScheduled = false;
+  Timer? _drainTimer;
+
+  // Phase 2.3 backoff schedule (indexed by attempt count). Beyond the last
+  // entry the final value is reused so the cap is one hour.
+  static const List<Duration> _backoff = <Duration>[
+    Duration(seconds: 30),
+    Duration(minutes: 1),
+    Duration(minutes: 5),
+    Duration(minutes: 15),
+    Duration(hours: 1),
+  ];
 
   @override
   List<OutboundTask> build() {
@@ -26,12 +38,53 @@ class TaskQueueNotifier extends Notifier<List<OutboundTask>> {
       _bootstrapScheduled = true;
       Future.microtask(_load);
     }
+    // Phase 2.3: periodic drain so tasks scheduled for delayed retry resume
+    // even when nothing else triggers a queue tick. The timer is keepAlive-d
+    // by the Notifier lifecycle and torn down on dispose.
+    _drainTimer ??= Timer.periodic(const Duration(seconds: 30), (_) {
+      _process();
+    });
+    ref.onDispose(() {
+      _drainTimer?.cancel();
+      _drainTimer = null;
+    });
+    // Phase 2.4: kick the queue immediately when connectivity flips back to
+    // online so queued sends don't have to wait up to 30s for the drain
+    // timer. Combined with the per-task backoff window, this means a recent
+    // network blip recovers within a couple of seconds of reconnect.
+    ref.listen<ConnectivityStatus>(
+      connectivityStatusProvider,
+      (prev, next) {
+        if (next == ConnectivityStatus.online &&
+            prev != ConnectivityStatus.online) {
+          DebugLogger.log(
+            'connectivity-online: kicking queue drain',
+            scope: 'tasks/queue',
+          );
+          _process();
+        }
+      },
+    );
     return const [];
   }
 
   bool _processing = false;
   final Set<String> _activeThreads = <String>{};
   final int _maxParallel = 2; // bounded parallelism across conversations
+
+  /// Manually pump the queue. Called from connectivity-online transitions
+  /// (Phase 2.4) and from the reachability banner so deferred tasks resume
+  /// immediately when the user reconnects.
+  void kickProcessing() {
+    _process();
+  }
+
+  Duration _backoffFor(int attempt) {
+    if (attempt <= 0) return _backoff.first;
+    final clamped = attempt - 1;
+    if (clamped >= _backoff.length) return _backoff.last;
+    return _backoff[clamped];
+  }
 
   Future<void> _load() async {
     try {
@@ -186,6 +239,9 @@ class TaskQueueNotifier extends Notifier<List<OutboundTask>> {
             error: null,
             startedAt: null,
             completedAt: null,
+            // Manual retry bypasses the backoff window — the user explicitly
+            // asked us to try again right now.
+            nextAttemptAt: null,
           )
         else
           t,
@@ -240,10 +296,13 @@ class TaskQueueNotifier extends Notifier<List<OutboundTask>> {
     try {
       // Pump while there is capacity and queued tasks remain
       while (true) {
-        // Filter runnable tasks
-        final queued = state
-            .where((t) => t.status == TaskStatus.queued)
-            .toList();
+        // Filter runnable tasks: queued AND past their nextAttemptAt window.
+        final now = DateTime.now();
+        final queued = state.where((t) {
+          if (t.status != TaskStatus.queued) return false;
+          final nextAt = t.scheduledNextAttemptAt;
+          return nextAt == null || !now.isBefore(nextAt);
+        }).toList();
         if (queued.isEmpty) break;
 
         // Respect parallelism and one-per-thread
@@ -309,17 +368,49 @@ class TaskQueueNotifier extends Notifier<List<OutboundTask>> {
         'Task failed (${task.runtimeType}): $e\n$st',
         scope: 'tasks/queue',
       );
-      state = [
-        for (final t in state)
-          if (t.id == task.id)
-            t.copyWith(
-              status: TaskStatus.failed,
-              error: e.toString(),
-              completedAt: DateTime.now(),
-            )
-          else
-            t,
-      ];
+
+      // Phase 2.3: classify failure. Permanent errors stop retrying; transient
+      // ones get exponential backoff up to maxAttempts.
+      final isPermanent = e is PermanentTaskError;
+      final nextAttempt = task.attempt + 1;
+      final shouldRetry = !isPermanent && nextAttempt < task.attemptBudget;
+
+      if (shouldRetry) {
+        final delay = _backoffFor(nextAttempt);
+        final scheduledFor = DateTime.now().add(delay);
+        DebugLogger.log(
+          'Task scheduled for retry in ${delay.inSeconds}s '
+          '(attempt $nextAttempt/${task.attemptBudget})',
+          scope: 'tasks/queue',
+        );
+        state = [
+          for (final t in state)
+            if (t.id == task.id)
+              t.copyWith(
+                status: TaskStatus.queued,
+                attempt: nextAttempt,
+                error: e.toString(),
+                startedAt: null,
+                completedAt: null,
+                nextAttemptAt: scheduledFor,
+              )
+            else
+              t,
+        ];
+      } else {
+        state = [
+          for (final t in state)
+            if (t.id == task.id)
+              t.copyWith(
+                status: TaskStatus.failed,
+                attempt: nextAttempt,
+                error: e.toString(),
+                completedAt: DateTime.now(),
+              )
+            else
+              t,
+        ];
+      }
     } finally {
       await _save();
     }

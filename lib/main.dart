@@ -10,6 +10,7 @@ import 'core/widgets/error_boundary.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'core/providers/app_providers.dart';
+import 'core/persistence/database/app_database.dart';
 import 'core/persistence/hive_bootstrap.dart';
 import 'core/persistence/persistence_migrator.dart';
 import 'core/persistence/persistence_providers.dart';
@@ -23,8 +24,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'core/services/share_receiver_service.dart';
 import 'core/services/quick_actions_service.dart';
 import 'core/providers/app_startup_providers.dart';
-
-developer.TimelineTask? _startupTimeline;
+import 'core/utils/startup_timeline.dart';
 
 void main() {
   runZonedGuarded(
@@ -56,13 +56,12 @@ void main() {
       };
 
       // Start startup timeline instrumentation
-      _startupTimeline = developer.TimelineTask();
-      _startupTimeline!.start('app_startup');
-      _startupTimeline!.instant('bindings_initialized');
+      StartupTimeline.start();
+      StartupTimeline.instant('bindings_initialized');
 
       // Edge-to-edge is now handled natively in MainActivity.kt for Android 15+
       // No need for SystemUiMode.edgeToEdge which is deprecated
-      _startupTimeline?.instant('edge_to_edge_configured');
+      StartupTimeline.instant('edge_to_edge_configured');
 
       try {
         await QuickActionsBootstrap.initialize();
@@ -97,22 +96,31 @@ void main() {
       } catch (_) {
         // Ignore warmup errors - this is best-effort
       }
-      _startupTimeline!.instant('secure_storage_ready');
+      StartupTimeline.instant('secure_storage_ready');
 
       // Initialize Hive (now optimized with migration state caching)
       final hiveBoxes = await HiveBootstrap.instance.ensureInitialized();
-      _startupTimeline!.instant('hive_ready');
+      StartupTimeline.instant('hive_ready');
+
+      // Open the SQLite database that backs per-message storage (Phase 3a).
+      final database = await AppDatabase.open();
+      StartupTimeline.instant('database_ready');
 
       // Run migration check (now fast-pathed after first run)
-      final migrator = PersistenceMigrator(hiveBoxes: hiveBoxes);
+      final migrator = PersistenceMigrator(
+        hiveBoxes: hiveBoxes,
+        database: database,
+      );
       await migrator.migrateIfNeeded();
-      _startupTimeline!.instant('migration_complete');
+      StartupTimeline.instant('migration_complete');
 
-      // Finish timeline after first frame paints
+      // Finish timeline after first frame paints. The summary log is emitted
+      // from inside StartupTimeline.finish() so all markers (including ones
+      // recorded by other files like AuthStateManager and Conversations) land
+      // in a single cold-start-budget entry.
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _startupTimeline?.instant('first_frame_rendered');
-        _startupTimeline?.finish();
-        _startupTimeline = null;
+        StartupTimeline.instant('first_frame_rendered');
+        StartupTimeline.finish();
       });
 
       runApp(
@@ -120,6 +128,7 @@ void main() {
           overrides: [
             secureStorageProvider.overrideWithValue(secureStorage),
             hiveBoxesProvider.overrideWithValue(hiveBoxes),
+            appDatabaseProvider.overrideWithValue(database),
           ],
           child: const ConduitApp(),
         ),

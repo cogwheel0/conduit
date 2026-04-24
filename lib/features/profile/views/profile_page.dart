@@ -80,7 +80,8 @@ class ProfilePage extends ConsumerWidget {
   }
 
   Widget _buildCenteredState(BuildContext context, Widget child) {
-    final topPadding = MediaQuery.of(context).padding.top + kTextTabBarHeight + 24;
+    final topPadding =
+        MediaQuery.of(context).padding.top + kTextTabBarHeight + 24;
     return Padding(
       padding: EdgeInsets.fromLTRB(
         Spacing.pagePadding,
@@ -99,7 +100,8 @@ class ProfilePage extends ConsumerWidget {
     ApiService? api,
   ) {
     // Calculate top padding to account for app bar + safe area
-    final topPadding = MediaQuery.of(context).padding.top + kTextTabBarHeight + 24;
+    final topPadding =
+        MediaQuery.of(context).padding.top + kTextTabBarHeight + 24;
 
     return ListView(
       physics: const BouncingScrollPhysics(
@@ -340,6 +342,17 @@ class ProfilePage extends ConsumerWidget {
         },
       ),
       _buildAboutTile(context),
+      _buildAccountOption(
+        context,
+        icon: UiUtils.platformIcon(
+          ios: CupertinoIcons.trash,
+          android: Icons.cleaning_services_outlined,
+        ),
+        title: 'Clear local cache',
+        subtitle: 'Drop cached conversations, files, and drafts',
+        onTap: () => _clearLocalCache(context, ref),
+        showChevron: false,
+      ),
       _buildAccountOption(
         context,
         icon: UiUtils.platformIcon(
@@ -637,6 +650,37 @@ class ProfilePage extends ConsumerWidget {
     }
   }
 
+  Future<void> _clearLocalCache(BuildContext context, WidgetRef ref) async {
+    final confirm = await ThemedDialogs.confirm(
+      context,
+      title: 'Clear local cache?',
+      message:
+          'Removes locally cached conversations, file metadata, and unsent '
+          'drafts on this device. Your account and server data are not '
+          'affected. Conversations will re-download from the server next time '
+          'you open them.',
+      confirmText: 'Clear',
+      isDestructive: true,
+    );
+    if (!confirm) return;
+
+    final storage = ref.read(optimizedStorageServiceProvider);
+    try {
+      await Future.wait([
+        storage.clearAllCachedConversations(),
+        storage.clearAllCachedFileInfo(),
+        storage.clearAllDrafts(),
+      ]);
+      ref.invalidate(conversationsProvider);
+      ref.invalidate(activeConversationProvider);
+      if (!context.mounted) return;
+      UiUtils.showMessage(context, 'Local cache cleared');
+    } catch (_) {
+      if (!context.mounted) return;
+      UiUtils.showMessage(context, 'Failed to clear cache');
+    }
+  }
+
   void _signOut(BuildContext context, WidgetRef ref) async {
     final confirm = await ThemedDialogs.confirm(
       context,
@@ -651,4 +695,3 @@ class ProfilePage extends ConsumerWidget {
     }
   }
 }
-
