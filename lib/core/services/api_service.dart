@@ -924,6 +924,21 @@ class ApiService {
     );
   }
 
+  /// Fetches pinned chat summaries for the sidebar.
+  Future<List<Conversation>> getPinnedConversationSummaries() async {
+    final pinnedChats = await _fetchChatCollection(
+      '/api/v1/chats/pinned',
+      debugLabel: 'pinned chats',
+    );
+    final conversations = await _parseConversationSummaryList(
+      pinnedChats,
+      debugLabel: 'parse_pinned_conversations',
+    );
+    return conversations
+        .map((conversation) => conversation.copyWith(pinned: true))
+        .toList(growable: false);
+  }
+
   Future<List<dynamic>> _fetchChatCollection(
     String path, {
     required String debugLabel,
@@ -4817,8 +4832,10 @@ class ApiService {
     if (data is List) {
       return data.whereType<Map>().map((chatData) {
         final map = Map<String, dynamic>.from(chatData);
-        return Conversation.fromJson(parseConversationSummary(map));
-      }).toList();
+        return Conversation.fromJson(
+          parseConversationSummary(map),
+        ).copyWith(pinned: true);
+      }).toList(growable: false);
     }
     return [];
   }
@@ -4838,8 +4855,10 @@ class ApiService {
     if (data is List) {
       return data.whereType<Map>().map((chatData) {
         final map = Map<String, dynamic>.from(chatData);
-        return Conversation.fromJson(parseConversationSummary(map));
-      }).toList();
+        return Conversation.fromJson(
+          parseConversationSummary(map),
+        ).copyWith(archived: true);
+      }).toList(growable: false);
     }
     return [];
   }

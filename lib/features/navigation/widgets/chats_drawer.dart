@@ -57,6 +57,13 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
   String? _dragHoverFolderId;
   bool _isDragging = false;
   bool _canDropToRoot = false;
+  bool _isLoadingMoreConversations = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _listController.addListener(_onListScrolled);
+  }
 
   Future<void> _refreshChats() async {
     try {
@@ -81,6 +88,58 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         await ref.read(foldersProvider.future);
       } catch (_) {}
     } catch (_) {}
+  }
+
+  void _onListScrolled() {
+    unawaited(_maybeLoadMoreConversations());
+  }
+
+  void _queuePaginationCheck() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(_maybeLoadMoreConversations());
+    });
+  }
+
+  Future<void> _maybeLoadMoreConversations() async {
+    if (!mounted || _query.isNotEmpty || _isLoadingMoreConversations) {
+      return;
+    }
+    if (!_listController.hasClients) {
+      return;
+    }
+
+    final conversationsAsync = ref.read(conversationsProvider);
+    if (!conversationsAsync.hasValue || conversationsAsync.isLoading) {
+      return;
+    }
+
+    final notifier = ref.read(conversationsProvider.notifier);
+    if (!notifier.hasMoreRegularChats || notifier.isLoadingMoreRegularChats) {
+      return;
+    }
+    if (ref.read(apiServiceProvider) == null) {
+      return;
+    }
+
+    final position = _listController.position;
+    final distanceToBottom = position.maxScrollExtent - position.pixels;
+    final shouldLoadMore =
+        position.maxScrollExtent <= 0 || distanceToBottom <= 240;
+    if (!shouldLoadMore) {
+      return;
+    }
+
+    setState(() => _isLoadingMoreConversations = true);
+    try {
+      await notifier.loadMore();
+    } catch (_) {
+      // The provider logs and preserves the current drawer state on failures.
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingMoreConversations = false);
+      }
+    }
   }
 
   // Build a lazily-constructed sliver list of conversation tiles.
@@ -150,9 +209,35 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     return Scrollbar(controller: _listController, child: refreshableScroll);
   }
 
+  Widget _buildPaginationFooter() {
+    final theme = context.conduitTheme;
+    final showSpinner = _isLoadingMoreConversations;
+
+    return SliverToBoxAdapter(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: Spacing.sm),
+        child: Center(
+          child: showSpinner
+              ? SizedBox(
+                  width: IconSize.sm,
+                  height: IconSize.sm,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      theme.loadingIndicator,
+                    ),
+                  ),
+                )
+              : const SizedBox(height: Spacing.md),
+        ),
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _debounce?.cancel();
+    _listController.removeListener(_onListScrolled);
     _searchController.dispose();
     _searchFocusNode.dispose();
     _listController.dispose();
@@ -273,8 +358,10 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
 
   List<Widget> _buildFolderSectionSlivers({
     required List<Folder> folders,
-    required List<dynamic> folderedConversations,
     required Map<String, Model> modelsById,
+    Map<String, List<dynamic>> folderConversationFallbacks =
+        const <String, List<dynamic>>{},
+    bool fetchFromServerForFolders = true,
   }) {
     final foldersById = <String, Folder>{
       for (final folder in folders) folder.id: folder,
@@ -298,24 +385,6 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       );
     }
 
-    final groupedConversationsByFolderId = <String, List<dynamic>>{};
-    for (final conversation in folderedConversations) {
-      final folderId = conversation.folderId;
-      if (folderId is String && folderId.isNotEmpty) {
-        groupedConversationsByFolderId
-            .putIfAbsent(folderId, () => <dynamic>[])
-            .add(conversation);
-      }
-    }
-
-    final resolvedConversationsByFolderId = <String, List<dynamic>>{};
-    for (final folder in folders) {
-      resolvedConversationsByFolderId[folder.id] = _resolveFolderConversations(
-        folder,
-        groupedConversationsByFolderId[folder.id] ?? const <dynamic>[],
-      );
-    }
-
     final cachedItemCounts = <String, int>{};
     final rootFolders = childFoldersByParentId[null] ?? const <Folder>[];
     final slivers = <Widget>[];
@@ -326,9 +395,10 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           folder: folder,
           foldersById: foldersById,
           childFoldersByParentId: childFoldersByParentId,
-          resolvedConversationsByFolderId: resolvedConversationsByFolderId,
           cachedItemCounts: cachedItemCounts,
           modelsById: modelsById,
+          folderConversationFallbacks: folderConversationFallbacks,
+          fetchFromServerForFolders: fetchFromServerForFolders,
           depth: 0,
         ),
       );
@@ -341,9 +411,11 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     required Folder folder,
     required Map<String, Folder> foldersById,
     required Map<String?, List<Folder>> childFoldersByParentId,
-    required Map<String, List<dynamic>> resolvedConversationsByFolderId,
     required Map<String, int> cachedItemCounts,
     required Map<String, Model> modelsById,
+    Map<String, List<dynamic>> folderConversationFallbacks =
+        const <String, List<dynamic>>{},
+    bool fetchFromServerForFolders = true,
     required int depth,
     Set<String> visitedFolderIds = const <String>{},
   }) {
@@ -353,18 +425,33 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
 
     final nextVisitedFolderIds = {...visitedFolderIds, folder.id};
     final childFolders = childFoldersByParentId[folder.id] ?? const <Folder>[];
-    final conversations =
-        resolvedConversationsByFolderId[folder.id] ?? const <dynamic>[];
     final isExpanded =
         ref.watch(expandedFoldersProvider)[folder.id] ?? folder.isExpanded;
+    final fallbackConversations =
+        folderConversationFallbacks[folder.id] ?? const <dynamic>[];
+    final placeholderConversations = fallbackConversations.isNotEmpty
+        ? fallbackConversations
+        : _placeholderConversationsForFolder(folder);
+    final folderConversationsAsync = !fetchFromServerForFolders || !isExpanded
+        ? null
+        : ref.watch(folderConversationSummariesProvider(folder.id));
+    final conversations = folderConversationsAsync?.maybeWhen(
+          data: (loadedConversations) => loadedConversations.isNotEmpty
+              ? loadedConversations
+              : placeholderConversations,
+          orElse: () => placeholderConversations,
+        ) ??
+        placeholderConversations;
+    final isFolderLoading =
+        fetchFromServerForFolders && (folderConversationsAsync?.isLoading == true);
     final itemCount = _folderTreeItemCount(
       folder: folder,
       childFoldersByParentId: childFoldersByParentId,
-      resolvedConversationsByFolderId: resolvedConversationsByFolderId,
       cachedItemCounts: cachedItemCounts,
+      folderConversationFallbacks: folderConversationFallbacks,
+      fetchFromServerForFolders: fetchFromServerForFolders,
       visitedFolderIds: visitedFolderIds,
     );
-
     final slivers = <Widget>[
       SliverPadding(
         padding: EdgeInsets.only(left: _folderIndent(depth), right: Spacing.md),
@@ -378,7 +465,9 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       ),
     ];
 
-    if (!isExpanded || (childFolders.isEmpty && conversations.isEmpty)) {
+    final hasExpandableContent =
+        childFolders.isNotEmpty || conversations.isNotEmpty || isFolderLoading;
+    if (!isExpanded || !hasExpandableContent) {
       slivers.add(
         const SliverToBoxAdapter(child: SizedBox(height: Spacing.xs)),
       );
@@ -393,16 +482,35 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           folder: childFolder,
           foldersById: foldersById,
           childFoldersByParentId: childFoldersByParentId,
-          resolvedConversationsByFolderId: resolvedConversationsByFolderId,
           cachedItemCounts: cachedItemCounts,
           modelsById: modelsById,
+          folderConversationFallbacks: folderConversationFallbacks,
+          fetchFromServerForFolders: fetchFromServerForFolders,
           depth: depth + 1,
           visitedFolderIds: nextVisitedFolderIds,
         ),
       );
     }
 
-    if (conversations.isNotEmpty) {
+    if (isFolderLoading && conversations.isEmpty) {
+      slivers.add(
+        SliverPadding(
+          padding: EdgeInsets.only(left: _folderIndent(depth + 1)),
+          sliver: const SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.symmetric(vertical: Spacing.sm),
+              child: Center(
+                child: SizedBox(
+                  width: IconSize.sm,
+                  height: IconSize.sm,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    } else if (conversations.isNotEmpty) {
       slivers.add(
         _conversationsSliver(
           conversations,
@@ -421,8 +529,10 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
   int _folderTreeItemCount({
     required Folder folder,
     required Map<String?, List<Folder>> childFoldersByParentId,
-    required Map<String, List<dynamic>> resolvedConversationsByFolderId,
     required Map<String, int> cachedItemCounts,
+    Map<String, List<dynamic>> folderConversationFallbacks =
+        const <String, List<dynamic>>{},
+    bool fetchFromServerForFolders = true,
     Set<String> visitedFolderIds = const <String>{},
   }) {
     final cachedCount = cachedItemCounts[folder.id];
@@ -436,7 +546,10 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     final nextVisitedFolderIds = {...visitedFolderIds, folder.id};
     final childFolders = childFoldersByParentId[folder.id] ?? const <Folder>[];
     final directConversationCount =
-        resolvedConversationsByFolderId[folder.id]?.length ?? 0;
+        !fetchFromServerForFolders
+        ? (folderConversationFallbacks[folder.id]?.length ?? 0)
+        : (folderConversationFallbacks[folder.id]?.length ??
+              folder.conversationIds.length);
 
     final descendantCount = childFolders.fold<int>(
       0,
@@ -446,8 +559,9 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           _folderTreeItemCount(
             folder: childFolder,
             childFoldersByParentId: childFoldersByParentId,
-            resolvedConversationsByFolderId: resolvedConversationsByFolderId,
             cachedItemCounts: cachedItemCounts,
+            folderConversationFallbacks: folderConversationFallbacks,
+            fetchFromServerForFolders: fetchFromServerForFolders,
             visitedFolderIds: nextVisitedFolderIds,
           ),
     );
@@ -562,6 +676,10 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       return conversationsAsync.when(
         data: (items) {
           final list = items;
+          final conversationsNotifier = ref.read(conversationsProvider.notifier);
+          final hasMoreRegularChats =
+              conversationsNotifier.hasMoreRegularChats ||
+              _isLoadingMoreConversations;
           // Build a models map once for this build.
           final modelsAsync = ref.watch(modelsProvider);
           final Map<String, Model> modelsById = modelsAsync.maybeWhen(
@@ -613,7 +731,6 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
                 c.archived != true &&
                 (!hasFolder || !folderKnown);
           }).toList();
-
           final foldered = list.where((c) {
             final hasFolder = (c.folderId != null && c.folderId!.isNotEmpty);
             return c.pinned != true &&
@@ -621,6 +738,15 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
                 hasFolder &&
                 availableFolderIds.contains(c.folderId);
           }).toList();
+          final folderConversationFallbacks = <String, List<dynamic>>{};
+          for (final conversation in foldered) {
+            final folderId = conversation.folderId;
+            if (folderId != null && folderId.isNotEmpty) {
+              folderConversationFallbacks
+                  .putIfAbsent(folderId, () => <dynamic>[])
+                  .add(conversation);
+            }
+          }
 
           final archived = list.where((c) => c.archived == true).toList();
 
@@ -668,7 +794,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
                   .when(
                     data: (folders) => _buildFolderSectionSlivers(
                       folders: folders,
-                      folderedConversations: foldered,
+                      folderConversationFallbacks: folderConversationFallbacks,
                       modelsById: modelsById,
                     ),
                     loading: () => [
@@ -690,6 +816,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
                     AppLocalizations.of(context)!.recent,
                     regular.length,
                     sectionType: _SectionType.recent,
+                    showCountBadge: false,
                   ),
                 ),
               ),
@@ -712,7 +839,11 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
                 _conversationsSliver(archived, modelsById: modelsById),
               ],
             ],
+            if (hasMoreRegularChats) _buildPaginationFooter(),
           ];
+          if (hasMoreRegularChats) {
+            _queuePaginationCheck();
+          }
           return _buildRefreshableScrollableSlivers(slivers: slivers);
         },
         loading: () =>
@@ -783,6 +914,15 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
               hasFolder &&
               availableFolderIds.contains(c.folderId);
         }).toList();
+        final folderSearchResults = <String, List<dynamic>>{};
+        for (final conversation in foldered) {
+          final folderId = conversation.folderId;
+          if (folderId != null && folderId.isNotEmpty) {
+            folderSearchResults
+                .putIfAbsent(folderId, () => <dynamic>[])
+                .add(conversation);
+          }
+        }
 
         final archived = list.where((c) => c.archived == true).toList();
 
@@ -857,7 +997,8 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
               .when(
                 data: (folders) => _buildFolderSectionSlivers(
                   folders: folders,
-                  folderedConversations: foldered,
+                  folderConversationFallbacks: folderSearchResults,
+                  fetchFromServerForFolders: false,
                   modelsById: modelsById,
                 ),
                 loading: () => <Widget>[
@@ -885,6 +1026,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
                   AppLocalizations.of(context)!.recent,
                   regular.length,
                   sectionType: _SectionType.recent,
+                  showCountBadge: false,
                 ),
               ),
             ),
@@ -937,6 +1079,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     String title,
     int count, {
     _SectionType? sectionType,
+    bool showCountBadge = true,
   }) {
     final sidebarTheme = context.sidebarTheme;
 
@@ -976,25 +1119,27 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
             decoration: TextDecoration.none,
           ),
         ),
-        const SizedBox(width: Spacing.xs),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-          decoration: BoxDecoration(
-            color: sidebarTheme.accent.withValues(alpha: 0.7),
-            borderRadius: BorderRadius.circular(AppBorderRadius.xs),
-            border: Border.all(
-              color: sidebarTheme.border.withValues(alpha: 0.35),
-              width: BorderWidth.micro,
+        if (showCountBadge) ...[
+          const SizedBox(width: Spacing.xs),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: sidebarTheme.accent.withValues(alpha: 0.7),
+              borderRadius: BorderRadius.circular(AppBorderRadius.xs),
+              border: Border.all(
+                color: sidebarTheme.border.withValues(alpha: 0.35),
+                width: BorderWidth.micro,
+              ),
+            ),
+            child: Text(
+              '$count',
+              style: AppTypography.sidebarBadgeStyle.copyWith(
+                color: sidebarTheme.foreground.withValues(alpha: 0.8),
+                decoration: TextDecoration.none,
+              ),
             ),
           ),
-          child: Text(
-            '$count',
-            style: AppTypography.sidebarBadgeStyle.copyWith(
-              color: sidebarTheme.foreground.withValues(alpha: 0.8),
-              decoration: TextDecoration.none,
-            ),
-          ),
-        ),
+        ],
       ],
     );
 
@@ -1383,42 +1528,10 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     );
   }
 
-  List<dynamic> _resolveFolderConversations(
-    Folder folder,
-    List<dynamic> existing,
-  ) {
-    // Preserve the current conversational ordering while ensuring items from
-    // the folder metadata appear even if the main list has not fetched them
-    // yet. This primarily happens when chats live exclusively inside folders
-    // and the conversations endpoint omits them.
-    final result = <dynamic>[];
-
-    final existingMap = <String, dynamic>{};
-    for (final item in existing) {
-      final id = _conversationId(item);
-      if (id != null) {
-        existingMap[id] = item;
-      }
-    }
-
-    if (folder.conversationIds.isNotEmpty) {
-      for (final convId in folder.conversationIds) {
-        final existingItem = existingMap.remove(convId);
-        if (existingItem != null) {
-          result.add(existingItem);
-        } else {
-          result.add(_placeholderConversation(convId, folder.id));
-        }
-      }
-
-      // Append any remaining conversations that claim this folder but are
-      // missing from the folder metadata list (defensive for API drift).
-      result.addAll(existingMap.values);
-    } else {
-      result.addAll(existingMap.values);
-    }
-
-    return result;
+  List<Conversation> _placeholderConversationsForFolder(Folder folder) {
+    return folder.conversationIds
+        .map((conversationId) => _placeholderConversation(conversationId, folder.id))
+        .toList(growable: false);
   }
 
   Conversation _placeholderConversation(

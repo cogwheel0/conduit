@@ -1094,6 +1094,7 @@ class _ConversationsCacheTimestamp extends _$ConversationsCacheTimestamp {
 /// metadata stays in sync.
 void refreshConversationsCache(dynamic ref, {bool includeFolders = false}) {
   ref.read(_conversationsCacheTimestampProvider.notifier).set(null);
+  ref.read(_folderConversationRefreshTickProvider.notifier).bump();
   final notifier = ref.read(conversationsProvider.notifier);
   unawaited(
     notifier.refresh(includeFolders: includeFolders).catchError((
@@ -1130,17 +1131,28 @@ void refreshConversationsCache(dynamic ref, {bool includeFolders = false}) {
 // immediate mutation helpers.
 @Riverpod(keepAlive: true)
 class Conversations extends _$Conversations {
+  static const int _regularPageSize = 50;
+
+  int _currentRegularPage = 0;
+  bool _allRegularChatsLoaded = false;
+  bool _isLoadingMoreRegularChats = false;
+
+  bool get hasMoreRegularChats => !_allRegularChatsLoaded;
+  bool get isLoadingMoreRegularChats => _isLoadingMoreRegularChats;
+
   @override
   Future<List<Conversation>> build() async {
     final authed = ref.watch(isAuthenticatedProvider2);
     if (!authed) {
       DebugLogger.log('skip-unauthed', scope: 'conversations');
+      _resetPaginationState(allLoaded: true);
       _updateCacheTimestamp(null);
       _persistConversationsAsync(const <Conversation>[]);
       return const [];
     }
 
     if (ref.watch(reviewerModeProvider)) {
+      _resetPaginationState(currentPage: 1, allLoaded: true);
       return _demoConversations();
     }
 
@@ -1149,6 +1161,7 @@ class Conversations extends _$Conversations {
       final cached = await storage.getLocalConversations();
       if (cached.isNotEmpty) {
         final sortedCached = _sortByUpdatedAt(cached);
+        final preparedCache = _prepareCachedSidebarFeed(sortedCached);
         Future.microtask(() async {
           try {
             await refresh(includeFolders: true);
@@ -1161,7 +1174,7 @@ class Conversations extends _$Conversations {
             );
           }
         });
-        return sortedCached;
+        return preparedCache;
       }
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -1172,7 +1185,7 @@ class Conversations extends _$Conversations {
       );
     }
 
-    final fresh = await _loadRemoteConversations();
+    final fresh = await _loadRemoteConversations(page: 1);
     _persistConversationsAsync(fresh);
     return fresh;
   }
@@ -1180,6 +1193,7 @@ class Conversations extends _$Conversations {
   Future<void> refresh({bool includeFolders = false}) async {
     final authed = ref.read(isAuthenticatedProvider2);
     if (!authed) {
+      _resetPaginationState(allLoaded: true);
       _updateCacheTimestamp(null);
       state = AsyncData<List<Conversation>>(<Conversation>[]);
       _persistConversationsAsync(const <Conversation>[]);
@@ -1190,6 +1204,7 @@ class Conversations extends _$Conversations {
     }
 
     if (ref.read(reviewerModeProvider)) {
+      _resetPaginationState(currentPage: 1, allLoaded: true);
       state = AsyncData<List<Conversation>>(_demoConversations());
       if (includeFolders) {
         unawaited(ref.read(foldersProvider.notifier).refresh());
@@ -1197,7 +1212,9 @@ class Conversations extends _$Conversations {
       return;
     }
 
-    final result = await AsyncValue.guard(_loadRemoteConversations);
+    final result = await AsyncValue.guard(
+      () => _loadRemoteConversations(page: 1),
+    );
     if (!ref.mounted) return;
     result.when(
       data: (conversations) {
@@ -1217,6 +1234,71 @@ class Conversations extends _$Conversations {
     );
     if (includeFolders) {
       unawaited(ref.read(foldersProvider.notifier).refresh());
+    }
+  }
+
+  Future<void> loadMore() async {
+    final current = state.asData?.value;
+    if (current == null ||
+        _isLoadingMoreRegularChats ||
+        _allRegularChatsLoaded) {
+      return;
+    }
+    if (!ref.read(isAuthenticatedProvider2) || ref.read(reviewerModeProvider)) {
+      return;
+    }
+
+    final api = ref.read(apiServiceProvider);
+    if (api == null) {
+      return;
+    }
+
+    final nextPage = (_currentRegularPage == 0 ? 1 : _currentRegularPage + 1);
+    _isLoadingMoreRegularChats = true;
+
+    try {
+      final nextConversations = await api.getConversationPage(
+        page: nextPage,
+        includeFolders: true,
+      );
+      if (!ref.mounted) {
+        return;
+      }
+
+      _currentRegularPage = nextPage;
+      if (nextConversations.isEmpty) {
+        _allRegularChatsLoaded = true;
+        return;
+      }
+
+      _allRegularChatsLoaded = nextConversations.length < _regularPageSize;
+
+      final merged = _mergeConversationLists(current, nextConversations);
+      _updateCacheTimestamp(DateTime.now());
+      state = AsyncData<List<Conversation>>(merged);
+      _persistConversationsAsync(merged);
+
+      DebugLogger.log(
+        'page-loaded',
+        scope: 'conversations',
+        data: {
+          'page': nextPage,
+          'count': nextConversations.length,
+          'total': merged.length,
+          'hasMore': !_allRegularChatsLoaded,
+        },
+      );
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'load-more-failed',
+        scope: 'conversations',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'page': nextPage},
+      );
+      rethrow;
+    } finally {
+      _isLoadingMoreRegularChats = false;
     }
   }
 
@@ -1241,6 +1323,12 @@ class Conversations extends _$Conversations {
       updated.add(conversation);
     }
     _replaceState(updated);
+  }
+
+  void upsertConversations(Iterable<Conversation> conversations) {
+    final current = state.asData?.value ?? const <Conversation>[];
+    final merged = _mergeConversationLists(current, conversations);
+    _replaceState(merged);
   }
 
   void updateConversation(
@@ -1280,6 +1368,119 @@ class Conversations extends _$Conversations {
     );
   }
 
+  void _resetPaginationState({
+    int currentPage = 0,
+    bool allLoaded = false,
+  }) {
+    _currentRegularPage = currentPage;
+    _allRegularChatsLoaded = allLoaded;
+    _isLoadingMoreRegularChats = false;
+  }
+
+  List<Conversation> _prepareCachedSidebarFeed(List<Conversation> conversations) {
+    final pinned = <Conversation>[];
+    final archived = <Conversation>[];
+    final foldered = <Conversation>[];
+    final regular = <Conversation>[];
+
+    for (final conversation in conversations) {
+      if (conversation.archived) {
+        archived.add(conversation);
+      } else if (conversation.pinned) {
+        pinned.add(conversation);
+      } else if (_isFolderConversation(conversation)) {
+        foldered.add(conversation);
+      } else {
+        regular.add(conversation);
+      }
+    }
+
+    final visibleRegular = regular.take(_regularPageSize).toList(growable: false);
+    _resetPaginationState(
+      currentPage: visibleRegular.isEmpty ? 0 : 1,
+      allLoaded: regular.length < _regularPageSize,
+    );
+    return _sortByUpdatedAt([
+      ...pinned,
+      ...archived,
+      ...foldered,
+      ...visibleRegular,
+    ]);
+  }
+
+  List<Conversation> _mergeConversationLists(
+    List<Conversation> current,
+    Iterable<Conversation> incoming,
+  ) {
+    final merged = <String, Conversation>{};
+    for (final conversation in current) {
+      _upsertConversationMap(merged, conversation);
+    }
+    for (final conversation in incoming) {
+      _upsertConversationMap(merged, conversation);
+    }
+    return _sortByUpdatedAt(merged.values.toList(growable: false));
+  }
+
+  bool _isFolderConversation(Conversation conversation) {
+    final folderId = conversation.folderId;
+    return folderId != null &&
+        folderId.isNotEmpty &&
+        !conversation.pinned &&
+        !conversation.archived;
+  }
+
+  void _upsertConversationMap(
+    Map<String, Conversation> conversationMap,
+    Conversation conversation,
+  ) {
+    final existing = conversationMap[conversation.id];
+    conversationMap[conversation.id] = existing == null
+        ? conversation
+        : _mergeConversationSummary(existing, conversation);
+  }
+
+  Conversation _mergeConversationSummary(
+    Conversation existing,
+    Conversation incoming,
+  ) {
+    final incomingHasResolvedTitle =
+        incoming.title.isNotEmpty && incoming.title != 'Chat';
+    final existingLooksLikePlaceholder =
+        existing.title == 'Chat' && existing.messages.isEmpty;
+    final preferIncomingSummary =
+        existingLooksLikePlaceholder && incomingHasResolvedTitle;
+
+    return existing.copyWith(
+      title: preferIncomingSummary
+          ? incoming.title
+          : (incomingHasResolvedTitle ? incoming.title : existing.title),
+      createdAt: preferIncomingSummary
+          ? incoming.createdAt
+          : (existing.createdAt.isBefore(incoming.createdAt)
+                ? existing.createdAt
+                : incoming.createdAt),
+      updatedAt: preferIncomingSummary
+          ? incoming.updatedAt
+          : (incoming.updatedAt.isAfter(existing.updatedAt)
+                ? incoming.updatedAt
+                : existing.updatedAt),
+      model: incoming.model ?? existing.model,
+      systemPrompt: incoming.systemPrompt ?? existing.systemPrompt,
+      messages: incoming.messages.isNotEmpty
+          ? incoming.messages
+          : existing.messages,
+      metadata: incoming.metadata.isNotEmpty
+          ? incoming.metadata
+          : existing.metadata,
+      pinned: existing.pinned || incoming.pinned,
+      archived: existing.archived || incoming.archived,
+      shareId: incoming.shareId ?? existing.shareId,
+      folderId: incoming.folderId ?? existing.folderId,
+      tags: incoming.tags.isNotEmpty ? incoming.tags : existing.tags,
+    );
+  }
+
   List<Conversation> _demoConversations() => [
     Conversation(
       id: 'demo-conv-1',
@@ -1300,167 +1501,59 @@ class Conversations extends _$Conversations {
     ),
   ];
 
-  Future<List<Conversation>> _loadRemoteConversations() async {
-    final api = ref.watch(apiServiceProvider);
+  Future<List<Conversation>> _loadRemoteConversations({int page = 1}) async {
+    final api = ref.read(apiServiceProvider);
     if (api == null) {
       DebugLogger.warning('api-missing', scope: 'conversations');
       return const [];
     }
 
     try {
-      DebugLogger.log('fetch-start', scope: 'conversations');
-      final conversationsFuture = api.getConversations();
-      final foldersFuture = api.getFolders().catchError((error, stackTrace) {
-        DebugLogger.error(
-          'folders-fetch-failed',
-          scope: 'conversations',
-          error: error,
-          stackTrace: stackTrace,
-        );
-        // Preserve the existing enabled state on error (don't override a
-        // previously determined disabled state due to network errors)
-        final currentEnabled = ref.read(foldersFeatureEnabledProvider);
-        return (const <Map<String, dynamic>>[], currentEnabled);
-      });
-
+      DebugLogger.log(
+        'fetch-start',
+        scope: 'conversations',
+        data: {'page': page},
+      );
+      final regularFuture = api.getConversationPage(
+        page: page,
+        includeFolders: true,
+      );
+      final pinnedFuture = api.getPinnedChats();
+      final archivedFuture = api.getArchivedChats();
       final results = await Future.wait<dynamic>([
-        conversationsFuture,
-        foldersFuture,
+        regularFuture,
+        pinnedFuture,
+        archivedFuture,
       ]);
-      final conversations = results[0] as List<Conversation>;
-      final foldersResult = results[1] as (List<Map<String, dynamic>>, bool);
-      final foldersData = foldersResult.$1;
-      final foldersEnabled = foldersResult.$2;
+      final regularConversations = results[0] as List<Conversation>;
+      final pinnedConversations = results[1] as List<Conversation>;
+      final archivedConversations = results[2] as List<Conversation>;
 
-      // Update the folders feature enabled state
-      ref
-          .read(foldersFeatureEnabledProvider.notifier)
-          .setEnabled(foldersEnabled);
+      _currentRegularPage = page;
+      _allRegularChatsLoaded = regularConversations.length < _regularPageSize;
+      _isLoadingMoreRegularChats = false;
+
       DebugLogger.log(
         'fetch-ok',
         scope: 'conversations',
-        data: {'count': conversations.length},
+        data: {
+          'page': page,
+          'regular': regularConversations.length,
+          'pinned': pinnedConversations.length,
+          'archived': archivedConversations.length,
+          'hasMore': !_allRegularChatsLoaded,
+        },
       );
-      DebugLogger.log(
-        'folders-fetched',
-        scope: 'conversations',
-        data: {'count': foldersData.length},
-      );
-
-      final folders = foldersData
-          .map((folderData) => Folder.fromJson(folderData))
-          .toList();
-
-      final conversationToFolder = <String, String>{};
-      for (final folder in folders) {
-        for (final conversationId in folder.conversationIds) {
-          conversationToFolder[conversationId] = folder.id;
-        }
-      }
-
-      final conversationMap = <String, Conversation>{};
-
-      for (final conversation in conversations) {
-        final explicitFolderId = conversation.folderId;
-        final mappedFolderId = conversationToFolder[conversation.id];
-        final folderIdToUse = explicitFolderId ?? mappedFolderId;
-        if (folderIdToUse != null) {
-          conversationMap[conversation.id] = conversation.copyWith(
-            folderId: folderIdToUse,
-          );
-        } else {
-          conversationMap[conversation.id] = conversation;
-        }
-      }
-
-      final existingIds = conversationMap.keys.toSet();
-      final missingInBase = conversationToFolder.keys
-          .where((id) => !existingIds.contains(id))
-          .toList();
-      if (missingInBase.isNotEmpty) {
-        DebugLogger.warning(
-          'missing-in-base',
-          scope: 'conversations/map',
-          data: {
-            'count': missingInBase.length,
-            'preview': missingInBase.take(5).toList(),
-          },
-        );
-      }
-
-      for (final folder in folders) {
-        final missingIds = folder.conversationIds
-            .where((id) => !existingIds.contains(id))
-            .toList();
-
-        final hasKnownConversations = conversationMap.values.any(
-          (conversation) => conversation.folderId == folder.id,
-        );
-
-        final shouldFetchFolder =
-            missingIds.isNotEmpty ||
-            (!hasKnownConversations && folder.conversationIds.isEmpty);
-
-        List<Conversation> folderConvs = const [];
-        if (shouldFetchFolder) {
-          try {
-            folderConvs = await api.getFolderConversationSummaries(folder.id);
-            DebugLogger.log(
-              'folder-sync',
-              scope: 'conversations/map',
-              data: {
-                'folderId': folder.id,
-                'fetched': folderConvs.length,
-                'missingIds': missingIds.length,
-              },
-            );
-          } catch (e) {
-            DebugLogger.error(
-              'folder-fetch-failed',
-              scope: 'conversations/map',
-              error: e,
-              data: {'folderId': folder.id},
-            );
-          }
-        }
-
-        final fetchedMap = {for (final c in folderConvs) c.id: c};
-
-        for (final convId in missingIds) {
-          final fetched = fetchedMap[convId];
-          if (fetched != null) {
-            final toAdd = fetched.folderId == null
-                ? fetched.copyWith(folderId: folder.id)
-                : fetched;
-            conversationMap[toAdd.id] = toAdd;
-            existingIds.add(toAdd.id);
-          } else {
-            final placeholder = Conversation(
-              id: convId,
-              title: 'Chat',
-              createdAt: DateTime.now(),
-              updatedAt: DateTime.now(),
-              messages: const [],
-              folderId: folder.id,
-            );
-            conversationMap[convId] = placeholder;
-            existingIds.add(convId);
-          }
-        }
-
-        if (folderConvs.isNotEmpty && folder.conversationIds.isEmpty) {
-          for (final conv in folderConvs) {
-            final toAdd = conv.folderId == null
-                ? conv.copyWith(folderId: folder.id)
-                : conv;
-            conversationMap[toAdd.id] = toAdd;
-            existingIds.add(toAdd.id);
-          }
-        }
-      }
-
-      final sortedConversations = _sortByUpdatedAt(
-        conversationMap.values.toList(),
+      final preservedFolderConversations = (state.asData?.value ?? const [])
+          .where(_isFolderConversation)
+          .toList(growable: false);
+      final sortedConversations = _mergeConversationLists(
+        [
+          ...preservedFolderConversations,
+          ...pinnedConversations,
+          ...archivedConversations,
+        ],
+        regularConversations,
       );
       _updateCacheTimestamp(DateTime.now());
       return sortedConversations;
@@ -1488,6 +1581,57 @@ class Conversations extends _$Conversations {
     ref.read(_conversationsCacheTimestampProvider.notifier).set(timestamp);
   }
 }
+
+final _folderConversationRefreshTickProvider =
+    NotifierProvider<_FolderConversationRefreshTick, int>(
+      _FolderConversationRefreshTick.new,
+    );
+
+class _FolderConversationRefreshTick extends Notifier<int> {
+  @override
+  int build() => 0;
+
+  void bump() => state++;
+}
+
+/// Loads folder conversation summaries on demand, mirroring OpenWebUI's
+/// expanded-folder fetch behavior.
+final folderConversationSummariesProvider =
+    FutureProvider.family<List<Conversation>, String>((ref, folderId) async {
+      ref.watch(_folderConversationRefreshTickProvider);
+
+      if (!ref.watch(isAuthenticatedProvider2) ||
+          ref.watch(reviewerModeProvider)) {
+        return const <Conversation>[];
+      }
+
+      final api = ref.watch(apiServiceProvider);
+      if (api == null) {
+        return const <Conversation>[];
+      }
+
+      try {
+        final conversations = await api.getFolderConversationSummaries(folderId);
+        final normalized = conversations
+            .map(
+              (conversation) => conversation.folderId == null
+                  ? conversation.copyWith(folderId: folderId)
+                  : conversation,
+            )
+            .toList(growable: false);
+        ref.read(conversationsProvider.notifier).upsertConversations(normalized);
+        return normalized;
+      } catch (error, stackTrace) {
+        DebugLogger.error(
+          'folder-conversations-failed',
+          scope: 'folders/conversations',
+          error: error,
+          stackTrace: stackTrace,
+          data: {'folderId': folderId},
+        );
+        return const <Conversation>[];
+      }
+    });
 
 /// Whether the current chat session is temporary (not persisted to server).
 ///
