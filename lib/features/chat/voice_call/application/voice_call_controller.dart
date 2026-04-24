@@ -533,8 +533,8 @@ class VoiceCallController extends _$VoiceCallController {
       ref,
       text,
       null,
-      selectedToolIds,
-      true,
+      toolIds: selectedToolIds,
+      isVoiceMode: true,
     );
     _seedActiveAssistantMessageId();
     unawaited(sendFuture);

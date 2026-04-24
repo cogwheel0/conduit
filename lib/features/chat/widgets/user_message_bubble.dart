@@ -12,6 +12,8 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import '../../../core/providers/app_providers.dart';
 import '../providers/chat_providers.dart';
+import '../providers/message_delivery_status_provider.dart';
+import '../../../shared/services/tasks/outbound_task.dart';
 import '../../../shared/services/tasks/task_queue.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../tools/providers/tools_providers.dart';
@@ -708,6 +710,10 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
                 ],
               ),
 
+            // Phase 2.5: per-message delivery status badge. Sourced from the
+            // persistent TaskQueue via metadata['outboundTaskId'].
+            _DeliveryStatusBadge(messageId: widget.message.id as String),
+
             // Edit action buttons - show Save/Cancel when editing
             if (_isEditing) ...[
               const SizedBox(height: Spacing.sm),
@@ -875,5 +881,84 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
         _editFocusNode.unfocus();
       }
     }
+  }
+}
+
+/// Compact per-message delivery indicator. Renders nothing when the message's
+/// outbound task has succeeded (or the message wasn't queue-routed). On
+/// failure it offers a tap-to-retry that re-enqueues the underlying task.
+class _DeliveryStatusBadge extends ConsumerWidget {
+  const _DeliveryStatusBadge({required this.messageId});
+
+  final String messageId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final status = ref.watch(messageDeliveryStatusProvider(messageId));
+    if (status == null) return const SizedBox.shrink();
+
+    final theme = context.conduitTheme;
+    final IconData icon;
+    final Color color;
+    final String label;
+    switch (status) {
+      case TaskStatus.queued:
+        icon = Platform.isIOS ? CupertinoIcons.clock : Icons.schedule;
+        color = theme.textSecondary;
+        label = 'Queued';
+      case TaskStatus.running:
+        icon = Platform.isIOS ? CupertinoIcons.arrow_2_circlepath : Icons.sync;
+        color = theme.textSecondary;
+        label = 'Sending';
+      case TaskStatus.failed:
+        icon = Platform.isIOS
+            ? CupertinoIcons.exclamationmark_triangle
+            : Icons.error_outline;
+        color = theme.warning;
+        label = 'Tap to retry';
+      case TaskStatus.succeeded:
+      case TaskStatus.cancelled:
+        return const SizedBox.shrink();
+    }
+
+    Future<void> handleTap() async {
+      if (status != TaskStatus.failed) return;
+      // Inline the message → task id lookup so we can stay in WidgetRef land.
+      final messages = ref.read(chatMessagesProvider);
+      String? taskId;
+      for (final m in messages) {
+        if (m.id == messageId) {
+          final raw = m.metadata?['outboundTaskId'];
+          if (raw is String && raw.isNotEmpty) taskId = raw;
+          break;
+        }
+      }
+      if (taskId == null) return;
+      await ref.read(taskQueueProvider.notifier).retry(taskId);
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 4.0, right: 4.0),
+      child: GestureDetector(
+        onTap: status == TaskStatus.failed ? handleTap : null,
+        behavior: HitTestBehavior.opaque,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 12, color: color),
+            const SizedBox(width: 4.0),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11.0,
+                fontWeight: FontWeight.w500,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

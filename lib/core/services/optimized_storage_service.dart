@@ -5,6 +5,7 @@ import 'package:hive_ce/hive.dart';
 
 import '../models/backend_config.dart';
 import '../models/conversation.dart';
+import '../models/file_info.dart';
 import '../models/folder.dart';
 import '../models/model.dart';
 import '../models/server_config.dart';
@@ -58,6 +59,11 @@ class OptimizedStorageService {
   static const String _localModelsKey = HiveStoreKeys.localModels;
   static const String _localFoldersKey = HiveStoreKeys.localFolders;
   static const String _reviewerModeKey = PreferenceKeys.reviewerMode;
+
+  // Per-entity cache key prefixes (in _cachesBox / _preferencesBox).
+  static const String _cachedConversationPrefix = 'chat_history_';
+  static const String _cachedFileInfoPrefix = 'file_info_';
+  static const String _draftPrefix = 'draft_';
   // Longer TTLs to reduce secure storage churn for OpenWebUI sessions.
   static const Duration _authTokenTtl = Duration(hours: 12);
   static const Duration _serverIdTtl = Duration(days: 7);
@@ -372,6 +378,187 @@ class OptimizedStorageService {
         stackTrace: stack,
       );
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Per-conversation cache (Phase 1.2 / 2.1 — granular storage layered on
+  // top of the existing single-blob conversation list cache).
+  // ---------------------------------------------------------------------------
+  String _conversationCacheKey(String id) => '$_cachedConversationPrefix$id';
+
+  Future<Conversation?> getCachedConversation(String id) async {
+    if (id.isEmpty) return null;
+    try {
+      final stored = _cachesBox.get(_conversationCacheKey(id));
+      if (stored == null) return null;
+      Map<String, dynamic>? json;
+      if (stored is String && stored.isNotEmpty) {
+        final decoded = jsonDecode(stored);
+        if (decoded is Map<String, dynamic>) {
+          json = decoded;
+        } else if (decoded is Map) {
+          json = Map<String, dynamic>.from(decoded);
+        }
+      } else if (stored is Map) {
+        json = Map<String, dynamic>.from(stored);
+      }
+      return json == null ? null : Conversation.fromJson(json);
+    } catch (error, stack) {
+      DebugLogger.error(
+        'Failed to read cached conversation',
+        scope: 'storage/optimized',
+        error: error,
+        stackTrace: stack,
+      );
+      return null;
+    }
+  }
+
+  Future<void> cacheConversation(Conversation conversation) async {
+    if (conversation.id.isEmpty) return;
+    try {
+      final serialized = jsonEncode(conversation.toJson());
+      await _cachesBox.put(
+        _conversationCacheKey(conversation.id),
+        serialized,
+      );
+    } catch (error, stack) {
+      DebugLogger.error(
+        'Failed to cache conversation',
+        scope: 'storage/optimized',
+        error: error,
+        stackTrace: stack,
+      );
+    }
+  }
+
+  Future<void> clearCachedConversation(String id) async {
+    if (id.isEmpty) return;
+    try {
+      await _cachesBox.delete(_conversationCacheKey(id));
+    } catch (_) {}
+  }
+
+  Future<void> clearAllCachedConversations() async {
+    try {
+      final keys = _cachesBox.keys
+          .whereType<String>()
+          .where((k) => k.startsWith(_cachedConversationPrefix))
+          .toList(growable: false);
+      if (keys.isEmpty) return;
+      await _cachesBox.deleteAll(keys);
+    } catch (_) {}
+  }
+
+  // ---------------------------------------------------------------------------
+  // Per-file-info cache (Phase 2.1 — eliminate per-send getFileInfo round-trip).
+  // ---------------------------------------------------------------------------
+  String _fileInfoCacheKey(String fileId) => '$_cachedFileInfoPrefix$fileId';
+
+  Future<FileInfo?> getCachedFileInfo(String fileId) async {
+    if (fileId.isEmpty) return null;
+    try {
+      final stored = _cachesBox.get(_fileInfoCacheKey(fileId));
+      if (stored == null) return null;
+      Map<String, dynamic>? json;
+      if (stored is String && stored.isNotEmpty) {
+        final decoded = jsonDecode(stored);
+        if (decoded is Map<String, dynamic>) {
+          json = decoded;
+        } else if (decoded is Map) {
+          json = Map<String, dynamic>.from(decoded);
+        }
+      } else if (stored is Map) {
+        json = Map<String, dynamic>.from(stored);
+      }
+      return json == null ? null : FileInfo.fromJson(json);
+    } catch (error, stack) {
+      DebugLogger.error(
+        'Failed to read cached file info',
+        scope: 'storage/optimized',
+        error: error,
+        stackTrace: stack,
+      );
+      return null;
+    }
+  }
+
+  Future<void> cacheFileInfo(FileInfo info) async {
+    if (info.id.isEmpty) return;
+    try {
+      final serialized = jsonEncode(info.toJson());
+      await _cachesBox.put(_fileInfoCacheKey(info.id), serialized);
+    } catch (error, stack) {
+      DebugLogger.error(
+        'Failed to cache file info',
+        scope: 'storage/optimized',
+        error: error,
+        stackTrace: stack,
+      );
+    }
+  }
+
+  Future<void> clearAllCachedFileInfo() async {
+    try {
+      final keys = _cachesBox.keys
+          .whereType<String>()
+          .where((k) => k.startsWith(_cachedFileInfoPrefix))
+          .toList(growable: false);
+      if (keys.isEmpty) return;
+      await _cachesBox.deleteAll(keys);
+    } catch (_) {}
+  }
+
+  // ---------------------------------------------------------------------------
+  // Composer drafts (Phase 2.6 — never lose typing across app restarts or
+  // conversation switches). Keyed by conversation id, or 'new' for an
+  // unstarted chat.
+  // ---------------------------------------------------------------------------
+  String _draftKey(String chatKey) =>
+      '$_draftPrefix${chatKey.isEmpty ? 'new' : chatKey}';
+
+  Future<String?> getDraft(String chatKey) async {
+    try {
+      final stored = _preferencesBox.get(_draftKey(chatKey));
+      if (stored is String && stored.isNotEmpty) {
+        return stored;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<void> saveDraft(String chatKey, String text) async {
+    try {
+      if (text.isEmpty) {
+        await _preferencesBox.delete(_draftKey(chatKey));
+        return;
+      }
+      await _preferencesBox.put(_draftKey(chatKey), text);
+    } catch (error, stack) {
+      DebugLogger.error(
+        'Failed to save draft',
+        scope: 'storage/optimized',
+        error: error,
+        stackTrace: stack,
+      );
+    }
+  }
+
+  Future<void> clearDraft(String chatKey) async {
+    try {
+      await _preferencesBox.delete(_draftKey(chatKey));
+    } catch (_) {}
+  }
+
+  Future<void> clearAllDrafts() async {
+    try {
+      final keys = _preferencesBox.keys
+          .whereType<String>()
+          .where((k) => k.startsWith(_draftPrefix))
+          .toList(growable: false);
+      if (keys.isEmpty) return;
+      await _preferencesBox.deleteAll(keys);
+    } catch (_) {}
   }
 
   Future<List<Folder>> getLocalFolders() async {
@@ -798,6 +985,9 @@ class OptimizedStorageService {
       _cachesBox.delete(_localModelsKey),
       _cachesBox.delete(_localConversationsKey),
       _cachesBox.delete(_localFoldersKey),
+      clearAllCachedConversations(),
+      clearAllCachedFileInfo(),
+      clearAllDrafts(),
       // Note: Server configs are NOT cleared - they persist across logouts
       // so users can quickly re-login without re-entering server details
     ]);

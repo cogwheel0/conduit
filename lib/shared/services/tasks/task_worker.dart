@@ -69,7 +69,8 @@ class TaskWorker {
         _ref,
         task.text,
         task.attachments.isEmpty ? null : task.attachments,
-        task.toolIds.isEmpty ? null : task.toolIds,
+        toolIds: task.toolIds.isEmpty ? null : task.toolIds,
+        outboundTaskId: task.id,
       );
     } finally {
       try {
@@ -401,7 +402,13 @@ class TaskWorker {
         ? <String>[resolvedToolId]
         : null;
 
-    await chat.sendMessageFromService(_ref, instruction, null, toolIds);
+    await chat.sendMessageFromService(
+      _ref,
+      instruction,
+      null,
+      toolIds: toolIds,
+      outboundTaskId: task.id,
+    );
   }
 
   Future<void> _performGenerateImage(GenerateImageTask task) async {
@@ -428,7 +435,12 @@ class TaskWorker {
     final prev = _ref.read(chat.imageGenerationEnabledProvider);
     try {
       _ref.read(chat.imageGenerationEnabledProvider.notifier).set(true);
-      await chat.sendMessageFromService(_ref, task.prompt, null, null);
+      await chat.sendMessageFromService(
+        _ref,
+        task.prompt,
+        null,
+        outboundTaskId: task.id,
+      );
     } finally {
       _ref.read(chat.imageGenerationEnabledProvider.notifier).set(prev);
     }

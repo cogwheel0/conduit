@@ -24,6 +24,8 @@ import '../../../core/services/settings_service.dart';
 import '../../auth/providers/unified_auth_providers.dart';
 import '../providers/chat_providers.dart';
 import '../../../core/utils/debug_logger.dart';
+import '../../../core/utils/startup_timeline.dart';
+import '../widgets/server_reachability_banner.dart';
 import '../../../core/utils/user_display_name.dart';
 import '../../../core/utils/model_icon_utils.dart';
 import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
@@ -287,6 +289,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     // Initialize chat page components
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
+
+      // Cold-start budget marker: first time the chat shell paints. Idempotent
+      // inside StartupTimeline so subsequent ChatPage rebuilds are no-ops.
+      StartupTimeline.instant('chat_ui_first_paint');
 
       // Initialize Android Assistant Handler
       ref.read(androidAssistantProvider);
@@ -2426,6 +2432,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                           ref
                               .read(activeConversationProvider.notifier)
                               .set(full);
+                          // Phase 1.2: keep the per-conversation cache warm
+                          // so the next cold-start opens this chat instantly.
+                          unawaited(
+                            ref
+                                .read(optimizedStorageServiceProvider)
+                                .cacheConversation(full),
+                          );
                         } catch (e) {
                           DebugLogger.log(
                             'Failed to refresh conversation: $e',
@@ -2613,6 +2626,19 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   ),
                 ),
                 // Edge overlay removed; rely on native interactive drawer drag
+
+                // Server reachability banner (Phase 1.1) — surfaces when the
+                // background /health probe reports the server is unreachable
+                // so the chat input can remain enabled (sends queue locally
+                // via TaskQueue) while signalling the connection issue.
+                Positioned(
+                  top:
+                      MediaQuery.of(context).padding.top +
+                      kTextTabBarHeight,
+                  left: 0,
+                  right: 0,
+                  child: const ServerReachabilityBanner(),
+                ),
               ],
             ),
           ),

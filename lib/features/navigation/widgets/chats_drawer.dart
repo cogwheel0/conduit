@@ -16,6 +16,7 @@ import '../../chat/providers/context_attachments_provider.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../shared/widgets/conduit_loading.dart';
+import '../../../shared/widgets/skeleton_loader.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
@@ -715,8 +716,15 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           ];
           return _buildRefreshableScrollableSlivers(slivers: slivers);
         },
-        loading: () =>
-            const Center(child: CircularProgressIndicator(strokeWidth: 2.0)),
+        loading: () => ListView.builder(
+          padding: const EdgeInsets.symmetric(vertical: Spacing.sm),
+          itemCount: 8,
+          itemBuilder: (_, _) => const SkeletonListItem(
+            showAvatar: false,
+            showSubtitle: true,
+            isCompact: true,
+          ),
+        ),
         error: (e, _) => Center(
           child: Padding(
             padding: const EdgeInsets.all(Spacing.md),
@@ -1998,20 +2006,55 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         }
       }
 
-      // Load the full conversation details in the background
+      // Cache-first single-conversation load (Phase 1.2): consult the local
+      // per-conversation cache before hitting the network. On a hit, the chat
+      // shell becomes interactive immediately while a background refresh
+      // reconciles with the server.
+      final storage = container.read(optimizedStorageServiceProvider);
+      final cached = await storage.getCachedConversation(id);
+      if (cached != null && _pendingConversationId == id) {
+        container.read(activeConversationProvider.notifier).set(cached);
+        container.read(chat.isLoadingConversationProvider.notifier).set(false);
+      }
+
+      // Load the full conversation details in the background and update both
+      // the active state and the local cache on success.
       final api = container.read(apiServiceProvider);
       if (api != null) {
-        final full = await api.getConversation(id);
-        container.read(activeConversationProvider.notifier).set(full);
-      } else {
-        // Fallback: use the lightweight item to update the active conversation
-        container
-            .read(activeConversationProvider.notifier)
-            .set(
-              (await container.read(
+        try {
+          final full = await api.getConversation(id);
+          // Only apply if the user hasn't navigated to a different chat.
+          if (_pendingConversationId == id) {
+            container.read(activeConversationProvider.notifier).set(full);
+          }
+          unawaited(storage.cacheConversation(full));
+        } catch (e) {
+          // If the network fetch fails and we have no cache, fall back to the
+          // lightweight item from the conversation list. If we already showed
+          // a cached version, leave it visible — the reconnect banner will
+          // surface the underlying network problem.
+          if (cached == null && _pendingConversationId == id) {
+            try {
+              final lightweight = (await container.read(
                 conversationsProvider.future,
-              )).firstWhere((c) => c.id == id),
-            );
+              )).firstWhere((c) => c.id == id);
+              container.read(activeConversationProvider.notifier).set(
+                lightweight,
+              );
+            } catch (_) {}
+          }
+        }
+      } else if (cached == null) {
+        // No API service AND no cache — fall back to the lightweight item.
+        try {
+          container
+              .read(activeConversationProvider.notifier)
+              .set(
+                (await container.read(
+                  conversationsProvider.future,
+                )).firstWhere((c) => c.id == id),
+              );
+        } catch (_) {}
       }
 
       // Clear loading after data is ready
