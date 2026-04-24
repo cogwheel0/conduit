@@ -1534,6 +1534,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 final adjacency = bubbleAdjacency[index];
                 final hasUserBubbleBelow = adjacency.hasUserBelow;
                 final hasAssistantBubbleBelow = adjacency.hasAssistantBelow;
+                final replacesArchivedAssistant =
+                    !isUser &&
+                    index > 0 &&
+                    messages[index - 1].role == 'assistant' &&
+                    (messages[index - 1].metadata?['archivedVariant'] == true);
 
                 // Hide archived assistant variants in the linear view
                 final isArchivedVariant =
@@ -1574,6 +1579,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                     message: message,
                     isStreaming: isStreaming,
                     showFollowUps: showFollowUps,
+                    animateOnMount: !replacesArchivedAssistant,
                     modelName: displayModelName,
                     modelIconUrl: modelIconUrl,
                     onCopy: () => _copyMessage(message.content),

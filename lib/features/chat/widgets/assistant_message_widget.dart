@@ -53,6 +53,7 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
   final dynamic message;
   final bool isStreaming;
   final bool showFollowUps;
+  final bool animateOnMount;
   final String? modelName;
   final String? modelIconUrl;
   final VoidCallback? onCopy;
@@ -65,6 +66,7 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
     required this.message,
     this.isStreaming = false,
     this.showFollowUps = true,
+    this.animateOnMount = true,
     this.modelName,
     this.modelIconUrl,
     this.onCopy,
@@ -102,6 +104,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   bool _hasTriggeredContentHaptic = false;
   ProviderSubscription<String?>? _streamingContentSub;
 
+  bool get _shouldAnimateOnMount =>
+      widget.animateOnMount && !_disableAnimations;
+
   // Streaming fade-in animation state
   late AnimationController _chunkFadeController;
   // press state handled by shared ChatActionButton
@@ -131,13 +136,16 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         .platformDispatcher
         .accessibilityFeatures
         .disableAnimations;
+    final shouldAnimateOnMount = _shouldAnimateOnMount;
     _fadeController = AnimationController(
       duration: const Duration(milliseconds: 300),
       vsync: this,
+      value: shouldAnimateOnMount ? 0.0 : 1.0,
     );
     _slideController = AnimationController(
       duration: const Duration(milliseconds: 300),
       vsync: this,
+      value: shouldAnimateOnMount ? 0.0 : 1.0,
     );
     _chunkFadeController = AnimationController(
       duration: const Duration(milliseconds: 200),
@@ -145,6 +153,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       value: 1.0, // Start fully opaque for non-streaming messages
     );
 
+    _hasAnimated = !shouldAnimateOnMount;
     _displayedContent = _resolvedMessageContent();
     _scheduleTtsPlainTextBuild(_displayedContent);
     _updateTypingIndicatorGate();
@@ -156,6 +165,11 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     super.didChangeDependencies();
     _disableAnimations =
         MediaQuery.maybeDisableAnimationsOf(context) ?? _disableAnimations;
+    if (!_shouldAnimateOnMount && !_hasAnimated) {
+      _fadeController.value = 1.0;
+      _slideController.value = 1.0;
+      _hasAnimated = true;
+    }
     // Build cached avatar when theme context is available
     _buildCachedAvatar();
   }
@@ -175,10 +189,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       _pendingTtsPlainTextPayload = null;
       _pendingTtsPlainTextSource = null;
       _lastAppliedTtsPlainTextSource = null;
-      _hasAnimated = false;
+      _hasAnimated = !_shouldAnimateOnMount;
       _hasTriggeredContentHaptic = false;
-      _fadeController.reset();
-      _slideController.reset();
+      _fadeController.value = _shouldAnimateOnMount ? 0.0 : 1.0;
+      _slideController.value = _shouldAnimateOnMount ? 0.0 : 1.0;
       _chunkFadeController.value = 1.0;
     }
 
@@ -774,11 +788,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
             _buildActionButtons(),
             if (hasFollowUps) ...[
               const SizedBox(height: Spacing.md),
-              FollowUpSuggestionBar(
-                suggestions: widget.message.followUps,
-                onSelected: _handleFollowUpTap,
-                isBusy: widget.isStreaming,
-              ),
+              _buildFollowUpSuggestions(),
             ],
           ],
         ],
@@ -1380,6 +1390,39 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       label: label,
       onTap: onTap,
       sfSymbol: sfSymbol,
+    );
+  }
+
+  Widget _buildFollowUpSuggestions() {
+    final shouldShow =
+        widget.showFollowUps &&
+        widget.message.followUps.isNotEmpty &&
+        !widget.isStreaming;
+
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 220),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      transitionBuilder: (child, animation) {
+        return FadeTransition(
+          opacity: animation,
+          child: SizeTransition(
+            sizeFactor: animation,
+            axisAlignment: -1,
+            child: child,
+          ),
+        );
+      },
+      child: shouldShow
+          ? KeyedSubtree(
+              key: ValueKey('follow-ups-${widget.message.followUps.join('|')}'),
+              child: FollowUpSuggestionBar(
+                suggestions: widget.message.followUps,
+                onSelected: _handleFollowUpTap,
+                isBusy: widget.isStreaming,
+              ),
+            )
+          : const SizedBox.shrink(key: ValueKey('follow-ups-empty')),
     );
   }
 }
