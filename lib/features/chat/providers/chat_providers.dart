@@ -911,21 +911,6 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     // Do not archive if it's already streaming (nothing final to archive)
     if (last.isStreaming) return;
 
-    final snapshot = ChatMessageVersion(
-      id: last.id,
-      content: last.content,
-      timestamp: last.timestamp,
-      model: last.model,
-      files: last.files == null
-          ? null
-          : List<Map<String, dynamic>>.from(last.files!),
-      sources: List<ChatSourceReference>.from(last.sources),
-      followUps: List<String>.from(last.followUps),
-      codeExecutions: List<ChatCodeExecution>.from(last.codeExecutions),
-      usage: last.usage == null ? null : Map<String, dynamic>.from(last.usage!),
-      error: last.error, // Preserve error in version snapshot
-    );
-
     final updated = last.copyWith(
       // Start a fresh stream for the new generation
       isStreaming: true,
@@ -936,7 +921,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       sources: const [],
       usage: null,
       error: null, // Clear error for new generation
-      versions: [...last.versions, snapshot],
+      versions: _buildReplayVersions(last),
     );
 
     state = [...state.sublist(0, state.length - 1), updated];
@@ -1111,19 +1096,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           prev.role == 'assistant' &&
           (prev.metadata?['archivedVariant'] == true);
       if (isArchivedAssistant) {
-        final snapshot = ChatMessageVersion(
-          id: prev.id,
-          content: prev.content,
-          timestamp: prev.timestamp,
-          model: prev.model,
-          files: prev.files,
-          sources: prev.sources,
-          followUps: prev.followUps,
-          codeExecutions: prev.codeExecutions,
-          usage: prev.usage,
-        );
         updatedLast = updatedLast.copyWith(
-          versions: [...updatedLast.versions, snapshot],
+          versions: _buildReplayVersions(prev),
         );
       }
     }
@@ -1227,6 +1201,40 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   void finishStreaming() {
     _completeStreamingMessage(releaseTransport: true);
   }
+}
+
+bool _isArchivedAssistantVariant(ChatMessage message) {
+  return message.role == 'assistant' &&
+      message.metadata?['archivedVariant'] == true;
+}
+
+ChatMessageVersion _buildAssistantVersionSnapshot(ChatMessage message) {
+  return ChatMessageVersion(
+    id: message.id,
+    content: message.content,
+    timestamp: message.timestamp,
+    model: message.model,
+    files: message.files == null
+        ? null
+        : List<Map<String, dynamic>>.from(message.files!),
+    output: message.output == null
+        ? null
+        : List<Map<String, dynamic>>.from(message.output!),
+    embeds: message.embeds == null
+        ? null
+        : List<Map<String, dynamic>>.from(message.embeds!),
+    sources: List<ChatSourceReference>.from(message.sources),
+    followUps: List<String>.from(message.followUps),
+    codeExecutions: List<ChatCodeExecution>.from(message.codeExecutions),
+    usage: message.usage == null
+        ? null
+        : Map<String, dynamic>.from(message.usage!),
+    error: message.error,
+  );
+}
+
+List<ChatMessageVersion> _buildReplayVersions(ChatMessage message) {
+  return [...message.versions, _buildAssistantVersionSnapshot(message)];
 }
 
 // Pre-seed an assistant skeleton message (with a given id or a new one) and
@@ -2118,19 +2126,29 @@ Future<void> regenerateMessage(
     final selectedTerminalId = ref.read(selectedTerminalIdProvider);
     // Include selected filter ids (toggle filters enabled by user)
     final selectedFilterIds = ref.read(selectedFilterIdsProvider);
-    // Get conversation history for context (excluding the removed assistant message)
+    // Get conversation history for context, skipping archived variants that are
+    // kept locally only for the version switcher.
     final List<ChatMessage> messages = ref.read(chatMessagesProvider);
     final List<Map<String, dynamic>> conversationMessages =
         <Map<String, dynamic>>[];
+    var lastUserIndex = -1;
+    for (var index = messages.length - 1; index >= 0; index--) {
+      if (messages[index].role == 'user') {
+        lastUserIndex = index;
+        break;
+      }
+    }
 
     for (int i = 0; i < messages.length; i++) {
       final msg = messages[i];
+      if (_isArchivedAssistantVariant(msg)) {
+        continue;
+      }
       if (msg.role.isNotEmpty && msg.content.isNotEmpty && !msg.isStreaming) {
         final cleaned = ToolCallsParser.sanitizeForApi(msg.content);
 
         // Prefer provided attachments for the last user message; otherwise use message attachments
-        final bool isLastUser =
-            (i == messages.length - 1) && msg.role == 'user';
+        final bool isLastUser = i == lastUserIndex && msg.role == 'user';
         final List<String> messageAttachments =
             (isLastUser && (attachments != null && attachments.isNotEmpty))
             ? List<String>.from(attachments)
@@ -2208,22 +2226,10 @@ Future<void> regenerateMessage(
         final prev = msgs[msgs.length - 2];
         final last = msgs.last;
         if (prev.role == 'assistant' && last.id == assistantMessageId) {
-          final snapshot = ChatMessageVersion(
-            id: prev.id,
-            content: prev.content,
-            timestamp: prev.timestamp,
-            model: prev.model,
-            files: prev.files,
-            sources: prev.sources,
-            followUps: prev.followUps,
-            codeExecutions: prev.codeExecutions,
-            usage: prev.usage,
-            error: prev.error, // Preserve error in version snapshot
-          );
           (ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier)
               .updateLastMessageWithFunction(
                 (ChatMessage m) =>
-                    m.copyWith(versions: [...m.versions, snapshot]),
+                    m.copyWith(versions: _buildReplayVersions(prev)),
               );
         }
       }

@@ -20,7 +20,10 @@ import '../../../shared/widgets/middle_ellipsis_text.dart';
 import '../../../shared/widgets/web_content_embed.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import '../providers/chat_providers.dart'
-    show sendMessageWithContainer, streamingContentProvider;
+    show
+        isChatStreamingProvider,
+        sendMessageWithContainer,
+        streamingContentProvider;
 import '../../../core/utils/debug_logger.dart';
 import '../../../core/services/platform_service.dart';
 import '../../../core/services/settings_service.dart';
@@ -1218,6 +1221,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   Widget _buildActionButtons() {
     final l10n = AppLocalizations.of(context)!;
     final ttsState = ref.watch(textToSpeechControllerProvider);
+    final isChatStreaming = ref.watch(isChatStreamingProvider);
     final messageId = _messageId;
     final hasSpeechText = _ttsPlainText.trim().isNotEmpty;
     // Check for error using the error field (preferred) or legacy content detection
@@ -1247,6 +1251,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final bool shouldShowTtsButton = hasSpeechText && messageId.isNotEmpty;
     final bool canStartTts =
         shouldShowTtsButton && !disableDueToStreaming && ttsAvailable;
+    final bool canRegenerate = widget.onRegenerate != null && !isChatStreaming;
 
     VoidCallback? ttsOnTap;
     if (showStopState || canStartTts) {
@@ -1349,14 +1354,14 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
                 ? CupertinoIcons.arrow_clockwise
                 : Icons.refresh,
             label: l10n.retry,
-            onTap: widget.onRegenerate,
+            onTap: canRegenerate ? widget.onRegenerate : null,
             sfSymbol: 'arrow.clockwise',
           ),
         ] else ...[
           _buildActionButton(
             icon: Platform.isIOS ? CupertinoIcons.refresh : Icons.refresh,
             label: l10n.regenerate,
-            onTap: widget.onRegenerate,
+            onTap: canRegenerate ? widget.onRegenerate : null,
             sfSymbol: 'arrow.clockwise',
           ),
         ],

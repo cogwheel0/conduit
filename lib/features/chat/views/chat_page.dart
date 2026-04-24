@@ -37,6 +37,7 @@ import '../widgets/file_attachment_widget.dart';
 import '../widgets/context_attachment_widget.dart';
 import '../widgets/server_file_picker_sheet.dart';
 import '../services/file_attachment_service.dart';
+import '../services/historical_message_regeneration.dart';
 import '../voice_call/presentation/voice_call_launcher.dart';
 import '../../../shared/services/tasks/task_queue.dart';
 import '../../tools/providers/tools_providers.dart';
@@ -1564,7 +1565,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                       isStreaming: isStreaming,
                       modelName: displayModelName,
                       onCopy: () => _copyMessage(message.content),
-                      onRegenerate: () => _regenerateMessage(message),
+                      onRegenerate: () => _regenerateMessage(message.id),
                     ),
                   );
                 } else {
@@ -1576,7 +1577,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                     modelName: displayModelName,
                     modelIconUrl: modelIconUrl,
                     onCopy: () => _copyMessage(message.content),
-                    onRegenerate: () => _regenerateMessage(message),
+                    onRegenerate: () => _regenerateMessage(message.id),
                   );
                 }
 
@@ -1622,47 +1623,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     Clipboard.setData(ClipboardData(text: cleanedContent));
   }
 
-  void _regenerateMessage(dynamic message) async {
-    final selectedModel = ref.read(selectedModelProvider);
-    if (selectedModel == null) {
-      return;
-    }
-
-    // Find the user message that prompted this assistant response
-    final messages = ref.read(chatMessagesProvider);
-    final messageIndex = messages.indexOf(message);
-
-    if (messageIndex <= 0 || messages[messageIndex - 1].role != 'user') {
-      return;
-    }
-
+  void _regenerateMessage(String assistantMessageId) async {
     try {
-      // If assistant message has generated images and it's the last message,
-      // use image-only regenerate flow instead of text streaming regeneration
-      if (message.role == 'assistant' &&
-          (message.files?.any((f) => f['type'] == 'image') == true) &&
-          messageIndex == messages.length - 1) {
-        final regenerateImages = ref.read(regenerateLastMessageProvider);
-        await regenerateImages();
-        return;
-      }
-
-      // Mark previous assistant as archived for UI; keep it for server history
-      ref.read(chatMessagesProvider.notifier).updateLastMessageWithFunction((
-        m,
-      ) {
-        final meta = Map<String, dynamic>.from(m.metadata ?? const {});
-        meta['archivedVariant'] = true;
-        return m.copyWith(metadata: meta, isStreaming: false);
-      });
-
-      // Regenerate response for the previous user message (without duplicating it)
-      final userMessage = messages[messageIndex - 1];
-      await regenerateMessage(
-        ref,
-        userMessage.content,
-        userMessage.attachmentIds,
-      );
+      await regenerateHistoricalMessageById(ref, assistantMessageId);
     } catch (e) {
       DebugLogger.log('Regenerate failed: $e', scope: 'chat/page');
     }

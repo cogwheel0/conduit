@@ -12,6 +12,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import '../../../core/providers/app_providers.dart';
 import '../providers/chat_providers.dart';
+import '../utils/message_targeting.dart';
 import '../../../shared/services/tasks/task_queue.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../tools/providers/tools_providers.dart';
@@ -841,11 +842,19 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
     }
 
     try {
-      // Remove messages after this one
+      final messageId = widget.message.id?.toString();
+      if (messageId == null || messageId.isEmpty) {
+        return;
+      }
+
       final messages = ref.read(chatMessagesProvider);
-      final idx = messages.indexOf(widget.message);
+      final idx = indexOfMessageId(messages, messageId);
       if (idx >= 0) {
-        final keep = messages.take(idx).toList(growable: false);
+        final keep = truncateMessagesAfterId(
+          messages,
+          messageId,
+          includeTarget: false,
+        );
         ref.read(chatMessagesProvider.notifier).setMessages(keep);
 
         // Enqueue edited text as a new message

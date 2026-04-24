@@ -7,7 +7,6 @@ import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:super_context_menu/super_context_menu.dart';
@@ -58,6 +57,10 @@ class ConduitContextMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (actions.isEmpty) {
+      return child;
+    }
+
     // iOS: Use native context menu
     if (Platform.isIOS) {
       return ContextMenuWidget(
