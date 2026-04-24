@@ -674,13 +674,32 @@ Version reasoning
         ),
       );
 
+      Future<void> tapVersionControl({
+        required IconData visibleIcon,
+        required String overflowLabel,
+      }) async {
+        final visibleFinder = find.byIcon(visibleIcon);
+        if (visibleFinder.evaluate().isNotEmpty) {
+          await tester.tap(visibleFinder);
+          await tester.pumpAndSettle();
+          return;
+        }
+
+        await tester.tap(find.byIcon(Icons.more_horiz_rounded));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(overflowLabel));
+        await tester.pumpAndSettle();
+      }
+
       await tester.tap(find.textContaining('Thinking'));
       await tester.pumpAndSettle();
 
       expect(find.text('Current reasoning'), findsOneWidget);
 
-      await tester.tap(find.byIcon(Icons.chevron_left));
-      await tester.pumpAndSettle();
+      await tapVersionControl(
+        visibleIcon: Icons.chevron_left,
+        overflowLabel: 'Prev',
+      );
 
       expect(find.text('Current reasoning'), findsNothing);
       expect(find.text('Version reasoning'), findsNothing);
@@ -690,8 +709,10 @@ Version reasoning
 
       expect(find.text('Version reasoning'), findsOneWidget);
 
-      await tester.tap(find.byIcon(Icons.chevron_right));
-      await tester.pumpAndSettle();
+      await tapVersionControl(
+        visibleIcon: Icons.chevron_right,
+        overflowLabel: 'Next',
+      );
 
       expect(find.text('Version reasoning'), findsNothing);
       expect(find.text('Current reasoning'), findsOneWidget);
