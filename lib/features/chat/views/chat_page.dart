@@ -90,6 +90,32 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     return name.trim();
   }
 
+  ({String? displayName, Model? matchedModel}) _resolveModelPresentation({
+    required String? rawModel,
+    required List<Model>? models,
+  }) {
+    final trimmedModel = rawModel?.trim();
+    if (trimmedModel == null || trimmedModel.isEmpty) {
+      return (displayName: null, matchedModel: null);
+    }
+
+    if (models != null) {
+      for (final model in models) {
+        if (model.id == trimmedModel || model.name == trimmedModel) {
+          return (
+            displayName: _formatModelDisplayName(model.name),
+            matchedModel: model,
+          );
+        }
+      }
+    }
+
+    return (
+      displayName: _formatModelDisplayName(trimmedModel),
+      matchedModel: null,
+    );
+  }
+
   bool validateFileSize(int fileSize, int maxSizeMB) {
     return fileSize <= (maxSizeMB * 1024 * 1024);
   }
@@ -1504,32 +1530,32 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 final isSelected = _selectedMessageIds.contains(message.id);
 
                 // Resolve a friendly model display name for message headers
-                String? displayModelName;
-                Model? matchedModel;
-                final rawModel = message.model;
-                if (rawModel != null && rawModel.isNotEmpty) {
-                  if (models != null) {
-                    try {
-                      // Prefer exact ID match; fall back to exact name match
-                      final match = models.firstWhere(
-                        (m) => m.id == rawModel || m.name == rawModel,
-                      );
-                      matchedModel = match;
-                      displayModelName = _formatModelDisplayName(match.name);
-                    } catch (_) {
-                      // As a fallback, format the raw value to be readable
-                      displayModelName = _formatModelDisplayName(rawModel);
-                    }
-                  } else {
-                    // Models not loaded yet; format raw value for readability
-                    displayModelName = _formatModelDisplayName(rawModel);
-                  }
-                }
+                final modelPresentation = _resolveModelPresentation(
+                  rawModel: message.model,
+                  models: models,
+                );
+                final displayModelName = modelPresentation.displayName;
+                final matchedModel = modelPresentation.matchedModel;
 
                 final modelIconUrl = resolveModelIconUrlForModel(
                   apiService,
                   matchedModel,
                 );
+                final versionModelNames = <String?>[];
+                final versionModelIconUrls = <String?>[];
+                for (final version in message.versions) {
+                  final versionPresentation = _resolveModelPresentation(
+                    rawModel: version.model,
+                    models: models,
+                  );
+                  versionModelNames.add(versionPresentation.displayName);
+                  versionModelIconUrls.add(
+                    resolveModelIconUrlForModel(
+                      apiService,
+                      versionPresentation.matchedModel,
+                    ),
+                  );
+                }
 
                 final adjacency = bubbleAdjacency[index];
                 final hasUserBubbleBelow = adjacency.hasUserBelow;
@@ -1582,6 +1608,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                     animateOnMount: !replacesArchivedAssistant,
                     modelName: displayModelName,
                     modelIconUrl: modelIconUrl,
+                    versionModelNames: versionModelNames,
+                    versionModelIconUrls: versionModelIconUrls,
                     onCopy: () => _copyMessage(message.content),
                     onRegenerate: () => _regenerateMessage(message.id),
                   );

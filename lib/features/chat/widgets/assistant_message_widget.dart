@@ -57,6 +57,8 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
   final bool animateOnMount;
   final String? modelName;
   final String? modelIconUrl;
+  final List<String?> versionModelNames;
+  final List<String?> versionModelIconUrls;
   final VoidCallback? onCopy;
   final VoidCallback? onRegenerate;
   final VoidCallback? onLike;
@@ -70,6 +72,8 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
     this.animateOnMount = true,
     this.modelName,
     this.modelIconUrl,
+    this.versionModelNames = const <String?>[],
+    this.versionModelIconUrls = const <String?>[],
     this.onCopy,
     this.onRegenerate,
     this.onLike,
@@ -87,6 +91,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   late AnimationController _slideController;
   String _displayedContent = '';
   Widget? _cachedAvatar;
+  String? _cachedAvatarModelName;
+  String? _cachedAvatarIconUrl;
   bool _allowTypingIndicator = false;
   Timer? _typingGateTimer;
   String _ttsPlainText = '';
@@ -184,6 +190,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     if (messageChanged) {
       _lastStreamingContent = null;
       _displayedContent = '';
+      _cachedAvatar = null;
+      _cachedAvatarModelName = null;
+      _cachedAvatarIconUrl = null;
       _ttsPlainText = '';
       _ttsPlainTextRequestId++;
       _ttsPlainTextDebounce?.cancel();
@@ -228,8 +237,13 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     }
 
     // Rebuild cached avatar if model name or icon changes
-    if (oldWidget.modelName != widget.modelName ||
-        oldWidget.modelIconUrl != widget.modelIconUrl) {
+    if (messageChanged ||
+        oldWidget.modelName != widget.modelName ||
+        oldWidget.modelIconUrl != widget.modelIconUrl ||
+        oldWidget.versionModelNames != widget.versionModelNames ||
+        oldWidget.versionModelIconUrls != widget.versionModelIconUrls ||
+        oldWidget.message.model != widget.message.model ||
+        oldWidget.message.versions != widget.message.versions) {
       _buildCachedAvatar();
     }
   }
@@ -282,6 +296,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       _activeVersionIndex = nextIndex;
       _displayedContent = raw;
     });
+    _buildCachedAvatar();
     _scheduleTtsPlainTextBuild(raw);
     _updateTypingIndicatorGate();
   }
@@ -549,11 +564,17 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   void _buildCachedAvatar() {
     final theme = context.conduitTheme;
-    final iconUrl = widget.modelIconUrl?.trim();
+    final modelName = _resolveActiveModelName();
+    final iconUrl = _resolveActiveModelIconUrl();
+    if (_cachedAvatar != null &&
+        _cachedAvatarModelName == modelName &&
+        _cachedAvatarIconUrl == iconUrl) {
+      return;
+    }
     final hasIcon = iconUrl != null && iconUrl.isNotEmpty;
 
     final Widget leading = hasIcon
-        ? ModelAvatar(size: 20, imageUrl: iconUrl, label: widget.modelName)
+        ? ModelAvatar(size: 20, imageUrl: iconUrl, label: modelName)
         : Container(
             width: 20,
             height: 20,
@@ -576,7 +597,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           const SizedBox(width: Spacing.xs),
           Flexible(
             child: MiddleEllipsisText(
-              widget.modelName ?? 'Assistant',
+              modelName,
               style: AppTypography.bodySmallStyle.copyWith(
                 color: theme.textSecondary,
                 fontWeight: FontWeight.w500,
@@ -587,6 +608,58 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         ],
       ),
     );
+    _cachedAvatarModelName = modelName;
+    _cachedAvatarIconUrl = iconUrl;
+  }
+
+  String _resolveActiveModelName() {
+    if (_activeVersionIndex >= 0 &&
+        _activeVersionIndex < widget.versionModelNames.length) {
+      final versionModelName = widget.versionModelNames[_activeVersionIndex]
+          ?.trim();
+      if (versionModelName != null && versionModelName.isNotEmpty) {
+        return versionModelName;
+      }
+    }
+
+    if (_activeVersionIndex >= 0 &&
+        _activeVersionIndex < widget.message.versions.length) {
+      final rawVersionModel = widget.message.versions[_activeVersionIndex].model
+          ?.trim();
+      if (rawVersionModel != null && rawVersionModel.isNotEmpty) {
+        return rawVersionModel;
+      }
+    }
+
+    final currentModelName = widget.modelName?.trim();
+    if (currentModelName != null && currentModelName.isNotEmpty) {
+      return currentModelName;
+    }
+
+    final rawCurrentModel = widget.message.model?.trim();
+    if (rawCurrentModel != null && rawCurrentModel.isNotEmpty) {
+      return rawCurrentModel;
+    }
+
+    return 'Assistant';
+  }
+
+  String? _resolveActiveModelIconUrl() {
+    if (_activeVersionIndex >= 0 &&
+        _activeVersionIndex < widget.versionModelIconUrls.length) {
+      final versionIconUrl = widget.versionModelIconUrls[_activeVersionIndex]
+          ?.trim();
+      if (versionIconUrl != null && versionIconUrl.isNotEmpty) {
+        return versionIconUrl;
+      }
+      return null;
+    }
+
+    final currentIconUrl = widget.modelIconUrl?.trim();
+    if (currentIconUrl != null && currentIconUrl.isNotEmpty) {
+      return currentIconUrl;
+    }
+    return null;
   }
 
   /// Called on each streaming chunk to drive the fade-in animation

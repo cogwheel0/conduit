@@ -40,12 +40,31 @@ Widget _buildAssistantHarness(ChatMessage message) {
           isStreaming: false,
           showFollowUps: false,
           animateOnMount: false,
+          modelName: message.model,
           onCopy: () {},
           onRegenerate: () {},
         ),
       ),
     ),
   );
+}
+
+Future<void> _tapVersionControl(
+  WidgetTester tester, {
+  required IconData visibleIcon,
+  required String overflowLabel,
+}) async {
+  final visibleFinder = find.byIcon(visibleIcon);
+  if (visibleFinder.evaluate().isNotEmpty) {
+    await tester.tap(visibleFinder);
+    await tester.pumpAndSettle();
+    return;
+  }
+
+  await tester.tap(find.byIcon(Icons.more_horiz_rounded));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text(overflowLabel));
+  await tester.pumpAndSettle();
 }
 
 void main() {
@@ -133,5 +152,48 @@ void main() {
 
     expect(find.text('Prev'), findsOneWidget);
     expect(find.text('Next'), findsOneWidget);
+  });
+
+  testWidgets('assistant header follows the active version model', (
+    tester,
+  ) async {
+    final message = ChatMessage(
+      id: 'assistant-message',
+      role: 'assistant',
+      content: 'Current version',
+      timestamp: DateTime(2024, 1, 1),
+      model: 'Model B',
+      versions: [
+        ChatMessageVersion(
+          id: 'assistant-message-v1',
+          content: 'Older version',
+          timestamp: DateTime(2023, 12, 31),
+          model: 'Model A',
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(_buildAssistantHarness(message));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Model B'), findsOneWidget);
+
+    await _tapVersionControl(
+      tester,
+      visibleIcon: Icons.chevron_left,
+      overflowLabel: 'Prev',
+    );
+
+    expect(find.text('Model A'), findsOneWidget);
+    expect(find.text('Model B'), findsNothing);
+
+    await _tapVersionControl(
+      tester,
+      visibleIcon: Icons.chevron_right,
+      overflowLabel: 'Next',
+    );
+
+    expect(find.text('Model B'), findsOneWidget);
+    expect(find.text('Model A'), findsNothing);
   });
 }
