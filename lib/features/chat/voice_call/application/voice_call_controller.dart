@@ -5,6 +5,7 @@ import 'dart:io';
 
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../../../../core/models/chat_message.dart';
 import '../../../../core/providers/app_providers.dart';
 import '../../../../core/services/settings_service.dart';
 import '../../../../shared/widgets/markdown/markdown_preprocessor.dart';
@@ -13,6 +14,7 @@ import '../../providers/chat_providers.dart';
 import '../domain/call_state_machine.dart';
 import '../domain/voice_call_interfaces.dart';
 import '../domain/voice_call_models.dart';
+import 'assistant_turn_tracker.dart';
 import '../infrastructure/assistant_transport_socket.dart';
 import '../infrastructure/background_policy_default.dart';
 import '../infrastructure/call_audio_session_coordinator.dart';
@@ -31,6 +33,7 @@ class VoiceCallController extends _$VoiceCallController {
   static const int _emptyTranscriptBaseDelayMs = 250;
   static const int _emptyTranscriptMaxDelayMs = 2000;
   static const Duration _responseInactivityTimeout = Duration(seconds: 4);
+  static const Duration _responseWatchdogPatience = Duration(seconds: 24);
 
   Future<void> _serial = Future<void>.value();
 
@@ -52,6 +55,9 @@ class VoiceCallController extends _$VoiceCallController {
   String _accumulatedTranscript = '';
   String _accumulatedResponse = '';
   String? _activeAssistantMessageId;
+  String? _activeUserMessageId;
+  String? _localAssistantMessageId;
+  String? _boundRemoteAssistantMessageId;
   bool _assistantResponseFinalized = false;
   bool _isSpeaking = false;
   bool _speechStartInFlight = false;
@@ -62,6 +68,8 @@ class VoiceCallController extends _$VoiceCallController {
   int _emptyTranscriptRestartAttempts = 0;
   int _nonSpeakableFinalizationAttempts = 0;
   DateTime? _listeningStartedAt;
+  DateTime? _assistantTurnStartedAt;
+  DateTime? _lastAssistantActivityAt;
 
   final ListQueue<String> _speechQueue = ListQueue<String>();
   final Set<CallPauseReason> _pauseReasons = <CallPauseReason>{};
@@ -523,10 +531,15 @@ class VoiceCallController extends _$VoiceCallController {
 
     _accumulatedResponse = '';
     _activeAssistantMessageId = null;
+    _activeUserMessageId = null;
+    _localAssistantMessageId = null;
+    _boundRemoteAssistantMessageId = null;
     _assistantResponseFinalized = false;
     _enqueuedSentenceCount = 0;
     _speechQueue.clear();
     _nonSpeakableFinalizationAttempts = 0;
+    _assistantTurnStartedAt = DateTime.now();
+    _lastAssistantActivityAt = null;
 
     final selectedToolIds = ref.read(selectedToolIdsProvider);
     final sendFuture = sendMessageFromService(
@@ -536,7 +549,7 @@ class VoiceCallController extends _$VoiceCallController {
       selectedToolIds,
       true,
     );
-    _seedActiveAssistantMessageId();
+    _seedActiveTurnMessageIds();
     unawaited(sendFuture);
 
     _armResponseWatchdog(token);
@@ -549,40 +562,40 @@ class VoiceCallController extends _$VoiceCallController {
       return;
     }
 
+    Iterable<ChatMessage>? remoteMessages;
     final conversationId = ref.read(activeConversationProvider)?.id;
-    if (conversationId == null || conversationId.isEmpty) {
+    final api = ref.read(apiServiceProvider);
+    if (conversationId != null && conversationId.isNotEmpty && api != null) {
+      try {
+        final conversation = await api.getConversation(conversationId);
+        if (token != _sessionToken) {
+          return;
+        }
+        remoteMessages = conversation.messages;
+      } catch (error) {
+        developer.log(
+          'Response watchdog poll failed: $error',
+          name: 'voice_call_controller',
+        );
+      }
+    }
+
+    final recovery = resolveAssistantRecoveryCandidate(
+      localMessages: ref.read(chatMessagesProvider),
+      remoteMessages: remoteMessages,
+      activeAssistantMessageId: _activeAssistantMessageId,
+      activeUserMessageId: _activeUserMessageId,
+      assistantTurnStartedAt: _assistantTurnStartedAt,
+    );
+    if (_applyPolledAssistantReply(
+      recovery.message,
+      token,
+      authoritative: recovery.authoritative,
+    )) {
       return;
     }
 
-    try {
-      final api = ref.read(apiServiceProvider);
-      if (api == null) {
-        return;
-      }
-      final conversation = await api.getConversation(conversationId);
-      if (token != _sessionToken) {
-        return;
-      }
-
-      final activeAssistantId = _activeAssistantMessageId?.trim();
-      final assistant = _resolvePolledAssistantMessage(
-        messages: conversation.messages,
-        activeAssistantId: activeAssistantId,
-      );
-      if (assistant == null) {
-        return;
-      }
-
-      final content = assistant.content;
-      _accumulatedResponse = content;
-      state = state.copyWith(response: content);
-      _maybeFinalizeAssistantResponse(token);
-    } catch (error) {
-      developer.log(
-        'Response watchdog poll failed: $error',
-        name: 'voice_call_controller',
-      );
-    }
+    _handlePendingAssistantWatchdog(token);
   }
 
   void _handleTransportEvent(
@@ -607,6 +620,7 @@ class VoiceCallController extends _$VoiceCallController {
       return;
     }
 
+    _markAssistantTurnActivity();
     _armResponseWatchdog(_sessionToken);
 
     final doneFlag = innerData['done'] == true;
@@ -668,8 +682,10 @@ class VoiceCallController extends _$VoiceCallController {
       // Flush whatever we have if stream completion markers were missed.
       if (_hasSpeakableAssistantResponse) {
         _assistantResponseFinalized = true;
+        _retireActiveAssistantMessage();
         _processSpeakableSegments(isFinalChunk: true);
         _maybeResumeListeningAfterSpeech(token);
+        return;
       }
 
       // Also attempt one server sync for authoritative final content.
@@ -717,44 +733,57 @@ class VoiceCallController extends _$VoiceCallController {
   }
 
   bool _shouldProcessAssistantMessage(String? messageId) {
-    final normalizedId = messageId?.trim();
-    if (normalizedId == null || normalizedId.isEmpty) {
-      return true;
-    }
-
-    if (_ignoredAssistantMessageIds.contains(normalizedId)) {
-      return false;
-    }
-
-    if (_assistantResponseFinalized) {
-      return false;
-    }
-
-    final activeId = _activeAssistantMessageId;
-    if (activeId == null || activeId.isEmpty) {
-      _activeAssistantMessageId = normalizedId;
-      return true;
-    }
-
-    if (activeId == normalizedId) {
-      return true;
-    }
-
-    developer.log(
-      'Ignoring assistant message_id switch $activeId -> $normalizedId '
-      'within active turn',
-      name: 'voice_call_controller',
-      level: 800,
+    final decision = resolveAssistantTransportDecision(
+      incomingMessageId: messageId,
+      activeAssistantMessageId: _activeAssistantMessageId,
+      localAssistantMessageId: _localAssistantMessageId,
+      boundRemoteAssistantMessageId: _boundRemoteAssistantMessageId,
+      assistantResponseFinalized: _assistantResponseFinalized,
+      ignoredAssistantMessageIds: _ignoredAssistantMessageIds,
     );
-    return false;
+
+    if (!decision.shouldProcess) {
+      final activeId = _activeAssistantMessageId;
+      final normalizedId = messageId?.trim();
+      if (activeId != null &&
+          activeId.isNotEmpty &&
+          normalizedId != null &&
+          normalizedId.isNotEmpty &&
+          activeId != normalizedId) {
+        developer.log(
+          'Ignoring assistant message_id switch $activeId -> $normalizedId '
+          'within active turn',
+          name: 'voice_call_controller',
+          level: 800,
+        );
+      }
+      return false;
+    }
+
+    if (decision.boundRemoteAssistantMessage) {
+      developer.log(
+        'Binding remote assistant message ${decision.boundRemoteAssistantMessageId} '
+        'to local placeholder ${_localAssistantMessageId ?? "<none>"}',
+        name: 'voice_call_controller',
+      );
+    }
+
+    _activeAssistantMessageId = decision.activeAssistantMessageId;
+    _boundRemoteAssistantMessageId = decision.boundRemoteAssistantMessageId;
+    return true;
   }
 
-  void _seedActiveAssistantMessageId() {
+  void _seedActiveTurnMessageIds() {
     final messages = ref.read(chatMessagesProvider);
     for (var i = messages.length - 1; i >= 0; i--) {
       final message = messages[i];
       if (message.role == 'assistant') {
         _activeAssistantMessageId = message.id;
+        _localAssistantMessageId = message.id;
+        _activeUserMessageId = _resolveActiveUserMessageId(
+          messages: messages,
+          assistantIndex: i,
+        );
         return;
       }
     }
@@ -766,10 +795,9 @@ class VoiceCallController extends _$VoiceCallController {
       ).trim().isNotEmpty;
 
   void _retireActiveAssistantMessage() {
-    final retiredAssistantId = _activeAssistantMessageId?.trim();
-    if (retiredAssistantId != null && retiredAssistantId.isNotEmpty) {
-      _ignoredAssistantMessageIds.add(retiredAssistantId);
-    }
+    _ignoreAssistantMessageId(_activeAssistantMessageId);
+    _ignoreAssistantMessageId(_localAssistantMessageId);
+    _ignoreAssistantMessageId(_boundRemoteAssistantMessageId);
   }
 
   void _maybeFinalizeAssistantResponse(int token) {
@@ -784,16 +812,21 @@ class VoiceCallController extends _$VoiceCallController {
       return;
     }
 
+    if (_accumulatedResponse.trim().isEmpty &&
+        !_hasExceededAssistantWaitBudget) {
+      _assistantResponseFinalized = false;
+      if (state.phase != CallPhase.thinking) {
+        _setPhase(CallPhase.thinking);
+      }
+      _armResponseWatchdog(token);
+      return;
+    }
+
     _nonSpeakableFinalizationAttempts++;
     _assistantResponseFinalized = false;
     if (_nonSpeakableFinalizationAttempts >
         _maxNonSpeakableFinalizationAttempts) {
-      _responseWatchdog?.cancel();
-      _responseWatchdog = null;
-      _assistantResponseFinalized = true;
-      _retireActiveAssistantMessage();
-      _nonSpeakableFinalizationAttempts = 0;
-      _maybeResumeListeningAfterSpeech(token);
+      _abandonAssistantTurn(token);
       return;
     }
 
@@ -803,26 +836,112 @@ class VoiceCallController extends _$VoiceCallController {
     _armResponseWatchdog(token);
   }
 
-  dynamic _resolvePolledAssistantMessage({
-    required Iterable<dynamic> messages,
-    required String? activeAssistantId,
+  bool get _hasExceededAssistantWaitBudget {
+    return hasExceededAssistantWaitBudget(
+      assistantTurnStartedAt: _assistantTurnStartedAt,
+      lastAssistantActivityAt: _lastAssistantActivityAt,
+      now: DateTime.now(),
+      patience: _responseWatchdogPatience,
+    );
+  }
+
+  bool _applyPolledAssistantReply(
+    ChatMessage? assistant,
+    int token, {
+    required bool authoritative,
   }) {
-    if (activeAssistantId != null && activeAssistantId.isNotEmpty) {
-      for (final message in messages.toList().reversed) {
-        if (message.role == 'assistant' && message.id == activeAssistantId) {
-          return message;
-        }
-      }
-      return null;
+    if (assistant == null) {
+      return false;
     }
 
-    for (final message in messages.toList().reversed) {
-      if (message.role == 'assistant' && message.content.trim().isNotEmpty) {
-        return message;
-      }
+    final content = assistant.content;
+    if (content.trim().isEmpty) {
+      return false;
     }
 
+    final candidateAssistantId = assistant.id.trim();
+    final activeAssistantId = _activeAssistantMessageId?.trim();
+    final localAssistantId = _localAssistantMessageId?.trim();
+    final boundRemoteAssistantId = _boundRemoteAssistantMessageId?.trim();
+    final matchesTrackedAssistant =
+        candidateAssistantId == activeAssistantId ||
+        candidateAssistantId == localAssistantId ||
+        candidateAssistantId == boundRemoteAssistantId;
+
+    if (authoritative &&
+        localAssistantId != null &&
+        localAssistantId.isNotEmpty &&
+        candidateAssistantId != localAssistantId &&
+        (boundRemoteAssistantId == null || boundRemoteAssistantId.isEmpty)) {
+      _boundRemoteAssistantMessageId = assistant.id;
+    }
+    if (authoritative || matchesTrackedAssistant) {
+      _activeAssistantMessageId = assistant.id;
+    }
+    if (candidateAssistantId != activeAssistantId ||
+        content != _accumulatedResponse) {
+      _markAssistantTurnActivity();
+    }
+
+    _accumulatedResponse = content;
+    state = state.copyWith(response: content);
+    _maybeFinalizeAssistantResponse(token);
+    return true;
+  }
+
+  void _handlePendingAssistantWatchdog(int token) {
+    if (token != _sessionToken ||
+        !state.isActive ||
+        _assistantResponseFinalized) {
+      return;
+    }
+    if (_hasExceededAssistantWaitBudget) {
+      _abandonAssistantTurn(token);
+      return;
+    }
+    _armResponseWatchdog(token);
+  }
+
+  void _abandonAssistantTurn(int token) {
+    _responseWatchdog?.cancel();
+    _responseWatchdog = null;
+    _assistantResponseFinalized = true;
+    _retireActiveAssistantMessage();
+    _nonSpeakableFinalizationAttempts = 0;
+    _maybeResumeListeningAfterSpeech(token);
+  }
+
+  void _markAssistantTurnActivity() {
+    final now = DateTime.now();
+    _assistantTurnStartedAt ??= now;
+    _lastAssistantActivityAt = now;
+  }
+
+  String? _resolveActiveUserMessageId({
+    required List<ChatMessage> messages,
+    required int assistantIndex,
+  }) {
+    final metadataParentId = messages[assistantIndex].metadata?['parentId']
+        ?.toString()
+        .trim();
+    if (metadataParentId != null && metadataParentId.isNotEmpty) {
+      return metadataParentId;
+    }
+    for (var i = assistantIndex - 1; i >= 0; i--) {
+      final message = messages[i];
+      if (message.role == 'user') {
+        return message.id;
+      }
+    }
     return null;
+  }
+
+  void _ignoreAssistantMessageId(String? value) {
+    final normalized = value?.trim();
+    if (normalized == null || normalized.isEmpty) {
+      return;
+    }
+    _ignoredAssistantMessageIds.add(normalized);
   }
 
   void _enqueueSpeechChunk(String chunk) {
@@ -1134,6 +1253,9 @@ class VoiceCallController extends _$VoiceCallController {
     _accumulatedTranscript = '';
     _accumulatedResponse = '';
     _activeAssistantMessageId = null;
+    _activeUserMessageId = null;
+    _localAssistantMessageId = null;
+    _boundRemoteAssistantMessageId = null;
     _assistantResponseFinalized = false;
     _isSpeaking = false;
     _speechStartInFlight = false;
@@ -1144,6 +1266,8 @@ class VoiceCallController extends _$VoiceCallController {
     _emptyTranscriptRestartAttempts = 0;
     _nonSpeakableFinalizationAttempts = 0;
     _listeningStartedAt = null;
+    _assistantTurnStartedAt = null;
+    _lastAssistantActivityAt = null;
     _speechQueue.clear();
     _pauseReasons.clear();
     _ignoredAssistantMessageIds.clear();

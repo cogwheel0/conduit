@@ -18,6 +18,7 @@ import '../../../core/providers/app_providers.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/services/background_streaming_handler.dart';
 import '../../../core/services/settings_service.dart';
+import 'voice_transcript_accumulator.dart';
 
 part 'voice_input_service.g.dart';
 
@@ -39,6 +40,8 @@ class VoiceInputService {
   static const Duration _localeFetchTimeout = Duration(seconds: 2);
   static const String _backgroundSttStreamId = 'voice-input-stt';
   static const Duration _vadDisposeCooldown = Duration(milliseconds: 140);
+  static const Duration _localRecognitionMaxDuration = Duration(minutes: 5);
+  static const String _bundledVadAssetBasePath = 'assets/vad/';
 
   VadHandler? _vadHandler;
   final SpeechToText _speech = SpeechToText();
@@ -58,6 +61,8 @@ class VoiceInputService {
   Future<Stream<String>>? _startListeningInFlight;
   StreamController<String>? _textStreamController;
   String _currentText = '';
+  final VoiceTranscriptAccumulator _transcriptAccumulator =
+      VoiceTranscriptAccumulator();
   bool _receivedFinalResult = false;
   StreamController<int>? _intensityController;
   Stream<int> get intensityStream =>
@@ -448,8 +453,7 @@ class VoiceInputService {
       await _speech.listen(
         onResult: _handleSttResult,
         localeId: _selectedLocaleId,
-        // Extended duration for voice calls - listen up to 60 seconds
-        listenFor: const Duration(seconds: 60),
+        listenFor: _localRecognitionMaxDuration,
         // Use user's silence duration setting for pause detection
         pauseFor: pauseDuration,
         listenOptions: SpeechListenOptions(
@@ -474,7 +478,10 @@ class VoiceInputService {
   void _handleSttResult(SpeechRecognitionResult result) {
     if (!_isListening) return;
     final prevLen = _currentText.length;
-    _currentText = result.recognizedWords;
+    _currentText = _transcriptAccumulator.applyResult(
+      recognizedWords: result.recognizedWords,
+      isFinalResult: result.finalResult,
+    );
     _textStreamController?.add(_currentText);
     if (result.finalResult) {
       _receivedFinalResult = true;
@@ -521,6 +528,7 @@ class VoiceInputService {
 
     _textStreamController = StreamController<String>.broadcast();
     _currentText = '';
+    _transcriptAccumulator.reset();
     _isListening = true;
     _receivedFinalResult = false;
     _intensityController = StreamController<int>.broadcast();
@@ -548,7 +556,7 @@ class VoiceInputService {
 
     if (shouldUseLocal) {
       _autoStopTimer?.cancel();
-      _autoStopTimer = Timer(const Duration(seconds: 60), () {
+      _autoStopTimer = Timer(_localRecognitionMaxDuration, () {
         if (_isListening) {
           unawaited(_stopListening());
         }
@@ -665,6 +673,7 @@ class VoiceInputService {
         }
       }
       _isListening = false;
+      _currentText = _transcriptAccumulator.finalizePending();
       if (_currentText.isNotEmpty) {
         _textStreamController?.add(_currentText);
       }
@@ -737,6 +746,7 @@ class VoiceInputService {
       await vad.startListening(
         frameSamples: _vadFrameSamples,
         model: 'v5',
+        baseAssetPath: _bundledVadAssetBasePath,
         minSpeechFrames: _vadMinSpeechFrames,
         preSpeechPadFrames: _vadPreSpeechPadFrames,
         redemptionFrames: redemptionFrames,

@@ -125,6 +125,7 @@ flutter:
     - assets/chartjs.min.js
     - assets/flutter_tex.js
     - assets/flutter_tex.css
+    - assets/vad/
 
 flutter_native_splash:
   # Splash background matches the light theme; `color_dark` handles dark mode.

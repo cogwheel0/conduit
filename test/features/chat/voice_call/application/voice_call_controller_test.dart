@@ -293,6 +293,61 @@ void main() {
     });
 
     test(
+      'fresh assistant activity extends the empty-response wait budget',
+      () async {
+        final fakeTransport = _FakeTransport();
+        final fakeOutput = _FakeOutput();
+        final container = _buildContainer(
+          fakeTransport: fakeTransport,
+          fakeOutput: fakeOutput,
+        );
+        addTearDown(container.dispose);
+
+        final notifier = container.read(voiceCallControllerProvider.notifier);
+        await notifier.start(startNewConversation: false);
+
+        fakeTransport.emitChatEvent({
+          'message_id': 'assistant-msg-1',
+          'data': {
+            'type': 'chat:completion',
+            'data': {'content': '', 'done': true},
+          },
+        });
+
+        await Future<void>.delayed(const Duration(seconds: 5));
+
+        fakeTransport.emitChatEvent({
+          'message_id': 'assistant-msg-1',
+          'data': {
+            'type': 'chat:completion',
+            'data': {'content': '', 'done': true},
+          },
+        });
+
+        await Future<void>.delayed(const Duration(seconds: 21));
+
+        fakeTransport.emitChatEvent({
+          'message_id': 'assistant-msg-1',
+          'data': {
+            'type': 'chat:completion',
+            'data': {'content': 'Fresh reply.', 'done': true},
+          },
+        });
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+
+        expect(
+          container.read(voiceCallControllerProvider).response,
+          'Fresh reply.',
+        );
+        expect(fakeOutput.spokenTexts, ['Fresh reply.']);
+        expect(
+          container.read(voiceCallControllerProvider).phase,
+          CallPhase.listening,
+        );
+      },
+    );
+
+    test(
       'watchdog resumes listening after repeated non-speakable completions',
       () async {
         final fakeTransport = _FakeTransport();
@@ -326,7 +381,7 @@ void main() {
           },
         });
 
-        await Future<void>.delayed(const Duration(seconds: 9));
+        await Future<void>.delayed(const Duration(seconds: 13));
 
         expect(
           container.read(voiceCallControllerProvider).phase,
@@ -370,7 +425,7 @@ void main() {
           },
         });
 
-        await Future<void>.delayed(const Duration(seconds: 9));
+        await Future<void>.delayed(const Duration(seconds: 13));
 
         fakeTransport.emitChatEvent({
           'message_id': 'assistant-msg-1',
@@ -433,6 +488,49 @@ void main() {
         CallPhase.listening,
       );
     });
+
+    test(
+      'late id-less completion events after a spoken reply are ignored',
+      () async {
+        final fakeTransport = _FakeTransport();
+        final fakeOutput = _FakeOutput();
+        final container = _buildContainer(
+          fakeTransport: fakeTransport,
+          fakeOutput: fakeOutput,
+        );
+        addTearDown(container.dispose);
+
+        final notifier = container.read(voiceCallControllerProvider.notifier);
+        await notifier.start(startNewConversation: false);
+
+        fakeTransport.emitChatEvent({
+          'message_id': 'assistant-msg-1',
+          'data': {
+            'type': 'chat:completion',
+            'data': {'content': 'Fresh reply.', 'done': true},
+          },
+        });
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+
+        fakeTransport.emitChatEvent({
+          'data': {
+            'type': 'chat:completion',
+            'data': {'content': 'Delayed stale reply.', 'done': true},
+          },
+        });
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+
+        expect(
+          container.read(voiceCallControllerProvider).response,
+          'Fresh reply.',
+        );
+        expect(fakeOutput.spokenTexts, ['Fresh reply.']);
+        expect(
+          container.read(voiceCallControllerProvider).phase,
+          CallPhase.listening,
+        );
+      },
+    );
 
     test('speaks all queued chunks sequentially', () async {
       final fakeOutput = _FakeOutput();
