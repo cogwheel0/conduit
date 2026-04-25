@@ -2634,6 +2634,14 @@ Future<void> _sendMessageInternal(
     throw Exception('No API service or model selected');
   }
 
+  final isLoadingConversation = ref.read(isLoadingConversationProvider);
+  final currentConversation = ref.read(activeConversationProvider);
+  // Guard against a race where the user opens an existing chat and sends
+  // before its history loads, which would otherwise create a new chat.
+  if (isLoadingConversation && currentConversation == null) {
+    throw StateError('Conversation is still loading');
+  }
+
   // Get context attachments synchronously (no API calls)
   final contextAttachments = ref.read(contextAttachmentsProvider);
   final contextFiles = _contextAttachmentsToFiles(contextAttachments);

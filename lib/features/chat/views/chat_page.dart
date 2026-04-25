@@ -367,6 +367,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 
   void _handleMessageSend(String text, dynamic selectedModel) async {
+    if (ref.read(isLoadingConversationProvider)) {
+      return;
+    }
+
     // Resolve model on-demand if none selected yet
     if (selectedModel == null) {
       try {
@@ -2511,6 +2515,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                               child: ModernChatInput(
                                 onSendMessage: (text) =>
                                     _handleMessageSend(text, selectedModel),
+                                enabled: !isLoadingConversation,
                                 onVoiceInput: null,
                                 onVoiceCall: _handleVoiceCall,
                                 onFileAttachment: _handleFileAttachment,
