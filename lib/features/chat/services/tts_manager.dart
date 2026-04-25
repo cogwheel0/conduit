@@ -921,8 +921,8 @@ class TtsManager {
     Object? lastError;
     var requestText = text.trim();
     var requestVoice = voice?.trim();
-    if (requestVoice == null || requestVoice.isEmpty) {
-      requestVoice = 'alloy';
+    if (requestVoice != null && requestVoice.isEmpty) {
+      requestVoice = null;
     }
 
     for (var attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -989,8 +989,7 @@ class TtsManager {
       unawaited(_enqueueBufferedServerChunks(session));
     } else {
       _serverWaitingForNext = true;
-      final voice =
-          _serverPlaybackVoice ?? _config.serverVoice ?? _config.voice;
+      final voice = _serverPlaybackVoice ?? _config.serverVoice;
       unawaited(_recoverMissingServerChunk(session, voice, nextIndex));
     }
   }
@@ -1085,15 +1084,11 @@ class TtsManager {
     if (serverSelected != null && serverSelected.isNotEmpty) {
       return serverSelected;
     }
-    final selected = _config.voice?.trim();
-    if (selected != null && selected.isNotEmpty) {
-      return selected;
-    }
     final serverDefault = await _getServerDefaultVoice();
     if (serverDefault != null && serverDefault.isNotEmpty) {
       return serverDefault;
     }
-    return 'alloy';
+    return null;
   }
 
   Future<String?> _getServerDefaultVoice() async {
