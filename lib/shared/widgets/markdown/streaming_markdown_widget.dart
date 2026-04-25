@@ -1,3 +1,5 @@
+import 'package:flutter/cupertino.dart' show CupertinoTextSelectionControls;
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 
 import '../../../core/models/chat_message.dart';
@@ -63,7 +65,12 @@ class StreamingMarkdownWidget extends StatelessWidget {
       return result;
     }
 
-    return SelectionArea(child: result);
+    return SelectionArea(
+      selectionControls: Theme.of(context).platform == TargetPlatform.iOS
+          ? _CupertinoSelectionAreaControls()
+          : null,
+      child: result,
+    );
   }
 
   /// Builds markdown with inline citation badges.
@@ -78,6 +85,54 @@ class StreamingMarkdownWidget extends StatelessWidget {
       sources: sources,
       onSourceTap: onSourceTap,
       stateScopeId: stateScopeId,
+    );
+  }
+}
+
+class _CupertinoSelectionAreaControls extends CupertinoTextSelectionControls {
+  _CupertinoSelectionAreaControls();
+
+  @override
+  Widget buildHandle(
+    BuildContext context,
+    TextSelectionHandleType type,
+    double textLineHeight, [
+    VoidCallback? onTap,
+  ]) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(color: Color(0x01000000)),
+      child: super.buildHandle(context, type, textLineHeight, onTap),
+    );
+  }
+
+  @override
+  // ignore: deprecated_member_use
+  Widget buildToolbar(
+    BuildContext context,
+    Rect globalEditableRegion,
+    double textLineHeight,
+    Offset selectionMidpoint,
+    List<TextSelectionPoint> endpoints,
+    TextSelectionDelegate delegate,
+    ValueListenable<ClipboardStatus>? clipboardStatus,
+    Offset? lastSecondaryTapDownPosition,
+  ) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        const IgnorePointer(child: ColoredBox(color: Color(0x01000000))),
+        // ignore: deprecated_member_use
+        super.buildToolbar(
+          context,
+          globalEditableRegion,
+          textLineHeight,
+          selectionMidpoint,
+          endpoints,
+          delegate,
+          clipboardStatus,
+          lastSecondaryTapDownPosition,
+        ),
+      ],
     );
   }
 }
