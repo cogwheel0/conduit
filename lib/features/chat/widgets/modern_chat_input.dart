@@ -2727,17 +2727,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 AnimatedDefaultTextStyle(
                   duration: const Duration(milliseconds: 200),
                   curve: Curves.easeOutCubic,
-                  style:
-                      (dense
-                              ? AppTypography.labelSmallStyle
-                              : AppTypography.labelMediumStyle)
-                          .copyWith(
-                            color: textColor,
-                            fontWeight: isActive
-                                ? FontWeight.w600
-                                : FontWeight.w500,
-                            letterSpacing: -0.1,
-                          ),
+                  style: AppTypography.labelMediumStyle.copyWith(
+                    color: textColor,
+                    fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
+                    letterSpacing: -0.1,
+                  ),
                   child: Text(
                     label,
                     maxLines: 1,

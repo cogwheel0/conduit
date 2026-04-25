@@ -38,10 +38,10 @@ class AssistantDetailHeader extends StatelessWidget {
             overflow: allowWrap ? null : TextOverflow.ellipsis,
             maxLines: allowWrap ? null : 1,
             style:
-                textTheme.bodyMedium?.copyWith(
+                textTheme.bodyLarge?.copyWith(
                   color: theme.textPrimary.withValues(alpha: 0.6),
                 ) ??
-                AppTypography.bodyMediumStyle.copyWith(
+                AppTypography.chatMessageStyle.copyWith(
                   color: theme.textPrimary.withValues(alpha: 0.6),
                 ),
           ),
