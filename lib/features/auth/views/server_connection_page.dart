@@ -545,7 +545,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
 
   Future<void> _pickMutualTlsFile({required bool isPrivateKey}) async {
     try {
-      final result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker.pickFiles(
         allowMultiple: false,
         type: FileType.custom,
         allowedExtensions: isPrivateKey

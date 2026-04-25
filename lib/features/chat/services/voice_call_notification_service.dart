@@ -46,7 +46,7 @@ class VoiceCallNotificationService {
     );
 
     await _notifications.initialize(
-      settings,
+      settings: settings,
       onDidReceiveNotificationResponse: _handleNotificationResponse,
       onDidReceiveBackgroundNotificationResponse:
           _handleBackgroundNotificationResponse,
@@ -154,10 +154,10 @@ class VoiceCallNotificationService {
       );
 
       await _notifications.show(
-        _notificationId,
-        'Voice Call with $modelName',
-        status,
-        NotificationDetails(android: androidDetails),
+        id: _notificationId,
+        title: 'Voice Call with $modelName',
+        body: status,
+        notificationDetails: NotificationDetails(android: androidDetails),
       );
     } else if (Platform.isIOS) {
       // iOS doesn't support action buttons for ongoing notifications
@@ -170,10 +170,10 @@ class VoiceCallNotificationService {
       );
 
       await _notifications.show(
-        _notificationId,
-        'Voice Call with $modelName',
-        status,
-        const NotificationDetails(iOS: iosDetails),
+        id: _notificationId,
+        title: 'Voice Call with $modelName',
+        body: status,
+        notificationDetails: const NotificationDetails(iOS: iosDetails),
       );
     }
   }
@@ -195,7 +195,7 @@ class VoiceCallNotificationService {
 
   /// Cancel the voice call notification
   Future<void> cancelNotification() async {
-    await _notifications.cancel(_notificationId);
+    await _notifications.cancel(id: _notificationId);
   }
 
   /// Check if notifications are enabled

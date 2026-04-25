@@ -242,7 +242,7 @@ class FileAttachmentService {
     List<String>? allowedExtensions,
   }) async {
     try {
-      final result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker.pickFiles(
         allowMultiple: allowMultiple,
         type: allowedExtensions != null ? FileType.custom : FileType.any,
         allowedExtensions: allowedExtensions,
@@ -271,7 +271,7 @@ class FileAttachmentService {
   // Pick image from gallery
   Future<LocalAttachment?> pickImage() async {
     try {
-      final result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker.pickFiles(
         allowMultiple: false,
         type: FileType.image,
       );
@@ -524,7 +524,7 @@ class MockFileAttachmentService {
     List<String>? allowedExtensions,
   }) async {
     try {
-      final result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker.pickFiles(
         allowMultiple: allowMultiple,
         type: allowedExtensions != null ? FileType.custom : FileType.any,
         allowedExtensions: allowedExtensions,
