@@ -114,8 +114,7 @@ class _StreamingStatusWidgetState extends State<StreamingStatusWidget> {
                       Expanded(
                         child: Text(
                           title,
-                          style: TextStyle(
-                            fontSize: AppTypography.bodyLarge,
+                          style: AppTypography.bodyLargeStyle.copyWith(
                             fontWeight: FontWeight.w600,
                             color: theme.textPrimary,
                           ),
@@ -369,8 +368,7 @@ class _MinimalQueryChips extends StatelessWidget {
                   constraints: const BoxConstraints(maxWidth: 150),
                   child: Text(
                     query,
-                    style: TextStyle(
-                      fontSize: AppTypography.labelSmall,
+                    style: AppTypography.labelMediumStyle.copyWith(
                       color: theme.textSecondary,
                     ),
                     maxLines: 1,
@@ -445,8 +443,7 @@ class _MinimalSourceLinks extends StatelessWidget {
                     constraints: const BoxConstraints(maxWidth: 100),
                     child: Text(
                       link.title ?? domain,
-                      style: TextStyle(
-                        fontSize: AppTypography.labelSmall,
+                      style: AppTypography.labelMediumStyle.copyWith(
                         color: theme.textSecondary,
                       ),
                       maxLines: 1,
@@ -461,8 +458,7 @@ class _MinimalSourceLinks extends StatelessWidget {
         if (remaining > 0)
           Text(
             '+$remaining',
-            style: TextStyle(
-              fontSize: AppTypography.labelSmall,
+            style: AppTypography.labelMediumStyle.copyWith(
               color: theme.textSecondary,
             ),
           ).animate().fadeIn(

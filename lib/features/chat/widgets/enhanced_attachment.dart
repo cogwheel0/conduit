@@ -191,9 +191,8 @@ class _EnhancedAttachmentState extends ConsumerState<EnhancedAttachment> {
         ),
         child: Text(
           _error!,
-          style: TextStyle(
+          style: AppTypography.labelMediumStyle.copyWith(
             color: context.conduitTheme.error,
-            fontSize: AppTypography.labelMedium,
           ),
         ),
       );
@@ -252,20 +251,18 @@ class _EnhancedAttachmentState extends ConsumerState<EnhancedAttachment> {
                   filename,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
+                  style: AppTypography.labelStyle.copyWith(
                     color: context.conduitTheme.textPrimary,
-                    fontSize: AppTypography.labelLarge,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
                 if (metaLabel.isNotEmpty)
                   Text(
                     metaLabel,
-                    style: TextStyle(
+                    style: AppTypography.labelMediumStyle.copyWith(
                       color: context.conduitTheme.textSecondary.withValues(
                         alpha: 0.7,
                       ),
-                      fontSize: AppTypography.labelMedium,
                     ),
                   ),
               ],

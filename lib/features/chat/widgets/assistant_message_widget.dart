@@ -577,9 +577,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           Flexible(
             child: MiddleEllipsisText(
               widget.modelName ?? 'Assistant',
-              style: TextStyle(
+              style: AppTypography.bodySmallStyle.copyWith(
                 color: theme.textSecondary,
-                fontSize: AppTypography.bodySmall,
                 fontWeight: FontWeight.w500,
                 letterSpacing: 0.1,
               ),

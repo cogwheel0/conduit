@@ -292,37 +292,37 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
                         right: Spacing.pagePadding,
                         top: safePadding.top + Spacing.md,
                       ),
-                    child: Form(
-                      key: _formKey,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          // Back button row
-                          Align(
-                            alignment: Alignment.centerLeft,
-                            child: _buildBackButton(),
-                          ),
+                      child: Form(
+                        key: _formKey,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            // Back button row
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: _buildBackButton(),
+                            ),
 
-                          const SizedBox(height: Spacing.xl),
+                            const SizedBox(height: Spacing.xl),
 
-                          // Brand icon + title header
-                          _buildHeader(),
+                            // Brand icon + title header
+                            _buildHeader(),
 
-                          const SizedBox(height: Spacing.xxl),
+                            const SizedBox(height: Spacing.xxl),
 
-                          // Auth mode selector
-                          if (_availableAuthModes.length > 1) ...[
-                            _buildAuthModeSelector(),
-                            const SizedBox(height: Spacing.lg),
+                            // Auth mode selector
+                            if (_availableAuthModes.length > 1) ...[
+                              _buildAuthModeSelector(),
+                              const SizedBox(height: Spacing.lg),
+                            ],
+
+                            // Authentication form
+                            _buildAuthForm(),
                           ],
-
-                          // Authentication form
-                          _buildAuthForm(),
-                        ],
+                        ),
                       ),
                     ),
                   ),
-                ),
                 ),
               ),
             ),
@@ -444,10 +444,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
       decoration: BoxDecoration(
         color: theme.surfaceContainer,
         borderRadius: BorderRadius.circular(AppBorderRadius.button),
-        border: Border.all(
-          color: theme.cardBorder,
-          width: BorderWidth.thin,
-        ),
+        border: Border.all(color: theme.cardBorder, width: BorderWidth.thin),
       ),
       padding: const EdgeInsets.all(3),
       child: Row(
@@ -477,8 +474,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
                   child: Text(
                     _authModeLabel(modes[i]),
                     textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: AppTypography.bodySmall,
+                    style: AppTypography.bodySmallStyle.copyWith(
                       fontWeight: i == selectedIndex
                           ? FontWeight.w600
                           : FontWeight.w500,
@@ -651,9 +647,8 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
         AdaptiveTextFormField(
           controller: _apiKeyController,
           placeholder: 'eyJ...',
-          validator: (value) => _validateJwtToken(
-            value ?? _apiKeyController.text,
-          ),
+          validator: (value) =>
+              _validateJwtToken(value ?? _apiKeyController.text),
           obscureText: _obscurePassword,
           prefixIcon: Icon(
             Platform.isIOS
@@ -666,24 +661,18 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
                 ? (Platform.isIOS
                       ? CupertinoIcons.eye_slash
                       : Icons.visibility_off)
-                : (Platform.isIOS
-                      ? CupertinoIcons.eye
-                      : Icons.visibility),
+                : (Platform.isIOS ? CupertinoIcons.eye : Icons.visibility),
             iconColor: context.conduitTheme.iconSecondary,
             onPressed: () =>
                 setState(() => _obscurePassword = !_obscurePassword),
-            tooltip: _obscurePassword
-                ? 'Show password'
-                : 'Hide password',
+            tooltip: _obscurePassword ? 'Show password' : 'Hide password',
             isCompact: true,
           ),
           onSubmitted: (_) => _signIn(),
           autofillHints: const [AutofillHints.password],
           cupertinoDecoration: BoxDecoration(
             color: CupertinoColors.tertiarySystemBackground,
-            border: Border.all(
-              color: context.conduitTheme.inputBorder,
-            ),
+            border: Border.all(color: context.conduitTheme.inputBorder),
             borderRadius: BorderRadius.circular(8),
           ),
         ),
@@ -721,9 +710,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
             autofillHints: const [AutofillHints.username, AutofillHints.email],
             cupertinoDecoration: BoxDecoration(
               color: CupertinoColors.tertiarySystemBackground,
-              border: Border.all(
-                color: context.conduitTheme.inputBorder,
-              ),
+              border: Border.all(color: context.conduitTheme.inputBorder),
               borderRadius: BorderRadius.circular(8),
             ),
           ),
@@ -752,24 +739,18 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
                   ? (Platform.isIOS
                         ? CupertinoIcons.eye_slash
                         : Icons.visibility_off)
-                  : (Platform.isIOS
-                        ? CupertinoIcons.eye
-                        : Icons.visibility),
+                  : (Platform.isIOS ? CupertinoIcons.eye : Icons.visibility),
               iconColor: context.conduitTheme.iconSecondary,
               onPressed: () =>
                   setState(() => _obscurePassword = !_obscurePassword),
-              tooltip: _obscurePassword
-                  ? 'Show password'
-                  : 'Hide password',
+              tooltip: _obscurePassword ? 'Show password' : 'Hide password',
               isCompact: true,
             ),
             onSubmitted: (_) => _signIn(),
             autofillHints: const [AutofillHints.password],
             cupertinoDecoration: BoxDecoration(
               color: CupertinoColors.tertiarySystemBackground,
-              border: Border.all(
-                color: context.conduitTheme.inputBorder,
-              ),
+              border: Border.all(color: context.conduitTheme.inputBorder),
               borderRadius: BorderRadius.circular(8),
             ),
           ),
@@ -799,9 +780,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
             autofillHints: const [AutofillHints.username],
             cupertinoDecoration: BoxDecoration(
               color: CupertinoColors.tertiarySystemBackground,
-              border: Border.all(
-                color: context.conduitTheme.inputBorder,
-              ),
+              border: Border.all(color: context.conduitTheme.inputBorder),
               borderRadius: BorderRadius.circular(8),
             ),
           ),
@@ -830,24 +809,18 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
                   ? (Platform.isIOS
                         ? CupertinoIcons.eye_slash
                         : Icons.visibility_off)
-                  : (Platform.isIOS
-                        ? CupertinoIcons.eye
-                        : Icons.visibility),
+                  : (Platform.isIOS ? CupertinoIcons.eye : Icons.visibility),
               iconColor: context.conduitTheme.iconSecondary,
               onPressed: () =>
                   setState(() => _obscurePassword = !_obscurePassword),
-              tooltip: _obscurePassword
-                  ? 'Show password'
-                  : 'Hide password',
+              tooltip: _obscurePassword ? 'Show password' : 'Hide password',
               isCompact: true,
             ),
             onSubmitted: (_) => _signIn(),
             autofillHints: const [AutofillHints.password],
             cupertinoDecoration: BoxDecoration(
               color: CupertinoColors.tertiarySystemBackground,
-              border: Border.all(
-                color: context.conduitTheme.inputBorder,
-              ),
+              border: Border.all(color: context.conduitTheme.inputBorder),
               borderRadius: BorderRadius.circular(8),
             ),
           ),
@@ -953,9 +926,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
       text: buttonText,
       icon: _isSigningIn
           ? null
-          : (Platform.isIOS
-                ? CupertinoIcons.arrow_right
-                : Icons.arrow_forward),
+          : (Platform.isIOS ? CupertinoIcons.arrow_right : Icons.arrow_forward),
       onPressed: _isSigningIn ? null : _signIn,
       isLoading: _isSigningIn,
       isFullWidth: true,

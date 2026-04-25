@@ -124,7 +124,7 @@ class PlatformService {
                   (action) => AdaptiveListTile(
                     title: Text(
                       action.title,
-                      style: TextStyle(
+                      style: AppTypography.bodyMediumStyle.copyWith(
                         color: action.isDestructive
                             ? Theme.of(context).colorScheme.error
                             : null,

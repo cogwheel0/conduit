@@ -208,7 +208,9 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
                   return Center(
                     child: Text(
                       l10n.channelEmptyState,
-                      style: TextStyle(color: theme.textSecondary),
+                      style: AppTypography.sidebarSupportingStyle.copyWith(
+                        color: theme.textSecondary,
+                      ),
                     ),
                   );
                 }

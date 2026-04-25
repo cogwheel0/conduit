@@ -91,9 +91,7 @@ class _ExpandedTextEditorSheetState extends State<ExpandedTextEditorSheet> {
         width: buttonSize,
         height: buttonSize,
         child: Material(
-          color: _hasText
-              ? theme.buttonPrimary
-              : theme.surfaceContainerHighest,
+          color: _hasText ? theme.buttonPrimary : theme.surfaceContainerHighest,
           shape: CircleBorder(
             side: BorderSide(
               color: _hasText ? theme.buttonPrimary : theme.cardBorder,
@@ -145,9 +143,8 @@ class _ExpandedTextEditorSheetState extends State<ExpandedTextEditorSheet> {
                 maxLines: null,
                 expands: true,
                 textAlignVertical: TextAlignVertical.top,
-                style: TextStyle(
+                style: AppTypography.chatMessageStyle.copyWith(
                   color: theme.textPrimary,
-                  fontSize: 16,
                   height: 1.5,
                 ),
                 decoration: context.conduitInputStyles

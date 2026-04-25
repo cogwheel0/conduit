@@ -300,9 +300,8 @@ class MetricTile extends StatelessWidget {
               children: [
                 Text(
                   label,
-                  style: theme.bodySmall?.copyWith(
+                  style: AppTypography.labelSmallStyle.copyWith(
                     color: theme.textSecondary,
-                    fontSize: 10,
                   ),
                 ),
                 Text(

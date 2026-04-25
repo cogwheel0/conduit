@@ -9,10 +9,7 @@ class UsageStatsModal {
   UsageStatsModal._();
 
   /// Shows a bottom sheet with usage/performance statistics for the response.
-  static void show(
-    BuildContext context,
-    Map<String, dynamic> usage,
-  ) {
+  static void show(BuildContext context, Map<String, dynamic> usage) {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
 
@@ -43,8 +40,7 @@ class UsageStatsModal {
                     const SizedBox(width: Spacing.sm),
                     Text(
                       l10n.usageInfoTitle,
-                      style: TextStyle(
-                        fontSize: AppTypography.bodyLarge,
+                      style: AppTypography.bodyLargeStyle.copyWith(
                         fontWeight: FontWeight.w600,
                         color: theme.textPrimary,
                       ),
@@ -116,9 +112,7 @@ class UsageStatsModal {
           theme: theme,
         ),
       );
-    } else if (evalCount != null &&
-        evalDuration != null &&
-        evalDuration > 0) {
+    } else if (evalCount != null && evalDuration != null && evalDuration > 0) {
       // Ollama: duration in nanoseconds
       final tgSpeed = evalCount / (evalDuration / 1e9);
       stats.add(
@@ -160,9 +154,7 @@ class UsageStatsModal {
       stats.add(
         _UsageStatRow(
           label: l10n.usagePromptEval,
-          value: l10n.usageTokensPerSecond(
-            promptPerSecond.toStringAsFixed(1),
-          ),
+          value: l10n.usageTokensPerSecond(promptPerSecond.toStringAsFixed(1)),
           detail: promptN != null
               ? l10n.usageTokenCount(promptN.toInt())
               : null,
@@ -182,9 +174,7 @@ class UsageStatsModal {
           theme: theme,
         ),
       );
-    } else if (promptTokens != null &&
-        promptTime != null &&
-        promptTime > 0) {
+    } else if (promptTokens != null && promptTime != null && promptTime > 0) {
       // Groq/OpenAI extended: time in seconds
       final ppSpeed = promptTokens / promptTime;
       stats.add(
@@ -309,8 +299,7 @@ class _UsageStatRow extends StatelessWidget {
         children: [
           Text(
             label,
-            style: TextStyle(
-              fontSize: AppTypography.bodyMedium,
+            style: AppTypography.bodyMediumStyle.copyWith(
               color: theme.textSecondary,
             ),
           ),
@@ -319,8 +308,7 @@ class _UsageStatRow extends StatelessWidget {
             children: [
               Text(
                 value,
-                style: TextStyle(
-                  fontSize: AppTypography.bodyMedium,
+                style: AppTypography.bodyMediumStyle.copyWith(
                   fontWeight: FontWeight.w600,
                   fontFamily: AppTypography.monospaceFontFamily,
                   color: theme.textPrimary,
@@ -329,8 +317,7 @@ class _UsageStatRow extends StatelessWidget {
               if (detail != null)
                 Text(
                   detail!,
-                  style: TextStyle(
-                    fontSize: AppTypography.labelSmall,
+                  style: AppTypography.labelSmallStyle.copyWith(
                     color: theme.textTertiary,
                   ),
                 ),

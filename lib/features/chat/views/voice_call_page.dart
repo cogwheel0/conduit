@@ -160,7 +160,9 @@ class _VoiceCallPageState extends ConsumerState<VoiceCallPage>
       ),
       child: Text(
         text,
-        style: TextStyle(color: Theme.of(context).colorScheme.onErrorContainer),
+        style: AppTypography.bodyMediumStyle.copyWith(
+          color: Theme.of(context).colorScheme.onErrorContainer,
+        ),
       ),
     );
   }
@@ -333,8 +335,7 @@ class _VoiceCallPageState extends ConsumerState<VoiceCallPage>
         child: Text(
           text,
           textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 16,
+          style: AppTypography.chatMessageStyle.copyWith(
             color: textColor.withValues(alpha: 0.82),
             height: 1.45,
           ),

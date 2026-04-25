@@ -492,7 +492,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
               leading: Icon(Icons.delete_outline, color: theme.error),
               title: Text(
                 l10n?.channelMessageDelete ?? 'Delete',
-                style: TextStyle(color: theme.error),
+                style: AppTypography.bodyMediumStyle.copyWith(
+                  color: theme.error,
+                ),
               ),
               onTap: () {
                 Navigator.pop(ctx);
@@ -568,7 +570,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
             TextField(
               controller: nameController,
               autofocus: true,
-              style: TextStyle(color: theme.textPrimary),
+              style: AppTypography.bodyMediumStyle.copyWith(
+                color: theme.textPrimary,
+              ),
               decoration: context.conduitInputStyles.underline(
                 hint: l10n?.channelName ?? 'Channel Name',
               ),
@@ -576,7 +580,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
             const SizedBox(height: Spacing.md),
             TextField(
               controller: descController,
-              style: TextStyle(color: theme.textPrimary),
+              style: AppTypography.bodyMediumStyle.copyWith(
+                color: theme.textPrimary,
+              ),
               decoration: context.conduitInputStyles.underline(
                 hint: l10n?.channelDescription ?? 'Description',
               ),
@@ -745,9 +751,8 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
                     Flexible(
                       child: Text(
                         channel?.name ?? '',
-                        style: TextStyle(
+                        style: AppTypography.bodyMediumStyle.copyWith(
                           color: theme.textPrimary,
-                          fontSize: AppTypography.bodySmall,
                           fontWeight: FontWeight.w500,
                         ),
                         overflow: TextOverflow.ellipsis,
@@ -796,7 +801,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
                     error: (error, _) => Center(
                       child: Text(
                         error.toString(),
-                        style: TextStyle(color: theme.error),
+                        style: AppTypography.bodyMediumStyle.copyWith(
+                          color: theme.error,
+                        ),
                       ),
                     ),
                   ),
@@ -821,9 +828,8 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
                       ),
                       child: Text(
                         text,
-                        style: TextStyle(
+                        style: AppTypography.bodySmallStyle.copyWith(
                           color: theme.textSecondary,
-                          fontSize: 12,
                           fontStyle: FontStyle.italic,
                         ),
                       ),
@@ -845,9 +851,8 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
                           child: Text(
                             'Replying to '
                             '${_replyToMessage!.userName}',
-                            style: TextStyle(
+                            style: AppTypography.bodySmallStyle.copyWith(
                               color: theme.textSecondary,
-                              fontSize: 13,
                             ),
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -904,7 +909,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       return Center(
         child: Text(
           l10n?.channelNoMessages ?? 'No messages yet. Start the conversation!',
-          style: TextStyle(color: theme.textSecondary),
+          style: AppTypography.bodyMediumStyle.copyWith(
+            color: theme.textSecondary,
+          ),
         ),
       );
     }
@@ -1014,10 +1021,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
                   padding: const EdgeInsets.all(Spacing.md),
                   child: Text(
                     'Members ($total)',
-                    style: TextStyle(
+                    style: AppTypography.titleMediumStyle.copyWith(
                       color: theme.textPrimary,
                       fontWeight: FontWeight.w600,
-                      fontSize: 16,
                     ),
                   ),
                 ),
@@ -1040,14 +1046,15 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
                         ),
                         title: Text(
                           name,
-                          style: TextStyle(color: theme.textPrimary),
+                          style: AppTypography.bodyMediumStyle.copyWith(
+                            color: theme.textPrimary,
+                          ),
                         ),
                         subtitle: role.isNotEmpty
                             ? Text(
                                 role,
-                                style: TextStyle(
+                                style: AppTypography.bodySmallStyle.copyWith(
                                   color: theme.textSecondary,
-                                  fontSize: AppTypography.bodySmall,
                                 ),
                               )
                             : null,
@@ -1100,7 +1107,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
           value: 'delete',
           child: Text(
             l10n?.channelDelete ?? 'Delete Channel',
-            style: TextStyle(color: theme.error),
+            style: AppTypography.bodyMediumStyle.copyWith(color: theme.error),
           ),
         ),
       ],
@@ -1200,9 +1207,8 @@ class _MessageBubble extends StatelessWidget {
                         children: [
                           Text(
                             message.replyToMessage!.userName,
-                            style: TextStyle(
+                            style: AppTypography.labelMediumStyle.copyWith(
                               color: Theme.of(context).colorScheme.primary,
-                              fontSize: 11,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
@@ -1210,9 +1216,8 @@ class _MessageBubble extends StatelessWidget {
                             message.replyToMessage!.content,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
+                            style: AppTypography.bodySmallStyle.copyWith(
                               color: theme.textSecondary,
-                              fontSize: 11,
                             ),
                           ),
                         ],
@@ -1232,9 +1237,8 @@ class _MessageBubble extends StatelessWidget {
                       ),
                       child: Text(
                         'Reply',
-                        style: TextStyle(
+                        style: AppTypography.bodySmallStyle.copyWith(
                           color: theme.textSecondary,
-                          fontSize: 11,
                           fontStyle: FontStyle.italic,
                         ),
                       ),
@@ -1253,8 +1257,7 @@ class _MessageBubble extends StatelessWidget {
                           const SizedBox(width: 4),
                           Text(
                             'Pinned',
-                            style: TextStyle(
-                              fontSize: AppTypography.bodyMedium,
+                            style: AppTypography.bodySmallStyle.copyWith(
                               color: theme.textPrimary.withValues(alpha: 0.6),
                               height: 1.3,
                             ),
@@ -1317,8 +1320,7 @@ class _MessageBubble extends StatelessWidget {
                             Text(
                               '${message.replyCount} '
                               '${message.replyCount == 1 ? "reply" : "replies"}',
-                              style: TextStyle(
-                                fontSize: AppTypography.bodyMedium,
+                              style: AppTypography.bodySmallStyle.copyWith(
                                 color: theme.textPrimary.withValues(alpha: 0.6),
                                 height: 1.3,
                               ),
@@ -1367,10 +1369,9 @@ class _MessageBubble extends StatelessWidget {
         Flexible(
           child: Text(
             messageDisplayName(message),
-            style: TextStyle(
+            style: AppTypography.bodySmallStyle.copyWith(
               color: theme.textSecondary,
               fontWeight: FontWeight.w500,
-              fontSize: AppTypography.bodySmall,
               letterSpacing: 0.1,
             ),
             overflow: TextOverflow.ellipsis,
@@ -1379,9 +1380,8 @@ class _MessageBubble extends StatelessWidget {
         const SizedBox(width: Spacing.sm),
         Text(
           timestamp,
-          style: TextStyle(
+          style: AppTypography.labelSmallStyle.copyWith(
             color: theme.textSecondary,
-            fontSize: AppTypography.labelSmall,
           ),
         ),
       ],

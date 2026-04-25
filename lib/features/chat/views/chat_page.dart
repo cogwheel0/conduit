@@ -2252,10 +2252,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                                 ),
                                 child: Text(
                                   'REVIEWER MODE',
-                                  style: AppTypography.captionStyle.copyWith(
+                                  style: AppTypography.labelSmallStyle.copyWith(
                                     color: context.conduitTheme.success,
                                     fontWeight: FontWeight.w600,
-                                    fontSize: 9,
                                   ),
                                 ),
                               ),

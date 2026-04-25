@@ -88,8 +88,7 @@ class CodeExecutionListView extends StatelessWidget {
                       Expanded(
                         child: Text(
                           execution.name ?? 'Code execution',
-                          style: TextStyle(
-                            fontSize: AppTypography.bodyLarge,
+                          style: AppTypography.bodyLargeStyle.copyWith(
                             fontWeight: FontWeight.w600,
                             color: theme.textPrimary,
                           ),
@@ -105,13 +104,15 @@ class CodeExecutionListView extends StatelessWidget {
                   if (execution.language != null)
                     Text(
                       'Language: ${execution.language}',
-                      style: TextStyle(color: theme.textSecondary),
+                      style: AppTypography.bodyMediumStyle.copyWith(
+                        color: theme.textSecondary,
+                      ),
                     ),
                   const SizedBox(height: Spacing.sm),
                   if (execution.code != null && execution.code!.isNotEmpty) ...[
                     Text(
                       'Code',
-                      style: TextStyle(
+                      style: AppTypography.labelStyle.copyWith(
                         fontWeight: FontWeight.w600,
                         color: theme.textPrimary,
                       ),
@@ -125,10 +126,7 @@ class CodeExecutionListView extends StatelessWidget {
                       ),
                       child: SelectableText(
                         execution.code!,
-                        style: const TextStyle(
-                          fontFamily: AppTypography.monospaceFontFamily,
-                          height: 1.4,
-                        ),
+                        style: AppTypography.codeStyle.copyWith(height: 1.4),
                       ),
                     ),
                     const SizedBox(height: Spacing.md),
@@ -136,7 +134,7 @@ class CodeExecutionListView extends StatelessWidget {
                   if (result?.error != null) ...[
                     Text(
                       'Error',
-                      style: TextStyle(
+                      style: AppTypography.labelStyle.copyWith(
                         fontWeight: FontWeight.w600,
                         color: theme.error,
                       ),
@@ -148,7 +146,7 @@ class CodeExecutionListView extends StatelessWidget {
                   if (result?.output != null) ...[
                     Text(
                       'Output',
-                      style: TextStyle(
+                      style: AppTypography.labelStyle.copyWith(
                         fontWeight: FontWeight.w600,
                         color: theme.textPrimary,
                       ),
@@ -160,7 +158,7 @@ class CodeExecutionListView extends StatelessWidget {
                   if (result?.files.isNotEmpty == true) ...[
                     Text(
                       'Files',
-                      style: TextStyle(
+                      style: AppTypography.labelStyle.copyWith(
                         fontWeight: FontWeight.w600,
                         color: theme.textPrimary,
                       ),

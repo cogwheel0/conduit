@@ -2735,7 +2735,9 @@ Future<String?> _showInputDialog(Map<String, dynamic> data) async {
             if (message.isNotEmpty) ...[
               Text(
                 message,
-                style: TextStyle(color: dialogCtx.conduitTheme.textSecondary),
+                style: AppTypography.bodyMediumStyle.copyWith(
+                  color: dialogCtx.conduitTheme.textSecondary,
+                ),
               ),
               const SizedBox(height: Spacing.md),
             ],

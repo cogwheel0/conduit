@@ -146,13 +146,11 @@ class _LoadingIndicator extends StatelessWidget {
         SizedBox(height: spacing),
         Text(
           message!,
-          style: TextStyle(
-            color: color,
-            fontSize: type == _LoadingType.button
-                ? AppTypography.bodySmall
-                : AppTypography.bodyLarge,
-            fontWeight: FontWeight.w500,
-          ),
+          style:
+              (type == _LoadingType.button
+                      ? AppTypography.bodySmallStyle
+                      : AppTypography.bodyLargeStyle)
+                  .copyWith(color: color, fontWeight: FontWeight.w500),
           textAlign: TextAlign.center,
         ),
       ],
@@ -388,18 +386,16 @@ class LoadingStateWrapper<T> extends StatelessWidget {
               const SizedBox(height: Spacing.md),
               Text(
                 AppLocalizations.of(context)!.errorMessage,
-                style: TextStyle(
+                style: AppTypography.headlineSmallStyle.copyWith(
                   color: context.conduitTheme.textSecondary,
-                  fontSize: AppTypography.headlineSmall,
                   fontWeight: FontWeight.w500,
                 ),
               ),
               const SizedBox(height: Spacing.sm),
               Text(
                 error.toString(),
-                style: TextStyle(
+                style: AppTypography.bodySmallStyle.copyWith(
                   color: context.conduitTheme.textSecondary,
-                  fontSize: AppTypography.bodySmall,
                 ),
                 textAlign: TextAlign.center,
               ),
@@ -1159,7 +1155,9 @@ class ErrorStateWidget extends StatelessWidget {
             Text(
               message,
               style: theme.textTheme.bodyMedium?.copyWith(
-                color: context.conduitTheme.textSecondary.withValues(alpha: 0.6),
+                color: context.conduitTheme.textSecondary.withValues(
+                  alpha: 0.6,
+                ),
               ),
               textAlign: TextAlign.center,
             ),

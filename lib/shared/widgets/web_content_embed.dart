@@ -327,9 +327,8 @@ class _EmbedFallbackCard extends StatelessWidget {
           children: [
             Text(
               message,
-              style: TextStyle(
+              style: AppTypography.bodySmallStyle.copyWith(
                 color: theme.textSecondary,
-                fontSize: AppTypography.bodySmall,
               ),
             ),
             if (_isRemoteUrl) ...[

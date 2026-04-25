@@ -25,8 +25,7 @@ class VoiceInputSheet extends ConsumerStatefulWidget {
   const VoiceInputSheet({super.key, required this.onTextReceived});
 
   @override
-  ConsumerState<VoiceInputSheet> createState() =>
-      VoiceInputSheetState();
+  ConsumerState<VoiceInputSheet> createState() => VoiceInputSheetState();
 }
 
 /// State for [VoiceInputSheet].
@@ -50,11 +49,9 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
     try {
       final preset = _voiceService.selectedLocaleId;
       if (preset != null && preset.isNotEmpty) {
-        _languageTag =
-            preset.split(RegExp('[-_]')).first.toLowerCase();
+        _languageTag = preset.split(RegExp('[-_]')).first.toLowerCase();
       } else {
-        _languageTag = WidgetsBinding
-            .instance.platformDispatcher.locale
+        _languageTag = WidgetsBinding.instance.platformDispatcher.locale
             .toLanguageTag()
             .split(RegExp('[-_]'))
             .first
@@ -66,8 +63,7 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
     final settings = ref.read(appSettingsProvider);
     _holdToTalk = settings.voiceHoldToTalk;
     _autoSendFinal = settings.voiceAutoSendFinal;
-    if (settings.voiceLocaleId != null &&
-        settings.voiceLocaleId!.isNotEmpty) {
+    if (settings.voiceLocaleId != null && settings.voiceLocaleId!.isNotEmpty) {
       _voiceService.setLocale(settings.voiceLocaleId);
       _languageTag = settings.voiceLocaleId!
           .split(RegExp('[-_]'))
@@ -95,8 +91,7 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
       }
 
       _elapsedTimer?.cancel();
-      _elapsedTimer =
-          Timer.periodic(const Duration(seconds: 1), (t) {
+      _elapsedTimer = Timer.periodic(const Duration(seconds: 1), (t) {
         if (!mounted || !_isListening) {
           t.cancel();
           return;
@@ -105,8 +100,7 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
       });
 
       final stream = await _voiceService.beginListening();
-      _intensitySub =
-          _voiceService.intensityStream.listen((value) {
+      _intensitySub = _voiceService.intensityStream.listen((value) {
         if (!mounted) return;
         setState(() => _intensity = value);
       });
@@ -117,16 +111,12 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
           });
         },
         onDone: () {
-          DebugLogger.log(
-            'VoiceInputSheet stream done',
-            scope: 'chat/page',
-          );
+          DebugLogger.log('VoiceInputSheet stream done', scope: 'chat/page');
           setState(() {
             _isListening = false;
           });
           _elapsedTimer?.cancel();
-          if (_autoSendFinal &&
-              _recognizedText.trim().isNotEmpty) {
+          if (_autoSendFinal && _recognizedText.trim().isNotEmpty) {
             _sendText();
           }
         },
@@ -140,8 +130,7 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
           });
           _elapsedTimer?.cancel();
           if (mounted) {
-            final hapticEnabled =
-                ref.read(hapticEnabledProvider);
+            final hapticEnabled = ref.read(hapticEnabledProvider);
             ps.PlatformService.hapticFeedbackWithSettings(
               type: ps.HapticType.warning,
               hapticEnabled: hapticEnabled,
@@ -213,9 +202,7 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
             ),
             boxShadow: ConduitShadows.modal(context),
           ),
-          padding: const EdgeInsets.all(
-            Spacing.bottomSheetPadding,
-          ),
+          padding: const EdgeInsets.all(Spacing.bottomSheetPadding),
           child: SafeArea(
             top: false,
             child: Column(
@@ -225,8 +212,7 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
                 const SizedBox(height: Spacing.md),
                 Text(
                   l10n.selectLanguage,
-                  style: TextStyle(
-                    fontSize: AppTypography.headlineSmall,
+                  style: AppTypography.headlineSmallStyle.copyWith(
                     color: context.conduitTheme.textPrimary,
                     fontWeight: FontWeight.w600,
                   ),
@@ -242,34 +228,28 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
                     ),
                     itemBuilder: (ctx, i) {
                       final l = locales[i];
-                      final isSelected = l.localeId ==
-                          _voiceService.selectedLocaleId;
+                      final isSelected =
+                          l.localeId == _voiceService.selectedLocaleId;
                       return AdaptiveListTile(
                         title: Text(
                           l.name,
-                          style: TextStyle(
-                            color:
-                                context.conduitTheme.textPrimary,
+                          style: AppTypography.bodyMediumStyle.copyWith(
+                            color: context.conduitTheme.textPrimary,
                           ),
                         ),
                         subtitle: Text(
                           l.localeId,
-                          style: TextStyle(
-                            color: context
-                                .conduitTheme
-                                .textSecondary,
+                          style: AppTypography.bodySmallStyle.copyWith(
+                            color: context.conduitTheme.textSecondary,
                           ),
                         ),
                         trailing: isSelected
                             ? Icon(
                                 Icons.check,
-                                color: context
-                                    .conduitTheme
-                                    .buttonPrimary,
+                                color: context.conduitTheme.buttonPrimary,
                               )
                             : null,
-                        onTap: () =>
-                            Navigator.pop(ctx, l.localeId),
+                        onTap: () => Navigator.pop(ctx, l.localeId),
                       );
                     },
                   ),
@@ -284,12 +264,9 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
     if (selected != null && mounted) {
       setState(() {
         _voiceService.setLocale(selected);
-        _languageTag =
-            selected.split(RegExp('[-_]')).first.toLowerCase();
+        _languageTag = selected.split(RegExp('[-_]')).first.toLowerCase();
       });
-      await ref
-          .read(appSettingsProvider.notifier)
-          .setVoiceLocaleId(selected);
+      await ref.read(appSettingsProvider.notifier).setVoiceLocaleId(selected);
       if (_isListening) {
         await _voiceService.stopListening();
         _startListening();
@@ -333,19 +310,14 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
         borderRadius: const BorderRadius.vertical(
           top: Radius.circular(AppBorderRadius.bottomSheet),
         ),
-        border: Border.all(
-          color: context.conduitTheme.dividerColor,
-          width: 1,
-        ),
+        border: Border.all(color: context.conduitTheme.dividerColor, width: 1),
         boxShadow: ConduitShadows.modal(context),
       ),
       child: SafeArea(
         top: false,
         bottom: true,
         child: Padding(
-          padding: const EdgeInsets.all(
-            Spacing.bottomSheetPadding,
-          ),
+          padding: const EdgeInsets.all(Spacing.bottomSheetPadding),
           child: Column(
             children: [
               const SheetHandle(),
@@ -355,13 +327,11 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
                   bottom: Spacing.md,
                 ),
                 child: Row(
-                  mainAxisAlignment:
-                      MainAxisAlignment.spaceBetween,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
                       statusText,
-                      style: TextStyle(
-                        fontSize: AppTypography.headlineMedium,
+                      style: AppTypography.headlineMediumStyle.copyWith(
                         fontWeight: FontWeight.w600,
                         color: context.conduitTheme.textPrimary,
                       ),
@@ -378,17 +348,13 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
                               vertical: 4,
                             ),
                             decoration: BoxDecoration(
-                              color: context
-                                  .conduitTheme
-                                  .surfaceBackground
+                              color: context.conduitTheme.surfaceBackground
                                   .withValues(alpha: 0.4),
                               borderRadius: BorderRadius.circular(
                                 AppBorderRadius.badge,
                               ),
                               border: Border.all(
-                                color: context
-                                    .conduitTheme
-                                    .dividerColor,
+                                color: context.conduitTheme.dividerColor,
                                 width: BorderWidth.thin,
                               ),
                             ),
@@ -396,24 +362,17 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
                               children: [
                                 Text(
                                   _languageTag.toUpperCase(),
-                                  style: TextStyle(
-                                    fontSize:
-                                        AppTypography.labelSmall,
-                                    color: context
-                                        .conduitTheme
-                                        .textSecondary,
+                                  style: AppTypography.labelSmallStyle.copyWith(
+                                    color: context.conduitTheme.textSecondary,
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
-                                if (_voiceService
-                                    .hasLocalStt) ...[
+                                if (_voiceService.hasLocalStt) ...[
                                   const SizedBox(width: 4),
                                   Icon(
                                     Icons.arrow_drop_down,
                                     size: 16,
-                                    color: context
-                                        .conduitTheme
-                                        .iconSecondary,
+                                    color: context.conduitTheme.iconSecondary,
                                   ),
                                 ],
                               ],
@@ -426,10 +385,8 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
                           duration: AnimationDuration.fast,
                           child: Text(
                             _formatSeconds(_elapsedSeconds),
-                            style: TextStyle(
-                              color: context
-                                  .conduitTheme
-                                  .textSecondary,
+                            style: AppTypography.bodyMediumStyle.copyWith(
+                              color: context.conduitTheme.textSecondary,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
@@ -443,8 +400,7 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
                             context,
                           )!.closeButtonSemantic,
                           isCompact: true,
-                          onPressed: () =>
-                              Navigator.of(context).pop(),
+                          onPressed: () => Navigator.of(context).pop(),
                         ),
                       ],
                     ),
@@ -452,9 +408,7 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.only(
-                  bottom: Spacing.sm,
-                ),
+                padding: const EdgeInsets.only(bottom: Spacing.sm),
                 child: Row(
                   children: [
                     Expanded(
@@ -464,23 +418,17 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
                           _buildThemedSwitch(
                             value: _holdToTalk,
                             onChanged: (v) async {
-                              setState(
-                                () => _holdToTalk = v,
-                              );
+                              setState(() => _holdToTalk = v);
                               await ref
-                                  .read(
-                                    appSettingsProvider.notifier,
-                                  )
+                                  .read(appSettingsProvider.notifier)
                                   .setVoiceHoldToTalk(v);
                             },
                           ),
                           const SizedBox(width: Spacing.xs),
                           Text(
                             l10n.voiceHoldToTalk,
-                            style: TextStyle(
-                              color: context
-                                  .conduitTheme
-                                  .textSecondary,
+                            style: AppTypography.bodyMediumStyle.copyWith(
+                              color: context.conduitTheme.textSecondary,
                             ),
                           ),
                         ],
@@ -488,29 +436,22 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
                     ),
                     Expanded(
                       child: Row(
-                        mainAxisAlignment:
-                            MainAxisAlignment.end,
+                        mainAxisAlignment: MainAxisAlignment.end,
                         children: [
                           _buildThemedSwitch(
                             value: _autoSendFinal,
                             onChanged: (v) async {
-                              setState(
-                                () => _autoSendFinal = v,
-                              );
+                              setState(() => _autoSendFinal = v);
                               await ref
-                                  .read(
-                                    appSettingsProvider.notifier,
-                                  )
+                                  .read(appSettingsProvider.notifier)
                                   .setVoiceAutoSendFinal(v);
                             },
                           ),
                           const SizedBox(width: Spacing.xs),
                           Text(
                             l10n.voiceAutoSend,
-                            style: TextStyle(
-                              color: context
-                                  .conduitTheme
-                                  .textSecondary,
+                            style: AppTypography.bodyMediumStyle.copyWith(
+                              color: context.conduitTheme.textSecondary,
                             ),
                           ),
                         ],
@@ -535,14 +476,9 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
                     final content = Center(
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
-                        mainAxisAlignment:
-                            MainAxisAlignment.center,
+                        mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          SizedBox(
-                            height: isUltra
-                                ? Spacing.sm
-                                : Spacing.md,
-                          ),
+                          SizedBox(height: isUltra ? Spacing.sm : Spacing.md),
                           GestureDetector(
                                 onTapDown: _holdToTalk
                                     ? (_) {
@@ -575,132 +511,84 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
                                   height: micSize,
                                   decoration: BoxDecoration(
                                     color: _isListening
-                                        ? context
-                                              .conduitTheme
-                                              .error
-                                              .withValues(
-                                                alpha: 0.2,
-                                              )
-                                        : context
-                                              .conduitTheme
-                                              .surfaceBackground
-                                              .withValues(
-                                                alpha:
-                                                    Alpha.subtle,
-                                              ),
+                                        ? context.conduitTheme.error.withValues(
+                                            alpha: 0.2,
+                                          )
+                                        : context.conduitTheme.surfaceBackground
+                                              .withValues(alpha: Alpha.subtle),
                                     shape: BoxShape.circle,
                                     border: Border.all(
                                       color: _isListening
-                                          ? context
-                                                .conduitTheme
-                                                .error
-                                                .withValues(
-                                                  alpha: 0.5,
-                                                )
-                                          : context
-                                                .conduitTheme
-                                                .dividerColor,
+                                          ? context.conduitTheme.error
+                                                .withValues(alpha: 0.5)
+                                          : context.conduitTheme.dividerColor,
                                       width: 2,
                                     ),
                                   ),
                                   child: Icon(
                                     _isListening
                                         ? (Platform.isIOS
-                                              ? CupertinoIcons
-                                                    .mic_fill
+                                              ? CupertinoIcons.mic_fill
                                               : Icons.mic)
                                         : (Platform.isIOS
-                                              ? CupertinoIcons
-                                                    .mic_off
+                                              ? CupertinoIcons.mic_off
                                               : Icons.mic_off),
                                     size: micIconSize,
                                     color: _isListening
-                                        ? context
-                                              .conduitTheme
-                                              .error
-                                        : context
-                                              .conduitTheme
-                                              .iconSecondary,
+                                        ? context.conduitTheme.error
+                                        : context.conduitTheme.iconSecondary,
                                   ),
                                 ),
                               )
                               .animate(
                                 onPlay: (controller) =>
-                                    _isListening
-                                        ? controller.repeat()
-                                        : null,
+                                    _isListening ? controller.repeat() : null,
                               )
                               .scale(
-                                duration: const Duration(
-                                  milliseconds: 1000,
-                                ),
+                                duration: const Duration(milliseconds: 1000),
                                 begin: const Offset(1, 1),
                                 end: const Offset(1.2, 1.2),
                               )
                               .then()
                               .scale(
-                                duration: const Duration(
-                                  milliseconds: 1000,
-                                ),
+                                duration: const Duration(milliseconds: 1000),
                                 begin: const Offset(1.2, 1.2),
                                 end: const Offset(1, 1),
                               ),
                           SizedBox(
                             height: isUltra
                                 ? Spacing.xs
-                                : (isCompact
-                                      ? Spacing.sm
-                                      : Spacing.md),
+                                : (isCompact ? Spacing.sm : Spacing.md),
                           ),
                           SizedBox(
-                            height: isUltra
-                                ? 18
-                                : (isCompact ? 24 : 32),
+                            height: isUltra ? 18 : (isCompact ? 24 : 32),
                             child: AnimatedSwitcher(
-                              duration: const Duration(
-                                milliseconds: 150,
-                              ),
+                              duration: const Duration(milliseconds: 150),
                               child: Row(
                                 key: ValueKey<int>(_intensity),
-                                mainAxisAlignment:
-                                    MainAxisAlignment.center,
-                                children: List.generate(
-                                    isUltra ? 10 : 12, (i) {
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: List.generate(isUltra ? 10 : 12, (i) {
                                   final normalized =
-                                      ((_intensity + i) % 10) /
-                                          10.0;
+                                      ((_intensity + i) % 10) / 10.0;
                                   final base = isUltra
                                       ? 4
                                       : (isCompact ? 6 : 8);
                                   final range = isUltra
                                       ? 14
                                       : (isCompact ? 18 : 24);
-                                  final barHeight = base +
-                                      (normalized * range);
+                                  final barHeight = base + (normalized * range);
                                   return Container(
-                                    width: isUltra
-                                        ? 2.5
-                                        : (isCompact ? 3 : 4),
+                                    width: isUltra ? 2.5 : (isCompact ? 3 : 4),
                                     height: barHeight,
-                                    margin:
-                                        EdgeInsets.symmetric(
+                                    margin: EdgeInsets.symmetric(
                                       horizontal: isUltra
                                           ? 1
-                                          : (isCompact
-                                                ? 1.5
-                                                : 2),
+                                          : (isCompact ? 1.5 : 2),
                                     ),
                                     decoration: BoxDecoration(
-                                      color: context
-                                          .conduitTheme
-                                          .buttonPrimary
-                                          .withValues(
-                                            alpha: 0.7,
-                                          ),
-                                      borderRadius:
-                                          BorderRadius.circular(
-                                            2,
-                                          ),
+                                      color: context.conduitTheme.buttonPrimary
+                                          .withValues(alpha: 0.7),
+                                      borderRadius: BorderRadius.circular(2),
                                     ),
                                   );
                                 }),
@@ -710,109 +598,84 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
                           SizedBox(
                             height: isUltra
                                 ? Spacing.sm
-                                : (isCompact
-                                      ? Spacing.md
-                                      : Spacing.xl),
+                                : (isCompact ? Spacing.md : Spacing.xl),
                           ),
                           ConstrainedBox(
                             constraints: BoxConstraints(
-                              maxHeight: media.size.height *
-                                  (isUltra
-                                      ? 0.13
-                                      : (isCompact
-                                            ? 0.16
-                                            : 0.2)),
-                              minHeight: isUltra
-                                  ? 56
-                                  : (isCompact ? 64 : 80),
+                              maxHeight:
+                                  media.size.height *
+                                  (isUltra ? 0.13 : (isCompact ? 0.16 : 0.2)),
+                              minHeight: isUltra ? 56 : (isCompact ? 64 : 80),
                             ),
                             child: ConduitCard(
                               isCompact: isCompact,
                               padding: EdgeInsets.all(
-                                isCompact
-                                    ? Spacing.md
-                                    : Spacing.md,
+                                isCompact ? Spacing.md : Spacing.md,
                               ),
                               child: Column(
                                 mainAxisSize: MainAxisSize.min,
-                                crossAxisAlignment:
-                                    CrossAxisAlignment.stretch,
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
                                   Row(
                                     children: [
                                       Text(
                                         l10n.voiceTranscript,
-                                        style: TextStyle(
-                                          fontSize: AppTypography
-                                              .labelSmall,
-                                          fontWeight:
-                                              FontWeight.w600,
-                                          color: context
-                                              .conduitTheme
-                                              .textSecondary,
-                                        ),
+                                        style: AppTypography.labelSmallStyle
+                                            .copyWith(
+                                              fontWeight: FontWeight.w600,
+                                              color: context
+                                                  .conduitTheme
+                                                  .textSecondary,
+                                            ),
                                       ),
                                       const Spacer(),
                                       ConduitIconButton(
                                         icon: Icons.close,
                                         isCompact: true,
-                                        tooltip:
-                                            AppLocalizations.of(
+                                        tooltip: AppLocalizations.of(
                                           context,
                                         )!.clear,
-                                        onPressed:
-                                            _recognizedText
-                                                    .isNotEmpty
-                                                ? () {
-                                                    setState(
-                                                      () =>
-                                                          _recognizedText =
-                                                              '',
-                                                    );
-                                                  }
-                                                : null,
+                                        onPressed: _recognizedText.isNotEmpty
+                                            ? () {
+                                                setState(
+                                                  () => _recognizedText = '',
+                                                );
+                                              }
+                                            : null,
                                       ),
                                     ],
                                   ),
-                                  const SizedBox(
-                                    height: Spacing.xs,
-                                  ),
+                                  const SizedBox(height: Spacing.xs),
                                   Flexible(
-                                    child:
-                                        SingleChildScrollView(
+                                    child: SingleChildScrollView(
                                       child: Text(
                                         _recognizedText.isEmpty
                                             ? (_isListening
-                                                  ? (_voiceService
-                                                            .hasLocalStt
-                                                        ? l10n
-                                                            .voicePromptSpeakNow
-                                                        : l10n
-                                                            .voiceStatusRecording)
-                                                  : l10n
-                                                      .voicePromptTapStart)
+                                                  ? (_voiceService.hasLocalStt
+                                                        ? l10n.voicePromptSpeakNow
+                                                        : l10n.voiceStatusRecording)
+                                                  : l10n.voicePromptTapStart)
                                             : _recognizedText,
-                                        style: TextStyle(
-                                          fontSize: isUltra
-                                              ? AppTypography
-                                                    .bodySmall
-                                              : (isCompact
+                                        style:
+                                            (isUltra
                                                     ? AppTypography
-                                                          .bodyMedium
-                                                    : AppTypography
-                                                          .bodyLarge),
-                                          color: _recognizedText
-                                                  .isEmpty
-                                              ? context
-                                                    .conduitTheme
-                                                    .inputPlaceholder
-                                              : context
-                                                    .conduitTheme
-                                                    .textPrimary,
-                                          height: 1.4,
-                                        ),
-                                        textAlign:
-                                            TextAlign.center,
+                                                          .bodySmallStyle
+                                                    : (isCompact
+                                                          ? AppTypography
+                                                                .bodyMediumStyle
+                                                          : AppTypography
+                                                                .bodyLargeStyle))
+                                                .copyWith(
+                                                  color: _recognizedText.isEmpty
+                                                      ? context
+                                                            .conduitTheme
+                                                            .inputPlaceholder
+                                                      : context
+                                                            .conduitTheme
+                                                            .textPrimary,
+                                                  height: 1.4,
+                                                ),
+                                        textAlign: TextAlign.center,
                                       ),
                                     ),
                                   ),
@@ -826,9 +689,7 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
 
                     return SingleChildScrollView(
                       physics: const ClampingScrollPhysics(),
-                      padding: EdgeInsets.only(
-                        top: topPaddingForScale,
-                      ),
+                      padding: EdgeInsets.only(top: topPaddingForScale),
                       child: ConstrainedBox(
                         constraints: BoxConstraints(
                           minHeight: viewport.maxHeight,
@@ -873,10 +734,9 @@ class VoiceInputSheetState extends ConsumerState<VoiceInputSheet> {
                             child: ConduitButton(
                               text: l10n.send,
                               isCompact: isCompact,
-                              onPressed:
-                                  _recognizedText.isNotEmpty
-                                      ? _sendText
-                                      : null,
+                              onPressed: _recognizedText.isNotEmpty
+                                  ? _sendText
+                                  : null,
                             ),
                           ),
                         ],

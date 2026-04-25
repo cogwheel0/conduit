@@ -136,7 +136,9 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
                   return Center(
                     child: Text(
                       _query.isEmpty ? l10n.noNotesYet : l10n.noNotesFound,
-                      style: TextStyle(color: theme.textSecondary),
+                      style: AppTypography.sidebarSupportingStyle.copyWith(
+                        color: theme.textSecondary,
+                      ),
                     ),
                   );
                 }

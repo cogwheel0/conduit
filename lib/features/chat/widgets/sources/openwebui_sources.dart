@@ -36,8 +36,7 @@ class OpenWebUISourcesWidget extends StatelessWidget {
     if (PlatformInfo.isIOS26OrHigher()) {
       return LayoutBuilder(
         builder: (context, constraints) {
-          final labelStyle = TextStyle(
-            fontSize: AppTypography.labelSmall,
+          final labelStyle = AppTypography.labelMediumStyle.copyWith(
             fontWeight: FontWeight.w600,
             color: theme.textPrimary.withValues(alpha: 0.8),
           );
@@ -162,8 +161,7 @@ class OpenWebUISourcesWidget extends StatelessWidget {
         ],
         Text(
           _sourceCountLabel(sources.length),
-          style: TextStyle(
-            fontSize: AppTypography.labelSmall,
+          style: AppTypography.labelMediumStyle.copyWith(
             fontWeight: FontWeight.w600,
             color: theme.textPrimary.withValues(alpha: 0.8),
           ),
@@ -221,8 +219,7 @@ class OpenWebUISourcesWidget extends StatelessWidget {
                         Expanded(
                           child: Text(
                             _sourceCountLabel(sources.length),
-                            style: TextStyle(
-                              fontSize: AppTypography.bodyLarge,
+                            style: AppTypography.bodyLargeStyle.copyWith(
                               fontWeight: FontWeight.w600,
                               color: liveTheme.textPrimary,
                             ),
@@ -326,8 +323,7 @@ class OpenWebUISourcesWidget extends StatelessWidget {
                       children: [
                         Text(
                           displayText,
-                          style: TextStyle(
-                            fontSize: AppTypography.bodyMedium,
+                          style: AppTypography.bodyMediumStyle.copyWith(
                             fontWeight: FontWeight.w600,
                             color: theme.textPrimary,
                           ),
@@ -338,8 +334,7 @@ class OpenWebUISourcesWidget extends StatelessWidget {
                             url,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: AppTypography.bodySmall,
+                            style: AppTypography.bodySmallStyle.copyWith(
                               color: theme.textSecondary,
                             ),
                           ),
@@ -347,8 +342,7 @@ class OpenWebUISourcesWidget extends StatelessWidget {
                           const SizedBox(height: 2),
                           Text(
                             type,
-                            style: TextStyle(
-                              fontSize: AppTypography.bodySmall,
+                            style: AppTypography.bodySmallStyle.copyWith(
                               color: theme.textSecondary,
                             ),
                           ),
@@ -372,8 +366,7 @@ class OpenWebUISourcesWidget extends StatelessWidget {
                   snippet,
                   maxLines: 6,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: AppTypography.bodySmall,
+                  style: AppTypography.bodySmallStyle.copyWith(
                     height: 1.45,
                     color: theme.textSecondary,
                   ),
@@ -474,8 +467,7 @@ class _SourceIndexBadge extends StatelessWidget {
       alignment: Alignment.center,
       child: Text(
         index.toString(),
-        style: TextStyle(
-          fontSize: AppTypography.labelSmall,
+        style: AppTypography.labelMediumStyle.copyWith(
           fontWeight: FontWeight.w600,
           color: theme.textPrimary,
         ),

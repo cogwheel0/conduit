@@ -345,7 +345,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
             ),
             child: Text(
               '$count',
-              style: AppTypography.tiny.copyWith(
+              style: AppTypography.labelMediumStyle.copyWith(
                 color: theme.buttonPrimary.withValues(alpha: 0.9),
                 fontWeight: FontWeight.w600,
               ),
@@ -419,7 +419,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
               ),
               child: Text(
                 '$count',
-                style: AppTypography.tiny.copyWith(
+                style: AppTypography.labelMediumStyle.copyWith(
                   color: theme.buttonPrimary.withValues(alpha: 0.9),
                   fontWeight: FontWeight.w600,
                 ),
@@ -586,7 +586,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
                               const SizedBox(width: 4),
                               Text(
                                 timeText,
-                                style: AppTypography.tiny.copyWith(
+                                style: AppTypography.labelMediumStyle.copyWith(
                                   color: sidebarTheme.foreground.withValues(
                                     alpha: 0.5,
                                   ),
@@ -598,22 +598,22 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
                                 const SizedBox(width: Spacing.sm),
                                 Text(
                                   '·',
-                                  style: AppTypography.tiny.copyWith(
-                                    color: sidebarTheme.foreground.withValues(
-                                      alpha: 0.3,
-                                    ),
-                                  ),
+                                  style: AppTypography.labelMediumStyle
+                                      .copyWith(
+                                        color: sidebarTheme.foreground
+                                            .withValues(alpha: 0.3),
+                                      ),
                                 ),
                                 const SizedBox(width: Spacing.sm),
                                 Flexible(
                                   child: Text(
                                     note.user!.name!,
-                                    style: AppTypography.tiny.copyWith(
-                                      color: sidebarTheme.foreground.withValues(
-                                        alpha: 0.5,
-                                      ),
-                                      fontWeight: FontWeight.w500,
-                                    ),
+                                    style: AppTypography.labelMediumStyle
+                                        .copyWith(
+                                          color: sidebarTheme.foreground
+                                              .withValues(alpha: 0.5),
+                                          fontWeight: FontWeight.w500,
+                                        ),
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                 ),

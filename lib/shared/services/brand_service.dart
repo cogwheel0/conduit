@@ -278,8 +278,7 @@ class BrandService {
                 color: context.conduitTheme.textPrimary,
                 fontWeight: FontWeight.w600,
               )
-            : TextStyle(
-                fontSize: AppTypography.headlineSmall,
+            : AppTypography.headlineSmallStyle.copyWith(
                 fontWeight: FontWeight.w600,
               ),
       ),

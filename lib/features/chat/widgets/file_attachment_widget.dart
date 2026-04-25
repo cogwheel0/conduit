@@ -36,9 +36,8 @@ class FileAttachmentWidget extends ConsumerWidget {
         children: [
           Text(
             AppLocalizations.of(context)!.attachments,
-            style: TextStyle(
+            style: AppTypography.labelMediumStyle.copyWith(
               color: context.conduitTheme.textSecondary.withValues(alpha: 0.7),
-              fontSize: AppTypography.labelMedium,
               fontWeight: FontWeight.w500,
             ),
           ),
@@ -101,9 +100,8 @@ class _FileAttachmentCard extends ConsumerWidget {
           ],
           Text(
             fileState.fileName,
-            style: TextStyle(
+            style: AppTypography.labelMediumStyle.copyWith(
               color: context.conduitTheme.textPrimary,
-              fontSize: AppTypography.labelMedium,
               fontWeight: FontWeight.w500,
             ),
             maxLines: 1,
@@ -112,9 +110,8 @@ class _FileAttachmentCard extends ConsumerWidget {
           const SizedBox(height: Spacing.xs),
           Text(
             fileState.formattedSize,
-            style: TextStyle(
+            style: AppTypography.labelSmallStyle.copyWith(
               color: context.conduitTheme.textSecondary.withValues(alpha: 0.6),
-              fontSize: AppTypography.labelSmall,
             ),
           ),
           if (fileState.status == FileUploadStatus.uploading) ...[
@@ -125,9 +122,8 @@ class _FileAttachmentCard extends ConsumerWidget {
             const SizedBox(height: Spacing.xs),
             Text(
               'Failed to upload',
-              style: TextStyle(
+              style: AppTypography.labelSmallStyle.copyWith(
                 color: context.conduitTheme.error,
-                fontSize: AppTypography.labelSmall,
               ),
             ),
           ],
@@ -375,11 +371,10 @@ class MessageAttachmentPreview extends StatelessWidget {
                     const SizedBox(width: Spacing.xs),
                     Text(
                       AppLocalizations.of(context)!.attachmentLabel,
-                      style: TextStyle(
+                      style: AppTypography.labelSmallStyle.copyWith(
                         color: context.conduitTheme.textPrimary.withValues(
                           alpha: 0.8,
                         ),
-                        fontSize: AppTypography.labelSmall,
                       ),
                     ),
                   ],

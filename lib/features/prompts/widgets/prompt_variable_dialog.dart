@@ -7,8 +7,6 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/conduit_input_styles.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 
-// Use AppTypography constants for font sizes
-
 /// A dialog that collects user input for prompt variables.
 ///
 /// Displays input fields for each variable based on their type (text, textarea,
@@ -114,19 +112,16 @@ class _PromptVariableDialogState extends State<PromptVariableDialog> {
             widget.promptTitle.isNotEmpty
                 ? widget.promptTitle
                 : l10n.promptVariablesTitle,
-            style: TextStyle(
+            style: AppTypography.titleMediumStyle.copyWith(
               color: theme.textPrimary,
-              fontSize: AppTypography.bodyLarge,
               fontWeight: FontWeight.w600,
             ),
           ),
           const SizedBox(height: Spacing.xs),
           Text(
             l10n.promptVariablesDescription,
-            style: TextStyle(
+            style: AppTypography.bodySmallStyle.copyWith(
               color: theme.textSecondary,
-              fontSize: AppTypography.bodySmall,
-              fontWeight: FontWeight.normal,
             ),
           ),
         ],
@@ -159,9 +154,7 @@ class _PromptVariableDialogState extends State<PromptVariableDialog> {
         AdaptiveButton(
           onPressed: _isSubmitting ? null : _submit,
           label: l10n.continueAction,
-          textColor: _isSubmitting
-              ? theme.textSecondary
-              : theme.buttonPrimary,
+          textColor: _isSubmitting ? theme.textSecondary : theme.buttonPrimary,
           style: AdaptiveButtonStyle.plain,
         ),
       ],
@@ -179,9 +172,8 @@ class _PromptVariableDialogState extends State<PromptVariableDialog> {
             Expanded(
               child: Text(
                 variable.displayLabel,
-                style: TextStyle(
+                style: AppTypography.bodySmallStyle.copyWith(
                   color: theme.textPrimary,
-                  fontSize: AppTypography.bodySmall,
                   fontWeight: FontWeight.w500,
                 ),
               ),
@@ -189,9 +181,8 @@ class _PromptVariableDialogState extends State<PromptVariableDialog> {
             if (variable.isRequired)
               Text(
                 ' *',
-                style: TextStyle(
+                style: AppTypography.bodySmallStyle.copyWith(
                   color: theme.error,
-                  fontSize: AppTypography.bodySmall,
                   fontWeight: FontWeight.w500,
                 ),
               ),
@@ -222,9 +213,10 @@ class _PromptVariableDialogState extends State<PromptVariableDialog> {
 
     return TextFormField(
       controller: _controllers[variable.name],
-      style: TextStyle(color: theme.inputText),
-      decoration: context.conduitInputStyles
-          .standard(hint: variable.placeholder),
+      style: AppTypography.bodyMediumStyle.copyWith(color: theme.inputText),
+      decoration: context.conduitInputStyles.standard(
+        hint: variable.placeholder,
+      ),
       validator: (value) {
         if (variable.isRequired && (value == null || value.trim().isEmpty)) {
           return l10n.requiredFieldHelper;
@@ -241,9 +233,10 @@ class _PromptVariableDialogState extends State<PromptVariableDialog> {
 
     return TextFormField(
       controller: _controllers[variable.name],
-      style: TextStyle(color: theme.inputText),
-      decoration: context.conduitInputStyles
-          .standard(hint: variable.placeholder),
+      style: AppTypography.bodyMediumStyle.copyWith(color: theme.inputText),
+      decoration: context.conduitInputStyles.standard(
+        hint: variable.placeholder,
+      ),
       minLines: 3,
       maxLines: 6,
       validator: (value) {
@@ -262,10 +255,11 @@ class _PromptVariableDialogState extends State<PromptVariableDialog> {
 
     return DropdownButtonFormField<String>(
       initialValue: _selectValues[variable.name],
-      decoration: context.conduitInputStyles
-          .standard(hint: variable.placeholder),
+      decoration: context.conduitInputStyles.standard(
+        hint: variable.placeholder,
+      ),
       dropdownColor: theme.surfaceBackground,
-      style: TextStyle(color: theme.inputText),
+      style: AppTypography.bodyMediumStyle.copyWith(color: theme.inputText),
       items: options.map((option) {
         return DropdownMenuItem<String>(value: option, child: Text(option));
       }).toList(),
@@ -289,9 +283,10 @@ class _PromptVariableDialogState extends State<PromptVariableDialog> {
 
     return TextFormField(
       controller: _controllers[variable.name],
-      style: TextStyle(color: theme.inputText),
-      decoration: context.conduitInputStyles
-          .standard(hint: variable.placeholder),
+      style: AppTypography.bodyMediumStyle.copyWith(color: theme.inputText),
+      decoration: context.conduitInputStyles.standard(
+        hint: variable.placeholder,
+      ),
       keyboardType: TextInputType.numberWithOptions(
         decimal: variable.step != null && variable.step! < 1,
         signed: variable.min != null && variable.min! < 0,
@@ -319,4 +314,3 @@ class _PromptVariableDialogState extends State<PromptVariableDialog> {
     );
   }
 }
-

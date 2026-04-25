@@ -522,16 +522,15 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                 ),
                 title: Text(
                   l10n.dictation,
-                  style: TextStyle(
+                  style: AppTypography.bodyMediumStyle.copyWith(
                     color: conduitTheme.textPrimary,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
                 subtitle: Text(
                   l10n.dictationDescription,
-                  style: TextStyle(
+                  style: AppTypography.bodySmallStyle.copyWith(
                     color: conduitTheme.textSecondary,
-                    fontSize: AppTypography.bodySmall,
                   ),
                 ),
                 onTap: () {
@@ -559,16 +558,15 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                 ),
                 title: Text(
                   l10n.recordAudio,
-                  style: TextStyle(
+                  style: AppTypography.bodyMediumStyle.copyWith(
                     color: conduitTheme.textPrimary,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
                 subtitle: Text(
                   l10n.recordAudioDescription,
-                  style: TextStyle(
+                  style: AppTypography.bodySmallStyle.copyWith(
                     color: conduitTheme.textSecondary,
-                    fontSize: AppTypography.bodySmall,
                   ),
                 ),
                 onTap: () {
@@ -878,14 +876,14 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                                                     focusNode: _titleFocusNode,
                                                     enabled:
                                                         !_isGeneratingTitle,
-                                                    style: TextStyle(
-                                                      color: conduitTheme
-                                                          .textPrimary,
-                                                      fontSize: AppTypography
-                                                          .bodySmall,
-                                                      fontWeight:
-                                                          FontWeight.w500,
-                                                    ),
+                                                    style: AppTypography
+                                                        .bodyMediumStyle
+                                                        .copyWith(
+                                                          color: conduitTheme
+                                                              .textPrimary,
+                                                          fontWeight:
+                                                              FontWeight.w500,
+                                                        ),
                                                     placeholder: l10n.untitled,
                                                     textAlign: TextAlign.center,
                                                     textCapitalization:
@@ -905,18 +903,19 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                                                           hint: l10n.untitled,
                                                         )
                                                         .copyWith(
-                                                          hintStyle: TextStyle(
-                                                            color: conduitTheme
-                                                                .textSecondary
-                                                                .withValues(
-                                                                  alpha: 0.6,
-                                                                ),
-                                                            fontSize:
-                                                                AppTypography
-                                                                    .bodySmall,
-                                                            fontWeight:
-                                                                FontWeight.w500,
-                                                          ),
+                                                          hintStyle: AppTypography
+                                                              .bodyMediumStyle
+                                                              .copyWith(
+                                                                color: conduitTheme
+                                                                    .textSecondary
+                                                                    .withValues(
+                                                                      alpha:
+                                                                          0.6,
+                                                                    ),
+                                                                fontWeight:
+                                                                    FontWeight
+                                                                        .w500,
+                                                              ),
                                                           contentPadding:
                                                               EdgeInsets.zero,
                                                           isDense: true,
@@ -935,23 +934,24 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                                                             .isEmpty
                                                         ? l10n.untitled
                                                         : _titleController.text,
-                                                    style: TextStyle(
-                                                      color:
-                                                          _titleController
-                                                              .text
-                                                              .isEmpty
-                                                          ? conduitTheme
-                                                                .textSecondary
-                                                                .withValues(
-                                                                  alpha: 0.6,
-                                                                )
-                                                          : conduitTheme
-                                                                .textPrimary,
-                                                      fontSize: AppTypography
-                                                          .bodySmall,
-                                                      fontWeight:
-                                                          FontWeight.w500,
-                                                    ),
+                                                    style: AppTypography
+                                                        .bodyMediumStyle
+                                                        .copyWith(
+                                                          color:
+                                                              _titleController
+                                                                  .text
+                                                                  .isEmpty
+                                                              ? conduitTheme
+                                                                    .textSecondary
+                                                                    .withValues(
+                                                                      alpha:
+                                                                          0.6,
+                                                                    )
+                                                              : conduitTheme
+                                                                    .textPrimary,
+                                                          fontWeight:
+                                                              FontWeight.w500,
+                                                        ),
                                                   ),
                                                 ),
                                             ],

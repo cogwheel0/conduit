@@ -80,7 +80,8 @@ class ProfilePage extends ConsumerWidget {
   }
 
   Widget _buildCenteredState(BuildContext context, Widget child) {
-    final topPadding = MediaQuery.of(context).padding.top + kTextTabBarHeight + 24;
+    final topPadding =
+        MediaQuery.of(context).padding.top + kTextTabBarHeight + 24;
     return Padding(
       padding: EdgeInsets.fromLTRB(
         Spacing.pagePadding,
@@ -99,7 +100,8 @@ class ProfilePage extends ConsumerWidget {
     ApiService? api,
   ) {
     // Calculate top padding to account for app bar + safe area
-    final topPadding = MediaQuery.of(context).padding.top + kTextTabBarHeight + 24;
+    final topPadding =
+        MediaQuery.of(context).padding.top + kTextTabBarHeight + 24;
 
     return ListView(
       physics: const BouncingScrollPhysics(
@@ -127,7 +129,9 @@ class ProfilePage extends ConsumerWidget {
         theme.bodySmall?.copyWith(
           color: theme.sidebarForeground.withValues(alpha: 0.75),
         ) ??
-        TextStyle(color: theme.sidebarForeground.withValues(alpha: 0.75));
+        AppTypography.bodySmallStyle.copyWith(
+          color: theme.sidebarForeground.withValues(alpha: 0.75),
+        );
 
     final supportTiles = [
       _buildSupportOption(
@@ -582,7 +586,7 @@ class ProfilePage extends ConsumerWidget {
                   const SizedBox(width: Spacing.xs),
                   Text(
                     l10n.githubRepository,
-                    style: TextStyle(
+                    style: AppTypography.bodyMediumStyle.copyWith(
                       color: context.conduitTheme.buttonPrimary,
                       fontWeight: FontWeight.w600,
                     ),
@@ -651,4 +655,3 @@ class ProfilePage extends ConsumerWidget {
     }
   }
 }
-

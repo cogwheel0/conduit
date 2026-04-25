@@ -118,7 +118,12 @@ class _ThreadPanelState extends ConsumerState<ThreadPanel> {
               ),
               loading: () => const Center(child: CircularProgressIndicator()),
               error: (e, _) => Center(
-                child: Text(e.toString(), style: TextStyle(color: theme.error)),
+                child: Text(
+                  e.toString(),
+                  style: AppTypography.bodyMediumStyle.copyWith(
+                    color: theme.error,
+                  ),
+                ),
               ),
             ),
           ),
@@ -155,10 +160,9 @@ class _ThreadHeader extends StatelessWidget {
         children: [
           Text(
             'Thread',
-            style: TextStyle(
+            style: AppTypography.titleMediumStyle.copyWith(
               color: theme.textPrimary,
               fontWeight: FontWeight.w600,
-              fontSize: 16,
             ),
           ),
           const Spacer(),
@@ -200,10 +204,9 @@ class _ParentMessageTile extends StatelessWidget {
               children: [
                 Text(
                   messageDisplayName(message),
-                  style: TextStyle(
+                  style: AppTypography.bodySmallStyle.copyWith(
                     color: theme.textSecondary,
                     fontWeight: FontWeight.w500,
-                    fontSize: AppTypography.bodySmall,
                     letterSpacing: 0.1,
                   ),
                 ),
@@ -256,7 +259,9 @@ class _ThreadReplies extends StatelessWidget {
       return Center(
         child: Text(
           'No replies yet',
-          style: TextStyle(color: theme.textSecondary),
+          style: AppTypography.bodyMediumStyle.copyWith(
+            color: theme.textSecondary,
+          ),
         ),
       );
     }
@@ -299,10 +304,9 @@ class _ThreadReplies extends StatelessWidget {
                   children: [
                     Text(
                       messageDisplayName(message),
-                      style: TextStyle(
+                      style: AppTypography.bodySmallStyle.copyWith(
                         color: theme.textSecondary,
                         fontWeight: FontWeight.w500,
-                        fontSize: AppTypography.bodySmall,
                         letterSpacing: 0.1,
                       ),
                     ),

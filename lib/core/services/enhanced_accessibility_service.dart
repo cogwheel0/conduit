@@ -3,7 +3,6 @@ import 'dart:ui' show FlutterView;
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter/semantics.dart';
 import '../../shared/theme/tweakcn_themes.dart';
@@ -297,12 +296,16 @@ class EnhancedAccessibilityService {
         child: SwitchListTile(
           title: Text(
             label,
-            style: TextStyle(color: context.conduitTheme.textPrimary),
+            style: AppTypography.bodyMediumStyle.copyWith(
+              color: context.conduitTheme.textPrimary,
+            ),
           ),
           subtitle: description != null
               ? Text(
                   description,
-                  style: TextStyle(color: context.conduitTheme.textSecondary),
+                  style: AppTypography.bodySmallStyle.copyWith(
+                    color: context.conduitTheme.textSecondary,
+                  ),
                 )
               : null,
           value: value,

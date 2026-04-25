@@ -22,10 +22,10 @@ TextStyle _badgeLabelTextStyle(BuildContext context, Color color) {
   return textTheme.labelSmall?.copyWith(
         color: color,
         fontWeight: FontWeight.w500,
-        fontSize: AppTypography.micro.fontSize,
+        fontSize: AppTypography.labelSmallStyle.fontSize,
         height: 1,
       ) ??
-      AppTypography.micro.copyWith(
+      AppTypography.labelSmallStyle.copyWith(
         color: color,
         fontWeight: FontWeight.w500,
         height: 1,
@@ -37,9 +37,12 @@ TextStyle _badgeCountTextStyle(BuildContext context, Color color) {
   return textTheme.labelSmall?.copyWith(
         color: color,
         fontWeight: FontWeight.w600,
-        fontSize: AppTypography.micro.fontSize,
+        fontSize: AppTypography.labelSmallStyle.fontSize,
       ) ??
-      AppTypography.micro.copyWith(color: color, fontWeight: FontWeight.w600);
+      AppTypography.labelSmallStyle.copyWith(
+        color: color,
+        fontWeight: FontWeight.w600,
+      );
 }
 
 /// A compact inline citation badge showing source domain/title.

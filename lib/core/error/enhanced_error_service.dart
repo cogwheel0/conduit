@@ -149,12 +149,17 @@ class EnhancedErrorService {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(message, style: TextStyle(color: theme.textPrimary)),
+              Text(
+                message,
+                style: AppTypography.bodyMediumStyle.copyWith(
+                  color: theme.textPrimary,
+                ),
+              ),
               if (showTechnicalDetails) ...[
                 const SizedBox(height: Spacing.md),
                 Text(
                   'Technical Details:',
-                  style: TextStyle(
+                  style: AppTypography.labelStyle.copyWith(
                     fontWeight: FontWeight.bold,
                     color: theme.textPrimary,
                   ),
@@ -168,9 +173,8 @@ class EnhancedErrorService {
                   ),
                   child: Text(
                     technicalDetails,
-                    style: TextStyle(
+                    style: AppTypography.labelMediumStyle.copyWith(
                       fontFamily: AppTypography.monospaceFontFamily,
-                      fontSize: AppTypography.labelMedium,
                       color: theme.textSecondary,
                     ),
                   ),
@@ -237,7 +241,9 @@ class EnhancedErrorService {
           Text(
             message,
             textAlign: TextAlign.center,
-            style: TextStyle(color: theme.textSecondary),
+            style: AppTypography.bodyMediumStyle.copyWith(
+              color: theme.textSecondary,
+            ),
           ),
           if (showTechnicalDetails) ...[
             const SizedBox(height: Spacing.md),
@@ -249,9 +255,8 @@ class EnhancedErrorService {
               ),
               child: Text(
                 technicalDetails,
-                style: TextStyle(
+                style: AppTypography.labelMediumStyle.copyWith(
                   fontFamily: AppTypography.monospaceFontFamily,
-                  fontSize: AppTypography.labelMedium,
                   color: theme.textSecondary,
                 ),
               ),

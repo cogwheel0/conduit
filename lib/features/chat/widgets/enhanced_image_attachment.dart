@@ -298,15 +298,21 @@ class _EnhancedImageAttachmentState
       final fileInfo = await api.getFileInfo(attachmentId);
       final fileName = _extractFileName(fileInfo);
       final ext = fileName.toLowerCase().split('.').last;
-      final contentType = (fileInfo['meta']?['content_type'] ??
-              fileInfo['content_type'] ??
-              '')
-          .toString()
-          .toLowerCase();
+      final contentType =
+          (fileInfo['meta']?['content_type'] ?? fileInfo['content_type'] ?? '')
+              .toString()
+              .toLowerCase();
 
       // Check both extension and content_type for image detection
-      final isImageByExt =
-          ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'].contains(ext);
+      final isImageByExt = [
+        'jpg',
+        'jpeg',
+        'png',
+        'gif',
+        'webp',
+        'svg',
+        'bmp',
+      ].contains(ext);
       final isImageByContentType = contentType.startsWith('image/');
 
       if (!isImageByExt && !isImageByContentType) {
@@ -557,9 +563,8 @@ class _EnhancedImageAttachmentState
             padding: const EdgeInsets.symmetric(horizontal: Spacing.sm),
             child: Text(
               _errorMessage!,
-              style: TextStyle(
+              style: AppTypography.bodySmallStyle.copyWith(
                 color: context.conduitTheme.error,
-                fontSize: AppTypography.bodySmall,
               ),
               textAlign: TextAlign.center,
               maxLines: 2,
@@ -769,8 +774,10 @@ class FullScreenImageViewer extends ConsumerWidget {
     required this.tag,
     this.isSvg = false,
     this.customHeaders,
-  }) : assert(imageData != null || imageBytes != null,
-            'Either imageData or imageBytes must be provided');
+  }) : assert(
+         imageData != null || imageBytes != null,
+         'Either imageData or imageBytes must be provided',
+       );
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
