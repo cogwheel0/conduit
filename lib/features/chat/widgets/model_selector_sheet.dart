@@ -31,15 +31,12 @@ class ModelSelectorSheet extends ConsumerStatefulWidget {
   });
 
   @override
-  ConsumerState<ModelSelectorSheet> createState() =>
-      ModelSelectorSheetState();
+  ConsumerState<ModelSelectorSheet> createState() => ModelSelectorSheetState();
 }
 
 /// State for [ModelSelectorSheet].
-class ModelSelectorSheetState
-    extends ConsumerState<ModelSelectorSheet> {
-  final TextEditingController _searchController =
-      TextEditingController();
+class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
+  final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
   List<Model> _filteredModels = [];
   Timer? _searchDebounce;
@@ -102,9 +99,7 @@ class ModelSelectorSheetState
               decoration: BoxDecoration(
                 color: context.conduitTheme.surfaceBackground,
                 borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(
-                    AppBorderRadius.bottomSheet,
-                  ),
+                  top: Radius.circular(AppBorderRadius.bottomSheet),
                 ),
                 border: Border.all(
                   color: context.conduitTheme.dividerColor,
@@ -134,47 +129,36 @@ class ModelSelectorSheetState
                                         children: [
                                           Icon(
                                             Platform.isIOS
-                                                ? CupertinoIcons
-                                                    .search_circle
+                                                ? CupertinoIcons.search_circle
                                                 : Icons.search_off,
                                             size: 48,
                                             color: context
                                                 .conduitTheme
                                                 .iconSecondary,
                                           ),
-                                          const SizedBox(
-                                            height: Spacing.md,
-                                          ),
+                                          const SizedBox(height: Spacing.md),
                                           Text(
                                             'No results',
-                                            style: TextStyle(
-                                              color: context
-                                                  .conduitTheme
-                                                  .textSecondary,
-                                              fontSize:
-                                                  AppTypography
-                                                      .bodyLarge,
-                                            ),
+                                            style: AppTypography.bodyLargeStyle
+                                                .copyWith(
+                                                  color: context
+                                                      .conduitTheme
+                                                      .textSecondary,
+                                                ),
                                           ),
                                         ],
                                       ),
                                     )
                                   : ListView.builder(
                                       controller: scrollController,
-                                      padding: const EdgeInsets.only(
-                                        top: 72,
-                                      ),
+                                      padding: const EdgeInsets.only(top: 72),
                                       cacheExtent: 400,
-                                      itemCount:
-                                          _filteredModels.length,
+                                      itemCount: _filteredModels.length,
                                       itemBuilder: (context, index) {
-                                        final model =
-                                            _filteredModels[index];
+                                        final model = _filteredModels[index];
                                         final isSelected =
                                             widget.ref
-                                                .watch(
-                                                  selectedModelProvider,
-                                                )
+                                                .watch(selectedModelProvider)
                                                 ?.id ==
                                             model.id;
                                         final api = widget.ref.watch(
@@ -215,16 +199,10 @@ class ModelSelectorSheetState
                                   end: Alignment.bottomCenter,
                                   stops: const [0.0, 0.65, 1.0],
                                   colors: [
-                                    context
-                                        .conduitTheme
-                                        .surfaceBackground,
-                                    context
-                                        .conduitTheme
-                                        .surfaceBackground
+                                    context.conduitTheme.surfaceBackground,
+                                    context.conduitTheme.surfaceBackground
                                         .withValues(alpha: 0.9),
-                                    context
-                                        .conduitTheme
-                                        .surfaceBackground
+                                    context.conduitTheme.surfaceBackground
                                         .withValues(alpha: 0.0),
                                   ],
                                 ),
@@ -232,9 +210,7 @@ class ModelSelectorSheetState
                               child: Column(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  const SizedBox(
-                                    height: Spacing.sm,
-                                  ),
+                                  const SizedBox(height: Spacing.sm),
                                   ConduitGlassSearchField(
                                     controller: _searchController,
                                     hintText: AppLocalizations.of(
@@ -247,9 +223,7 @@ class ModelSelectorSheetState
                                       _filterModels('');
                                     },
                                   ),
-                                  const SizedBox(
-                                    height: Spacing.md,
-                                  ),
+                                  const SizedBox(height: Spacing.md),
                                 ],
                               ),
                             ),

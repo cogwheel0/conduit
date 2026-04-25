@@ -117,8 +117,7 @@ class _ToolCallTileState extends State<ToolCallTile> {
                               ? 'Used ${toolCall.name}'
                               : 'Running ${toolCall.name}…',
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: AppTypography.bodyLarge,
+                          style: AppTypography.bodyLargeStyle.copyWith(
                             fontWeight: FontWeight.w600,
                             color: theme.textPrimary,
                           ),
@@ -214,8 +213,7 @@ class _ToolCallExpandedContent extends StatelessWidget {
           if (toolCall.arguments != null) ...[
             Text(
               'Arguments',
-              style: TextStyle(
-                fontSize: AppTypography.labelSmall,
+              style: AppTypography.labelSmallStyle.copyWith(
                 color: theme.textSecondary,
                 fontWeight: FontWeight.w600,
               ),
@@ -223,8 +221,7 @@ class _ToolCallExpandedContent extends StatelessWidget {
             const SizedBox(height: 2),
             SelectableText(
               pretty(toolCall.arguments),
-              style: TextStyle(
-                fontSize: AppTypography.bodySmall,
+              style: AppTypography.bodySmallStyle.copyWith(
                 color: theme.textSecondary,
                 fontFamily: AppTypography.monospaceFontFamily,
                 height: 1.35,
@@ -235,8 +232,7 @@ class _ToolCallExpandedContent extends StatelessWidget {
           if (toolCall.result != null) ...[
             Text(
               'Result',
-              style: TextStyle(
-                fontSize: AppTypography.labelSmall,
+              style: AppTypography.labelSmallStyle.copyWith(
                 color: theme.textSecondary,
                 fontWeight: FontWeight.w600,
               ),
@@ -244,8 +240,7 @@ class _ToolCallExpandedContent extends StatelessWidget {
             const SizedBox(height: 2),
             SelectableText(
               pretty(toolCall.result),
-              style: TextStyle(
-                fontSize: AppTypography.bodySmall,
+              style: AppTypography.bodySmallStyle.copyWith(
                 color: theme.textSecondary,
                 fontFamily: AppTypography.monospaceFontFamily,
                 height: 1.35,

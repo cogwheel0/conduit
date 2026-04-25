@@ -59,7 +59,7 @@ class ToggleTile extends StatelessWidget {
                 children: [
                   Text(
                     title,
-                    style: theme.bodySmall?.copyWith(
+                    style: AppTypography.bodyMediumStyle.copyWith(
                       color: theme.sidebarForeground,
                       fontWeight: FontWeight.w600,
                     ),
@@ -72,7 +72,7 @@ class ToggleTile extends StatelessWidget {
                       subtitle!,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: AppTypography.captionStyle.copyWith(
+                      style: AppTypography.bodySmallStyle.copyWith(
                         color: theme.sidebarForeground.withValues(alpha: 0.75),
                       ),
                     ),
@@ -507,7 +507,7 @@ class _ComposerOverflowSheetState extends ConsumerState<ComposerOverflowSheet> {
       padding: const EdgeInsets.all(Spacing.md),
       child: Text(
         message,
-        style: theme.bodySmall?.copyWith(
+        style: AppTypography.bodyMediumStyle.copyWith(
           color: theme.sidebarForeground.withValues(alpha: 0.75),
         ),
       ),
@@ -666,10 +666,7 @@ class _ComposerOverflowSheetState extends ConsumerState<ComposerOverflowSheet> {
             Text(
               label,
               textAlign: TextAlign.center,
-              style: AppTypography.captionStyle.copyWith(
-                fontWeight: FontWeight.w600,
-                color: textColor,
-              ),
+              style: AppTypography.labelMediumStyle.copyWith(color: textColor),
             ),
           ],
         ),

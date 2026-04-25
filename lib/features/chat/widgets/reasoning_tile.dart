@@ -142,8 +142,7 @@ class ReasoningTile extends StatelessWidget {
                       Expanded(
                         child: Text(
                           title,
-                          style: TextStyle(
-                            fontSize: AppTypography.bodyLarge,
+                          style: AppTypography.bodyLargeStyle.copyWith(
                             fontWeight: FontWeight.w600,
                             color: theme.textPrimary,
                           ),

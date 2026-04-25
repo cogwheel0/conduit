@@ -146,12 +146,12 @@ class DefaultModelBottomSheetState
                                             AppLocalizations.of(
                                               context,
                                             )!.noResults,
-                                            style: TextStyle(
-                                              color: context
-                                                  .conduitTheme
-                                                  .textSecondary,
-                                              fontSize: AppTypography.bodyLarge,
-                                            ),
+                                            style: AppTypography.bodyLargeStyle
+                                                .copyWith(
+                                                  color: context
+                                                      .conduitTheme
+                                                      .textSecondary,
+                                                ),
                                           ),
                                         ],
                                       ),
@@ -169,8 +169,9 @@ class DefaultModelBottomSheetState
                                                   _selectedModelId ==
                                                       'auto-select'
                                             : _selectedModelId == model.id;
-                                        final api =
-                                            ref.watch(apiServiceProvider);
+                                        final api = ref.watch(
+                                          apiServiceProvider,
+                                        );
                                         final iconUrl = isAutoSelect
                                             ? null
                                             : resolveModelIconUrlForModel(
@@ -206,10 +207,12 @@ class DefaultModelBottomSheetState
                                   stops: const [0.0, 0.65, 1.0],
                                   colors: [
                                     context.sidebarTheme.background,
-                                    context.sidebarTheme.background
-                                        .withValues(alpha: 0.9),
-                                    context.sidebarTheme.background
-                                        .withValues(alpha: 0.0),
+                                    context.sidebarTheme.background.withValues(
+                                      alpha: 0.9,
+                                    ),
+                                    context.sidebarTheme.background.withValues(
+                                      alpha: 0.0,
+                                    ),
                                   ],
                                 ),
                               ),
@@ -236,7 +239,7 @@ class DefaultModelBottomSheetState
                                         AppLocalizations.of(
                                           context,
                                         )!.availableModels,
-                                        style: AppTypography.bodySmallStyle
+                                        style: AppTypography.labelStyle
                                             .copyWith(
                                               fontWeight: FontWeight.w600,
                                               color: context
@@ -266,7 +269,7 @@ class DefaultModelBottomSheetState
                                         ),
                                         child: Text(
                                           '${_filteredModels.length}',
-                                          style: AppTypography.bodySmallStyle
+                                          style: AppTypography.labelMediumStyle
                                               .copyWith(
                                                 color: context
                                                     .conduitTheme

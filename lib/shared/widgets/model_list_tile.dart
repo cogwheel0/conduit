@@ -3,7 +3,6 @@ import 'dart:io' show Platform;
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 
 import '../../core/models/model.dart';
@@ -48,8 +47,7 @@ class ModelCapabilityChip extends StatelessWidget {
           const SizedBox(width: 4),
           Text(
             label,
-            style: TextStyle(
-              fontSize: AppTypography.labelSmall,
+            style: AppTypography.labelSmallStyle.copyWith(
               color: theme.textSecondary,
               fontWeight: FontWeight.w500,
             ),
@@ -151,14 +149,13 @@ class ModelListTile extends StatelessWidget {
                     children: [
                       Text(
                         isAutoSelect ? l10n.autoSelect : model.name,
-                        style: TextStyle(
+                        style: AppTypography.bodyMediumStyle.copyWith(
                           color: isSelected
                               ? theme.textPrimary
                               : theme.textSecondary,
                           fontWeight: isSelected
                               ? FontWeight.w600
                               : FontWeight.w400,
-                          fontSize: AppTypography.bodyMedium,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -167,8 +164,7 @@ class ModelListTile extends StatelessWidget {
                         const SizedBox(height: 2),
                         Text(
                           l10n.autoSelectDescription,
-                          style: TextStyle(
-                            fontSize: AppTypography.labelSmall,
+                          style: AppTypography.labelSmallStyle.copyWith(
                             color: theme.textSecondary,
                           ),
                         ),

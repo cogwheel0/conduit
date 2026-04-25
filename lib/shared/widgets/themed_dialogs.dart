@@ -35,13 +35,14 @@ class ThemedDialogs {
       ),
       title: Text(
         title,
-        style: TextStyle(color: theme.textPrimary),
+        style: AppTypography.titleMediumStyle.copyWith(
+          color: theme.textPrimary,
+        ),
       ),
       content: content != null
           ? DefaultTextStyle(
-              style: TextStyle(
+              style: AppTypography.bodyMediumStyle.copyWith(
                 color: theme.textSecondary,
-                fontSize: 14,
               ),
               child: content,
             )
@@ -107,7 +108,9 @@ class ThemedDialogs {
           title: title,
           content: Text(
             message,
-            style: TextStyle(color: theme.textSecondary),
+            style: AppTypography.bodyMediumStyle.copyWith(
+              color: theme.textSecondary,
+            ),
           ),
           actions: [
             ConduitTextButton(
@@ -279,11 +282,11 @@ class _TextInputDialogContentState extends State<_TextInputDialogContent> {
         keyboardType: widget.keyboardType,
         textCapitalization: widget.textCapitalization,
         maxLength: widget.maxLength,
-        style: TextStyle(color: theme.textPrimary),
+        style: AppTypography.bodyMediumStyle.copyWith(color: theme.textPrimary),
         decoration: context.conduitInputStyles
             .underline(hint: widget.hintText)
             .copyWith(
-              counterStyle: TextStyle(
+              counterStyle: AppTypography.labelSmallStyle.copyWith(
                 color: theme.textSecondary,
               ),
             ),
@@ -295,8 +298,7 @@ class _TextInputDialogContentState extends State<_TextInputDialogContent> {
         ),
         ConduitTextButton(
           text: widget.confirmText,
-          onPressed: () =>
-              Navigator.of(context).pop(_controller.text),
+          onPressed: () => Navigator.of(context).pop(_controller.text),
           isPrimary: true,
         ),
       ],

@@ -199,8 +199,7 @@ class _ConduitMobileMenuBuilder extends mobile.MobileMenuWidgetBuilder {
             Expanded(
               child: Text(
                 element.title ?? '',
-                style: TextStyle(
-                  fontSize: AppTypography.bodyMedium,
+                style: AppTypography.bodyMediumStyle.copyWith(
                   fontWeight: FontWeight.w500,
                   color: textColor,
                   decoration: TextDecoration.none,
@@ -252,8 +251,7 @@ class _ConduitMobileMenuBuilder extends mobile.MobileMenuWidgetBuilder {
             Expanded(
               child: Text(
                 element.title ?? '',
-                style: TextStyle(
-                  fontSize: AppTypography.bodyMedium,
+                style: AppTypography.bodyMediumStyle.copyWith(
                   fontWeight: FontWeight.w500,
                   color: theme.textPrimary,
                   decoration: TextDecoration.none,
@@ -541,7 +539,10 @@ Future<void> _showConversationError(
   await ThemedDialogs.show<void>(
     context,
     title: l10n.errorMessage,
-    content: Text(message, style: TextStyle(color: theme.textSecondary)),
+    content: Text(
+      message,
+      style: AppTypography.bodyMediumStyle.copyWith(color: theme.textSecondary),
+    ),
     actions: [
       AdaptiveButton(
         onPressed: () => Navigator.of(context).pop(),
