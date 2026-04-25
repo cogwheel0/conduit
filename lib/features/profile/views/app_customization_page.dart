@@ -866,9 +866,12 @@ class AppCustomizationPage extends ConsumerWidget {
                 const SizedBox(height: Spacing.sm),
                 AdaptiveSlider(
                   value: settings.voiceSilenceDuration.toDouble(),
-                  min: 300,
-                  max: 3000,
-                  divisions: 27,
+                  min: SettingsService.minVoiceSilenceDurationMs.toDouble(),
+                  max: SettingsService.maxVoiceSilenceDurationMs.toDouble(),
+                  divisions:
+                      (SettingsService.maxVoiceSilenceDurationMs -
+                          SettingsService.minVoiceSilenceDurationMs) ~/
+                      100,
                   activeColor: theme.buttonPrimary,
                   onChanged: (value) {
                     notifier.setVoiceSilenceDuration(value.round());

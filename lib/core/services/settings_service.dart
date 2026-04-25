@@ -36,6 +36,9 @@ extension AndroidAssistantTriggerStorage on AndroidAssistantTrigger {
 
 /// Service for managing app-wide settings including accessibility preferences
 class SettingsService {
+  static const int minVoiceSilenceDurationMs = 300;
+  static const int defaultVoiceSilenceDurationMs = 2000;
+  static const int maxVoiceSilenceDurationMs = 5000;
   static const String _reduceMotionKey = PreferenceKeys.reduceMotion;
   static const String _animationSpeedKey = PreferenceKeys.animationSpeed;
   static const String _hapticFeedbackKey = PreferenceKeys.hapticFeedback;
@@ -409,11 +412,19 @@ class SettingsService {
 
   static Future<int> getVoiceSilenceDuration() {
     final value = _preferencesBox().get(_voiceSilenceDurationKey) as int?;
-    return Future.value((value ?? 2000).clamp(300, 3000));
+    return Future.value(
+      (value ?? defaultVoiceSilenceDurationMs).clamp(
+        minVoiceSilenceDurationMs,
+        maxVoiceSilenceDurationMs,
+      ),
+    );
   }
 
   static Future<void> setVoiceSilenceDuration(int milliseconds) {
-    final sanitized = milliseconds.clamp(300, 3000);
+    final sanitized = milliseconds.clamp(
+      minVoiceSilenceDurationMs,
+      maxVoiceSilenceDurationMs,
+    );
     return _preferencesBox().put(_voiceSilenceDurationKey, sanitized);
   }
 
@@ -512,8 +523,10 @@ class SettingsService {
       androidAssistantTrigger: _parseAndroidAssistantTrigger(
         box.get(_androidAssistantTriggerKey) as String?,
       ),
-      voiceSilenceDuration: (box.get(_voiceSilenceDurationKey) as int? ?? 2000)
-          .clamp(300, 3000),
+      voiceSilenceDuration:
+          (box.get(_voiceSilenceDurationKey) as int? ??
+                  defaultVoiceSilenceDurationMs)
+              .clamp(minVoiceSilenceDurationMs, maxVoiceSilenceDurationMs),
       temporaryChatByDefault:
           (box.get(PreferenceKeys.temporaryChatByDefault) as bool?) ?? false,
     );
@@ -580,7 +593,7 @@ class AppSettings {
     this.ttsServerVoiceId,
     this.ttsServerVoiceName,
     this.androidAssistantTrigger = AndroidAssistantTrigger.overlay,
-    this.voiceSilenceDuration = 2000,
+    this.voiceSilenceDuration = SettingsService.defaultVoiceSilenceDurationMs,
     this.temporaryChatByDefault = false,
   });
 
