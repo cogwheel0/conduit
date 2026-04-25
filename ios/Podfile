@@ -30,6 +30,32 @@ require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelpe
 
 flutter_ios_podfile_setup
 
+# Work around a malformed upstream podspec in the git-pinned
+# `super_native_extensions` dependency before CocoaPods parses it.
+def patch_super_native_extensions_podspec
+  podspec_path = File.expand_path(
+    File.join(
+      '.symlinks',
+      'plugins',
+      'super_native_extensions',
+      'ios',
+      'super_native_extensions.podspec'
+    ),
+    __dir__
+  )
+  return unless File.exist?(podspec_path)
+
+  podspec = File.read(podspec_path)
+  patched = podspec.sub(':script => <<-SCRIPT' + "\n",
+                        ':script => <<-SCRIPT,' + "\n")
+  patched = patched.gsub(':execution_position=>', ':execution_position =>')
+  return if patched == podspec
+
+  File.write(podspec_path, patched)
+end
+
+patch_super_native_extensions_podspec
+
 target 'Runner' do
   # Use dynamic frameworks for native extension compatibility
   use_frameworks! :linkage => :dynamic
