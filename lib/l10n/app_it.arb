@@ -949,5 +949,53 @@
   "searchChannels": "Cerca canali...",
   "channelCreateError": "Impossibile creare il canale",
   "channelMessageHint": "Messaggio...",
-  "audioUploadError": "Impossibile caricare l'audio: {error}"
+  "audioUploadError": "Impossibile caricare l'audio: {error}",
+  "shareChat": "Condividi chat",
+  "@shareChat": {
+    "description": "Dialog title and action label for sharing a chat."
+  },
+  "shareChatDescription": "I messaggi inviati dopo la creazione del link non verranno condivisi. Chi ha l’URL potrà vedere la chat condivisa.",
+  "@shareChatDescription": {
+    "description": "Explains that a shared chat link is a snapshot."
+  },
+  "shareChatExisting": "Hai già condiviso questa chat.",
+  "@shareChatExisting": {
+    "description": "Explains that the chat already has an existing shared link."
+  },
+  "shareChatDeleteLink": "Elimina questo link",
+  "@shareChatDeleteLink": {
+    "description": "Action label to delete the current shared chat link."
+  },
+  "shareChatDeleteAndCreate": "e crea un nuovo link condiviso.",
+  "@shareChatDeleteAndCreate": {
+    "description": "Continuation text after the delete shared link action."
+  },
+  "copyLink": "Copia link",
+  "@copyLink": {
+    "description": "Button label to copy a newly created shared chat URL."
+  },
+  "updateAndCopyLink": "Aggiorna e copia link",
+  "@updateAndCopyLink": {
+    "description": "Button label to refresh a shared chat snapshot and copy the URL."
+  },
+  "sharedChatCopied": "URL della chat condivisa copiata negli appunti.",
+  "@sharedChatCopied": {
+    "description": "Snackbar shown after copying a shared chat URL."
+  },
+  "shareSystemSheet": "Condividi...",
+  "@shareSystemSheet": {
+    "description": "Button label to open the platform share sheet."
+  },
+  "chatShareFailed": "Impossibile condividere la chat",
+  "@chatShareFailed": {
+    "description": "Snackbar shown when chat sharing fails."
+  },
+  "sharedLinkDeleted": "Link della chat condivisa eliminato",
+  "@sharedLinkDeleted": {
+    "description": "Snackbar shown after deleting a shared chat link."
+  },
+  "deleteSharedLinkFailed": "Impossibile eliminare il link condiviso",
+  "@deleteSharedLinkFailed": {
+    "description": "Snackbar shown when deleting a shared chat link fails."
+  }
 }

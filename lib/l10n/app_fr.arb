@@ -949,5 +949,53 @@
   "searchChannels": "Rechercher des canaux...",
   "channelCreateError": "Impossible de créer le canal",
   "channelMessageHint": "Message...",
-  "audioUploadError": "Échec de l'envoi de l'audio : {error}"
+  "audioUploadError": "Échec de l'envoi de l'audio : {error}",
+  "shareChat": "Partager le chat",
+  "@shareChat": {
+    "description": "Dialog title and action label for sharing a chat."
+  },
+  "shareChatDescription": "Les messages envoyés après la création du lien ne seront pas partagés. Les personnes disposant de l’URL pourront consulter le chat partagé.",
+  "@shareChatDescription": {
+    "description": "Explains that a shared chat link is a snapshot."
+  },
+  "shareChatExisting": "Vous avez déjà partagé ce chat.",
+  "@shareChatExisting": {
+    "description": "Explains that the chat already has an existing shared link."
+  },
+  "shareChatDeleteLink": "Supprimer ce lien",
+  "@shareChatDeleteLink": {
+    "description": "Action label to delete the current shared chat link."
+  },
+  "shareChatDeleteAndCreate": "et créer un nouveau lien partagé.",
+  "@shareChatDeleteAndCreate": {
+    "description": "Continuation text after the delete shared link action."
+  },
+  "copyLink": "Copier le lien",
+  "@copyLink": {
+    "description": "Button label to copy a newly created shared chat URL."
+  },
+  "updateAndCopyLink": "Mettre à jour et copier le lien",
+  "@updateAndCopyLink": {
+    "description": "Button label to refresh a shared chat snapshot and copy the URL."
+  },
+  "sharedChatCopied": "URL du chat partagé copiée dans le presse-papiers.",
+  "@sharedChatCopied": {
+    "description": "Snackbar shown after copying a shared chat URL."
+  },
+  "shareSystemSheet": "Partager...",
+  "@shareSystemSheet": {
+    "description": "Button label to open the platform share sheet."
+  },
+  "chatShareFailed": "Impossible de partager le chat",
+  "@chatShareFailed": {
+    "description": "Snackbar shown when chat sharing fails."
+  },
+  "sharedLinkDeleted": "Lien du chat partagé supprimé",
+  "@sharedLinkDeleted": {
+    "description": "Snackbar shown after deleting a shared chat link."
+  },
+  "deleteSharedLinkFailed": "Impossible de supprimer le lien partagé",
+  "@deleteSharedLinkFailed": {
+    "description": "Snackbar shown when deleting a shared chat link fails."
+  }
 }

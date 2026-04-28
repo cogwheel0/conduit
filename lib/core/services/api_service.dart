@@ -913,9 +913,7 @@ class ApiService {
     );
     final data = response.data;
     if (data is! List) {
-      throw Exception(
-        'Expected array of chats, got ${data.runtimeType}',
-      );
+      throw Exception('Expected array of chats, got ${data.runtimeType}');
     }
 
     return _parseConversationSummaryList(
@@ -1674,6 +1672,11 @@ class ApiService {
     final response = await _dio.post('/api/v1/chats/$id/share');
     final data = response.data as Map<String, dynamic>;
     return data['share_id'] as String?;
+  }
+
+  Future<void> deleteSharedConversation(String id) async {
+    _traceApi('Deleting shared conversation link: $id');
+    await _dio.delete('/api/v1/chats/$id/share');
   }
 
   // Clone conversation
@@ -4830,12 +4833,15 @@ class ApiService {
     final response = await _dio.get('/api/v1/chats/pinned');
     final data = response.data;
     if (data is List) {
-      return data.whereType<Map>().map((chatData) {
-        final map = Map<String, dynamic>.from(chatData);
-        return Conversation.fromJson(
-          parseConversationSummary(map),
-        ).copyWith(pinned: true);
-      }).toList(growable: false);
+      return data
+          .whereType<Map>()
+          .map((chatData) {
+            final map = Map<String, dynamic>.from(chatData);
+            return Conversation.fromJson(
+              parseConversationSummary(map),
+            ).copyWith(pinned: true);
+          })
+          .toList(growable: false);
     }
     return [];
   }
@@ -4853,12 +4859,15 @@ class ApiService {
     );
     final data = response.data;
     if (data is List) {
-      return data.whereType<Map>().map((chatData) {
-        final map = Map<String, dynamic>.from(chatData);
-        return Conversation.fromJson(
-          parseConversationSummary(map),
-        ).copyWith(archived: true);
-      }).toList(growable: false);
+      return data
+          .whereType<Map>()
+          .map((chatData) {
+            final map = Map<String, dynamic>.from(chatData);
+            return Conversation.fromJson(
+              parseConversationSummary(map),
+            ).copyWith(archived: true);
+          })
+          .toList(growable: false);
     }
     return [];
   }

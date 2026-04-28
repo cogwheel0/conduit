@@ -36,6 +36,7 @@ import '../widgets/assistant_message_widget.dart' as assistant;
 import '../widgets/file_attachment_widget.dart';
 import '../widgets/context_attachment_widget.dart';
 import '../widgets/server_file_picker_sheet.dart';
+import '../widgets/chat_share_sheet.dart';
 import '../services/file_attachment_service.dart';
 import '../services/historical_message_regeneration.dart';
 import '../voice_call/presentation/voice_call_launcher.dart';
@@ -2369,6 +2370,39 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   },
                 ),
                 const SizedBox(width: Spacing.sm),
+                Consumer(
+                  builder: (context, ref, _) {
+                    final activeConversation = ref.watch(
+                      activeConversationProvider,
+                    );
+                    if (activeConversation == null ||
+                        isTemporaryChat(activeConversation.id)) {
+                      return const SizedBox.shrink();
+                    }
+
+                    return Padding(
+                      padding: const EdgeInsets.only(right: Spacing.sm),
+                      child: AdaptiveTooltip(
+                        message: AppLocalizations.of(context)!.shareChat,
+                        child: _buildAppBarIconButton(
+                          context: context,
+                          onPressed: () {
+                            ConduitHaptics.selectionClick();
+                            showChatShareSheet(
+                              context: context,
+                              conversation: activeConversation,
+                            );
+                          },
+                          fallbackIcon: Platform.isIOS
+                              ? CupertinoIcons.share
+                              : Icons.ios_share_rounded,
+                          sfSymbol: 'square.and.arrow.up',
+                          color: context.conduitTheme.textPrimary,
+                        ),
+                      ),
+                    );
+                  },
+                ),
                 Padding(
                   padding: const EdgeInsets.only(right: Spacing.inputPadding),
                   child: AdaptiveTooltip(

@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 54;
+	objectVersion = 70;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -121,14 +121,14 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		F15AFED52EE5499E00A1FABB /* Exceptions for "ConduitWidget" folder in "ConduitWidgetExtension" target */ = {
+		F15AFED52EE5499E00A1FABB /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
 			);
 			target = F15AFEC12EE5499D00A1FABB /* ConduitWidgetExtension */;
 		};
-		F1DBCF222E601A39004C2540 /* Exceptions for "ShareExtension" folder in "ShareExtension" target */ = {
+		F1DBCF222E601A39004C2540 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -138,30 +138,8 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		F15AFEC72EE5499D00A1FABB /* ConduitWidget */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				F15AFED52EE5499E00A1FABB /* Exceptions for "ConduitWidget" folder in "ConduitWidgetExtension" target */,
-			);
-			explicitFileTypes = {
-			};
-			explicitFolders = (
-			);
-			path = ConduitWidget;
-			sourceTree = "<group>";
-		};
-		F1DBCF142E601A39004C2540 /* ShareExtension */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				F1DBCF222E601A39004C2540 /* Exceptions for "ShareExtension" folder in "ShareExtension" target */,
-			);
-			explicitFileTypes = {
-			};
-			explicitFolders = (
-			);
-			path = ShareExtension;
-			sourceTree = "<group>";
-		};
+		F15AFEC72EE5499D00A1FABB /* ConduitWidget */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (F15AFED52EE5499E00A1FABB /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = ConduitWidget; sourceTree = "<group>"; };
+		F1DBCF142E601A39004C2540 /* ShareExtension */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (F1DBCF222E601A39004C2540 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = ShareExtension; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -481,8 +459,12 @@
 			);
 			inputFileListPaths = (
 			);
+			inputPaths = (
+			);
 			name = "[CP] Embed Pods Frameworks";
 			outputFileListPaths = (
+			);
+			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -549,8 +531,12 @@
 			);
 			inputFileListPaths = (
 			);
+			inputPaths = (
+			);
 			name = "[CP] Copy Pods Resources";
 			outputFileListPaths = (
+			);
+			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -972,6 +958,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = app.cogwheel.conduit.debug;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
+				STRIP_STYLE = "non-global";
 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;

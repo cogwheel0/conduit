@@ -15,6 +15,7 @@ import 'package:super_context_menu/src/scaffold/mobile/menu_widget_builder.dart'
     as mobile;
 
 import 'package:conduit/features/chat/providers/chat_providers.dart' as chat;
+import 'package:conduit/features/chat/widgets/chat_share_sheet.dart';
 
 /// Re-export super_context_menu types for convenience.
 export 'package:super_context_menu/super_context_menu.dart'
@@ -389,6 +390,11 @@ List<ConduitContextMenuAction> buildConversationActions({
     await _confirmAndDeleteConversation(context, ref, conversation.id);
   }
 
+  Future<void> shareConversation() async {
+    if (!context.mounted) return;
+    await showChatShareSheet(context: context, conversation: conversation);
+  }
+
   return [
     ConduitContextMenuAction(
       cupertinoIcon: isPinned
@@ -409,6 +415,13 @@ List<ConduitContextMenuAction> buildConversationActions({
       label: isArchived ? l10n.unarchive : l10n.archive,
       onBeforeClose: () => ConduitHaptics.lightImpact(),
       onSelected: toggleArchive,
+    ),
+    ConduitContextMenuAction(
+      cupertinoIcon: CupertinoIcons.share,
+      materialIcon: Icons.ios_share_rounded,
+      label: l10n.shareChat,
+      onBeforeClose: () => ConduitHaptics.selectionClick(),
+      onSelected: shareConversation,
     ),
     ConduitContextMenuAction(
       cupertinoIcon: CupertinoIcons.pencil,

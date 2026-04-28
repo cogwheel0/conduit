@@ -2215,5 +2215,53 @@
         "description": "The error message"
       }
     }
+  },
+  "shareChat": "Share Chat",
+  "@shareChat": {
+    "description": "Dialog title and action label for sharing a chat."
+  },
+  "shareChatDescription": "Messages you send after creating your link won't be shared. Users with the URL will be able to view the shared chat.",
+  "@shareChatDescription": {
+    "description": "Explains that a shared chat link is a snapshot."
+  },
+  "shareChatExisting": "You have shared this chat before.",
+  "@shareChatExisting": {
+    "description": "Explains that the chat already has an existing shared link."
+  },
+  "shareChatDeleteLink": "Delete this link",
+  "@shareChatDeleteLink": {
+    "description": "Action label to delete the current shared chat link."
+  },
+  "shareChatDeleteAndCreate": "and create a new shared link.",
+  "@shareChatDeleteAndCreate": {
+    "description": "Continuation text after the delete shared link action."
+  },
+  "copyLink": "Copy Link",
+  "@copyLink": {
+    "description": "Button label to copy a newly created shared chat URL."
+  },
+  "updateAndCopyLink": "Update and Copy Link",
+  "@updateAndCopyLink": {
+    "description": "Button label to refresh a shared chat snapshot and copy the URL."
+  },
+  "sharedChatCopied": "Copied shared chat URL to clipboard!",
+  "@sharedChatCopied": {
+    "description": "Snackbar shown after copying a shared chat URL."
+  },
+  "shareSystemSheet": "Share...",
+  "@shareSystemSheet": {
+    "description": "Button label to open the platform share sheet."
+  },
+  "chatShareFailed": "Failed to share chat",
+  "@chatShareFailed": {
+    "description": "Snackbar shown when chat sharing fails."
+  },
+  "sharedLinkDeleted": "Shared chat link deleted",
+  "@sharedLinkDeleted": {
+    "description": "Snackbar shown after deleting a shared chat link."
+  },
+  "deleteSharedLinkFailed": "Failed to delete shared link",
+  "@deleteSharedLinkFailed": {
+    "description": "Snackbar shown when deleting a shared chat link fails."
   }
 }

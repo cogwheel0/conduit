@@ -949,5 +949,53 @@
   "searchChannels": "Поиск каналов...",
   "channelCreateError": "Не удалось создать канал",
   "channelMessageHint": "Сообщение...",
-  "audioUploadError": "Не удалось загрузить аудио: {error}"
+  "audioUploadError": "Не удалось загрузить аудио: {error}",
+  "shareChat": "Поделиться чатом",
+  "@shareChat": {
+    "description": "Dialog title and action label for sharing a chat."
+  },
+  "shareChatDescription": "Сообщения, отправленные после создания ссылки, не будут доступны по ней. Пользователи с URL смогут просматривать опубликованный чат.",
+  "@shareChatDescription": {
+    "description": "Explains that a shared chat link is a snapshot."
+  },
+  "shareChatExisting": "Вы уже делились этим чатом.",
+  "@shareChatExisting": {
+    "description": "Explains that the chat already has an existing shared link."
+  },
+  "shareChatDeleteLink": "Удалить эту ссылку",
+  "@shareChatDeleteLink": {
+    "description": "Action label to delete the current shared chat link."
+  },
+  "shareChatDeleteAndCreate": "и создать новую ссылку для доступа.",
+  "@shareChatDeleteAndCreate": {
+    "description": "Continuation text after the delete shared link action."
+  },
+  "copyLink": "Копировать ссылку",
+  "@copyLink": {
+    "description": "Button label to copy a newly created shared chat URL."
+  },
+  "updateAndCopyLink": "Обновить и копировать ссылку",
+  "@updateAndCopyLink": {
+    "description": "Button label to refresh a shared chat snapshot and copy the URL."
+  },
+  "sharedChatCopied": "URL опубликованного чата скопирован в буфер обмена.",
+  "@sharedChatCopied": {
+    "description": "Snackbar shown after copying a shared chat URL."
+  },
+  "shareSystemSheet": "Поделиться...",
+  "@shareSystemSheet": {
+    "description": "Button label to open the platform share sheet."
+  },
+  "chatShareFailed": "Не удалось поделиться чатом",
+  "@chatShareFailed": {
+    "description": "Snackbar shown when chat sharing fails."
+  },
+  "sharedLinkDeleted": "Ссылка на опубликованный чат удалена",
+  "@sharedLinkDeleted": {
+    "description": "Snackbar shown after deleting a shared chat link."
+  },
+  "deleteSharedLinkFailed": "Не удалось удалить ссылку",
+  "@deleteSharedLinkFailed": {
+    "description": "Snackbar shown when deleting a shared chat link fails."
+  }
 }

@@ -3470,9 +3470,51 @@ Future<String?> shareConversation(WidgetRef ref, String conversationId) async {
     // Refresh conversations list to reflect the change
     refreshConversationsCache(ref);
 
+    final activeConversation = ref.read(activeConversationProvider);
+    if (activeConversation?.id == conversationId) {
+      ref
+          .read(activeConversationProvider.notifier)
+          .set(activeConversation!.copyWith(shareId: shareId));
+    }
+
     return shareId;
   } catch (e) {
     DebugLogger.log('Error sharing conversation: $e', scope: 'chat/providers');
+    rethrow;
+  }
+}
+
+Future<void> deleteSharedConversation(
+  WidgetRef ref,
+  String conversationId,
+) async {
+  try {
+    final api = ref.read(apiServiceProvider);
+    if (api == null) throw Exception('No API service available');
+
+    await api.deleteSharedConversation(conversationId);
+
+    ref
+        .read(conversationsProvider.notifier)
+        .updateConversation(
+          conversationId,
+          (conversation) =>
+              conversation.copyWith(shareId: null, updatedAt: DateTime.now()),
+        );
+
+    refreshConversationsCache(ref);
+
+    final activeConversation = ref.read(activeConversationProvider);
+    if (activeConversation?.id == conversationId) {
+      ref
+          .read(activeConversationProvider.notifier)
+          .set(activeConversation!.copyWith(shareId: null));
+    }
+  } catch (e) {
+    DebugLogger.log(
+      'Error deleting shared conversation link: $e',
+      scope: 'chat/providers',
+    );
     rethrow;
   }
 }

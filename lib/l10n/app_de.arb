@@ -949,5 +949,53 @@
   "searchChannels": "Kanäle suchen...",
   "channelCreateError": "Kanal konnte nicht erstellt werden",
   "channelMessageHint": "Nachricht...",
-  "audioUploadError": "Audio konnte nicht hochgeladen werden: {error}"
+  "audioUploadError": "Audio konnte nicht hochgeladen werden: {error}",
+  "shareChat": "Chat teilen",
+  "@shareChat": {
+    "description": "Dialog title and action label for sharing a chat."
+  },
+  "shareChatDescription": "Nachrichten, die du nach dem Erstellen deines Links sendest, werden nicht geteilt. Personen mit der URL können den geteilten Chat ansehen.",
+  "@shareChatDescription": {
+    "description": "Explains that a shared chat link is a snapshot."
+  },
+  "shareChatExisting": "Du hast diesen Chat bereits geteilt.",
+  "@shareChatExisting": {
+    "description": "Explains that the chat already has an existing shared link."
+  },
+  "shareChatDeleteLink": "Diesen Link löschen",
+  "@shareChatDeleteLink": {
+    "description": "Action label to delete the current shared chat link."
+  },
+  "shareChatDeleteAndCreate": "und einen neuen geteilten Link erstellen.",
+  "@shareChatDeleteAndCreate": {
+    "description": "Continuation text after the delete shared link action."
+  },
+  "copyLink": "Link kopieren",
+  "@copyLink": {
+    "description": "Button label to copy a newly created shared chat URL."
+  },
+  "updateAndCopyLink": "Aktualisieren und Link kopieren",
+  "@updateAndCopyLink": {
+    "description": "Button label to refresh a shared chat snapshot and copy the URL."
+  },
+  "sharedChatCopied": "URL des geteilten Chats in die Zwischenablage kopiert!",
+  "@sharedChatCopied": {
+    "description": "Snackbar shown after copying a shared chat URL."
+  },
+  "shareSystemSheet": "Teilen...",
+  "@shareSystemSheet": {
+    "description": "Button label to open the platform share sheet."
+  },
+  "chatShareFailed": "Chat konnte nicht geteilt werden",
+  "@chatShareFailed": {
+    "description": "Snackbar shown when chat sharing fails."
+  },
+  "sharedLinkDeleted": "Link zum geteilten Chat gelöscht",
+  "@sharedLinkDeleted": {
+    "description": "Snackbar shown after deleting a shared chat link."
+  },
+  "deleteSharedLinkFailed": "Geteilter Link konnte nicht gelöscht werden",
+  "@deleteSharedLinkFailed": {
+    "description": "Snackbar shown when deleting a shared chat link fails."
+  }
 }
