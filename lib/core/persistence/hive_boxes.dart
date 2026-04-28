@@ -25,6 +25,10 @@ final class HiveStoreKeys {
   static const String localFolders = 'local_folders';
   static const String attachmentQueueEntries = 'attachment_queue_entries';
   static const String taskQueue = 'outbound_task_queue_v1';
+  // Cached user system prompt extracted from /user/settings — read
+  // synchronously in the chat send hot path so the first network round-trip
+  // doesn't gate time-to-first-token.
+  static const String cachedUserSystemPrompt = 'cached_user_system_prompt_v1';
 }
 
 /// Grouped Hive boxes that remain open for the app lifecycle.

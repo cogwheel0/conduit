@@ -97,6 +97,84 @@ void main() {
       check(ids).deepEquals(['m1', 'm3']);
     });
 
+    test('upsert preserves messages tagged metadata.localPending', () async {
+      // Local-pending messages are queued sends the server hasn't seen yet.
+      // A passive sync that lands before the queue drains MUST NOT wipe
+      // them — that would manifest to the user as "I sent this and it
+      // disappeared."
+      final initial = _conversation(
+        id: 'c-pending',
+        messages: [
+          _message(id: 'm-server', content: 'already on server'),
+          _message(
+            id: 'm-pending',
+            content: 'just typed, still queued',
+            metadata: {'localPending': true, 'outboundTaskId': 'task-1'},
+          ),
+        ],
+      );
+      await store.upsertConversation(initial);
+
+      // Simulate a server refresh that doesn't include the pending message.
+      final serverPayload = initial.copyWith(
+        messages: [_message(id: 'm-server', content: 'already on server')],
+      );
+      await store.upsertConversation(serverPayload);
+
+      final loaded = await store.getConversation('c-pending');
+      final ids = loaded!.messages.map((m) => m.id).toList()..sort();
+      check(ids).deepEquals(['m-pending', 'm-server']);
+      final pending = loaded.messages.firstWhere((m) => m.id == 'm-pending');
+      check(pending.content).equals('just typed, still queued');
+      check(pending.metadata?['localPending']).equals(true);
+    });
+
+    test(
+      'upsert does not overwrite a localPending row even when server '
+      'returns the same id',
+      () async {
+        final initial = _conversation(
+          id: 'c-collide',
+          messages: [
+            _message(
+              id: 'shared-id',
+              content: 'local pending content',
+              metadata: {'localPending': true},
+            ),
+          ],
+        );
+        await store.upsertConversation(initial);
+
+        // Server happens to return the same id (rare race) with different
+        // content. We should leave the local pending row alone — once the
+        // outbound task succeeds the flag clears and the next sync wins.
+        final serverPayload = initial.copyWith(
+          messages: [_message(id: 'shared-id', content: 'server content')],
+        );
+        await store.upsertConversation(serverPayload);
+
+        final loaded = await store.getConversation('c-collide');
+        check(loaded!.messages.single.content).equals('local pending content');
+      },
+    );
+
+    test('replaceAllConversations prunes conversations missing from the '
+        'server snapshot', () async {
+      await store.upsertConversations([
+        _conversation(id: 'keep', title: 'Keep'),
+        _conversation(id: 'delete-on-web', title: 'Will be deleted'),
+      ]);
+
+      // Simulate refresh after the user deleted "delete-on-web" on the
+      // web app — the server snapshot only includes the surviving one.
+      await store.replaceAllConversations([
+        _conversation(id: 'keep', title: 'Keep'),
+      ]);
+
+      final ids = (await store.getAllSummaries()).map((c) => c.id).toList();
+      check(ids).deepEquals(['keep']);
+    });
+
     test('deleteConversation cascades to its messages', () async {
       final conv = _conversation(
         id: 'c4',

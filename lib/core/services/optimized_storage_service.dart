@@ -369,6 +369,25 @@ class OptimizedStorageService {
     }
   }
 
+  /// Persist [conversations] as the canonical full set, pruning any cached
+  /// conversations whose ids are missing from the new list. Use when the
+  /// caller has just fetched the full server snapshot — this is what makes
+  /// web-side deletes propagate into the mobile drawer.
+  Future<void> replaceLocalConversations(
+    List<Conversation> conversations,
+  ) async {
+    try {
+      await _conversationStore.replaceAllConversations(conversations);
+    } catch (error, stack) {
+      DebugLogger.error(
+        'Failed to replace local conversations',
+        scope: 'storage/optimized',
+        error: error,
+        stackTrace: stack,
+      );
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Per-conversation cache — backed by SQLite via [ConversationStore]
   // (Phase 3a). The four methods below delegate so chat_providers and the
@@ -396,6 +415,41 @@ class OptimizedStorageService {
     } catch (error, stack) {
       DebugLogger.error(
         'Failed to cache conversation',
+        scope: 'storage/optimized',
+        error: error,
+        stackTrace: stack,
+      );
+    }
+  }
+
+  /// Synchronous read of the user's cached system prompt. Returns null when
+  /// nothing has been cached yet (first launch or after a sign-out). Used by
+  /// the chat send hot path so we don't have to await `getUserSettings`
+  /// before kicking off the stream — local-first means the first token
+  /// shouldn't be gated on a settings round-trip.
+  String? getCachedUserSystemPrompt() {
+    try {
+      final stored = _cachesBox.get(HiveStoreKeys.cachedUserSystemPrompt);
+      if (stored is String && stored.isNotEmpty) return stored;
+    } catch (_) {}
+    return null;
+  }
+
+  /// Persists the user's system prompt for synchronous reads via
+  /// [getCachedUserSystemPrompt]. Pass null/empty to clear.
+  Future<void> setCachedUserSystemPrompt(String? prompt) async {
+    try {
+      if (prompt == null || prompt.trim().isEmpty) {
+        await _cachesBox.delete(HiveStoreKeys.cachedUserSystemPrompt);
+      } else {
+        await _cachesBox.put(
+          HiveStoreKeys.cachedUserSystemPrompt,
+          prompt.trim(),
+        );
+      }
+    } catch (error, stack) {
+      DebugLogger.error(
+        'Failed to cache user system prompt',
         scope: 'storage/optimized',
         error: error,
         stackTrace: stack,

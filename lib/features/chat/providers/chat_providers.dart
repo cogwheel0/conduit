@@ -22,6 +22,7 @@ import '../../../core/utils/debug_logger.dart';
 import '../../../core/utils/tool_calls_parser.dart';
 import '../models/chat_context_attachment.dart';
 import '../providers/context_attachments_provider.dart';
+import '../../../shared/services/tasks/outbound_task.dart';
 import '../../../shared/services/tasks/task_queue.dart';
 import '../../tools/providers/tools_providers.dart';
 import '../services/chat_transport_dispatch.dart';
@@ -2693,10 +2694,31 @@ Future<void> _sendMessageInternal(
     existingMessages,
   );
 
-  // Create OpenWebUI-shaped user/assistant messages. Files will be updated
-  // after fetching server info.
-  final userMessageId = const Uuid().v4();
-  final String assistantMessageId = const Uuid().v4();
+  // Retry idempotency: if this send is a queue retry (outboundTaskId is
+  // non-null and a user message with that task id already exists), reuse the
+  // original ids so we don't double up the bubble. The matching assistant
+  // placeholder is reset to a fresh streaming state.
+  String? existingUserMessageId;
+  String? existingAssistantMessageId;
+  if (outboundTaskId != null) {
+    for (final m in existingMessages) {
+      if (m.role == 'user' && m.metadata?['outboundTaskId'] == outboundTaskId) {
+        existingUserMessageId = m.id;
+        final children = m.metadata?['childrenIds'];
+        if (children is List && children.isNotEmpty) {
+          final raw = children.first;
+          if (raw is String && raw.isNotEmpty) {
+            existingAssistantMessageId = raw;
+          }
+        }
+        break;
+      }
+    }
+  }
+
+  final userMessageId = existingUserMessageId ?? const Uuid().v4();
+  final String assistantMessageId =
+      existingAssistantMessageId ?? const Uuid().v4();
   var userMessage = ChatMessage(
     id: userMessageId,
     role: 'user',
@@ -2712,13 +2734,48 @@ Future<void> _sendMessageInternal(
       // Phase 2.5: link this message to its persistent TaskQueue task so
       // the per-message delivery badge can resolve queued/running/failed.
       'outboundTaskId': ?outboundTaskId,
+      // Local-first: this message is queued/in-flight and not yet
+      // acknowledged by the server. Cleared on dispatch success. Sync
+      // logic in ConversationStore preserves messages with this flag set
+      // so a server refresh can't wipe it before delivery.
+      if (outboundTaskId != null) 'localPending': true,
     },
   );
 
-  // Add user message to UI immediately for instant feedback
-  ref.read(chatMessagesProvider.notifier).addMessage(userMessage);
+  // Add (or replace) user message in the UI for instant feedback.
+  if (existingUserMessageId != null) {
+    ref
+        .read(chatMessagesProvider.notifier)
+        .updateMessageById(userMessageId, (_) => userMessage);
+  } else {
+    ref.read(chatMessagesProvider.notifier).addMessage(userMessage);
+  }
 
-  // Add assistant placeholder immediately to show typing indicator right away
+  // Persist the user message to SQLite immediately, before any await. The
+  // task queue's Hive copy is the durable source of truth, but persisting
+  // the UI-visible row up front means a force-quit between here and the
+  // first network call doesn't leave the user staring at a vanished bubble
+  // when they reopen the app.
+  try {
+    final activeForEarlyPersist = ref.read(activeConversationProvider);
+    if (activeForEarlyPersist != null &&
+        _shouldPersistGranular(
+          ref,
+          conversationId: activeForEarlyPersist.id,
+        )) {
+      final storage = ref.read(optimizedStorageServiceProvider);
+      unawaited(
+        storage.persistMessageEnsuringConversation(
+          scaffold: activeForEarlyPersist.copyWith(messages: const []),
+          message: userMessage,
+        ),
+      );
+    }
+  } catch (_) {}
+
+  // Add (or reset) assistant placeholder so the typing indicator shows
+  // right away. On retry, the previous placeholder might be in error or
+  // partially-streamed state — overwrite it cleanly.
   final assistantPlaceholder = ChatMessage(
     id: assistantMessageId,
     role: 'assistant',
@@ -2728,7 +2785,13 @@ Future<void> _sendMessageInternal(
     isStreaming: true,
     metadata: {'parentId': userMessageId, 'childrenIds': const <String>[]},
   );
-  ref.read(chatMessagesProvider.notifier).addMessage(assistantPlaceholder);
+  if (existingAssistantMessageId != null) {
+    ref
+        .read(chatMessagesProvider.notifier)
+        .updateMessageById(assistantMessageId, (_) => assistantPlaceholder);
+  } else {
+    ref.read(chatMessagesProvider.notifier).addMessage(assistantPlaceholder);
+  }
 
   // Now do async work in parallel: user settings + server file info
   String? userSystemPrompt;
@@ -2744,13 +2807,25 @@ Future<void> _sendMessageInternal(
   Conversation? createConversationLocal;
   String? createConversationFolderId;
   if (!reviewerMode && api != null) {
-    // Fetch user settings and server file info in parallel.
-    //
-    // Phase 2.1: file info is cached locally on upload (UserFiles.upsert).
-    // We consult the cache first so re-using uploaded files makes zero
-    // network calls in the user-visible send path.
+    // Local-first: prefer the cached system prompt synchronously so we
+    // don't gate the send on a settings round-trip. Refresh in the
+    // background; the next send will pick up any change. The very first
+    // send after a fresh install still pays the round-trip — the cache is
+    // warmed on success below.
     final storage = ref.read(optimizedStorageServiceProvider);
-    final settingsFuture = api.getUserSettings().catchError((_) => null);
+    userSystemPrompt = storage.getCachedUserSystemPrompt();
+    final settingsFuture = userSystemPrompt == null
+        // Cold cache: we have to await so the system prompt is included.
+        ? api.getUserSettings().catchError((_) => null)
+        // Warm cache: kick a background refresh and don't block on it.
+        : (api.getUserSettings()
+                  .then((data) {
+                    final fresh = _extractSystemPromptFromSettings(data);
+                    unawaited(storage.setCachedUserSystemPrompt(fresh));
+                    return data;
+                  })
+                  .catchError((_) => null)
+              as Future<Map<String, dynamic>?>);
     final fileInfoFutures = serverFileIds.map((fileId) async {
       // Cache hit: build the request shape entirely from local data.
       try {
@@ -2804,9 +2879,16 @@ Future<void> _sendMessageInternal(
     // then kick the createConversation network call concurrently with the
     // remaining file-info futures. This overlaps two previously-serial
     // network round-trips for new-chat sends with attachments.
-    userSettingsData = await settingsFuture;
-    if (userSettingsData != null) {
-      userSystemPrompt = _extractSystemPromptFromSettings(userSettingsData);
+    //
+    // When the warm-cache path is taken above, settingsFuture is fire-
+    // and-forget — we already have the system prompt synchronously.
+    if (userSystemPrompt == null) {
+      userSettingsData = await settingsFuture;
+      if (userSettingsData != null) {
+        userSystemPrompt = _extractSystemPromptFromSettings(userSettingsData);
+        // Warm the cache for future sends.
+        unawaited(storage.setCachedUserSystemPrompt(userSystemPrompt));
+      }
     }
 
     final activeForCreate = ref.read(activeConversationProvider);
@@ -3325,6 +3407,43 @@ Future<void> _sendMessageInternal(
       ref.read(contextAttachmentsProvider.notifier).clear();
     } catch (_) {}
 
+    // Local-first: dispatch returned without throwing, so the server has
+    // accepted the message. Drop the localPending flag and re-persist so the
+    // next sync is free to overwrite this row with the server's authoritative
+    // version. We intentionally don't drop the flag in any error branch —
+    // transient errors get retried by the queue and need the protection to
+    // hold; permanent ones leave the message visible with an error pill.
+    if (outboundTaskId != null) {
+      try {
+        final notifier =
+            ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
+        notifier.updateMessageById(userMessageId, (ChatMessage m) {
+          final meta = m.metadata;
+          if (meta == null || meta['localPending'] != true) return m;
+          final cleared = Map<String, dynamic>.from(meta)
+            ..remove('localPending');
+          return m.copyWith(metadata: cleared);
+        });
+        final activeConv = ref.read(activeConversationProvider);
+        if (activeConv != null &&
+            _shouldPersistGranular(ref, conversationId: activeConv.id)) {
+          final storage = ref.read(optimizedStorageServiceProvider);
+          final msgs = ref.read(chatMessagesProvider);
+          for (final m in msgs) {
+            if (m.id == userMessageId) {
+              unawaited(
+                storage.persistMessageEnsuringConversation(
+                  scaffold: activeConv.copyWith(messages: const []),
+                  message: m,
+                ),
+              );
+              break;
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
     return;
   } catch (e, st) {
     // Clean up buffering on error
@@ -3334,36 +3453,35 @@ Future<void> _sendMessageInternal(
       error: e,
       stackTrace: st,
     );
-    // Convert the assistant placeholder in-place to an error-state
-    // message. This preserves the placeholder's ID and any files that
-    // may have arrived before the error, matching OpenWebUI's same-slot
-    // failure semantics.
-    final errorContent = _errorContentForException(e);
 
-    // Explicit ChatMessage type on closures is required because `ref` is
-    // `dynamic` — without it Dart infers (dynamic) => dynamic at runtime.
     final ChatMessagesNotifier notifier =
         ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
-    final chatError = ChatMessageError(content: errorContent);
-    if (e.toString().contains('401') || e.toString().contains('403')) {
-      // Authentication errors - clear auth state and redirect to login.
-      // Still convert the placeholder so the UI is consistent.
+    final classification = _classifySendException(e);
+
+    if (classification.kind == _SendExceptionKind.auth) {
+      // 401/403 — token rejected. Drop the placeholder cleanly and let the
+      // auth manager handle re-auth UI. No error text is written into the
+      // chat; the auth flow takes over.
       notifier.updateLastMessageWithFunction(
-        (ChatMessage m) => m.copyWith(error: chatError),
+        (ChatMessage m) =>
+            m.copyWith(content: '', isStreaming: false, error: null),
       );
       notifier.finishStreaming();
       ref.invalidate(authStateManagerProvider);
-    } else {
+      // Auth issues are not retryable from the queue's perspective.
+      throw PermanentTaskError('auth: ${e.toString()}');
+    }
+
+    if (classification.kind == _SendExceptionKind.permanent) {
+      // 4xx client error — retrying won't help. Surface the specific message
+      // on the assistant placeholder so the user understands what failed,
+      // and tell the queue to stop retrying.
+      final chatError = ChatMessageError(content: classification.message!);
       notifier.updateLastMessageWithFunction(
         (ChatMessage m) => m.copyWith(error: chatError),
       );
       notifier.finishStreaming();
 
-      // Phase 3b — persist the error state so the failed message
-      // survives a restart with its `error` populated. Skipped in the
-      // 401/403 branch above since that's a sign-out event; the
-      // conversation cache shouldn't record a failure that's about to
-      // be invalidated anyway.
       try {
         final activeConv = ref.read(activeConversationProvider);
         if (activeConv != null &&
@@ -3380,35 +3498,66 @@ Future<void> _sendMessageInternal(
           }
         }
       } catch (_) {}
+
+      throw PermanentTaskError(e.toString());
     }
+
+    // Transient: server hiccup, network blip, timeout. Stop the typing
+    // indicator but DO NOT splash an error string across the assistant
+    // placeholder — the per-message delivery badge already says
+    // "Queued"/"Tap to retry" via [messageDeliveryStatusProvider]. Keep the
+    // user message visible with localPending intact so a passive sync can't
+    // wipe it. Rethrow so TaskQueue applies its exponential backoff and
+    // retries when reachability returns.
+    notifier.updateLastMessageWithFunction(
+      (ChatMessage m) =>
+          m.copyWith(content: '', isStreaming: false, error: null),
+    );
+    notifier.finishStreaming();
+    rethrow;
   }
 }
 
-/// Returns a user-friendly error description based on the exception.
-String _errorContentForException(Object e) {
+enum _SendExceptionKind { auth, permanent, transient }
+
+class _SendExceptionClassification {
+  const _SendExceptionClassification(this.kind, [this.message]);
+  final _SendExceptionKind kind;
+  final String? message;
+}
+
+/// Buckets a send-path exception into auth / permanent / transient. Only
+/// permanent failures get a user-visible error string written into the
+/// assistant bubble — transient ones (network, timeout, 5xx) are handled
+/// silently by the TaskQueue retry path.
+_SendExceptionClassification _classifySendException(Object e) {
   final msg = e.toString();
+  if (msg.contains('401') || msg.contains('403')) {
+    return const _SendExceptionClassification(_SendExceptionKind.auth);
+  }
   if (msg.contains('400')) {
-    return 'There was an issue with the message format. This might be '
-        'because the image attachment couldn\'t be processed, the request '
-        'format is incompatible with the selected model, or the message '
-        'contains unsupported content. Please try sending the message '
-        'again, or try without attachments.';
-  } else if (msg.contains('500')) {
-    return 'Unable to connect to the AI model. The server returned an '
-        'error (500). This is typically a server-side issue. Please try '
-        'again or contact your administrator.';
-  } else if (msg.contains('404')) {
+    return const _SendExceptionClassification(
+      _SendExceptionKind.permanent,
+      'There was an issue with the message format. This might be '
+          'because an attachment couldn\'t be processed, the request format '
+          'is incompatible with the selected model, or the message contains '
+          'unsupported content. Try again, or try without attachments.',
+    );
+  }
+  if (msg.contains('404')) {
     DebugLogger.log(
       'Model or endpoint not found (404)',
       scope: 'chat/providers',
     );
-    return 'The selected AI model doesn\'t seem to be available. '
-        'Please try selecting a different model or check with your '
-        'administrator.';
-  } else {
-    return 'An unexpected error occurred while processing your request. '
-        'Please try again or check your connection.';
+    return const _SendExceptionClassification(
+      _SendExceptionKind.permanent,
+      'The selected AI model doesn\'t seem to be available. '
+          'Try a different model or check with your administrator.',
+    );
   }
+  // Everything else (5xx, network, timeout, socket, parse errors) is
+  // treated as transient so the queue retries with backoff.
+  return const _SendExceptionClassification(_SendExceptionKind.transient);
 }
 
 // Save current conversation to OpenWebUI server

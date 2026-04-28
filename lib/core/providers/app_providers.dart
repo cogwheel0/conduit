@@ -1271,7 +1271,13 @@ class Conversations extends _$Conversations {
     unawaited(
       Future<void>(() async {
         try {
-          await storage.saveLocalConversations(conversations);
+          // The in-memory list always represents the canonical full set
+          // (build/refresh assign the entire server snapshot; mutation
+          // helpers like upsertConversation/removeConversation produce a
+          // fresh full list before calling _replaceState). Use the prune
+          // variant so a conversation deleted on the web actually
+          // disappears from the cache instead of lingering forever.
+          await storage.replaceLocalConversations(conversations);
         } catch (error, stackTrace) {
           DebugLogger.error(
             'cache-save-failed',

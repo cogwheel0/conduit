@@ -214,29 +214,107 @@ class ConversationStore {
     });
   }
 
+  /// Replaces the cached conversation set with [conversations], pruning any
+  /// previously-cached conversations whose ids are not in the new list.
+  ///
+  /// This is the right call when [conversations] is the canonical full server
+  /// snapshot (e.g. after a `getConversations()` refresh). It propagates
+  /// web-side deletes into the local cache so a conversation deleted on the
+  /// web app actually disappears from the mobile drawer.
+  ///
+  /// Foreign-key cascade on the messages table cleans up message rows for
+  /// pruned conversations.
+  Future<void> replaceAllConversations(
+    List<Conversation> conversations,
+  ) async {
+    await _db.transaction((txn) async {
+      final keepIds = <String>{for (final c in conversations) c.id};
+      final existingRows = await txn.query('conversations', columns: ['id']);
+      final existingIds = <String>{
+        for (final row in existingRows) row['id'] as String,
+      };
+      final toDelete = existingIds.difference(keepIds);
+      if (toDelete.isNotEmpty) {
+        final placeholders = List.filled(toDelete.length, '?').join(',');
+        await txn.delete(
+          'conversations',
+          where: 'id IN ($placeholders)',
+          whereArgs: toDelete.toList(),
+        );
+      }
+      for (final conv in conversations) {
+        await _upsertConversationInTxn(txn, conv);
+      }
+    });
+  }
+
   Future<void> _upsertConversationInTxn(
     Transaction txn,
     Conversation conv,
   ) async {
-    final now = DateTime.now().millisecondsSinceEpoch;
-    await txn.insert(
-      'conversations',
-      _encodeConversationRow(conv, cachedAtMillis: now),
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
-
     final newIds = <String>{for (final msg in conv.messages) msg.id};
-    final existingIdRows = await txn.query(
+
+    // Local-first: messages tagged metadata.localPending=true are queued
+    // sends that the server hasn't acknowledged yet. A passive sync that
+    // happens to land before the queue drains MUST NOT wipe them, otherwise
+    // the user sees their just-sent text vanish. We read the existing rows'
+    // payload_json to discover which ids are protected, exclude them from
+    // both the deletion set and the replace pass.
+    //
+    // IMPORTANT: this read MUST happen before any write to the conversations
+    // table — `ConflictAlgorithm.replace` on conversations triggers
+    // `ON DELETE CASCADE` and would wipe the messages we're trying to
+    // inspect. For the same reason we use a plain UPDATE / INSERT for the
+    // header row below instead of REPLACE.
+    final existingRows = await txn.query(
       'messages',
-      columns: ['id'],
+      columns: ['id', 'payload_json'],
       where: 'conversation_id = ?',
       whereArgs: [conv.id],
     );
-    final existingIds = <String>{
-      for (final row in existingIdRows) row['id'] as String,
-    };
+    final existingIds = <String>{};
+    final protectedIds = <String>{};
+    for (final row in existingRows) {
+      final id = row['id'] as String;
+      existingIds.add(id);
+      final payload = row['payload_json'] as String?;
+      if (payload == null || payload.isEmpty) continue;
+      try {
+        final decoded = jsonDecode(payload);
+        if (decoded is Map<String, dynamic>) {
+          final meta = decoded['metadata'];
+          if (meta is Map && meta['localPending'] == true) {
+            protectedIds.add(id);
+          }
+        }
+      } catch (_) {
+        // Malformed row — leave it alone. Better to keep stale data than
+        // accidentally classify it as deletable.
+      }
+    }
 
-    final toDelete = existingIds.difference(newIds);
+    // Now upsert the conversation header without using REPLACE (which would
+    // CASCADE-delete the messages we just inspected). Insert-or-ignore +
+    // update covers both create and update.
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final headerRow = _encodeConversationRow(conv, cachedAtMillis: now);
+    final inserted = await txn.insert(
+      'conversations',
+      headerRow,
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
+    if (inserted == 0) {
+      // Row already exists — UPDATE in place so FK CASCADE doesn't fire.
+      final updateValues = Map<String, Object?>.from(headerRow)..remove('id');
+      await txn.update(
+        'conversations',
+        updateValues,
+        where: 'id = ?',
+        whereArgs: [conv.id],
+      );
+    }
+
+    final toDelete = existingIds.difference(newIds).difference(protectedIds);
     if (toDelete.isNotEmpty) {
       final placeholders = List.filled(toDelete.length, '?').join(',');
       await txn.delete(
@@ -247,6 +325,11 @@ class ConversationStore {
     }
 
     for (final message in conv.messages) {
+      // Skip overwriting a row that is currently marked local-pending. The
+      // server's payload doesn't know about the queued send yet; once the
+      // task succeeds and the flag is cleared, the next sync will overwrite
+      // this row with the authoritative version.
+      if (protectedIds.contains(message.id)) continue;
       await txn.insert(
         'messages',
         _encodeMessageRow(conv.id, message),

@@ -128,6 +128,29 @@ abstract class OutboundTask with _$OutboundTask {
     generateImage: (t) => t.maxAttempts,
     imageToDataUrl: (t) => t.maxAttempts,
   );
+
+  /// Unified accessor for the failure reason string, populated by
+  /// [TaskQueue] when a task transitions to retry/failed.
+  String? get failureError => map(
+    sendTextMessage: (t) => t.error,
+    uploadMedia: (t) => t.error,
+    executeToolCall: (t) => t.error,
+    generateImage: (t) => t.error,
+    imageToDataUrl: (t) => t.error,
+  );
+
+  /// True when the most recent failure was a [PermanentTaskError] (4xx
+  /// validation/auth) — i.e. retrying won't help. Network/transport errors
+  /// return false even after the queue has exhausted its budget.
+  ///
+  /// The discriminator is the stringified prefix written by
+  /// [PermanentTaskError.toString], avoiding the need to thread an extra
+  /// flag through every freezed variant.
+  bool get failedPermanently {
+    final err = failureError;
+    if (err == null) return false;
+    return err.startsWith('PermanentTaskError');
+  }
 }
 
 /// Marker exception thrown by [TaskWorker] when a task fails in a way that

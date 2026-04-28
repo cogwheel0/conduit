@@ -52,6 +52,18 @@ class TaskQueueNotifier extends Notifier<List<OutboundTask>> {
     // online so queued sends don't have to wait up to 30s for the drain
     // timer. Combined with the per-task backoff window, this means a recent
     // network blip recovers within a couple of seconds of reconnect.
+    //
+    // Local-first reconnect semantics:
+    //   - Queued tasks scheduled for a future retry have their backoff
+    //     window cancelled. The user just regained connectivity — the
+    //     intent of the backoff (don't hammer a flaky server) is moot.
+    //   - Tasks that hit `failed` solely because retries were exhausted
+    //     while offline are revived back to `queued`. Without this, a
+    //     phone in airplane mode for ~3.5h hits the 8-attempt cap and the
+    //     user has to manually tap retry on every queued message after
+    //     reconnecting.
+    //   - Permanent failures (PermanentTaskError → 4xx auth/validation)
+    //     are left alone. Reconnecting won't fix those.
     ref.listen<ConnectivityStatus>(
       connectivityStatusProvider,
       (prev, next) {
@@ -61,12 +73,98 @@ class TaskQueueNotifier extends Notifier<List<OutboundTask>> {
             'connectivity-online: kicking queue drain',
             scope: 'tasks/queue',
           );
-          _process();
+          _onConnectivityRestored();
         }
       },
     );
     return const [];
   }
+
+  /// Called when connectivity flips from offline → online. Cancels pending
+  /// backoff windows and revives `failed` tasks that ran out of retries
+  /// while the network was down. See the [ref.listen] block in [build] for
+  /// the full rationale.
+  Future<void> _onConnectivityRestored() async {
+    var changed = false;
+    final next = <OutboundTask>[
+      for (final task in state)
+        switch (task.status) {
+          // Queued + scheduled for future retry → cancel the backoff.
+          TaskStatus.queued
+              when task.scheduledNextAttemptAt != null &&
+                  DateTime.now().isBefore(task.scheduledNextAttemptAt!) =>
+            () {
+              changed = true;
+              return _withClearedNextAttempt(task);
+            }(),
+          // Failed via retry exhaustion (not via PermanentTaskError) →
+          // re-queue with attempt counter reset so it gets the full
+          // backoff schedule again from scratch.
+          TaskStatus.failed when !task.failedPermanently => () {
+            changed = true;
+            return _revivedFromExhaustion(task);
+          }(),
+          _ => task,
+        },
+    ];
+
+    if (changed) {
+      state = next;
+      await _save();
+    }
+    _process();
+  }
+
+  OutboundTask _withClearedNextAttempt(OutboundTask task) => task.map(
+    sendTextMessage: (t) => t.copyWith(nextAttemptAt: null),
+    uploadMedia: (t) => t.copyWith(nextAttemptAt: null),
+    executeToolCall: (t) => t.copyWith(nextAttemptAt: null),
+    generateImage: (t) => t.copyWith(nextAttemptAt: null),
+    imageToDataUrl: (t) => t.copyWith(nextAttemptAt: null),
+  );
+
+  OutboundTask _revivedFromExhaustion(OutboundTask task) => task.map(
+    sendTextMessage: (t) => t.copyWith(
+      status: TaskStatus.queued,
+      attempt: 0,
+      error: null,
+      startedAt: null,
+      completedAt: null,
+      nextAttemptAt: null,
+    ),
+    uploadMedia: (t) => t.copyWith(
+      status: TaskStatus.queued,
+      attempt: 0,
+      error: null,
+      startedAt: null,
+      completedAt: null,
+      nextAttemptAt: null,
+    ),
+    executeToolCall: (t) => t.copyWith(
+      status: TaskStatus.queued,
+      attempt: 0,
+      error: null,
+      startedAt: null,
+      completedAt: null,
+      nextAttemptAt: null,
+    ),
+    generateImage: (t) => t.copyWith(
+      status: TaskStatus.queued,
+      attempt: 0,
+      error: null,
+      startedAt: null,
+      completedAt: null,
+      nextAttemptAt: null,
+    ),
+    imageToDataUrl: (t) => t.copyWith(
+      status: TaskStatus.queued,
+      attempt: 0,
+      error: null,
+      startedAt: null,
+      completedAt: null,
+      nextAttemptAt: null,
+    ),
+  );
 
   bool _processing = false;
   final Set<String> _activeThreads = <String>{};
@@ -103,20 +201,38 @@ class TaskQueueNotifier extends Notifier<List<OutboundTask>> {
         return;
       }
       final tasks = raw.map(OutboundTask.fromJson).toList();
-      // Only restore non-completed tasks
-      state = tasks
-          .where(
-            (t) =>
-                t.status == TaskStatus.queued || t.status == TaskStatus.running,
-          )
-          .map(
-            (t) => t.copyWith(
-              status: TaskStatus.queued,
-              startedAt: null,
-              completedAt: null,
-            ),
-          )
-          .toList();
+      // Restore non-completed tasks. We keep:
+      //   - queued / running (running is reset to queued — anything
+      //     in-flight at app death didn't actually finish)
+      //   - failed-via-exhaustion (so a 4h-airplane-mode + app restart
+      //     doesn't silently lose the user's queued send; the next
+      //     online transition revives them via _onConnectivityRestored)
+      // We drop:
+      //   - succeeded (already delivered)
+      //   - cancelled (user-intentional)
+      //   - permanently failed (4xx — retrying won't help, leave as
+      //     historical "Tap to retry" hint until the message bubble is
+      //     dismissed; in practice these are user-driven so they don't
+      //     accumulate)
+      state = tasks.where((t) {
+        switch (t.status) {
+          case TaskStatus.queued:
+          case TaskStatus.running:
+            return true;
+          case TaskStatus.failed:
+            return !t.failedPermanently;
+          case TaskStatus.succeeded:
+          case TaskStatus.cancelled:
+            return false;
+        }
+      }).map((t) {
+        // Reset running back to queued — anything that was mid-flight
+        // when the app died needs to be retried from scratch.
+        if (t.status == TaskStatus.running) {
+          return _withResetForRetry(t);
+        }
+        return t;
+      }).toList();
       // Kick processing after load
       _process();
     } catch (e) {
@@ -127,15 +243,15 @@ class TaskQueueNotifier extends Notifier<List<OutboundTask>> {
   Future<void> _save() async {
     try {
       final boxes = ref.read(hiveBoxesProvider);
+      // Persist anything that might still be revived later. See [_load] for
+      // the matching read-side filter.
       final retained = [
         for (final task in state)
-          if (task.status == TaskStatus.queued ||
-              task.status == TaskStatus.running)
-            task,
+          if (_shouldRetain(task)) task,
       ];
 
       if (retained.length != state.length) {
-        // Remove completed entries from state to keep the in-memory queue lean.
+        // Remove completed/dropped entries from state to keep the queue lean.
         state = retained;
       }
 
@@ -145,6 +261,33 @@ class TaskQueueNotifier extends Notifier<List<OutboundTask>> {
       DebugLogger.log('Failed to persist task queue: $e', scope: 'tasks/queue');
     }
   }
+
+  bool _shouldRetain(OutboundTask task) {
+    switch (task.status) {
+      case TaskStatus.queued:
+      case TaskStatus.running:
+        return true;
+      case TaskStatus.failed:
+        // Keep transient failures so reconnect can revive them.
+        return !task.failedPermanently;
+      case TaskStatus.succeeded:
+      case TaskStatus.cancelled:
+        return false;
+    }
+  }
+
+  OutboundTask _withResetForRetry(OutboundTask task) => task.map(
+    sendTextMessage: (t) =>
+        t.copyWith(status: TaskStatus.queued, startedAt: null, completedAt: null),
+    uploadMedia: (t) =>
+        t.copyWith(status: TaskStatus.queued, startedAt: null, completedAt: null),
+    executeToolCall: (t) =>
+        t.copyWith(status: TaskStatus.queued, startedAt: null, completedAt: null),
+    generateImage: (t) =>
+        t.copyWith(status: TaskStatus.queued, startedAt: null, completedAt: null),
+    imageToDataUrl: (t) =>
+        t.copyWith(status: TaskStatus.queued, startedAt: null, completedAt: null),
+  );
 
   Future<String> enqueueSendText({
     required String? conversationId,

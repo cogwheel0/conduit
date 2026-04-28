@@ -947,16 +947,32 @@ class AuthStateManager extends _$AuthStateManager {
         return false;
       } else if (isNetworkError) {
         DebugLogger.auth(
-          'Silent login failed due to network error - keeping credentials',
+          'Silent login failed due to network error - keeping credentials and previous session',
         );
+        // Local-first: don't demote to AuthStatus.error here. If the user
+        // already has a valid token from a previous session, keep them in.
+        // If they don't, fall through to AuthStatus.error so the auth UI
+        // can show.
+        final hasValidToken = state.maybeWhen(
+          data: (s) => s.hasValidToken,
+          orElse: () => false,
+        );
+        if (hasValidToken) {
+          _update(
+            (current) => current.copyWith(
+              isLoading: false,
+              serverReachable: false,
+            ),
+          );
+          return false;
+        }
         errorMessage = 'Connection issue - please check your network';
-
-        // Set general error status to trigger connection issue page
         _update(
           (current) => current.copyWith(
             status: AuthStatus.error,
             error: errorMessage,
             isLoading: false,
+            serverReachable: false,
           ),
         );
         return false;
@@ -969,11 +985,26 @@ class AuthStateManager extends _$AuthStateManager {
       DebugLogger.auth(
         'Silent login failed with unknown error - keeping credentials',
       );
+      // Same local-first treatment: keep the session if a token exists.
+      final hasValidToken = state.maybeWhen(
+        data: (s) => s.hasValidToken,
+        orElse: () => false,
+      );
+      if (hasValidToken) {
+        _update(
+          (current) => current.copyWith(
+            isLoading: false,
+            serverReachable: false,
+          ),
+        );
+        return false;
+      }
       _update(
         (current) => current.copyWith(
           status: AuthStatus.error,
           error: errorMessage,
           isLoading: false,
+          serverReachable: false,
         ),
       );
       return false;
@@ -987,19 +1018,21 @@ class AuthStateManager extends _$AuthStateManager {
     DebugLogger.auth('Retry counter reset for manual retry');
   }
 
-  /// Handle auth issues (called by API service)
-  /// This shows connection issue page instead of logging out
+  /// Handle auth issues (called by API service for 401/403 mid-session).
+  ///
+  /// Local-first: do NOT demote to AuthStatus.error here, since the router
+  /// reacts to that by full-screening a "connection issue" page that blocks
+  /// the entire chat UI. A 401/403 from a single API call is often a
+  /// transient server hiccup or a token race — the queue will retry, and the
+  /// reachability banner already signals the issue without blocking input.
+  ///
+  /// If the token is genuinely invalid the user will see "Tap to retry"
+  /// badges on their queued messages and can re-auth from settings.
   void onAuthIssue() {
-    DebugLogger.auth('Auth issue detected - showing connection issue page');
-    // Don't clear token or user data - just set error state
-    // The router will show connection issue page
-    _update(
-      (current) => current.copyWith(
-        status: AuthStatus.error,
-        error: 'Connection issue - please check your connection',
-        clearError: false,
-      ),
+    DebugLogger.auth(
+      'Auth issue detected - toggling serverReachable=false; keeping session',
     );
+    _update((current) => current.copyWith(serverReachable: false));
   }
 
   /// Handle token invalidation (called by API service for explicit token expiry)
@@ -1012,16 +1045,15 @@ class AuthStateManager extends _$AuthStateManager {
       _retryCount++;
       if (_retryCount >= _maxRetries) {
         DebugLogger.auth(
-          'Max retry attempts reached - stopping silent re-login',
+          'Max retry attempts reached - stopping silent re-login; '
+          'flagging serverReachable=false',
         );
+        // Local-first: don't full-screen block. Toggle reachability so the
+        // banner shows; user can keep typing and the queue keeps retrying.
         _update(
-          (current) => current.copyWith(
-            status: AuthStatus.error,
-            error: 'Connection issue - please retry manually',
-            clearError: false,
-          ),
+          (current) => current.copyWith(serverReachable: false),
         );
-        // Reset after 30 seconds to allow manual retry
+        // Reset after 30 seconds to allow another silent re-login attempt
         Future.delayed(const Duration(seconds: 30), () {
           _retryCount = 0;
           _lastRetryTime = null;
