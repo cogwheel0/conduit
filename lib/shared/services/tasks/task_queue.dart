@@ -116,7 +116,6 @@ class TaskQueueNotifier extends Notifier<List<OutboundTask>> {
   }
 
   OutboundTask _withClearedNextAttempt(OutboundTask task) => task.map(
-    sendTextMessage: (t) => t.copyWith(nextAttemptAt: null),
     uploadMedia: (t) => t.copyWith(nextAttemptAt: null),
     executeToolCall: (t) => t.copyWith(nextAttemptAt: null),
     generateImage: (t) => t.copyWith(nextAttemptAt: null),
@@ -124,14 +123,6 @@ class TaskQueueNotifier extends Notifier<List<OutboundTask>> {
   );
 
   OutboundTask _revivedFromExhaustion(OutboundTask task) => task.map(
-    sendTextMessage: (t) => t.copyWith(
-      status: TaskStatus.queued,
-      attempt: 0,
-      error: null,
-      startedAt: null,
-      completedAt: null,
-      nextAttemptAt: null,
-    ),
     uploadMedia: (t) => t.copyWith(
       status: TaskStatus.queued,
       attempt: 0,
@@ -277,8 +268,6 @@ class TaskQueueNotifier extends Notifier<List<OutboundTask>> {
   }
 
   OutboundTask _withResetForRetry(OutboundTask task) => task.map(
-    sendTextMessage: (t) =>
-        t.copyWith(status: TaskStatus.queued, startedAt: null, completedAt: null),
     uploadMedia: (t) =>
         t.copyWith(status: TaskStatus.queued, startedAt: null, completedAt: null),
     executeToolCall: (t) =>
@@ -288,29 +277,6 @@ class TaskQueueNotifier extends Notifier<List<OutboundTask>> {
     imageToDataUrl: (t) =>
         t.copyWith(status: TaskStatus.queued, startedAt: null, completedAt: null),
   );
-
-  Future<String> enqueueSendText({
-    required String? conversationId,
-    required String text,
-    List<String>? attachments,
-    List<String>? toolIds,
-    String? idempotencyKey,
-  }) async {
-    final id = _uuid.v4();
-    final task = OutboundTask.sendTextMessage(
-      id: id,
-      conversationId: conversationId,
-      text: text,
-      attachments: attachments ?? const [],
-      toolIds: toolIds ?? const [],
-      idempotencyKey: idempotencyKey,
-      enqueuedAt: DateTime.now(),
-    );
-    state = [...state, task];
-    await _save();
-    _process();
-    return id;
-  }
 
   Future<void> cancel(String id) async {
     state = [

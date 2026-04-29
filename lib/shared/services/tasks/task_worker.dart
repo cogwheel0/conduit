@@ -11,7 +11,6 @@ import '../../../core/services/attachment_upload_queue.dart';
 import '../../../core/services/worker_manager.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../features/chat/providers/chat_providers.dart' as chat;
-import '../../../features/chat/providers/context_attachments_provider.dart';
 import '../../../features/chat/services/file_attachment_service.dart';
 import '../../../features/chat/widgets/enhanced_image_attachment.dart';
 import 'outbound_task.dart';
@@ -22,61 +21,11 @@ class TaskWorker {
 
   Future<void> perform(OutboundTask task) async {
     await task.map<Future<void>>(
-      sendTextMessage: _performSendText,
       uploadMedia: _performUploadMedia,
       executeToolCall: _performExecuteToolCall,
       generateImage: _performGenerateImage,
       imageToDataUrl: _performImageToDataUrl,
     );
-  }
-
-  Future<void> _performSendText(SendTextMessageTask task) async {
-    // Ensure uploads referenced in attachments are completed if they are local queued ids
-    // For now, assume attachments are already uploaded (fileIds or data URLs) as UI uploads eagerly.
-    // If needed, we could resolve queued uploads here by integrating with AttachmentUploadQueue.
-    final isReviewer = _ref.read(reviewerModeProvider);
-    if (!isReviewer) {
-      final api = _ref.read(apiServiceProvider);
-      if (api == null) {
-        throw Exception('API not available');
-      }
-    }
-
-    // Set active conversation if provided; otherwise keep current
-    try {
-      // If a specific conversation id is provided and differs from current, load it
-      final active = _ref.read(activeConversationProvider);
-      if (task.conversationId != null &&
-          task.conversationId!.isNotEmpty &&
-          (active == null || active.id != task.conversationId)) {
-        try {
-          final api = _ref.read(apiServiceProvider);
-          if (api != null) {
-            final conv = await api.getConversation(task.conversationId!);
-            _ref.read(activeConversationProvider.notifier).set(conv);
-          }
-        } catch (_) {
-          // If loading fails, proceed; send flow can create a new conversation
-        }
-      }
-    } catch (_) {}
-
-    // Delegate to existing unified send implementation.
-    // Always clear context attachments after send, even on failure,
-    // to prevent stale attachments from leaking into subsequent messages.
-    try {
-      await chat.sendMessageFromService(
-        _ref,
-        task.text,
-        task.attachments.isEmpty ? null : task.attachments,
-        toolIds: task.toolIds.isEmpty ? null : task.toolIds,
-        outboundTaskId: task.id,
-      );
-    } finally {
-      try {
-        _ref.read(contextAttachmentsProvider.notifier).clear();
-      } catch (_) {}
-    }
   }
 
   Future<void> _syncUploadedFile(String fileId) async {
@@ -407,7 +356,7 @@ class TaskWorker {
       instruction,
       null,
       toolIds: toolIds,
-      outboundTaskId: task.id,
+      pendingMessageId: task.id,
     );
   }
 
@@ -439,7 +388,7 @@ class TaskWorker {
         _ref,
         task.prompt,
         null,
-        outboundTaskId: task.id,
+        pendingMessageId: task.id,
       );
     } finally {
       _ref.read(chat.imageGenerationEnabledProvider.notifier).set(prev);

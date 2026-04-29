@@ -23,6 +23,7 @@ import '../../../core/providers/app_providers.dart';
 import '../../../core/services/settings_service.dart';
 import '../../auth/providers/unified_auth_providers.dart';
 import '../providers/chat_providers.dart';
+import '../providers/chat_providers.dart' as chat;
 import '../../../core/utils/debug_logger.dart';
 import '../../../core/utils/startup_timeline.dart';
 import '../widgets/server_reachability_banner.dart';
@@ -383,16 +384,17 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       // Get selected tools
       final toolIds = ref.read(selectedToolIdsProvider);
 
-      // Enqueue task-based send to unify flow across text, images, and tools
-      final activeConv = ref.read(activeConversationProvider);
-      await ref
-          .read(taskQueueProvider.notifier)
-          .enqueueSendText(
-            conversationId: activeConv?.id,
-            text: text,
-            attachments: uploadedFileIds.isNotEmpty ? uploadedFileIds : null,
-            toolIds: toolIds.isNotEmpty ? toolIds : null,
-          );
+      // Direct dispatch — no Hive queue layer. The user message is written
+      // to SQLite as 'sending' inside _sendMessageInternal (via the early-
+      // persist path) and the outbox handles retry on failure.
+      unawaited(
+        chat.sendMessage(
+          ref,
+          text,
+          uploadedFileIds.isNotEmpty ? uploadedFileIds : null,
+          toolIds.isNotEmpty ? toolIds : null,
+        ),
+      );
 
       // Clear attachments after successful send
       ref.read(attachedFilesProvider.notifier).clearAll();

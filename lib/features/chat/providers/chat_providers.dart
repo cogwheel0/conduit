@@ -22,7 +22,9 @@ import '../../../core/utils/debug_logger.dart';
 import '../../../core/utils/tool_calls_parser.dart';
 import '../models/chat_context_attachment.dart';
 import '../providers/context_attachments_provider.dart';
-import '../../../shared/services/tasks/outbound_task.dart';
+import '../../../core/persistence/conversation_store.dart';
+import '../../../core/persistence/persistence_providers.dart';
+import '../../../shared/services/outbox/message_outbox.dart';
 import '../../../shared/services/tasks/task_queue.dart';
 import '../../tools/providers/tools_providers.dart';
 import '../services/chat_transport_dispatch.dart';
@@ -254,7 +256,19 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     if (_hasTrackedStreamingTransport) {
       _dropStreamingTransportState(source: 'server adoption from $source');
     }
+
+    // Snapshot the pre-adopt state before swapping in the server's view —
+    // we need it to rescue any in-memory streaming assistant placeholders
+    // for rows the server doesn't know about yet (queued sends in flight).
+    final priorState = List<ChatMessage>.unmodifiable(state);
     state = serverMessages;
+    unawaited(
+      _mergePendingOutboxIntoState(
+        serverMessages,
+        priorState: priorState,
+        source: source,
+      ),
+    );
 
     if (needsCleanup) {
       _cancelMessageStream();
@@ -265,6 +279,73 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       '(${serverMessages.length} messages)',
       scope: 'chat/providers',
     );
+  }
+
+  /// Re-add any outbox rows for the active conv that weren't in the server
+  /// snapshot, plus the in-memory streaming assistant placeholders that
+  /// are children of those rows. Without this, a passive sync that lands
+  /// while a send is in flight wipes both the user bubble and the typing
+  /// indicator from the screen.
+  Future<void> _mergePendingOutboxIntoState(
+    List<ChatMessage> serverMessages, {
+    required List<ChatMessage> priorState,
+    required String source,
+  }) async {
+    final activeId = ref.read(activeConversationProvider)?.id;
+    if (activeId == null) return;
+    final ConversationStore store;
+    try {
+      store = ref.read(conversationStoreProvider);
+    } catch (_) {
+      return;
+    }
+
+    final List<PendingMessage> pending;
+    try {
+      pending = await store.pendingMessages();
+    } catch (_) {
+      return;
+    }
+    if (!ref.mounted) return;
+
+    final serverIds = {for (final m in serverMessages) m.id};
+    final missing = <PendingMessage>[];
+    for (final p in pending) {
+      if (p.conversationId != activeId) continue;
+      if (serverIds.contains(p.messageId)) continue;
+      missing.add(p);
+    }
+    if (missing.isEmpty) return;
+
+    final missingIds = {for (final p in missing) p.messageId};
+    // Rescue any in-memory streaming assistant placeholders whose parent
+    // is one of the pending user messages. These have no SQLite row yet
+    // (they're created live by the streaming dispatcher) so the prior
+    // in-memory state is the only place they exist.
+    final rescuedAssistants = <ChatMessage>[];
+    for (final m in priorState) {
+      if (serverIds.contains(m.id)) continue;
+      if (m.role != 'assistant') continue;
+      final parentId = m.metadata?['parentId']?.toString();
+      if (parentId == null || !missingIds.contains(parentId)) continue;
+      rescuedAssistants.add(m);
+    }
+
+    final merged = <ChatMessage>[
+      ...serverMessages,
+      for (final p in missing) p.message,
+      ...rescuedAssistants,
+    ];
+
+    if (!listEquals(merged, state)) {
+      state = merged;
+      DebugLogger.log(
+        'Re-merged ${missing.length} outbox row(s) + '
+        '${rescuedAssistants.length} streaming placeholder(s) '
+        'after server adoption (source: $source)',
+        scope: 'chat/providers',
+      );
+    }
   }
 
   void _configurePassiveConversationSync(Conversation? conversation) {
@@ -2586,14 +2667,16 @@ Future<void> sendMessage(
   await _sendMessageInternal(ref, message, attachments, toolIds, isVoiceMode);
 }
 
-// Service-friendly wrapper (accepts generic Ref)
+// Service-friendly wrapper (accepts generic Ref). [pendingMessageId] is the
+// SQLite outbox row id when this send is driven by [MessageOutbox]; on retry
+// the same id is passed back so the existing in-memory bubble is reused.
 Future<void> sendMessageFromService(
   Ref ref,
   String message,
   List<String>? attachments, {
   List<String>? toolIds,
   bool isVoiceMode = false,
-  String? outboundTaskId,
+  String? pendingMessageId,
 }) async {
   await _sendMessageInternal(
     ref,
@@ -2601,7 +2684,7 @@ Future<void> sendMessageFromService(
     attachments,
     toolIds,
     isVoiceMode,
-    outboundTaskId,
+    pendingMessageId,
   );
 }
 
@@ -2642,17 +2725,20 @@ Map<String, dynamic> _fileMapFromCachedInfo(FileInfo info) {
 
 // Internal send message implementation
 //
-// [outboundTaskId] (Phase 2.5) is the [OutboundTask.id] when this send was
-// dispatched through the persistent TaskQueue. Stored in the user message's
-// metadata so [messageDeliveryStatusProvider] can correlate the message back
-// to its queue task and surface a per-message status badge.
+// [pendingMessageId] is the SQLite messages.id of the user message that is
+// already in the outbox (status='sending') when this send is driven by the
+// chat input or by [MessageOutbox] on retry. When non-null, the in-memory
+// user/assistant bubbles are reused (instead of creating fresh ids) so a
+// retry doesn't duplicate the bubble. On success/failure the corresponding
+// SQLite row's outbox state is advanced (markSent / scheduleRetry /
+// markPermanentFailed).
 Future<void> _sendMessageInternal(
   dynamic ref,
   String message,
   List<String>? attachments, [
   List<String>? toolIds,
   bool isVoiceMode = false,
-  String? outboundTaskId,
+  String? pendingMessageId,
 ]) async {
   final reviewerMode = ref.read(reviewerModeProvider);
   final api = ref.read(apiServiceProvider);
@@ -2694,15 +2780,17 @@ Future<void> _sendMessageInternal(
     existingMessages,
   );
 
-  // Retry idempotency: if this send is a queue retry (outboundTaskId is
-  // non-null and a user message with that task id already exists), reuse the
-  // original ids so we don't double up the bubble. The matching assistant
-  // placeholder is reset to a fresh streaming state.
+  // Retry / reuse: when [pendingMessageId] is non-null, the chat input (or
+  // outbox) has already created the SQLite outbox row for this send. If a
+  // user message with that id is also still in the in-memory chat state
+  // (e.g. user is on the same conversation), reuse the existing ids so the
+  // bubble isn't duplicated. The matching assistant placeholder is reset
+  // to a fresh streaming state.
   String? existingUserMessageId;
   String? existingAssistantMessageId;
-  if (outboundTaskId != null) {
+  if (pendingMessageId != null) {
     for (final m in existingMessages) {
-      if (m.role == 'user' && m.metadata?['outboundTaskId'] == outboundTaskId) {
+      if (m.role == 'user' && m.id == pendingMessageId) {
         existingUserMessageId = m.id;
         final children = m.metadata?['childrenIds'];
         if (children is List && children.isNotEmpty) {
@@ -2716,7 +2804,8 @@ Future<void> _sendMessageInternal(
     }
   }
 
-  final userMessageId = existingUserMessageId ?? const Uuid().v4();
+  final userMessageId =
+      existingUserMessageId ?? pendingMessageId ?? const Uuid().v4();
   final String assistantMessageId =
       existingAssistantMessageId ?? const Uuid().v4();
   var userMessage = ChatMessage(
@@ -2731,14 +2820,8 @@ Future<void> _sendMessageInternal(
       'parentId': openWebUiParentId,
       'childrenIds': <String>[assistantMessageId],
       'models': <String>[selectedModel.id],
-      // Phase 2.5: link this message to its persistent TaskQueue task so
-      // the per-message delivery badge can resolve queued/running/failed.
-      'outboundTaskId': ?outboundTaskId,
-      // Local-first: this message is queued/in-flight and not yet
-      // acknowledged by the server. Cleared on dispatch success. Sync
-      // logic in ConversationStore preserves messages with this flag set
-      // so a server refresh can't wipe it before delivery.
-      if (outboundTaskId != null) 'localPending': true,
+      if (toolIds != null && toolIds.isNotEmpty)
+        'toolIds': List<String>.from(toolIds),
     },
   );
 
@@ -2751,11 +2834,14 @@ Future<void> _sendMessageInternal(
     ref.read(chatMessagesProvider.notifier).addMessage(userMessage);
   }
 
-  // Persist the user message to SQLite immediately, before any await. The
-  // task queue's Hive copy is the durable source of truth, but persisting
-  // the UI-visible row up front means a force-quit between here and the
-  // first network call doesn't leave the user staring at a vanished bubble
-  // when they reopen the app.
+  // Persist the user message to SQLite as an outbox row immediately, before
+  // any await. SQLite is now the single source of truth for outbound state
+  // — a force-quit between here and the first network call leaves the row
+  // visible (status='sending'); the outbox resumes on next launch.
+  //
+  // For brand-new conversations the local row doesn't exist yet (no conv
+  // id), so we skip the outbox write and rely on the in-memory bubble
+  // until createConversation resolves below.
   try {
     final activeForEarlyPersist = ref.read(activeConversationProvider);
     if (activeForEarlyPersist != null &&
@@ -2763,10 +2849,10 @@ Future<void> _sendMessageInternal(
           ref,
           conversationId: activeForEarlyPersist.id,
         )) {
-      final storage = ref.read(optimizedStorageServiceProvider);
+      final store = ref.read(conversationStoreProvider);
       unawaited(
-        storage.persistMessageEnsuringConversation(
-          scaffold: activeForEarlyPersist.copyWith(messages: const []),
+        store.insertMessageAsSending(
+          conversationId: activeForEarlyPersist.id,
           message: userMessage,
         ),
       );
@@ -3407,46 +3493,18 @@ Future<void> _sendMessageInternal(
       ref.read(contextAttachmentsProvider.notifier).clear();
     } catch (_) {}
 
-    // Local-first: dispatch returned without throwing, so the server has
-    // accepted the message. Drop the localPending flag and re-persist so the
-    // next sync is free to overwrite this row with the server's authoritative
-    // version. We intentionally don't drop the flag in any error branch —
-    // transient errors get retried by the queue and need the protection to
-    // hold; permanent ones leave the message visible with an error pill.
-    if (outboundTaskId != null) {
-      try {
-        final notifier =
-            ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
-        notifier.updateMessageById(userMessageId, (ChatMessage m) {
-          final meta = m.metadata;
-          if (meta == null || meta['localPending'] != true) return m;
-          final cleared = Map<String, dynamic>.from(meta)
-            ..remove('localPending');
-          return m.copyWith(metadata: cleared);
-        });
-        final activeConv = ref.read(activeConversationProvider);
-        if (activeConv != null &&
-            _shouldPersistGranular(ref, conversationId: activeConv.id)) {
-          final storage = ref.read(optimizedStorageServiceProvider);
-          final msgs = ref.read(chatMessagesProvider);
-          for (final m in msgs) {
-            if (m.id == userMessageId) {
-              unawaited(
-                storage.persistMessageEnsuringConversation(
-                  scaffold: activeConv.copyWith(messages: const []),
-                  message: m,
-                ),
-              );
-              break;
-            }
-          }
-        }
-      } catch (_) {}
-    }
+    // Dispatch returned without throwing → the server has accepted the
+    // message. Flip the SQLite outbox row to 'sent' so the next sync is
+    // free to overwrite it with the server's authoritative version, and
+    // so the per-message badge clears. We don't touch the row on any
+    // error branch — that's owned by scheduleRetry / markPermanentFailed.
+    try {
+      final store = ref.read(conversationStoreProvider);
+      unawaited(store.markSent(userMessageId));
+    } catch (_) {}
 
     return;
   } catch (e, st) {
-    // Clean up buffering on error
     DebugLogger.error(
       '_sendMessageInternal failed: $e',
       scope: 'chat/providers',
@@ -3457,65 +3515,97 @@ Future<void> _sendMessageInternal(
     final ChatMessagesNotifier notifier =
         ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
     final classification = _classifySendException(e);
+    final store = ref.read(conversationStoreProvider);
 
     if (classification.kind == _SendExceptionKind.auth) {
       // 401/403 — token rejected. Drop the placeholder cleanly and let the
       // auth manager handle re-auth UI. No error text is written into the
-      // chat; the auth flow takes over.
+      // chat; the auth flow takes over. Mark the outbox row as permanent
+      // so it stops retrying — the user will see "Tap to retry" once auth
+      // is restored and they explicitly retry.
       notifier.updateLastMessageWithFunction(
         (ChatMessage m) =>
             m.copyWith(content: '', isStreaming: false, error: null),
       );
       notifier.finishStreaming();
       ref.invalidate(authStateManagerProvider);
-      // Auth issues are not retryable from the queue's perspective.
-      throw PermanentTaskError('auth: ${e.toString()}');
+      unawaited(
+        store.markPermanentFailed(
+          messageId: userMessageId,
+          error: 'auth: ${e.toString()}',
+        ),
+      );
+      return;
     }
 
     if (classification.kind == _SendExceptionKind.permanent) {
       // 4xx client error — retrying won't help. Surface the specific message
       // on the assistant placeholder so the user understands what failed,
-      // and tell the queue to stop retrying.
+      // and stop the outbox.
       final chatError = ChatMessageError(content: classification.message!);
       notifier.updateLastMessageWithFunction(
         (ChatMessage m) => m.copyWith(error: chatError),
       );
       notifier.finishStreaming();
-
-      try {
-        final activeConv = ref.read(activeConversationProvider);
-        if (activeConv != null &&
-            _shouldPersistGranular(ref, conversationId: activeConv.id)) {
-          final storage = ref.read(optimizedStorageServiceProvider);
-          final msgs = ref.read(chatMessagesProvider);
-          if (msgs.isNotEmpty) {
-            unawaited(
-              storage.persistMessageEnsuringConversation(
-                scaffold: activeConv.copyWith(messages: const []),
-                message: msgs.last,
-              ),
-            );
-          }
-        }
-      } catch (_) {}
-
-      throw PermanentTaskError(e.toString());
+      unawaited(
+        store.markPermanentFailed(
+          messageId: userMessageId,
+          error: e.toString(),
+        ),
+      );
+      return;
     }
 
     // Transient: server hiccup, network blip, timeout. Stop the typing
-    // indicator but DO NOT splash an error string across the assistant
-    // placeholder — the per-message delivery badge already says
-    // "Queued"/"Tap to retry" via [messageDeliveryStatusProvider]. Keep the
-    // user message visible with localPending intact so a passive sync can't
-    // wipe it. Rethrow so TaskQueue applies its exponential backoff and
-    // retries when reachability returns.
+    // indicator but do NOT splash an error string across the assistant
+    // placeholder — the bubble badge will show "Queued / Tap to retry"
+    // sourced from the row's send_status. Schedule the retry on the row
+    // and let the outbox pick it up.
     notifier.updateLastMessageWithFunction(
       (ChatMessage m) =>
           m.copyWith(content: '', isStreaming: false, error: null),
     );
     notifier.finishStreaming();
-    rethrow;
+
+    final attempt = await _readAttempt(store, userMessageId);
+    final nextAttempt = attempt + 1;
+    if (nextAttempt >= _maxAttempts) {
+      unawaited(
+        store.scheduleRetry(
+          messageId: userMessageId,
+          attempt: nextAttempt,
+          // Retry budget exhausted: keep status='failed' but push the next
+          // attempt far out. The reconnect path clears this so the user
+          // gets one more shot when the network comes back.
+          nextAt: DateTime.now().add(const Duration(hours: 24)),
+          error: e.toString(),
+        ),
+      );
+    } else {
+      final delay = ref.read(messageOutboxProvider.notifier).backoffFor(
+        nextAttempt,
+      );
+      unawaited(
+        store.scheduleRetry(
+          messageId: userMessageId,
+          attempt: nextAttempt,
+          nextAt: DateTime.now().add(delay),
+          error: e.toString(),
+        ),
+      );
+    }
   }
+}
+
+const int _maxAttempts = 8;
+
+Future<int> _readAttempt(ConversationStore store, String messageId) async {
+  // Lightweight: avoids decoding a payload just to read the attempt count.
+  final pending = await store.pendingMessages();
+  for (final p in pending) {
+    if (p.messageId == messageId) return p.attempt;
+  }
+  return 0;
 }
 
 enum _SendExceptionKind { auth, permanent, transient }

@@ -22,7 +22,7 @@ class AppDatabase {
   /// [ConversationStore]; this is exposed for tests and migrations.
   Database get raw => _db;
 
-  static const int _schemaVersion = 3;
+  static const int _schemaVersion = 4;
   static const String _fileName = 'conduit.db';
 
   /// Opens (or creates) the database at the app's documents directory.
@@ -96,13 +96,20 @@ class AppDatabase {
         role TEXT NOT NULL,
         timestamp INTEGER NOT NULL,
         parent_id TEXT,
-        payload_json TEXT NOT NULL
+        payload_json TEXT NOT NULL,
+        send_status TEXT NOT NULL DEFAULT 'sent',
+        send_attempt INTEGER NOT NULL DEFAULT 0,
+        send_next_at INTEGER,
+        send_error TEXT
       )
     ''');
     batch.execute(
       'CREATE INDEX idx_msg_conv_ts ON messages (conversation_id, timestamp)',
     );
     batch.execute('CREATE INDEX idx_msg_parent ON messages (parent_id)');
+    batch.execute(
+      'CREATE INDEX idx_msg_send_status ON messages (send_status, send_next_at)',
+    );
     batch.execute(
       'CREATE INDEX idx_conv_updated ON conversations (updated_at DESC)',
     );
@@ -129,6 +136,24 @@ class AppDatabase {
       await db.execute('DROP TRIGGER IF EXISTS messages_au');
       await _createMessagesFtsAndTriggers(db);
       await _backfillMessagesFts(db);
+    }
+    if (oldVersion < 4) {
+      // v4 — outbox state moves out of Hive and onto the message row itself.
+      // Existing rows are server-acknowledged, so they default to 'sent'.
+      await db.execute(
+        "ALTER TABLE messages ADD COLUMN send_status TEXT NOT NULL DEFAULT 'sent'",
+      );
+      await db.execute(
+        'ALTER TABLE messages ADD COLUMN send_attempt INTEGER NOT NULL DEFAULT 0',
+      );
+      await db.execute(
+        'ALTER TABLE messages ADD COLUMN send_next_at INTEGER',
+      );
+      await db.execute('ALTER TABLE messages ADD COLUMN send_error TEXT');
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_msg_send_status '
+        'ON messages (send_status, send_next_at)',
+      );
     }
   }
 

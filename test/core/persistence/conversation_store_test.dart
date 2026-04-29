@@ -97,26 +97,23 @@ void main() {
       check(ids).deepEquals(['m1', 'm3']);
     });
 
-    test('upsert preserves messages tagged metadata.localPending', () async {
-      // Local-pending messages are queued sends the server hasn't seen yet.
-      // A passive sync that lands before the queue drains MUST NOT wipe
-      // them — that would manifest to the user as "I sent this and it
-      // disappeared."
-      final initial = _conversation(
-        id: 'c-pending',
-        messages: [
-          _message(id: 'm-server', content: 'already on server'),
-          _message(
-            id: 'm-pending',
-            content: 'just typed, still queued',
-            metadata: {'localPending': true, 'outboundTaskId': 'task-1'},
-          ),
-        ],
-      );
-      await store.upsertConversation(initial);
+    test('insertMessageAsSending preserves the row across server sync', () async {
+      // Outbox rows are user sends the server hasn't seen yet. A passive
+      // sync that lands before the worker delivers MUST NOT wipe them —
+      // otherwise the user's just-typed bubble vanishes.
+      final scaffold = _conversation(id: 'c-pending');
+      await store.upsertConversation(scaffold);
 
-      // Simulate a server refresh that doesn't include the pending message.
-      final serverPayload = initial.copyWith(
+      await store.insertMessageAsSending(
+        conversationId: 'c-pending',
+        message: _message(id: 'm-pending', content: 'just typed'),
+      );
+      check(
+        await store.getSendStatus('m-pending'),
+      ).equals(MessageSendStatus.sending);
+
+      // Server refresh lands without the pending message — typical race.
+      final serverPayload = scaffold.copyWith(
         messages: [_message(id: 'm-server', content: 'already on server')],
       );
       await store.upsertConversation(serverPayload);
@@ -124,39 +121,90 @@ void main() {
       final loaded = await store.getConversation('c-pending');
       final ids = loaded!.messages.map((m) => m.id).toList()..sort();
       check(ids).deepEquals(['m-pending', 'm-server']);
-      final pending = loaded.messages.firstWhere((m) => m.id == 'm-pending');
-      check(pending.content).equals('just typed, still queued');
-      check(pending.metadata?['localPending']).equals(true);
+      check(
+        await store.getSendStatus('m-pending'),
+      ).equals(MessageSendStatus.sending);
     });
 
     test(
-      'upsert does not overwrite a localPending row even when server '
-      'returns the same id',
+      'sync does not overwrite a sending row even when server returns the '
+      'same id',
       () async {
-        final initial = _conversation(
-          id: 'c-collide',
-          messages: [
-            _message(
-              id: 'shared-id',
-              content: 'local pending content',
-              metadata: {'localPending': true},
-            ),
-          ],
+        final scaffold = _conversation(id: 'c-collide');
+        await store.upsertConversation(scaffold);
+        await store.insertMessageAsSending(
+          conversationId: 'c-collide',
+          message: _message(id: 'shared-id', content: 'local pending'),
         );
-        await store.upsertConversation(initial);
 
-        // Server happens to return the same id (rare race) with different
-        // content. We should leave the local pending row alone — once the
-        // outbound task succeeds the flag clears and the next sync wins.
-        final serverPayload = initial.copyWith(
+        // Server happens to return the same id with different content.
+        // Leave the in-flight row alone — once markSent fires the next
+        // sync wins.
+        final serverPayload = scaffold.copyWith(
           messages: [_message(id: 'shared-id', content: 'server content')],
         );
         await store.upsertConversation(serverPayload);
 
         final loaded = await store.getConversation('c-collide');
-        check(loaded!.messages.single.content).equals('local pending content');
+        check(loaded!.messages.single.content).equals('local pending');
       },
     );
+
+    test('markSent releases the row so next sync can overwrite', () async {
+      final scaffold = _conversation(id: 'c-flow');
+      await store.upsertConversation(scaffold);
+      await store.insertMessageAsSending(
+        conversationId: 'c-flow',
+        message: _message(id: 'm', content: 'local'),
+      );
+      await store.markSent('m');
+      check(await store.getSendStatus('m')).equals(MessageSendStatus.sent);
+
+      // Now a sync without `m` should prune it (no longer protected).
+      await store.upsertConversation(
+        scaffold.copyWith(messages: const []),
+      );
+      check(await store.getMessageIds('c-flow')).isEmpty();
+    });
+
+    test('pendingMessages returns sending and failed rows ordered by ts',
+        () async {
+      final scaffold = _conversation(id: 'c-pending-list');
+      await store.upsertConversation(scaffold);
+      await store.insertMessageAsSending(
+        conversationId: 'c-pending-list',
+        message: _message(
+          id: 'older',
+          content: 'older',
+          timestamp: DateTime(2026, 1, 1),
+        ),
+      );
+      await store.insertMessageAsSending(
+        conversationId: 'c-pending-list',
+        message: _message(
+          id: 'newer',
+          content: 'newer',
+          timestamp: DateTime(2026, 4, 1),
+        ),
+      );
+      await store.scheduleRetry(
+        messageId: 'newer',
+        attempt: 2,
+        nextAt: DateTime(2026, 5, 1),
+        error: 'flaky network',
+      );
+
+      final pending = await store.pendingMessages();
+      check(pending.map((p) => p.messageId).toList()).deepEquals([
+        'older',
+        'newer',
+      ]);
+      check(pending[1].attempt).equals(2);
+      check(pending[1].error).equals('flaky network');
+      check(
+        pending[1].nextAt,
+      ).equals(DateTime(2026, 5, 1));
+    });
 
     test('replaceAllConversations prunes conversations missing from the '
         'server snapshot', () async {

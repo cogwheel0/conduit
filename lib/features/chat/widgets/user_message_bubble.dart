@@ -10,11 +10,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:io' show Platform;
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/core/services/haptic_service.dart';
-import '../../../core/providers/app_providers.dart';
 import '../providers/chat_providers.dart';
+import '../providers/chat_providers.dart' as chat_providers;
 import '../providers/message_delivery_status_provider.dart';
-import '../../../shared/services/tasks/outbound_task.dart';
-import '../../../shared/services/tasks/task_queue.dart';
+import '../../../core/persistence/conversation_store.dart';
+import '../../../core/persistence/persistence_providers.dart';
+import '../../../shared/services/outbox/message_outbox.dart';
+import 'dart:async';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../tools/providers/tools_providers.dart';
 import '../utils/file_utils.dart';
@@ -854,22 +856,21 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
         final keep = messages.take(idx).toList(growable: false);
         ref.read(chatMessagesProvider.notifier).setMessages(keep);
 
-        // Enqueue edited text as a new message
-        final activeConv = ref.read(activeConversationProvider);
+        // Direct dispatch — outbox handles retry on failure.
         final List<String>? attachments =
             (widget.message.attachmentIds != null &&
                 (widget.message.attachmentIds as List).isNotEmpty)
             ? List<String>.from(widget.message.attachmentIds as List)
             : null;
         final toolIds = ref.read(selectedToolIdsProvider);
-        await ref
-            .read(taskQueueProvider.notifier)
-            .enqueueSendText(
-              conversationId: activeConv?.id,
-              text: newText,
-              attachments: attachments,
-              toolIds: toolIds.isNotEmpty ? toolIds : null,
-            );
+        unawaited(
+          chat_providers.sendMessage(
+            ref,
+            newText,
+            attachments,
+            toolIds.isNotEmpty ? toolIds : null,
+          ),
+        );
       }
     } catch (_) {
       // Swallow errors; upstream error handling will surface if needed
@@ -884,9 +885,10 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
   }
 }
 
-/// Compact per-message delivery indicator. Renders nothing when the message's
-/// outbound task has succeeded (or the message wasn't queue-routed). On
-/// failure it offers a tap-to-retry that re-enqueues the underlying task.
+/// Compact per-message delivery indicator. Renders nothing for messages the
+/// server has acknowledged. For sending/failed/permanent_failed rows it
+/// shows the corresponding label; tap on a failed row triggers a manual
+/// retry which flips the row back to 'sending' and kicks the outbox.
 class _DeliveryStatusBadge extends ConsumerWidget {
   const _DeliveryStatusBadge({required this.messageId});
 
@@ -894,53 +896,52 @@ class _DeliveryStatusBadge extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final status = ref.watch(messageDeliveryStatusProvider(messageId));
-    if (status == null) return const SizedBox.shrink();
+    final asyncStatus = ref.watch(messageDeliveryStatusProvider(messageId));
+    final status = asyncStatus.value;
+    if (status == null || status == MessageSendStatus.sent) {
+      return const SizedBox.shrink();
+    }
 
     final theme = context.conduitTheme;
-    final IconData icon;
-    final Color color;
-    final String label;
-    switch (status) {
-      case TaskStatus.queued:
-        icon = Platform.isIOS ? CupertinoIcons.clock : Icons.schedule;
-        color = theme.textSecondary;
-        label = 'Queued';
-      case TaskStatus.running:
-        icon = Platform.isIOS ? CupertinoIcons.arrow_2_circlepath : Icons.sync;
-        color = theme.textSecondary;
-        label = 'Sending';
-      case TaskStatus.failed:
-        icon = Platform.isIOS
+    final (IconData icon, Color color, String label) = switch (status) {
+      MessageSendStatus.sending => (
+        Platform.isIOS ? CupertinoIcons.arrow_2_circlepath : Icons.sync,
+        theme.textSecondary,
+        'Sending',
+      ),
+      MessageSendStatus.failed => (
+        Platform.isIOS
             ? CupertinoIcons.exclamationmark_triangle
-            : Icons.error_outline;
-        color = theme.warning;
-        label = 'Tap to retry';
-      case TaskStatus.succeeded:
-      case TaskStatus.cancelled:
-        return const SizedBox.shrink();
-    }
+            : Icons.error_outline,
+        theme.warning,
+        'Tap to retry',
+      ),
+      MessageSendStatus.permanentFailed => (
+        Platform.isIOS
+            ? CupertinoIcons.exclamationmark_triangle_fill
+            : Icons.error,
+        theme.error,
+        'Tap to retry',
+      ),
+      MessageSendStatus.sent => (Icons.check, theme.textSecondary, ''),
+    };
 
     Future<void> handleTap() async {
-      if (status != TaskStatus.failed) return;
-      // Inline the message → task id lookup so we can stay in WidgetRef land.
-      final messages = ref.read(chatMessagesProvider);
-      String? taskId;
-      for (final m in messages) {
-        if (m.id == messageId) {
-          final raw = m.metadata?['outboundTaskId'];
-          if (raw is String && raw.isNotEmpty) taskId = raw;
-          break;
-        }
-      }
-      if (taskId == null) return;
-      await ref.read(taskQueueProvider.notifier).retry(taskId);
+      // Manual retry: reset the row to 'sending' and let the outbox
+      // re-pump it. Same code path as a fresh send.
+      final store = ref.read(conversationStoreProvider);
+      await store.markSending(messageId);
+      ref.read(messageOutboxProvider.notifier).kick();
     }
+
+    final tappable =
+        status == MessageSendStatus.failed ||
+        status == MessageSendStatus.permanentFailed;
 
     return Padding(
       padding: const EdgeInsets.only(top: 4.0, right: 4.0),
       child: GestureDetector(
-        onTap: status == TaskStatus.failed ? handleTap : null,
+        onTap: tappable ? handleTap : null,
         behavior: HitTestBehavior.opaque,
         child: Row(
           mainAxisAlignment: MainAxisAlignment.end,
