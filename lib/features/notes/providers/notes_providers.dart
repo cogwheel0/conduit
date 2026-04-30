@@ -71,7 +71,7 @@ class NotesList extends _$NotesList {
 }
 
 /// Provider for a single note by ID.
-@riverpod
+@Riverpod(keepAlive: true)
 Future<Note?> noteById(Ref ref, String id) async {
   final api = ref.watch(apiServiceProvider);
   if (api == null) return null;
@@ -113,7 +113,7 @@ TimeRange getTimeRangeForTimestamp(DateTime timestamp) {
 }
 
 /// Provider that returns notes grouped by time range.
-@riverpod
+@Riverpod(keepAlive: true)
 Map<TimeRange, List<Note>> notesGroupedByTime(Ref ref) {
   final notesAsync = ref.watch(notesListProvider);
   final notes = notesAsync.value ?? [];
@@ -129,11 +129,7 @@ Map<TimeRange, List<Note>> notesGroupedByTime(Ref ref) {
 }
 
 /// Provider for notes filtered by search query.
-@riverpod
-List<Note> filteredNotes(Ref ref, String query) {
-  final notesAsync = ref.watch(notesListProvider);
-  final notes = notesAsync.value ?? [];
-
+List<Note> filterNotesByQuery(List<Note> notes, String query) {
   if (query.isEmpty) return notes;
 
   final lowerQuery = query.toLowerCase();
@@ -144,6 +140,13 @@ List<Note> filteredNotes(Ref ref, String query) {
     );
     return titleMatch || contentMatch;
   }).toList();
+}
+
+/// Provider for notes filtered by search query.
+@Riverpod(keepAlive: true)
+Future<List<Note>> filteredNotes(Ref ref, String query) async {
+  final notes = await ref.watch(notesListProvider.future);
+  return filterNotesByQuery(notes, query);
 }
 
 /// Provider for creating a new note.
@@ -346,7 +349,7 @@ class NoteDeleter extends _$NoteDeleter {
 }
 
 /// Provider for the currently active/selected note.
-@riverpod
+@Riverpod(keepAlive: true)
 class ActiveNote extends _$ActiveNote {
   @override
   Note? build() => null;

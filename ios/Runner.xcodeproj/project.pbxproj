@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 70;
+	objectVersion = 54;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -121,14 +121,14 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		F15AFED52EE5499E00A1FABB /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+		F15AFED52EE5499E00A1FABB /* Exceptions for "ConduitWidget" folder in "ConduitWidgetExtension" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
 			);
 			target = F15AFEC12EE5499D00A1FABB /* ConduitWidgetExtension */;
 		};
-		F1DBCF222E601A39004C2540 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+		F1DBCF222E601A39004C2540 /* Exceptions for "ShareExtension" folder in "ShareExtension" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -138,8 +138,30 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		F15AFEC72EE5499D00A1FABB /* ConduitWidget */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (F15AFED52EE5499E00A1FABB /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = ConduitWidget; sourceTree = "<group>"; };
-		F1DBCF142E601A39004C2540 /* ShareExtension */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (F1DBCF222E601A39004C2540 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = ShareExtension; sourceTree = "<group>"; };
+		F15AFEC72EE5499D00A1FABB /* ConduitWidget */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				F15AFED52EE5499E00A1FABB /* Exceptions for "ConduitWidget" folder in "ConduitWidgetExtension" target */,
+			);
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			path = ConduitWidget;
+			sourceTree = "<group>";
+		};
+		F1DBCF142E601A39004C2540 /* ShareExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				F1DBCF222E601A39004C2540 /* Exceptions for "ShareExtension" folder in "ShareExtension" target */,
+			);
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			path = ShareExtension;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -459,12 +481,8 @@
 			);
 			inputFileListPaths = (
 			);
-			inputPaths = (
-			);
 			name = "[CP] Embed Pods Frameworks";
 			outputFileListPaths = (
-			);
-			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -531,12 +549,8 @@
 			);
 			inputFileListPaths = (
 			);
-			inputPaths = (
-			);
 			name = "[CP] Copy Pods Resources";
 			outputFileListPaths = (
-			);
-			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;

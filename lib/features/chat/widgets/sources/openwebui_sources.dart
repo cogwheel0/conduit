@@ -1,4 +1,5 @@
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -497,24 +498,26 @@ class _SourceFavicon extends StatelessWidget {
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular((size / 2) - 1),
-        child: Image.network(
-          'https://www.google.com/s2/favicons?sz=32&domain=$domain',
+        child: CachedNetworkImage(
+          imageUrl: 'https://www.google.com/s2/favicons?sz=32&domain=$domain',
           width: size - 2,
           height: size - 2,
-          errorBuilder: (context, error, stackTrace) {
-            return Container(
-              width: size - 2,
-              height: size - 2,
-              color: theme.textSecondary.withValues(alpha: 0.1),
-              alignment: Alignment.center,
-              child: Icon(
-                Icons.language,
-                size: size * 0.55,
-                color: theme.textSecondary.withValues(alpha: 0.6),
-              ),
-            );
-          },
+          errorWidget: (context, url, error) => _fallback(theme),
         ),
+      ),
+    );
+  }
+
+  Widget _fallback(ConduitThemeExtension theme) {
+    return Container(
+      width: size - 2,
+      height: size - 2,
+      color: theme.textSecondary.withValues(alpha: 0.1),
+      alignment: Alignment.center,
+      child: Icon(
+        Icons.language,
+        size: size * 0.55,
+        color: theme.textSecondary.withValues(alpha: 0.6),
       ),
     );
   }

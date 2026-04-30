@@ -59,7 +59,7 @@ class ActiveChannel extends _$ActiveChannel {
 
 /// Fetches paginated messages for a channel using skip/limit
 /// pagination.
-@riverpod
+@Riverpod(keepAlive: true)
 class ChannelMessages extends _$ChannelMessages {
   static const int _pageSize = 50;
   bool _hasMore = true;
@@ -80,7 +80,7 @@ class ChannelMessages extends _$ChannelMessages {
     return messages;
   }
 
-  bool get hasMore => _hasMore;
+  bool hasMore() => _hasMore;
 
   /// Loads older messages using skip/limit pagination.
   Future<void> loadMore() async {
@@ -155,7 +155,7 @@ class ChannelTypingUsers extends _$ChannelTypingUsers {
 }
 
 /// Fetches thread replies for a parent message.
-@riverpod
+@Riverpod(keepAlive: true)
 class ThreadMessages extends _$ThreadMessages {
   static const int _pageSize = 50;
   bool _hasMore = true;
@@ -181,7 +181,7 @@ class ThreadMessages extends _$ThreadMessages {
   }
 
   /// Whether more thread replies are available.
-  bool get hasMore => _hasMore;
+  bool hasMore() => _hasMore;
 
   /// Loads older thread replies.
   Future<void> loadMore() async {

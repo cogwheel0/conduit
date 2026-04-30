@@ -99,7 +99,7 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
     final bottomInset = sidebarUserPillContentInset(context, ref);
     final notes = _query.isEmpty
         ? ref.watch(notesListProvider)
-        : AsyncValue.data(ref.watch(filteredNotesProvider(_query)));
+        : ref.watch(filteredNotesProvider(_query));
 
     return Padding(
       padding: EdgeInsets.only(bottom: bottomInset),

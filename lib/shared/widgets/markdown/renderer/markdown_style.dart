@@ -92,7 +92,7 @@ class ConduitMarkdownStyle {
     final paragraphSpacing = AppTypography.usesAppleRamp
         ? Spacing.md
         : (bodyLineHeight * 0.5)
-              .clamp(Spacing.sm + Spacing.xs, Spacing.md)
+              .clamp(Spacing.md, Spacing.lg)
               .toDouble();
 
     // Monospace base for code elements.

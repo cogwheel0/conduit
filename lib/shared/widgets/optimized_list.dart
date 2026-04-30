@@ -72,7 +72,7 @@ class OptimizedSliverList<T> extends ConsumerWidget {
       );
     }
 
-    NullableIndexedWidgetBuilder builder = (context, index) {
+    Widget? builder(BuildContext context, int index) {
       if (index >= items.length) {
         if (hasMore) {
           // Trigger pagination once this placeholder is built.
@@ -90,7 +90,7 @@ class OptimizedSliverList<T> extends ConsumerWidget {
 
       final item = items[index];
       return itemBuilder(context, item, index);
-    };
+    }
 
     if (!useSuperSliverList) {
       return SliverList(

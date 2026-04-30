@@ -74,6 +74,7 @@ class _ConduitMarkdownWidgetState extends State<ConduitMarkdownWidget> {
   InlineRenderer? _inlineRenderer;
   List<md.Node> _nodes = [];
   String _cachedData = '';
+  List<ChatSourceReference>? _cachedSources;
 
   @override
   void dispose() {
@@ -85,10 +86,15 @@ class _ConduitMarkdownWidgetState extends State<ConduitMarkdownWidget> {
   /// result. Only re-parses when [data] differs from the
   /// previously cached value.
   void _ensureParsed(String data) {
-    if (data == _cachedData && _nodes.isNotEmpty) return;
+    if (data == _cachedData &&
+        identical(widget.sources, _cachedSources) &&
+        _nodes.isNotEmpty) {
+      return;
+    }
 
     _inlineRenderer?.disposeRecognizers();
     _cachedData = data;
+    _cachedSources = widget.sources;
 
     _latexPreprocessor = LatexPreprocessor();
     final preprocessed = _latexPreprocessor.extract(data);

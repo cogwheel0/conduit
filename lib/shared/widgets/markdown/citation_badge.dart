@@ -22,12 +22,13 @@ TextStyle _badgeLabelTextStyle(BuildContext context, Color color) {
   return textTheme.labelSmall?.copyWith(
         color: color,
         fontWeight: FontWeight.w500,
-        fontSize: AppTypography.labelSmallStyle.fontSize,
+        fontSize: 10,
         height: 1,
       ) ??
       AppTypography.labelSmallStyle.copyWith(
         color: color,
         fontWeight: FontWeight.w500,
+        fontSize: 10,
         height: 1,
       );
 }

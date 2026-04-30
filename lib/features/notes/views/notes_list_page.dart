@@ -193,9 +193,9 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
   }
 
   Widget _buildNotesList(BuildContext context, List<Note> allNotes) {
-    final notes = _query.isEmpty
+    final List<Note> notes = _query.isEmpty
         ? allNotes
-        : ref.watch(filteredNotesProvider(_query));
+        : filterNotesByQuery(allNotes, _query);
 
     if (notes.isEmpty) {
       return _buildEmptyState(context);

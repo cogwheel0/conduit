@@ -52,6 +52,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   Timer? _typingTimer;
   ChannelMessage? _replyToMessage;
   ChannelMessage? _threadParent;
+  late final ChannelSocketHandler _socketHandler;
 
   void _setReplyTo(ChannelMessage message) {
     setState(() => _replyToMessage = message);
@@ -104,6 +105,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   @override
   void initState() {
     super.initState();
+    _socketHandler = ref.read(channelSocketHandlerProvider.notifier);
     _scrollController.addListener(_onScroll);
     _loadChannel();
     // Defer subscribe to after the build phase — unsubscribe
@@ -111,9 +113,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     // during initState.
     Future(() {
       if (!mounted) return;
-      ref
-          .read(channelSocketHandlerProvider.notifier)
-          .subscribe(widget.channelId);
+      _socketHandler.subscribe(widget.channelId);
     });
   }
 
@@ -125,7 +125,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       ..removeListener(_onScroll)
       ..dispose();
     try {
-      ref.read(channelSocketHandlerProvider.notifier).unsubscribe();
+      _socketHandler.unsubscribe();
     } catch (_) {
       // Provider may already be disposed during hot reload or
       // container teardown — the keepAlive notifier's own
@@ -170,7 +170,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     final notifier = ref.read(
       channelMessagesProvider(widget.channelId).notifier,
     );
-    if (!notifier.hasMore) return;
+    if (!notifier.hasMore()) return;
     setState(() => _isLoadingMore = true);
     try {
       await notifier.loadMore();

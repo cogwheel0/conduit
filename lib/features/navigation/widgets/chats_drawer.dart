@@ -115,7 +115,8 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     }
 
     final notifier = ref.read(conversationsProvider.notifier);
-    if (!notifier.hasMoreRegularChats || notifier.isLoadingMoreRegularChats) {
+    if (!notifier.hasMoreRegularChats() ||
+        notifier.isLoadingMoreRegularChats()) {
       return;
     }
     if (ref.read(apiServiceProvider) == null) {
@@ -435,7 +436,8 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     final folderConversationsAsync = !fetchFromServerForFolders || !isExpanded
         ? null
         : ref.watch(folderConversationSummariesProvider(folder.id));
-    final conversations = folderConversationsAsync?.maybeWhen(
+    final conversations =
+        folderConversationsAsync?.maybeWhen(
           data: (loadedConversations) => loadedConversations.isNotEmpty
               ? loadedConversations
               : placeholderConversations,
@@ -443,7 +445,8 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         ) ??
         placeholderConversations;
     final isFolderLoading =
-        fetchFromServerForFolders && (folderConversationsAsync?.isLoading == true);
+        fetchFromServerForFolders &&
+        (folderConversationsAsync?.isLoading == true);
     final itemCount = _folderTreeItemCount(
       folder: folder,
       childFoldersByParentId: childFoldersByParentId,
@@ -545,8 +548,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
 
     final nextVisitedFolderIds = {...visitedFolderIds, folder.id};
     final childFolders = childFoldersByParentId[folder.id] ?? const <Folder>[];
-    final directConversationCount =
-        !fetchFromServerForFolders
+    final directConversationCount = !fetchFromServerForFolders
         ? (folderConversationFallbacks[folder.id]?.length ?? 0)
         : (folderConversationFallbacks[folder.id]?.length ??
               folder.conversationIds.length);
@@ -676,9 +678,11 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       return conversationsAsync.when(
         data: (items) {
           final list = items;
-          final conversationsNotifier = ref.read(conversationsProvider.notifier);
+          final conversationsNotifier = ref.read(
+            conversationsProvider.notifier,
+          );
           final hasMoreRegularChats =
-              conversationsNotifier.hasMoreRegularChats ||
+              conversationsNotifier.hasMoreRegularChats() ||
               _isLoadingMoreConversations;
           // Build a models map once for this build.
           final modelsAsync = ref.watch(modelsProvider);
@@ -1530,7 +1534,10 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
 
   List<Conversation> _placeholderConversationsForFolder(Folder folder) {
     return folder.conversationIds
-        .map((conversationId) => _placeholderConversation(conversationId, folder.id))
+        .map(
+          (conversationId) =>
+              _placeholderConversation(conversationId, folder.id),
+        )
         .toList(growable: false);
   }
 

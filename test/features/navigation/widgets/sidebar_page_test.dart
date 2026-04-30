@@ -482,22 +482,37 @@ Widget _buildSidebarHarness({
 
   return ProviderScope(
     overrides: [
+      // ignore: scoped_providers_should_specify_dependencies
       appSettingsProvider.overrideWithValue(const AppSettings()),
+      // ignore: scoped_providers_should_specify_dependencies
       apiServiceProvider.overrideWithValue(null),
+      // ignore: scoped_providers_should_specify_dependencies
       currentUserProvider2.overrideWithValue(currentUser),
+      // ignore: scoped_providers_should_specify_dependencies
       currentUserProvider.overrideWith((ref) async => currentUser),
+      // ignore: scoped_providers_should_specify_dependencies
       conversationsProvider.overrideWith(
         () => _TestConversations(conversations),
       ),
+      // ignore: scoped_providers_should_specify_dependencies
       modelsProvider.overrideWith(_TestModels.new),
+      // ignore: scoped_providers_should_specify_dependencies
       foldersProvider.overrideWith(() => _TestFolders(folders)),
+      // ignore: scoped_providers_should_specify_dependencies
       notesListProvider.overrideWith(_TestNotesList.new),
+      // ignore: scoped_providers_should_specify_dependencies
       channelsListProvider.overrideWith(_TestChannelsList.new),
+      // ignore: scoped_providers_should_specify_dependencies
       showPinnedProvider.overrideWith(_TestShowPinnedNotifier.new),
+      // ignore: scoped_providers_should_specify_dependencies
       showFoldersProvider.overrideWith(_TestShowFoldersNotifier.new),
+      // ignore: scoped_providers_should_specify_dependencies
       showRecentProvider.overrideWith(_TestShowRecentNotifier.new),
+      // ignore: scoped_providers_should_specify_dependencies
       reviewerModeProvider.overrideWithValue(false),
+      // ignore: scoped_providers_should_specify_dependencies
       notesFeatureEnabledProvider.overrideWith(() => controllers.notesNotifier),
+      // ignore: scoped_providers_should_specify_dependencies
       sidebarActiveTabProvider.overrideWith(
         () => controllers.activeTabNotifier,
       ),
@@ -546,6 +561,7 @@ class _TestSidebarActiveTab extends SidebarActiveTab {
     state = index.clamp(0, 2);
   }
 
+  // ignore: avoid_public_notifier_properties
   int get currentValue => state;
 }
 

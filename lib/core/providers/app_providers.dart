@@ -1137,8 +1137,8 @@ class Conversations extends _$Conversations {
   bool _allRegularChatsLoaded = false;
   bool _isLoadingMoreRegularChats = false;
 
-  bool get hasMoreRegularChats => !_allRegularChatsLoaded;
-  bool get isLoadingMoreRegularChats => _isLoadingMoreRegularChats;
+  bool hasMoreRegularChats() => !_allRegularChatsLoaded;
+  bool isLoadingMoreRegularChats() => _isLoadingMoreRegularChats;
 
   @override
   Future<List<Conversation>> build() async {
@@ -1368,16 +1368,15 @@ class Conversations extends _$Conversations {
     );
   }
 
-  void _resetPaginationState({
-    int currentPage = 0,
-    bool allLoaded = false,
-  }) {
+  void _resetPaginationState({int currentPage = 0, bool allLoaded = false}) {
     _currentRegularPage = currentPage;
     _allRegularChatsLoaded = allLoaded;
     _isLoadingMoreRegularChats = false;
   }
 
-  List<Conversation> _prepareCachedSidebarFeed(List<Conversation> conversations) {
+  List<Conversation> _prepareCachedSidebarFeed(
+    List<Conversation> conversations,
+  ) {
     final pinned = <Conversation>[];
     final archived = <Conversation>[];
     final foldered = <Conversation>[];
@@ -1395,7 +1394,9 @@ class Conversations extends _$Conversations {
       }
     }
 
-    final visibleRegular = regular.take(_regularPageSize).toList(growable: false);
+    final visibleRegular = regular
+        .take(_regularPageSize)
+        .toList(growable: false);
     _resetPaginationState(
       currentPage: visibleRegular.isEmpty ? 0 : 1,
       allLoaded: regular.length < _regularPageSize,
@@ -1547,14 +1548,11 @@ class Conversations extends _$Conversations {
       final preservedFolderConversations = (state.asData?.value ?? const [])
           .where(_isFolderConversation)
           .toList(growable: false);
-      final sortedConversations = _mergeConversationLists(
-        [
-          ...preservedFolderConversations,
-          ...pinnedConversations,
-          ...archivedConversations,
-        ],
-        regularConversations,
-      );
+      final sortedConversations = _mergeConversationLists([
+        ...preservedFolderConversations,
+        ...pinnedConversations,
+        ...archivedConversations,
+      ], regularConversations);
       _updateCacheTimestamp(DateTime.now());
       return sortedConversations;
     } catch (e, stackTrace) {
@@ -1611,7 +1609,9 @@ final folderConversationSummariesProvider =
       }
 
       try {
-        final conversations = await api.getFolderConversationSummaries(folderId);
+        final conversations = await api.getFolderConversationSummaries(
+          folderId,
+        );
         final normalized = conversations
             .map(
               (conversation) => conversation.folderId == null
@@ -1619,7 +1619,9 @@ final folderConversationSummariesProvider =
                   : conversation,
             )
             .toList(growable: false);
-        ref.read(conversationsProvider.notifier).upsertConversations(normalized);
+        ref
+            .read(conversationsProvider.notifier)
+            .upsertConversations(normalized);
         return normalized;
       } catch (error, stackTrace) {
         DebugLogger.error(

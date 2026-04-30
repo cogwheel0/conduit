@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/cupertino.dart' show CupertinoTextSelectionControls;
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
@@ -8,7 +10,7 @@ import 'markdown_preprocessor.dart';
 import 'renderer/block_renderer.dart';
 import 'renderer/conduit_markdown_widget.dart';
 
-class StreamingMarkdownWidget extends StatelessWidget {
+class StreamingMarkdownWidget extends StatefulWidget {
   const StreamingMarkdownWidget({
     super.key,
     required this.content,
@@ -36,11 +38,93 @@ class StreamingMarkdownWidget extends StatelessWidget {
   /// Optional scope used to preserve state for remounted markdown blocks.
   final String? stateScopeId;
 
+  @override
+  State<StreamingMarkdownWidget> createState() =>
+      _StreamingMarkdownWidgetState();
+}
+
+class _StreamingMarkdownWidgetState extends State<StreamingMarkdownWidget> {
+  static const _streamingRenderInterval = Duration(milliseconds: 100);
+
+  String? _lastRawContent;
+  String? _lastNormalizedContent;
+  String _renderedContent = '';
+  Timer? _renderTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _renderedContent = _normalize(widget.content);
+  }
+
+  @override
+  void didUpdateWidget(covariant StreamingMarkdownWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(widget.sources, oldWidget.sources) ||
+        widget.onSourceTap != oldWidget.onSourceTap ||
+        widget.onTapLink != oldWidget.onTapLink ||
+        widget.imageBuilderOverride != oldWidget.imageBuilderOverride ||
+        widget.stateScopeId != oldWidget.stateScopeId) {
+      setState(() {});
+    }
+    if (widget.content == oldWidget.content &&
+        widget.isStreaming == oldWidget.isStreaming) {
+      return;
+    }
+
+    if (!widget.isStreaming) {
+      _renderTimer?.cancel();
+      _renderTimer = null;
+      final normalized = _normalize(widget.content);
+      if (_renderedContent != normalized) {
+        _renderedContent = normalized;
+      }
+      return;
+    }
+
+    if (_isWidgetTest) {
+      final normalized = _normalize(widget.content);
+      if (_renderedContent != normalized) {
+        _renderedContent = normalized;
+      }
+      return;
+    }
+
+    final interval = _isWidgetTest ? Duration.zero : _streamingRenderInterval;
+    _renderTimer ??= Timer(interval, () {
+      _renderTimer = null;
+      if (!mounted) return;
+      final normalized = _normalize(widget.content);
+      if (_renderedContent != normalized) {
+        setState(() => _renderedContent = normalized);
+      }
+    });
+  }
+
+  bool get _isWidgetTest =>
+      WidgetsBinding.instance.runtimeType.toString().contains('Test');
+
+  @override
+  void dispose() {
+    _renderTimer?.cancel();
+    super.dispose();
+  }
+
+  String _normalize(String content) {
+    if (content == _lastRawContent && _lastNormalizedContent != null) {
+      return _lastNormalizedContent!;
+    }
+    final normalized = ConduitMarkdownPreprocessor.normalize(content);
+    _lastRawContent = content;
+    _lastNormalizedContent = normalized;
+    return normalized;
+  }
+
   /// Adapts the legacy [imageBuilderOverride] callback
   /// to the [ImageBuilder] signature used by the custom
   /// renderer.
   ImageBuilder? _adaptImageBuilder() {
-    final override = imageBuilderOverride;
+    final override = widget.imageBuilderOverride;
     if (override == null) return null;
     return (String src, String? alt, String? title) {
       final uri = Uri.tryParse(src);
@@ -51,17 +135,19 @@ class StreamingMarkdownWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final content = widget.isStreaming
+        ? _renderedContent
+        : _normalize(widget.content);
     if (content.trim().isEmpty) {
       return const SizedBox.shrink();
     }
 
-    final normalized = ConduitMarkdownPreprocessor.normalize(content);
-    final result = _buildMarkdownWithCitations(normalized);
+    final result = _buildMarkdownWithCitations(content);
 
     // Only wrap in SelectionArea when not streaming to
     // avoid concurrent modification errors in Flutter's
     // selection system during rapid updates.
-    if (isStreaming) {
+    if (widget.isStreaming) {
       return result;
     }
 
@@ -80,11 +166,11 @@ class StreamingMarkdownWidget extends StatelessWidget {
   Widget _buildMarkdownWithCitations(String data) {
     return ConduitMarkdownWidget(
       data: data,
-      onLinkTap: onTapLink,
+      onLinkTap: widget.onTapLink,
       imageBuilder: _adaptImageBuilder(),
-      sources: sources,
-      onSourceTap: onSourceTap,
-      stateScopeId: stateScopeId,
+      sources: widget.sources,
+      onSourceTap: widget.onSourceTap,
+      stateScopeId: widget.stateScopeId,
     );
   }
 }

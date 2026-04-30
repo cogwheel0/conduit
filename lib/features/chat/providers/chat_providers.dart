@@ -119,6 +119,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   /// Interval for syncing the streaming buffer into the message list state.
   /// Per-chunk updates go through [streamingContentProvider] instead.
   static const _streamingSyncInterval = Duration(milliseconds: 500);
+  static const _streamingContentUpdateInterval = Duration(milliseconds: 50);
   static const _passiveRefreshDebounce = Duration(milliseconds: 350);
 
   StreamingResponseController? _messageStream;
@@ -130,6 +131,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   DateTime? _lastStreamingActivity;
   StringBuffer? _streamingBuffer;
   Timer? _streamingSyncTimer;
+  Timer? _streamingContentTimer;
   Timer? _taskStatusTimer;
   Timer? _passiveConversationRefreshTimer;
   bool _taskStatusCheckInFlight = false;
@@ -198,6 +200,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         _stopRemoteTaskMonitor();
         _streamingSyncTimer?.cancel();
         _streamingSyncTimer = null;
+        _streamingContentTimer?.cancel();
+        _streamingContentTimer = null;
 
         _conversationListener?.close();
         _conversationListener = null;
@@ -238,6 +242,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _streamingBuffer = null;
     _streamingSyncTimer?.cancel();
     _streamingSyncTimer = null;
+    _streamingContentTimer?.cancel();
+    _streamingContentTimer = null;
     _clearStreamingContent();
     if (_hasTrackedStreamingTransport) {
       _dropStreamingTransportState(source: 'server adoption from $source');
@@ -475,6 +481,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _streamingBuffer = null;
     _streamingSyncTimer?.cancel();
     _streamingSyncTimer = null;
+    _streamingContentTimer?.cancel();
+    _streamingContentTimer = null;
     if (clearStreamingContent) {
       _clearStreamingContent();
     }
@@ -576,6 +584,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _streamingBuffer = null;
     _streamingSyncTimer?.cancel();
     _streamingSyncTimer = null;
+    _streamingContentTimer?.cancel();
+    _streamingContentTimer = null;
     _clearStreamingContent();
     _stopRemoteTaskMonitor();
   }
@@ -1010,13 +1020,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _streamingBuffer ??= StringBuffer(lastMessage.content);
     _streamingBuffer!.write(content);
 
-    // Update streaming content provider per-chunk so only the streaming
-    // widget re-parses. Note: .toString() materializes the full string each
-    // time (O(n) per chunk), but the StringBuffer avoids creating intermediate
-    // concatenation objects that pressure GC. The alternative of exposing the
-    // StringBuffer directly would leak mutable state into the widget layer.
-    final accumulated = _streamingBuffer!.toString();
-    ref.read(streamingContentProvider.notifier).set(accumulated);
+    _scheduleStreamingContentUpdate();
 
     // Throttle message list state updates to every 500ms.
     // This prevents rebuilding ALL visible messages on
@@ -1027,6 +1031,20 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     );
 
     _touchStreamingActivity();
+  }
+
+  void _scheduleStreamingContentUpdate() {
+    if (_streamingContentTimer != null) return;
+    _streamingContentTimer = Timer(_streamingContentUpdateInterval, () {
+      _streamingContentTimer = null;
+      _flushStreamingContentUpdate();
+    });
+  }
+
+  void _flushStreamingContentUpdate() {
+    final buffer = _streamingBuffer;
+    if (buffer == null) return;
+    ref.read(streamingContentProvider.notifier).set(buffer.toString());
   }
 
   /// Syncs the accumulated streaming buffer content into
@@ -1066,6 +1084,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _streamingBuffer = null;
     _streamingSyncTimer?.cancel();
     _streamingSyncTimer = null;
+    _streamingContentTimer?.cancel();
+    _streamingContentTimer = null;
     _clearStreamingContent();
     if (state.isEmpty) return;
 
@@ -1153,6 +1173,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
   void _completeStreamingMessage({required bool releaseTransport}) {
     // Sync final buffer content to state before clearing
+    _streamingContentTimer?.cancel();
+    _streamingContentTimer = null;
+    _flushStreamingContentUpdate();
     _syncStreamingBufferToState();
     _streamingBuffer = null;
     _streamingSyncTimer?.cancel();

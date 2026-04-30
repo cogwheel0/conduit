@@ -69,91 +69,105 @@ class SettingsService {
       PreferenceKeys.voiceSilenceDuration;
   static const String _androidAssistantTriggerKey =
       PreferenceKeys.androidAssistantTrigger;
-  static Box<dynamic> _preferencesBox() =>
-      Hive.box<dynamic>(HiveBoxNames.preferences);
+  static Box<dynamic>? _preferencesBox() {
+    if (!Hive.isBoxOpen(HiveBoxNames.preferences)) {
+      return null;
+    }
+    return Hive.box<dynamic>(HiveBoxNames.preferences);
+  }
+
+  static T? _getPreference<T>(String key) {
+    final value = _preferencesBox()?.get(key);
+    return value is T ? value : null;
+  }
+
+  static Future<void> _putPreference(String key, Object? value) {
+    final box = _preferencesBox();
+    if (box == null) return Future.value();
+    return box.put(key, value);
+  }
 
   /// Get reduced motion preference
   static Future<bool> getReduceMotion() {
-    final value = _preferencesBox().get(_reduceMotionKey) as bool?;
+    final value = _getPreference<bool>(_reduceMotionKey);
     return Future.value(value ?? false);
   }
 
   /// Set reduced motion preference
   static Future<void> setReduceMotion(bool value) {
-    return _preferencesBox().put(_reduceMotionKey, value);
+    return _putPreference(_reduceMotionKey, value);
   }
 
   /// Get animation speed multiplier (0.5 - 2.0)
   static Future<double> getAnimationSpeed() {
-    final value = _preferencesBox().get(_animationSpeedKey) as num?;
+    final value = _getPreference<num>(_animationSpeedKey);
     return Future.value((value?.toDouble() ?? 1.0).clamp(0.5, 2.0));
   }
 
   /// Set animation speed multiplier
   static Future<void> setAnimationSpeed(double value) {
     final sanitized = value.clamp(0.5, 2.0).toDouble();
-    return _preferencesBox().put(_animationSpeedKey, sanitized);
+    return _putPreference(_animationSpeedKey, sanitized);
   }
 
   /// Get haptic feedback preference
   static Future<bool> getHapticFeedback() {
-    final value = _preferencesBox().get(_hapticFeedbackKey) as bool?;
+    final value = _getPreference<bool>(_hapticFeedbackKey);
     return Future.value(value ?? true);
   }
 
   /// Set haptic feedback preference
   static Future<void> setHapticFeedback(bool value) {
-    return _preferencesBox().put(_hapticFeedbackKey, value);
+    return _putPreference(_hapticFeedbackKey, value);
   }
 
   /// Get streaming haptics suppression preference.
   static Future<bool> getDisableHapticsWhileStreaming() {
-    final value =
-        _preferencesBox().get(_disableHapticsWhileStreamingKey) as bool?;
+    final value = _getPreference<bool>(_disableHapticsWhileStreamingKey);
     return Future.value(value ?? false);
   }
 
   /// Set streaming haptics suppression preference.
   static Future<void> setDisableHapticsWhileStreaming(bool value) {
-    return _preferencesBox().put(_disableHapticsWhileStreamingKey, value);
+    return _putPreference(_disableHapticsWhileStreamingKey, value);
   }
 
   /// Get high contrast preference
   static Future<bool> getHighContrast() {
-    final value = _preferencesBox().get(_highContrastKey) as bool?;
+    final value = _getPreference<bool>(_highContrastKey);
     return Future.value(value ?? false);
   }
 
   /// Set high contrast preference
   static Future<void> setHighContrast(bool value) {
-    return _preferencesBox().put(_highContrastKey, value);
+    return _putPreference(_highContrastKey, value);
   }
 
   /// Get large text preference
   static Future<bool> getLargeText() {
-    final value = _preferencesBox().get(_largeTextKey) as bool?;
+    final value = _getPreference<bool>(_largeTextKey);
     return Future.value(value ?? false);
   }
 
   /// Set large text preference
   static Future<void> setLargeText(bool value) {
-    return _preferencesBox().put(_largeTextKey, value);
+    return _putPreference(_largeTextKey, value);
   }
 
   /// Get dark mode preference
   static Future<bool> getDarkMode() {
-    final value = _preferencesBox().get(_darkModeKey) as bool?;
+    final value = _getPreference<bool>(_darkModeKey);
     return Future.value(value ?? true);
   }
 
   /// Set dark mode preference
   static Future<void> setDarkMode(bool value) {
-    return _preferencesBox().put(_darkModeKey, value);
+    return _putPreference(_darkModeKey, value);
   }
 
   /// Get default model preference
   static Future<String?> getDefaultModel() {
-    final value = _preferencesBox().get(_defaultModelKey) as String?;
+    final value = _getPreference<String>(_defaultModelKey);
     return Future.value(value);
   }
 
@@ -161,20 +175,23 @@ class SettingsService {
   static Future<void> setDefaultModel(String? modelId) {
     final box = _preferencesBox();
     if (modelId != null) {
-      return box.put(_defaultModelKey, modelId);
+      return box?.put(_defaultModelKey, modelId) ?? Future.value();
     }
-    return box.delete(_defaultModelKey);
+    return box?.delete(_defaultModelKey) ?? Future.value();
   }
 
   /// Load all settings
   static Future<AppSettings> loadSettings() {
     final box = _preferencesBox();
-    return Future.value(_loadSettingsSync(box));
+    return Future.value(
+      box == null ? const AppSettings() : _loadSettingsSync(box),
+    );
   }
 
   /// Save all settings
   static Future<void> saveSettings(AppSettings settings) async {
     final box = _preferencesBox();
+    if (box == null) return;
     final updates = <String, Object?>{
       _reduceMotionKey: settings.reduceMotion,
       _animationSpeedKey: settings.animationSpeed,
@@ -296,39 +313,39 @@ class SettingsService {
 
   // Voice input specific settings
   static Future<String?> getVoiceLocaleId() {
-    final value = _preferencesBox().get(_voiceLocaleKey) as String?;
+    final value = _getPreference<String>(_voiceLocaleKey);
     return Future.value(value);
   }
 
   static Future<void> setVoiceLocaleId(String? localeId) {
     final box = _preferencesBox();
     if (localeId == null || localeId.isEmpty) {
-      return box.delete(_voiceLocaleKey);
+      return box?.delete(_voiceLocaleKey) ?? Future.value();
     }
-    return box.put(_voiceLocaleKey, localeId);
+    return box?.put(_voiceLocaleKey, localeId) ?? Future.value();
   }
 
   static Future<bool> getVoiceHoldToTalk() {
-    final value = _preferencesBox().get(_voiceHoldToTalkKey) as bool?;
+    final value = _getPreference<bool>(_voiceHoldToTalkKey);
     return Future.value(value ?? false);
   }
 
   static Future<void> setVoiceHoldToTalk(bool value) {
-    return _preferencesBox().put(_voiceHoldToTalkKey, value);
+    return _putPreference(_voiceHoldToTalkKey, value);
   }
 
   static Future<bool> getVoiceAutoSendFinal() {
-    final value = _preferencesBox().get(_voiceAutoSendKey) as bool?;
+    final value = _getPreference<bool>(_voiceAutoSendKey);
     return Future.value(value ?? false);
   }
 
   static Future<void> setVoiceAutoSendFinal(bool value) {
-    return _preferencesBox().put(_voiceAutoSendKey, value);
+    return _putPreference(_voiceAutoSendKey, value);
   }
 
   /// Transport mode: 'polling' (HTTP polling + WebSocket upgrade) or 'ws'
   static Future<String> getSocketTransportMode() {
-    final raw = _preferencesBox().get(_socketTransportModeKey) as String?;
+    final raw = _getPreference<String>(_socketTransportModeKey);
     if (raw == null) {
       return Future.value('ws');
     }
@@ -348,12 +365,12 @@ class SettingsService {
     if (mode != 'polling' && mode != 'ws') {
       mode = 'polling';
     }
-    return _preferencesBox().put(_socketTransportModeKey, mode);
+    return _putPreference(_socketTransportModeKey, mode);
   }
 
   // Quick Pills (visibility)
   static Future<List<String>> getQuickPills() {
-    final stored = _preferencesBox().get(_quickPillsKey) as List<dynamic>?;
+    final stored = _getPreference<List<dynamic>>(_quickPillsKey);
     if (stored == null) {
       return Future.value(const []);
     }
@@ -361,57 +378,56 @@ class SettingsService {
   }
 
   static Future<void> setQuickPills(List<String> pills) {
-    return _preferencesBox().put(_quickPillsKey, pills.toList());
+    return _putPreference(_quickPillsKey, pills.toList());
   }
 
   static Future<bool?> getChatWebSearchEnabled() {
-    final value = _preferencesBox().get(_chatWebSearchEnabledKey);
+    final value = _preferencesBox()?.get(_chatWebSearchEnabledKey);
     return Future.value(value is bool ? value : null);
   }
 
   static Future<void> setChatWebSearchEnabled(bool? value) {
     final box = _preferencesBox();
     if (value == null) {
-      return box.delete(_chatWebSearchEnabledKey);
+      return box?.delete(_chatWebSearchEnabledKey) ?? Future.value();
     }
-    return box.put(_chatWebSearchEnabledKey, value);
+    return box?.put(_chatWebSearchEnabledKey, value) ?? Future.value();
   }
 
   static Future<bool?> getChatImageGenerationEnabled() {
-    final value = _preferencesBox().get(_chatImageGenerationEnabledKey);
+    final value = _preferencesBox()?.get(_chatImageGenerationEnabledKey);
     return Future.value(value is bool ? value : null);
   }
 
   static Future<void> setChatImageGenerationEnabled(bool? value) {
     final box = _preferencesBox();
     if (value == null) {
-      return box.delete(_chatImageGenerationEnabledKey);
+      return box?.delete(_chatImageGenerationEnabledKey) ?? Future.value();
     }
-    return box.put(_chatImageGenerationEnabledKey, value);
+    return box?.put(_chatImageGenerationEnabledKey, value) ?? Future.value();
   }
 
   // Chat input behavior
   static Future<bool> getSendOnEnter() {
-    final value = _preferencesBox().get(_sendOnEnterKey) as bool?;
+    final value = _getPreference<bool>(_sendOnEnterKey);
     return Future.value(value ?? false);
   }
 
   static Future<void> setSendOnEnter(bool value) {
-    return _preferencesBox().put(_sendOnEnterKey, value);
+    return _putPreference(_sendOnEnterKey, value);
   }
 
   static Future<bool> getTemporaryChatByDefault() {
-    final value =
-        _preferencesBox().get(PreferenceKeys.temporaryChatByDefault) as bool?;
+    final value = _getPreference<bool>(PreferenceKeys.temporaryChatByDefault);
     return Future.value(value ?? false);
   }
 
   static Future<void> setTemporaryChatByDefault(bool value) {
-    return _preferencesBox().put(PreferenceKeys.temporaryChatByDefault, value);
+    return _putPreference(PreferenceKeys.temporaryChatByDefault, value);
   }
 
   static Future<int> getVoiceSilenceDuration() {
-    final value = _preferencesBox().get(_voiceSilenceDurationKey) as int?;
+    final value = _getPreference<int>(_voiceSilenceDurationKey);
     return Future.value(
       (value ?? defaultVoiceSilenceDurationMs).clamp(
         minVoiceSilenceDurationMs,
@@ -425,16 +441,13 @@ class SettingsService {
       minVoiceSilenceDurationMs,
       maxVoiceSilenceDurationMs,
     );
-    return _preferencesBox().put(_voiceSilenceDurationKey, sanitized);
+    return _putPreference(_voiceSilenceDurationKey, sanitized);
   }
 
   static Future<void> setAndroidAssistantTrigger(
     AndroidAssistantTrigger trigger,
   ) async {
-    await _preferencesBox().put(
-      _androidAssistantTriggerKey,
-      trigger.storageValue,
-    );
+    await _putPreference(_androidAssistantTriggerKey, trigger.storageValue);
     await _writeAssistantTriggerToSharedPrefs(trigger);
   }
 

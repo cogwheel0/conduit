@@ -9,6 +9,7 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/sheet_handle.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/modal_safe_area.dart';
+import '../../../shared/widgets/model_avatar.dart';
 import '../../../core/models/tool.dart';
 import '../../../core/models/toggle_filter.dart';
 import '../../../core/providers/app_providers.dart';
@@ -782,18 +783,7 @@ class _ComposerOverflowSheetState extends ConsumerState<ComposerOverflowSheet> {
       ),
       alignment: Alignment.center,
       child: iconUrl != null && iconUrl.isNotEmpty
-          ? ClipRRect(
-              borderRadius: BorderRadius.circular(AppBorderRadius.small),
-              child: Image.network(
-                iconUrl,
-                width: 40,
-                height: 40,
-                fit: BoxFit.cover,
-                color: iconUrl.endsWith('.svg') ? color : null,
-                colorBlendMode: BlendMode.srcIn,
-                errorBuilder: (_, _, _) => fallback,
-              ),
-            )
+          ? ModelAvatar(size: 40, imageUrl: iconUrl, label: null)
           : fallback,
     );
   }

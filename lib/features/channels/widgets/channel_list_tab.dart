@@ -221,6 +221,7 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
                     await ref.read(channelsListProvider.notifier).refresh();
                   },
                   child: ListView.builder(
+                    itemExtent: 72,
                     itemCount: filtered.length,
                     padding: EdgeInsets.zero,
                     itemBuilder: (context, index) {

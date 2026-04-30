@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/models/model.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/widgets/model_avatar.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 
 /// Autocomplete overlay that appears when the user types `@` to
@@ -37,19 +38,14 @@ class ModelSuggestionOverlay extends ConsumerWidget {
       alpha: brightness == Brightness.dark ? 0.6 : 0.4,
     );
 
-    final AsyncValue<List<Model>> modelsAsync = ref.watch(
-      modelsProvider,
-    );
+    final AsyncValue<List<Model>> modelsAsync = ref.watch(modelsProvider);
     final Model? currentModel = ref.watch(selectedModelProvider);
 
     return Container(
       decoration: BoxDecoration(
         color: overlayColor,
         borderRadius: BorderRadius.circular(AppBorderRadius.card),
-        border: Border.all(
-          color: borderColor,
-          width: BorderWidth.thin,
-        ),
+        border: Border.all(color: borderColor, width: BorderWidth.thin),
         boxShadow: [
           BoxShadow(
             color: context.conduitTheme.cardShadow.withValues(
@@ -87,9 +83,7 @@ class ModelSuggestionOverlay extends ConsumerWidget {
           return ConstrainedBox(
             constraints: const BoxConstraints(maxHeight: 280),
             child: ListView.separated(
-              padding: const EdgeInsets.symmetric(
-                vertical: Spacing.xs,
-              ),
+              padding: const EdgeInsets.symmetric(vertical: Spacing.xs),
               shrinkWrap: true,
               physics: const ClampingScrollPhysics(),
               itemCount: filtered.length,
@@ -98,24 +92,19 @@ class ModelSuggestionOverlay extends ConsumerWidget {
               itemBuilder: (context, index) {
                 final model = filtered[index];
                 final bool isSelected = index == activeIndex;
-                final bool isCurrent =
-                    currentModel?.id == model.id;
+                final bool isCurrent = currentModel?.id == model.id;
                 final Color highlight = isSelected
-                    ? context
-                          .conduitTheme
-                          .navigationSelectedBackground
+                    ? context.conduitTheme.navigationSelectedBackground
                           .withValues(alpha: 0.4)
                     : Colors.transparent;
 
-                final profileUrl = model.metadata
-                    ?['profile_image_url'] as String?;
+                final profileUrl =
+                    model.metadata?['profile_image_url'] as String?;
 
                 return Material(
                   color: Colors.transparent,
                   child: InkWell(
-                    borderRadius: BorderRadius.circular(
-                      AppBorderRadius.card,
-                    ),
+                    borderRadius: BorderRadius.circular(AppBorderRadius.card),
                     onTap: () => onModelSelected(model),
                     child: Container(
                       decoration: BoxDecoration(
@@ -137,32 +126,22 @@ class ModelSuggestionOverlay extends ConsumerWidget {
                           const SizedBox(width: Spacing.sm),
                           Expanded(
                             child: Column(
-                              crossAxisAlignment:
-                                  CrossAxisAlignment.start,
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
                                   model.name,
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .bodyMedium
+                                  style: Theme.of(context).textTheme.bodyMedium
                                       ?.copyWith(
-                                        fontWeight:
-                                            FontWeight.w600,
-                                        color: context
-                                            .conduitTheme
-                                            .textPrimary,
+                                        fontWeight: FontWeight.w600,
+                                        color: context.conduitTheme.textPrimary,
                                       ),
                                   maxLines: 1,
-                                  overflow:
-                                      TextOverflow.ellipsis,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                                 if (model.description != null &&
-                                    model.description!
-                                        .trim()
-                                        .isNotEmpty)
+                                    model.description!.trim().isNotEmpty)
                                   Padding(
-                                    padding:
-                                        const EdgeInsets.only(
+                                    padding: const EdgeInsets.only(
                                       top: Spacing.xxs,
                                     ),
                                     child: Text(
@@ -176,8 +155,7 @@ class ModelSuggestionOverlay extends ConsumerWidget {
                                                 .textSecondary,
                                           ),
                                       maxLines: 1,
-                                      overflow:
-                                          TextOverflow.ellipsis,
+                                      overflow: TextOverflow.ellipsis,
                                     ),
                                   ),
                               ],
@@ -185,18 +163,13 @@ class ModelSuggestionOverlay extends ConsumerWidget {
                           ),
                           if (isCurrent)
                             Padding(
-                              padding: const EdgeInsets.only(
-                                left: Spacing.xs,
-                              ),
+                              padding: const EdgeInsets.only(left: Spacing.xs),
                               child: Icon(
                                 !kIsWeb && Platform.isIOS
-                                    ? CupertinoIcons
-                                        .checkmark_alt
+                                    ? CupertinoIcons.checkmark_alt
                                     : Icons.check,
                                 size: IconSize.medium,
-                                color: context
-                                    .conduitTheme
-                                    .buttonPrimary,
+                                color: context.conduitTheme.buttonPrimary,
                               ),
                             ),
                         ],
@@ -234,10 +207,7 @@ class ModelSuggestionOverlay extends ConsumerWidget {
 
 /// Small circular avatar for a model row.
 class _ModelAvatar extends StatelessWidget {
-  const _ModelAvatar({
-    required this.profileUrl,
-    required this.modelName,
-  });
+  const _ModelAvatar({required this.profileUrl, required this.modelName});
 
   final String? profileUrl;
   final String modelName;
@@ -247,16 +217,7 @@ class _ModelAvatar extends StatelessWidget {
     const double size = 28;
 
     if (profileUrl != null && profileUrl!.isNotEmpty) {
-      return ClipOval(
-        child: Image.network(
-          profileUrl!,
-          width: size,
-          height: size,
-          fit: BoxFit.cover,
-          errorBuilder: (context, error, stackTrace) =>
-              _fallback(context),
-        ),
-      );
+      return ModelAvatar(size: size, imageUrl: profileUrl, label: modelName);
     }
     return _fallback(context);
   }
@@ -268,9 +229,7 @@ class _ModelAvatar extends StatelessWidget {
       height: size,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: context.conduitTheme.buttonPrimary.withValues(
-          alpha: 0.12,
-        ),
+        color: context.conduitTheme.buttonPrimary.withValues(alpha: 0.12),
       ),
       child: Center(
         child: Icon(
@@ -288,10 +247,7 @@ class _ModelAvatar extends StatelessWidget {
 /// Placeholder shown when the model list is loading, empty,
 /// or errored.
 class _OverlayPlaceholder extends StatelessWidget {
-  const _OverlayPlaceholder({
-    required this.leading,
-    this.message,
-  });
+  const _OverlayPlaceholder({required this.leading, this.message});
 
   final Widget leading;
   final String? message;
@@ -312,12 +268,9 @@ class _OverlayPlaceholder extends StatelessWidget {
             Flexible(
               child: Text(
                 message!,
-                style: Theme.of(context)
-                    .textTheme
-                    .bodySmall
-                    ?.copyWith(
-                      color: context.conduitTheme.textSecondary,
-                    ),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: context.conduitTheme.textSecondary,
+                ),
               ),
             ),
           ],

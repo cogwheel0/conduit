@@ -286,7 +286,7 @@ class ConduitMarkdownPreprocessor {
 
   /// Strips link reference definitions using the `markdown` package.
   static String _stripLinkReferenceDefinitions(String input) {
-    if (!input.contains('[')) return input;
+    if (!input.contains(']:')) return input;
 
     final document = md.Document();
     document.parseLines(input.split('\n'));

@@ -153,6 +153,12 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
                                       controller: scrollController,
                                       padding: const EdgeInsets.only(top: 72),
                                       cacheExtent: 400,
+                                      prototypeItem: ModelListTile(
+                                        model: _filteredModels.first,
+                                        isSelected: false,
+                                        iconUrl: null,
+                                        onTap: () {},
+                                      ),
                                       itemCount: _filteredModels.length,
                                       itemBuilder: (context, index) {
                                         final model = _filteredModels[index];

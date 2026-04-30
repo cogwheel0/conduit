@@ -86,6 +86,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   String? _cachedGreetingName;
   bool _greetingReady = false;
   final _extentPrecalculationPolicy = _ChatExtentPrecalculationPolicy();
+  bool _keepPinnedCallbackScheduled = false;
+  ProviderSubscription<String?>? _streamingContentSub;
+  ProviderSubscription<String?>? _screenContextSub;
+  ProviderSubscription<bool>? _reviewerModeSub;
+  ProviderSubscription<String?>? _conversationIdSub;
 
   String _formatModelDisplayName(String name) {
     return name.trim();
@@ -94,13 +99,22 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   ({String? displayName, Model? matchedModel}) _resolveModelPresentation({
     required String? rawModel,
     required List<Model>? models,
+    Map<String, Model>? modelLookup,
   }) {
     final trimmedModel = rawModel?.trim();
     if (trimmedModel == null || trimmedModel.isEmpty) {
       return (displayName: null, matchedModel: null);
     }
 
-    if (models != null) {
+    final matched = modelLookup?[trimmedModel];
+    if (matched != null) {
+      return (
+        displayName: _formatModelDisplayName(matched.name),
+        matchedModel: matched,
+      );
+    }
+
+    if (models != null && modelLookup == null) {
       for (final model in models) {
         if (model.id == trimmedModel || model.name == trimmedModel) {
           return (
@@ -115,6 +129,16 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       displayName: _formatModelDisplayName(trimmedModel),
       matchedModel: null,
     );
+  }
+
+  Map<String, Model>? _buildModelLookup(List<Model>? models) {
+    if (models == null || models.isEmpty) return null;
+    final lookup = <String, Model>{};
+    for (final model in models) {
+      lookup[model.id] = model;
+      lookup[model.name] = model;
+    }
+    return lookup;
   }
 
   bool validateFileSize(int fileSize, int maxSizeMB) {
@@ -309,6 +333,34 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
     // Listen to scroll events to show/hide scroll to bottom button
     _scrollController.addListener(_onScroll);
+    _streamingContentSub = ref.listenManual(streamingContentProvider, (_, _) {
+      _handleStreamingContentUpdate();
+    });
+    _screenContextSub = ref.listenManual(screenContextProvider, (_, next) {
+      if (next == null || next.isEmpty) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ref.read(screenContextProvider.notifier).setContext(null);
+        final currentModel = ref.read(selectedModelProvider);
+        _handleMessageSend(
+          'Here is the content of my screen:\n\n$next\n\nCan you summarize this?',
+          currentModel,
+        );
+      });
+    });
+    _reviewerModeSub = ref.listenManual(reviewerModeProvider, (_, next) {
+      if (!next || ref.read(selectedModelProvider) != null) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _checkAndAutoSelectModel();
+        }
+      });
+    });
+    _conversationIdSub = ref.listenManual(
+      activeConversationProvider.select((conv) => conv?.id),
+      (_, next) => _handleConversationChanged(next),
+      fireImmediately: true,
+    );
 
     _scheduleAutoScrollToBottom();
 
@@ -331,23 +383,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Listen for screen context from Android Assistant
-    final screenContext = ref.watch(screenContextProvider);
-    if (screenContext != null && screenContext.isNotEmpty) {
-      // Clear the context so we don't process it again
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        ref.read(screenContextProvider.notifier).setContext(null);
-        final currentModel = ref.read(selectedModelProvider);
-        _handleMessageSend(
-          "Here is the content of my screen:\n\n$screenContext\n\nCan you summarize this?",
-          currentModel,
-        );
-      });
-    }
   }
 
   @override
   void dispose() {
+    _streamingContentSub?.close();
+    _screenContextSub?.close();
+    _reviewerModeSub?.close();
+    _conversationIdSub?.close();
     _messageListController.dispose();
     _scrollController.dispose();
     _scrollDebounceTimer?.cancel();
@@ -955,6 +998,69 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
   }
 
+  void _handleConversationChanged(String? conversationId) {
+    if (conversationId == _lastConversationId) return;
+
+    final outgoingId = _lastConversationId;
+    if (outgoingId != null && _scrollController.hasClients) {
+      _savedScrollOffsets[outgoingId] = _scrollController.position.pixels;
+    }
+
+    _lastConversationId = conversationId;
+    _userPausedAutoScroll = false;
+    _wantsPinToTop = false;
+    _pinnedStreamingId = null;
+    _endPinToTopInFlight = false;
+    if (conversationId == null) {
+      _shouldAutoScrollToBottom = true;
+      _pendingScrollRestore = false;
+      _scheduleAutoScrollToBottom();
+    } else if (_savedScrollOffsets.containsKey(conversationId)) {
+      _pendingScrollRestore = true;
+      _restoreScrollOffset = _savedScrollOffsets[conversationId]!;
+      _shouldAutoScrollToBottom = false;
+    } else {
+      _shouldAutoScrollToBottom = true;
+      _pendingScrollRestore = false;
+      _scheduleAutoScrollToBottom();
+    }
+  }
+
+  void _handleStreamingContentUpdate() {
+    _invalidateStreamingMessageExtent();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients) return;
+
+      if (_wantsPinToTop) {
+        _endPinToTop(instant: true, preserveStreamingId: true);
+        if (!_userPausedAutoScroll) {
+          _scrollToBottom(smooth: false);
+        }
+        _updateScrollToBottomVisibility();
+        return;
+      }
+
+      if (!_userPausedAutoScroll) {
+        _scrollToBottom(smooth: false);
+      }
+      _updateScrollToBottomVisibility();
+    });
+  }
+
+  void _scheduleKeepPinnedToBottom() {
+    if (_keepPinnedCallbackScheduled) return;
+    _keepPinnedCallbackScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _keepPinnedCallbackScheduled = false;
+      if (!mounted || _userPausedAutoScroll) return;
+      const keepPinnedThreshold = 60.0;
+      final distanceFromBottom = _distanceFromBottom();
+      if (distanceFromBottom > 0 && distanceFromBottom <= keepPinnedThreshold) {
+        _scrollToBottom(smooth: false);
+      }
+    });
+  }
+
   /// Scrolls the pending user message near the top of the viewport.
   ///
   /// Uses the sliver list controller so the target item can be positioned even
@@ -1389,18 +1495,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if (_shouldAutoScrollToBottom) {
       _scheduleAutoScrollToBottom();
     } else if (!_userPausedAutoScroll) {
-      // Only keep-pinned to bottom if user hasn't paused auto-scroll
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        // Skip if user has paused auto-scroll (double-check in callback)
-        if (_userPausedAutoScroll) return;
-        const double keepPinnedThreshold = 60.0;
-        final distanceFromBottom = _distanceFromBottom();
-        if (distanceFromBottom > 0 &&
-            distanceFromBottom <= keepPinnedThreshold) {
-          _scrollToBottom(smooth: false);
-        }
-      });
+      _scheduleKeepPinnedToBottom();
     }
 
     // Add top padding for floating app bar, bottom padding for floating input.
@@ -1448,6 +1543,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     // Watch models once here instead of per-message in the item builder
     final modelsAsync = ref.watch(modelsProvider);
     final models = modelsAsync.hasValue ? modelsAsync.value : null;
+    final modelLookup = _buildModelLookup(models);
 
     return NotificationListener<ScrollNotification>(
       onNotification: (notification) {
@@ -1538,6 +1634,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 final modelPresentation = _resolveModelPresentation(
                   rawModel: message.model,
                   models: models,
+                  modelLookup: modelLookup,
                 );
                 final displayModelName = modelPresentation.displayName;
                 final matchedModel = modelPresentation.matchedModel;
@@ -1552,6 +1649,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   final versionPresentation = _resolveModelPresentation(
                     rawModel: version.model,
                     models: models,
+                    modelLookup: modelLookup,
                   );
                   versionModelNames.add(versionPresentation.displayName);
                   versionModelIconUrls.add(
@@ -1818,43 +1916,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final selectedModel = ref.watch(
       selectedModelProvider.select((model) => model),
     );
-
-    // Watch reviewer mode and auto-select model if needed
-    final isReviewerMode = ref.watch(reviewerModeProvider);
-
-    final conversationId = ref.watch(
-      activeConversationProvider.select((conv) => conv?.id),
-    );
-    if (conversationId != _lastConversationId) {
-      // Save outgoing conversation's scroll position
-      final outgoingId = _lastConversationId;
-      if (outgoingId != null && _scrollController.hasClients) {
-        _savedScrollOffsets[outgoingId] = _scrollController.position.pixels;
-      }
-
-      _lastConversationId = conversationId;
-      _userPausedAutoScroll = false; // Reset pause on conversation change
-      _wantsPinToTop = false;
-      _pinnedStreamingId = null;
-      _endPinToTopInFlight = false;
-      if (conversationId == null) {
-        _shouldAutoScrollToBottom = true;
-        _pendingScrollRestore = false;
-        _scheduleAutoScrollToBottom();
-      } else if (_savedScrollOffsets.containsKey(conversationId)) {
-        // Restore saved scroll position for this conversation
-        _pendingScrollRestore = true;
-        _restoreScrollOffset = _savedScrollOffsets[conversationId]!;
-        _shouldAutoScrollToBottom = false;
-      } else {
-        // First open in this session — scroll to bottom (latest message)
-        _shouldAutoScrollToBottom = true;
-        _pendingScrollRestore = false;
-        _scheduleAutoScrollToBottom();
-      }
-    }
     // Watch loading state for app bar skeleton
     final isLoadingConversation = ref.watch(isLoadingConversationProvider);
+    final isReviewerMode = ref.watch(reviewerModeProvider);
     final formattedModelName = selectedModel != null
         ? _formatModelDisplayName(selectedModel.name)
         : null;
@@ -1873,34 +1937,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     // Use dedicated streaming provider to avoid iterating all messages on rebuild
     final isStreamingAnyMessage = ref.watch(isChatStreamingProvider);
 
-    // Per-chunk scroll following: keep the view scrolled to the bottom as
-    // streaming content grows. The chatMessagesProvider only syncs every 500ms,
-    // but streamingContentProvider updates per-chunk, so listening here
-    // ensures smooth scroll tracking during streaming.
-    ref.listen(streamingContentProvider, (_, _) {
-      _invalidateStreamingMessageExtent();
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || !_scrollController.hasClients) return;
-
-        if (_wantsPinToTop) {
-          // End pin-to-top on the first real streamed update. Keeping the
-          // phantom sliver around longer causes blank space and fights with
-          // manual scrolling during streaming.
-          _endPinToTop(instant: true, preserveStreamingId: true);
-          if (!_userPausedAutoScroll) {
-            _scrollToBottom(smooth: false);
-          }
-          _updateScrollToBottomVisibility();
-          return;
-        }
-
-        if (!_userPausedAutoScroll) {
-          _scrollToBottom(smooth: false);
-        }
-        _updateScrollToBottomVisibility();
-      });
-    });
-
     // On keyboard open, if already near bottom, auto-scroll to bottom to keep input visible
     if (keyboardVisible && !_lastKeyboardVisible) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1913,13 +1949,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
 
     _lastKeyboardVisible = keyboardVisible;
-
-    // Auto-select model when in reviewer mode with no selection
-    if (isReviewerMode && selectedModel == null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _checkAndAutoSelectModel();
-      });
-    }
 
     // Focus composer on app startup once (minimal delay for layout to settle)
     if (!_didStartupFocus) {

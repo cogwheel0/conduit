@@ -38,6 +38,7 @@ import '../../../core/models/knowledge_base_file.dart';
 import '../../../shared/utils/platform_utils.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import '../../../shared/widgets/modal_safe_area.dart';
+import '../../../shared/widgets/model_avatar.dart';
 import '../../../core/utils/prompt_variable_parser.dart';
 import '../../prompts/widgets/prompt_variable_dialog.dart';
 import '../../auth/providers/unified_auth_providers.dart';
@@ -2702,21 +2703,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               mainAxisSize: MainAxisSize.min,
               children: [
                 iconUrl != null && iconUrl.isNotEmpty
-                    ? SizedBox(
-                        width: dense ? IconSize.small : IconSize.small + 1,
-                        height: dense ? IconSize.small : IconSize.small + 1,
-                        child: Image.network(
-                          iconUrl,
-                          width: dense ? IconSize.small : IconSize.small + 1,
-                          height: dense ? IconSize.small : IconSize.small + 1,
-                          color: iconUrl.endsWith('.svg') ? iconColor : null,
-                          colorBlendMode: BlendMode.srcIn,
-                          errorBuilder: (_, _, _) => Icon(
-                            icon,
-                            size: dense ? IconSize.small : IconSize.small + 1,
-                            color: iconColor,
-                          ),
-                        ),
+                    ? ModelAvatar(
+                        size: dense ? IconSize.small : IconSize.small + 1,
+                        imageUrl: iconUrl,
+                        label: label,
                       )
                     : Icon(
                         icon,

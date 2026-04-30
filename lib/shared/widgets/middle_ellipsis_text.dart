@@ -21,6 +21,8 @@ class MiddleEllipsisText extends StatelessWidget {
     this.semanticsLabel,
   });
 
+  static final _cache = _MiddleEllipsisCache(256);
+
   @override
   Widget build(BuildContext context) {
     // Sanitize text to remove any unpaired surrogates that could cause crashes.
@@ -33,6 +35,24 @@ class MiddleEllipsisText extends StatelessWidget {
         ).style.merge(style);
         final TextDirection direction = Directionality.of(context);
         final double maxWidth = constraints.maxWidth;
+        final key = _MiddleEllipsisCacheKey(
+          text: safeText,
+          style: effectiveStyle,
+          textDirection: direction,
+          maxWidth: maxWidth,
+          ellipsis: ellipsis,
+        );
+        final cached = _cache[key];
+        if (cached != null) {
+          return Text(
+            cached,
+            style: effectiveStyle,
+            maxLines: 1,
+            overflow: TextOverflow.clip,
+            textAlign: textAlign,
+            semanticsLabel: semanticsLabel ?? safeText,
+          );
+        }
 
         // Measure full text width first.
         final fullSpan = TextSpan(text: safeText, style: effectiveStyle);
@@ -43,6 +63,7 @@ class MiddleEllipsisText extends StatelessWidget {
         )..layout(minWidth: 0, maxWidth: double.infinity);
 
         if (fullPainter.width <= maxWidth) {
+          _cache[key] = safeText;
           return Text(
             safeText,
             style: effectiveStyle,
@@ -108,6 +129,7 @@ class MiddleEllipsisText extends StatelessWidget {
         }
 
         if (bestK == 0) {
+          _cache[key] = ellipsis;
           return Text(
             ellipsis,
             style: effectiveStyle,
@@ -119,6 +141,7 @@ class MiddleEllipsisText extends StatelessWidget {
         }
 
         final String display = '$bestStart$ellipsis$bestEnd';
+        _cache[key] = display;
         return Text(
           display,
           style: effectiveStyle,
@@ -169,4 +192,56 @@ class MiddleEllipsisText extends StatelessWidget {
     }
     return buffer.toString();
   }
+}
+
+class _MiddleEllipsisCache {
+  _MiddleEllipsisCache(this.capacity);
+
+  final int capacity;
+  final _entries = <_MiddleEllipsisCacheKey, String>{};
+
+  String? operator [](_MiddleEllipsisCacheKey key) {
+    final value = _entries.remove(key);
+    if (value == null) return null;
+    _entries[key] = value;
+    return value;
+  }
+
+  void operator []=(_MiddleEllipsisCacheKey key, String value) {
+    _entries.remove(key);
+    _entries[key] = value;
+    if (_entries.length > capacity) {
+      _entries.remove(_entries.keys.first);
+    }
+  }
+}
+
+class _MiddleEllipsisCacheKey {
+  const _MiddleEllipsisCacheKey({
+    required this.text,
+    required this.style,
+    required this.textDirection,
+    required this.maxWidth,
+    required this.ellipsis,
+  });
+
+  final String text;
+  final TextStyle style;
+  final TextDirection textDirection;
+  final double maxWidth;
+  final String ellipsis;
+
+  @override
+  bool operator ==(Object other) {
+    return other is _MiddleEllipsisCacheKey &&
+        other.text == text &&
+        other.style == style &&
+        other.textDirection == textDirection &&
+        other.maxWidth == maxWidth &&
+        other.ellipsis == ellipsis;
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(text, style, textDirection, maxWidth, ellipsis);
 }

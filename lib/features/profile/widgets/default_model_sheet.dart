@@ -159,6 +159,12 @@ class DefaultModelBottomSheetState
                                   : ListView.builder(
                                       controller: scrollController,
                                       padding: const EdgeInsets.only(top: 120),
+                                      prototypeItem: ModelListTile(
+                                        model: _filteredModels.first,
+                                        isSelected: false,
+                                        iconUrl: null,
+                                        onTap: () {},
+                                      ),
                                       itemCount: _filteredModels.length,
                                       itemBuilder: (context, index) {
                                         final model = _filteredModels[index];

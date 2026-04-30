@@ -37,7 +37,15 @@ class SourceReferenceHelper {
   /// a canonical URL is available, even if the expanded source list uses a
   /// richer title.
   static String getInlineSourceLabel(ChatSourceReference source, int index) {
+    final title = source.title;
     final url = getSourceUrl(source);
+    if (title != null &&
+        !looksLikeUrl(title) &&
+        url == source.url &&
+        _looksLikeDomain(title)) {
+      return source.title!;
+    }
+
     if (url != null) {
       return extractDomain(url);
     }
@@ -133,6 +141,12 @@ class SourceReferenceHelper {
       return false;
     }
     return value.startsWith('http://') || value.startsWith('https://');
+  }
+
+  static bool _looksLikeDomain(String value) {
+    final trimmed = value.trim();
+    if (trimmed.contains(' ')) return false;
+    return RegExp(r'^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$').hasMatch(trimmed);
   }
 
   static String? _firstNonEmpty(Iterable<dynamic> values) {
