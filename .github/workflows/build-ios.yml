@@ -1,0 +1,40 @@
+name: Build Unsigned IPA
+
+on:
+  workflow_dispatch: # 允許手動點擊按鈕執行
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          flutter-version: '3.x' # 自動匹配最新的 3.x 版本
+
+      - name: Install Dependencies
+        run: |
+          flutter pub get
+          dart run build_runner build --delete-conflicting-outputs
+
+      - name: Build iOS App (Unsigned)
+        run: |
+          # 編譯為不帶簽名的 Release 模式
+          flutter build ios --release --no-codesign
+
+      - name: Package IPA
+        run: |
+          # 手動將 .app 轉換為 SideStore 可用的 .ipa
+          mkdir -p Payload
+          cp -r build/ios/iphoneos/Runner.app Payload/
+          zip -r Conduit_Unsigned.ipa Payload
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Conduit-IPA
+          path: Conduit_Unsigned.ipa
