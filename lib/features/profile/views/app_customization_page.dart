@@ -1681,6 +1681,8 @@ class AppCustomizationPage extends ConsumerWidget {
         return AppLocalizations.of(context)!.chineseSimplified;
       case 'ko':
         return AppLocalizations.of(context)!.korean;
+      case 'ja':
+        return AppLocalizations.of(context)!.japanese;
       case 'zh-Hant':
         return AppLocalizations.of(context)!.chineseTraditional;
       default:
@@ -1692,6 +1694,9 @@ class AppCustomizationPage extends ConsumerWidget {
         }
         if (normalizedCode == 'ko') {
           return AppLocalizations.of(context)!.korean;
+        }
+        if (normalizedCode == 'ja') {
+          return AppLocalizations.of(context)!.japanese;
         }
         return AppLocalizations.of(context)!.system;
     }
@@ -2062,6 +2067,17 @@ class AppCustomizationPage extends ConsumerWidget {
                       )
                     : null,
                 onTap: () => Navigator.pop(sheetContext, 'ko'),
+              ),
+              AdaptiveListTile(
+                title: Text(AppLocalizations.of(sheetContext)!.japanese),
+                trailing: normalizedCurrent == 'ja'
+                    ? Icon(
+                        Platform.isIOS
+                            ? CupertinoIcons.check_mark
+                            : Icons.check,
+                      )
+                    : null,
+                onTap: () => Navigator.pop(sheetContext, 'ja'),
               ),
               const SizedBox(height: Spacing.sm),
             ],

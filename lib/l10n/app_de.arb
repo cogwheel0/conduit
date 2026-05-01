@@ -168,6 +168,7 @@
   "chineseSimplified": "Chinesisch (Vereinfacht)",
   "chineseTraditional": "Chinesisch (Traditionell)",
   "korean": "Koreanisch",
+  "japanese": "日本語",
   "deleteMessagesTitle": "Nachrichten löschen",
   "deleteMessagesMessage": "{count} Nachrichten löschen?",
   "@deleteMessagesMessage": {

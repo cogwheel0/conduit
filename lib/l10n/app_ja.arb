@@ -1,46 +1,46 @@
 {
-  "@@locale": "en",
+  "@@locale": "ja",
   "appTitle": "Conduit",
   "@appTitle": {
     "description": "Application name displayed in the app and OS UI."
   },
-  "retry": "Retry",
+  "retry": "再試行",
   "@retry": {
     "description": "Button label to try an action again."
   },
-  "back": "Back",
+  "back": "戻る",
   "@back": {
     "description": "Back navigation label/tooltip."
   },
-  "you": "You",
+  "you": "あなた",
   "@you": {
     "description": "Profile tab title."
   },
-  "loadingProfile": "Loading profile...",
+  "loadingProfile": "プロフィールを読み込み中...",
   "@loadingProfile": {
     "description": "Progress message while fetching profile data."
   },
-  "pleaseCheckConnection": "Please check your connection and try again",
-  "connectionIssueTitle": "Can't reach your server",
+  "pleaseCheckConnection": "接続を確認して、もう一度お試しください",
+  "connectionIssueTitle": "サーバーに接続できません",
   "@connectionIssueTitle": {
     "description": "Title shown when the configured server is unreachable"
   },
-  "connectionIssueSubtitle": "Reconnect to continue or sign out to choose a different server.",
+  "connectionIssueSubtitle": "続行するには再接続するか、サインアウトして別のサーバーを選択してください。",
   "@connectionIssueSubtitle": {
     "description": "Subtitle explaining available actions when the server cannot be reached"
   },
   "@pleaseCheckConnection": {
     "description": "Generic connectivity hint after an error."
   },
-  "account": "Account",
+  "account": "アカウント",
   "@account": {
     "description": "Section header for account-related options."
   },
-  "supportConduit": "Support Conduit",
+  "supportConduit": "Conduit を支援",
   "@supportConduit": {
     "description": "Section header inviting the user to financially support the project."
   },
-  "supportConduitSubtitle": "Keep Conduit independent by funding ongoing development.",
+  "supportConduitSubtitle": "継続的な開発を支援して、Conduit の独立性を保ちます。",
   "@supportConduitSubtitle": {
     "description": "Subtitle explaining why donations are helpful."
   },
@@ -48,7 +48,7 @@
   "@githubSponsorsTitle": {
     "description": "Tile title linking to the GitHub Sponsors page."
   },
-  "githubSponsorsSubtitle": "Become a recurring sponsor to fund roadmap items.",
+  "githubSponsorsSubtitle": "継続スポンサーになってロードマップ項目を支援します。",
   "@githubSponsorsSubtitle": {
     "description": "Subtitle explaining the impact of recurring sponsorship."
   },
@@ -56,79 +56,79 @@
   "@buyMeACoffeeTitle": {
     "description": "Tile title linking to the Buy Me a Coffee page."
   },
-  "buyMeACoffeeSubtitle": "Make a one-time donation to say thanks.",
+  "buyMeACoffeeSubtitle": "感謝の気持ちとして一回限りの寄付をします。",
   "@buyMeACoffeeSubtitle": {
     "description": "Subtitle encouraging one-time donations via Buy Me a Coffee."
   },
-  "signOut": "Sign Out",
+  "signOut": "サインアウト",
   "@signOut": {
     "description": "Button/title for signing out of the app."
   },
-  "endYourSession": "End your session",
+  "endYourSession": "セッションを終了",
   "@endYourSession": {
     "description": "Subtitle explaining the sign-out action."
   },
-  "defaultModel": "Default Model",
+  "defaultModel": "既定のモデル",
   "@defaultModel": {
     "description": "Label for choosing a default AI model."
   },
-  "autoSelect": "Server provided",
+  "autoSelect": "サーバー提供",
   "@autoSelect": {
     "description": "Option to let the app pick a suitable model automatically."
   },
-  "loadingModels": "Loading models...",
+  "loadingModels": "モデルを読み込み中...",
   "@loadingModels": {
     "description": "Progress message while fetching model list."
   },
-  "failedToLoadModels": "Failed to load models",
+  "failedToLoadModels": "モデルの読み込みに失敗しました",
   "@failedToLoadModels": {
     "description": "Error message shown when model list cannot be retrieved."
   },
-  "failedToLoadFiles": "Failed to load files",
+  "failedToLoadFiles": "ファイルの読み込みに失敗しました",
   "@failedToLoadFiles": {
     "description": "Error message shown when the user file list cannot be retrieved."
   },
-  "availableModels": "Available Models",
+  "availableModels": "利用可能なモデル",
   "@availableModels": {
     "description": "Header above a list of models to select from."
   },
-  "modelCapabilityMultimodal": "Multimodal",
+  "modelCapabilityMultimodal": "マルチモーダル",
   "@modelCapabilityMultimodal": {
     "description": "Capability chip label for models that support multimodal input."
   },
-  "modelCapabilityReasoning": "Reasoning",
+  "modelCapabilityReasoning": "推論",
   "@modelCapabilityReasoning": {
     "description": "Capability chip label for models that support reasoning features."
   },
-  "noResults": "No results",
+  "noResults": "結果がありません",
   "@noResults": {
     "description": "Shown when a search returns no matches."
   },
-  "searchModels": "Search models...",
+  "searchModels": "モデルを検索...",
   "@searchModels": {
     "description": "Hint text for model search input."
   },
-  "searchFiles": "Search files...",
+  "searchFiles": "ファイルを検索...",
   "@searchFiles": {
     "description": "Hint text for searching files already stored on the server."
   },
-  "errorMessage": "Something went wrong. Please try again.",
+  "errorMessage": "問題が発生しました。もう一度お試しください。",
   "@errorMessage": {
     "description": "Generic error message for unexpected failures."
   },
-  "closeButtonSemantic": "Close",
+  "closeButtonSemantic": "閉じる",
   "@closeButtonSemantic": {
     "description": "Accessible label for a generic Close button."
   },
-  "loadingContent": "Loading content",
+  "loadingContent": "コンテンツを読み込み中",
   "@loadingContent": {
     "description": "Shown while loading page content."
   },
-  "loadingShort": "Loading",
+  "loadingShort": "読み込み中",
   "@loadingShort": {
     "description": "Short loading label used for accessibility."
   },
-  "loadingAnnouncement": "Loading: {message}",
+  "loadingAnnouncement": "読み込み中: {message}",
   "@loadingAnnouncement": {
     "description": "Screen reader announcement when loading a resource.",
     "placeholders": {
@@ -138,7 +138,7 @@
       }
     }
   },
-  "errorAnnouncement": "Error: {error}",
+  "errorAnnouncement": "エラー: {error}",
   "@errorAnnouncement": {
     "description": "Screen reader announcement for an error.",
     "placeholders": {
@@ -148,7 +148,7 @@
       }
     }
   },
-  "errorAnnouncementWithSuggestion": "Error: {error}. {suggestion}",
+  "errorAnnouncementWithSuggestion": "エラー: {error}。{suggestion}",
   "@errorAnnouncementWithSuggestion": {
     "description": "Screen reader announcement for an error with a follow-up suggestion.",
     "placeholders": {
@@ -162,7 +162,7 @@
       }
     }
   },
-  "successAnnouncement": "Success: {message}",
+  "successAnnouncement": "成功: {message}",
   "@successAnnouncement": {
     "description": "Screen reader announcement for successful actions.",
     "placeholders": {
@@ -172,83 +172,83 @@
       }
     }
   },
-  "noItems": "No items",
+  "noItems": "項目がありません",
   "@noItems": {
     "description": "Placeholder text when a list is empty."
   },
-  "noItemsToDisplay": "No items to display",
+  "noItemsToDisplay": "表示する項目がありません",
   "@noItemsToDisplay": {
     "description": "Alternative empty-state description."
   },
-  "knowledgeBase": "Knowledge Base",
+  "knowledgeBase": "ナレッジベース",
   "@knowledgeBase": {
     "description": "Section for knowledge base content."
   },
-  "attachments": "Attachments",
+  "attachments": "添付ファイル",
   "@attachments": {
     "description": "Header above list of attached files in compose area."
   },
-  "files": "Files",
+  "files": "ファイル",
   "@files": {
     "description": "Generic plural label for files."
   },
-  "takePhoto": "Take a photo",
+  "takePhoto": "写真を撮影",
   "@takePhoto": {
     "description": "Action to open camera and capture a new photo."
   },
-  "document": "Document",
+  "document": "ドキュメント",
   "@document": {
     "description": "Generic document label used in UI."
   },
-  "backToServerSetup": "Back to server setup",
+  "backToServerSetup": "サーバー設定に戻る",
   "@backToServerSetup": {
     "description": "Button/back label to return to server configuration flow."
   },
-  "connectedToServer": "Connected to Server",
+  "connectedToServer": "サーバーに接続しました",
   "@connectedToServer": {
     "description": "Status label indicating a successful server connection."
   },
-  "signIn": "Sign In",
+  "signIn": "サインイン",
   "@signIn": {
     "description": "Button/heading for sign-in flows."
   },
-  "enterCredentials": "Enter your credentials to access your AI conversations",
+  "enterCredentials": "AI 会話にアクセスするための認証情報を入力してください",
   "@enterCredentials": {
     "description": "Instructional text on the sign-in screen."
   },
-  "credentials": "Credentials",
+  "credentials": "認証情報",
   "@credentials": {
     "description": "Header for credential input section."
   },
-  "apiKey": "API Key",
+  "apiKey": "API キー",
   "@apiKey": {
     "description": "Label for API key input field."
   },
-  "token": "Token",
+  "token": "トークン",
   "@token": {
     "description": "Label for JWT token input field."
   },
-  "usernameOrEmail": "Username or Email",
+  "usernameOrEmail": "ユーザー名またはメール",
   "@usernameOrEmail": {
     "description": "Label for username/email input field."
   },
-  "password": "Password",
+  "password": "パスワード",
   "@password": {
     "description": "Label for password input field."
   },
-  "signInWithToken": "Sign in with Token",
+  "signInWithToken": "トークンでサインイン",
   "@signInWithToken": {
     "description": "Alternative sign-in method using a JWT token."
   },
-  "connectToServer": "Connect to Server",
+  "connectToServer": "サーバーに接続",
   "@connectToServer": {
     "description": "Call-to-action button for server connection."
   },
-  "enterServerAddress": "Enter your Open-WebUI server address to get started",
+  "enterServerAddress": "開始するには Open-WebUI サーバーのアドレスを入力してください",
   "@enterServerAddress": {
     "description": "Instruction telling user to provide server URL to begin."
   },
-  "serverUrl": "Server URL",
+  "serverUrl": "サーバー URL",
   "@serverUrl": {
     "description": "Label for server URL field."
   },
@@ -256,127 +256,127 @@
   "@serverUrlHint": {
     "description": "Hint text showing example server URL format."
   },
-  "enterServerUrlSemantic": "Enter your server URL or IP address",
+  "enterServerUrlSemantic": "サーバー URL または IP アドレスを入力",
   "@enterServerUrlSemantic": {
     "description": "Semantic/ARIA label instructing to enter server URL or IP."
   },
-  "headerName": "Header Name",
+  "headerName": "ヘッダー名",
   "@headerName": {
     "description": "Label for custom header key."
   },
-  "headerValue": "Header Value",
+  "headerValue": "ヘッダー値",
   "@headerValue": {
     "description": "Label for custom header value."
   },
-  "headerValueHint": "api-key-123 or Bearer token",
+  "headerValueHint": "api-key-123 または Bearer token",
   "@headerValueHint": {
     "description": "Hint text with example header values, including API key or Bearer token."
   },
-  "addHeader": "Add header",
+  "addHeader": "ヘッダーを追加",
   "@addHeader": {
     "description": "Button to add a new custom header row."
   },
-  "maximumHeadersReached": "Maximum headers reached",
+  "maximumHeadersReached": "ヘッダー数が上限に達しました",
   "@maximumHeadersReached": {
     "description": "Warning when custom header limit is reached."
   },
-  "removeHeader": "Remove header",
+  "removeHeader": "ヘッダーを削除",
   "@removeHeader": {
     "description": "Action to remove a custom header row."
   },
-  "connecting": "Connecting...",
+  "connecting": "接続中...",
   "@connecting": {
     "description": "Status while attempting to connect to server."
   },
-  "connectToServerButton": "Connect to Server",
+  "connectToServerButton": "サーバーに接続",
   "@connectToServerButton": {
     "description": "Primary action button to initiate server connection."
   },
-  "demoModeActive": "Demo Mode Active",
+  "demoModeActive": "デモモードが有効",
   "@demoModeActive": {
     "description": "Banner/text indicating the app runs in demo mode."
   },
-  "skipServerSetupTryDemo": "Skip server setup and try the demo",
+  "skipServerSetupTryDemo": "サーバー設定をスキップしてデモを試す",
   "@skipServerSetupTryDemo": {
     "description": "CTA to bypass server configuration and enter demo mode."
   },
-  "enterDemo": "Enter Demo",
+  "enterDemo": "デモを開始",
   "@enterDemo": {
     "description": "Button to enter demo mode."
   },
-  "demoBadge": "Demo",
+  "demoBadge": "デモ",
   "@demoBadge": {
     "description": "Small badge label for demo content."
   },
-  "serverNotOpenWebUI": "This does not appear to be an Open-WebUI server.",
+  "serverNotOpenWebUI": "これは Open-WebUI サーバーではないようです。",
   "@serverNotOpenWebUI": {
     "description": "Validation error when the server does not resemble Open-WebUI."
   },
-  "serverUrlEmpty": "Server URL cannot be empty",
+  "serverUrlEmpty": "サーバー URL は空にできません",
   "@serverUrlEmpty": {
     "description": "Validation message for empty server URL."
   },
-  "invalidUrlFormat": "Invalid URL format. Please check your input.",
+  "invalidUrlFormat": "URL 形式が無効です。入力を確認してください。",
   "@invalidUrlFormat": {
     "description": "Validation message when URL format is incorrect."
   },
-  "onlyHttpHttps": "Only HTTP and HTTPS protocols are supported.",
+  "onlyHttpHttps": "HTTP と HTTPS プロトコルのみサポートされています。",
   "@onlyHttpHttps": {
     "description": "Validation note restricting protocols to HTTP/HTTPS."
   },
-  "serverAddressRequired": "Server address is required (e.g., 192.168.1.10 or example.com).",
+  "serverAddressRequired": "サーバーアドレスが必要です (例: 192.168.1.10 または example.com)。",
   "@serverAddressRequired": {
     "description": "Validation hint providing examples for server addresses."
   },
-  "portRange": "Port must be between 1 and 65535.",
+  "portRange": "ポートは 1 から 65535 の範囲で指定してください。",
   "@portRange": {
     "description": "Validation message for allowed port range."
   },
-  "invalidIpFormat": "Invalid IP address format. Use format like 192.168.1.10.",
+  "invalidIpFormat": "IP アドレスの形式が無効です。192.168.1.10 のような形式を使用してください。",
   "@invalidIpFormat": {
     "description": "Validation message for IP addresses with example."
   },
-  "couldNotConnectGeneric": "Couldn't connect. Double-check the address and try again.",
+  "couldNotConnectGeneric": "接続できませんでした。アドレスを確認してもう一度お試しください。",
   "@couldNotConnectGeneric": {
     "description": "Generic failure when connecting to the server."
   },
-  "weCouldntReachServer": "We couldn't reach the server. Check your connection and that the server is running.",
+  "weCouldntReachServer": "サーバーに到達できませんでした。接続とサーバーが稼働していることを確認してください。",
   "@weCouldntReachServer": {
     "description": "Connectivity error with hints to verify server status."
   },
-  "connectionTimedOut": "Connection timed out. The server might be busy or blocked by a firewall.",
+  "connectionTimedOut": "接続がタイムアウトしました。サーバーが混雑しているか、ファイアウォールでブロックされている可能性があります。",
   "@connectionTimedOut": {
     "description": "Timeout error while connecting to server."
   },
-  "useHttpOrHttpsOnly": "Use http:// or https:// only.",
+  "useHttpOrHttpsOnly": "http:// または https:// のみ使用してください。",
   "@useHttpOrHttpsOnly": {
     "description": "Note instructing the user to include protocol in URL."
   },
-  "loginFailed": "Login failed",
+  "loginFailed": "ログインに失敗しました",
   "@loginFailed": {
     "description": "Title for failed login attempts."
   },
-  "invalidCredentials": "Invalid username or password. Please try again.",
+  "invalidCredentials": "ユーザー名またはパスワードが無効です。もう一度お試しください。",
   "@invalidCredentials": {
     "description": "Detailed message when authentication fails."
   },
-  "serverRedirectingHttps": "The server is redirecting requests. Check your server's HTTPS configuration.",
+  "serverRedirectingHttps": "サーバーがリクエストをリダイレクトしています。サーバーの HTTPS 設定を確認してください。",
   "@serverRedirectingHttps": {
     "description": "Warning about HTTP→HTTPS redirect issues."
   },
-  "unableToConnectServer": "Unable to connect to server. Please check your connection.",
+  "unableToConnectServer": "サーバーに接続できません。接続を確認してください。",
   "@unableToConnectServer": {
     "description": "Generic server connection failure message."
   },
-  "requestTimedOut": "The request timed out. Please try again.",
+  "requestTimedOut": "リクエストがタイムアウトしました。もう一度お試しください。",
   "@requestTimedOut": {
     "description": "Timeout while waiting for a server response."
   },
-  "genericSignInFailed": "We couldn't sign you in. Check your credentials and server settings.",
+  "genericSignInFailed": "サインインできませんでした。認証情報とサーバー設定を確認してください。",
   "@genericSignInFailed": {
     "description": "Fallback sign-in error when no specific cause is known."
   },
-  "greetingTitle": "Hello, {username}",
+  "greetingTitle": "こんにちは、{username}",
   "@greetingTitle": {
     "description": "Greeting shown on the empty chat page.",
     "placeholders": {
@@ -386,179 +386,179 @@
       }
     }
   },
-  "attachmentLabel": "Attachment",
+  "attachmentLabel": "添付ファイル",
   "@attachmentLabel": {
     "description": "Label shown beside attachment chips in messages."
   },
-  "tools": "Tools",
+  "tools": "ツール",
   "@tools": {
     "description": "Header for a tools/actions section."
   },
-  "toolServer": "Tool Server",
+  "toolServer": "ツールサーバー",
   "@toolServer": {
     "description": "Singular label for a direct tool server integration."
   },
-  "toolServers": "Tool Servers",
+  "toolServers": "ツールサーバー",
   "@toolServers": {
     "description": "Plural label for the direct tool server integrations section."
   },
-  "terminal": "Terminal",
+  "terminal": "ターミナル",
   "@terminal": {
     "description": "Label for terminal integrations in the composer."
   },
-  "filters": "Filters",
+  "filters": "フィルター",
   "@filters": {
     "description": "Header for toggle filters section."
   },
-  "voiceInput": "Voice input",
+  "voiceInput": "音声入力",
   "@voiceInput": {
     "description": "Label for voice input feature."
   },
-  "voice": "Voice",
+  "voice": "音声",
   "@voice": {
     "description": "Title for the voice input bottom sheet."
   },
-  "voiceStatusListening": "Listening…",
+  "voiceStatusListening": "聞き取り中…",
   "@voiceStatusListening": {
     "description": "Indicates the app is actively listening during voice input."
   },
-  "voiceStatusRecording": "Recording…",
+  "voiceStatusRecording": "録音中…",
   "@voiceStatusRecording": {
     "description": "Indicates the app is recording audio for speech recognition."
   },
-  "voiceHoldToTalk": "Hold to talk",
+  "voiceHoldToTalk": "押して話す",
   "@voiceHoldToTalk": {
     "description": "Toggle label for hold-to-talk mode in voice input."
   },
-  "voiceAutoSend": "Auto-send",
+  "voiceAutoSend": "自動送信",
   "@voiceAutoSend": {
     "description": "Toggle label for automatically sending the final transcript."
   },
-  "voiceTranscript": "Transcript",
+  "voiceTranscript": "文字起こし",
   "@voiceTranscript": {
     "description": "Label above the transcribed voice input text."
   },
-  "voicePromptSpeakNow": "Speak now…",
+  "voicePromptSpeakNow": "話してください…",
   "@voicePromptSpeakNow": {
     "description": "Placeholder prompting the user to start speaking."
   },
-  "voicePromptTapStart": "Tap Start to begin",
+  "voicePromptTapStart": "開始をタップしてください",
   "@voicePromptTapStart": {
     "description": "Placeholder instructing the user to tap Start to begin recording."
   },
-  "voiceActionStop": "Stop",
+  "voiceActionStop": "停止",
   "@voiceActionStop": {
     "description": "Button label to stop voice recording."
   },
-  "voiceActionStart": "Start",
+  "voiceActionStart": "開始",
   "@voiceActionStart": {
     "description": "Button label to start voice recording."
   },
-  "voiceCallTitle": "Voice Call",
+  "voiceCallTitle": "音声通話",
   "@voiceCallTitle": {
     "description": "Title displayed on the voice call screen."
   },
-  "voiceCallPause": "Pause",
+  "voiceCallPause": "一時停止",
   "@voiceCallPause": {
     "description": "Button label to pause a voice call."
   },
-  "voiceCallResume": "Resume",
+  "voiceCallResume": "再開",
   "@voiceCallResume": {
     "description": "Button label to resume a paused voice call."
   },
-  "voiceCallStop": "Stop",
+  "voiceCallStop": "停止",
   "@voiceCallStop": {
     "description": "Button label to stop the active voice call."
   },
-  "voiceCallEnd": "End Call",
+  "voiceCallEnd": "通話を終了",
   "@voiceCallEnd": {
     "description": "Button label to end the voice call session."
   },
-  "voiceCallReady": "Ready",
+  "voiceCallReady": "準備完了",
   "@voiceCallReady": {
     "description": "Status label shown when the voice call is ready to start."
   },
-  "voiceCallConnecting": "Connecting...",
+  "voiceCallConnecting": "接続中...",
   "@voiceCallConnecting": {
     "description": "Status label shown while the voice call is connecting."
   },
-  "voiceCallListening": "Listening",
+  "voiceCallListening": "聞き取り中",
   "@voiceCallListening": {
     "description": "Status label shown while the call is listening for input."
   },
-  "voiceCallPaused": "Paused",
+  "voiceCallPaused": "一時停止中",
   "@voiceCallPaused": {
     "description": "Status label shown when the call is paused."
   },
-  "voiceCallProcessing": "Thinking...",
+  "voiceCallProcessing": "考え中...",
   "@voiceCallProcessing": {
     "description": "Status label shown while the call processes a response."
   },
-  "voiceCallSpeaking": "Speaking",
+  "voiceCallSpeaking": "発話中",
   "@voiceCallSpeaking": {
     "description": "Status label shown while the assistant is speaking."
   },
-  "voiceCallDisconnected": "Disconnected",
+  "voiceCallDisconnected": "切断されました",
   "@voiceCallDisconnected": {
     "description": "Status label shown when the voice call has ended or disconnected."
   },
-  "voiceCallErrorHelp": "Please check:\n• Microphone permissions are granted\n• Speech recognition is available on your device\n• You are connected to the server",
+  "voiceCallErrorHelp": "以下を確認してください:\n• マイクの権限が許可されていること\n• このデバイスで音声認識を利用できること\n• サーバーに接続されていること",
   "@voiceCallErrorHelp": {
     "description": "Guidance shown when the voice call encounters an error."
   },
-  "messageHintText": "Ask Conduit",
+  "messageHintText": "Conduit に質問",
   "@messageHintText": {
     "description": "Short placeholder text in the message input."
   },
-  "stopGenerating": "Stop generating",
+  "stopGenerating": "生成を停止",
   "@stopGenerating": {
     "description": "Action to stop the assistant's response generation."
   },
-  "send": "Send",
+  "send": "送信",
   "@send": {
     "description": "Primary action to send a message."
   },
-  "codeCopiedToClipboard": "Code copied to clipboard.",
+  "codeCopiedToClipboard": "コードをクリップボードにコピーしました。",
   "@codeCopiedToClipboard": {
     "description": "Snack bar message confirming code was copied."
   },
-  "sendMessage": "Send message",
+  "sendMessage": "メッセージを送信",
   "@sendMessage": {
     "description": "Semantic label for sending a message."
   },
-  "file": "File",
+  "file": "ファイル",
   "@file": {
     "description": "A file item or attachment type label."
   },
-  "chooseDifferentFile": "Choose Different File",
+  "chooseDifferentFile": "別のファイルを選択",
   "@chooseDifferentFile": {
     "description": "Action label prompting the user to pick another file."
   },
-  "photo": "Photo",
+  "photo": "写真",
   "@photo": {
     "description": "A photo item or attachment type label."
   },
-  "camera": "Camera",
+  "camera": "カメラ",
   "@camera": {
     "description": "Camera source label."
   },
-  "webPage": "Web Page",
+  "webPage": "Web ページ",
   "@webPage": {
     "description": "Attach a web page label."
   },
-  "pasteImage": "Paste Image",
+  "pasteImage": "画像を貼り付け",
   "@pasteImage": {
     "description": "Context menu action to paste an image from the clipboard."
   },
-  "apiUnavailable": "API service not available",
+  "apiUnavailable": "API サービスを利用できません",
   "@apiUnavailable": {
     "description": "Shown when backend API service is unavailable."
   },
-  "unableToLoadImage": "Unable to load image",
+  "unableToLoadImage": "画像を読み込めません",
   "@unableToLoadImage": {
     "description": "General failure to load an image."
   },
-  "notAnImageFile": "Not an image file: {fileName}",
+  "notAnImageFile": "画像ファイルではありません: {fileName}",
   "@notAnImageFile": {
     "description": "Error when a referenced file is not an image.",
     "placeholders": {
@@ -568,7 +568,7 @@
       }
     }
   },
-  "failedToLoadImage": "Failed to load image: {error}",
+  "failedToLoadImage": "画像の読み込みに失敗しました: {error}",
   "@failedToLoadImage": {
     "description": "Error including the underlying reason when image loading fails.",
     "placeholders": {
@@ -578,31 +578,31 @@
       }
     }
   },
-  "invalidDataUrl": "Invalid data URL format",
+  "invalidDataUrl": "データ URL の形式が無効です",
   "@invalidDataUrl": {
     "description": "Error for malformed data: URLs."
   },
-  "failedToDecodeImage": "Failed to decode image",
+  "failedToDecodeImage": "画像のデコードに失敗しました",
   "@failedToDecodeImage": {
     "description": "Error when decoding image bytes/base64."
   },
-  "invalidImageFormat": "Invalid image format",
+  "invalidImageFormat": "画像形式が無効です",
   "@invalidImageFormat": {
     "description": "Error when image type/format is not supported."
   },
-  "emptyImageData": "Empty image data",
+  "emptyImageData": "画像データが空です",
   "@emptyImageData": {
     "description": "Error when image data buffer is empty."
   },
-  "confirm": "Confirm",
+  "confirm": "確認",
   "@confirm": {
     "description": "Confirmation button label."
   },
-  "continueAction": "Continue",
+  "continueAction": "続行",
   "@continueAction": {
     "description": "Button label to continue an action or flow."
   },
-  "cancel": "Cancel",
+  "cancel": "キャンセル",
   "@cancel": {
     "description": "Cancel button label."
   },
@@ -610,31 +610,31 @@
   "@ok": {
     "description": "Generic OK button label."
   },
-  "previousLabel": "Prev",
+  "previousLabel": "前へ",
   "@previousLabel": {
     "description": "Label for navigating to the previous item."
   },
-  "nextLabel": "Next",
+  "nextLabel": "次へ",
   "@nextLabel": {
     "description": "Label for navigating to the next item."
   },
-  "inputField": "Input field",
+  "inputField": "入力フィールド",
   "@inputField": {
     "description": "Accessibility label describing an input field."
   },
-  "checkConnection": "Check Connection",
+  "checkConnection": "接続を確認",
   "@checkConnection": {
     "description": "CTA to verify network connectivity."
   },
-  "openSettings": "Open Settings",
+  "openSettings": "設定を開く",
   "@openSettings": {
     "description": "CTA to open device or app settings."
   },
-  "goBack": "Go Back",
+  "goBack": "戻る",
   "@goBack": {
     "description": "CTA to navigate back."
   },
-  "technicalDetails": "Technical Details",
+  "technicalDetails": "技術的な詳細",
   "@technicalDetails": {
     "description": "Expandable section label to show error details or logs."
   },
@@ -648,19 +648,19 @@
       }
     }
   },
-  "requiredFieldHelper": "Required field",
+  "requiredFieldHelper": "必須項目",
   "@requiredFieldHelper": {
     "description": "Helper text indicating that the field is required."
   },
-  "switchOnLabel": "On",
+  "switchOnLabel": "オン",
   "@switchOnLabel": {
     "description": "Semantic label when a switch is enabled."
   },
-  "switchOffLabel": "Off",
+  "switchOffLabel": "オフ",
   "@switchOffLabel": {
     "description": "Semantic label when a switch is disabled."
   },
-  "dialogSemanticLabel": "Dialog: {title}",
+  "dialogSemanticLabel": "ダイアログ: {title}",
   "@dialogSemanticLabel": {
     "description": "Semantic label describing the dialog title.",
     "placeholders": {
@@ -670,119 +670,119 @@
       }
     }
   },
-  "save": "Save",
+  "save": "保存",
   "@save": {
     "description": "Primary action to save changes."
   },
-  "chooseModel": "Choose Model",
+  "chooseModel": "モデルを選択",
   "@chooseModel": {
     "description": "Button/label to choose a model."
   },
-  "reviewerMode": "REVIEWER MODE",
+  "reviewerMode": "レビュアーモード",
   "@reviewerMode": {
     "description": "Developer/reviewer mode indicator."
   },
-  "selectLanguage": "Select Language",
+  "selectLanguage": "言語を選択",
   "@selectLanguage": {
     "description": "Dialog title to pick application language."
   },
-  "newFolder": "New Folder",
+  "newFolder": "新しいフォルダー",
   "@newFolder": {
     "description": "Action to create a new folder."
   },
-  "folderName": "Folder name",
+  "folderName": "フォルダー名",
   "@folderName": {
     "description": "Label for entering a folder's name."
   },
-  "newChat": "New Chat",
+  "newChat": "新しいチャット",
   "@newChat": {
     "description": "Action to start a new chat."
   },
-  "more": "More",
+  "more": "その他",
   "@more": {
     "description": "Opens additional actions or content."
   },
-  "clear": "Clear",
+  "clear": "クリア",
   "@clear": {
     "description": "Action to clear input or selection."
   },
-  "searchConversations": "Search conversations...",
+  "searchConversations": "会話を検索...",
   "@searchConversations": {
     "description": "Search input hint scoped to conversations."
   },
-  "create": "Create",
+  "create": "作成",
   "@create": {
     "description": "Primary action to create a resource."
   },
-  "failedToCreateFolder": "Failed to create folder",
+  "failedToCreateFolder": "フォルダーの作成に失敗しました",
   "@failedToCreateFolder": {
     "description": "Error notice when folder creation fails."
   },
-  "failedToMoveChat": "Failed to move chat",
+  "failedToMoveChat": "チャットの移動に失敗しました",
   "@failedToMoveChat": {
     "description": "Error notice when moving a chat fails."
   },
-  "failedToLoadChats": "Failed to load chats",
+  "failedToLoadChats": "チャットの読み込みに失敗しました",
   "@failedToLoadChats": {
     "description": "Error notice when fetching chat list fails."
   },
-  "failedToUpdatePin": "Failed to update pin",
+  "failedToUpdatePin": "ピンの更新に失敗しました",
   "@failedToUpdatePin": {
     "description": "Error notice when updating pin star/flag fails."
   },
-  "failedToDeleteChat": "Failed to delete chat",
+  "failedToDeleteChat": "チャットの削除に失敗しました",
   "@failedToDeleteChat": {
     "description": "Error notice when deleting a chat fails."
   },
-  "manage": "Manage",
+  "manage": "管理",
   "@manage": {
     "description": "Context action to manage an item."
   },
-  "rename": "Rename",
+  "rename": "名前を変更",
   "@rename": {
     "description": "Context action to rename an item."
   },
-  "delete": "Delete",
+  "delete": "削除",
   "@delete": {
     "description": "Context action to delete an item."
   },
-  "renameChat": "Rename Chat",
+  "renameChat": "チャット名を変更",
   "@renameChat": {
     "description": "Dialog title to rename a chat."
   },
-  "enterChatName": "Enter chat name",
+  "enterChatName": "チャット名を入力",
   "@enterChatName": {
     "description": "Input hint/label for new chat name."
   },
-  "failedToRenameChat": "Failed to rename chat",
+  "failedToRenameChat": "チャット名の変更に失敗しました",
   "@failedToRenameChat": {
     "description": "Error notice when renaming chat fails."
   },
-  "failedToUpdateArchive": "Failed to update archive",
+  "failedToUpdateArchive": "アーカイブの更新に失敗しました",
   "@failedToUpdateArchive": {
     "description": "Error notice when archiving/unarchiving fails."
   },
-  "unarchive": "Unarchive",
+  "unarchive": "アーカイブ解除",
   "@unarchive": {
     "description": "Action to unarchive an item."
   },
-  "archive": "Archive",
+  "archive": "アーカイブ",
   "@archive": {
     "description": "Action to archive an item."
   },
-  "pin": "Pin",
+  "pin": "ピン留め",
   "@pin": {
     "description": "Action to pin/star an item."
   },
-  "unpin": "Unpin",
+  "unpin": "ピン留め解除",
   "@unpin": {
     "description": "Action to remove pin from an item."
   },
-  "recent": "Recent",
+  "recent": "最近",
   "@recent": {
     "description": "List filter for recently used items."
   },
-  "system": "System",
+  "system": "システム",
   "@system": {
     "description": "Option indicating the device/system default."
   },
@@ -818,11 +818,11 @@
   "@chinese": {
     "description": "Language name: Chinese."
   },
-  "chineseSimplified": "Chinese (Simplified)",
+  "chineseSimplified": "中国語（簡体字）",
   "@chineseSimplified": {
     "description": "Language name: Chinese (Simplified)."
   },
-  "chineseTraditional": "Chinese (Traditional)",
+  "chineseTraditional": "中国語（繁体字）",
   "@chineseTraditional": {
     "description": "Language name: Chinese (Traditional)."
   },
@@ -834,11 +834,11 @@
   "@japanese": {
     "description": "Language name: Japanese."
   },
-  "deleteMessagesTitle": "Delete Messages",
+  "deleteMessagesTitle": "メッセージを削除",
   "@deleteMessagesTitle": {
     "description": "Dialog title asking to confirm deletion of messages."
   },
-  "deleteMessagesMessage": "Delete {count} messages?",
+  "deleteMessagesMessage": "{count} 件のメッセージを削除しますか？",
   "@deleteMessagesMessage": {
     "description": "Confirmation prompt asking to delete a number of messages.",
     "placeholders": {
@@ -847,7 +847,7 @@
       }
     }
   },
-  "routeNotFound": "Route not found: {routeName}",
+  "routeNotFound": "ルートが見つかりません: {routeName}",
   "@routeNotFound": {
     "description": "Displayed when navigation fails to find a route name.",
     "placeholders": {
@@ -856,31 +856,31 @@
       }
     }
   },
-  "deleteChatTitle": "Delete Chat",
+  "deleteChatTitle": "チャットを削除",
   "@deleteChatTitle": {
     "description": "Dialog title asking to confirm deletion of a chat."
   },
-  "deleteChatMessage": "This chat will be permanently deleted.",
+  "deleteChatMessage": "このチャットは完全に削除されます。",
   "@deleteChatMessage": {
     "description": "Warning that deleting a chat cannot be undone."
   },
-  "deleteFolderTitle": "Delete Folder",
+  "deleteFolderTitle": "フォルダーを削除",
   "@deleteFolderTitle": {
     "description": "Dialog title asking to confirm deletion of a folder."
   },
-  "deleteFolderMessage": "This folder and its assignment references will be removed.",
+  "deleteFolderMessage": "このフォルダーとその割り当て参照が削除されます。",
   "@deleteFolderMessage": {
     "description": "Warning that deleting a folder will remove it and its associations."
   },
-  "failedToDeleteFolder": "Failed to delete folder",
+  "failedToDeleteFolder": "フォルダーの削除に失敗しました",
   "@failedToDeleteFolder": {
     "description": "Error notice when deleting a folder fails."
   },
-  "aboutApp": "About",
+  "aboutApp": "このアプリについて",
   "@aboutApp": {
     "description": "Settings tile title to view app information."
   },
-  "aboutAppSubtitle": "Conduit information and links",
+  "aboutAppSubtitle": "Conduit の情報とリンク",
   "@aboutAppSubtitle": {
     "description": "Subtitle/description for the About section."
   },
@@ -888,75 +888,75 @@
   "@web": {
     "description": "Tab/section label for web features."
   },
-  "imageGen": "Image Gen",
+  "imageGen": "画像生成",
   "@imageGen": {
     "description": "Short label for image generation section/tab."
   },
-  "pinned": "Pinned",
+  "pinned": "ピン留め",
   "@pinned": {
     "description": "Filter/tab for pinned items."
   },
-  "folders": "Folders",
+  "folders": "フォルダー",
   "@folders": {
     "description": "Tab listing chat folders."
   },
-  "archived": "Archived",
+  "archived": "アーカイブ済み",
   "@archived": {
     "description": "Filter/tab for archived chats."
   },
-  "appLanguage": "App Language",
+  "appLanguage": "アプリの言語",
   "@appLanguage": {
     "description": "Label for choosing the app's display language."
   },
-  "darkMode": "Dark Mode",
+  "darkMode": "ダークモード",
   "@darkMode": {
     "description": "Label for toggling dark theme."
   },
-  "webSearch": "Web Search",
+  "webSearch": "Web 検索",
   "@webSearch": {
     "description": "Feature toggle/section for web search."
   },
-  "webSearchDescription": "Search the web and cite sources in replies.",
+  "webSearchDescription": "Web を検索し、返信に出典を引用します。",
   "@webSearchDescription": {
     "description": "Explains that responses can include citations from the web."
   },
-  "imageGeneration": "Image Generation",
+  "imageGeneration": "画像生成",
   "@imageGeneration": {
     "description": "Feature toggle/section for image generation."
   },
-  "imageGenerationDescription": "Create images from your prompts.",
+  "imageGenerationDescription": "プロンプトから画像を作成します。",
   "@imageGenerationDescription": {
     "description": "Explains creating images via model prompts."
   },
-  "copy": "Copy",
+  "copy": "コピー",
   "@copy": {
     "description": "Action to copy text to clipboard."
   },
-  "ttsListen": "Listen",
+  "ttsListen": "聞く",
   "@ttsListen": {
     "description": "Action to play the assistant message using text to speech"
   },
-  "ttsStop": "Stop",
+  "ttsStop": "停止",
   "@ttsStop": {
     "description": "Action to stop text to speech playback"
   },
-  "usageInfo": "Info",
+  "usageInfo": "情報",
   "@usageInfo": {
     "description": "Action to show usage/performance statistics for a response"
   },
-  "usageInfoTitle": "Response Statistics",
+  "usageInfoTitle": "応答統計",
   "@usageInfoTitle": {
     "description": "Title for the usage statistics dialog/sheet"
   },
-  "usageTokenGeneration": "Token Generation",
+  "usageTokenGeneration": "トークン生成",
   "@usageTokenGeneration": {
     "description": "Label for token generation speed metric"
   },
-  "usagePromptEval": "Prompt Processing",
+  "usagePromptEval": "プロンプト処理",
   "@usagePromptEval": {
     "description": "Label for prompt evaluation/pre-processing speed metric"
   },
-  "usageTotalDuration": "Total Duration",
+  "usageTotalDuration": "合計時間",
   "@usageTotalDuration": {
     "description": "Label for total response generation duration"
   },
@@ -970,7 +970,7 @@
       }
     }
   },
-  "usageTokenCount": "{count} tokens",
+  "usageTokenCount": "{count} トークン",
   "@usageTokenCount": {
     "description": "Token count display format",
     "placeholders": {
@@ -980,7 +980,7 @@
       }
     }
   },
-  "usageSecondsFormat": "{seconds}s",
+  "usageSecondsFormat": "{seconds}秒",
   "@usageSecondsFormat": {
     "description": "Seconds duration format",
     "placeholders": {
@@ -990,147 +990,147 @@
       }
     }
   },
-  "usageLoadDuration": "Model Load Time",
+  "usageLoadDuration": "モデル読み込み時間",
   "@usageLoadDuration": {
     "description": "Label for model loading duration metric"
   },
-  "usageQueueTime": "Queue Time",
+  "usageQueueTime": "キュー時間",
   "@usageQueueTime": {
     "description": "Label for queue waiting time metric"
   },
-  "usageReasoningTokens": "Reasoning Tokens",
+  "usageReasoningTokens": "推論トークン",
   "@usageReasoningTokens": {
     "description": "Label for reasoning/thinking tokens count"
   },
-  "usageTotalTokens": "Total Tokens",
+  "usageTotalTokens": "合計トークン",
   "@usageTotalTokens": {
     "description": "Label for total token count"
   },
-  "edit": "Edit",
+  "edit": "編集",
   "@edit": {
     "description": "Action to edit an item/message."
   },
-  "regenerate": "Regenerate",
+  "regenerate": "再生成",
   "@regenerate": {
     "description": "Action to request a new assistant response."
   },
-  "noConversationsYet": "No conversations yet",
+  "noConversationsYet": "まだ会話がありません",
   "@noConversationsYet": {
     "description": "Empty state when the user has no chats."
   },
-  "usernameOrEmailHint": "Enter your username or email",
+  "usernameOrEmailHint": "ユーザー名またはメールを入力",
   "@usernameOrEmailHint": {
     "description": "Hint text for username/email input."
   },
-  "passwordHint": "Enter your password",
+  "passwordHint": "パスワードを入力",
   "@passwordHint": {
     "description": "Hint text for password input."
   },
-  "enterToken": "Enter your JWT token",
+  "enterToken": "JWT トークンを入力",
   "@enterToken": {
     "description": "Hint text for JWT token input."
   },
-  "tokenHint": "Get the JWT token from OpenWebUI settings. API keys (sk-...) are not supported for streaming.",
+  "tokenHint": "OpenWebUI の設定から JWT トークンを取得してください。API キー (sk-...) はストリーミングに対応していません。",
   "@tokenHint": {
     "description": "Help text explaining what type of token to use."
   },
-  "apiKeyNotSupported": "API keys (sk-...) are not supported. Please use a JWT token instead.",
+  "apiKeyNotSupported": "API キー (sk-...) はサポートされていません。代わりに JWT トークンを使用してください。",
   "@apiKeyNotSupported": {
     "description": "Error message when user tries to use an API key instead of JWT token."
   },
-  "apiKeyNoLongerSupported": "You were logged out because API keys are no longer supported. Please sign in with a JWT token from OpenWebUI settings.",
+  "apiKeyNoLongerSupported": "API キーはサポートされなくなったためログアウトされました。OpenWebUI 設定の JWT トークンでサインインしてください。",
   "@apiKeyNoLongerSupported": {
     "description": "Error message shown when user is forced logged out due to using an API key."
   },
-  "tokenTooShort": "Token is too short",
+  "tokenTooShort": "トークンが短すぎます",
   "@tokenTooShort": {
     "description": "Error message when token is too short."
   },
-  "signingIn": "Signing in...",
+  "signingIn": "サインイン中...",
   "@signingIn": {
     "description": "Status message shown while signing in."
   },
-  "advancedSettings": "Advanced Settings",
+  "advancedSettings": "詳細設定",
   "@advancedSettings": {
     "description": "Section that contains additional/optional configuration."
   },
-  "customHeaders": "Custom Headers",
+  "customHeaders": "カスタムヘッダー",
   "@customHeaders": {
     "description": "Section title for adding custom HTTP headers."
   },
-  "customHeadersDescription": "Add custom HTTP headers for authentication, API keys, or special server requirements.",
+  "customHeadersDescription": "認証、API キー、または特殊なサーバー要件のためにカスタム HTTP ヘッダーを追加します。",
   "@customHeadersDescription": {
     "description": "Helper text explaining use-cases for custom headers."
   },
-  "allowSelfSignedCertificates": "Trust self-signed certificates",
+  "allowSelfSignedCertificates": "自己署名証明書を信頼",
   "@allowSelfSignedCertificates": {
     "description": "Toggle label that allows trusting self-signed TLS certificates for the configured server."
   },
-  "allowSelfSignedCertificatesDescription": "Accept this server's TLS certificate even if it is self-signed. Enable only for servers you trust.",
+  "allowSelfSignedCertificatesDescription": "自己署名であっても、このサーバーの TLS 証明書を受け入れます。信頼できるサーバーでのみ有効にしてください。",
   "@allowSelfSignedCertificatesDescription": {
     "description": "Helper text clarifying the risks of enabling the self-signed certificate toggle."
   },
-  "mutualTlsSectionTitle": "mTLS client certificate",
+  "mutualTlsSectionTitle": "mTLS クライアント証明書",
   "@mutualTlsSectionTitle": {
     "description": "Section title for configuring a client certificate and private key for mutual TLS."
   },
-  "mutualTlsSectionDescription": "Attach a PEM certificate chain and PEM private key when your server requires mutual TLS during connection setup.",
+  "mutualTlsSectionDescription": "サーバーが接続時に相互 TLS を要求する場合、PEM 証明書チェーンと PEM 秘密鍵を添付します。",
   "@mutualTlsSectionDescription": {
     "description": "Helper text explaining when to use the mTLS configuration section."
   },
-  "mutualTlsSelectCertificate": "Select certificate",
+  "mutualTlsSelectCertificate": "証明書を選択",
   "@mutualTlsSelectCertificate": {
     "description": "Button label for picking a PEM client certificate chain file."
   },
-  "mutualTlsSelectPrivateKey": "Select private key",
+  "mutualTlsSelectPrivateKey": "秘密鍵を選択",
   "@mutualTlsSelectPrivateKey": {
     "description": "Button label for picking a PEM private key file."
   },
-  "mutualTlsCertificateReady": "Certificate",
+  "mutualTlsCertificateReady": "証明書",
   "@mutualTlsCertificateReady": {
     "description": "Short label used in a badge once an mTLS certificate file has been selected."
   },
-  "mutualTlsPrivateKeyReady": "Private key",
+  "mutualTlsPrivateKeyReady": "秘密鍵",
   "@mutualTlsPrivateKeyReady": {
     "description": "Short label used in a badge once an mTLS private key file has been selected."
   },
-  "mutualTlsPrivateKeyPasswordHint": "Private key password (optional)",
+  "mutualTlsPrivateKeyPasswordHint": "秘密鍵のパスワード（任意）",
   "@mutualTlsPrivateKeyPasswordHint": {
     "description": "Placeholder for the optional password used to decrypt an mTLS private key."
   },
-  "mutualTlsClearCredentials": "Clear mTLS files",
+  "mutualTlsClearCredentials": "mTLS ファイルをクリア",
   "@mutualTlsClearCredentials": {
     "description": "Button label that removes selected mTLS certificate material from the form."
   },
-  "mutualTlsMissingCredentialPair": "Select both a client certificate and private key to use mTLS.",
+  "mutualTlsMissingCredentialPair": "mTLS を使用するには、クライアント証明書と秘密鍵の両方を選択してください。",
   "@mutualTlsMissingCredentialPair": {
     "description": "Validation message shown when only one half of the mTLS credential pair is configured."
   },
-  "mutualTlsCertificatePemRequired": "The selected certificate file must contain a PEM certificate chain.",
+  "mutualTlsCertificatePemRequired": "選択した証明書ファイルには PEM 証明書チェーンが含まれている必要があります。",
   "@mutualTlsCertificatePemRequired": {
     "description": "Error shown when the selected mTLS certificate file does not look like PEM certificate content."
   },
-  "mutualTlsPrivateKeyPemRequired": "The selected private key file must contain a PEM private key.",
+  "mutualTlsPrivateKeyPemRequired": "選択した秘密鍵ファイルには PEM 秘密鍵が含まれている必要があります。",
   "@mutualTlsPrivateKeyPemRequired": {
     "description": "Error shown when the selected mTLS private key file does not look like PEM private key content."
   },
-  "mutualTlsFileReadFailed": "Could not read the selected mTLS file.",
+  "mutualTlsFileReadFailed": "選択した mTLS ファイルを読み取れませんでした。",
   "@mutualTlsFileReadFailed": {
     "description": "Error shown when a picked certificate or key file cannot be read as text."
   },
-  "mutualTlsHandshakeFailed": "The server rejected the mTLS credentials. Confirm that the certificate, private key, and password are correct.",
+  "mutualTlsHandshakeFailed": "サーバーが mTLS 認証情報を拒否しました。証明書、秘密鍵、パスワードが正しいことを確認してください。",
   "@mutualTlsHandshakeFailed": {
     "description": "Connection error shown when the TLS handshake fails while mTLS credentials are configured."
   },
-  "headerNameTooLong": "Header name too long (max 64 characters)",
+  "headerNameTooLong": "ヘッダー名が長すぎます（最大 64 文字）",
   "@headerNameTooLong": {
     "description": "Validation message for header name length."
   },
-  "headerNameInvalidChars": "Invalid header name. Use only letters, numbers, and these symbols: !#$&-^_`|~",
+  "headerNameInvalidChars": "ヘッダー名が無効です。文字、数字、および次の記号のみ使用してください: !#$&-^_`|~",
   "@headerNameInvalidChars": {
     "description": "Validation message for invalid characters in header name."
   },
-  "headerNameReserved": "Cannot override reserved header \"{key}\"",
+  "headerNameReserved": "予約済みヘッダー \"{key}\" は上書きできません",
   "@headerNameReserved": {
     "description": "Error when attempting to override a reserved HTTP header {key}.",
     "placeholders": {
@@ -1139,19 +1139,19 @@
       }
     }
   },
-  "headerValueTooLong": "Header value too long (max 1024 characters)",
+  "headerValueTooLong": "ヘッダー値が長すぎます（最大 1024 文字）",
   "@headerValueTooLong": {
     "description": "Validation message for header value length."
   },
-  "headerValueInvalidChars": "Header value contains invalid characters. Use only printable ASCII.",
+  "headerValueInvalidChars": "ヘッダー値に無効な文字が含まれています。印字可能な ASCII のみ使用してください。",
   "@headerValueInvalidChars": {
     "description": "Validation message for invalid characters in header value."
   },
-  "headerValueUnsafe": "Header value appears to contain potentially unsafe content",
+  "headerValueUnsafe": "ヘッダー値に安全でない可能性のある内容が含まれているようです",
   "@headerValueUnsafe": {
     "description": "Security warning for suspicious header values."
   },
-  "headerAlreadyExists": "Header \"{key}\" already exists. Remove it first to update.",
+  "headerAlreadyExists": "ヘッダー \"{key}\" は既に存在します。更新するには先に削除してください。",
   "@headerAlreadyExists": {
     "description": "Error when a custom header with key {key} already exists.",
     "placeholders": {
@@ -1160,15 +1160,15 @@
       }
     }
   },
-  "maxHeadersReachedDetail": "Maximum of 10 custom headers allowed. Remove some to add more.",
+  "maxHeadersReachedDetail": "カスタムヘッダーは最大 10 個までです。追加するには一部を削除してください。",
   "@maxHeadersReachedDetail": {
     "description": "Explains the upper limit of custom headers."
   },
-  "noModelsAvailable": "No models available",
+  "noModelsAvailable": "利用可能なモデルがありません",
   "@noModelsAvailable": {
     "description": "Shown when model list is empty or failed to load."
   },
-  "followingSystem": "Following system: {theme}",
+  "followingSystem": "システムに従う: {theme}",
   "@followingSystem": {
     "description": "Indicates the app is following the system theme (\"Dark\"/\"Light\").",
     "placeholders": {
@@ -1177,11 +1177,11 @@
       }
     }
   },
-  "themeDark": "Dark",
+  "themeDark": "ダーク",
   "@themeDark": {
     "description": "Theme label for dark appearance."
   },
-  "themePalette": "Accent palette",
+  "themePalette": "アクセントパレット",
   "@themePalette": {
     "description": "Title for selecting the app color palette."
   },
@@ -1189,7 +1189,7 @@
   "@themePaletteConduitLabel": {
     "description": "Palette name for the default Conduit theme."
   },
-  "themePaletteConduitDescription": "Clean neutral theme designed for Conduit.",
+  "themePaletteConduitDescription": "Conduit 向けに設計されたクリーンなニュートラルテーマ。",
   "@themePaletteConduitDescription": {
     "description": "Description of the Conduit palette."
   },
@@ -1197,7 +1197,7 @@
   "@themePaletteClaudeLabel": {
     "description": "Palette name inspired by the Claude web client."
   },
-  "themePaletteClaudeDescription": "Warm, tactile palette lifted from the Claude web client.",
+  "themePaletteClaudeDescription": "Claude Web クライアントから着想を得た温かみのある触感的なパレット。",
   "@themePaletteClaudeDescription": {
     "description": "Description of the Claude palette."
   },
@@ -1205,7 +1205,7 @@
   "@themePaletteT3ChatLabel": {
     "description": "Palette name inspired by the T3 Stack brand."
   },
-  "themePaletteT3ChatDescription": "Playful gradients inspired by the T3 Stack brand.",
+  "themePaletteT3ChatDescription": "T3 Stack ブランドに着想を得た遊び心のあるグラデーション。",
   "@themePaletteT3ChatDescription": {
     "description": "Description of the T3 Chat palette."
   },
@@ -1213,7 +1213,7 @@
   "@themePaletteCatppuccinLabel": {
     "description": "Palette name for Catppuccin colors."
   },
-  "themePaletteCatppuccinDescription": "Soft pastel palette.",
+  "themePaletteCatppuccinDescription": "やわらかなパステルパレット。",
   "@themePaletteCatppuccinDescription": {
     "description": "Description of the Catppuccin palette."
   },
@@ -1221,27 +1221,27 @@
   "@themePaletteTangerineLabel": {
     "description": "Palette name for Tangerine colors."
   },
-  "themePaletteTangerineDescription": "Warm orange-and-slate palette.",
+  "themePaletteTangerineDescription": "温かみのあるオレンジとスレートのパレット。",
   "@themePaletteTangerineDescription": {
     "description": "Description of the Tangerine palette."
   },
-  "themeLight": "Light",
+  "themeLight": "ライト",
   "@themeLight": {
     "description": "Theme label for light appearance."
   },
-  "currentlyUsingDarkTheme": "Currently using Dark theme",
+  "currentlyUsingDarkTheme": "現在ダークテーマを使用中",
   "@currentlyUsingDarkTheme": {
     "description": "Status text indicating dark theme is active."
   },
-  "currentlyUsingLightTheme": "Currently using Light theme",
+  "currentlyUsingLightTheme": "現在ライトテーマを使用中",
   "@currentlyUsingLightTheme": {
     "description": "Status text indicating light theme is active."
   },
-  "aboutConduit": "About Conduit",
+  "aboutConduit": "Conduit について",
   "@aboutConduit": {
     "description": "Dialog title for app information."
   },
-  "versionLabel": "Version: {version} ({build})",
+  "versionLabel": "バージョン: {version} ({build})",
   "@versionLabel": {
     "description": "Displays version and build number in the About dialog.",
     "placeholders": {
@@ -1253,23 +1253,23 @@
       }
     }
   },
-  "githubRepository": "GitHub Repository",
+  "githubRepository": "GitHub リポジトリ",
   "@githubRepository": {
     "description": "Link label pointing to the app repository."
   },
-  "unableToLoadAppInfo": "Unable to load app info",
+  "unableToLoadAppInfo": "アプリ情報を読み込めません",
   "@unableToLoadAppInfo": {
     "description": "Error text when package info cannot be retrieved."
   },
-  "thinking": "Thinking…",
+  "thinking": "考え中…",
   "@thinking": {
     "description": "Label shown while the assistant is reasoning."
   },
-  "thoughts": "Thoughts",
+  "thoughts": "思考",
   "@thoughts": {
     "description": "Section title for showing reasoning content."
   },
-  "thoughtForDuration": "Thought for {duration}",
+  "thoughtForDuration": "{duration} 考えました",
   "@thoughtForDuration": {
     "description": "Shows how long the assistant thought before replying.",
     "placeholders": {
@@ -1279,27 +1279,27 @@
       }
     }
   },
-  "analyzing": "Analyzing…",
+  "analyzing": "分析中…",
   "@analyzing": {
     "description": "Label shown while code interpreter is processing."
   },
-  "analyzed": "Analyzed",
+  "analyzed": "分析済み",
   "@analyzed": {
     "description": "Label shown after code interpreter has finished."
   },
-  "appCustomization": "Customization",
+  "appCustomization": "カスタマイズ",
   "@appCustomization": {
     "description": "Title of the customization settings page."
   },
-  "appCustomizationSubtitle": "Theme, language, voice, and quickpills",
+  "appCustomizationSubtitle": "テーマ、言語、音声、クイックピル",
   "@appCustomizationSubtitle": {
     "description": "Subtitle shown under App Customization tile and page header."
   },
-  "quickActionsDescription": "Quickpills in chat",
+  "quickActionsDescription": "チャット内のクイックピル",
   "@quickActionsDescription": {
     "description": "Helper text explaining quick action pill selection in customization."
   },
-  "quickActionsSelectedCount": "{count, plural, =0{No actions selected} one{1 action selected} other{{count} actions selected}}",
+  "quickActionsSelectedCount": "{count, plural, =0{アクションが選択されていません} one{1 件のアクションを選択中} other{{count} 件のアクションを選択中}}",
   "@quickActionsSelectedCount": {
     "description": "Subtitle indicating how many quick actions are selected.",
     "placeholders": {
@@ -1309,159 +1309,159 @@
       }
     }
   },
-  "autoSelectDescription": "Use the default model configured on the server",
+  "autoSelectDescription": "サーバーで設定された既定のモデルを使用",
   "@autoSelectDescription": {
     "description": "Explains what the server-provided model setting does."
   },
-  "chatSettings": "Chat",
+  "chatSettings": "チャット",
   "@chatSettings": {
     "description": "Section header for chat-related customization options."
   },
-  "sendOnEnter": "Send on Enter",
+  "sendOnEnter": "Enter で送信",
   "@sendOnEnter": {
     "description": "Toggle title for sending messages when pressing Enter."
   },
-  "sendOnEnterDescription": "Enter sends (soft keyboard). Cmd/Ctrl+Enter also available",
+  "sendOnEnterDescription": "Enter で送信（ソフトキーボード）。Cmd/Ctrl+Enter も使用できます",
   "@sendOnEnterDescription": {
     "description": "Explanation of how the Send on Enter toggle behaves."
   },
-  "disableHapticsWhileStreaming": "Disable haptics while streaming",
+  "disableHapticsWhileStreaming": "ストリーミング中の触覚フィードバックを無効化",
   "@disableHapticsWhileStreaming": {
     "description": "Title for the setting that suppresses assistant response streaming haptics."
   },
-  "disableHapticsWhileStreamingDescription": "Mute live response haptics without affecting the rest of the app",
+  "disableHapticsWhileStreamingDescription": "アプリの他の部分には影響せず、ライブ応答の触覚フィードバックをミュートします",
   "@disableHapticsWhileStreamingDescription": {
     "description": "Subtitle for the setting that suppresses assistant response streaming haptics."
   },
-  "androidAssistantTitle": "Android digital assistant",
+  "androidAssistantTitle": "Android デジタルアシスタント",
   "@androidAssistantTitle": {
     "description": "Tile title for configuring the Android digital assistant trigger."
   },
-  "androidAssistantDescription": "Choose what happens when you trigger the Android digital assistant.",
+  "androidAssistantDescription": "Android デジタルアシスタントを起動したときの動作を選択します。",
   "@androidAssistantDescription": {
     "description": "Helper text describing the Android digital assistant trigger setting."
   },
-  "androidAssistantOverlayOption": "Show quick overlay (default)",
+  "androidAssistantOverlayOption": "クイックオーバーレイを表示（既定）",
   "@androidAssistantOverlayOption": {
     "description": "Option label for keeping the current assistant overlay."
   },
-  "androidAssistantNewChatOption": "Open Conduit with a new chat",
+  "androidAssistantNewChatOption": "新しいチャットで Conduit を開く",
   "@androidAssistantNewChatOption": {
     "description": "Option label for opening the app to a fresh chat from the assistant trigger."
   },
-  "androidAssistantVoiceCallOption": "Start a voice call",
+  "androidAssistantVoiceCallOption": "音声通話を開始",
   "@androidAssistantVoiceCallOption": {
     "description": "Option label for jumping straight into voice call from assistant trigger."
   },
-  "sttSettings": "Speech to Text",
+  "sttSettings": "音声入力",
   "@sttSettings": {
     "description": "Section header for speech-to-text settings."
   },
-  "sttEngineLabel": "Recognition engine",
+  "sttEngineLabel": "認識エンジン",
   "@sttEngineLabel": {
     "description": "Label shown above the speech-to-text engine chips."
   },
-  "sttEngineDevice": "On device",
+  "sttEngineDevice": "デバイス上",
   "@sttEngineDevice": {
     "description": "Chip label for on-device speech recognition."
   },
-  "sttEngineServer": "Server",
+  "sttEngineServer": "サーバー",
   "@sttEngineServer": {
     "description": "Chip label for server speech recognition."
   },
-  "sttEngineDeviceDescription": "Keep audio on this device. Voice input stops working if on-device speech recognition isn’t supported.",
+  "sttEngineDeviceDescription": "音声をこのデバイス内に保持します。オンデバイス音声認識がサポートされていない場合、音声入力は動作しません。",
   "@sttEngineDeviceDescription": {
     "description": "Description shown when on-device speech-to-text preference is active."
   },
-  "sttEngineServerDescription": "Always send recordings to your OpenWebUI server for transcription.",
+  "sttEngineServerDescription": "文字起こしのために録音を常に OpenWebUI サーバーへ送信します。",
   "@sttEngineServerDescription": {
     "description": "Description shown when server speech-to-text preference is active."
   },
-  "sttDeviceUnavailableWarning": "On-device speech recognition isn’t available on this device.",
+  "sttDeviceUnavailableWarning": "このデバイスではオンデバイス音声認識を利用できません。",
   "@sttDeviceUnavailableWarning": {
     "description": "Warning shown when the user selects on-device speech recognition but it is unavailable."
   },
-  "sttServerUnavailableWarning": "Connect to a server with transcription enabled to use this option.",
+  "sttServerUnavailableWarning": "このオプションを使用するには、文字起こしが有効なサーバーに接続してください。",
   "@sttServerUnavailableWarning": {
     "description": "Warning shown when the user selects server speech recognition but no server is available."
   },
-  "sttSilenceDuration": "Silence Duration",
+  "sttSilenceDuration": "無音時間",
   "@sttSilenceDuration": {
     "description": "Label for the silence duration setting in server speech-to-text."
   },
-  "sttSilenceDurationDescription": "Time to wait after silence before auto-stopping recording",
+  "sttSilenceDurationDescription": "無音後に自動停止するまでの待機時間",
   "@sttSilenceDurationDescription": {
     "description": "Description for the silence duration slider in server speech-to-text settings."
   },
-  "ttsEngineLabel": "Engine",
+  "ttsEngineLabel": "エンジン",
   "@ttsEngineLabel": {
     "description": "Label for selecting the text-to-speech engine."
   },
-  "ttsEngineDevice": "On device",
+  "ttsEngineDevice": "デバイス上",
   "@ttsEngineDevice": {
     "description": "Chip label for using on-device text-to-speech."
   },
-  "ttsEngineServer": "Server",
+  "ttsEngineServer": "サーバー",
   "@ttsEngineServer": {
     "description": "Chip label for using server-side text-to-speech."
   },
-  "ttsEngineDeviceDescription": "Keep synthesis on this device. Voice playback stops working if on-device TTS isn’t supported.",
+  "ttsEngineDeviceDescription": "音声合成をこのデバイス内に保持します。オンデバイス TTS がサポートされていない場合、音声再生は動作しません。",
   "@ttsEngineDeviceDescription": {
     "description": "Description shown when on-device text-to-speech preference is active."
   },
-  "ttsEngineServerDescription": "Always request audio from your OpenWebUI server.",
+  "ttsEngineServerDescription": "常に OpenWebUI サーバーに音声をリクエストします。",
   "@ttsEngineServerDescription": {
     "description": "Description shown when server text-to-speech preference is active."
   },
-  "ttsDeviceUnavailableWarning": "On-device text-to-speech isn’t available on this device.",
+  "ttsDeviceUnavailableWarning": "このデバイスではオンデバイスのテキスト読み上げを利用できません。",
   "@ttsDeviceUnavailableWarning": {
     "description": "Warning shown when on-device text-to-speech is unavailable."
   },
-  "ttsServerUnavailableWarning": "Connect to a server with text-to-speech enabled to use this option.",
+  "ttsServerUnavailableWarning": "このオプションを使用するには、テキスト読み上げが有効なサーバーに接続してください。",
   "@ttsServerUnavailableWarning": {
     "description": "Warning shown when server text-to-speech is unavailable."
   },
-  "ttsSettings": "Text to Speech",
+  "ttsSettings": "テキスト読み上げ",
   "@ttsSettings": {
     "description": "Section header for TTS-related customization options."
   },
-  "ttsVoice": "Voice",
+  "ttsVoice": "音声",
   "@ttsVoice": {
     "description": "Title for voice selection tile."
   },
-  "ttsSpeechRate": "Speech Rate",
+  "ttsSpeechRate": "読み上げ速度",
   "@ttsSpeechRate": {
     "description": "Title for speech rate slider."
   },
-  "ttsPitch": "Pitch",
+  "ttsPitch": "ピッチ",
   "@ttsPitch": {
     "description": "Title for pitch slider."
   },
-  "ttsVolume": "Volume",
+  "ttsVolume": "音量",
   "@ttsVolume": {
     "description": "Title for volume slider."
   },
-  "ttsPreview": "Preview Voice",
+  "ttsPreview": "音声をプレビュー",
   "@ttsPreview": {
     "description": "Title for preview button."
   },
-  "ttsSystemDefault": "System Default",
+  "ttsSystemDefault": "システム既定",
   "@ttsSystemDefault": {
     "description": "Label for system default voice option."
   },
-  "ttsSelectVoice": "Select Voice",
+  "ttsSelectVoice": "音声を選択",
   "@ttsSelectVoice": {
     "description": "Title for voice picker bottom sheet."
   },
-  "ttsPreviewText": "This is a preview of the selected voice.",
+  "ttsPreviewText": "これは選択した音声のプレビューです。",
   "@ttsPreviewText": {
     "description": "Sample text spoken during voice preview."
   },
-  "ttsNoVoicesAvailable": "No voices available",
+  "ttsNoVoicesAvailable": "利用可能な音声がありません",
   "@ttsNoVoicesAvailable": {
     "description": "Error message when no TTS voices can be found."
   },
-  "ttsVoicesForLanguage": "{language} Voices",
+  "ttsVoicesForLanguage": "{language} の音声",
   "@ttsVoicesForLanguage": {
     "description": "Section header for voices matching the app language",
     "placeholders": {
@@ -1471,15 +1471,15 @@
       }
     }
   },
-  "ttsOtherVoices": "Other Languages",
+  "ttsOtherVoices": "その他の言語",
   "@ttsOtherVoices": {
     "description": "Section header for voices in other languages."
   },
-  "error": "Error",
+  "error": "エラー",
   "@error": {
     "description": "Generic error label."
   },
-  "errorWithMessage": "Error: {message}",
+  "errorWithMessage": "エラー: {message}",
   "@errorWithMessage": {
     "description": "Error label with appended message text.",
     "placeholders": {
@@ -1489,219 +1489,219 @@
       }
     }
   },
-  "networkTimeoutError": "Connection timed out. Please check your internet connection and try again.",
+  "networkTimeoutError": "接続がタイムアウトしました。インターネット接続を確認してもう一度お試しください。",
   "@networkTimeoutError": {
     "description": "User-facing message when a network request times out."
   },
-  "networkUnreachableError": "Cannot reach the server. Please check your server URL and internet connection.",
+  "networkUnreachableError": "サーバーに到達できません。サーバー URL とインターネット接続を確認してください。",
   "@networkUnreachableError": {
     "description": "User-facing message when the server cannot be reached."
   },
-  "networkServerNotResponding": "Server is not responding. Please verify the server is running and accessible.",
+  "networkServerNotResponding": "サーバーが応答していません。サーバーが稼働していてアクセス可能であることを確認してください。",
   "@networkServerNotResponding": {
     "description": "User-facing message when the server does not respond to a request."
   },
-  "networkGenericError": "Network connection problem. Please check your internet connection.",
+  "networkGenericError": "ネットワーク接続に問題があります。インターネット接続を確認してください。",
   "@networkGenericError": {
     "description": "Fallback message for generic network errors."
   },
-  "serverError500": "Server is experiencing issues. This is usually temporary.",
+  "serverError500": "サーバーで問題が発生しています。通常は一時的なものです。",
   "@serverError500": {
     "description": "Message when a 500 error is encountered."
   },
-  "serverErrorUnavailable": "Server is temporarily unavailable. Please try again in a moment.",
+  "serverErrorUnavailable": "サーバーを一時的に利用できません。しばらくしてからもう一度お試しください。",
   "@serverErrorUnavailable": {
     "description": "Message when a 502/503 error is encountered."
   },
-  "serverErrorTimeout": "Server took too long to respond. Please try again.",
+  "serverErrorTimeout": "サーバーの応答に時間がかかりすぎました。もう一度お試しください。",
   "@serverErrorTimeout": {
     "description": "Message when the server times out."
   },
-  "serverErrorGeneric": "Server is having problems. Please try again later.",
+  "serverErrorGeneric": "サーバーに問題があります。後でもう一度お試しください。",
   "@serverErrorGeneric": {
     "description": "Fallback server error message."
   },
-  "authSessionExpired": "Your session has expired. Please sign in again.",
+  "authSessionExpired": "セッションの有効期限が切れました。もう一度サインインしてください。",
   "@authSessionExpired": {
     "description": "Message when an authentication session expires."
   },
-  "authForbidden": "You don't have permission to perform this action.",
+  "authForbidden": "この操作を実行する権限がありません。",
   "@authForbidden": {
     "description": "Message when the user lacks required permissions."
   },
-  "authInvalidToken": "Authentication token is invalid. Please sign in again.",
+  "authInvalidToken": "認証トークンが無効です。もう一度サインインしてください。",
   "@authInvalidToken": {
     "description": "Message when the authentication token is invalid."
   },
-  "authGenericError": "Authentication problem. Please sign in again.",
+  "authGenericError": "認証に問題があります。もう一度サインインしてください。",
   "@authGenericError": {
     "description": "Fallback authentication error message."
   },
-  "validationInvalidEmail": "Please enter a valid email address.",
+  "validationInvalidEmail": "有効なメールアドレスを入力してください。",
   "@validationInvalidEmail": {
     "description": "Validation message for invalid email input."
   },
-  "validationWeakPassword": "Password doesn't meet requirements. Please check and try again.",
+  "validationWeakPassword": "パスワードが要件を満たしていません。確認してもう一度お試しください。",
   "@validationWeakPassword": {
     "description": "Validation message for weak passwords."
   },
-  "validationMissingRequired": "Please fill in all required fields.",
+  "validationMissingRequired": "必須項目をすべて入力してください。",
   "@validationMissingRequired": {
     "description": "Validation message when required fields are missing."
   },
-  "validationFormatError": "Some information is in the wrong format. Please check and try again.",
+  "validationFormatError": "一部の情報の形式が正しくありません。確認してもう一度お試しください。",
   "@validationFormatError": {
     "description": "Validation message for generic formatting issues."
   },
-  "validationGenericError": "Please check your input and try again.",
+  "validationGenericError": "入力内容を確認してもう一度お試しください。",
   "@validationGenericError": {
     "description": "Fallback validation message."
   },
-  "fileNotFound": "File not found. It may have been moved or deleted.",
+  "fileNotFound": "ファイルが見つかりません。移動または削除された可能性があります。",
   "@fileNotFound": {
     "description": "Message when a file cannot be located."
   },
-  "fileAccessDenied": "Cannot access the file. Please check permissions.",
+  "fileAccessDenied": "ファイルにアクセスできません。権限を確認してください。",
   "@fileAccessDenied": {
     "description": "Message when file access is denied."
   },
-  "fileTooLarge": "File is too large. Please choose a smaller file.",
+  "fileTooLarge": "ファイルが大きすぎます。より小さいファイルを選択してください。",
   "@fileTooLarge": {
     "description": "Message when a file exceeds size limits."
   },
-  "fileGenericError": "Problem with the file. Please try a different file.",
+  "fileGenericError": "ファイルに問題があります。別のファイルをお試しください。",
   "@fileGenericError": {
     "description": "Fallback file error message."
   },
-  "permissionCameraRequired": "Camera permission is required. Please enable it in settings.",
+  "permissionCameraRequired": "カメラの権限が必要です。設定で有効にしてください。",
   "@permissionCameraRequired": {
     "description": "Message when camera permission is missing."
   },
-  "permissionStorageRequired": "Storage permission is required. Please enable it in settings.",
+  "permissionStorageRequired": "ストレージの権限が必要です。設定で有効にしてください。",
   "@permissionStorageRequired": {
     "description": "Message when storage permission is missing."
   },
-  "permissionMicrophoneRequired": "Microphone permission is required. Please enable it in settings.",
+  "permissionMicrophoneRequired": "マイクの権限が必要です。設定で有効にしてください。",
   "@permissionMicrophoneRequired": {
     "description": "Message when microphone permission is missing."
   },
-  "permissionGenericError": "Permission required. Please check app permissions in settings.",
+  "permissionGenericError": "権限が必要です。設定でアプリの権限を確認してください。",
   "@permissionGenericError": {
     "description": "Fallback permission error message."
   },
-  "actionRetryRequest": "Try the request again.",
+  "actionRetryRequest": "リクエストをもう一度試してください。",
   "@actionRetryRequest": {
     "description": "Description for retrying a failed request."
   },
-  "actionVerifyConnection": "Verify your internet connection.",
+  "actionVerifyConnection": "インターネット接続を確認してください。",
   "@actionVerifyConnection": {
     "description": "Description for checking internet connectivity."
   },
-  "actionRetryOperation": "Retry the operation.",
+  "actionRetryOperation": "操作を再試行してください。",
   "@actionRetryOperation": {
     "description": "Description for retrying the same operation."
   },
-  "actionRetryAfterDelay": "Wait a moment then try again.",
+  "actionRetryAfterDelay": "少し待ってからもう一度お試しください。",
   "@actionRetryAfterDelay": {
     "description": "Description suggesting a short delay before retrying."
   },
-  "actionSignInToAccount": "Sign in to your account.",
+  "actionSignInToAccount": "アカウントにサインインしてください。",
   "@actionSignInToAccount": {
     "description": "Description for signing back into the app."
   },
-  "actionSelectAnotherFile": "Select another file.",
+  "actionSelectAnotherFile": "別のファイルを選択してください。",
   "@actionSelectAnotherFile": {
     "description": "Description for choosing a different file."
   },
-  "actionOpenAppSettings": "Open app settings to grant permissions.",
+  "actionOpenAppSettings": "権限を付与するためにアプリ設定を開いてください。",
   "@actionOpenAppSettings": {
     "description": "Description for opening system or app settings."
   },
-  "actionRetryAfterPermission": "Retry after granting permission.",
+  "actionRetryAfterPermission": "権限を付与した後に再試行してください。",
   "@actionRetryAfterPermission": {
     "description": "Description for retrying once permissions are granted."
   },
-  "actionReturnToPrevious": "Return to previous screen.",
+  "actionReturnToPrevious": "前の画面に戻ってください。",
   "@actionReturnToPrevious": {
     "description": "Description for navigating back to the prior screen."
   },
-  "display": "Display",
+  "display": "表示",
   "@display": {
     "description": "Section header for visual and layout related settings."
   },
-  "realtime": "Realtime",
+  "realtime": "リアルタイム",
   "@realtime": {
     "description": "Section header for realtime/transport settings."
   },
-  "transportMode": "Transport mode",
+  "transportMode": "転送モード",
   "@transportMode": {
     "description": "Title for selecting the networking transport used for realtime."
   },
-  "mode": "Mode",
+  "mode": "モード",
   "@mode": {
     "description": "Form field label for transport mode dropdown."
   },
-  "transportModePolling": "Polling fallback",
+  "transportModePolling": "ポーリングフォールバック",
   "@transportModePolling": {
     "description": "Dropdown option label for HTTP polling fallback transport."
   },
-  "transportModeWs": "WebSocket only",
+  "transportModeWs": "WebSocket のみ",
   "@transportModeWs": {
     "description": "Dropdown option label for WebSocket-only transport."
   },
-  "transportModePollingInfo": "Falls back to HTTP polling when WebSocket is blocked. Upgrades to WebSocket when possible.",
+  "transportModePollingInfo": "WebSocket がブロックされた場合は HTTP ポーリングにフォールバックします。可能な場合は WebSocket にアップグレードします。",
   "@transportModePollingInfo": {
     "description": "Footnote text for the polling fallback transport mode."
   },
-  "transportModeWsInfo": "Lower overhead, but may fail behind strict proxies/firewalls.",
+  "transportModeWsInfo": "オーバーヘッドは少ないですが、厳格なプロキシやファイアウォールの背後では失敗する場合があります。",
   "@transportModeWsInfo": {
     "description": "Footnote text for the WebSocket-only transport mode."
   },
-  "notes": "Notes",
+  "notes": "ノート",
   "@notes": {
     "description": "Navigation item and page title for notes feature."
   },
-  "searchNotes": "Search notes...",
+  "searchNotes": "ノートを検索...",
   "@searchNotes": {
     "description": "Placeholder text for notes search field."
   },
-  "createNote": "Create Note",
+  "createNote": "ノートを作成",
   "@createNote": {
     "description": "Tooltip/button label for creating a new note."
   },
-  "noNotesYet": "No notes yet",
+  "noNotesYet": "まだノートがありません",
   "@noNotesYet": {
     "description": "Empty state title when user has no notes."
   },
-  "noNotesFound": "No notes found",
+  "noNotesFound": "ノートが見つかりません",
   "@noNotesFound": {
     "description": "Empty state title when search returns no results."
   },
-  "createFirstNoteHint": "Tap the + button to create your first note.",
+  "createFirstNoteHint": "+ ボタンをタップして最初のノートを作成してください。",
   "@createFirstNoteHint": {
     "description": "Hint text encouraging user to create their first note."
   },
-  "tryDifferentSearch": "Try a different search term.",
+  "tryDifferentSearch": "別の検索語を試してください。",
   "@tryDifferentSearch": {
     "description": "Hint text when note search returns no results."
   },
-  "loadingNotes": "Loading notes...",
+  "loadingNotes": "ノートを読み込み中...",
   "@loadingNotes": {
     "description": "Progress message while fetching notes list."
   },
-  "loadingNote": "Loading note...",
+  "loadingNote": "ノートを読み込み中...",
   "@loadingNote": {
     "description": "Progress message while fetching a single note."
   },
-  "failedToLoadNotes": "Failed to load notes",
+  "failedToLoadNotes": "ノートの読み込みに失敗しました",
   "@failedToLoadNotes": {
     "description": "Error message when notes list cannot be retrieved."
   },
-  "deleteNoteTitle": "Delete Note",
+  "deleteNoteTitle": "ノートを削除",
   "@deleteNoteTitle": {
     "description": "Dialog title for confirming note deletion."
   },
-  "deleteNoteMessage": "Delete \"{title}\"? This cannot be undone.",
+  "deleteNoteMessage": "「{title}」を削除しますか？この操作は元に戻せません。",
   "@deleteNoteMessage": {
     "description": "Confirmation message for deleting a note.",
     "placeholders": {
@@ -1711,163 +1711,163 @@
       }
     }
   },
-  "writeNote": "Write something...",
+  "writeNote": "何かを書いてください...",
   "@writeNote": {
     "description": "Hint text for note content input field."
   },
-  "saving": "Saving...",
+  "saving": "保存中...",
   "@saving": {
     "description": "Status text while saving."
   },
-  "saved": "Saved",
+  "saved": "保存しました",
   "@saved": {
     "description": "Status text when content is saved."
   },
-  "noteCopiedToClipboard": "Note copied to clipboard",
+  "noteCopiedToClipboard": "ノートをクリップボードにコピーしました",
   "@noteCopiedToClipboard": {
     "description": "Confirmation message when note content is copied to clipboard."
   },
-  "generateTitle": "Generate Title",
+  "generateTitle": "タイトルを生成",
   "@generateTitle": {
     "description": "Tooltip for generating a title with AI."
   },
-  "generatingTitle": "Generating title...",
+  "generatingTitle": "タイトルを生成中...",
   "@generatingTitle": {
     "description": "Placeholder while AI generates a title."
   },
-  "noContentToGenerateTitle": "Add some content first to generate a title",
+  "noContentToGenerateTitle": "タイトルを生成するには先に内容を追加してください",
   "@noContentToGenerateTitle": {
     "description": "Error when trying to generate title with empty content."
   },
-  "failedToGenerateTitle": "Failed to generate title",
+  "failedToGenerateTitle": "タイトルの生成に失敗しました",
   "@failedToGenerateTitle": {
     "description": "Error message when title generation fails."
   },
-  "noContentToEnhance": "Add some content first to enhance",
+  "noContentToEnhance": "強化するには先に内容を追加してください",
   "@noContentToEnhance": {
     "description": "Error when trying to enhance empty content."
   },
-  "noteEnhanced": "Note enhanced with AI",
+  "noteEnhanced": "AI でノートを強化しました",
   "@noteEnhanced": {
     "description": "Success message after AI enhancement."
   },
-  "failedToEnhanceNote": "Failed to enhance note",
+  "failedToEnhanceNote": "ノートの強化に失敗しました",
   "@failedToEnhanceNote": {
     "description": "Error message when enhancement fails."
   },
-  "noModelSelected": "Please select a model first",
+  "noModelSelected": "先にモデルを選択してください",
   "@noModelSelected": {
     "description": "Error message when no AI model is selected."
   },
-  "enhanceWithAI": "Enhance with AI",
+  "enhanceWithAI": "AI で強化",
   "@enhanceWithAI": {
     "description": "Tooltip for AI enhance button."
   },
-  "enhanceNote": "Enhance Note",
+  "enhanceNote": "ノートを強化",
   "@enhanceNote": {
     "description": "Menu item to enhance note content."
   },
-  "startDictation": "Start dictation",
+  "startDictation": "音声入力を開始",
   "@startDictation": {
     "description": "Tooltip for dictation button."
   },
-  "stopRecording": "Stop recording",
+  "stopRecording": "録音を停止",
   "@stopRecording": {
     "description": "Tooltip for stop recording button."
   },
-  "voiceInputUnavailable": "Voice input is not available",
+  "voiceInputUnavailable": "音声入力を利用できません",
   "@voiceInputUnavailable": {
     "description": "Error when voice input is not available."
   },
-  "failedToStartDictation": "Failed to start dictation",
+  "failedToStartDictation": "音声入力の開始に失敗しました",
   "@failedToStartDictation": {
     "description": "Error when starting dictation fails."
   },
-  "voiceOptions": "Voice options",
+  "voiceOptions": "音声オプション",
   "@voiceOptions": {
     "description": "Tooltip for voice/recording options button."
   },
-  "dictation": "Dictation",
+  "dictation": "音声入力",
   "@dictation": {
     "description": "Option for real-time speech to text."
   },
-  "dictationDescription": "Speak and convert to text in real-time",
+  "dictationDescription": "話した内容をリアルタイムでテキストに変換",
   "@dictationDescription": {
     "description": "Description for dictation option."
   },
-  "recordAudio": "Record Audio",
+  "recordAudio": "音声を録音",
   "@recordAudio": {
     "description": "Option for recording audio files."
   },
-  "recordAudioDescription": "Save audio for later transcription",
+  "recordAudioDescription": "後で文字起こしするために音声を保存",
   "@recordAudioDescription": {
     "description": "Description for audio recording option."
   },
-  "recordingAudio": "Recording...",
+  "recordingAudio": "録音中...",
   "@recordingAudio": {
     "description": "Status text while recording audio."
   },
-  "preparingRecording": "Preparing...",
+  "preparingRecording": "準備中...",
   "@preparingRecording": {
     "description": "Status text while preparing to record."
   },
-  "recordingHint": "Tap stop when finished",
+  "recordingHint": "完了したら停止をタップ",
   "@recordingHint": {
     "description": "Hint shown during audio recording."
   },
-  "stopAndSaveRecording": "Stop & Save",
+  "stopAndSaveRecording": "停止して保存",
   "@stopAndSaveRecording": {
     "description": "Button to stop and save an audio recording."
   },
-  "processingRecording": "Processing...",
+  "processingRecording": "処理中...",
   "@processingRecording": {
     "description": "Status while processing a recording."
   },
-  "audioRecordingSaved": "Audio recording saved",
+  "audioRecordingSaved": "音声録音を保存しました",
   "@audioRecordingSaved": {
     "description": "Success message after saving audio recording."
   },
-  "failedToUploadAudio": "Failed to upload audio",
+  "failedToUploadAudio": "音声のアップロードに失敗しました",
   "@failedToUploadAudio": {
     "description": "Error when audio upload fails."
   },
-  "microphonePermissionDenied": "Microphone permission denied",
+  "microphonePermissionDenied": "マイクの権限が拒否されました",
   "@microphonePermissionDenied": {
     "description": "Error when microphone access is denied."
   },
-  "recordingFailed": "Recording failed",
+  "recordingFailed": "録音に失敗しました",
   "@recordingFailed": {
     "description": "Error when audio recording fails."
   },
-  "noteNotFound": "Note not found",
+  "noteNotFound": "ノートが見つかりません",
   "@noteNotFound": {
     "description": "Error message when a note cannot be found."
   },
-  "untitled": "Untitled",
+  "untitled": "無題",
   "@untitled": {
     "description": "Default title for notes without a title."
   },
-  "today": "Today",
+  "today": "今日",
   "@today": {
     "description": "Time range label for items from today."
   },
-  "yesterday": "Yesterday",
+  "yesterday": "昨日",
   "@yesterday": {
     "description": "Time range label for items from yesterday."
   },
-  "previous7Days": "Previous 7 Days",
+  "previous7Days": "過去 7 日間",
   "@previous7Days": {
     "description": "Time range label for items from the last week."
   },
-  "previous30Days": "Previous 30 Days",
+  "previous30Days": "過去 30 日間",
   "@previous30Days": {
     "description": "Time range label for items from the last month."
   },
-  "older": "Older",
+  "older": "それ以前",
   "@older": {
     "description": "Time range label for items older than 30 days."
   },
-  "wordCount": "{count} words",
+  "wordCount": "{count} 語",
   "@wordCount": {
     "description": "Status bar text showing word count.",
     "placeholders": {
@@ -1877,7 +1877,7 @@
       }
     }
   },
-  "charCount": "{count} characters",
+  "charCount": "{count} 文字",
   "@charCount": {
     "description": "Status bar text showing character count.",
     "placeholders": {
@@ -1887,23 +1887,23 @@
       }
     }
   },
-  "mermaidPreviewUnavailable": "Mermaid preview is not available on this platform.",
+  "mermaidPreviewUnavailable": "このプラットフォームでは Mermaid プレビューを利用できません。",
   "@mermaidPreviewUnavailable": {
     "description": "Shown when Mermaid diagrams cannot be rendered on the current platform."
   },
-  "chartPreviewUnavailable": "Chart preview is not available on this platform.",
+  "chartPreviewUnavailable": "このプラットフォームでは Chart.js プレビューを利用できません。",
   "@chartPreviewUnavailable": {
     "description": "Shown when Chart.js charts cannot be rendered on the current platform."
   },
-  "promptVariablesTitle": "Fill in Details",
+  "promptVariablesTitle": "詳細を入力",
   "@promptVariablesTitle": {
     "description": "Default title for the prompt variables dialog."
   },
-  "promptVariablesDescription": "Complete the fields below to customize this prompt.",
+  "promptVariablesDescription": "このプロンプトをカスタマイズするには、以下の項目を入力してください。",
   "@promptVariablesDescription": {
     "description": "Description shown in the prompt variables dialog."
   },
-  "promptVariableNumberMin": "Minimum value is {min}",
+  "promptVariableNumberMin": "最小値は {min} です",
   "@promptVariableNumberMin": {
     "description": "Validation message when a number is below the minimum.",
     "placeholders": {
@@ -1913,7 +1913,7 @@
       }
     }
   },
-  "promptVariableNumberMax": "Maximum value is {max}",
+  "promptVariableNumberMax": "最大値は {max} です",
   "@promptVariableNumberMax": {
     "description": "Validation message when a number is above the maximum.",
     "placeholders": {
@@ -1927,23 +1927,23 @@
   "@sso": {
     "description": "Label for Single Sign-On authentication option."
   },
-  "ssoDescription": "Sign in with your organization's identity provider",
+  "ssoDescription": "組織の ID プロバイダーでサインイン",
   "@ssoDescription": {
     "description": "Description text explaining SSO authentication."
   },
-  "signInWithSso": "Sign in with SSO",
+  "signInWithSso": "SSO でサインイン",
   "@signInWithSso": {
     "description": "Button text for SSO sign-in."
   },
-  "ssoAuthenticating": "Authenticating...",
+  "ssoAuthenticating": "認証中...",
   "@ssoAuthenticating": {
     "description": "Loading message during SSO authentication."
   },
-  "ssoAuthFailed": "SSO authentication failed",
+  "ssoAuthFailed": "SSO 認証に失敗しました",
   "@ssoAuthFailed": {
     "description": "Error message when SSO authentication fails."
   },
-  "ssoLoadingLogin": "Loading login page...",
+  "ssoLoadingLogin": "ログインページを読み込み中...",
   "@ssoLoadingLogin": {
     "description": "Loading message while SSO login page loads."
   },
@@ -1951,75 +1951,75 @@
   "@ldap": {
     "description": "Label for LDAP authentication option."
   },
-  "ldapDescription": "Sign in with your LDAP directory credentials",
+  "ldapDescription": "LDAP ディレクトリの認証情報でサインイン",
   "@ldapDescription": {
     "description": "Description text explaining LDAP authentication."
   },
-  "signInWithLdap": "Sign in with LDAP",
+  "signInWithLdap": "LDAP でサインイン",
   "@signInWithLdap": {
     "description": "Button text for LDAP sign-in."
   },
-  "ldapUsername": "Username",
+  "ldapUsername": "ユーザー名",
   "@ldapUsername": {
     "description": "Label for LDAP username field."
   },
-  "ldapUsernameHint": "Enter your LDAP username",
+  "ldapUsernameHint": "LDAP ユーザー名を入力",
   "@ldapUsernameHint": {
     "description": "Hint text for LDAP username field."
   },
-  "moreSignInOptions": "More sign-in options",
+  "moreSignInOptions": "その他のサインインオプション",
   "@moreSignInOptions": {
     "description": "Section header for additional authentication methods."
   },
-  "ldapNotEnabled": "LDAP authentication is not enabled on this server",
+  "ldapNotEnabled": "このサーバーでは LDAP 認証が有効ではありません",
   "@ldapNotEnabled": {
     "description": "Error message when LDAP is not configured on the server."
   },
-  "ssoPlatformNotSupported": "SSO authentication is not supported on this platform. Please use credentials or LDAP authentication instead.",
+  "ssoPlatformNotSupported": "このプラットフォームでは SSO 認証はサポートされていません。代わりに認証情報または LDAP 認証を使用してください。",
   "@ssoPlatformNotSupported": {
     "description": "Error message when SSO is attempted on an unsupported platform (desktop/web)."
   },
-  "proxyAuthentication": "Proxy Authentication",
+  "proxyAuthentication": "プロキシ認証",
   "@proxyAuthentication": {
     "description": "Title for the proxy authentication page."
   },
-  "proxyAuthPlatformNotSupported": "Proxy authentication requires a mobile device. Please authenticate through a browser first.",
+  "proxyAuthPlatformNotSupported": "プロキシ認証にはモバイルデバイスが必要です。先にブラウザーで認証してください。",
   "@proxyAuthPlatformNotSupported": {
     "description": "Error message when proxy auth is attempted on an unsupported platform."
   },
-  "proxyAuthLoading": "Loading authentication page...",
+  "proxyAuthLoading": "認証ページを読み込み中...",
   "@proxyAuthLoading": {
     "description": "Loading message while the proxy login page loads."
   },
-  "proxyAuthFailed": "Proxy authentication failed",
+  "proxyAuthFailed": "プロキシ認証に失敗しました",
   "@proxyAuthFailed": {
     "description": "Error message when proxy authentication fails."
   },
-  "proxyAuthHelpText": "Complete sign-in through your organization's proxy, then sign in to Open WebUI. You'll be redirected automatically.",
+  "proxyAuthHelpText": "組織のプロキシでサインインし、その後 Open WebUI にサインインしてください。自動的にリダイレクトされます。",
   "@proxyAuthHelpText": {
     "description": "Help text explaining how to complete proxy authentication."
   },
-  "proxyAuthHelpTextSimple": "Sign in through your proxy. Once authenticated, tap Continue to proceed to sign in.",
+  "proxyAuthHelpTextSimple": "プロキシでサインインしてください。認証が完了したら、続行をタップしてサインインに進みます。",
   "@proxyAuthHelpTextSimple": {
     "description": "Simplified help text for proxy-only authentication flow."
   },
-  "continueButton": "Continue",
+  "continueButton": "続行",
   "@continueButton": {
     "description": "Generic continue button text."
   },
-  "proxyAuthRequired": "This server requires proxy authentication",
+  "proxyAuthRequired": "このサーバーにはプロキシ認証が必要です",
   "@proxyAuthRequired": {
     "description": "Message when server is behind an authentication proxy."
   },
-  "proxyAuthRequiredDescription": "Your server appears to be behind an authentication proxy (like oauth2-proxy). You'll need to sign in through the proxy first.",
+  "proxyAuthRequiredDescription": "サーバーは認証プロキシ（oauth2-proxy など）の背後にあるようです。先にプロキシでサインインする必要があります。",
   "@proxyAuthRequiredDescription": {
     "description": "Detailed explanation of proxy authentication requirement."
   },
-  "authenticateThroughProxy": "Authenticate",
+  "authenticateThroughProxy": "認証",
   "@authenticateThroughProxy": {
     "description": "Button text to start proxy authentication."
   },
-  "continueWithProvider": "Continue with {provider}",
+  "continueWithProvider": "{provider} で続行",
   "@continueWithProvider": {
     "description": "Button text for OAuth provider sign-in.",
     "placeholders": {
@@ -2029,139 +2029,139 @@
       }
     }
   },
-  "or": "or",
+  "or": "または",
   "@or": {
     "description": "Separator text between authentication options."
   },
-  "audioAttachment": "Audio Attachment",
+  "audioAttachment": "音声添付ファイル",
   "@audioAttachment": {
     "description": "Label for audio file attachments in notes."
   },
-  "loadingAudio": "Loading audio...",
+  "loadingAudio": "音声を読み込み中...",
   "@loadingAudio": {
     "description": "Loading message while audio file loads."
   },
-  "failedToLoadAudio": "Failed to load audio",
+  "failedToLoadAudio": "音声の読み込みに失敗しました",
   "@failedToLoadAudio": {
     "description": "Error message when audio file fails to load."
   },
-  "removeFileConfirm": "Remove this file from the note?",
+  "removeFileConfirm": "このファイルをノートから削除しますか？",
   "@removeFileConfirm": {
     "description": "Confirmation message when removing a file attachment."
   },
-  "fileRemoved": "File removed",
+  "fileRemoved": "ファイルを削除しました",
   "@fileRemoved": {
     "description": "Success message after removing a file attachment."
   },
-  "playAudio": "Play audio",
+  "playAudio": "音声を再生",
   "@playAudio": {
     "description": "Tooltip for audio play button."
   },
-  "removeFile": "Remove file",
+  "removeFile": "ファイルを削除",
   "@removeFile": {
     "description": "Tooltip for remove file button."
   },
-  "audioFileType": "Audio",
+  "audioFileType": "音声",
   "@audioFileType": {
     "description": "Label for audio file type."
   },
-  "imageFileType": "Image",
+  "imageFileType": "画像",
   "@imageFileType": {
     "description": "Label for image file type."
   },
-  "temporaryChat": "Temporary Chat",
+  "temporaryChat": "一時チャット",
   "@temporaryChat": {
     "description": "Label for the temporary chat toggle."
   },
-  "temporaryChatTooltip": "This chat won't appear in history",
+  "temporaryChatTooltip": "このチャットは履歴に表示されません",
   "@temporaryChatTooltip": {
     "description": "Tooltip shown when temporary chat is enabled."
   },
-  "saveChat": "Save Chat",
+  "saveChat": "チャットを保存",
   "@saveChat": {
     "description": "Action to save a temporary chat to history."
   },
-  "temporaryChatByDefault": "Temporary Chat by Default",
+  "temporaryChatByDefault": "既定で一時チャット",
   "@temporaryChatByDefault": {
     "description": "Setting to make all new chats temporary by default."
   },
-  "temporaryChatByDefaultDescription": "New chats won't be saved to history unless you choose to save them",
+  "temporaryChatByDefaultDescription": "保存を選択しない限り、新しいチャットは履歴に保存されません",
   "@temporaryChatByDefaultDescription": {
     "description": "Description for the temporary chat by default setting."
   },
-  "chatSaved": "Chat saved to history",
+  "chatSaved": "チャットを履歴に保存しました",
   "@chatSaved": {
     "description": "Snackbar message shown after saving a temporary chat."
   },
-  "chatSaveFailed": "Failed to save chat",
+  "chatSaveFailed": "チャットの保存に失敗しました",
   "@chatSaveFailed": {
     "description": "Snackbar message shown when saving a temporary chat fails."
   },
-  "sidebarChatsTab": "Chats",
+  "sidebarChatsTab": "チャット",
   "@sidebarChatsTab": {
     "description": "Label for the Chats tab in the sidebar"
   },
-  "sidebarNotesTab": "Notes",
+  "sidebarNotesTab": "ノート",
   "@sidebarNotesTab": {
     "description": "Label for the Notes tab in the sidebar"
   },
-  "sidebarChannelsTab": "Channels",
+  "sidebarChannelsTab": "チャンネル",
   "@sidebarChannelsTab": {
     "description": "Label for the Channels tab in the sidebar"
   },
-  "closeSidebar": "Close sidebar",
+  "closeSidebar": "サイドバーを閉じる",
   "@closeSidebar": {
     "description": "Tooltip for the sidebar close button"
   },
-  "channelCreateTitle": "Create Channel",
+  "channelCreateTitle": "チャンネルを作成",
   "@channelCreateTitle": {
     "description": "Title for the create channel dialog"
   },
-  "channelName": "Channel Name",
+  "channelName": "チャンネル名",
   "@channelName": {
     "description": "Label for channel name input field"
   },
-  "channelDescription": "Description",
+  "channelDescription": "説明",
   "@channelDescription": {
     "description": "Label for channel description input field"
   },
-  "channelPrivate": "Private Channel",
+  "channelPrivate": "プライベートチャンネル",
   "@channelPrivate": {
     "description": "Label for the private channel toggle"
   },
-  "channelJoin": "Join Channel",
+  "channelJoin": "チャンネルに参加",
   "@channelJoin": {
     "description": "Button label to join a channel"
   },
-  "channelLeave": "Leave Channel",
+  "channelLeave": "チャンネルを退出",
   "@channelLeave": {
     "description": "Button label to leave a channel"
   },
-  "channelDelete": "Delete Channel",
+  "channelDelete": "チャンネルを削除",
   "@channelDelete": {
     "description": "Button label to delete a channel"
   },
-  "channelEdit": "Edit Channel",
+  "channelEdit": "チャンネルを編集",
   "@channelEdit": {
     "description": "Button label to edit channel details"
   },
-  "channelDeleteConfirm": "Delete this channel? This cannot be undone.",
+  "channelDeleteConfirm": "このチャンネルを削除しますか？この操作は元に戻せません。",
   "@channelDeleteConfirm": {
     "description": "Confirmation message when deleting a channel"
   },
-  "channelLeaveConfirm": "Leave this channel?",
+  "channelLeaveConfirm": "このチャンネルを退出しますか？",
   "@channelLeaveConfirm": {
     "description": "Confirmation message when leaving a channel"
   },
-  "channelEmptyState": "No channels yet",
+  "channelEmptyState": "まだチャンネルがありません",
   "@channelEmptyState": {
     "description": "Message shown when there are no channels"
   },
-  "channelNoMessages": "No messages yet. Start the conversation!",
+  "channelNoMessages": "まだメッセージがありません。会話を始めましょう！",
   "@channelNoMessages": {
     "description": "Message shown when a channel has no messages"
   },
-  "channelMembers": "{count} {count, plural, =1{member} other{members}}",
+  "channelMembers": "{count} {count, plural, =1{メンバー} other{メンバー}}",
   "@channelMembers": {
     "description": "Member count display in channel header",
     "placeholders": {
@@ -2170,47 +2170,47 @@
       }
     }
   },
-  "channelMessageReply": "Reply",
+  "channelMessageReply": "返信",
   "@channelMessageReply": {
     "description": "Context menu option to reply to a message"
   },
-  "channelMessageReact": "React",
+  "channelMessageReact": "リアクション",
   "@channelMessageReact": {
     "description": "Context menu option to add a reaction"
   },
-  "channelMessageEdit": "Edit",
+  "channelMessageEdit": "編集",
   "@channelMessageEdit": {
     "description": "Context menu option to edit own message"
   },
-  "channelMessageDelete": "Delete",
+  "channelMessageDelete": "削除",
   "@channelMessageDelete": {
     "description": "Context menu option to delete own message"
   },
-  "channelLoadError": "Failed to load channels",
+  "channelLoadError": "チャンネルの読み込みに失敗しました",
   "@channelLoadError": {
     "description": "Error message when channels fail to load"
   },
-  "channelSendError": "Failed to send message",
+  "channelSendError": "メッセージの送信に失敗しました",
   "@channelSendError": {
     "description": "Error message when a channel message fails to send"
   },
-  "channelDeleted": "This channel has been deleted",
+  "channelDeleted": "このチャンネルは削除されました",
   "@channelDeleted": {
     "description": "Snackbar message when a viewed channel is deleted"
   },
-  "searchChannels": "Search channels...",
+  "searchChannels": "チャンネルを検索...",
   "@searchChannels": {
     "description": "Hint text for the channel search field"
   },
-  "channelCreateError": "Failed to create channel",
+  "channelCreateError": "チャンネルの作成に失敗しました",
   "@channelCreateError": {
     "description": "Snackbar message when channel creation fails"
   },
-  "channelMessageHint": "Message...",
+  "channelMessageHint": "メッセージ...",
   "@channelMessageHint": {
     "description": "Hint text for the channel message input field"
   },
-  "audioUploadError": "Failed to upload audio: {error}",
+  "audioUploadError": "音声のアップロードに失敗しました: {error}",
   "@audioUploadError": {
     "description": "Error message when audio upload fails",
     "placeholders": {
@@ -2220,51 +2220,51 @@
       }
     }
   },
-  "shareChat": "Share Chat",
+  "shareChat": "チャットを共有",
   "@shareChat": {
     "description": "Dialog title and action label for sharing a chat."
   },
-  "shareChatDescription": "Messages you send after creating your link won't be shared. Users with the URL will be able to view the shared chat.",
+  "shareChatDescription": "リンク作成後に送信したメッセージは共有されません。URL を持つユーザーは共有チャットを表示できます。",
   "@shareChatDescription": {
     "description": "Explains that a shared chat link is a snapshot."
   },
-  "shareChatExisting": "You have shared this chat before.",
+  "shareChatExisting": "このチャットは以前に共有されています。",
   "@shareChatExisting": {
     "description": "Explains that the chat already has an existing shared link."
   },
-  "shareChatDeleteLink": "Delete this link",
+  "shareChatDeleteLink": "このリンクを削除",
   "@shareChatDeleteLink": {
     "description": "Action label to delete the current shared chat link."
   },
-  "shareChatDeleteAndCreate": "and create a new shared link.",
+  "shareChatDeleteAndCreate": "して、新しい共有リンクを作成します。",
   "@shareChatDeleteAndCreate": {
     "description": "Continuation text after the delete shared link action."
   },
-  "copyLink": "Copy Link",
+  "copyLink": "リンクをコピー",
   "@copyLink": {
     "description": "Button label to copy a newly created shared chat URL."
   },
-  "updateAndCopyLink": "Update and Copy Link",
+  "updateAndCopyLink": "更新してリンクをコピー",
   "@updateAndCopyLink": {
     "description": "Button label to refresh a shared chat snapshot and copy the URL."
   },
-  "sharedChatCopied": "Copied shared chat URL to clipboard!",
+  "sharedChatCopied": "共有チャットの URL をクリップボードにコピーしました！",
   "@sharedChatCopied": {
     "description": "Snackbar shown after copying a shared chat URL."
   },
-  "shareSystemSheet": "Share...",
+  "shareSystemSheet": "共有...",
   "@shareSystemSheet": {
     "description": "Button label to open the platform share sheet."
   },
-  "chatShareFailed": "Failed to share chat",
+  "chatShareFailed": "チャットの共有に失敗しました",
   "@chatShareFailed": {
     "description": "Snackbar shown when chat sharing fails."
   },
-  "sharedLinkDeleted": "Shared chat link deleted",
+  "sharedLinkDeleted": "共有チャットリンクを削除しました",
   "@sharedLinkDeleted": {
     "description": "Snackbar shown after deleting a shared chat link."
   },
-  "deleteSharedLinkFailed": "Failed to delete shared link",
+  "deleteSharedLinkFailed": "共有リンクの削除に失敗しました",
   "@deleteSharedLinkFailed": {
     "description": "Snackbar shown when deleting a shared chat link fails."
   }
