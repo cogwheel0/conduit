@@ -1080,6 +1080,28 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   /// Riverpod state.
   void syncStreamingBuffer() => _syncStreamingBufferToState();
 
+  /// Buffers a full replacement for the active streaming assistant message.
+  ///
+  /// This is used for generated content that must replace the visible
+  /// streaming text, such as an in-progress reasoning block. The live widget
+  /// still receives frequent updates through [streamingContentProvider], while
+  /// the full message list only syncs on [_streamingSyncInterval].
+  void bufferLastMessageContent(String content) {
+    if (state.isEmpty) return;
+
+    final lastMessage = state.last;
+    if (lastMessage.role != 'assistant' || !lastMessage.isStreaming) return;
+
+    final sanitized = _stripStreamingPlaceholders(content);
+    _streamingBuffer = StringBuffer(sanitized);
+    _scheduleStreamingContentUpdate();
+    _streamingSyncTimer ??= Timer.periodic(
+      _streamingSyncInterval,
+      (_) => _syncStreamingBufferToState(),
+    );
+    _touchStreamingActivity();
+  }
+
   void replaceLastMessageContent(String content) {
     _streamingBuffer = null;
     _streamingSyncTimer?.cancel();

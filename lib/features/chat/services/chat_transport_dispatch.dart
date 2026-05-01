@@ -243,6 +243,8 @@ Future<void> dispatchChatTransport({
     filterIds: filterIds,
     appendToLastMessage: (c) =>
         ref.read(chatMessagesProvider.notifier).appendToLastMessage(c),
+    bufferLastMessageContent: (c) =>
+        ref.read(chatMessagesProvider.notifier).bufferLastMessageContent(c),
     replaceLastMessageContent: (c) =>
         ref.read(chatMessagesProvider.notifier).replaceLastMessageContent(c),
     updateLastMessageWith: (updater) => ref
