@@ -54,14 +54,13 @@ def patch_super_native_extensions_podspec
   File.write(podspec_path, patched)
 end
 
-patch_super_native_extensions_podspec
-
 target 'Runner' do
   # Use dynamic frameworks for native extension compatibility
   use_frameworks! :linkage => :dynamic
   use_modular_headers!
 
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+  patch_super_native_extensions_podspec
 
   # share_handler addition start
   target 'ShareExtension' do
