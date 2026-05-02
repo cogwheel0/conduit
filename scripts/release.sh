@@ -151,10 +151,21 @@ ANDROID_CHANGELOG_DIR="android/fastlane/metadata/android/en-US/changelogs"
 mkdir -p "$ANDROID_CHANGELOG_DIR"
 echo "$LINK" > "$ANDROID_CHANGELOG_DIR/default.txt"
 
-# iOS release notes in Deliverfile
+# iOS app version and release notes in Deliverfile
 IOS_DELIVERFILE="ios/fastlane/Deliverfile"
-print_status "Updating iOS Deliverfile with release notes..."
-sed -i.bak "/^release_notes(/ s|'default' => \".*\"|'default' => \"$LINK\"|" "$IOS_DELIVERFILE"
+if [ ! -f "$IOS_DELIVERFILE" ]; then
+    print_error "Missing iOS Fastlane Deliverfile: $IOS_DELIVERFILE"
+    exit 1
+fi
+
+print_status "Updating iOS Deliverfile with app version and release notes..."
+NEW_VERSION="$NEW_VERSION" LINK="$LINK" perl -0pi.bak -e '
+  s/app_version\("[^"]*"\)/app_version("$ENV{NEW_VERSION}")/g;
+  if (!/app_version\("/) {
+    s/(skip_metadata\([^\n]*\)\n)/$1app_version("$ENV{NEW_VERSION}")\n/;
+  }
+  s/'\''default'\'' => "[^"]*"/'\''default'\'' => "$ENV{LINK}"/g;
+' "$IOS_DELIVERFILE"
 rm "${IOS_DELIVERFILE}.bak"
 
 # Commit changes
