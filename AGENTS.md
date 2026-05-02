@@ -798,4 +798,49 @@ education levels, and learning styles.
 * **Semantic Labels:** Use the `Semantics` widget to provide clear, descriptive
   labels for UI elements.
 * **Screen Reader Testing:** Regularly test your app with TalkBack (Android) and
-  VoiceOver (iOS).
+ VoiceOver (iOS).
+
+## Cursor Cloud specific instructions
+
+### Environment
+
+- Flutter SDK 3.41.5 (Dart 3.11.3) is installed at `/opt/flutter`. PATH is
+  configured in `~/.bashrc`.
+- The update script runs `flutter pub get` and `build_runner` on each session
+  start, so generated files (`.g.dart`, `.freezed.dart`, Riverpod providers,
+  l10n) are ready.
+
+### Running the app
+
+- **Web (headless dev):** `flutter run -d web-server --web-port=8080 --web-hostname=0.0.0.0`
+  Note: Conduit is a mobile-first app; some platform plugins (secure storage,
+  etc.) cause runtime errors on web. Web mode is useful only for UI/layout
+  verification.
+- **Linux desktop:** `flutter run -d linux` (requires GTK headers, which are
+  pre-installed).
+- **Chrome:** `flutter run -d chrome` opens a headed Chrome window.
+
+### Developer commands (see README "Developer checks")
+
+```bash
+flutter analyze               # static analysis
+dart run custom_lint          # Riverpod lint rules
+flutter test                  # unit + widget tests
+dart run build_runner build --delete-conflicting-outputs  # code gen
+```
+
+### Known issues
+
+- Two test files (`streaming_helper_transport_test.dart` and
+  `chat_transport_parity_test.dart`) have a pre-existing compile error (missing
+  `bufferLastMessageContent` named parameter). These fail to load but do not
+  affect other tests.
+- The `openwebui-src` git submodule is empty/uninitialized; it is not needed
+  for building or testing.
+
+### Testing notes
+
+- Unit/widget tests do NOT require a running Open WebUI server; they use
+  `mocktail` fakes.
+- For E2E testing against a real server, set a server URL inside the app at
+  runtime (no env var needed).
