@@ -171,6 +171,10 @@ class _CallbackLog {
     }
   }
 
+  void bufferLastMessageContent(String c) {
+    replaceLastMessageContent(c);
+  }
+
   void updateLastMessageWith(ChatMessage Function(ChatMessage) updater) {
     messageUpdaters.add(updater);
     if (messages.isNotEmpty && messages.last.role == 'assistant') {
@@ -259,6 +263,7 @@ ActiveChatStream _attach({
     socketService: socketService,
     workerManager: workerManager ?? WorkerManager(maxConcurrentTasks: 1),
     appendToLastMessage: log.appendToLastMessage,
+    bufferLastMessageContent: log.bufferLastMessageContent,
     replaceLastMessageContent: log.replaceLastMessageContent,
     updateLastMessageWith: log.updateLastMessageWith,
     appendStatusUpdate: (_, _) {},

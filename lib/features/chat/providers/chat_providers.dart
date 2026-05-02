@@ -48,6 +48,19 @@ final isChatStreamingProvider = Provider<bool>((ref) {
   );
 });
 
+String? _connectedSocketSessionId(SocketService? socketService) {
+  if (socketService?.isConnected != true) {
+    return null;
+  }
+
+  final sessionId = socketService!.sessionId;
+  if (sessionId == null || sessionId.isEmpty) {
+    return null;
+  }
+
+  return sessionId;
+}
+
 /// The content of the currently streaming assistant message.
 /// Only the actively streaming message widget should watch this.
 /// This avoids rebuilding all visible messages on every chunk.
@@ -2432,7 +2445,7 @@ Future<void> regenerateMessage(
 
     // Socket is optional — only needed for taskSocket transport.
     final socketService = ref.read(socketServiceProvider);
-    final socketSessionId = socketService?.sessionId;
+    final socketSessionId = _connectedSocketSessionId(socketService);
 
     List<Map<String, dynamic>>? toolServers;
     try {
@@ -3067,7 +3080,7 @@ Future<void> _sendMessageInternal(
 
     // Socket is optional — only needed for taskSocket transport.
     final socketService = ref.read(socketServiceProvider);
-    final socketSessionId = socketService?.sessionId;
+    final socketSessionId = _connectedSocketSessionId(socketService);
 
     List<Map<String, dynamic>>? toolServers;
     try {
