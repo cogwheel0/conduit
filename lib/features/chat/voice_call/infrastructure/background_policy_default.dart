@@ -27,9 +27,11 @@ class CallBackgroundPolicyDefault implements CallBackgroundPolicy {
 
   @override
   Future<void> startBackgroundExecution({required bool requiresMicrophone}) {
-    return BackgroundStreamingHandler.instance.startBackgroundExecution(const [
-      _voiceCallStreamId,
-    ], requiresMicrophone: requiresMicrophone);
+    return BackgroundStreamingHandler.instance.startBackgroundExecution(
+      const [_voiceCallStreamId],
+      requiresMicrophone: requiresMicrophone,
+      kind: BackgroundStreamKind.voice,
+    );
   }
 
   @override

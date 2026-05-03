@@ -96,7 +96,6 @@
 		<array>
 			<string>audio</string>
 			<string>processing</string>
-			<string>remote-notification</string>
 			<string>voip</string>
 		</array>
 		<key>UILaunchStoryboardName</key>

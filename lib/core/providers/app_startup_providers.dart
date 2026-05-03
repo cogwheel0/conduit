@@ -525,120 +525,33 @@ class _ForegroundRefreshObserver extends WidgetsBindingObserver {
   }
 }
 
-/// Attempts to keep the realtime socket connection alive while the app is
-/// backgrounded using BackgroundStreamingHandler for platform-specific handling.
+/// Reconciles realtime socket state after the app returns from background.
 ///
 /// Notes:
-/// - iOS: limited to short background task windows; we send periodic keepAlive.
-/// - Android: uses existing foreground service notification.
+/// - Idle socket persistence intentionally does not use native background
+///   execution. iOS and Android both treat that as expensive background work.
+/// - Missed socket events are reconciled by refreshing foreground state on
+///   resume.
 final socketPersistenceProvider = Provider<void>((ref) {
-  final observer = _SocketPersistenceObserver(ref);
+  final observer = _SocketPersistenceObserver();
   WidgetsBinding.instance.addObserver(observer);
-  // React to active conversation changes while backgrounded
-  final sub = ref.listen<Conversation?>(
-    activeConversationProvider,
-    (prev, next) => observer.onActiveConversationChanged(),
-  );
   ref.onDispose(() => WidgetsBinding.instance.removeObserver(observer));
-  ref.onDispose(sub.close);
 });
 
 class _SocketPersistenceObserver extends WidgetsBindingObserver {
-  final Ref _ref;
-  _SocketPersistenceObserver(this._ref);
-
-  static const String _socketId = BackgroundStreamingHandler.socketKeepaliveId;
-  Timer? _heartbeat;
-  bool _bgActive = false;
-  bool _isBackgrounded = false;
-
-  bool _shouldKeepAlive() {
-    final authed =
-        _ref.read(authNavigationStateProvider) ==
-        AuthNavigationState.authenticated;
-    final hasConversation = _ref.read(activeConversationProvider) != null;
-    return authed && hasConversation;
-  }
-
-  void _startBackground() {
-    if (_bgActive) return;
-    if (!_shouldKeepAlive()) return;
-
-    // Mark as active immediately to prevent duplicate attempts
-    _bgActive = true;
-
-    BackgroundStreamingHandler.instance
-        .startBackgroundExecution([_socketId])
-        .then((_) {
-          // Guard: if background was stopped while awaiting, don't create timer
-          if (!_bgActive) return;
-
-          // Periodic keep-alive for iOS background task management.
-          // On Android, foreground service keeps app alive without frequent pings.
-          // 5-minute interval is sufficient and matches wakelock timeout buffer.
-          _heartbeat?.cancel();
-          _heartbeat = Timer.periodic(const Duration(minutes: 5), (_) async {
-            final success = await BackgroundStreamingHandler.instance
-                .keepAlive();
-            if (!success) {
-              DebugLogger.warning(
-                'socket-keepalive-failed',
-                scope: 'background',
-              );
-              // Keep-alive failed but don't stop - the service may still be running
-            }
-          });
-        })
-        .catchError((Object e) {
-          _bgActive = false; // Rollback on failure
-          DebugLogger.error(
-            'socket-bg-start-failed',
-            scope: 'background',
-            error: e,
-          );
-        });
-  }
-
-  void _stopBackground() {
-    if (!_bgActive) return;
-
-    // Mark as inactive immediately to prevent race conditions
-    _bgActive = false;
-    _heartbeat?.cancel();
-    _heartbeat = null;
-
-    // Fire-and-forget with proper error handling
-    // We don't await because lifecycle callbacks should return quickly
-    BackgroundStreamingHandler.instance
-        .stopBackgroundExecution([_socketId])
-        .catchError((Object e) {
-          DebugLogger.error(
-            'socket-bg-stop-failed',
-            scope: 'background',
-            error: e,
-          );
-        });
-  }
-
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     switch (state) {
       case AppLifecycleState.paused:
       case AppLifecycleState.inactive:
-        _isBackgrounded = true;
-        _startBackground();
         break;
       case AppLifecycleState.resumed:
-        _isBackgrounded = false;
-        _stopBackground();
         // Reconcile background state on resume to detect orphaned services
         // or stale Flutter state from native service crashes
         _reconcileOnResume();
         break;
       case AppLifecycleState.detached:
       case AppLifecycleState.hidden:
-        _isBackgrounded = false;
-        _stopBackground();
         break;
     }
   }
@@ -653,15 +566,5 @@ class _SocketPersistenceObserver extends WidgetsBindingObserver {
       );
       return false; // Return false to satisfy Future<bool> type
     });
-  }
-
-  // Called when active conversation changes; only acts during background
-  void onActiveConversationChanged() {
-    if (!_isBackgrounded) return;
-    if (_shouldKeepAlive()) {
-      _startBackground();
-    } else {
-      _stopBackground();
-    }
   }
 }

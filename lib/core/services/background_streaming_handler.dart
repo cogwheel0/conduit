@@ -1,13 +1,100 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import '../utils/debug_logger.dart';
+
+enum BackgroundStreamKind {
+  chat('chat'),
+  voice('voice');
+
+  const BackgroundStreamKind(this.platformValue);
+
+  final String platformValue;
+}
+
+class BackgroundStreamLease {
+  const BackgroundStreamLease({
+    required this.id,
+    required this.kind,
+    required this.requiresMicrophone,
+    required this.startedAt,
+  });
+
+  final String id;
+  final BackgroundStreamKind kind;
+  final bool requiresMicrophone;
+  final DateTime startedAt;
+
+  Map<String, dynamic> toPlatformMap() => {
+    'id': id,
+    'kind': kind.platformValue,
+    'requiresMicrophone': requiresMicrophone,
+    'startedAt': startedAt.millisecondsSinceEpoch,
+  };
+}
+
+class _NativeLeaseSnapshot {
+  const _NativeLeaseSnapshot({
+    required this.id,
+    required this.kind,
+    required this.requiresMicrophone,
+  });
+
+  final String id;
+  final String kind;
+  final bool requiresMicrophone;
+
+  static _NativeLeaseSnapshot? fromValue(Object? value) {
+    if (value is! Map) return null;
+    final id = value['id'];
+    if (id is! String || id.isEmpty) return null;
+    return _NativeLeaseSnapshot(
+      id: id,
+      kind: value['kind'] as String? ?? BackgroundStreamKind.chat.platformValue,
+      requiresMicrophone: value['requiresMicrophone'] as bool? ?? false,
+    );
+  }
+}
+
+@visibleForTesting
+List<BackgroundStreamLease> buildBackgroundStreamLeasesForTesting(
+  List<String> streamIds, {
+  required bool requiresMicrophone,
+  required BackgroundStreamKind kind,
+  required DateTime startedAt,
+}) {
+  return _buildBackgroundStreamLeases(
+    streamIds,
+    requiresMicrophone: requiresMicrophone,
+    kind: kind,
+    startedAt: startedAt,
+  );
+}
+
+List<BackgroundStreamLease> _buildBackgroundStreamLeases(
+  List<String> streamIds, {
+  required bool requiresMicrophone,
+  required BackgroundStreamKind kind,
+  required DateTime startedAt,
+}) {
+  return <BackgroundStreamLease>[
+    for (final streamId in streamIds)
+      if (streamId != BackgroundStreamingHandler.socketKeepaliveId)
+        BackgroundStreamLease(
+          id: streamId,
+          kind: kind,
+          requiresMicrophone: requiresMicrophone,
+          startedAt: startedAt,
+        ),
+  ];
+}
 
 /// Handles background streaming continuation for iOS and Android.
 ///
 /// This service keeps the app alive when streaming content in the background,
-/// ensuring that chat responses, voice calls, and socket connections continue
-/// even when the app is not in the foreground.
+/// ensuring that chat responses and voice calls get short-lived native support
+/// when the app is not in the foreground. Idle sockets reconnect on resume.
 ///
 /// ## Platform Implementations
 ///
@@ -59,8 +146,8 @@ class BackgroundStreamingHandler {
     _setupMethodCallHandler();
   }
 
-  final Set<String> _activeStreamIds = <String>{};
-  final Set<String> _microphoneStreamIds = <String>{};
+  final Map<String, BackgroundStreamLease> _activeLeases =
+      <String, BackgroundStreamLease>{};
   bool _initialized = false;
 
   /// Initialize the background streaming handler with callbacks.
@@ -97,8 +184,28 @@ class BackgroundStreamingHandler {
   }
 
   /// Returns count of actual content streams (excludes socket keepalive).
-  int get _userVisibleStreamCount =>
-      _activeStreamIds.where((id) => id != socketKeepaliveId).length;
+  int get _userVisibleStreamCount => _activeLeases.values
+      .where((lease) => lease.id != socketKeepaliveId)
+      .length;
+
+  List<Map<String, dynamic>> get _platformLeases => _activeLeases.values
+      .map((lease) => lease.toPlatformMap())
+      .toList(growable: false);
+
+  bool _nativeLeasesMatchFlutter(List<_NativeLeaseSnapshot> nativeLeases) {
+    if (nativeLeases.length != _activeLeases.length) return false;
+
+    for (final nativeLease in nativeLeases) {
+      final flutterLease = _activeLeases[nativeLease.id];
+      if (flutterLease == null ||
+          flutterLease.kind.platformValue != nativeLease.kind ||
+          flutterLease.requiresMicrophone != nativeLease.requiresMicrophone) {
+        return false;
+      }
+    }
+
+    return true;
+  }
 
   // Callbacks for platform-specific events
   void Function(List<String> streamIds)? onStreamsSuspending;
@@ -123,7 +230,7 @@ class BackgroundStreamingHandler {
     _channel.setMethodCallHandler((call) async {
       switch (call.method) {
         case 'checkStreams':
-          return _activeStreamIds.length;
+          return _activeLeases.length;
 
         case 'streamsSuspending':
           final Map<String, dynamic> args =
@@ -185,7 +292,7 @@ class BackgroundStreamingHandler {
 
           // Clean up failed streams
           for (final streamId in streamIds) {
-            _activeStreamIds.remove(streamId);
+            _activeLeases.remove(streamId);
           }
           break;
 
@@ -216,34 +323,54 @@ class BackgroundStreamingHandler {
   Future<void> startBackgroundExecution(
     List<String> streamIds, {
     bool requiresMicrophone = false,
+    BackgroundStreamKind kind = BackgroundStreamKind.chat,
   }) async {
     if (!Platform.isIOS && !Platform.isAndroid) return;
+    final startedAt = DateTime.now();
+    final newLeases = _buildBackgroundStreamLeases(
+      streamIds,
+      requiresMicrophone: requiresMicrophone,
+      kind: kind,
+      startedAt: startedAt,
+    );
+    if (newLeases.isEmpty) return;
+    final effectiveStreamIds = newLeases
+        .map((lease) => lease.id)
+        .toList(growable: false);
 
     try {
       await _channel.invokeMethod('startBackgroundExecution', {
-        'streamIds': streamIds,
+        'streamIds': effectiveStreamIds,
         'requiresMicrophone': requiresMicrophone,
+        'leases': newLeases
+            .map((lease) => lease.toPlatformMap())
+            .toList(growable: false),
       });
 
       // Only add to active streams after successful platform call
-      _activeStreamIds.addAll(streamIds);
-
-      // Track which streams require microphone for reconciliation
-      if (requiresMicrophone) {
-        _microphoneStreamIds.addAll(streamIds);
+      for (final lease in newLeases) {
+        _activeLeases[lease.id] = lease;
       }
 
       DebugLogger.stream(
         'start',
         scope: 'background',
-        data: {'count': streamIds.length, 'mic': requiresMicrophone},
+        data: {
+          'count': streamIds.length,
+          'effectiveCount': effectiveStreamIds.length,
+          'mic': requiresMicrophone,
+          'kind': kind.platformValue,
+        },
       );
     } catch (e) {
       DebugLogger.error(
         'start-failed',
         scope: 'background',
         error: e,
-        data: {'count': streamIds.length},
+        data: {
+          'count': streamIds.length,
+          'effectiveCount': effectiveStreamIds.length,
+        },
       );
       // Re-throw so callers know the background execution failed
       rethrow;
@@ -261,8 +388,9 @@ class BackgroundStreamingHandler {
 
       // Only remove from tracking after successful platform call
       // to maintain state consistency between Flutter and native layers
-      _activeStreamIds.removeAll(streamIds);
-      _microphoneStreamIds.removeAll(streamIds);
+      for (final streamId in streamIds) {
+        _activeLeases.remove(streamId);
+      }
 
       DebugLogger.stream(
         'stop',
@@ -272,8 +400,9 @@ class BackgroundStreamingHandler {
     } catch (e) {
       // Still remove from local tracking on error - the platform may have
       // already stopped, and keeping stale state causes issues
-      _activeStreamIds.removeAll(streamIds);
-      _microphoneStreamIds.removeAll(streamIds);
+      for (final streamId in streamIds) {
+        _activeLeases.remove(streamId);
+      }
 
       DebugLogger.error(
         'stop-failed',
@@ -295,13 +424,14 @@ class BackgroundStreamingHandler {
 
     // Skip keep-alive if no active streams - this ensures Android's count
     // stays synchronized with Flutter's actual state
-    if (_activeStreamIds.isEmpty) return true;
+    if (_activeLeases.isEmpty) return true;
 
     try {
       await _channel.invokeMethod('keepAlive', {
         // Pass user-visible stream count (excludes socket-keepalive)
         // for accurate logging, but service still runs for any background task
         'streamCount': _userVisibleStreamCount,
+        'leases': _platformLeases,
       });
       DebugLogger.stream('keepalive-success', scope: 'background');
       return true;
@@ -356,10 +486,10 @@ class BackgroundStreamingHandler {
   }
 
   /// Check if any streams are currently active
-  bool get hasActiveStreams => _activeStreamIds.isNotEmpty;
+  bool get hasActiveStreams => _activeLeases.isNotEmpty;
 
   /// Get list of active stream IDs
-  List<String> get activeStreamIds => _activeStreamIds.toList();
+  List<String> get activeStreamIds => _activeLeases.keys.toList();
 
   /// Notify the native layer that an external component (e.g., speech_to_text
   /// plugin) is managing the audio session.
@@ -391,8 +521,7 @@ class BackgroundStreamingHandler {
 
   /// Clear all stream data (usually on app termination)
   void clearAll() {
-    _activeStreamIds.clear();
-    _microphoneStreamIds.clear();
+    _activeLeases.clear();
   }
 
   /// Reconcile Flutter state with native platform state.
@@ -404,14 +533,23 @@ class BackgroundStreamingHandler {
     if (!Platform.isIOS && !Platform.isAndroid) return false;
 
     try {
-      final int? nativeCount = await _channel.invokeMethod<int>(
-        'getActiveStreamCount',
+      final rawNativeLeases = await _channel.invokeMethod<List<dynamic>>(
+        'getActiveStreamLeases',
       );
+      final nativeLeases =
+          rawNativeLeases
+              ?.map(_NativeLeaseSnapshot.fromValue)
+              .whereType<_NativeLeaseSnapshot>()
+              .toList(growable: false) ??
+          const <_NativeLeaseSnapshot>[];
+      final int? nativeCount =
+          rawNativeLeases?.length ??
+          await _channel.invokeMethod<int>('getActiveStreamCount');
 
       if (nativeCount == null) return false;
 
       // If native has streams but Flutter doesn't, the native service is orphaned
-      if (nativeCount > 0 && _activeStreamIds.isEmpty) {
+      if (nativeCount > 0 && _activeLeases.isEmpty) {
         DebugLogger.warning(
           'reconcile-orphaned-service',
           scope: 'background',
@@ -422,22 +560,26 @@ class BackgroundStreamingHandler {
         return true;
       }
 
-      // If Flutter has streams but native doesn't, restart the service
-      if (_activeStreamIds.isNotEmpty && nativeCount == 0) {
+      // If Flutter and native disagree on the lease set, restart native state.
+      if (_activeLeases.isNotEmpty &&
+          (nativeCount == 0 || !_nativeLeasesMatchFlutter(nativeLeases))) {
         // Preserve microphone requirement from tracked streams
-        final requiresMicrophone = _microphoneStreamIds.isNotEmpty;
+        final requiresMicrophone = _activeLeases.values.any(
+          (lease) => lease.requiresMicrophone,
+        );
         DebugLogger.warning(
           'reconcile-restart-service',
           scope: 'background',
           data: {
-            'flutterCount': _activeStreamIds.length,
+            'flutterCount': _activeLeases.length,
             'requiresMic': requiresMicrophone,
           },
         );
         // Restart background execution for active streams with preserved capabilities
         await _channel.invokeMethod('startBackgroundExecution', {
-          'streamIds': _activeStreamIds.toList(),
+          'streamIds': _activeLeases.keys.toList(),
           'requiresMicrophone': requiresMicrophone,
+          'leases': _platformLeases,
         });
         return true;
       }
