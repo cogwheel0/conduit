@@ -8,6 +8,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/markdown/streaming_markdown_widget.dart';
+import '../../../shared/widgets/markdown/renderer/markdown_style.dart';
 import '../../../core/models/chat_message.dart';
 import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
 import '../providers/text_to_speech_provider.dart';
@@ -850,7 +851,13 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
           // Action buttons below the message content (only after streaming completes)
           if (!widget.isStreaming) ...[
-            ?footer,
+            if (footer != null)
+              Padding(
+                padding: EdgeInsets.only(
+                  top: ConduitMarkdownStyle.fromTheme(context).paragraphSpacing,
+                ),
+                child: footer,
+              ),
             if (hasFollowUps) ...[
               const SizedBox(height: Spacing.md),
               _buildFollowUpSuggestions(activeFollowUps),

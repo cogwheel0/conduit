@@ -4,16 +4,12 @@ import '../../../core/models/channel_message.dart';
 
 /// Regex matching OpenWebUI mention tags:
 /// `<@M:model_id|Label>` or `<@U:user_id|Name>`.
-final _mentionRegex =
-    RegExp(r'<@[A-Z]:([^|>]+)\|([^>]+)>');
+final mentionRegex = RegExp(r'<@[A-Z]:([^|>]+)\|([^>]+)>');
 
 /// Strips OpenWebUI mention markup, keeping only the
 /// display label prefixed with @.
 String stripMentions(String content) =>
-    content.replaceAllMapped(
-      _mentionRegex,
-      (m) => '@${m.group(2)}',
-    );
+    content.replaceAllMapped(mentionRegex, (m) => '@${m.group(2)}');
 
 /// Whether [message] was sent by a model (has model_id
 /// in meta).
@@ -38,7 +34,7 @@ TextSpan buildMentionSpan({
   required TextStyle baseStyle,
   required Color mentionColor,
 }) {
-  final matches = _mentionRegex.allMatches(content);
+  final matches = mentionRegex.allMatches(content);
   if (matches.isEmpty) {
     return TextSpan(text: content, style: baseStyle);
   }
@@ -53,23 +49,16 @@ TextSpan buildMentionSpan({
 
   for (final m in matches) {
     if (m.start > cursor) {
-      children.add(TextSpan(
-        text: content.substring(cursor, m.start),
-        style: baseStyle,
-      ));
+      children.add(
+        TextSpan(text: content.substring(cursor, m.start), style: baseStyle),
+      );
     }
-    children.add(TextSpan(
-      text: '@${m.group(2)}',
-      style: mentionStyle,
-    ));
+    children.add(TextSpan(text: '@${m.group(2)}', style: mentionStyle));
     cursor = m.end;
   }
 
   if (cursor < content.length) {
-    children.add(TextSpan(
-      text: content.substring(cursor),
-      style: baseStyle,
-    ));
+    children.add(TextSpan(text: content.substring(cursor), style: baseStyle));
   }
 
   return TextSpan(children: children);

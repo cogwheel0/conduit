@@ -28,6 +28,7 @@ import '../../chat/widgets/modern_chat_input.dart';
 import '../providers/channel_providers.dart';
 import '../providers/channel_socket_handler.dart';
 import '../utils/mention_utils.dart';
+import '../widgets/channel_message_content.dart';
 import '../widgets/thread_panel.dart';
 
 /// Full-screen view for a single channel with messaging,
@@ -1213,7 +1214,7 @@ class _MessageBubble extends StatelessWidget {
                             ),
                           ),
                           Text(
-                            message.replyToMessage!.content,
+                            stripMentions(message.replyToMessage!.content),
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: AppTypography.bodySmallStyle.copyWith(
@@ -1299,14 +1300,9 @@ class _MessageBubble extends StatelessWidget {
                       ],
                     )
                   else
-                    RichText(
-                      text: buildMentionSpan(
-                        content: message.content,
-                        baseStyle: AppTypography.chatMessageStyle.copyWith(
-                          color: theme.textPrimary,
-                        ),
-                        mentionColor: Theme.of(context).colorScheme.primary,
-                      ),
+                    ChannelMessageContent(
+                      content: message.content,
+                      stateScopeId: 'channel:${message.id}',
                     ),
                   if (message.replyCount > 0 && onThreadTap != null)
                     Padding(

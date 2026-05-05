@@ -83,17 +83,15 @@ class ConduitMarkdownStyle {
 
     // Base body style used as the foundation for all
     // text styles.
-    final bodyStyle =
-        textTheme.bodyLarge?.copyWith(color: theme.textPrimary) ??
-        AppTypography.chatMessageStyle.copyWith(color: theme.textPrimary);
+    final bodyStyle = AppTypography.chatMessageStyle.copyWith(
+      color: theme.textPrimary,
+    );
     final bodyLineHeight =
         textScaler.scale(bodyStyle.fontSize ?? AppTypography.bodyLarge) *
         (bodyStyle.height ?? 1.0);
     final paragraphSpacing = AppTypography.usesAppleRamp
         ? Spacing.md
-        : (bodyLineHeight * 0.5)
-              .clamp(Spacing.md, Spacing.lg)
-              .toDouble();
+        : (bodyLineHeight * 0.5).clamp(Spacing.md, Spacing.lg).toDouble();
 
     // Monospace base for code elements.
     final monoBase =

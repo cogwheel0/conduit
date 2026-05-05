@@ -69,9 +69,26 @@ class BlockRenderer {
       final widget = renderBlock(nodes[index], nodePath: _nodePathFor(index));
       if (widget != null) widgets.add(widget);
     }
+    if (widgets.isNotEmpty) {
+      widgets[widgets.length - 1] = _withoutBottomPadding(widgets.last);
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: widgets,
+    );
+  }
+
+  Widget _withoutBottomPadding(Widget widget) {
+    if (widget is! Padding) return widget;
+
+    final padding = widget.padding;
+    if (padding is! EdgeInsets || padding.bottom == 0) {
+      return widget;
+    }
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(padding.left, padding.top, padding.right, 0),
+      child: widget.child,
     );
   }
 

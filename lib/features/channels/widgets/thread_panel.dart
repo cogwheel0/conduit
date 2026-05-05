@@ -15,6 +15,7 @@ import '../../../shared/widgets/user_avatar.dart';
 import '../../chat/widgets/modern_chat_input.dart';
 import '../providers/channel_providers.dart';
 import '../utils/mention_utils.dart';
+import 'channel_message_content.dart';
 
 /// Side panel (tablet) or bottom sheet (mobile) for
 /// viewing and replying to a message thread.
@@ -211,14 +212,9 @@ class _ParentMessageTile extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: Spacing.xxs),
-                RichText(
-                  text: buildMentionSpan(
-                    content: message.content,
-                    baseStyle: AppTypography.chatMessageStyle.copyWith(
-                      color: theme.textPrimary,
-                    ),
-                    mentionColor: Theme.of(context).colorScheme.primary,
-                  ),
+                ChannelMessageContent(
+                  content: message.content,
+                  stateScopeId: 'channel-thread-parent:${message.id}',
                 ),
               ],
             ),
@@ -311,14 +307,9 @@ class _ThreadReplies extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 2),
-                    RichText(
-                      text: buildMentionSpan(
-                        content: message.content,
-                        baseStyle: AppTypography.chatMessageStyle.copyWith(
-                          color: theme.textPrimary,
-                        ),
-                        mentionColor: Theme.of(context).colorScheme.primary,
-                      ),
+                    ChannelMessageContent(
+                      content: message.content,
+                      stateScopeId: 'channel-thread:${message.id}',
                     ),
                   ],
                 ),

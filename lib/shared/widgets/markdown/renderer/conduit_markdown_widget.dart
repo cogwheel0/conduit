@@ -7,6 +7,7 @@ import 'details_block_syntax.dart';
 import 'inline_renderer.dart';
 import 'latex_preprocessor.dart';
 import 'markdown_style.dart';
+import 'mention_inline_syntax.dart';
 
 /// A widget that renders markdown content using the
 /// Conduit custom rendering pipeline.
@@ -102,6 +103,7 @@ class _ConduitMarkdownWidgetState extends State<ConduitMarkdownWidget> {
     final document = md.Document(
       extensionSet: md.ExtensionSet.gitHubWeb,
       blockSyntaxes: const [DetailsBlockSyntax()],
+      inlineSyntaxes: [MentionInlineSyntax()],
       encodeHtml: false,
     );
     _nodes = document.parse(preprocessed);

@@ -170,6 +170,91 @@ void main() {
     },
   );
 
+  testWidgets('keeps paragraph spacing between blocks but trims the end', (
+    tester,
+  ) async {
+    await tester.pumpWidget(buildHarness('First\n\nSecond'));
+
+    final paragraphPaddings = tester
+        .widgetList<Padding>(
+          find.byWidgetPredicate((widget) {
+            if (widget is! Padding || widget.child is! Text) {
+              return false;
+            }
+            final text = widget.child as Text;
+            final plainText = text.textSpan?.toPlainText() ?? text.data;
+            return plainText == 'First' || plainText == 'Second';
+          }),
+        )
+        .toList(growable: false);
+
+    expect(paragraphPaddings, hasLength(2));
+    expect(
+      (paragraphPaddings.first.padding as EdgeInsets).bottom,
+      greaterThan(0),
+    );
+    expect((paragraphPaddings.last.padding as EdgeInsets).bottom, 0);
+  });
+
+  testWidgets('renders OpenWebUI mentions without placeholder leakage', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(TweakcnThemes.t3Chat),
+        home: Scaffold(
+          body: StreamingMarkdownWidget(
+            content:
+                'Hi <@U:user-id|Tuna>, see [<@M:model-id|Model>](https://a.test).',
+            isStreaming: false,
+            onTapLink: (_, _) {},
+          ),
+        ),
+      ),
+    );
+
+    expect(find.textContaining('@Tuna', findRichText: true), findsOneWidget);
+    expect(find.textContaining('@Model', findRichText: true), findsOneWidget);
+    expect(
+      find.textContaining('{{conduit_mention_', findRichText: true),
+      findsNothing,
+    );
+
+    final richTexts = tester.widgetList<RichText>(find.byType(RichText));
+    final modelSpan = richTexts
+        .map((richText) => _findTextSpan(richText.text, '@Model'))
+        .nonNulls
+        .single;
+    expect(modelSpan.recognizer, isNotNull);
+  });
+
+  testWidgets('does not alter mention-like content in inline code', (
+    tester,
+  ) async {
+    await tester.pumpWidget(buildHarness('Use `<@U:user-id|Tuna>` literally.'));
+
+    expect(find.text('<@U:user-id|Tuna>'), findsOneWidget);
+    expect(
+      find.textContaining('{{conduit_mention_', findRichText: true),
+      findsNothing,
+    );
+  });
+
+  testWidgets(
+    'preserves literal text that resembles old mention placeholders',
+    (tester) async {
+      await tester.pumpWidget(
+        buildHarness('{{conduit_mention_0}} <@U:user-id|Tuna>'),
+      );
+
+      expect(
+        find.textContaining('{{conduit_mention_0}}', findRichText: true),
+        findsOneWidget,
+      );
+      expect(find.textContaining('@Tuna', findRichText: true), findsOneWidget);
+    },
+  );
+
   testWidgets(
     'renders tool call details through markdown and expands attributes',
     (tester) async {
@@ -782,4 +867,17 @@ Expanded content
       expect(find.text('Expanded content'), findsOneWidget);
     },
   );
+}
+
+TextSpan? _findTextSpan(InlineSpan span, String text) {
+  if (span is! TextSpan) return null;
+  if (span.text == text) return span;
+
+  final children = span.children;
+  if (children == null) return null;
+  for (final child in children) {
+    final match = _findTextSpan(child, text);
+    if (match != null) return match;
+  }
+  return null;
 }
