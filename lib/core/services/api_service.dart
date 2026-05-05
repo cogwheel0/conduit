@@ -348,7 +348,12 @@ class ApiService {
   ///
   /// When a proxy is detected, returns [HealthCheckResult.proxyAuthRequired]
   /// so the app can show a WebView for proxy authentication.
-  Future<HealthCheckResult> checkHealthWithProxyDetection() async {
+  ///
+  /// Set [throwOnConnectionError] when the caller needs to show the exact
+  /// transport failure instead of a collapsed [HealthCheckResult.unreachable].
+  Future<HealthCheckResult> checkHealthWithProxyDetection({
+    bool throwOnConnectionError = false,
+  }) async {
     try {
       // Create a temporary Dio instance that doesn't follow redirects
       // so we can detect proxy redirects
@@ -445,6 +450,9 @@ class ApiService {
       if (e.type == DioExceptionType.connectionTimeout ||
           e.type == DioExceptionType.connectionError ||
           e.type == DioExceptionType.unknown) {
+        if (throwOnConnectionError) {
+          rethrow;
+        }
         return HealthCheckResult.unreachable;
       }
 
@@ -463,6 +471,9 @@ class ApiService {
         }
       }
 
+      if (throwOnConnectionError) {
+        rethrow;
+      }
       return HealthCheckResult.unreachable;
     } catch (e) {
       if (e.toString().toLowerCase().contains(
@@ -475,6 +486,9 @@ class ApiService {
         scope: 'api/proxy-detect',
         error: e,
       );
+      if (throwOnConnectionError) {
+        rethrow;
+      }
       return HealthCheckResult.unreachable;
     }
   }
