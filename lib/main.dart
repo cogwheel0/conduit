@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_tex/flutter_tex.dart';
 import 'core/widgets/error_boundary.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
@@ -23,6 +22,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'core/services/share_receiver_service.dart';
 import 'core/services/quick_actions_service.dart';
 import 'core/providers/app_startup_providers.dart';
+import 'shared/widgets/markdown/renderer/latex_rendering_server.dart';
 
 developer.TimelineTask? _startupTimeline;
 
@@ -30,7 +30,6 @@ void main() {
   runZonedGuarded(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
-      await TeXRenderingServer.start();
 
       // Global error handlers
       FlutterError.onError = (FlutterErrorDetails details) {
@@ -113,6 +112,7 @@ void main() {
         _startupTimeline?.instant('first_frame_rendered');
         _startupTimeline?.finish();
         _startupTimeline = null;
+        LatexRenderingServer.prewarm();
       });
 
       runApp(

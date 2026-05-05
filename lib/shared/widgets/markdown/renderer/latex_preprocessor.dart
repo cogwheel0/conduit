@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_tex/flutter_tex.dart';
 
+import 'latex_rendering_server.dart';
+
 /// Extracts LaTeX expressions before markdown parsing and
 /// restores them during widget rendering.
 ///
@@ -191,23 +193,47 @@ class LatexPreprocessor {
     final color = textStyle.color ?? Colors.black;
     final fontSize = textStyle.fontSize ?? 14.0;
 
-    final math = Math2SVG(
-      math: tex,
-      formulaWidgetBuilder: (context, svg) {
-        final height = _svgExToPixels(svg, fontSize);
-        return ColorFiltered(
-          colorFilter: ColorFilter.mode(color, BlendMode.srcATop),
-          child: SvgPicture.string(svg, height: height),
-        );
-      },
-    );
+    Widget buildMath() {
+      return Math2SVG(
+        math: tex,
+        loadingWidgetBuilder: (_) => _buildLatexFallback(tex, textStyle),
+        errorWidgetBuilder: (_, _) => _buildLatexFallback(tex, textStyle),
+        formulaWidgetBuilder: (context, svg) {
+          final height = _svgExToPixels(svg, fontSize);
+          return ColorFiltered(
+            colorFilter: ColorFilter.mode(color, BlendMode.srcATop),
+            child: SvgPicture.string(svg, height: height),
+          );
+        },
+      );
+    }
 
-    if (!isBlock) return math;
+    final math = LatexRenderingServer.isStarted
+        ? buildMath()
+        : FutureBuilder<void>(
+            future: LatexRenderingServer.ensureStarted(),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState != ConnectionState.done ||
+                  snapshot.hasError) {
+                return _buildLatexFallback(tex, textStyle);
+              }
+              return buildMath();
+            },
+          );
+
+    return _wrapLatexWidget(math, isBlock: isBlock);
+  }
+
+  static Widget _wrapLatexWidget(Widget child, {required bool isBlock}) {
+    if (!isBlock) return child;
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
-      child: math,
+      child: child,
     );
   }
+
+  static Widget _buildLatexFallback(String tex, TextStyle textStyle) =>
+      Text(tex, style: textStyle);
 
   /// Converts MathJax's SVG `ex`-unit height to logical pixels.
   ///
