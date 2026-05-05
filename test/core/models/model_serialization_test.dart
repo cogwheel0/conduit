@@ -140,6 +140,31 @@ void main() {
       });
       check(model.toolIds).isNotNull().deepEquals(['t1', 't2']);
     });
+
+    test('detects OpenWebUI hidden models from info.meta.hidden', () {
+      final model = Model.fromJson({
+        'id': 'hidden-model',
+        'name': 'Hidden Model',
+        'info': {
+          'meta': {'hidden': true},
+        },
+      });
+
+      check(model.isHidden).isTrue();
+    });
+
+    test('detects hidden models after cached round-trip', () {
+      final model = Model.fromJson({
+        'id': 'hidden-model',
+        'name': 'Hidden Model',
+        'info': {
+          'meta': {'hidden': 'true'},
+        },
+      });
+      final restored = Model.fromJson(model.toJson());
+
+      check(restored.isHidden).isTrue();
+    });
   });
 
   group('Prompt', () {

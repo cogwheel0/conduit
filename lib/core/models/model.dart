@@ -15,6 +15,11 @@ bool? _safeBool(dynamic value) {
   return null;
 }
 
+dynamic _mapValue(dynamic value, String key) {
+  if (value is Map) return value[key];
+  return null;
+}
+
 @freezed
 sealed class Model with _$Model {
   const Model._();
@@ -140,6 +145,7 @@ sealed class Model with _$Model {
     if (json['has_user_valves'] != null) {
       mergedMetadata['has_user_valves'] = json['has_user_valves'];
     }
+    if (json['hidden'] != null) mergedMetadata['hidden'] = json['hidden'];
 
     if (metaSection != null) {
       final existing =
@@ -246,5 +252,17 @@ sealed class Model with _$Model {
     };
     data.removeWhere((_, value) => value == null);
     return data;
+  }
+
+  /// Whether OpenWebUI marks this model as hidden from model selectors.
+  bool get isHidden {
+    final info = metadata?['info'];
+    final infoMeta = _mapValue(info, 'meta');
+    final nestedMeta = metadata?['meta'];
+
+    return _safeBool(_mapValue(infoMeta, 'hidden')) ??
+        _safeBool(_mapValue(nestedMeta, 'hidden')) ??
+        _safeBool(metadata?['hidden']) ??
+        false;
   }
 }

@@ -801,9 +801,13 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
     // If the conversation's model is different from the currently selected one
     if (currentSelectedModel?.id != conversation.model) {
-      // Get available models to find the matching one
+      // Existing chats must keep using their saved model, even if an admin
+      // later hides it from selectors.
       try {
-        final models = await ref.read(modelsProvider.future);
+        final api = ref.read(apiServiceProvider);
+        final models = api != null
+            ? await api.getModels(includeHidden: true)
+            : await ref.read(modelsProvider.future);
 
         if (models.isEmpty) {
           return;
@@ -816,7 +820,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
         if (conversationModel != null) {
           // Update the selected model
-          ref.read(selectedModelProvider.notifier).set(conversationModel);
+          ref
+              .read(selectedModelProvider.notifier)
+              .set(conversationModel, allowHidden: true);
         } else {
           // Model not found in available models - silently continue
         }

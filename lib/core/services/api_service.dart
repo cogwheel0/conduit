@@ -669,7 +669,7 @@ class ApiService {
   }
 
   // Models
-  Future<List<Model>> getModels() async {
+  Future<List<Model>> getModels({bool includeHidden = false}) async {
     final response = await _dio.get('/api/models');
 
     // Normalize common response formats:
@@ -703,6 +703,7 @@ class ApiService {
     }
 
     final models = <Model>[];
+    var hiddenModelCount = 0;
     for (final raw in rawModels) {
       try {
         if (raw is String) {
@@ -713,7 +714,14 @@ class ApiService {
           final normalized = raw.map(
             (key, value) => MapEntry(key.toString(), value),
           );
-          models.add(Model.fromJson(normalized));
+          final model = Model.fromJson(normalized);
+          if (model.isHidden) {
+            hiddenModelCount++;
+          }
+          if (model.isHidden && !includeHidden) {
+            continue;
+          }
+          models.add(model);
           continue;
         }
         DebugLogger.warning(
@@ -735,7 +743,7 @@ class ApiService {
     DebugLogger.log(
       'models-count',
       scope: 'api/models',
-      data: {'count': models.length},
+      data: {'count': models.length, 'hidden': hiddenModelCount},
     );
     return models;
   }

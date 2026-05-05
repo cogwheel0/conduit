@@ -618,11 +618,18 @@ class Models extends _$Models {
     try {
       final cached = await storage.getLocalModels();
       if (cached.isNotEmpty) {
+        final visibleCached = _visibleModels(cached);
         DebugLogger.log(
           'cache-restored',
           scope: 'models/cache',
-          data: {'count': cached.length},
+          data: {
+            'count': visibleCached.length,
+            'hidden': cached.length - visibleCached.length,
+          },
         );
+        if (visibleCached.length != cached.length) {
+          _persistModelsAsync(visibleCached);
+        }
         Future.microtask(() async {
           try {
             await refresh();
@@ -635,7 +642,7 @@ class Models extends _$Models {
             );
           }
         });
-        return cached;
+        return visibleCached;
       }
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -683,6 +690,9 @@ class Models extends _$Models {
       final freshModels = result.value!;
       final currentSelected = ref.read(selectedModelProvider);
       if (currentSelected != null) {
+        if (currentSelected.isHidden) {
+          return;
+        }
         try {
           final freshModel = freshModels.firstWhere(
             (m) => m.id == currentSelected.id,
@@ -700,7 +710,14 @@ class Models extends _$Models {
             );
           }
         } catch (_) {
-          // Model no longer available - keep current selection
+          final replacement = freshModels.isNotEmpty ? freshModels.first : null;
+          ref.read(isManualModelSelectionProvider.notifier).set(false);
+          ref.read(selectedModelProvider.notifier).set(replacement);
+          DebugLogger.warning(
+            'selected-model-unavailable',
+            scope: 'models',
+            data: {'id': currentSelected.id, 'replacement': replacement?.id},
+          );
         }
       }
     }
@@ -710,13 +727,17 @@ class Models extends _$Models {
     try {
       DebugLogger.log('fetch-start', scope: 'models');
       final models = await api.getModels();
+      final visibleModels = _visibleModels(models);
       DebugLogger.log(
         'fetch-ok',
         scope: 'models',
-        data: {'count': models.length},
+        data: {
+          'count': visibleModels.length,
+          'hidden': models.length - visibleModels.length,
+        },
       );
-      _persistModelsAsync(models);
-      return models;
+      _persistModelsAsync(visibleModels);
+      return visibleModels;
     } catch (e, stackTrace) {
       DebugLogger.error(
         'fetch-failed',
@@ -733,6 +754,11 @@ class Models extends _$Models {
 
       return const [];
     }
+  }
+
+  List<Model> _visibleModels(List<Model> models) {
+    if (models.isEmpty) return const <Model>[];
+    return models.where((model) => !model.isHidden).toList();
   }
 
   void _persistModelsAsync(List<Model> models) {
@@ -774,7 +800,13 @@ class SelectedModel extends _$SelectedModel {
   @override
   Model? build() => null;
 
-  void set(Model? model) => state = model;
+  void set(Model? model, {bool allowHidden = false}) {
+    if (model?.isHidden == true && !allowHidden) {
+      state = null;
+      return;
+    }
+    state = model;
+  }
 
   void clear() => state = null;
 }
@@ -1056,10 +1088,15 @@ final defaultModelAutoSelectionProvider = Provider<void>((ref) {
           selected = null;
         }
 
-        // Fallback: keep current selection or pick first available
-        selected ??=
-            ref.read(selectedModelProvider) ??
-            (models.isNotEmpty ? models.first : null);
+        final current = ref.read(selectedModelProvider);
+        if (selected == null &&
+            current != null &&
+            !current.isHidden &&
+            models.any((model) => model.id == current.id)) {
+          selected = models.firstWhere((model) => model.id == current.id);
+        }
+
+        selected ??= models.isNotEmpty ? models.first : null;
 
         if (selected != null) {
           ref.read(selectedModelProvider.notifier).set(selected);
@@ -1746,7 +1783,9 @@ Future<Model?> defaultModel(Ref ref) async {
     // Respect manual selection if present
     if (ref.read(isManualModelSelectionProvider)) {
       final current = ref.read(selectedModelProvider);
-      if (current != null) return current;
+      if (current != null && !current.isHidden) return current;
+      ref.read(isManualModelSelectionProvider.notifier).set(false);
+      ref.read(selectedModelProvider.notifier).clear();
     }
 
     // 1) Priority: user's configured default from app settings
@@ -1777,88 +1816,58 @@ Future<Model?> defaultModel(Ref ref) async {
     try {
       final cached = await storage.getLocalDefaultModel();
       if (cached != null && !ref.read(isManualModelSelectionProvider)) {
-        ref.read(selectedModelProvider.notifier).set(cached);
-        DebugLogger.log(
-          'cached-default',
-          scope: 'models/default',
-          data: {'name': cached.name},
-        );
-        return cached;
+        final cachedMatch = await selectCachedModel(storage, cached.id);
+        if (cachedMatch == null) {
+          await storage.saveLocalDefaultModel(null);
+        } else {
+          ref.read(selectedModelProvider.notifier).set(cachedMatch);
+          DebugLogger.log(
+            'cached-default',
+            scope: 'models/default',
+            data: {'name': cachedMatch.name},
+          );
+          return cachedMatch;
+        }
       }
     } catch (_) {}
 
-    // 3) Fast server path: query server default ID without listing all models
+    // 3) Server default path, reconciled through the visible model list.
     try {
       final serverDefault = await api.getDefaultModel();
       if (serverDefault != null && serverDefault.isNotEmpty) {
-        if (!ref.read(isManualModelSelectionProvider)) {
-          final placeholder = Model(
-            id: serverDefault,
-            name: serverDefault,
-            supportsStreaming: true,
-          );
-          ref.read(selectedModelProvider.notifier).set(placeholder);
+        final models = await api.getModels();
+        Model? resolved;
+        try {
+          resolved = models.firstWhere((m) => m.id == serverDefault);
+        } catch (_) {
+          final byName = models.where((m) => m.name == serverDefault).toList();
+          if (byName.length == 1) resolved = byName.first;
+        }
+        resolved ??= models.isNotEmpty ? models.first : null;
+
+        if (resolved != null && !ref.read(isManualModelSelectionProvider)) {
+          ref.read(selectedModelProvider.notifier).set(resolved);
           unawaited(
-            storage.saveLocalDefaultModel(placeholder).onError((error, stack) {
+            storage.saveLocalDefaultModel(resolved).onError((error, stack) {
               DebugLogger.error(
-                'Failed to save placeholder model to cache',
+                'Failed to save default model to cache',
                 scope: 'models/default',
                 error: error,
                 stackTrace: stack,
               );
             }),
           );
+          DebugLogger.log(
+            'server-default',
+            scope: 'models/default',
+            data: {'name': resolved.name},
+          );
+          return resolved;
         }
-        // Reconcile against real models in background
-        Future.microtask(() async {
-          try {
-            if (!ref.mounted) return;
-            final models = await ref.read(modelsProvider.future);
-            if (!ref.mounted) return;
-
-            Model? resolved;
-            try {
-              resolved = models.firstWhere((m) => m.id == serverDefault);
-            } catch (_) {
-              final byName = models
-                  .where((m) => m.name == serverDefault)
-                  .toList();
-              if (byName.length == 1) resolved = byName.first;
-            }
-            resolved ??= models.isNotEmpty ? models.first : null;
-
-            if (!ref.mounted) return;
-            if (resolved != null && !ref.read(isManualModelSelectionProvider)) {
-              ref.read(selectedModelProvider.notifier).set(resolved);
-              unawaited(
-                storage.saveLocalDefaultModel(resolved).onError((error, stack) {
-                  DebugLogger.error(
-                    'Failed to save default model to cache',
-                    scope: 'models/default',
-                    error: error,
-                    stackTrace: stack,
-                  );
-                }),
-              );
-              DebugLogger.log(
-                'reconcile',
-                scope: 'models/default',
-                data: {'name': resolved.name, 'source': 'server'},
-              );
-            }
-          } catch (e) {
-            DebugLogger.error(
-              'reconcile-failed',
-              scope: 'models/default',
-              error: e,
-            );
-          }
-        });
-        return ref.read(selectedModelProvider);
       }
     } catch (_) {}
 
-    // 3) Fallback: fetch models and pick first available
+    // 4) Fallback: fetch models and pick first available
     DebugLogger.log('fallback-path', scope: 'models/default');
     final models = await ref.read(modelsProvider.future);
     DebugLogger.log(
@@ -2860,7 +2869,9 @@ Future<Model?> selectCachedModel(
   String? desiredModelId,
 ) async {
   try {
-    final cachedModels = await storage.getLocalModels();
+    final cachedModels = (await storage.getLocalModels())
+        .where((model) => !model.isHidden)
+        .toList();
     if (cachedModels.isEmpty) return null;
 
     Model? match;
