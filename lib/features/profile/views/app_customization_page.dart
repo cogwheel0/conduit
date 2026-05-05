@@ -1387,7 +1387,10 @@ class AppCustomizationPage extends ConsumerWidget {
                       }
 
                       final voice = voices[voiceIndex];
-                      final voiceId = _getVoiceIdentifier(voice);
+                      final voiceId = _getVoiceIdentifier(
+                        voice,
+                        settings.ttsEngine,
+                      );
                       final displayName = _formatVoiceName(voice);
                       final subtitle = _getVoiceSubtitle(voice);
                       final isSelected = settings.ttsEngine == TtsEngine.server
@@ -1635,12 +1638,15 @@ class AppCustomizationPage extends ConsumerWidget {
     return name;
   }
 
-  String _getVoiceIdentifier(Map<String, dynamic> voice) {
-    // Use name as the unique identifier (this is what we set in settings)
-    return voice['name'] as String? ??
-        voice['identifier'] as String? ??
-        voice['id'] as String? ??
-        'unknown';
+  String _getVoiceIdentifier(Map<String, dynamic> voice, TtsEngine engine) {
+    final id = voice['id'] as String?;
+    final name = voice['name'] as String?;
+    final identifier = voice['identifier'] as String?;
+
+    return switch (engine) {
+      TtsEngine.server => id ?? name ?? identifier ?? 'unknown',
+      TtsEngine.device => name ?? identifier ?? id ?? 'unknown',
+    };
   }
 
   String _getVoiceSubtitle(Map<String, dynamic> voice) {
