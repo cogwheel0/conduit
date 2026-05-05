@@ -998,5 +998,32 @@
   "deleteSharedLinkFailed": "Gedeelde link verwijderen mislukt",
   "@deleteSharedLinkFailed": {
     "description": "Snackbar shown when deleting a shared chat link fails."
-  }
+  },
+  "systemPrompts": "Systeemprompts",
+  "globalSystemPrompt": "Globale systeemprompt",
+  "modelSystemPrompts": "Systeemprompts voor modellen",
+  "folderSystemPrompts": "Systeemprompts voor mappen",
+  "openWebuiModelSettings": "OpenWebUI-modelinstellingen",
+  "openWebuiFolderSettings": "OpenWebUI-mapinstellingen",
+  "accessibleModelsCount": "{count} toegankelijke modellen",
+  "accessibleFoldersCount": "{count} toegankelijke mappen",
+  "unableToLoadOpenWebuiSettings": "Kan OpenWebUI-instellingen niet laden.",
+  "unableToLoadModels": "Kan modellen niet laden.",
+  "unableToLoadFolders": "Kan mappen niet laden.",
+  "noAccessibleModelsFound": "Geen toegankelijke modellen gevonden.",
+  "noAccessibleFoldersFound": "Geen toegankelijke mappen gevonden.",
+  "tapToLoadServerPromptSettings": "Tik om serverpromptinstellingen te laden.",
+  "loadingFromOpenWebui": "Laden vanuit OpenWebUI...",
+  "globalSystemPromptEditorDescription": "Opgeslagen in je OpenWebUI-gebruikersinstellingen en gebruikt als standaard systeemprompt voor chats.",
+  "modelNoEditableServerRecord": "Dit model heeft geen bewerkbare serverrecord.",
+  "modelSystemPromptTitle": "Systeemprompt voor {modelName}",
+  "modelSystemPromptEditorDescription": "Opgeslagen in OpenWebUI-model params.system.",
+  "modelNoWriteAccessDescription": "Je hebt geen schrijftoegang tot dit model.",
+  "unableToLoadFolder": "Kan deze map niet laden.",
+  "folderSystemPromptTitle": "Systeemprompt voor {folderName}",
+  "folderSystemPromptEditorDescription": "Opgeslagen in OpenWebUI-map data.system_prompt.",
+  "notSet": "Niet ingesteld",
+  "enterSystemPrompt": "Voer systeemprompt in",
+  "close": "Sluiten",
+  "connectionHealth": "Verbindingsstatus"
 }

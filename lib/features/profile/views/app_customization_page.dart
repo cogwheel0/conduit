@@ -6,6 +6,8 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/models/folder.dart';
+import '../../../core/models/model.dart';
 import '../../../core/services/settings_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/theme/tweakcn_themes.dart';
@@ -92,6 +94,8 @@ class AppCustomizationPage extends ConsumerWidget {
           _buildTtsDropdownSection(context, ref, settings),
           _sectionGap,
           _buildChatSection(context, ref, settings),
+          _sectionGap,
+          _buildSystemPromptsSection(context, ref),
           _sectionGap,
           _buildSocketHealthSection(context, ref),
         ],
@@ -508,6 +512,371 @@ class AppCustomizationPage extends ConsumerWidget {
     );
   }
 
+  Widget _buildSystemPromptsSection(BuildContext context, WidgetRef ref) {
+    final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
+    final userSettings = ref.watch(rawUserSettingsProvider);
+    final models = ref.watch(modelsProvider);
+    final folders = ref.watch(foldersProvider);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SectionHeader(title: l10n.systemPrompts),
+        const SizedBox(height: Spacing.sm),
+        userSettings.when(
+          data: (settings) {
+            final prompt = _extractSystemPrompt(settings);
+            return CustomizationTile(
+              leading: _buildIconBadge(
+                context,
+                UiUtils.platformIcon(
+                  ios: CupertinoIcons.person_crop_circle_badge_checkmark,
+                  android: Icons.person_outline,
+                ),
+                color: theme.buttonPrimary,
+              ),
+              title: l10n.globalSystemPrompt,
+              subtitle: _promptPreview(context, prompt),
+              onTap: () => _showGlobalSystemPromptEditor(
+                context,
+                ref,
+                initialValue: prompt ?? '',
+              ),
+            );
+          },
+          loading: () =>
+              _buildPromptLoadingTile(context, l10n.globalSystemPrompt),
+          error: (_, _) => _buildPromptErrorTile(
+            context,
+            title: l10n.globalSystemPrompt,
+            subtitle: l10n.unableToLoadOpenWebuiSettings,
+          ),
+        ),
+        const SizedBox(height: Spacing.sm),
+        ExpandableCard(
+          title: l10n.modelSystemPrompts,
+          subtitle: models.maybeWhen(
+            data: (items) => l10n.accessibleModelsCount(items.length),
+            orElse: () => l10n.openWebuiModelSettings,
+          ),
+          icon: UiUtils.platformIcon(
+            ios: CupertinoIcons.cube_box,
+            android: Icons.smart_toy_outlined,
+          ),
+          child: models.when(
+            data: (items) => _buildModelPromptList(context, ref, items),
+            loading: () => _buildCenteredProgress(),
+            error: (_, _) =>
+                _buildPromptErrorText(context, l10n.unableToLoadModels),
+          ),
+        ),
+        const SizedBox(height: Spacing.sm),
+        ExpandableCard(
+          title: l10n.folderSystemPrompts,
+          subtitle: folders.maybeWhen(
+            data: (items) => l10n.accessibleFoldersCount(items.length),
+            orElse: () => l10n.openWebuiFolderSettings,
+          ),
+          icon: UiUtils.platformIcon(
+            ios: CupertinoIcons.folder,
+            android: Icons.folder_outlined,
+          ),
+          child: folders.when(
+            data: (items) => _buildFolderPromptList(context, ref, items),
+            loading: () => _buildCenteredProgress(),
+            error: (_, _) =>
+                _buildPromptErrorText(context, l10n.unableToLoadFolders),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildModelPromptList(
+    BuildContext context,
+    WidgetRef ref,
+    List<Model> models,
+  ) {
+    final l10n = AppLocalizations.of(context)!;
+    if (models.isEmpty) {
+      return _buildPromptErrorText(context, l10n.noAccessibleModelsFound);
+    }
+
+    return Column(
+      children: [
+        for (var i = 0; i < models.length; i++) ...[
+          CustomizationTile(
+            leading: _buildIconBadge(
+              context,
+              UiUtils.platformIcon(
+                ios: CupertinoIcons.cube_box,
+                android: Icons.smart_toy_outlined,
+              ),
+              color: context.conduitTheme.buttonPrimary,
+            ),
+            title: models[i].name,
+            subtitle: l10n.tapToLoadServerPromptSettings,
+            onTap: () => _showModelSystemPromptEditor(context, ref, models[i]),
+          ),
+          if (i != models.length - 1) const SizedBox(height: Spacing.xs),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildFolderPromptList(
+    BuildContext context,
+    WidgetRef ref,
+    List<Folder> folders,
+  ) {
+    final l10n = AppLocalizations.of(context)!;
+    if (folders.isEmpty) {
+      return _buildPromptErrorText(context, l10n.noAccessibleFoldersFound);
+    }
+
+    return Column(
+      children: [
+        for (var i = 0; i < folders.length; i++) ...[
+          CustomizationTile(
+            leading: _buildIconBadge(
+              context,
+              UiUtils.platformIcon(
+                ios: CupertinoIcons.folder,
+                android: Icons.folder_outlined,
+              ),
+              color: context.conduitTheme.buttonPrimary,
+            ),
+            title: folders[i].name,
+            subtitle: _promptPreview(context, _extractFolderPrompt(folders[i])),
+            onTap: () =>
+                _showFolderSystemPromptEditor(context, ref, folders[i]),
+          ),
+          if (i != folders.length - 1) const SizedBox(height: Spacing.xs),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildPromptLoadingTile(BuildContext context, String title) {
+    final l10n = AppLocalizations.of(context)!;
+    return CustomizationTile(
+      leading: _buildIconBadge(
+        context,
+        UiUtils.platformIcon(
+          ios: CupertinoIcons.hourglass,
+          android: Icons.hourglass_empty,
+        ),
+        color: context.conduitTheme.buttonPrimary,
+      ),
+      title: title,
+      subtitle: l10n.loadingFromOpenWebui,
+      showChevron: false,
+    );
+  }
+
+  Widget _buildPromptErrorTile(
+    BuildContext context, {
+    required String title,
+    required String subtitle,
+  }) {
+    return CustomizationTile(
+      leading: _buildIconBadge(
+        context,
+        Icons.warning_amber_rounded,
+        color: context.conduitTheme.error,
+      ),
+      title: title,
+      subtitle: subtitle,
+      showChevron: false,
+    );
+  }
+
+  Widget _buildCenteredProgress() {
+    return const Padding(
+      padding: EdgeInsets.all(Spacing.md),
+      child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+    );
+  }
+
+  Widget _buildPromptErrorText(BuildContext context, String text) {
+    final theme = context.conduitTheme;
+    return Padding(
+      padding: const EdgeInsets.all(Spacing.md),
+      child: Text(
+        text,
+        style: AppTypography.bodyMediumStyle.copyWith(
+          color: theme.sidebarForeground.withValues(alpha: 0.75),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showGlobalSystemPromptEditor(
+    BuildContext context,
+    WidgetRef ref, {
+    required String initialValue,
+  }) {
+    final l10n = AppLocalizations.of(context)!;
+    return _showServerPromptEditor(
+      context,
+      title: l10n.globalSystemPrompt,
+      description: l10n.globalSystemPromptEditorDescription,
+      initialValue: initialValue,
+      onSave: (value) async {
+        final api = ref.read(apiServiceProvider);
+        if (api == null) throw StateError('No API service available');
+        await api.updateUserSystemPrompt(value);
+      },
+      afterSave: () => ref.invalidate(rawUserSettingsProvider),
+    );
+  }
+
+  Future<void> _showModelSystemPromptEditor(
+    BuildContext context,
+    WidgetRef ref,
+    Model model,
+  ) async {
+    final api = ref.read(apiServiceProvider);
+    if (api == null) return;
+
+    final detail = await api.getModelDetails(model.id);
+    if (!context.mounted) return;
+    final l10n = AppLocalizations.of(context)!;
+    if (detail == null) {
+      _showPromptSnackBar(context, l10n.modelNoEditableServerRecord);
+      return;
+    }
+
+    final writeAccess = detail['write_access'] == true;
+    await _showServerPromptEditor(
+      context,
+      title: l10n.modelSystemPromptTitle(model.name),
+      description: writeAccess
+          ? l10n.modelSystemPromptEditorDescription
+          : l10n.modelNoWriteAccessDescription,
+      initialValue: _extractModelPrompt(detail) ?? '',
+      readOnly: !writeAccess,
+      onSave: (value) async {
+        await api.updateModelSystemPrompt(model.id, value);
+      },
+      afterSave: () => ref.invalidate(modelsProvider),
+    );
+  }
+
+  Future<void> _showFolderSystemPromptEditor(
+    BuildContext context,
+    WidgetRef ref,
+    Folder folder,
+  ) async {
+    final api = ref.read(apiServiceProvider);
+    if (api == null) return;
+
+    final l10n = AppLocalizations.of(context)!;
+    late final Map<String, dynamic>? detail;
+    try {
+      detail = await api.getFolderById(folder.id);
+    } catch (_) {
+      if (!context.mounted) return;
+      _showPromptSnackBar(context, l10n.unableToLoadFolder);
+      return;
+    }
+    if (!context.mounted) return;
+    if (detail == null) {
+      _showPromptSnackBar(context, l10n.unableToLoadFolder);
+      return;
+    }
+
+    final fullFolder = Folder.fromJson(detail);
+    await _showServerPromptEditor(
+      context,
+      title: l10n.folderSystemPromptTitle(fullFolder.name),
+      description: l10n.folderSystemPromptEditorDescription,
+      initialValue: _extractFolderPrompt(fullFolder) ?? '',
+      onSave: (value) async {
+        await api.updateFolderSystemPrompt(fullFolder.id, value);
+      },
+      afterSave: () => unawaited(ref.read(foldersProvider.notifier).refresh()),
+    );
+  }
+
+  Future<void> _showServerPromptEditor(
+    BuildContext context, {
+    required String title,
+    required String description,
+    required String initialValue,
+    required Future<void> Function(String value) onSave,
+    VoidCallback? afterSave,
+    bool readOnly = false,
+  }) async {
+    final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => _ServerPromptEditorSheet(
+        title: title,
+        description: description,
+        initialValue: initialValue,
+        readOnly: readOnly,
+        theme: theme,
+        cancelLabel: l10n.cancel,
+        closeLabel: l10n.close,
+        saveLabel: l10n.save,
+        promptHint: l10n.enterSystemPrompt,
+        errorMessage: l10n.errorMessage,
+        savedMessage: l10n.saved,
+        messenger: messenger,
+        afterSave: afterSave,
+        onSave: onSave,
+      ),
+    );
+  }
+
+  void _showPromptSnackBar(BuildContext context, String message) {
+    ScaffoldMessenger.maybeOf(
+      context,
+    )?.showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  String? _extractSystemPrompt(Map<String, dynamic> settings) {
+    final root = settings['system'];
+    if (root is String && root.trim().isNotEmpty) return root.trim();
+    final ui = settings['ui'];
+    if (ui is Map && ui['system'] is String) {
+      final value = (ui['system'] as String).trim();
+      if (value.isNotEmpty) return value;
+    }
+    return null;
+  }
+
+  String? _extractModelPrompt(Map<String, dynamic> model) {
+    final params = model['params'];
+    if (params is Map && params['system'] is String) {
+      final value = (params['system'] as String).trim();
+      if (value.isNotEmpty) return value;
+    }
+    return null;
+  }
+
+  String? _extractFolderPrompt(Folder folder) {
+    final value = folder.data?['system_prompt'];
+    if (value is String && value.trim().isNotEmpty) {
+      return value.trim();
+    }
+    return null;
+  }
+
+  String _promptPreview(BuildContext context, String? prompt) {
+    if (prompt == null || prompt.isEmpty) {
+      return AppLocalizations.of(context)!.notSet;
+    }
+    return prompt;
+  }
+
   Widget _buildSocketHealthSection(BuildContext context, WidgetRef ref) {
     final socketService = ref.watch(socketServiceProvider);
 
@@ -518,7 +887,7 @@ class AppCustomizationPage extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _SectionHeader(title: 'Connection Health'),
+        _SectionHeader(title: AppLocalizations.of(context)!.connectionHealth),
         const SizedBox(height: Spacing.sm),
         SocketHealthCard(socketService: socketService),
       ],
@@ -2088,6 +2457,170 @@ class AppCustomizationPage extends ConsumerWidget {
               const SizedBox(height: Spacing.sm),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ServerPromptEditorSheet extends StatefulWidget {
+  const _ServerPromptEditorSheet({
+    required this.title,
+    required this.description,
+    required this.initialValue,
+    required this.readOnly,
+    required this.theme,
+    required this.cancelLabel,
+    required this.closeLabel,
+    required this.saveLabel,
+    required this.promptHint,
+    required this.errorMessage,
+    required this.savedMessage,
+    required this.onSave,
+    this.afterSave,
+    this.messenger,
+  });
+
+  final String title;
+  final String description;
+  final String initialValue;
+  final bool readOnly;
+  final ConduitThemeExtension theme;
+  final String cancelLabel;
+  final String closeLabel;
+  final String saveLabel;
+  final String promptHint;
+  final String errorMessage;
+  final String savedMessage;
+  final Future<void> Function(String value) onSave;
+  final VoidCallback? afterSave;
+  final ScaffoldMessengerState? messenger;
+
+  @override
+  State<_ServerPromptEditorSheet> createState() =>
+      _ServerPromptEditorSheetState();
+}
+
+class _ServerPromptEditorSheetState extends State<_ServerPromptEditorSheet> {
+  late final TextEditingController _controller;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialValue);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    try {
+      await widget.onSave(_controller.text);
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        widget.afterSave?.call();
+        if (widget.messenger?.mounted ?? false) {
+          widget.messenger!.showSnackBar(
+            SnackBar(content: Text(widget.savedMessage)),
+          );
+        }
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      if (widget.messenger?.mounted ?? false) {
+        widget.messenger!.showSnackBar(
+          SnackBar(content: Text(widget.errorMessage)),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = widget.theme;
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.sidebarBackground,
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(AppBorderRadius.modal),
+        ),
+        boxShadow: ConduitShadows.modal(context),
+      ),
+      padding: EdgeInsets.only(
+        left: Spacing.lg,
+        right: Spacing.lg,
+        top: Spacing.md,
+        bottom: MediaQuery.viewInsetsOf(context).bottom + Spacing.lg,
+      ),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              widget.title,
+              style: AppTypography.headlineSmallStyle.copyWith(
+                color: theme.sidebarForeground,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: Spacing.xs),
+            Text(
+              widget.description,
+              style: AppTypography.bodySmallStyle.copyWith(
+                color: theme.sidebarForeground.withValues(alpha: 0.75),
+              ),
+            ),
+            const SizedBox(height: Spacing.md),
+            TextField(
+              controller: _controller,
+              readOnly: widget.readOnly || _saving,
+              minLines: 5,
+              maxLines: 10,
+              textInputAction: TextInputAction.newline,
+              decoration: InputDecoration(
+                hintText: widget.promptHint,
+                filled: true,
+                fillColor: theme.cardBackground.withValues(alpha: 0.7),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(AppBorderRadius.medium),
+                ),
+              ),
+            ),
+            const SizedBox(height: Spacing.md),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  onPressed: _saving ? null : () => Navigator.of(context).pop(),
+                  child: Text(
+                    widget.readOnly ? widget.closeLabel : widget.cancelLabel,
+                  ),
+                ),
+                if (!widget.readOnly) ...[
+                  const SizedBox(width: Spacing.sm),
+                  FilledButton(
+                    onPressed: _saving ? null : _save,
+                    child: _saving
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : Text(widget.saveLabel),
+                  ),
+                ],
+              ],
+            ),
+          ],
         ),
       ),
     );

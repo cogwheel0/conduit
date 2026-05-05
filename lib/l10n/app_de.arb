@@ -998,5 +998,32 @@
   "deleteSharedLinkFailed": "Geteilter Link konnte nicht gelöscht werden",
   "@deleteSharedLinkFailed": {
     "description": "Snackbar shown when deleting a shared chat link fails."
-  }
+  },
+  "systemPrompts": "System-Prompts",
+  "globalSystemPrompt": "Globaler System-Prompt",
+  "modelSystemPrompts": "System-Prompts für Modelle",
+  "folderSystemPrompts": "System-Prompts für Ordner",
+  "openWebuiModelSettings": "OpenWebUI-Modelleinstellungen",
+  "openWebuiFolderSettings": "OpenWebUI-Ordnereinstellungen",
+  "accessibleModelsCount": "{count} zugängliche Modelle",
+  "accessibleFoldersCount": "{count} zugängliche Ordner",
+  "unableToLoadOpenWebuiSettings": "OpenWebUI-Einstellungen konnten nicht geladen werden.",
+  "unableToLoadModels": "Modelle konnten nicht geladen werden.",
+  "unableToLoadFolders": "Ordner konnten nicht geladen werden.",
+  "noAccessibleModelsFound": "Keine zugänglichen Modelle gefunden.",
+  "noAccessibleFoldersFound": "Keine zugänglichen Ordner gefunden.",
+  "tapToLoadServerPromptSettings": "Tippen, um Server-Prompt-Einstellungen zu laden.",
+  "loadingFromOpenWebui": "Wird aus OpenWebUI geladen...",
+  "globalSystemPromptEditorDescription": "Wird in deinen OpenWebUI-Benutzereinstellungen gespeichert und als Standard-System-Prompt für Chats verwendet.",
+  "modelNoEditableServerRecord": "Dieses Modell hat keinen bearbeitbaren Servereintrag.",
+  "modelSystemPromptTitle": "{modelName} System-Prompt",
+  "modelSystemPromptEditorDescription": "Wird in OpenWebUI unter params.system des Modells gespeichert.",
+  "modelNoWriteAccessDescription": "Du hast keinen Schreibzugriff auf dieses Modell.",
+  "unableToLoadFolder": "Dieser Ordner konnte nicht geladen werden.",
+  "folderSystemPromptTitle": "{folderName} System-Prompt",
+  "folderSystemPromptEditorDescription": "Wird in OpenWebUI unter data.system_prompt des Ordners gespeichert.",
+  "notSet": "Nicht festgelegt",
+  "enterSystemPrompt": "System-Prompt eingeben",
+  "close": "Schließen",
+  "connectionHealth": "Verbindungsstatus"
 }

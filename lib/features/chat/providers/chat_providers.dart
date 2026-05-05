@@ -2314,16 +2314,6 @@ Future<void> regenerateMessage(
       userSystemPrompt = _extractSystemPromptFromSettings(userSettingsData);
     } catch (_) {}
 
-    if ((activeConversation.systemPrompt == null ||
-            activeConversation.systemPrompt!.trim().isEmpty) &&
-        (userSystemPrompt?.isNotEmpty ?? false)) {
-      final updated = activeConversation.copyWith(
-        systemPrompt: userSystemPrompt,
-      );
-      ref.read(activeConversationProvider.notifier).set(updated);
-      activeConversation = updated;
-    }
-
     // Include selected tool ids so provider-native tool calling is triggered
     final selectedToolIds = ref.read(selectedToolIdsProvider);
     final toolIdsForApi = _extractToolIdsForApi(selectedToolIds);
@@ -2851,7 +2841,6 @@ Future<void> _sendMessageInternal(
         title: 'New Chat',
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
-        systemPrompt: userSystemPrompt,
         messages: [userMessage, assistantPlaceholder],
       );
 
@@ -2866,7 +2855,6 @@ Future<void> _sendMessageInternal(
         title: 'New Chat',
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
-        systemPrompt: userSystemPrompt,
         messages: [userMessage, assistantPlaceholder],
         folderId: pendingFolderId,
       );
@@ -2887,7 +2875,6 @@ Future<void> _sendMessageInternal(
             title: 'New Chat',
             messages: [lightweightMessage],
             model: selectedModel.id,
-            systemPrompt: userSystemPrompt,
             folderId: pendingFolderId,
           );
 
@@ -2899,7 +2886,6 @@ Future<void> _sendMessageInternal(
           final currentMessages = ref.read(chatMessagesProvider);
           final updatedConversation = localConversation.copyWith(
             id: serverConversation.id,
-            systemPrompt: serverConversation.systemPrompt ?? userSystemPrompt,
             messages: currentMessages,
             folderId: serverConversation.folderId ?? pendingFolderId,
           );
@@ -2942,15 +2928,6 @@ Future<void> _sendMessageInternal(
         ref.read(pendingFolderIdProvider.notifier).clear();
       }
     }
-  }
-
-  if (activeConversation != null &&
-      (activeConversation.systemPrompt == null ||
-          activeConversation.systemPrompt!.trim().isEmpty) &&
-      (userSystemPrompt?.isNotEmpty ?? false)) {
-    final updated = activeConversation.copyWith(systemPrompt: userSystemPrompt);
-    ref.read(activeConversationProvider.notifier).set(updated);
-    activeConversation = updated;
   }
 
   // Reviewer mode: simulate a response locally and return

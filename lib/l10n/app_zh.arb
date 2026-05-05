@@ -998,5 +998,32 @@
   "deleteSharedLinkFailed": "删除分享链接失败",
   "@deleteSharedLinkFailed": {
     "description": "Snackbar shown when deleting a shared chat link fails."
-  }
+  },
+  "systemPrompts": "系统提示词",
+  "globalSystemPrompt": "全局系统提示词",
+  "modelSystemPrompts": "模型系统提示词",
+  "folderSystemPrompts": "文件夹系统提示词",
+  "openWebuiModelSettings": "OpenWebUI 模型设置",
+  "openWebuiFolderSettings": "OpenWebUI 文件夹设置",
+  "accessibleModelsCount": "{count} 个可访问模型",
+  "accessibleFoldersCount": "{count} 个可访问文件夹",
+  "unableToLoadOpenWebuiSettings": "无法加载 OpenWebUI 设置。",
+  "unableToLoadModels": "无法加载模型。",
+  "unableToLoadFolders": "无法加载文件夹。",
+  "noAccessibleModelsFound": "未找到可访问的模型。",
+  "noAccessibleFoldersFound": "未找到可访问的文件夹。",
+  "tapToLoadServerPromptSettings": "点按以加载服务器提示词设置。",
+  "loadingFromOpenWebui": "正在从 OpenWebUI 加载...",
+  "globalSystemPromptEditorDescription": "保存到你的 OpenWebUI 用户设置，并用作默认聊天系统提示词。",
+  "modelNoEditableServerRecord": "此模型没有可编辑的服务器记录。",
+  "modelSystemPromptTitle": "{modelName} 系统提示词",
+  "modelSystemPromptEditorDescription": "保存到 OpenWebUI 模型 params.system。",
+  "modelNoWriteAccessDescription": "你没有此模型的写入权限。",
+  "unableToLoadFolder": "无法加载此文件夹。",
+  "folderSystemPromptTitle": "{folderName} 系统提示词",
+  "folderSystemPromptEditorDescription": "保存到 OpenWebUI 文件夹 data.system_prompt。",
+  "notSet": "未设置",
+  "enterSystemPrompt": "输入系统提示词",
+  "close": "关闭",
+  "connectionHealth": "连接状态"
 }

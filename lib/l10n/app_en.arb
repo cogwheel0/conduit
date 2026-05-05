@@ -2267,5 +2267,137 @@
   "deleteSharedLinkFailed": "Failed to delete shared link",
   "@deleteSharedLinkFailed": {
     "description": "Snackbar shown when deleting a shared chat link fails."
+  },
+  "systemPrompts": "System Prompts",
+  "@systemPrompts": {
+    "description": "Section title for server-backed system prompt settings."
+  },
+  "globalSystemPrompt": "Global system prompt",
+  "@globalSystemPrompt": {
+    "description": "Title for the OpenWebUI user-level system prompt setting."
+  },
+  "modelSystemPrompts": "Model system prompts",
+  "@modelSystemPrompts": {
+    "description": "Title for the OpenWebUI model-level system prompts list."
+  },
+  "folderSystemPrompts": "Folder system prompts",
+  "@folderSystemPrompts": {
+    "description": "Title for the OpenWebUI folder-level system prompts list."
+  },
+  "openWebuiModelSettings": "OpenWebUI model settings",
+  "@openWebuiModelSettings": {
+    "description": "Subtitle for model prompt settings before models load."
+  },
+  "openWebuiFolderSettings": "OpenWebUI folder settings",
+  "@openWebuiFolderSettings": {
+    "description": "Subtitle for folder prompt settings before folders load."
+  },
+  "accessibleModelsCount": "{count} accessible models",
+  "@accessibleModelsCount": {
+    "description": "Subtitle showing how many accessible models are listed.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "4"
+      }
+    }
+  },
+  "accessibleFoldersCount": "{count} accessible folders",
+  "@accessibleFoldersCount": {
+    "description": "Subtitle showing how many accessible folders are listed.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "unableToLoadOpenWebuiSettings": "Unable to load OpenWebUI settings.",
+  "@unableToLoadOpenWebuiSettings": {
+    "description": "Error shown when user settings cannot be loaded from OpenWebUI."
+  },
+  "unableToLoadModels": "Unable to load models.",
+  "@unableToLoadModels": {
+    "description": "Error shown when server models cannot be loaded."
+  },
+  "unableToLoadFolders": "Unable to load folders.",
+  "@unableToLoadFolders": {
+    "description": "Error shown when server folders cannot be loaded."
+  },
+  "noAccessibleModelsFound": "No accessible models found.",
+  "@noAccessibleModelsFound": {
+    "description": "Empty state for model system prompt settings."
+  },
+  "noAccessibleFoldersFound": "No accessible folders found.",
+  "@noAccessibleFoldersFound": {
+    "description": "Empty state for folder system prompt settings."
+  },
+  "tapToLoadServerPromptSettings": "Tap to load server prompt settings.",
+  "@tapToLoadServerPromptSettings": {
+    "description": "Subtitle for model rows whose prompt details are loaded on demand."
+  },
+  "loadingFromOpenWebui": "Loading from OpenWebUI...",
+  "@loadingFromOpenWebui": {
+    "description": "Loading subtitle for server-backed settings."
+  },
+  "globalSystemPromptEditorDescription": "Saved to your OpenWebUI user settings and used as the default chat system prompt.",
+  "@globalSystemPromptEditorDescription": {
+    "description": "Description in the global system prompt editor."
+  },
+  "modelNoEditableServerRecord": "This model has no editable server record.",
+  "@modelNoEditableServerRecord": {
+    "description": "Snackbar shown when a model cannot be edited on the server."
+  },
+  "modelSystemPromptTitle": "{modelName} system prompt",
+  "@modelSystemPromptTitle": {
+    "description": "Title for a model system prompt editor.",
+    "placeholders": {
+      "modelName": {
+        "type": "String",
+        "example": "GPT-4"
+      }
+    }
+  },
+  "modelSystemPromptEditorDescription": "Saved to OpenWebUI model params.system.",
+  "@modelSystemPromptEditorDescription": {
+    "description": "Description for editable model system prompts."
+  },
+  "modelNoWriteAccessDescription": "You do not have write access to this model.",
+  "@modelNoWriteAccessDescription": {
+    "description": "Description shown for read-only model prompt editors."
+  },
+  "unableToLoadFolder": "Unable to load this folder.",
+  "@unableToLoadFolder": {
+    "description": "Snackbar shown when a folder detail cannot be loaded."
+  },
+  "folderSystemPromptTitle": "{folderName} system prompt",
+  "@folderSystemPromptTitle": {
+    "description": "Title for a folder system prompt editor.",
+    "placeholders": {
+      "folderName": {
+        "type": "String",
+        "example": "Work"
+      }
+    }
+  },
+  "folderSystemPromptEditorDescription": "Saved to OpenWebUI folder data.system_prompt.",
+  "@folderSystemPromptEditorDescription": {
+    "description": "Description for folder system prompt editors."
+  },
+  "notSet": "Not set",
+  "@notSet": {
+    "description": "Value label when a setting has no value."
+  },
+  "enterSystemPrompt": "Enter system prompt",
+  "@enterSystemPrompt": {
+    "description": "Hint text for system prompt text fields."
+  },
+  "close": "Close",
+  "@close": {
+    "description": "Button label to close a dialog or sheet."
+  },
+  "connectionHealth": "Connection Health",
+  "@connectionHealth": {
+    "description": "Section title for connection health information."
   }
 }

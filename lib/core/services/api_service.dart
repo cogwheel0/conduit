@@ -1732,6 +1732,32 @@ class ApiService {
     await _dio.post('/api/v1/users/user/settings/update', data: settings);
   }
 
+  Future<Map<String, dynamic>> updateUserSystemPrompt(
+    String? systemPrompt,
+  ) async {
+    final settings = _deepCloneJsonMap(await getUserSettings());
+    final ui = _coerceJsonMap(settings['ui']) ?? <String, dynamic>{};
+    final trimmed = systemPrompt?.trim();
+
+    if (trimmed == null || trimmed.isEmpty) {
+      ui.remove('system');
+      settings.remove('system');
+    } else {
+      settings['system'] = trimmed;
+    }
+
+    // Keep root `system` as the OpenWebUI-compatible source of truth.
+    ui.remove('system');
+    settings['ui'] = ui;
+    _traceApi('Updating user system prompt');
+    final response = await _dio.post(
+      '/api/v1/users/user/settings/update',
+      data: settings,
+    );
+    final data = response.data;
+    return data is Map<String, dynamic> ? data : settings;
+  }
+
   // Suggestions
   Future<List<String>> getSuggestions() async {
     _traceApi('Fetching conversation suggestions');
@@ -1845,11 +1871,51 @@ class ApiService {
     return response.data as Map<String, dynamic>;
   }
 
-  Future<void> updateFolder(String id, {String? name}) async {
+  Future<Map<String, dynamic>?> getFolderById(String id) async {
+    _traceApi('Fetching folder: $id');
+    final response = await _dio.get('/api/v1/folders/$id');
+    final data = response.data;
+    return data is Map<String, dynamic> ? data : null;
+  }
+
+  Future<Map<String, dynamic>?> updateFolder(
+    String id, {
+    String? name,
+    Map<String, dynamic>? data,
+    Map<String, dynamic>? meta,
+  }) async {
     _traceApi('Updating folder: $id');
-    if (name != null) {
-      await _dio.post('/api/v1/folders/$id/update', data: {'name': name});
+    final payload = <String, dynamic>{
+      'name': ?name,
+      'data': ?data,
+      'meta': ?meta,
+    };
+    if (payload.isEmpty) {
+      return null;
     }
+    final response = await _dio.post(
+      '/api/v1/folders/$id/update',
+      data: payload,
+    );
+    final responseData = response.data;
+    return responseData is Map<String, dynamic> ? responseData : null;
+  }
+
+  Future<Map<String, dynamic>?> updateFolderSystemPrompt(
+    String id,
+    String? systemPrompt,
+  ) async {
+    final folder = await getFolderById(id);
+    final data = _coerceJsonMap(folder?['data']) ?? <String, dynamic>{};
+    final trimmed = systemPrompt?.trim();
+
+    if (trimmed == null || trimmed.isEmpty) {
+      data['system_prompt'] = '';
+    } else {
+      data['system_prompt'] = trimmed;
+    }
+
+    return updateFolder(id, data: data);
   }
 
   Future<void> updateFolderParent(String id, String? parentId) async {
@@ -2614,6 +2680,50 @@ class ApiService {
       _traceApi('Failed to get model details for $modelId: $e');
     }
     return null;
+  }
+
+  Future<Map<String, dynamic>?> updateModel(Map<String, dynamic> model) async {
+    final payload = <String, dynamic>{
+      'id': model['id'],
+      'base_model_id': model['base_model_id'],
+      'name': model['name'],
+      'meta': _coerceJsonMap(model['meta']) ?? <String, dynamic>{},
+      'params': _coerceJsonMap(model['params']) ?? <String, dynamic>{},
+      'access_grants': model['access_grants'],
+      'is_active': model['is_active'],
+    };
+    payload.removeWhere((_, value) => value == null);
+
+    final response = await _dio.post(
+      '/api/v1/models/model/update',
+      data: payload,
+    );
+    final data = response.data;
+    return data is Map<String, dynamic> ? data : null;
+  }
+
+  Future<Map<String, dynamic>?> updateModelSystemPrompt(
+    String modelId,
+    String? systemPrompt,
+  ) async {
+    final model = await getModelDetails(modelId);
+    if (model == null) {
+      throw StateError('Model "$modelId" has no editable server record.');
+    }
+
+    final params = _coerceJsonMap(model['params']) ?? <String, dynamic>{};
+    final trimmed = systemPrompt?.trim();
+    if (trimmed == null || trimmed.isEmpty) {
+      params.remove('system');
+    } else {
+      params['system'] = trimmed;
+    }
+
+    final updated = await updateModel({...model, 'params': params});
+    if (updated == null) {
+      throw StateError('Model "$modelId" update returned no server record.');
+    }
+    return updated;
   }
 
   // Send chat completed notification

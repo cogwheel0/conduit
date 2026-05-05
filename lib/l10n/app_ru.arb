@@ -998,5 +998,32 @@
   "deleteSharedLinkFailed": "Не удалось удалить ссылку",
   "@deleteSharedLinkFailed": {
     "description": "Snackbar shown when deleting a shared chat link fails."
-  }
+  },
+  "systemPrompts": "Системные промпты",
+  "globalSystemPrompt": "Глобальный системный промпт",
+  "modelSystemPrompts": "Системные промпты моделей",
+  "folderSystemPrompts": "Системные промпты папок",
+  "openWebuiModelSettings": "Настройки моделей OpenWebUI",
+  "openWebuiFolderSettings": "Настройки папок OpenWebUI",
+  "accessibleModelsCount": "Доступные модели: {count}",
+  "accessibleFoldersCount": "Доступные папки: {count}",
+  "unableToLoadOpenWebuiSettings": "Не удалось загрузить настройки OpenWebUI.",
+  "unableToLoadModels": "Не удалось загрузить модели.",
+  "unableToLoadFolders": "Не удалось загрузить папки.",
+  "noAccessibleModelsFound": "Доступные модели не найдены.",
+  "noAccessibleFoldersFound": "Доступные папки не найдены.",
+  "tapToLoadServerPromptSettings": "Нажмите, чтобы загрузить настройки промпта с сервера.",
+  "loadingFromOpenWebui": "Загрузка из OpenWebUI...",
+  "globalSystemPromptEditorDescription": "Сохраняется в настройках пользователя OpenWebUI и используется как системный промпт чата по умолчанию.",
+  "modelNoEditableServerRecord": "У этой модели нет редактируемой записи на сервере.",
+  "modelSystemPromptTitle": "Системный промпт {modelName}",
+  "modelSystemPromptEditorDescription": "Сохраняется в OpenWebUI в params.system модели.",
+  "modelNoWriteAccessDescription": "У вас нет доступа на запись к этой модели.",
+  "unableToLoadFolder": "Не удалось загрузить эту папку.",
+  "folderSystemPromptTitle": "Системный промпт {folderName}",
+  "folderSystemPromptEditorDescription": "Сохраняется в OpenWebUI в data.system_prompt папки.",
+  "notSet": "Не задано",
+  "enterSystemPrompt": "Введите системный промпт",
+  "close": "Закрыть",
+  "connectionHealth": "Состояние подключения"
 }

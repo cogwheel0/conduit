@@ -998,5 +998,32 @@
   "deleteSharedLinkFailed": "No se pudo eliminar el enlace compartido",
   "@deleteSharedLinkFailed": {
     "description": "Snackbar shown when deleting a shared chat link fails."
-  }
+  },
+  "systemPrompts": "Prompts del sistema",
+  "globalSystemPrompt": "Prompt del sistema global",
+  "modelSystemPrompts": "Prompts del sistema por modelo",
+  "folderSystemPrompts": "Prompts del sistema por carpeta",
+  "openWebuiModelSettings": "Configuración de modelos de OpenWebUI",
+  "openWebuiFolderSettings": "Configuración de carpetas de OpenWebUI",
+  "accessibleModelsCount": "{count} modelos accesibles",
+  "accessibleFoldersCount": "{count} carpetas accesibles",
+  "unableToLoadOpenWebuiSettings": "No se pudo cargar la configuración de OpenWebUI.",
+  "unableToLoadModels": "No se pudieron cargar los modelos.",
+  "unableToLoadFolders": "No se pudieron cargar las carpetas.",
+  "noAccessibleModelsFound": "No se encontraron modelos accesibles.",
+  "noAccessibleFoldersFound": "No se encontraron carpetas accesibles.",
+  "tapToLoadServerPromptSettings": "Toca para cargar la configuración de prompts del servidor.",
+  "loadingFromOpenWebui": "Cargando desde OpenWebUI...",
+  "globalSystemPromptEditorDescription": "Se guarda en tu configuración de usuario de OpenWebUI y se usa como prompt del sistema predeterminado del chat.",
+  "modelNoEditableServerRecord": "Este modelo no tiene un registro de servidor editable.",
+  "modelSystemPromptTitle": "Prompt del sistema de {modelName}",
+  "modelSystemPromptEditorDescription": "Se guarda en params.system del modelo de OpenWebUI.",
+  "modelNoWriteAccessDescription": "No tienes acceso de escritura a este modelo.",
+  "unableToLoadFolder": "No se pudo cargar esta carpeta.",
+  "folderSystemPromptTitle": "Prompt del sistema de {folderName}",
+  "folderSystemPromptEditorDescription": "Se guarda en data.system_prompt de la carpeta de OpenWebUI.",
+  "notSet": "Sin definir",
+  "enterSystemPrompt": "Introduce el prompt del sistema",
+  "close": "Cerrar",
+  "connectionHealth": "Estado de la conexión"
 }

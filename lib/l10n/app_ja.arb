@@ -2267,5 +2267,137 @@
   "deleteSharedLinkFailed": "共有リンクの削除に失敗しました",
   "@deleteSharedLinkFailed": {
     "description": "Snackbar shown when deleting a shared chat link fails."
+  },
+  "systemPrompts": "システムプロンプト",
+  "@systemPrompts": {
+    "description": "Section title for server-backed system prompt settings."
+  },
+  "globalSystemPrompt": "グローバルシステムプロンプト",
+  "@globalSystemPrompt": {
+    "description": "Title for the OpenWebUI user-level system prompt setting."
+  },
+  "modelSystemPrompts": "モデルのシステムプロンプト",
+  "@modelSystemPrompts": {
+    "description": "Title for the OpenWebUI model-level system prompts list."
+  },
+  "folderSystemPrompts": "フォルダーのシステムプロンプト",
+  "@folderSystemPrompts": {
+    "description": "Title for the OpenWebUI folder-level system prompts list."
+  },
+  "openWebuiModelSettings": "OpenWebUI モデル設定",
+  "@openWebuiModelSettings": {
+    "description": "Subtitle for model prompt settings before models load."
+  },
+  "openWebuiFolderSettings": "OpenWebUI フォルダー設定",
+  "@openWebuiFolderSettings": {
+    "description": "Subtitle for folder prompt settings before folders load."
+  },
+  "accessibleModelsCount": "アクセス可能なモデル: {count} 件",
+  "@accessibleModelsCount": {
+    "description": "Subtitle showing how many accessible models are listed.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "4"
+      }
+    }
+  },
+  "accessibleFoldersCount": "アクセス可能なフォルダー: {count} 件",
+  "@accessibleFoldersCount": {
+    "description": "Subtitle showing how many accessible folders are listed.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "unableToLoadOpenWebuiSettings": "OpenWebUI 設定を読み込めません。",
+  "@unableToLoadOpenWebuiSettings": {
+    "description": "Error shown when user settings cannot be loaded from OpenWebUI."
+  },
+  "unableToLoadModels": "モデルを読み込めません。",
+  "@unableToLoadModels": {
+    "description": "Error shown when server models cannot be loaded."
+  },
+  "unableToLoadFolders": "フォルダーを読み込めません。",
+  "@unableToLoadFolders": {
+    "description": "Error shown when server folders cannot be loaded."
+  },
+  "noAccessibleModelsFound": "アクセス可能なモデルが見つかりません。",
+  "@noAccessibleModelsFound": {
+    "description": "Empty state for model system prompt settings."
+  },
+  "noAccessibleFoldersFound": "アクセス可能なフォルダーが見つかりません。",
+  "@noAccessibleFoldersFound": {
+    "description": "Empty state for folder system prompt settings."
+  },
+  "tapToLoadServerPromptSettings": "タップしてサーバーのプロンプト設定を読み込みます。",
+  "@tapToLoadServerPromptSettings": {
+    "description": "Subtitle for model rows whose prompt details are loaded on demand."
+  },
+  "loadingFromOpenWebui": "OpenWebUI から読み込み中...",
+  "@loadingFromOpenWebui": {
+    "description": "Loading subtitle for server-backed settings."
+  },
+  "globalSystemPromptEditorDescription": "OpenWebUI のユーザー設定に保存され、デフォルトのチャットシステムプロンプトとして使用されます。",
+  "@globalSystemPromptEditorDescription": {
+    "description": "Description in the global system prompt editor."
+  },
+  "modelNoEditableServerRecord": "このモデルには編集可能なサーバーレコードがありません。",
+  "@modelNoEditableServerRecord": {
+    "description": "Snackbar shown when a model cannot be edited on the server."
+  },
+  "modelSystemPromptTitle": "{modelName} のシステムプロンプト",
+  "@modelSystemPromptTitle": {
+    "description": "Title for a model system prompt editor.",
+    "placeholders": {
+      "modelName": {
+        "type": "String",
+        "example": "GPT-4"
+      }
+    }
+  },
+  "modelSystemPromptEditorDescription": "OpenWebUI モデルの params.system に保存されます。",
+  "@modelSystemPromptEditorDescription": {
+    "description": "Description for editable model system prompts."
+  },
+  "modelNoWriteAccessDescription": "このモデルへの書き込み権限がありません。",
+  "@modelNoWriteAccessDescription": {
+    "description": "Description shown for read-only model prompt editors."
+  },
+  "unableToLoadFolder": "このフォルダーを読み込めません。",
+  "@unableToLoadFolder": {
+    "description": "Snackbar shown when a folder detail cannot be loaded."
+  },
+  "folderSystemPromptTitle": "{folderName} のシステムプロンプト",
+  "@folderSystemPromptTitle": {
+    "description": "Title for a folder system prompt editor.",
+    "placeholders": {
+      "folderName": {
+        "type": "String",
+        "example": "Work"
+      }
+    }
+  },
+  "folderSystemPromptEditorDescription": "OpenWebUI フォルダーの data.system_prompt に保存されます。",
+  "@folderSystemPromptEditorDescription": {
+    "description": "Description for folder system prompt editors."
+  },
+  "notSet": "未設定",
+  "@notSet": {
+    "description": "Value label when a setting has no value."
+  },
+  "enterSystemPrompt": "システムプロンプトを入力",
+  "@enterSystemPrompt": {
+    "description": "Hint text for system prompt text fields."
+  },
+  "close": "閉じる",
+  "@close": {
+    "description": "Button label to close a dialog or sheet."
+  },
+  "connectionHealth": "接続状態",
+  "@connectionHealth": {
+    "description": "Section title for connection health information."
   }
 }

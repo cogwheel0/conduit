@@ -998,5 +998,32 @@
   "deleteSharedLinkFailed": "Impossibile eliminare il link condiviso",
   "@deleteSharedLinkFailed": {
     "description": "Snackbar shown when deleting a shared chat link fails."
-  }
+  },
+  "systemPrompts": "Prompt di sistema",
+  "globalSystemPrompt": "Prompt di sistema globale",
+  "modelSystemPrompts": "Prompt di sistema dei modelli",
+  "folderSystemPrompts": "Prompt di sistema delle cartelle",
+  "openWebuiModelSettings": "Impostazioni modello OpenWebUI",
+  "openWebuiFolderSettings": "Impostazioni cartella OpenWebUI",
+  "accessibleModelsCount": "{count} modelli accessibili",
+  "accessibleFoldersCount": "{count} cartelle accessibili",
+  "unableToLoadOpenWebuiSettings": "Impossibile caricare le impostazioni OpenWebUI.",
+  "unableToLoadModels": "Impossibile caricare i modelli.",
+  "unableToLoadFolders": "Impossibile caricare le cartelle.",
+  "noAccessibleModelsFound": "Nessun modello accessibile trovato.",
+  "noAccessibleFoldersFound": "Nessuna cartella accessibile trovata.",
+  "tapToLoadServerPromptSettings": "Tocca per caricare le impostazioni prompt del server.",
+  "loadingFromOpenWebui": "Caricamento da OpenWebUI...",
+  "globalSystemPromptEditorDescription": "Salvato nelle impostazioni utente OpenWebUI e usato come prompt di sistema predefinito della chat.",
+  "modelNoEditableServerRecord": "Questo modello non ha un record server modificabile.",
+  "modelSystemPromptTitle": "Prompt di sistema di {modelName}",
+  "modelSystemPromptEditorDescription": "Salvato in OpenWebUI in params.system del modello.",
+  "modelNoWriteAccessDescription": "Non hai accesso in scrittura a questo modello.",
+  "unableToLoadFolder": "Impossibile caricare questa cartella.",
+  "folderSystemPromptTitle": "Prompt di sistema di {folderName}",
+  "folderSystemPromptEditorDescription": "Salvato in OpenWebUI in data.system_prompt della cartella.",
+  "notSet": "Non impostato",
+  "enterSystemPrompt": "Inserisci prompt di sistema",
+  "close": "Chiudi",
+  "connectionHealth": "Stato connessione"
 }

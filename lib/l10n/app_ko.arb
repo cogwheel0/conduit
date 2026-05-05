@@ -776,5 +776,32 @@
   "deleteSharedLinkFailed": "공유 링크를 삭제하지 못했습니다",
   "@deleteSharedLinkFailed": {
     "description": "Snackbar shown when deleting a shared chat link fails."
-  }
+  },
+  "systemPrompts": "시스템 프롬프트",
+  "globalSystemPrompt": "전역 시스템 프롬프트",
+  "modelSystemPrompts": "모델 시스템 프롬프트",
+  "folderSystemPrompts": "폴더 시스템 프롬프트",
+  "openWebuiModelSettings": "OpenWebUI 모델 설정",
+  "openWebuiFolderSettings": "OpenWebUI 폴더 설정",
+  "accessibleModelsCount": "접근 가능한 모델 {count}개",
+  "accessibleFoldersCount": "접근 가능한 폴더 {count}개",
+  "unableToLoadOpenWebuiSettings": "OpenWebUI 설정을 불러올 수 없습니다.",
+  "unableToLoadModels": "모델을 불러올 수 없습니다.",
+  "unableToLoadFolders": "폴더를 불러올 수 없습니다.",
+  "noAccessibleModelsFound": "접근 가능한 모델을 찾을 수 없습니다.",
+  "noAccessibleFoldersFound": "접근 가능한 폴더를 찾을 수 없습니다.",
+  "tapToLoadServerPromptSettings": "서버 프롬프트 설정을 불러오려면 탭하세요.",
+  "loadingFromOpenWebui": "OpenWebUI에서 불러오는 중...",
+  "globalSystemPromptEditorDescription": "OpenWebUI 사용자 설정에 저장되며 기본 채팅 시스템 프롬프트로 사용됩니다.",
+  "modelNoEditableServerRecord": "이 모델에는 편집 가능한 서버 기록이 없습니다.",
+  "modelSystemPromptTitle": "{modelName} 시스템 프롬프트",
+  "modelSystemPromptEditorDescription": "OpenWebUI 모델 params.system에 저장됩니다.",
+  "modelNoWriteAccessDescription": "이 모델에 대한 쓰기 권한이 없습니다.",
+  "unableToLoadFolder": "이 폴더를 불러올 수 없습니다.",
+  "folderSystemPromptTitle": "{folderName} 시스템 프롬프트",
+  "folderSystemPromptEditorDescription": "OpenWebUI 폴더 data.system_prompt에 저장됩니다.",
+  "notSet": "설정되지 않음",
+  "enterSystemPrompt": "시스템 프롬프트 입력",
+  "close": "닫기",
+  "connectionHealth": "연결 상태"
 }
