@@ -4,7 +4,6 @@ import 'dart:io' show Platform;
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -18,11 +17,11 @@ import '../../../core/widgets/error_boundary.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/conduit_loading.dart';
-import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../providers/notes_providers.dart';
+import '../utils/note_context_actions.dart';
 
 /// Page displaying the list of all notes with search and time grouping.
 class NotesListPage extends ConsumerStatefulWidget {
@@ -88,35 +87,10 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
     }
   }
 
-  Future<void> _deleteNote(Note note) async {
-    final l10n = AppLocalizations.of(context)!;
+  Future<void> _deleteNote(Note note) =>
+      confirmAndDeleteNote(context, ref, note);
 
-    final confirmed = await ThemedDialogs.confirm(
-      context,
-      title: l10n.deleteNoteTitle,
-      message: l10n.deleteNoteMessage(
-        note.title.isEmpty ? l10n.untitled : note.title,
-      ),
-      confirmText: l10n.delete,
-      isDestructive: true,
-    );
-
-    if (confirmed && mounted) {
-      ConduitHaptics.mediumImpact();
-      await ref.read(noteDeleterProvider.notifier).deleteNote(note.id);
-    }
-  }
-
-  Future<void> _togglePin(Note note) async {
-    final updated = await ref
-        .read(notePinTogglerProvider.notifier)
-        .togglePin(note);
-    if (updated == null || !mounted) {
-      return;
-    }
-
-    ConduitHaptics.selectionClick();
-  }
+  Future<void> _togglePin(Note note) => toggleNotePin(context, ref, note);
 
   @override
   Widget build(BuildContext context) {
@@ -644,55 +618,18 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
     BuildContext context,
     Note note,
   ) {
-    final l10n = AppLocalizations.of(context)!;
-
-    return [
-      ConduitContextMenuAction(
-        cupertinoIcon: CupertinoIcons.pencil,
-        materialIcon: Icons.edit_rounded,
-        label: l10n.edit,
-        onBeforeClose: () => ConduitHaptics.selectionClick(),
-        onSelected: () async {
-          context.pushNamed(
-            RouteNames.noteEditor,
-            pathParameters: {'id': note.id},
-          );
-        },
-      ),
-      ConduitContextMenuAction(
-        cupertinoIcon: CupertinoIcons.doc_on_clipboard,
-        materialIcon: Icons.copy_rounded,
-        label: l10n.copy,
-        onBeforeClose: () => ConduitHaptics.selectionClick(),
-        onSelected: () async {
-          await Clipboard.setData(ClipboardData(text: note.markdownContent));
-          if (!context.mounted) return;
-          AdaptiveSnackBar.show(
-            context,
-            message: l10n.noteCopiedToClipboard,
-            type: AdaptiveSnackBarType.success,
-            duration: const Duration(seconds: 2),
-          );
-        },
-      ),
-      ConduitContextMenuAction(
-        cupertinoIcon: note.isPinned
-            ? CupertinoIcons.pin_slash
-            : CupertinoIcons.pin,
-        materialIcon: note.isPinned ? UiUtils.unpinIcon : UiUtils.pinIcon,
-        label: note.isPinned ? l10n.unpin : l10n.pin,
-        onBeforeClose: () => ConduitHaptics.selectionClick(),
-        onSelected: () async => _togglePin(note),
-      ),
-      ConduitContextMenuAction(
-        cupertinoIcon: CupertinoIcons.delete,
-        materialIcon: Icons.delete_rounded,
-        label: l10n.delete,
-        destructive: true,
-        onBeforeClose: () => ConduitHaptics.mediumImpact(),
-        onSelected: () async => _deleteNote(note),
-      ),
-    ];
+    return buildNoteContextMenuActions(
+      context: context,
+      note: note,
+      onEdit: (note) async {
+        context.pushNamed(
+          RouteNames.noteEditor,
+          pathParameters: {'id': note.id},
+        );
+      },
+      onTogglePin: _togglePin,
+      onDelete: _deleteNote,
+    );
   }
 
   Widget _buildEmptyState(BuildContext context) {

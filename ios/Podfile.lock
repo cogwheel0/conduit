@@ -9,8 +9,6 @@ PODS:
   - CwlCatchException (2.2.1):
     - CwlCatchExceptionSupport (~> 2.2.1)
   - CwlCatchExceptionSupport (2.2.1)
-  - device_info_plus (0.0.1):
-    - Flutter
   - DKImagePickerController/Core (4.3.9):
     - DKImagePickerController/ImageDataManager
     - DKImagePickerController/Resource
@@ -69,8 +67,6 @@ PODS:
     - Flutter
   - image_picker_ios (0.0.1):
     - Flutter
-  - irondash_engine_context (0.0.1):
-    - Flutter
   - just_audio (0.0.1):
     - Flutter
     - FlutterMacOS
@@ -128,8 +124,6 @@ PODS:
   - sqflite_darwin (0.0.4):
     - Flutter
     - FlutterMacOS
-  - super_native_extensions (0.0.1):
-    - Flutter
   - SwiftyGif (5.4.5)
   - url_launcher_ios (0.0.1):
     - Flutter
@@ -146,7 +140,6 @@ DEPENDENCIES:
   - adaptive_platform_ui (from `.symlinks/plugins/adaptive_platform_ui/ios`)
   - audio_session (from `.symlinks/plugins/audio_session/ios`)
   - connectivity_plus (from `.symlinks/plugins/connectivity_plus/ios`)
-  - device_info_plus (from `.symlinks/plugins/device_info_plus/ios`)
   - file_picker (from `.symlinks/plugins/file_picker/ios`)
   - Flutter (from `Flutter`)
   - flutter_callkit_incoming (from `.symlinks/plugins/flutter_callkit_incoming/ios`)
@@ -158,7 +151,6 @@ DEPENDENCIES:
   - gaimon (from `.symlinks/plugins/gaimon/ios`)
   - home_widget (from `.symlinks/plugins/home_widget/ios`)
   - image_picker_ios (from `.symlinks/plugins/image_picker_ios/ios`)
-  - irondash_engine_context (from `.symlinks/plugins/irondash_engine_context/ios`)
   - just_audio (from `.symlinks/plugins/just_audio/darwin`)
   - package_info_plus (from `.symlinks/plugins/package_info_plus/ios`)
   - permission_handler_apple (from `.symlinks/plugins/permission_handler_apple/ios`)
@@ -170,7 +162,6 @@ DEPENDENCIES:
   - shared_preferences_foundation (from `.symlinks/plugins/shared_preferences_foundation/darwin`)
   - speech_to_text (from `.symlinks/plugins/speech_to_text/darwin`)
   - sqflite_darwin (from `.symlinks/plugins/sqflite_darwin/darwin`)
-  - super_native_extensions (from `.symlinks/plugins/super_native_extensions/ios`)
   - url_launcher_ios (from `.symlinks/plugins/url_launcher_ios/ios`)
   - vad (from `.symlinks/plugins/vad/ios`)
   - wakelock_plus (from `.symlinks/plugins/wakelock_plus/ios`)
@@ -198,8 +189,6 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/audio_session/ios"
   connectivity_plus:
     :path: ".symlinks/plugins/connectivity_plus/ios"
-  device_info_plus:
-    :path: ".symlinks/plugins/device_info_plus/ios"
   file_picker:
     :path: ".symlinks/plugins/file_picker/ios"
   Flutter:
@@ -222,8 +211,6 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/home_widget/ios"
   image_picker_ios:
     :path: ".symlinks/plugins/image_picker_ios/ios"
-  irondash_engine_context:
-    :path: ".symlinks/plugins/irondash_engine_context/ios"
   just_audio:
     :path: ".symlinks/plugins/just_audio/darwin"
   package_info_plus:
@@ -246,8 +233,6 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/speech_to_text/darwin"
   sqflite_darwin:
     :path: ".symlinks/plugins/sqflite_darwin/darwin"
-  super_native_extensions:
-    :path: ".symlinks/plugins/super_native_extensions/ios"
   url_launcher_ios:
     :path: ".symlinks/plugins/url_launcher_ios/ios"
   vad:
@@ -264,7 +249,6 @@ SPEC CHECKSUMS:
   CryptoSwift: e64e11850ede528a02a0f3e768cec8e9d92ecb90
   CwlCatchException: 7acc161b299a6de7f0a46a6ed741eae2c8b4d75a
   CwlCatchExceptionSupport: 54ccab8d8c78907b57f99717fb19d4cc3bce02dc
-  device_info_plus: 21fcca2080fbcd348be798aa36c3e5ed849eefbe
   DKImagePickerController: 946cec48c7873164274ecc4624d19e3da4c1ef3c
   DKPhotoGallery: b3834fecb755ee09a593d7c9e389d8b5d6deed60
   file_picker: a0560bc09d61de87f12d246fc47d2119e6ef37be
@@ -278,7 +262,6 @@ SPEC CHECKSUMS:
   gaimon: 1979ed07cdcfd0bf0d208f255f550936a196cf5a
   home_widget: 54b4f6b36ed8d64cfee594a476225c35c3e45091
   image_picker_ios: e0ece4aa2a75771a7de3fa735d26d90817041326
-  irondash_engine_context: 8e58ca8e0212ee9d1c7dc6a42121849986c88486
   just_audio: 4e391f57b79cad2b0674030a00453ca5ce817eed
   libwebp: 02b23773aedb6ff1fd38cec7a77b81414c6842a8
   Mantle: c5aa8794a29a022dfbbfc9799af95f477a69b62d
@@ -296,13 +279,12 @@ SPEC CHECKSUMS:
   shared_preferences_foundation: 7036424c3d8ec98dfe75ff1667cb0cd531ec82bb
   speech_to_text: 3b313d98516d3d0406cea424782ec25470c59d19
   sqflite_darwin: 20b2a3a3b70e43edae938624ce550a3cbf66a3d0
-  super_native_extensions: 526c35bbefc5bc1def30b8d5fa4378c1f524bcde
   SwiftyGif: 706c60cf65fa2bc5ee0313beece843c8eb8194d4
   url_launcher_ios: 7a95fa5b60cc718a708b8f2966718e93db0cef1b
   vad: 7934867589afe53567f492df66fb1615f2185822
   wakelock_plus: e29112ab3ef0b318e58cfa5c32326458be66b556
   webview_flutter_wkwebview: 8ebf4fded22593026f7dbff1fbff31ea98573c8d
 
-PODFILE CHECKSUM: 67693ba4ae9cb230cace5457f338ba266789a671
+PODFILE CHECKSUM: df29caaf0d5627d80a847fba2a9f7d6e23e489dc
 
 COCOAPODS: 1.16.2

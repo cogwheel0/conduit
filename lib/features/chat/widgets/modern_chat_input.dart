@@ -346,27 +346,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     }
   }
 
-  /// Handles pasting images/files from clipboard with pre-loaded image data.
-  ///
-  /// This avoids a second clipboard read by using data already fetched when
-  /// building the context menu.
-  Future<void> _handleClipboardPasteWithData(Uint8List imageData) async {
-    if (!widget.enabled) return;
-
-    final onPasted = widget.onPastedAttachments;
-    if (onPasted == null) return;
-
-    PlatformUtils.lightHaptic();
-
-    final attachment = await _clipboardService.createAttachmentFromImageData(
-      imageData: imageData,
-      mimeType: 'image/png',
-    );
-    if (attachment != null) {
-      await onPasted([attachment]);
-    }
-  }
-
   Future<void> _handleNativePastePayload(IosNativePastePayload payload) async {
     if (!mounted || !widget.enabled || !_focusNode.hasFocus) {
       return;
@@ -445,71 +424,14 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     return items;
   }
 
-  /// Builds a Flutter-rendered fallback menu with "Paste Image".
+  /// Builds a Flutter-rendered fallback text editing menu.
   Widget _buildFallbackContextMenu(
     BuildContext context,
     EditableTextState editableTextState,
   ) {
-    final List<ContextMenuButtonItem> buttonItems = List.from(
-      editableTextState.contextMenuButtonItems,
-    );
-
-    // Only add "Paste Image" if we have a callback for pasted attachments
-    if (widget.onPastedAttachments == null) {
-      return AdaptiveTextSelectionToolbar.buttonItems(
-        anchors: editableTextState.contextMenuAnchors,
-        buttonItems: buttonItems,
-      );
-    }
-
-    return FutureBuilder<Uint8List?>(
-      future: _clipboardService.getClipboardImage(),
-      builder: (context, snapshot) {
-        final imageData = snapshot.data;
-        final hasImage = imageData != null && imageData.isNotEmpty;
-
-        if (hasImage) {
-          // Avoid duplicating any platform or framework-provided image paste
-          // action that is already present in the button list.
-          final pasteImageLabel =
-              AppLocalizations.of(context)?.pasteImage ?? 'Paste Image';
-          final alreadyHasPasteImage = buttonItems.any(
-            (item) =>
-                item.label != null &&
-                item.label!.toLowerCase().contains('image'),
-          );
-
-          if (!alreadyHasPasteImage) {
-            // Find the index of the standard Paste button to insert after it
-            final pasteIndex = buttonItems.indexWhere(
-              (item) => item.type == ContextMenuButtonType.paste,
-            );
-
-            // Capture imageData in closure to avoid re-reading clipboard
-            final pasteImageItem = ContextMenuButtonItem(
-              label: pasteImageLabel,
-              onPressed: () {
-                // Close the context menu first
-                ContextMenuController.removeAny();
-                // Use the captured imageData directly
-                _handleClipboardPasteWithData(imageData);
-              },
-            );
-
-            // Insert after Paste if found, otherwise add at the end
-            if (pasteIndex >= 0) {
-              buttonItems.insert(pasteIndex + 1, pasteImageItem);
-            } else {
-              buttonItems.add(pasteImageItem);
-            }
-          }
-        }
-
-        return AdaptiveTextSelectionToolbar.buttonItems(
-          anchors: editableTextState.contextMenuAnchors,
-          buttonItems: buttonItems,
-        );
-      },
+    return AdaptiveTextSelectionToolbar.buttonItems(
+      anchors: editableTextState.contextMenuAnchors,
+      buttonItems: editableTextState.contextMenuButtonItems,
     );
   }
 
@@ -2368,7 +2290,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                       .toList(),
                   onContentInserted: _handleContentInserted,
                 ),
-                // Custom context menu with "Paste Image" option
+                // Use Flutter's standard text-editing context menu. Images
+                // arrive through ContentInsertionConfiguration/native paste.
                 contextMenuBuilder: (context, editableTextState) {
                   return _buildFallbackContextMenu(context, editableTextState);
                 },

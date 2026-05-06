@@ -22,6 +22,7 @@ import '../error/api_error_interceptor.dart';
 import 'connectivity_service.dart';
 import '../utils/debug_logger.dart';
 import '../utils/embed_utils.dart';
+import '../utils/message_tree_utils.dart' as message_tree;
 import 'conversation_parsing.dart';
 import 'worker_manager.dart';
 import 'server_tls_http_client_factory.dart';
@@ -1515,27 +1516,104 @@ class ApiService {
   }
 
   List<Map<String, dynamic>> _buildHistoryChainMessages(
-    Map<String, dynamic> messagesMap,
+    Map<String, Map<String, dynamic>> messagesMap,
     String currentId,
   ) {
-    final chain = <Map<String, dynamic>>[];
-    final visited = <String>{};
-    String? nextId = currentId;
+    return message_tree
+        .chainToRoot<Map<String, dynamic>>(
+          currentId,
+          messagesById: messagesMap,
+          parentIdOf: message_tree.rawMessageParentId,
+        )
+        .map(_deepCloneJsonMap)
+        .toList(growable: false);
+  }
 
-    while (nextId != null && nextId.isNotEmpty && !visited.contains(nextId)) {
-      final message = _coerceJsonMap(messagesMap[nextId]);
-      if (message == null) {
-        break;
-      }
+  Set<String> _collectMessageDescendantIds(
+    Map<String, Map<String, dynamic>> messagesMap,
+    String messageId,
+  ) {
+    return message_tree.collectDescendantIds(messageId, {
+      for (final entry in messagesMap.entries)
+        entry.key: message_tree.rawMessageChildrenIds(entry.value),
+    });
+  }
 
-      chain.add(_deepCloneJsonMap(message));
-      visited.add(nextId);
+  String? _latestRemainingMessageId(
+    Map<String, Map<String, dynamic>> messagesMap,
+  ) {
+    return message_tree.latestRemainingMessageId<Map<String, dynamic>>(
+      messagesMap,
+      timestampOf: (message) {
+        final timestamp = message['timestamp'];
+        return timestamp is num ? timestamp : null;
+      },
+    );
+  }
 
-      final parentId = message['parentId']?.toString().trim();
-      nextId = parentId != null && parentId.isNotEmpty ? parentId : null;
+  /// Deletes one message from the current server-side chat history.
+  ///
+  /// This edits the latest raw chat payload from the server instead of replaying
+  /// a local message list, preserving any server-only history fields and
+  /// messages that may have arrived since the local state last synced.
+  Future<void> deleteConversationMessage(
+    String conversationId,
+    String messageId,
+  ) async {
+    _traceApi('Deleting message $messageId from chat $conversationId');
+
+    final response = await _dio.get('/api/v1/chats/$conversationId');
+    final rawConversation = _coerceJsonMap(response.data);
+    final rawChat = _coerceJsonMap(rawConversation?['chat']);
+    if (rawConversation == null || rawChat == null) {
+      throw Exception(
+        'Delete message failed: invalid chat payload for $conversationId',
+      );
     }
 
-    return chain.reversed.toList(growable: false);
+    final chat = _deepCloneJsonMap(rawChat);
+    final history = _coerceJsonMap(chat['history']) ?? <String, dynamic>{};
+    final rawMessagesMap =
+        _coerceJsonMap(history['messages']) ?? <String, dynamic>{};
+    final messagesMap = <String, Map<String, dynamic>>{};
+
+    for (final entry in rawMessagesMap.entries) {
+      final message = _coerceJsonMap(entry.value);
+      if (message == null) continue;
+      messagesMap[entry.key] = _deepCloneJsonMap(message);
+    }
+
+    if (!messagesMap.containsKey(messageId)) {
+      return;
+    }
+
+    final removedIds = _collectMessageDescendantIds(messagesMap, messageId);
+    messagesMap.removeWhere((id, _) => removedIds.contains(id));
+
+    for (final entry in messagesMap.entries) {
+      final message = entry.value;
+      final children = _coerceStringList(
+        message['childrenIds'],
+      ).where((id) => !removedIds.contains(id)).toList(growable: false);
+      message['childrenIds'] = children;
+    }
+
+    final currentId = history['currentId']?.toString();
+    final nextCurrentId = currentId != null && !removedIds.contains(currentId)
+        ? currentId
+        : _latestRemainingMessageId(messagesMap);
+
+    history['messages'] = messagesMap;
+    if (nextCurrentId == null || nextCurrentId.isEmpty) {
+      history.remove('currentId');
+      chat['messages'] = <Map<String, dynamic>>[];
+    } else {
+      history['currentId'] = nextCurrentId;
+      chat['messages'] = _buildHistoryChainMessages(messagesMap, nextCurrentId);
+    }
+    chat['history'] = history;
+
+    await _dio.post('/api/v1/chats/$conversationId', data: {'chat': chat});
   }
 
   Future<void> _persistLegacyPendingTurn({
@@ -1564,7 +1642,7 @@ class ApiService {
     final history = _coerceJsonMap(chat['history']) ?? <String, dynamic>{};
     final rawMessagesMap =
         _coerceJsonMap(history['messages']) ?? <String, dynamic>{};
-    final messagesMap = <String, dynamic>{};
+    final messagesMap = <String, Map<String, dynamic>>{};
 
     for (final entry in rawMessagesMap.entries) {
       final message = _coerceJsonMap(entry.value);
@@ -1583,7 +1661,7 @@ class ApiService {
       );
     }
 
-    final existingUserMessage = _coerceJsonMap(messagesMap[userMessageId]);
+    final existingUserMessage = messagesMap[userMessageId];
     final mergedUserMessage = <String, dynamic>{
       if (existingUserMessage != null)
         ..._deepCloneJsonMap(existingUserMessage),
@@ -1601,7 +1679,7 @@ class ApiService {
 
     final parentId = mergedUserMessage['parentId']?.toString().trim();
     if (parentId != null && parentId.isNotEmpty) {
-      final existingParentMessage = _coerceJsonMap(messagesMap[parentId]);
+      final existingParentMessage = messagesMap[parentId];
       if (existingParentMessage != null) {
         final mergedParentMessage = _deepCloneJsonMap(existingParentMessage);
         final parentChildrenIds = _coerceStringList(
@@ -1615,9 +1693,7 @@ class ApiService {
       }
     }
 
-    final existingAssistantMessage = _coerceJsonMap(
-      messagesMap[assistantMessageId],
-    );
+    final existingAssistantMessage = messagesMap[assistantMessageId];
     final assistantModelName =
         modelItem?['name']?.toString().trim().isNotEmpty == true
         ? modelItem!['name'].toString().trim()

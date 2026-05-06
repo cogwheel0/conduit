@@ -1,10 +1,8 @@
-import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
-import 'package:super_clipboard/super_clipboard.dart';
 import 'file_attachment_service.dart';
 
 /// Service for handling clipboard image paste operations.
@@ -12,9 +10,8 @@ import 'file_attachment_service.dart';
 /// This service converts pasted image data into [LocalAttachment] objects that
 /// integrate with the existing file attachment flow.
 ///
-/// Uses `super_clipboard` to read native clipboard formats across platforms.
-/// On iOS, callers should invoke reads in direct response to a user paste
-/// action so the system can present paste permission UI if needed.
+/// Image bytes are provided by Flutter's content insertion APIs or by the
+/// app-owned native iOS paste bridge.
 class ClipboardAttachmentService {
   /// Supported MIME types for image paste operations.
   static const Set<String> supportedImageMimeTypes = {
@@ -28,30 +25,6 @@ class ClipboardAttachmentService {
     'image/heic',
     'image/heif',
   };
-
-  static const List<(FileFormat, String)> _supportedImageFormats = [
-    (Formats.png, 'image/png'),
-    (Formats.jpeg, 'image/jpeg'),
-    (Formats.gif, 'image/gif'),
-    (Formats.webp, 'image/webp'),
-    (Formats.bmp, 'image/bmp'),
-    (Formats.tiff, 'image/tiff'),
-    (Formats.heic, 'image/heic'),
-    (Formats.heif, 'image/heif'),
-  ];
-
-  /// Reads an image from the system clipboard.
-  ///
-  /// Returns the image data as bytes if an image is present, null otherwise.
-  Future<Uint8List?> getClipboardImage() async {
-    try {
-      final result = await _readClipboardImage();
-      return result?.$1;
-    } catch (e) {
-      debugPrint('ClipboardAttachmentService: Failed to read clipboard: $e');
-      return null;
-    }
-  }
 
   /// Creates a [LocalAttachment] from pasted image data.
   ///
@@ -131,41 +104,6 @@ class ClipboardAttachmentService {
       default:
         return null;
     }
-  }
-
-  Future<(Uint8List, String)?> _readClipboardImage() async {
-    final clipboard = SystemClipboard.instance;
-    if (clipboard == null) {
-      return null;
-    }
-
-    final reader = await clipboard.read();
-    for (final entry in _supportedImageFormats) {
-      final format = entry.$1;
-      if (!reader.canProvide(format)) {
-        continue;
-      }
-
-      final completer = Completer<Uint8List?>();
-      final progress = reader.getFile(format, (file) async {
-        try {
-          completer.complete(await file.readAll());
-        } catch (error) {
-          completer.completeError(error);
-        }
-      }, onError: completer.completeError);
-
-      if (progress == null) {
-        continue;
-      }
-
-      final bytes = await completer.future;
-      if (bytes != null && bytes.isNotEmpty) {
-        return (bytes, entry.$2);
-      }
-    }
-
-    return null;
   }
 
   /// Generates a timestamped filename for pasted images.

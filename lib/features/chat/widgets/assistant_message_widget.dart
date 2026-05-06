@@ -62,6 +62,7 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
   final List<String?> versionModelIconUrls;
   final VoidCallback? onCopy;
   final VoidCallback? onRegenerate;
+  final VoidCallback onDelete;
   final VoidCallback? onLike;
   final VoidCallback? onDislike;
 
@@ -77,6 +78,7 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
     this.versionModelIconUrls = const <String?>[],
     this.onCopy,
     this.onRegenerate,
+    required this.onDelete,
     this.onLike,
     this.onDislike,
   });
@@ -1336,12 +1338,20 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   Widget? _buildFooterBar({required List<ChatSourceReference> activeSources}) {
     const maxInlineActions = 3;
     final actions = _buildFooterActions();
+    final forcedOverflowActions = actions
+        .where((action) => action.id == 'delete')
+        .toList(growable: false);
+    final inlineCandidateActions = actions
+        .where((action) => action.id != 'delete')
+        .toList(growable: false);
     final visibleActions = actions
+        .where((action) => action.id != 'delete')
         .take(maxInlineActions)
         .toList(growable: false);
-    final overflowActions = actions
-        .skip(maxInlineActions)
-        .toList(growable: false);
+    final overflowActions = [
+      ...inlineCandidateActions.skip(maxInlineActions),
+      ...forcedOverflowActions,
+    ];
     final infoWidgets = <Widget>[
       if (activeSources.isNotEmpty)
         OpenWebUISourcesWidget(
@@ -1520,6 +1530,13 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
               : null,
           sfSymbol: 'chevron.right',
         ),
+      _AssistantFooterAction(
+        id: 'delete',
+        icon: Platform.isIOS ? CupertinoIcons.delete : Icons.delete_outline,
+        label: l10n.delete,
+        onTap: widget.onDelete,
+        sfSymbol: 'trash',
+      ),
     ];
 
     return actions;

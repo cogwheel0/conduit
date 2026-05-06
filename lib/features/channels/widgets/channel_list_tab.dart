@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -5,14 +6,18 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import '../../../core/models/channel.dart';
 import '../../../core/providers/app_providers.dart';
+import '../../../core/utils/debug_logger.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../core/services/navigation_service.dart';
+import '../../auth/providers/unified_auth_providers.dart';
 import '../../navigation/widgets/sidebar_user_pill.dart';
 import '../providers/channel_providers.dart';
+import 'channel_form_dialog.dart';
 
 /// Sidebar tab that lists all channels with search and create support.
 class ChannelListTab extends ConsumerStatefulWidget {
@@ -78,75 +83,20 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
 
   Future<void> _showCreateChannelDialog() async {
     ConduitHaptics.lightImpact();
-    final l10n = AppLocalizations.of(context)!;
-    final nameController = TextEditingController();
-    final descController = TextEditingController();
-    var isPrivate = false;
-
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) {
-          return ThemedDialogs.buildBase(
-            context: ctx,
-            title: l10n.channelCreateTitle,
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: nameController,
-                  decoration: InputDecoration(labelText: l10n.channelName),
-                  autofocus: true,
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: descController,
-                  decoration: InputDecoration(
-                    labelText: l10n.channelDescription,
-                  ),
-                  maxLines: 2,
-                ),
-                const SizedBox(height: 12),
-                SwitchListTile(
-                  title: Text(l10n.channelPrivate),
-                  value: isPrivate,
-                  onChanged: (v) => setDialogState(() => isPrivate = v),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: Text(l10n.cancel),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: Text(l10n.channelCreateTitle),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-
-    // Don't dispose controllers here — the dialog's exit animation
-    // may still reference them. They'll be GC'd with the dialog tree.
-    final name = nameController.text.trim();
-    final description = descController.text.trim();
-
-    if (result != true || !mounted) return;
-    if (name.isEmpty) return;
+    final result = await showCreateChannelFormDialog(context);
+    if (result == null || !mounted) return;
 
     try {
       final api = ref.read(apiServiceProvider);
       if (api == null) return;
       final json = await api.createChannel(
-        name: name,
+        name: result.name,
         type: 'group',
-        description: description,
-        isPrivate: isPrivate,
+        description: result.description,
+        isPrivate: result.isPrivate,
       );
       final channel = Channel.fromJson(json);
+      if (!mounted) return;
       ref.read(channelsListProvider.notifier).addChannel(channel);
     } catch (e) {
       if (mounted) {
@@ -157,6 +107,108 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
         );
       }
     }
+  }
+
+  List<ConduitContextMenuAction> _buildChannelActions(Channel channel) {
+    final l10n = AppLocalizations.of(context)!;
+    if (channel.isDm) {
+      return [
+        ConduitContextMenuAction(
+          cupertinoIcon: CupertinoIcons.xmark,
+          materialIcon: Icons.close_rounded,
+          label: l10n.channelLeave,
+          onSelected: () async => _leaveChannel(channel),
+        ),
+      ];
+    }
+
+    final user = ref.read(currentUserProvider2);
+    final canManage =
+        user?.role == 'admin' ||
+        channel.userId == user?.id ||
+        channel.isManager;
+    if (!canManage) {
+      return [];
+    }
+
+    return [
+      ConduitContextMenuAction(
+        cupertinoIcon: CupertinoIcons.gear,
+        materialIcon: Icons.settings_rounded,
+        label: l10n.channelEdit,
+        onSelected: () async => _editChannel(channel),
+      ),
+    ];
+  }
+
+  Future<void> _leaveChannel(Channel channel) async {
+    final l10n = AppLocalizations.of(context)!;
+    final confirmed = await ThemedDialogs.confirm(
+      context,
+      title: l10n.channelLeave,
+      message: l10n.channelLeaveConfirm,
+    );
+    if (!confirmed || !mounted) return;
+
+    try {
+      final api = ref.read(apiServiceProvider);
+      if (api == null) return;
+      await api.updateMemberActiveStatus(channel.id, isActive: false);
+      if (!mounted) return;
+      ref.read(channelsListProvider.notifier).removeChannel(channel.id);
+      if (_activeChannelId == channel.id) {
+        ref.read(activeChannelProvider.notifier).clear();
+        NavigationService.router.go(Routes.chat);
+      }
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'leave-channel-failed',
+        scope: 'channels/list-tab',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      if (!mounted) return;
+      _showChannelActionError(l10n.errorMessage);
+    }
+  }
+
+  Future<void> _editChannel(Channel channel) async {
+    final l10n = AppLocalizations.of(context)!;
+    final result = await showEditChannelFormDialog(context, channel: channel);
+    if (result == null || !mounted) return;
+
+    try {
+      final api = ref.read(apiServiceProvider);
+      if (api == null) return;
+      final json = await api.updateChannel(
+        channel.id,
+        name: result.name,
+        description: result.description,
+        isPrivate: result.isPrivate,
+      );
+      final updated = Channel.fromJson(json);
+      if (!mounted) return;
+      ref.read(channelsListProvider.notifier).updateChannel(updated);
+      final activeChannel = ref.read(activeChannelProvider);
+      if (activeChannel?.id == updated.id) {
+        ref.read(activeChannelProvider.notifier).set(updated);
+      }
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'edit-channel-failed',
+        scope: 'channels/list-tab',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      if (!mounted) return;
+      _showChannelActionError(l10n.errorMessage);
+    }
+  }
+
+  void _showChannelActionError(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -230,6 +282,7 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
                         channel: ch,
                         selected: ch.id == _activeChannelId,
                         onTap: () => _onChannelTap(ch),
+                        actions: _buildChannelActions(ch),
                       );
                     },
                   ),
@@ -263,11 +316,13 @@ class _ChannelTile extends ConsumerWidget {
     required this.channel,
     required this.selected,
     required this.onTap,
+    required this.actions,
   });
 
   final Channel channel;
   final bool selected;
   final VoidCallback onTap;
+  final List<ConduitContextMenuAction> actions;
 
   IconData _channelIcon() {
     if (channel.isDm) return Icons.person_outline;
@@ -298,82 +353,85 @@ class _ChannelTile extends ConsumerWidget {
           )
         : theme.surfaceContainer;
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOutCubic,
-        decoration: BoxDecoration(
-          color: background,
-          borderRadius: BorderRadius.circular(AppBorderRadius.md),
-        ),
-        child: Material(
-          color: Colors.transparent,
-          borderRadius: BorderRadius.circular(AppBorderRadius.md),
-          child: InkWell(
-            onTap: onTap,
+    return ConduitContextMenu(
+      actions: actions,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
+          decoration: BoxDecoration(
+            color: background,
             borderRadius: BorderRadius.circular(AppBorderRadius.md),
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Row(
-                children: [
-                  Icon(
-                    _channelIcon(),
-                    color: selected ? theme.textPrimary : theme.textSecondary,
-                    size: IconSize.listItem,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _channelDisplayName(),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppTypography.sidebarTitleStyle.copyWith(
-                            color: selected
-                                ? theme.textPrimary
-                                : theme.textSecondary,
-                            fontWeight: selected
-                                ? FontWeight.w700
-                                : FontWeight.w500,
-                          ),
-                        ),
-                        if (channel.description.isNotEmpty) ...[
-                          const SizedBox(height: 2),
+          ),
+          child: Material(
+            color: Colors.transparent,
+            borderRadius: BorderRadius.circular(AppBorderRadius.md),
+            child: InkWell(
+              onTap: onTap,
+              borderRadius: BorderRadius.circular(AppBorderRadius.md),
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Row(
+                  children: [
+                    Icon(
+                      _channelIcon(),
+                      color: selected ? theme.textPrimary : theme.textSecondary,
+                      size: IconSize.listItem,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
                           Text(
-                            channel.description,
+                            _channelDisplayName(),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: AppTypography.sidebarSupportingStyle
-                                .copyWith(color: theme.textSecondary),
+                            style: AppTypography.sidebarTitleStyle.copyWith(
+                              color: selected
+                                  ? theme.textPrimary
+                                  : theme.textSecondary,
+                              fontWeight: selected
+                                  ? FontWeight.w700
+                                  : FontWeight.w500,
+                            ),
                           ),
+                          if (channel.description.isNotEmpty) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              channel.description,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppTypography.sidebarSupportingStyle
+                                  .copyWith(color: theme.textSecondary),
+                            ),
+                          ],
                         ],
-                      ],
+                      ),
                     ),
-                  ),
-                  if (unread > 0) ...[
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.primary,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        unread > 99 ? '99+' : '$unread',
-                        style: AppTypography.sidebarBadgeStyle.copyWith(
-                          color: Theme.of(context).colorScheme.onPrimary,
-                          fontWeight: FontWeight.w600,
+                    if (unread > 0) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.primary,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          unread > 99 ? '99+' : '$unread',
+                          style: AppTypography.sidebarBadgeStyle.copyWith(
+                            color: Theme.of(context).colorScheme.onPrimary,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
-                    ),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
           ),

@@ -26,7 +26,7 @@ void main() {
     );
 
     expect(find.text('Child'), findsOneWidget);
-    expect(find.byType(ContextMenuWidget), findsNothing);
+    expect(find.byType(GestureDetector), findsNothing);
   });
 
   testWidgets('wraps the child when actions are available', (tester) async {
@@ -47,6 +47,36 @@ void main() {
     );
 
     expect(find.text('Child'), findsOneWidget);
-    expect(find.byType(ContextMenuWidget), findsOneWidget);
+    expect(find.byType(GestureDetector), findsOneWidget);
+  });
+
+  testWidgets('does not build lazy top widget before the menu opens', (
+    tester,
+  ) async {
+    var buildCount = 0;
+
+    await tester.pumpWidget(
+      _buildHarness(
+        ConduitContextMenu(
+          actions: [
+            ConduitContextMenuAction(
+              cupertinoIcon: CupertinoIcons.doc_on_clipboard,
+              materialIcon: Icons.copy,
+              label: 'Copy',
+              onSelected: () async {},
+            ),
+          ],
+          topWidgetBuilder: (_) {
+            buildCount++;
+            return const Text('Top widget');
+          },
+          child: const Text('Child'),
+        ),
+      ),
+    );
+
+    expect(find.text('Child'), findsOneWidget);
+    expect(find.text('Top widget'), findsNothing);
+    expect(buildCount, 0);
   });
 }

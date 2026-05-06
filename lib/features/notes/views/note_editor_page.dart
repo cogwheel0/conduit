@@ -121,6 +121,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
           _note = note;
           _titleController.text = note.title;
           _contentController.text = note.markdownContent;
+          _updateWordCount();
           _isLoading = false;
           _hasChanges = false;
         });

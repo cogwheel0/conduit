@@ -16,8 +16,8 @@ import '../../../core/services/api_service.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../core/utils/model_icon_utils.dart';
 import '../../../core/utils/user_avatar_utils.dart';
-import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/model_avatar.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
@@ -28,6 +28,7 @@ import '../../chat/widgets/modern_chat_input.dart';
 import '../providers/channel_providers.dart';
 import '../providers/channel_socket_handler.dart';
 import '../utils/mention_utils.dart';
+import '../widgets/channel_form_dialog.dart';
 import '../widgets/channel_message_content.dart';
 import '../widgets/thread_panel.dart';
 
@@ -45,6 +46,8 @@ class ChannelPage extends ConsumerStatefulWidget {
 }
 
 class _ChannelPageState extends ConsumerState<ChannelPage> {
+  static const _reactionEmojis = ['👍', '❤️', '😂', '🎉', '🤔', '👀'];
+
   final ScrollController _scrollController = ScrollController();
   bool _isSending = false;
   bool _isLoadingMore = false;
@@ -423,85 +426,88 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   }
 
   // ---------------------------------------------------------------------------
-  // Bottom sheets
+  // Message actions
   // ---------------------------------------------------------------------------
 
-  void _showMessageActions(ChannelMessage message) {
+  List<ConduitContextMenuAction> _buildMessageActions(ChannelMessage message) {
     final l10n = AppLocalizations.of(context);
-    final theme = context.conduitTheme;
     final currentUserId = ref.read(currentUserProvider).value?.id;
     final isOwn = message.userId == currentUserId;
 
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: theme.surfaceContainer,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(AppBorderRadius.bottomSheet),
-        ),
+    return [
+      ConduitContextMenuAction(
+        cupertinoIcon: CupertinoIcons.smiley,
+        materialIcon: Icons.emoji_emotions_outlined,
+        label: l10n?.channelMessageReact ?? 'React',
+        onSelected: () async => _showEmojiPicker(message),
       ),
-      builder: (ctx) => SafeArea(
-        child: Column(
+      ConduitContextMenuAction(
+        cupertinoIcon: CupertinoIcons.reply,
+        materialIcon: Icons.reply_outlined,
+        label: l10n?.channelMessageReply ?? 'Reply',
+        onSelected: () async => _setReplyTo(message),
+      ),
+      if (message.parentId == null)
+        ConduitContextMenuAction(
+          cupertinoIcon: CupertinoIcons.bubble_left_bubble_right,
+          materialIcon: Icons.forum_outlined,
+          label:
+              'Thread'
+              '${message.replyCount > 0 ? " (${message.replyCount})" : ""}',
+          onSelected: () async => _openThread(message),
+        ),
+      ConduitContextMenuAction(
+        cupertinoIcon: message.isPinned
+            ? CupertinoIcons.pin_slash
+            : CupertinoIcons.pin,
+        materialIcon: Icons.push_pin_outlined,
+        label: message.isPinned ? 'Unpin' : 'Pin',
+        onSelected: () async => _togglePin(message),
+      ),
+      if (isOwn)
+        ConduitContextMenuAction(
+          cupertinoIcon: CupertinoIcons.pencil,
+          materialIcon: Icons.edit_outlined,
+          label: l10n?.channelMessageEdit ?? 'Edit',
+          onSelected: () async => _startEditingMessage(message),
+        ),
+      ConduitContextMenuAction(
+        cupertinoIcon: CupertinoIcons.delete,
+        materialIcon: Icons.delete_outline,
+        label: l10n?.channelMessageDelete ?? 'Delete',
+        destructive: true,
+        onSelected: () async => _deleteMessage(message),
+      ),
+    ];
+  }
+
+  Widget _buildReactionContextMenuTop(ChannelMessage message) {
+    final theme = context.conduitTheme;
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: theme.surfaces.popover,
+        borderRadius: BorderRadius.circular(AppBorderRadius.round),
+        boxShadow: theme.popoverShadows,
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: Spacing.xs,
+          vertical: Spacing.xxs,
+        ),
+        child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ListTile(
-              leading: const Icon(Icons.emoji_emotions_outlined),
-              title: Text(l10n?.channelMessageReact ?? 'React'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _showEmojiPicker(message);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.reply_outlined),
-              title: Text(l10n?.channelMessageReply ?? 'Reply'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _setReplyTo(message);
-              },
-            ),
-            if (message.parentId == null)
-              ListTile(
-                leading: const Icon(Icons.forum_outlined),
-                title: Text(
-                  'Thread'
-                  '${message.replyCount > 0 ? " (${message.replyCount})" : ""}',
-                ),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _openThread(message);
+            for (final emoji in _reactionEmojis)
+              CupertinoButton(
+                padding: const EdgeInsets.all(Spacing.xs),
+                minimumSize: const Size.square(36),
+                onPressed: () {
+                  Navigator.of(context, rootNavigator: true).pop();
+                  Future.microtask(() => _toggleReaction(message, emoji));
                 },
+                child: Text(emoji, style: const TextStyle(fontSize: 24)),
               ),
-            ListTile(
-              leading: const Icon(Icons.push_pin_outlined),
-              title: Text(message.isPinned ? 'Unpin' : 'Pin'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _togglePin(message);
-              },
-            ),
-            if (isOwn)
-              ListTile(
-                leading: const Icon(Icons.edit_outlined),
-                title: Text(l10n?.channelMessageEdit ?? 'Edit'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _startEditingMessage(message);
-                },
-              ),
-            ListTile(
-              leading: Icon(Icons.delete_outline, color: theme.error),
-              title: Text(
-                l10n?.channelMessageDelete ?? 'Delete',
-                style: AppTypography.bodyMediumStyle.copyWith(
-                  color: theme.error,
-                ),
-              ),
-              onTap: () {
-                Navigator.pop(ctx);
-                _deleteMessage(message);
-              },
-            ),
           ],
         ),
       ),
@@ -510,7 +516,6 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
 
   void _showEmojiPicker(ChannelMessage message) {
     final theme = context.conduitTheme;
-    const emojis = ['👍', '❤️', '😂', '🎉', '🤔', '👀'];
 
     showModalBottomSheet<void>(
       context: context,
@@ -530,7 +535,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
             spacing: Spacing.md,
             runSpacing: Spacing.md,
             alignment: WrapAlignment.center,
-            children: emojis.map((emoji) {
+            children: _reactionEmojis.map((emoji) {
               return InkWell(
                 borderRadius: BorderRadius.circular(AppBorderRadius.round),
                 onTap: () {
@@ -554,67 +559,14 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   // ---------------------------------------------------------------------------
 
   Future<void> _editChannel(Channel channel) async {
-    final l10n = AppLocalizations.of(context);
-    final theme = context.conduitTheme;
-
-    final nameController = TextEditingController(text: channel.name);
-    final descController = TextEditingController(text: channel.description);
-
-    final saved = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => ThemedDialogs.buildBase(
-        context: ctx,
-        title: l10n?.channelEdit ?? 'Edit Channel',
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: nameController,
-              autofocus: true,
-              style: AppTypography.bodyMediumStyle.copyWith(
-                color: theme.textPrimary,
-              ),
-              decoration: context.conduitInputStyles.underline(
-                hint: l10n?.channelName ?? 'Channel Name',
-              ),
-            ),
-            const SizedBox(height: Spacing.md),
-            TextField(
-              controller: descController,
-              style: AppTypography.bodyMediumStyle.copyWith(
-                color: theme.textPrimary,
-              ),
-              decoration: context.conduitInputStyles.underline(
-                hint: l10n?.channelDescription ?? 'Description',
-              ),
-              maxLines: 3,
-              minLines: 1,
-            ),
-          ],
-        ),
-        actions: [
-          ConduitTextButton(
-            text: l10n?.cancel ?? 'Cancel',
-            onPressed: () => Navigator.of(ctx).pop(false),
-          ),
-          ConduitTextButton(
-            text: l10n?.save ?? 'Save',
-            onPressed: () => Navigator.of(ctx).pop(true),
-            isPrimary: true,
-          ),
-        ],
-      ),
+    final result = await showEditChannelFormDialog(
+      context,
+      channel: channel,
+      includePrivacyToggle: false,
     );
-
-    // Don't dispose controllers here — the dialog's exit animation
-    // may still reference them. They'll be GC'd with the dialog tree.
-    final newName = nameController.text.trim();
-    final newDesc = descController.text.trim();
-
-    if (saved != true) return;
-
-    if (newName.isEmpty) return;
-    if (newName == channel.name && newDesc == channel.description) {
+    if (result == null) return;
+    if (result.name == channel.name &&
+        result.description == channel.description) {
       return;
     }
 
@@ -624,8 +576,8 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     try {
       final json = await api.updateChannel(
         channel.id,
-        name: newName,
-        description: newDesc,
+        name: result.name,
+        description: result.description,
       );
       if (!mounted) return;
       final updated = Channel.fromJson(json);
@@ -968,7 +920,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
           editController: _editController,
           onSubmitEdit: () => _submitEdit(message),
           onCancelEdit: _cancelEditing,
-          onLongPress: () => _showMessageActions(message),
+          contextMenuActions: _buildMessageActions(message),
+          contextMenuTopWidgetBuilder: (_) =>
+              _buildReactionContextMenuTop(message),
           onReactionTap: (emoji) => _toggleReaction(message, emoji),
           onThreadTap: message.parentId == null
               ? () => _openThread(message)
@@ -1140,7 +1094,8 @@ class _MessageBubble extends StatelessWidget {
     this.editController,
     this.onSubmitEdit,
     this.onCancelEdit,
-    required this.onLongPress,
+    required this.contextMenuActions,
+    this.contextMenuTopWidgetBuilder,
     required this.onReactionTap,
     this.onThreadTap,
   });
@@ -1157,7 +1112,8 @@ class _MessageBubble extends StatelessWidget {
   final TextEditingController? editController;
   final VoidCallback? onSubmitEdit;
   final VoidCallback? onCancelEdit;
-  final VoidCallback onLongPress;
+  final List<ConduitContextMenuAction> contextMenuActions;
+  final WidgetBuilder? contextMenuTopWidgetBuilder;
   final ValueChanged<String> onReactionTap;
   final VoidCallback? onThreadTap;
 
@@ -1166,8 +1122,9 @@ class _MessageBubble extends StatelessWidget {
     final theme = context.conduitTheme;
     final timestamp = _formatTimestamp(message.createdDateTime);
 
-    return InkWell(
-      onLongPress: onLongPress,
+    return ConduitContextMenu(
+      actions: contextMenuActions,
+      topWidgetBuilder: contextMenuTopWidgetBuilder,
       child: Padding(
         padding: EdgeInsets.only(
           left: Spacing.md,

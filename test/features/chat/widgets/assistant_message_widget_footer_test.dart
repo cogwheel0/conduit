@@ -43,6 +43,7 @@ Widget _buildAssistantHarness(ChatMessage message) {
           modelName: message.model,
           onCopy: () {},
           onRegenerate: () {},
+          onDelete: () {},
         ),
       ),
     ),

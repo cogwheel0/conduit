@@ -79,17 +79,12 @@ dependencies:
   html_unescape: ^2.0.0
   home_widget: ^0.9.1
   flutter_highlight: ^0.7.0
-  super_context_menu: ^0.9.1
-  super_drag_and_drop: ^0.9.1
   just_audio: ^0.10.5
   adaptive_platform_ui: ^0.1.103
   flutter_tex: ^5.2.6
-  super_clipboard: ^0.9.1
-  super_sliver_list: ^0.4.1
   gaimon: ^1.4.2
+  cupertino_context_menu_plus: ^1.0.3
   
-  # Clipboard functionality is available through flutter/services (part of Flutter SDK)
-
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -107,11 +102,6 @@ dev_dependencies:
 dependency_overrides:
   riverpod_lint: 3.0.3
   custom_lint_builder: 0.8.1
-  super_native_extensions:
-    git:
-      url: https://github.com/dilumdesilva/super_native_extensions
-      ref: main
-      path: super_native_extensions
 
 flutter:
   uses-material-design: true

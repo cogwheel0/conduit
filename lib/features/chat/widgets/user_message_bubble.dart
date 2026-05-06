@@ -31,6 +31,7 @@ class UserMessageBubble extends ConsumerStatefulWidget {
   final bool isStreaming;
   final String? modelName;
   final VoidCallback? onCopy;
+  final VoidCallback onDelete;
   final VoidCallback? onEdit;
   final VoidCallback? onRegenerate;
   final VoidCallback? onLike;
@@ -43,6 +44,7 @@ class UserMessageBubble extends ConsumerStatefulWidget {
     this.isStreaming = false,
     this.modelName,
     this.onCopy,
+    required this.onDelete,
     this.onEdit,
     this.onRegenerate,
     this.onLike,
@@ -54,8 +56,6 @@ class UserMessageBubble extends ConsumerStatefulWidget {
 }
 
 class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
-  static const Key _bubbleSurfaceKey = Key('user-message-bubble-surface');
-
   bool _isEditing = false;
   late final TextEditingController _editController;
   final FocusNode _editFocusNode = FocusNode();
@@ -579,6 +579,16 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
           }
         },
       ),
+      ConduitContextMenuAction(
+        cupertinoIcon: CupertinoIcons.delete,
+        materialIcon: Icons.delete_outline,
+        label: l10n.delete,
+        destructive: true,
+        onBeforeClose: () => ConduitHaptics.mediumImpact(),
+        onSelected: () async {
+          widget.onDelete();
+        },
+      ),
     ];
   }
 
@@ -615,34 +625,42 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
       bottomLeft: Radius.circular(AppBorderRadius.chatBubble),
       bottomRight: Radius.circular(AppBorderRadius.md),
     );
+    final actions = _buildMessageActions(context);
+    final attachmentContent = hasFilesFromArray
+        ? _buildUserFileImages()
+        : hasImages
+        ? _buildUserAttachmentImages()
+        : null;
 
-    return ConduitContextMenu(
-      actions: _buildMessageActions(context),
-      child: Container(
-        width: double.infinity,
-        margin: const EdgeInsets.only(bottom: Spacing.md, left: Spacing.xxl),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            // Display images outside and above the text bubble (iMessage style)
-            // Prioritize files array over attachmentIds to avoid duplication
-            if (hasFilesFromArray) ...[
-              _buildUserFileImages(),
-            ] else if (hasImages) ...[
-              _buildUserAttachmentImages(),
-            ],
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: Spacing.md, left: Spacing.xxl),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          // Display images outside and above the text bubble (iMessage style)
+          // Prioritize files array over attachmentIds to avoid duplication
+          if (attachmentContent != null)
+            ConduitContextMenu(
+              actions: actions,
+              keepChildVisibleDuringPress: true,
+              child: attachmentContent,
+            ),
 
-            // Display text bubble if there's text content
-            if (hasText) const SizedBox(height: Spacing.xs),
-            if (hasText)
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  Flexible(
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(maxWidth: bubbleMaxWidth),
+          // Display text bubble if there's text content
+          if (hasText) const SizedBox(height: Spacing.xs),
+          if (hasText)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                Flexible(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: bubbleMaxWidth),
+                    child: ConduitContextMenu(
+                      actions: actions,
+                      keepChildVisibleDuringPress: true,
                       child: Container(
-                        key: _bubbleSurfaceKey,
+                        key: const Key('user-message-bubble-surface'),
                         padding: const EdgeInsets.all(Spacing.sm + Spacing.xs),
                         decoration: BoxDecoration(
                           color: theme.chatBubbleUser,
@@ -710,16 +728,16 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
                       ),
                     ),
                   ),
-                ],
-              ),
+                ),
+              ],
+            ),
 
-            // Edit action buttons - show Save/Cancel when editing
-            if (_isEditing) ...[
-              const SizedBox(height: Spacing.sm),
-              _buildEditActionButtons(),
-            ],
+          // Edit action buttons - show Save/Cancel when editing
+          if (_isEditing) ...[
+            const SizedBox(height: Spacing.sm),
+            _buildEditActionButtons(),
           ],
-        ),
+        ],
       ),
     );
   }

@@ -18,6 +18,7 @@ import '../../../core/services/socket_service.dart';
 import '../../../core/services/streaming_response_controller.dart';
 import '../../../core/services/worker_manager.dart';
 import '../../../core/utils/debug_logger.dart';
+import '../../../core/utils/message_tree_utils.dart' as message_tree;
 import '../../../core/utils/tool_calls_parser.dart';
 import '../models/chat_context_attachment.dart';
 import '../providers/context_attachments_provider.dart';
@@ -1530,20 +1531,11 @@ Map<String, dynamic>? _buildOpenWebUiUserMessage({
   }
 
   final metadata = userMessage.metadata;
-  final parentId = (() {
-    final rawParentId = metadata?['parentId']?.toString().trim();
-    if (rawParentId != null && rawParentId.isNotEmpty) {
-      return rawParentId;
-    }
-    return previousMessage?.id;
-  })();
-  final rawChildren = metadata?['childrenIds'];
-  final childrenIds = rawChildren is List
-      ? rawChildren
-            .map((child) => child?.toString() ?? '')
-            .where((child) => child.isNotEmpty)
-            .toList(growable: true)
-      : <String>[];
+  final parentId =
+      message_tree.chatMessageParentId(userMessage) ?? previousMessage?.id;
+  final childrenIds = message_tree
+      .chatMessageChildrenIds(userMessage)
+      .toList(growable: true);
   if (assistantChildMessageId != null &&
       assistantChildMessageId.isNotEmpty &&
       !childrenIds.contains(assistantChildMessageId)) {

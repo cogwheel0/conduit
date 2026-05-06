@@ -8,6 +8,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../../../../core/models/chat_message.dart';
 import '../../../../core/providers/app_providers.dart';
 import '../../../../core/services/settings_service.dart';
+import '../../../../core/utils/message_tree_utils.dart' as message_tree;
 import '../../../../shared/widgets/markdown/markdown_preprocessor.dart';
 import '../../../tools/providers/tools_providers.dart';
 import '../../providers/chat_providers.dart';
@@ -925,21 +926,10 @@ class VoiceCallController extends _$VoiceCallController {
   String? _resolveActiveUserMessageId({
     required List<ChatMessage> messages,
     required int assistantIndex,
-  }) {
-    final metadataParentId = messages[assistantIndex].metadata?['parentId']
-        ?.toString()
-        .trim();
-    if (metadataParentId != null && metadataParentId.isNotEmpty) {
-      return metadataParentId;
-    }
-    for (var i = assistantIndex - 1; i >= 0; i--) {
-      final message = messages[i];
-      if (message.role == 'user') {
-        return message.id;
-      }
-    }
-    return null;
-  }
+  }) => message_tree.assistantParentUserMessageId(
+    messages: messages,
+    assistantIndex: assistantIndex,
+  );
 
   void _ignoreAssistantMessageId(String? value) {
     final normalized = value?.trim();

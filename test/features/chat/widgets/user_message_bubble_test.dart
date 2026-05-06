@@ -18,7 +18,11 @@ void main() {
         home: Scaffold(
           body: Align(
             alignment: Alignment.topRight,
-            child: UserMessageBubble(message: message, isUser: true),
+            child: UserMessageBubble(
+              message: message,
+              isUser: true,
+              onDelete: () {},
+            ),
           ),
         ),
       ),

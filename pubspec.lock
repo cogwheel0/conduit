@@ -297,6 +297,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.0.2"
+  cupertino_context_menu_plus:
+    dependency: "direct main"
+    description:
+      name: cupertino_context_menu_plus
+      sha256: "82881ce112484756afc5f6fe81fd79d8d71c6c8bab0fca3319d43554d08197c2"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.0.3"
   cupertino_icons:
     dependency: "direct main"
     description:
@@ -353,22 +361,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.7.12"
-  device_info_plus:
-    dependency: transitive
-    description:
-      name: device_info_plus
-      sha256: "98f28b42168cc509abc92f88518882fd58061ea372d7999aecc424345c7bff6a"
-      url: "https://pub.dev"
-    source: hosted
-    version: "11.5.0"
-  device_info_plus_platform_interface:
-    dependency: transitive
-    description:
-      name: device_info_plus_platform_interface
-      sha256: e1ea89119e34903dca74b883d0dd78eb762814f97fb6c76f35e9ff74d261a18f
-      url: "https://pub.dev"
-    source: hosted
-    version: "7.0.3"
   dio:
     dependency: "direct main"
     description:
@@ -933,23 +925,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.0.5"
-  irondash_engine_context:
-    dependency: transitive
-    description:
-      path: "irondash_vendored/engine_context/dart"
-      ref: "65eb406cd96f24d8de3d023d3d52e251891317ad"
-      resolved-ref: "65eb406cd96f24d8de3d023d3d52e251891317ad"
-      url: "https://github.com/dilumdesilva/super_native_extensions"
-    source: git
-    version: "0.5.5"
-  irondash_message_channel:
-    dependency: transitive
-    description:
-      name: irondash_message_channel
-      sha256: b4101669776509c76133b8917ab8cfc704d3ad92a8c450b92934dd8884a2f060
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.7.0"
   isolate_channel:
     dependency: transitive
     description:
@@ -1302,14 +1277,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "7.0.2"
-  pixel_snap:
-    dependency: transitive
-    description:
-      name: pixel_snap
-      sha256: "677410ea37b07cd37ecb6d5e6c0d8d7615a7cf3bd92ba406fd1ac57e937d1fb0"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.1.5"
   platform:
     dependency: transitive
     description:
@@ -1811,47 +1778,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.4.1"
-  super_clipboard:
-    dependency: "direct main"
-    description:
-      name: super_clipboard
-      sha256: e73f3bb7e66cc9260efa1dc507f979138e7e106c3521e2dda2d0311f6d728a16
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.9.1"
-  super_context_menu:
-    dependency: "direct main"
-    description:
-      name: super_context_menu
-      sha256: "44570d342bea2381c57520f181016207c0ffde401f05f641e6dfec495fa728fe"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.9.1"
-  super_drag_and_drop:
-    dependency: "direct main"
-    description:
-      name: super_drag_and_drop
-      sha256: "8946913a021cb617c35e36cfe57e8b817335643d7ee9bbc83d6e11760136bd1c"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.9.1"
-  super_native_extensions:
-    dependency: "direct overridden"
-    description:
-      path: super_native_extensions
-      ref: main
-      resolved-ref: "65eb406cd96f24d8de3d023d3d52e251891317ad"
-      url: "https://github.com/dilumdesilva/super_native_extensions"
-    source: git
-    version: "0.9.1"
-  super_sliver_list:
-    dependency: "direct main"
-    description:
-      name: super_sliver_list
-      sha256: b1e1e64d08ce40e459b9bb5d9f8e361617c26b8c9f3bb967760b0f436b6e3f56
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.4.1"
   synchronized:
     dependency: transitive
     description:
@@ -2140,14 +2066,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "5.15.0"
-  win32_registry:
-    dependency: transitive
-    description:
-      name: win32_registry
-      sha256: "6f1b564492d0147b330dd794fee8f512cec4977957f310f9951b5f9d83618dae"
-      url: "https://pub.dev"
-    source: hosted
-    version: "2.1.0"
   xdg_directories:
     dependency: transitive
     description:

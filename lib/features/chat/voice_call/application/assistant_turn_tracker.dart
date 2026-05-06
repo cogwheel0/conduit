@@ -1,4 +1,5 @@
 import '../../../../core/models/chat_message.dart';
+import '../../../../core/utils/message_tree_utils.dart' as message_tree;
 
 /// Outcome of matching an incoming transport event to the active assistant turn.
 typedef AssistantTransportDecision = ({
@@ -147,8 +148,7 @@ ChatMessage? resolveAssistantMessageForTurn({
       if (message.role != 'assistant' || message.content.trim().isEmpty) {
         continue;
       }
-      if (_normalizeId(message.metadata?['parentId']?.toString()) ==
-          normalizedUserId) {
+      if (message_tree.chatMessageParentId(message) == normalizedUserId) {
         return message;
       }
     }

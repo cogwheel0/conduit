@@ -7,11 +7,13 @@ import 'package:intl/intl.dart';
 import '../../../core/models/note.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../navigation/widgets/sidebar_user_pill.dart';
 import '../providers/notes_providers.dart';
+import '../utils/note_context_actions.dart';
 
 /// Simplified notes list for the sidebar Notes tab.
 class NotesListTab extends ConsumerStatefulWidget {
@@ -89,6 +91,21 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
         ResponsiveDrawerLayout.of(context)?.close();
       }
     }
+  }
+
+  Future<void> _deleteNote(Note note) =>
+      confirmAndDeleteNote(context, ref, note);
+
+  Future<void> _togglePin(Note note) => toggleNotePin(context, ref, note);
+
+  List<ConduitContextMenuAction> _buildNoteActions(Note note) {
+    return buildNoteContextMenuActions(
+      context: context,
+      note: note,
+      onEdit: _onNoteTap,
+      onTogglePin: _togglePin,
+      onDelete: _deleteNote,
+    );
   }
 
   @override
@@ -187,6 +204,7 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
                             note: note,
                             selected: note.id == _activeNoteId,
                             onTap: () => _onNoteTap(note),
+                            actions: _buildNoteActions(note),
                           );
                         }
 
@@ -199,6 +217,7 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
                           note: note,
                           selected: note.id == _activeNoteId,
                           onTap: () => _onNoteTap(note),
+                          actions: _buildNoteActions(note),
                         );
                       }
 
@@ -207,6 +226,7 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
                         note: note,
                         selected: note.id == _activeNoteId,
                         onTap: () => _onNoteTap(note),
+                        actions: _buildNoteActions(note),
                       );
                     },
                   ),
@@ -227,11 +247,13 @@ class _NoteListTile extends StatelessWidget {
     required this.note,
     required this.selected,
     required this.onTap,
+    required this.actions,
   });
 
   final Note note;
   final bool selected;
   final VoidCallback onTap;
+  final List<ConduitContextMenuAction> actions;
 
   @override
   Widget build(BuildContext context) {
@@ -250,71 +272,74 @@ class _NoteListTile extends StatelessWidget {
           )
         : theme.surfaceContainer;
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOutCubic,
-        decoration: BoxDecoration(
-          color: background,
-          borderRadius: BorderRadius.circular(AppBorderRadius.md),
-        ),
-        child: Material(
-          color: Colors.transparent,
-          borderRadius: BorderRadius.circular(AppBorderRadius.md),
-          child: InkWell(
-            onTap: onTap,
+    return ConduitContextMenu(
+      actions: actions,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
+          decoration: BoxDecoration(
+            color: background,
             borderRadius: BorderRadius.circular(AppBorderRadius.md),
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppTypography.sidebarTitleStyle.copyWith(
-                            color: theme.textPrimary,
-                            fontWeight: selected
-                                ? FontWeight.w700
-                                : FontWeight.w600,
+          ),
+          child: Material(
+            color: Colors.transparent,
+            borderRadius: BorderRadius.circular(AppBorderRadius.md),
+            child: InkWell(
+              onTap: onTap,
+              borderRadius: BorderRadius.circular(AppBorderRadius.md),
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTypography.sidebarTitleStyle.copyWith(
+                              color: theme.textPrimary,
+                              fontWeight: selected
+                                  ? FontWeight.w700
+                                  : FontWeight.w600,
+                            ),
                           ),
                         ),
-                      ),
-                      if (note.isPinned) ...[
-                        Icon(
-                          UiUtils.pinIcon,
-                          size: 14,
-                          color: theme.buttonPrimary,
+                        if (note.isPinned) ...[
+                          Icon(
+                            UiUtils.pinIcon,
+                            size: 14,
+                            color: theme.buttonPrimary,
+                          ),
+                          const SizedBox(width: 6),
+                        ],
+                        const SizedBox(width: 8),
+                        Text(
+                          timeAgo,
+                          style: AppTypography.sidebarSupportingStyle.copyWith(
+                            color: theme.textSecondary,
+                          ),
                         ),
-                        const SizedBox(width: 6),
                       ],
-                      const SizedBox(width: 8),
+                    ),
+                    if (preview.isNotEmpty) ...[
+                      const SizedBox(height: 6),
                       Text(
-                        timeAgo,
+                        preview,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                         style: AppTypography.sidebarSupportingStyle.copyWith(
                           color: theme.textSecondary,
+                          height: 1.4,
                         ),
                       ),
                     ],
-                  ),
-                  if (preview.isNotEmpty) ...[
-                    const SizedBox(height: 6),
-                    Text(
-                      preview,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTypography.sidebarSupportingStyle.copyWith(
-                        color: theme.textSecondary,
-                        height: 1.4,
-                      ),
-                    ),
                   ],
-                ],
+                ),
               ),
             ),
           ),
