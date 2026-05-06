@@ -270,6 +270,21 @@ class FileAttachmentService {
 
   // Pick image from gallery
   Future<LocalAttachment?> pickImage() async {
+    if (Platform.isAndroid || Platform.isIOS) {
+      try {
+        return await _pickImageWithImagePicker();
+      } catch (e) {
+        DebugLogger.log(
+          'ImagePicker image failed: $e',
+          scope: 'attachments/image',
+        );
+      }
+    }
+
+    return _pickImageWithFilePicker();
+  }
+
+  Future<LocalAttachment?> _pickImageWithFilePicker() async {
     try {
       final result = await FilePicker.pickFiles(
         allowMultiple: false,
@@ -297,6 +312,11 @@ class FileAttachmentService {
       );
     }
 
+    if (Platform.isAndroid || Platform.isIOS) return null;
+    return _pickImageWithImagePicker();
+  }
+
+  Future<LocalAttachment?> _pickImageWithImagePicker() async {
     try {
       final XFile? image = await _imagePicker.pickImage(
         source: ImageSource.gallery,
