@@ -1126,6 +1126,10 @@ class AuthStateManager extends _$AuthStateManager {
       ref.invalidate(currentUserProvider);
       ref.invalidate(userSettingsProvider);
       ref.invalidate(rawUserSettingsProvider);
+      ref.invalidate(personalizationSettingsProvider);
+      ref.invalidate(userMemoriesProvider);
+      ref.invalidate(accountProfileProvider);
+      ref.invalidate(serverAboutInfoProvider);
       ref.invalidate(userPermissionsProvider);
       ref.invalidate(toolsListProvider);
       ref.invalidate(selectedToolIdsProvider);

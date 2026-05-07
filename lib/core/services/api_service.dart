@@ -6,16 +6,20 @@ import 'package:flutter/foundation.dart';
 import 'package:http_parser/http_parser.dart';
 import 'package:uuid/uuid.dart';
 import 'chat_completion_transport.dart';
+import '../models/account_metadata.dart';
 import '../models/backend_config.dart';
-import '../models/server_config.dart';
-import '../models/user.dart';
-import '../models/model.dart';
-import '../models/conversation.dart';
 import '../models/chat_message.dart';
+import '../models/conversation.dart';
 import '../models/file_info.dart';
 import '../models/knowledge_base.dart';
 import '../models/knowledge_base_file.dart';
+import '../models/model.dart';
 import '../models/prompt.dart';
+import '../models/server_about_info.dart';
+import '../models/server_config.dart';
+import '../models/server_memory.dart';
+import '../models/server_user_settings.dart';
+import '../models/user.dart';
 import '../auth/api_auth_interceptor.dart';
 import '../error/api_error_interceptor.dart';
 // Tool-call details are parsed in the UI layer to render collapsible blocks
@@ -593,6 +597,45 @@ class ApiService {
     }
   }
 
+  Future<ServerAboutInfo> getServerAboutInfo() async {
+    final results = await Future.wait<dynamic>([
+      _dio.get('/api/config').then((response) => response.data),
+      (() async {
+        try {
+          return (await _dio.get('/api/version')).data;
+        } catch (_) {
+          return null;
+        }
+      })(),
+      (() async {
+        try {
+          return (await _dio.get('/api/version/updates')).data;
+        } catch (_) {
+          return null;
+        }
+      })(),
+      (() async {
+        try {
+          return (await _dio.get('/api/changelog')).data;
+        } catch (_) {
+          return null;
+        }
+      })(),
+    ]);
+
+    final config = _coerceResponseMap(results[0]);
+    if (config == null) {
+      throw StateError('Unexpected /api/config response type.');
+    }
+
+    return ServerAboutInfo.fromJson(
+      config,
+      versionData: _coerceResponseMap(results[1]),
+      updateData: _coerceResponseMap(results[2]),
+      changelog: _coerceResponseMap(results[3]),
+    );
+  }
+
   // Authentication
   Future<Map<String, dynamic>> login(String username, String password) async {
     try {
@@ -667,6 +710,73 @@ class ApiService {
     final response = await _dio.get('/api/v1/auths/');
     DebugLogger.log('user-info', scope: 'api/user');
     return User.fromJson(response.data);
+  }
+
+  Future<AccountMetadata> getAccountMetadata() async {
+    final results = await Future.wait<dynamic>([
+      _dio.get('/api/v1/auths/').then((response) => response.data),
+      (() async {
+        try {
+          return (await _dio.get('/api/v1/users/user/info')).data;
+        } catch (_) {
+          return null;
+        }
+      })(),
+    ]);
+
+    final accountData = _coerceResponseMap(results[0]);
+    if (accountData == null) {
+      throw StateError('Unexpected account response type.');
+    }
+
+    return AccountMetadata.fromJson(
+      accountData,
+      info: _coerceResponseMap(results[1]),
+    );
+  }
+
+  Future<AccountMetadata> updateAccountMetadata({
+    required String name,
+    required String profileImageUrl,
+    String? bio,
+    String? gender,
+    String? dateOfBirth,
+    String? timezone,
+  }) async {
+    final trimmedName = name.trim();
+    if (trimmedName.isEmpty) {
+      throw ArgumentError('name cannot be empty');
+    }
+
+    await _dio.post(
+      '/api/v1/auths/update/profile',
+      data: {
+        'name': trimmedName,
+        'profile_image_url': profileImageUrl.trim(),
+        'bio': _normalizeNullableString(bio),
+        'gender': _normalizeNullableString(gender),
+        'date_of_birth': _normalizeNullableString(dateOfBirth),
+      },
+    );
+
+    if (timezone != null) {
+      await _dio.post(
+        '/api/v1/auths/update/timezone',
+        data: {'timezone': timezone.trim()},
+      );
+    }
+
+    return getAccountMetadata();
+  }
+
+  Future<void> updateAccountPassword({
+    required String password,
+    required String newPassword,
+  }) async {
+    await _dio.post(
+      '/api/v1/auths/update/password',
+      data: {'password': password, 'new_password': newPassword},
+    );
   }
 
   // Models
@@ -752,42 +862,47 @@ class ApiService {
   // Get default model configuration from OpenWebUI user settings
   Future<String?> getDefaultModel() async {
     try {
-      final response = await _dio.get('/api/v1/users/user/settings');
-
-      DebugLogger.log('settings-ok', scope: 'api/user-settings');
-
-      final data = response.data;
-      if (data is Map<String, dynamic>) {
-        // Extract default model from ui.models array
-        final ui = data['ui'];
-        if (ui is Map<String, dynamic>) {
-          final models = ui['models'];
-          if (models is List && models.isNotEmpty) {
-            // Return the first model in the user's preferred models list
-            final defaultModel = models.first.toString();
-            DebugLogger.log(
-              'default-model',
-              scope: 'api/user-settings',
-              data: {'id': defaultModel},
-            );
-            return defaultModel;
-          }
-        }
+      final settings = await getServerUserSettingsModel();
+      final defaultModel = settings.defaultModelId;
+      if (defaultModel != null) {
+        DebugLogger.log(
+          'default-model',
+          scope: 'api/user-settings',
+          data: {'id': defaultModel, 'source': 'user-settings'},
+        );
+        return defaultModel;
       }
-
-      // Fallback: user has no default model configured, pick first available
-      // This fixes issue #353 where secondary accounts couldn't send messages
-      DebugLogger.log('default-model-fallback', scope: 'api/user-settings');
-      return _getFirstAvailableModelId();
     } catch (e) {
       DebugLogger.error(
         'default-model-error',
         scope: 'api/user-settings',
         error: e,
       );
-      // Attempt fallback even on error
-      return _getFirstAvailableModelId();
     }
+
+    try {
+      final response = await _dio.get('/api/config');
+      final config = _coerceResponseMap(response.data);
+      final defaultModels = _coerceStringList(config?['default_models']);
+      if (defaultModels.isNotEmpty) {
+        final defaultModel = defaultModels.first;
+        DebugLogger.log(
+          'default-model',
+          scope: 'api/user-settings',
+          data: {'id': defaultModel, 'source': 'server-config'},
+        );
+        return defaultModel;
+      }
+    } catch (e) {
+      DebugLogger.error(
+        'default-model-config-error',
+        scope: 'api/user-settings',
+        error: e,
+      );
+    }
+
+    DebugLogger.log('default-model-fallback', scope: 'api/user-settings');
+    return _getFirstAvailableModelId();
   }
 
   /// Returns the ID of the first available model, or null if none available.
@@ -1504,6 +1619,26 @@ class ApiService {
     return null;
   }
 
+  Map<String, dynamic>? _coerceResponseMap(dynamic value) {
+    if (value is String && value.isNotEmpty) {
+      try {
+        final decoded = json.decode(value);
+        return _coerceJsonMap(decoded);
+      } catch (_) {
+        return null;
+      }
+    }
+    return _coerceJsonMap(value);
+  }
+
+  String? _normalizeNullableString(String? value) {
+    final trimmed = value?.trim();
+    if (trimmed == null || trimmed.isEmpty) {
+      return null;
+    }
+    return trimmed;
+  }
+
   List<String> _coerceStringList(dynamic value) {
     if (value is! List) {
       return <String>[];
@@ -1808,30 +1943,66 @@ class ApiService {
     await _dio.post('/api/v1/users/user/settings/update', data: settings);
   }
 
-  Future<Map<String, dynamic>> updateUserSystemPrompt(
+  Future<ServerUserSettings> getServerUserSettingsModel() async {
+    return ServerUserSettings.fromJson(await getUserSettings());
+  }
+
+  Future<ServerUserSettings> updateUserSystemPrompt(
     String? systemPrompt,
   ) async {
     final settings = _deepCloneJsonMap(await getUserSettings());
     final ui = _coerceJsonMap(settings['ui']) ?? <String, dynamic>{};
-    final trimmed = systemPrompt?.trim();
+    final trimmed = _normalizeNullableString(systemPrompt);
 
     if (trimmed == null || trimmed.isEmpty) {
       ui.remove('system');
-      settings.remove('system');
     } else {
-      settings['system'] = trimmed;
+      ui['system'] = trimmed;
     }
 
-    // Keep root `system` as the OpenWebUI-compatible source of truth.
-    ui.remove('system');
+    settings.remove('system');
     settings['ui'] = ui;
     _traceApi('Updating user system prompt');
     final response = await _dio.post(
       '/api/v1/users/user/settings/update',
       data: settings,
     );
-    final data = response.data;
-    return data is Map<String, dynamic> ? data : settings;
+    final data = _coerceResponseMap(response.data) ?? settings;
+    return ServerUserSettings.fromJson(data);
+  }
+
+  Future<ServerUserSettings> updateUserDefaultModel(String? modelId) async {
+    final settings = _deepCloneJsonMap(await getUserSettings());
+    final ui = _coerceJsonMap(settings['ui']) ?? <String, dynamic>{};
+    final trimmed = _normalizeNullableString(modelId);
+
+    if (trimmed == null) {
+      ui.remove('models');
+    } else {
+      ui['models'] = <String>[trimmed];
+    }
+
+    settings['ui'] = ui;
+    final response = await _dio.post(
+      '/api/v1/users/user/settings/update',
+      data: settings,
+    );
+    final data = _coerceResponseMap(response.data) ?? settings;
+    return ServerUserSettings.fromJson(data);
+  }
+
+  Future<ServerUserSettings> updateUserMemoryEnabled(bool enabled) async {
+    final settings = _deepCloneJsonMap(await getUserSettings());
+    final ui = _coerceJsonMap(settings['ui']) ?? <String, dynamic>{};
+    ui['memory'] = enabled;
+    settings['ui'] = ui;
+
+    final response = await _dio.post(
+      '/api/v1/users/user/settings/update',
+      data: settings,
+    );
+    final data = _coerceResponseMap(response.data) ?? settings;
+    return ServerUserSettings.fromJson(data);
   }
 
   // Suggestions
@@ -3520,26 +3691,56 @@ class ApiService {
   }
 
   // Memory & Notes
-  Future<List<Map<String, dynamic>>> getMemories() async {
+  Future<List<ServerMemory>> getMemories() async {
     _traceApi('Fetching memories');
     final response = await _dio.get('/api/v1/memories/');
     final data = response.data;
     if (data is List) {
-      return data.cast<Map<String, dynamic>>();
+      return data
+          .whereType<Map>()
+          .map((entry) => ServerMemory.fromJson(entry.cast<String, dynamic>()))
+          .toList(growable: false);
     }
-    return [];
+    return const <ServerMemory>[];
   }
 
-  Future<Map<String, dynamic>> createMemory({
-    required String content,
-    String? title,
-  }) async {
+  Future<ServerMemory> createMemory({required String content}) async {
     _traceApi('Creating memory');
     final response = await _dio.post(
-      '/api/v1/memories/',
-      data: {'content': content, 'title': ?title},
+      '/api/v1/memories/add',
+      data: {'content': content},
     );
-    return response.data as Map<String, dynamic>;
+    final data = _coerceResponseMap(response.data);
+    if (data == null) {
+      throw StateError('Unexpected memory create response type.');
+    }
+    return ServerMemory.fromJson(data);
+  }
+
+  Future<ServerMemory> updateMemory({
+    required String memoryId,
+    required String content,
+  }) async {
+    _traceApi('Updating memory');
+    final response = await _dio.post(
+      '/api/v1/memories/$memoryId/update',
+      data: {'content': content},
+    );
+    final data = _coerceResponseMap(response.data);
+    if (data == null) {
+      throw StateError('Unexpected memory update response type.');
+    }
+    return ServerMemory.fromJson(data);
+  }
+
+  Future<void> deleteMemory(String memoryId) async {
+    _traceApi('Deleting memory');
+    await _dio.delete('/api/v1/memories/$memoryId');
+  }
+
+  Future<void> clearAllMemories() async {
+    _traceApi('Clearing all memories');
+    await _dio.delete('/api/v1/memories/delete/user');
   }
 
   // Team Collaboration

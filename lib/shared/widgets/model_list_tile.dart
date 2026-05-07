@@ -167,6 +167,8 @@ class ModelListTile extends StatelessWidget {
                           style: AppTypography.labelSmallStyle.copyWith(
                             color: theme.textSecondary,
                           ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ] else if (hasCapabilities) ...[
                         const SizedBox(height: 2),

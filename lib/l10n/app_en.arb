@@ -2399,5 +2399,481 @@
   "connectionHealth": "Connection Health",
   "@connectionHealth": {
     "description": "Section title for connection health information."
+  },
+  "personalization": "Personalization",
+  "@personalization": {
+    "description": "Title for the personalization settings page."
+  },
+  "personalizationSubtitle": "Default model, personal prompt, and memories",
+  "@personalizationSubtitle": {
+    "description": "Subtitle for the personalization hub tile."
+  },
+  "yourSystemPrompt": "Your system prompt",
+  "@yourSystemPrompt": {
+    "description": "Label for the user's server-backed system prompt."
+  },
+  "yourSystemPromptDescription": "Set a personal system prompt that OpenWebUI will apply to your chats.",
+  "@yourSystemPromptDescription": {
+    "description": "Helper text for editing the user's system prompt."
+  },
+  "memoryTitle": "Memory",
+  "@memoryTitle": {
+    "description": "Section title for memory settings."
+  },
+  "memoryEnabledDescription": "Allow the server to use your saved memories in future chats.",
+  "@memoryEnabledDescription": {
+    "description": "Description shown when memory is enabled."
+  },
+  "memoryDisabledDescription": "Saved memories stay on the server, but they will not be injected into chats.",
+  "@memoryDisabledDescription": {
+    "description": "Description shown when memory is disabled."
+  },
+  "manageMemories": "Manage memories",
+  "@manageMemories": {
+    "description": "Title for the memories management card."
+  },
+  "manageMemoriesDescription": "Add, edit, and remove the facts the server remembers about you.",
+  "@manageMemoriesDescription": {
+    "description": "Subtitle for the memories management card."
+  },
+  "savedMemoriesCount": "{count} saved memories",
+  "@savedMemoriesCount": {
+    "description": "Shows how many memories are saved.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "memoryEditorDescription": "Keep memories short and specific so the server can apply them consistently.",
+  "@memoryEditorDescription": {
+    "description": "Helper text for the memory editor sheet."
+  },
+  "memoryHint": "Example: I prefer concise answers with code samples.",
+  "@memoryHint": {
+    "description": "Hint text for the memory editor."
+  },
+  "addMemory": "Add memory",
+  "@addMemory": {
+    "description": "Button label for creating a memory."
+  },
+  "editMemory": "Edit memory",
+  "@editMemory": {
+    "description": "Button label for editing a memory."
+  },
+  "deleteMemory": "Delete memory",
+  "@deleteMemory": {
+    "description": "Button label for deleting a memory."
+  },
+  "deleteMemoryConfirm": "Delete this saved memory from the server?",
+  "@deleteMemoryConfirm": {
+    "description": "Confirmation message for deleting a memory."
+  },
+  "clearAllMemories": "Clear all memories",
+  "@clearAllMemories": {
+    "description": "Button label for clearing every saved memory."
+  },
+  "clearAllMemoriesDescription": "This permanently deletes every saved memory for your account.",
+  "@clearAllMemoriesDescription": {
+    "description": "Confirmation message for clearing all memories."
+  },
+  "noMemoriesSaved": "No memories saved yet.",
+  "@noMemoriesSaved": {
+    "description": "Empty state message for the memories list."
+  },
+  "memoryUpdatedAt": "Updated {formattedTime}",
+  "@memoryUpdatedAt": {
+    "description": "Shows when a memory was last updated.",
+    "placeholders": {
+      "formattedTime": {}
+    }
+  },
+  "advancedPromptOverrides": "Advanced prompt overrides",
+  "@advancedPromptOverrides": {
+    "description": "Title for advanced model/folder prompt override settings."
+  },
+  "advancedPromptOverridesDescription": "Model-level prompt overrides live in App & Chat.",
+  "@advancedPromptOverridesDescription": {
+    "description": "Subtitle for the advanced prompt overrides shortcut."
+  },
+  "audioSettingsTitle": "Audio",
+  "@audioSettingsTitle": {
+    "description": "Title for the audio settings page."
+  },
+  "audioSettingsSubtitle": "Speech to text and text to speech",
+  "@audioSettingsSubtitle": {
+    "description": "Subtitle for the audio settings hub tile."
+  },
+  "appAndChat": "App & Chat",
+  "@appAndChat": {
+    "description": "Title for the app and chat settings page."
+  },
+  "appAndChatSubtitle": "Theme, language, chat behavior, and advanced overrides",
+  "@appAndChatSubtitle": {
+    "description": "Subtitle for the app and chat settings hub tile."
+  },
+  "accountSettingsTitle": "Account",
+  "@accountSettingsTitle": {
+    "description": "Title for the account settings page."
+  },
+  "accountSettingsSubtitle": "Profile details and password management",
+  "@accountSettingsSubtitle": {
+    "description": "Subtitle for the account settings hub tile."
+  },
+  "accountDetails": "Account details",
+  "@accountDetails": {
+    "description": "Heading for read-only account identity details."
+  },
+  "signInToManageAccount": "Sign in to manage account details.",
+  "@signInToManageAccount": {
+    "description": "Message shown when account details are unavailable."
+  },
+  "emailLabel": "Email",
+  "@emailLabel": {
+    "description": "Label for the account email row."
+  },
+  "roleLabel": "Role",
+  "@roleLabel": {
+    "description": "Label for the account role row."
+  },
+  "accountStatus": "Status",
+  "@accountStatus": {
+    "description": "Label for the account status row."
+  },
+  "profileDetails": "Profile details",
+  "@profileDetails": {
+    "description": "Heading for editable profile fields."
+  },
+  "name": "Name",
+  "@name": {
+    "description": "Label for a person's name."
+  },
+  "avatarUrl": "Avatar URL",
+  "@avatarUrl": {
+    "description": "Label for the avatar URL field."
+  },
+  "avatarUrlHint": "https://example.com/avatar.png",
+  "@avatarUrlHint": {
+    "description": "Hint text for the avatar URL field."
+  },
+  "bioLabel": "Bio",
+  "@bioLabel": {
+    "description": "Label for the bio field."
+  },
+  "bioHint": "A short description about you.",
+  "@bioHint": {
+    "description": "Hint text for the bio field."
+  },
+  "genderLabel": "Gender",
+  "@genderLabel": {
+    "description": "Label for the gender field."
+  },
+  "genderPreferNotToSay": "Prefer not to say",
+  "@genderPreferNotToSay": {
+    "description": "Option for not sharing gender."
+  },
+  "genderMale": "Male",
+  "@genderMale": {
+    "description": "Option for male gender."
+  },
+  "genderFemale": "Female",
+  "@genderFemale": {
+    "description": "Option for female gender."
+  },
+  "genderCustom": "Custom",
+  "@genderCustom": {
+    "description": "Option for a custom gender value."
+  },
+  "customGenderLabel": "Custom gender",
+  "@customGenderLabel": {
+    "description": "Label for the custom gender field."
+  },
+  "customGenderHint": "Enter your gender",
+  "@customGenderHint": {
+    "description": "Hint for the custom gender field."
+  },
+  "customGenderRequired": "Enter a custom gender or choose another option.",
+  "@customGenderRequired": {
+    "description": "Validation message when custom gender is selected but left empty."
+  },
+  "birthDateLabel": "Date of birth",
+  "@birthDateLabel": {
+    "description": "Label for the birth date field."
+  },
+  "selectBirthDate": "Select a date",
+  "@selectBirthDate": {
+    "description": "Placeholder for picking a birth date."
+  },
+  "birthDateHint": "YYYY-MM-DD",
+  "@birthDateHint": {
+    "description": "Hint text for the birth date field."
+  },
+  "currentAvatar": "Current avatar",
+  "@currentAvatar": {
+    "description": "Label shown above the current avatar preview."
+  },
+  "uploadFromDevice": "Upload from device",
+  "@uploadFromDevice": {
+    "description": "Action to upload an avatar from the device."
+  },
+  "useInitials": "Initials",
+  "@useInitials": {
+    "description": "Action to use initials as the avatar."
+  },
+  "removeAvatar": "Remove",
+  "@removeAvatar": {
+    "description": "Action to remove the current avatar."
+  },
+  "avatarUploadFailed": "Unable to update the avatar.",
+  "@avatarUploadFailed": {
+    "description": "Error shown when avatar selection or conversion fails."
+  },
+  "timezoneLabel": "Timezone",
+  "@timezoneLabel": {
+    "description": "Label for the timezone field."
+  },
+  "timezoneHint": "Asia/Kolkata",
+  "@timezoneHint": {
+    "description": "Hint text for the timezone field."
+  },
+  "saveProfile": "Save profile",
+  "@saveProfile": {
+    "description": "Button label for saving profile details."
+  },
+  "changePasswordTitle": "Change password",
+  "@changePasswordTitle": {
+    "description": "Heading and button label for password changes."
+  },
+  "passwordChangeUnavailable": "Password changes are disabled on this server.",
+  "@passwordChangeUnavailable": {
+    "description": "Message shown when password changes are disabled."
+  },
+  "currentPassword": "Current password",
+  "@currentPassword": {
+    "description": "Label for the current password field."
+  },
+  "newPassword": "New password",
+  "@newPassword": {
+    "description": "Label for the new password field."
+  },
+  "confirmNewPassword": "Confirm new password",
+  "@confirmNewPassword": {
+    "description": "Label for confirming the new password."
+  },
+  "nameRequired": "Enter a name before saving.",
+  "@nameRequired": {
+    "description": "Validation message shown when the name field is empty."
+  },
+  "profileUpdated": "Profile updated.",
+  "@profileUpdated": {
+    "description": "Success message after saving account metadata."
+  },
+  "passwordFieldsRequired": "Enter your current and new password.",
+  "@passwordFieldsRequired": {
+    "description": "Validation message shown when password fields are missing."
+  },
+  "passwordsDoNotMatch": "The new passwords do not match.",
+  "@passwordsDoNotMatch": {
+    "description": "Validation message shown when password confirmation fails."
+  },
+  "passwordUpdated": "Password updated.",
+  "@passwordUpdated": {
+    "description": "Success message after changing the password."
+  },
+  "activeStatus": "Active",
+  "@activeStatus": {
+    "description": "Label for an active account status."
+  },
+  "inactiveStatus": "Inactive",
+  "@inactiveStatus": {
+    "description": "Label for an inactive account status."
+  },
+  "appInformation": "Conduit app",
+  "@appInformation": {
+    "description": "Heading for local app information."
+  },
+  "appVersion": "Version",
+  "@appVersion": {
+    "description": "Label for the current app version."
+  },
+  "serverInformation": "Server information",
+  "@serverInformation": {
+    "description": "Heading for server metadata in the about page."
+  },
+  "serverInfoUnavailable": "Server information is unavailable right now.",
+  "@serverInfoUnavailable": {
+    "description": "Message shown when server about data cannot be loaded."
+  },
+  "serverNameLabel": "Server name",
+  "@serverNameLabel": {
+    "description": "Label for the server name row."
+  },
+  "serverVersionLabel": "Server version",
+  "@serverVersionLabel": {
+    "description": "Label for the server version row."
+  },
+  "latestVersionLabel": "Latest version",
+  "@latestVersionLabel": {
+    "description": "Label for the latest available version row."
+  },
+  "deploymentIdLabel": "Deployment ID",
+  "@deploymentIdLabel": {
+    "description": "Label for the deployment identifier row."
+  },
+  "defaultLocaleLabel": "Default locale",
+  "@defaultLocaleLabel": {
+    "description": "Label for the server default locale row."
+  },
+  "userCountLabel": "User count",
+  "@userCountLabel": {
+    "description": "Label for the server user count row."
+  },
+  "serverDefaultModelsLabel": "Default models",
+  "@serverDefaultModelsLabel": {
+    "description": "Label for the server default models row."
+  },
+  "loginFormLabel": "Login form",
+  "@loginFormLabel": {
+    "description": "Label for whether the login form is enabled."
+  },
+  "passwordChangesLabel": "Password changes",
+  "@passwordChangesLabel": {
+    "description": "Label for whether password changes are enabled."
+  },
+  "apiKeysLabel": "API keys",
+  "@apiKeysLabel": {
+    "description": "Label for whether API keys are enabled."
+  },
+  "audioInputLabel": "Audio input",
+  "@audioInputLabel": {
+    "description": "Label for whether speech-to-text is enabled on the server."
+  },
+  "audioOutputLabel": "Audio output",
+  "@audioOutputLabel": {
+    "description": "Label for whether text-to-speech is enabled on the server."
+  },
+  "speechToTextEngineLabel": "Speech-to-text engine",
+  "@speechToTextEngineLabel": {
+    "description": "Label for the server speech-to-text engine."
+  },
+  "textToSpeechEngineLabel": "Text-to-speech engine",
+  "@textToSpeechEngineLabel": {
+    "description": "Label for the server text-to-speech engine."
+  },
+  "licenseMetadataLabel": "License metadata",
+  "@licenseMetadataLabel": {
+    "description": "Heading for server license metadata."
+  },
+  "enabledLabel": "Enabled",
+  "@enabledLabel": {
+    "description": "Label for an enabled boolean value."
+  },
+  "disabledLabel": "Disabled",
+  "@disabledLabel": {
+    "description": "Label for a disabled boolean value."
+  },
+  "noEmailLabel": "No email",
+  "@noEmailLabel": {
+    "description": "Fallback label when the user has no email address."
+  },
+  "userFallbackName": "User",
+  "@userFallbackName": {
+    "description": "Fallback display name when no user name is available."
+  },
+  "unknownLabel": "Unknown",
+  "@unknownLabel": {
+    "description": "Generic fallback label when a server-provided value has no name."
+  },
+  "socketNotConnected": "Not connected",
+  "@socketNotConnected": {
+    "description": "Socket health status when there is no connection state yet."
+  },
+  "socketConnected": "Connected",
+  "@socketConnected": {
+    "description": "Socket health status when connected."
+  },
+  "socketDisconnected": "Disconnected",
+  "@socketDisconnected": {
+    "description": "Socket health status when disconnected."
+  },
+  "socketLatencyLabel": "Latency",
+  "@socketLatencyLabel": {
+    "description": "Metric label for socket latency."
+  },
+  "socketReconnectsLabel": "Reconnects",
+  "@socketReconnectsLabel": {
+    "description": "Metric label for socket reconnect count."
+  },
+  "socketLastHeartbeat": "Last heartbeat: {time}",
+  "@socketLastHeartbeat": {
+    "description": "Shows when the socket last received a heartbeat.",
+    "placeholders": {
+      "time": {
+        "type": "String",
+        "example": "just now"
+      }
+    }
+  },
+  "socketTransportWebSocket": "WebSocket transport",
+  "@socketTransportWebSocket": {
+    "description": "Label for WebSocket socket transport."
+  },
+  "socketTransportPolling": "HTTP polling transport",
+  "@socketTransportPolling": {
+    "description": "Label for HTTP polling socket transport."
+  },
+  "socketTransportUnknown": "Unknown transport",
+  "@socketTransportUnknown": {
+    "description": "Fallback label for an unknown socket transport."
+  },
+  "socketQualityExcellent": "Excellent",
+  "@socketQualityExcellent": {
+    "description": "Socket quality label for excellent quality."
+  },
+  "socketQualityGood": "Good",
+  "@socketQualityGood": {
+    "description": "Socket quality label for good quality."
+  },
+  "socketQualityFair": "Fair",
+  "@socketQualityFair": {
+    "description": "Socket quality label for fair quality."
+  },
+  "socketQualityPoor": "Poor",
+  "@socketQualityPoor": {
+    "description": "Socket quality label for poor quality."
+  },
+  "timeJustNow": "just now",
+  "@timeJustNow": {
+    "description": "Relative time label for a moment that just happened."
+  },
+  "timeSecondsAgo": "{count}s ago",
+  "@timeSecondsAgo": {
+    "description": "Compact relative time label for seconds ago.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "12"
+      }
+    }
+  },
+  "timeMinutesAgo": "{count}m ago",
+  "@timeMinutesAgo": {
+    "description": "Compact relative time label for minutes ago.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "5"
+      }
+    }
+  },
+  "timeHoursAgo": "{count}h ago",
+  "@timeHoursAgo": {
+    "description": "Compact relative time label for hours ago.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
   }
 }

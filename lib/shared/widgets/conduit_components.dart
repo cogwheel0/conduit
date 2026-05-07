@@ -1,4 +1,5 @@
 import 'dart:io' show Platform;
+import 'dart:math' as math;
 
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
@@ -90,10 +91,7 @@ class FloatingAppBarPill extends StatelessWidget {
       decoration: BoxDecoration(
         color: theme.surfaceContainerHighest,
         borderRadius: borderRadius,
-        border: Border.all(
-          color: theme.cardBorder,
-          width: BorderWidth.thin,
-        ),
+        border: Border.all(color: theme.cardBorder, width: BorderWidth.thin),
       ),
       child: blurChild,
     );
@@ -139,8 +137,7 @@ class FloatingAppBar extends StatelessWidget implements PreferredSizeWidget {
   });
 
   @override
-  Size get preferredSize =>
-      Size.fromHeight(kTextTabBarHeight + bottomHeight);
+  Size get preferredSize => Size.fromHeight(kTextTabBarHeight + bottomHeight);
 
   @override
   Widget build(BuildContext context) {
@@ -220,30 +217,34 @@ class FloatingAppBarTitle extends StatelessWidget {
     final conduitTheme = context.conduitTheme;
 
     return FloatingAppBarPill(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: Spacing.md,
-          vertical: Spacing.xs,
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (icon != null) ...[
-              Icon(
-                icon,
-                color: conduitTheme.textPrimary.withValues(alpha: 0.7),
-                size: IconSize.md,
+      child: SizedBox(
+        height: TouchTarget.minimum,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              if (icon != null) ...[
+                Icon(
+                  icon,
+                  color: conduitTheme.textPrimary.withValues(alpha: 0.7),
+                  size: IconSize.md,
+                ),
+                const SizedBox(width: Spacing.sm),
+              ],
+              Text(
+                text,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTypography.headlineSmallStyle.copyWith(
+                  color: conduitTheme.textPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
-              const SizedBox(width: Spacing.sm),
             ],
-            Text(
-              text,
-              style: AppTypography.headlineSmallStyle.copyWith(
-                color: conduitTheme.textPrimary,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -363,11 +364,7 @@ class ConduitGlassSearchField extends StatelessWidget {
           placeholderStyle: AppTypography.standard.copyWith(
             color: hintColor.withValues(alpha: 0.5),
           ),
-          prefixIcon: Icon(
-            CupertinoIcons.search,
-            color: hintColor,
-            size: 16,
-          ),
+          prefixIcon: Icon(CupertinoIcons.search, color: hintColor, size: 16),
           // Equal left/right insets so icon and clear button are balanced.
           prefixInsets: const EdgeInsetsDirectional.fromSTEB(14, 0, 9, 0),
           suffixInsets: const EdgeInsetsDirectional.fromSTEB(0, 0, 10, 0),
@@ -393,9 +390,7 @@ class ConduitGlassSearchField extends StatelessWidget {
           decoration: InputDecoration(
             isDense: true,
             hintText: hintText,
-            hintStyle: AppTypography.standard.copyWith(
-              color: placeholderColor,
-            ),
+            hintStyle: AppTypography.standard.copyWith(color: placeholderColor),
             prefixIcon: Icon(Icons.search, color: hintColor, size: 18),
             prefixIconConstraints: const BoxConstraints(
               minWidth: TouchTarget.minimum,
@@ -463,10 +458,17 @@ class ConduitButton extends ConsumerWidget {
     final variant = isDestructive
         ? styles.destructive()
         : isSecondary
-            ? styles.secondary()
-            : styles.primary();
+        ? styles.secondary()
+        : styles.primary();
     final backgroundColor = variant.background;
     final textColor = variant.foreground;
+    final height = isCompact ? TouchTarget.medium : TouchTarget.comfortable;
+    final horizontalPadding = isCompact ? Spacing.md : Spacing.buttonPadding;
+    final textStyle = AppTypography.standard.copyWith(
+      fontWeight: FontWeight.w600,
+      color: textColor,
+    );
+    final minWidth = width ?? _contentMinWidth(context, textStyle);
 
     // Build semantic label
     String semanticLabel = text;
@@ -491,65 +493,85 @@ class ConduitButton extends ConsumerWidget {
                 );
               }
             : null,
-        child: SizedBox(
-          width: isFullWidth ? double.infinity : width,
-          height: isCompact ? TouchTarget.medium : TouchTarget.comfortable,
-          child: AdaptiveButton.child(
-            onPressed: onPressed,
-            enabled: !isLoading && onPressed != null,
-            color: backgroundColor,
-            style: variant.adaptiveStyle,
-            size: isCompact
-                ? AdaptiveButtonSize.small
-                : AdaptiveButtonSize.medium,
-            padding: EdgeInsets.symmetric(
-              horizontal: isCompact ? Spacing.md : Spacing.buttonPadding,
-              vertical: Spacing.sm,
-            ),
-            borderRadius: BorderRadius.circular(AppBorderRadius.button),
-            minSize: Size(
-              TouchTarget.minimum,
-              isCompact ? TouchTarget.medium : TouchTarget.comfortable,
-            ),
-            child: isLoading
-                ? Semantics(
-                    label:
-                        AppLocalizations.of(context)?.loadingContent ??
-                        'Loading',
-                    excludeSemantics: true,
-                    child: SizedBox(
-                      width: IconSize.small,
-                      height: IconSize.small,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(textColor),
-                      ),
-                    ),
-                  )
-                : Row(
-                    mainAxisSize: MainAxisSize.min,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      if (icon != null) ...[
-                        Icon(icon, size: IconSize.small, color: textColor),
-                        SizedBox(width: Spacing.iconSpacing),
-                      ],
-                      Flexible(
-                        child:
-                            EnhancedAccessibilityService.createAccessibleText(
-                              text,
-                              style: AppTypography.standard.copyWith(
-                                fontWeight: FontWeight.w600,
-                                color: textColor,
-                              ),
-                              maxLines: 1,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final effectiveMinWidth =
+                isFullWidth && constraints.maxWidth.isFinite
+                ? constraints.maxWidth
+                : minWidth;
+
+            return SizedBox(
+              width: isFullWidth ? double.infinity : width,
+              height: height,
+              child: AdaptiveButton.child(
+                onPressed: onPressed,
+                enabled: !isLoading && onPressed != null,
+                color: backgroundColor,
+                style: variant.adaptiveStyle,
+                size: isCompact
+                    ? AdaptiveButtonSize.small
+                    : AdaptiveButtonSize.medium,
+                padding: EdgeInsets.symmetric(
+                  horizontal: horizontalPadding,
+                  vertical: Spacing.sm,
+                ),
+                borderRadius: BorderRadius.circular(AppBorderRadius.button),
+                minSize: Size(effectiveMinWidth, height),
+                child: isLoading
+                    ? Semantics(
+                        label:
+                            AppLocalizations.of(context)?.loadingContent ??
+                            'Loading',
+                        excludeSemantics: true,
+                        child: SizedBox(
+                          width: IconSize.small,
+                          height: IconSize.small,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              textColor,
                             ),
+                          ),
+                        ),
+                      )
+                    : Row(
+                        mainAxisSize: MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          if (icon != null) ...[
+                            Icon(icon, size: IconSize.small, color: textColor),
+                            SizedBox(width: Spacing.iconSpacing),
+                          ],
+                          Flexible(
+                            child:
+                                EnhancedAccessibilityService.createAccessibleText(
+                                  text,
+                                  style: textStyle,
+                                  maxLines: 1,
+                                ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-          ),
+              ),
+            );
+          },
         ),
       ),
+    );
+  }
+
+  double _contentMinWidth(BuildContext context, TextStyle textStyle) {
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: textStyle),
+      maxLines: 1,
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+    )..layout();
+    final iconWidth = icon == null ? 0 : IconSize.small + Spacing.iconSpacing;
+    final horizontalPadding = isCompact ? Spacing.md : Spacing.buttonPadding;
+    return math.max(
+      TouchTarget.minimum,
+      painter.width + iconWidth + (horizontalPadding * 2),
     );
   }
 }
@@ -586,11 +608,17 @@ class ConduitInput extends StatelessWidget {
   /// Whether the input is interactive.
   final bool enabled;
 
+  /// Whether the input should allow focus and selection but not editing.
+  final bool readOnly;
+
   /// Error message shown below the input.
   final String? errorText;
 
   /// Maximum number of lines for the input.
   final int? maxLines;
+
+  /// Minimum number of lines for multi-line inputs.
+  final int? minLines;
 
   /// Widget displayed after the input text.
   final Widget? suffixIcon;
@@ -610,6 +638,9 @@ class ConduitInput extends StatelessWidget {
   /// Called when the user submits the input.
   final ValueChanged<String>? onSubmitted;
 
+  /// Keyboard action requested for the input.
+  final TextInputAction? textInputAction;
+
   /// Whether to display a required asterisk next to the label.
   final bool isRequired;
 
@@ -628,14 +659,17 @@ class ConduitInput extends StatelessWidget {
     this.onTap,
     this.obscureText = false,
     this.enabled = true,
+    this.readOnly = false,
     this.errorText,
     this.maxLines = 1,
+    this.minLines,
     this.suffixIcon,
     this.prefixIcon,
     this.keyboardType,
     this.autofocus = false,
     this.semanticLabel,
     this.onSubmitted,
+    this.textInputAction,
     this.isRequired = false,
     this.style,
   }) : _variant = _InputVariant.standard;
@@ -650,14 +684,17 @@ class ConduitInput extends StatelessWidget {
     this.onTap,
     this.obscureText = false,
     this.enabled = true,
+    this.readOnly = false,
     this.errorText,
     this.maxLines = 1,
+    this.minLines,
     this.suffixIcon,
     this.prefixIcon,
     this.keyboardType,
     this.autofocus = false,
     this.semanticLabel,
     this.onSubmitted,
+    this.textInputAction,
     this.isRequired = false,
     this.style,
   }) : _variant = _InputVariant.borderless;
@@ -672,14 +709,17 @@ class ConduitInput extends StatelessWidget {
     this.onTap,
     this.obscureText = false,
     this.enabled = true,
+    this.readOnly = false,
     this.errorText,
     this.maxLines = 1,
+    this.minLines,
     this.suffixIcon,
     this.prefixIcon,
     this.keyboardType,
     this.autofocus = false,
     this.semanticLabel,
     this.onSubmitted,
+    this.textInputAction,
     this.isRequired = false,
     this.style,
   }) : _variant = _InputVariant.underline;
@@ -694,39 +734,40 @@ class ConduitInput extends StatelessWidget {
     this.onTap,
     this.obscureText = false,
     this.enabled = true,
+    this.readOnly = false,
     this.errorText,
     this.maxLines = 1,
+    this.minLines,
     this.suffixIcon,
     this.prefixIcon,
     this.keyboardType,
     this.autofocus = false,
     this.semanticLabel,
     this.onSubmitted,
+    this.textInputAction,
     this.isRequired = false,
     this.style,
   }) : _variant = _InputVariant.compact;
 
-  InputDecoration _resolveDecoration(
-    ConduitInputStyles inputStyles,
-  ) {
+  InputDecoration _resolveDecoration(ConduitInputStyles inputStyles) {
     final base = switch (_variant) {
-      _InputVariant.standard =>
-        inputStyles.standard(hint: hint, error: errorText),
-      _InputVariant.borderless =>
-        inputStyles.borderless(hint: hint),
-      _InputVariant.underline =>
-        inputStyles.underline(hint: hint),
-      _InputVariant.compact =>
-        inputStyles.compact(hint: hint, error: errorText),
+      _InputVariant.standard => inputStyles.standard(
+        hint: hint,
+        error: errorText,
+      ),
+      _InputVariant.borderless => inputStyles.borderless(hint: hint),
+      _InputVariant.underline => inputStyles.underline(hint: hint),
+      _InputVariant.compact => inputStyles.compact(
+        hint: hint,
+        error: errorText,
+      ),
     };
 
     return base.copyWith(
       suffixIcon: suffixIcon,
       prefixIcon: prefixIcon,
       errorText: switch (_variant) {
-        _InputVariant.borderless ||
-        _InputVariant.underline =>
-          errorText,
+        _InputVariant.borderless || _InputVariant.underline => errorText,
         _ => null,
       },
     );
@@ -736,7 +777,8 @@ class ConduitInput extends StatelessWidget {
   Widget build(BuildContext context) {
     final inputStyles = context.conduitInputStyles;
     final decoration = _resolveDecoration(inputStyles);
-    final textStyle = style ??
+    final textStyle =
+        style ??
         AppTypography.standard.copyWith(
           color: context.conduitTheme.textPrimary,
         );
@@ -772,8 +814,7 @@ class ConduitInput extends StatelessWidget {
           label:
               semanticLabel ??
               label ??
-              (AppLocalizations.of(context)?.inputField ??
-                  'Input field'),
+              (AppLocalizations.of(context)?.inputField ?? 'Input field'),
           textField: true,
           child: AdaptiveTextField(
             controller: controller,
@@ -782,8 +823,11 @@ class ConduitInput extends StatelessWidget {
             onSubmitted: onSubmitted,
             obscureText: obscureText,
             enabled: enabled,
+            readOnly: readOnly,
             maxLines: maxLines,
+            minLines: minLines,
             keyboardType: keyboardType,
+            textInputAction: textInputAction,
             autofocus: autofocus,
             style: textStyle,
             placeholder: hint,
@@ -879,15 +923,11 @@ class ConduitIconButton extends ConsumerWidget {
     final variant = isActive ? styles.primary() : styles.ghost();
     final effectiveIconColor =
         iconColor ??
-        (isActive
-            ? variant.background
-            : context.conduitTheme.iconSecondary);
+        (isActive ? variant.background : context.conduitTheme.iconSecondary);
     final effectiveBackgroundColor =
         backgroundColor ??
         (isActive
-            ? variant.background.withValues(
-                alpha: Alpha.highlight,
-              )
+            ? variant.background.withValues(alpha: Alpha.highlight)
             : Colors.transparent);
 
     String semanticLabel = tooltip ?? 'Button';
@@ -895,12 +935,9 @@ class ConduitIconButton extends ConsumerWidget {
       semanticLabel = '$semanticLabel, active';
     }
 
-    final double size =
-        isCompact ? TouchTarget.medium : TouchTarget.minimum;
+    final double size = isCompact ? TouchTarget.medium : TouchTarget.minimum;
     final borderRadius = BorderRadius.circular(
-      isCircular
-          ? AppBorderRadius.circular
-          : AppBorderRadius.standard,
+      isCircular ? AppBorderRadius.circular : AppBorderRadius.standard,
     );
 
     return Semantics(
@@ -930,8 +967,9 @@ class ConduitIconButton extends ConsumerWidget {
               borderRadius: borderRadius,
               border: isActive
                   ? Border.all(
-                      color: context.conduitTheme.buttonPrimary
-                          .withValues(alpha: Alpha.standard),
+                      color: context.conduitTheme.buttonPrimary.withValues(
+                        alpha: Alpha.standard,
+                      ),
                       width: BorderWidth.standard,
                     )
                   : null,
@@ -942,9 +980,7 @@ class ConduitIconButton extends ConsumerWidget {
               child: Center(
                 child: Icon(
                   icon,
-                  size: isCompact
-                      ? IconSize.small
-                      : IconSize.medium,
+                  size: isCompact ? IconSize.small : IconSize.medium,
                   color: effectiveIconColor,
                   semanticLabel: tooltip,
                 ),
@@ -1000,9 +1036,7 @@ class ConduitTextButton extends ConsumerWidget {
       onPressed: onPressed != null
           ? () {
               PlatformService.hapticFeedbackWithSettings(
-                type: isDestructive
-                    ? HapticType.warning
-                    : HapticType.light,
+                type: isDestructive ? HapticType.warning : HapticType.light,
                 hapticEnabled: hapticEnabled,
               );
               onPressed!();

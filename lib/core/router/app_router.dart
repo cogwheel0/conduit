@@ -24,7 +24,11 @@ import '../../features/navigation/views/splash_launcher_page.dart';
 import '../../features/notes/views/notes_list_page.dart';
 import '../../features/channels/views/channel_page.dart';
 import '../../features/notes/views/note_editor_page.dart';
+import '../../features/profile/views/about_page.dart';
+import '../../features/profile/views/account_settings_page.dart';
 import '../../features/profile/views/app_customization_page.dart';
+import '../../features/profile/views/audio_settings_page.dart';
+import '../../features/profile/views/personalization_page.dart';
 import '../../features/profile/views/profile_page.dart';
 import '../../l10n/app_localizations.dart';
 import '../models/server_config.dart';
@@ -318,9 +322,29 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       builder: (context, state) => const ProfilePage(),
     ),
     GoRoute(
+      path: Routes.personalization,
+      name: RouteNames.personalization,
+      builder: (context, state) => const PersonalizationPage(),
+    ),
+    GoRoute(
+      path: Routes.audioSettings,
+      name: RouteNames.audioSettings,
+      builder: (context, state) => const AudioSettingsPage(),
+    ),
+    GoRoute(
+      path: Routes.accountSettings,
+      name: RouteNames.accountSettings,
+      builder: (context, state) => const AccountSettingsPage(),
+    ),
+    GoRoute(
       path: Routes.appCustomization,
       name: RouteNames.appCustomization,
       builder: (context, state) => const AppCustomizationPage(),
+    ),
+    GoRoute(
+      path: Routes.about,
+      name: RouteNames.about,
+      builder: (context, state) => const AboutPage(),
     ),
     GoRoute(
       path: Routes.notes,

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/models/socket_health.dart';
 import '../../../core/services/socket_service.dart';
+import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 
@@ -54,6 +55,7 @@ class SocketHealthCardState extends State<SocketHealthCard> {
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
     final health = _health;
 
     if (health == null) {
@@ -68,7 +70,7 @@ class SocketHealthCardState extends State<SocketHealthCard> {
             ),
             const SizedBox(width: Spacing.md),
             Text(
-              'Not connected',
+              l10n.socketNotConnected,
               style: theme.bodyMedium?.copyWith(color: theme.textSecondary),
             ),
           ],
@@ -110,7 +112,9 @@ class SocketHealthCardState extends State<SocketHealthCard> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      health.isConnected ? 'Connected' : 'Disconnected',
+                      health.isConnected
+                          ? l10n.socketConnected
+                          : l10n.socketDisconnected,
                       style: theme.bodyMedium?.copyWith(
                         color: theme.sidebarForeground,
                         fontWeight: FontWeight.w600,
@@ -118,7 +122,7 @@ class SocketHealthCardState extends State<SocketHealthCard> {
                     ),
                     const SizedBox(height: Spacing.xxs),
                     Text(
-                      _getTransportLabel(health.transport),
+                      _getTransportLabel(l10n, health.transport),
                       style: theme.bodySmall?.copyWith(
                         color: theme.sidebarForeground.withValues(alpha: 0.75),
                       ),
@@ -141,7 +145,7 @@ class SocketHealthCardState extends State<SocketHealthCard> {
                     ),
                   ),
                   child: Text(
-                    _getQualityLabel(health.quality),
+                    _getQualityLabel(l10n, health.quality),
                     style: theme.bodySmall?.copyWith(
                       color: qualityColor,
                       fontWeight: FontWeight.w600,
@@ -159,7 +163,7 @@ class SocketHealthCardState extends State<SocketHealthCard> {
                 Expanded(
                   child: MetricTile(
                     icon: Icons.speed,
-                    label: 'Latency',
+                    label: l10n.socketLatencyLabel,
                     value: health.hasLatencyInfo
                         ? '${health.latencyMs}ms'
                         : '—',
@@ -170,7 +174,7 @@ class SocketHealthCardState extends State<SocketHealthCard> {
                 Expanded(
                   child: MetricTile(
                     icon: Icons.refresh,
-                    label: 'Reconnects',
+                    label: l10n.socketReconnectsLabel,
                     value: '${health.reconnectCount}',
                     color: health.reconnectCount > 0
                         ? theme.warning
@@ -190,7 +194,9 @@ class SocketHealthCardState extends State<SocketHealthCard> {
                   ),
                   const SizedBox(width: Spacing.xs),
                   Text(
-                    'Last heartbeat: ${_formatLastHeartbeat(health.lastHeartbeat!)}',
+                    l10n.socketLastHeartbeat(
+                      _formatLastHeartbeat(l10n, health.lastHeartbeat!),
+                    ),
                     style: theme.bodySmall?.copyWith(
                       color: theme.sidebarForeground.withValues(alpha: 0.6),
                     ),
@@ -204,27 +210,27 @@ class SocketHealthCardState extends State<SocketHealthCard> {
     );
   }
 
-  String _getTransportLabel(String transport) {
+  String _getTransportLabel(AppLocalizations l10n, String transport) {
     switch (transport) {
       case 'websocket':
-        return 'WebSocket transport';
+        return l10n.socketTransportWebSocket;
       case 'polling':
-        return 'HTTP polling transport';
+        return l10n.socketTransportPolling;
       default:
-        return 'Unknown transport';
+        return l10n.socketTransportUnknown;
     }
   }
 
-  String _getQualityLabel(String quality) {
+  String _getQualityLabel(AppLocalizations l10n, String quality) {
     switch (quality) {
       case 'excellent':
-        return 'Excellent';
+        return l10n.socketQualityExcellent;
       case 'good':
-        return 'Good';
+        return l10n.socketQualityGood;
       case 'fair':
-        return 'Fair';
+        return l10n.socketQualityFair;
       case 'poor':
-        return 'Poor';
+        return l10n.socketQualityPoor;
       default:
         return '—';
     }
@@ -245,18 +251,18 @@ class SocketHealthCardState extends State<SocketHealthCard> {
     }
   }
 
-  String _formatLastHeartbeat(DateTime lastHeartbeat) {
+  String _formatLastHeartbeat(AppLocalizations l10n, DateTime lastHeartbeat) {
     final now = DateTime.now();
     final diff = now.difference(lastHeartbeat);
 
     if (diff.inSeconds < 5) {
-      return 'just now';
+      return l10n.timeJustNow;
     } else if (diff.inSeconds < 60) {
-      return '${diff.inSeconds}s ago';
+      return l10n.timeSecondsAgo(diff.inSeconds);
     } else if (diff.inMinutes < 60) {
-      return '${diff.inMinutes}m ago';
+      return l10n.timeMinutesAgo(diff.inMinutes);
     } else {
-      return '${diff.inHours}h ago';
+      return l10n.timeHoursAgo(diff.inHours);
     }
   }
 }
@@ -300,9 +306,7 @@ class MetricTile extends StatelessWidget {
               children: [
                 Text(
                   label,
-                  style: AppTypography.labelSmallStyle.copyWith(
-                    color: theme.textSecondary,
-                  ),
+                  style: theme.bodySmall?.copyWith(color: theme.textSecondary),
                 ),
                 Text(
                   value,

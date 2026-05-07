@@ -102,7 +102,7 @@ class DefaultModelBottomSheetState
           builder: (context, scrollController) {
             return Container(
               decoration: BoxDecoration(
-                color: context.sidebarTheme.background,
+                color: context.conduitTheme.surfaceBackground,
                 borderRadius: const BorderRadius.vertical(
                   top: Radius.circular(AppBorderRadius.bottomSheet),
                 ),
@@ -146,8 +146,10 @@ class DefaultModelBottomSheetState
                                             AppLocalizations.of(
                                               context,
                                             )!.noResults,
-                                            style: AppTypography.bodyLargeStyle
-                                                .copyWith(
+                                            style: context
+                                                .conduitTheme
+                                                .bodyMedium
+                                                ?.copyWith(
                                                   color: context
                                                       .conduitTheme
                                                       .textSecondary,
@@ -159,12 +161,6 @@ class DefaultModelBottomSheetState
                                   : ListView.builder(
                                       controller: scrollController,
                                       padding: const EdgeInsets.only(top: 120),
-                                      prototypeItem: ModelListTile(
-                                        model: _filteredModels.first,
-                                        isSelected: false,
-                                        iconUrl: null,
-                                        onTap: () {},
-                                      ),
                                       itemCount: _filteredModels.length,
                                       itemBuilder: (context, index) {
                                         final model = _filteredModels[index];
@@ -245,8 +241,8 @@ class DefaultModelBottomSheetState
                                         AppLocalizations.of(
                                           context,
                                         )!.availableModels,
-                                        style: AppTypography.labelStyle
-                                            .copyWith(
+                                        style: context.conduitTheme.bodySmall
+                                            ?.copyWith(
                                               fontWeight: FontWeight.w600,
                                               color: context
                                                   .conduitTheme
@@ -275,8 +271,8 @@ class DefaultModelBottomSheetState
                                         ),
                                         child: Text(
                                           '${_filteredModels.length}',
-                                          style: AppTypography.labelMediumStyle
-                                              .copyWith(
+                                          style: context.conduitTheme.bodySmall
+                                              ?.copyWith(
                                                 color: context
                                                     .conduitTheme
                                                     .textSecondary,

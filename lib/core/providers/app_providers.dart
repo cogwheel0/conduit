@@ -14,11 +14,15 @@ import '../models/user.dart';
 import '../models/model.dart';
 import '../models/conversation.dart';
 import '../models/chat_message.dart';
+import '../models/account_metadata.dart';
 import '../models/backend_config.dart';
 import '../models/folder.dart';
-import '../models/user_settings.dart';
 import '../models/file_info.dart';
+import '../models/server_about_info.dart';
+import '../models/server_memory.dart';
+import '../models/server_user_settings.dart';
 import '../models/tool.dart';
+import '../models/user_settings.dart';
 import '../models/knowledge_base.dart';
 import '../services/settings_service.dart';
 import '../services/optimized_storage_service.dart';
@@ -1788,15 +1792,13 @@ Future<Model?> defaultModel(Ref ref) async {
       ref.read(selectedModelProvider.notifier).clear();
     }
 
-    // 1) Priority: user's configured default from app settings
-    // This ensures new chats use the user's preference (fixes #296)
+    // 1) Priority: app-local default model preference.
     final settingsDefaultId = ref.read(appSettingsProvider).defaultModel;
     final storedDefaultId =
         settingsDefaultId ??
         await SettingsService.getDefaultModel().catchError((_) => null);
 
     if (storedDefaultId != null && storedDefaultId.isNotEmpty) {
-      // Try cached models first for speed
       final cachedMatch = await selectCachedModel(storage, storedDefaultId);
       if (cachedMatch != null && !ref.read(isManualModelSelectionProvider)) {
         ref.read(selectedModelProvider.notifier).set(cachedMatch);
@@ -1812,7 +1814,7 @@ Future<Model?> defaultModel(Ref ref) async {
       }
     }
 
-    // 2) Fallback: cached resolved default model (for offline/fast startup)
+    // 2) Fallback: cached resolved default model (offline/fast startup).
     try {
       final cached = await storage.getLocalDefaultModel();
       if (cached != null && !ref.read(isManualModelSelectionProvider)) {
@@ -1831,7 +1833,8 @@ Future<Model?> defaultModel(Ref ref) async {
       }
     } catch (_) {}
 
-    // 3) Server default path, reconciled through the visible model list.
+    // 3) Fallback: server-provided automatic resolution when no app-local
+    // preference exists.
     try {
       final serverDefault = await api.getDefaultModel();
       if (serverDefault != null && serverDefault.isNotEmpty) {
@@ -2236,6 +2239,251 @@ final rawUserSettingsProvider = FutureProvider<Map<String, dynamic>>((
     return const <String, dynamic>{};
   }
 });
+
+@Riverpod(keepAlive: true)
+class PersonalizationSettings extends _$PersonalizationSettings {
+  @override
+  Future<ServerUserSettings> build() async {
+    final api = ref.watch(apiServiceProvider);
+    if (api == null) {
+      return const ServerUserSettings();
+    }
+    return api.getServerUserSettingsModel();
+  }
+
+  Future<void> refresh() async {
+    state = const AsyncLoading();
+    state = await AsyncValue.guard(_loadSettings);
+  }
+
+  Future<ServerUserSettings> setSystemPrompt(String? systemPrompt) async {
+    final api = ref.read(apiServiceProvider);
+    if (api == null) {
+      throw StateError('No API service available');
+    }
+
+    final updated = await api.updateUserSystemPrompt(systemPrompt);
+    if (!ref.mounted) {
+      return updated;
+    }
+
+    state = AsyncData(updated);
+    ref.invalidate(rawUserSettingsProvider);
+    ref.invalidate(userSettingsProvider);
+    return updated;
+  }
+
+  Future<ServerUserSettings> setMemoryEnabled(bool enabled) async {
+    final api = ref.read(apiServiceProvider);
+    if (api == null) {
+      throw StateError('No API service available');
+    }
+
+    final updated = await api.updateUserMemoryEnabled(enabled);
+    if (!ref.mounted) {
+      return updated;
+    }
+
+    state = AsyncData(updated);
+    ref.invalidate(rawUserSettingsProvider);
+    ref.invalidate(userSettingsProvider);
+    return updated;
+  }
+
+  Future<ServerUserSettings> _loadSettings() async {
+    final api = ref.read(apiServiceProvider);
+    if (api == null) {
+      return const ServerUserSettings();
+    }
+    return api.getServerUserSettingsModel();
+  }
+}
+
+@Riverpod(keepAlive: true)
+class UserMemories extends _$UserMemories {
+  @override
+  Future<List<ServerMemory>> build() async {
+    final api = ref.watch(apiServiceProvider);
+    if (api == null) {
+      return const <ServerMemory>[];
+    }
+    return _sortedMemories(await api.getMemories());
+  }
+
+  Future<void> refresh() async {
+    state = const AsyncLoading();
+    state = await AsyncValue.guard(_loadMemories);
+  }
+
+  Future<ServerMemory> add(String content) async {
+    final api = ref.read(apiServiceProvider);
+    if (api == null) {
+      throw StateError('No API service available');
+    }
+
+    final memory = await api.createMemory(content: content);
+    if (!ref.mounted) {
+      return memory;
+    }
+
+    state = AsyncData(
+      _sortedMemories([
+        ...state.asData?.value ?? const <ServerMemory>[],
+        memory,
+      ]),
+    );
+    return memory;
+  }
+
+  Future<ServerMemory> updateItem(String memoryId, String content) async {
+    final api = ref.read(apiServiceProvider);
+    if (api == null) {
+      throw StateError('No API service available');
+    }
+
+    final updated = await api.updateMemory(
+      memoryId: memoryId,
+      content: content,
+    );
+    if (!ref.mounted) {
+      return updated;
+    }
+
+    final current = state.asData?.value ?? const <ServerMemory>[];
+    final next = [
+      for (final memory in current)
+        if (memory.id == memoryId) updated else memory,
+    ];
+    state = AsyncData(_sortedMemories(next));
+    return updated;
+  }
+
+  Future<void> deleteItem(String memoryId) async {
+    final api = ref.read(apiServiceProvider);
+    if (api == null) {
+      throw StateError('No API service available');
+    }
+
+    await api.deleteMemory(memoryId);
+    if (!ref.mounted) {
+      return;
+    }
+
+    state = AsyncData([
+      for (final memory in state.asData?.value ?? const <ServerMemory>[])
+        if (memory.id != memoryId) memory,
+    ]);
+  }
+
+  Future<void> clearAll() async {
+    final api = ref.read(apiServiceProvider);
+    if (api == null) {
+      throw StateError('No API service available');
+    }
+
+    await api.clearAllMemories();
+    if (!ref.mounted) {
+      return;
+    }
+
+    state = const AsyncData(<ServerMemory>[]);
+  }
+
+  Future<List<ServerMemory>> _loadMemories() async {
+    final api = ref.read(apiServiceProvider);
+    if (api == null) {
+      return const <ServerMemory>[];
+    }
+    return _sortedMemories(await api.getMemories());
+  }
+
+  List<ServerMemory> _sortedMemories(List<ServerMemory> memories) {
+    final sorted = [...memories];
+    sorted.sort(
+      (left, right) => right.updatedAtEpoch.compareTo(left.updatedAtEpoch),
+    );
+    return sorted;
+  }
+}
+
+@Riverpod(keepAlive: true)
+class AccountProfile extends _$AccountProfile {
+  @override
+  Future<AccountMetadata?> build() async {
+    final api = ref.watch(apiServiceProvider);
+    if (api == null) {
+      return null;
+    }
+    return api.getAccountMetadata();
+  }
+
+  Future<void> refresh() async {
+    state = const AsyncLoading();
+    state = await AsyncValue.guard(_loadProfile);
+  }
+
+  Future<AccountMetadata> save({
+    required String name,
+    required String profileImageUrl,
+    String? bio,
+    String? gender,
+    String? dateOfBirth,
+    String? timezone,
+  }) async {
+    final api = ref.read(apiServiceProvider);
+    if (api == null) {
+      throw StateError('No API service available');
+    }
+
+    final updated = await api.updateAccountMetadata(
+      name: name,
+      profileImageUrl: profileImageUrl,
+      bio: bio,
+      gender: gender,
+      dateOfBirth: dateOfBirth,
+      timezone: timezone,
+    );
+    if (!ref.mounted) {
+      return updated;
+    }
+
+    state = AsyncData(updated);
+    await ref.read(authActionsProvider).refresh();
+    ref.invalidate(currentUserProvider);
+    return updated;
+  }
+
+  Future<void> updatePassword({
+    required String password,
+    required String newPassword,
+  }) async {
+    final api = ref.read(apiServiceProvider);
+    if (api == null) {
+      throw StateError('No API service available');
+    }
+    await api.updateAccountPassword(
+      password: password,
+      newPassword: newPassword,
+    );
+  }
+
+  Future<AccountMetadata?> _loadProfile() async {
+    final api = ref.read(apiServiceProvider);
+    if (api == null) {
+      return null;
+    }
+    return api.getAccountMetadata();
+  }
+}
+
+@Riverpod(keepAlive: true)
+Future<ServerAboutInfo?> serverAboutInfo(Ref ref) async {
+  final api = ref.watch(apiServiceProvider);
+  if (api == null) {
+    return null;
+  }
+  return api.getServerAboutInfo();
+}
 
 // Conversation Suggestions provider
 @Riverpod(keepAlive: true)

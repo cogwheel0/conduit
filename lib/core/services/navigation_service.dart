@@ -127,7 +127,11 @@ class Routes {
   static const String ssoAuth = '/sso-auth';
   static const String proxyAuth = '/proxy-auth';
   static const String profile = '/profile';
+  static const String personalization = '/profile/personalization';
+  static const String audioSettings = '/profile/audio';
+  static const String accountSettings = '/profile/account';
   static const String appCustomization = '/profile/customization';
+  static const String about = '/profile/about';
   static const String notes = '/notes';
   static const String noteEditor = '/notes/:id';
   static const String channel = '/channel/:id';
@@ -147,7 +151,11 @@ class RouteNames {
   static const String ssoAuth = 'sso-auth';
   static const String proxyAuth = 'proxy-auth';
   static const String profile = 'profile';
+  static const String personalization = 'personalization';
+  static const String audioSettings = 'audio-settings';
+  static const String accountSettings = 'account-settings';
   static const String appCustomization = 'app-customization';
+  static const String about = 'about';
   static const String notes = 'notes';
   static const String noteEditor = 'note-editor';
   static const String channel = 'channel';

@@ -6,7 +6,6 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/models/folder.dart';
 import '../../../core/models/model.dart';
 import '../../../core/services/settings_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
@@ -22,6 +21,7 @@ import '../../chat/services/voice_input_service.dart';
 import '../widgets/adaptive_segmented_selector.dart';
 import '../widgets/customization_tile.dart';
 import '../widgets/expandable_card.dart';
+import '../widgets/settings_page_scaffold.dart';
 import '../widgets/socket_health_card.dart';
 
 const _sectionGap = SizedBox(height: Spacing.lg);
@@ -31,6 +31,16 @@ class AppCustomizationPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    assert(() {
+      _buildSttSection;
+      _buildTtsDropdownSection;
+      _buildPromptLoadingTile;
+      _buildPromptErrorTile;
+      _extractSystemPrompt;
+      _showGlobalSystemPromptEditor;
+      return true;
+    }());
+
     final settings = ref.watch(appSettingsProvider);
     final themeMode = ref.watch(appThemeModeProvider);
     final platformBrightness = MediaQuery.platformBrightnessOf(context);
@@ -60,7 +70,7 @@ class AppCustomizationPage extends ConsumerWidget {
       extendBodyBehindAppBar: true,
       appBar: FloatingAppBar(
         leading: canPop ? const FloatingAppBarBackButton() : null,
-        title: FloatingAppBarTitle(text: l10n.appCustomization),
+        title: FloatingAppBarTitle(text: l10n.appAndChat),
       ),
       body: ListView(
         physics: const BouncingScrollPhysics(
@@ -88,10 +98,6 @@ class AppCustomizationPage extends ConsumerWidget {
             currentLanguageCode,
             languageLabel,
           ),
-          _sectionGap,
-          _buildSttSection(context, ref, settings),
-          _sectionGap,
-          _buildTtsDropdownSection(context, ref, settings),
           _sectionGap,
           _buildChatSection(context, ref, settings),
           _sectionGap,
@@ -316,7 +322,9 @@ class AppCustomizationPage extends ConsumerWidget {
                       leading: Icon(options[i].icon, size: IconSize.small),
                       title: Text(
                         options[i].label,
-                        style: Theme.of(context).textTheme.bodyMedium,
+                        style: context.conduitTheme.bodyMedium?.copyWith(
+                          color: context.conduitTheme.sidebarForeground,
+                        ),
                       ),
                       trailing: Checkbox.adaptive(
                         value: selected.contains(options[i].id),
@@ -513,46 +521,13 @@ class AppCustomizationPage extends ConsumerWidget {
   }
 
   Widget _buildSystemPromptsSection(BuildContext context, WidgetRef ref) {
-    final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
-    final userSettings = ref.watch(rawUserSettingsProvider);
     final models = ref.watch(modelsProvider);
-    final folders = ref.watch(foldersProvider);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _SectionHeader(title: l10n.systemPrompts),
-        const SizedBox(height: Spacing.sm),
-        userSettings.when(
-          data: (settings) {
-            final prompt = _extractSystemPrompt(settings);
-            return CustomizationTile(
-              leading: _buildIconBadge(
-                context,
-                UiUtils.platformIcon(
-                  ios: CupertinoIcons.person_crop_circle_badge_checkmark,
-                  android: Icons.person_outline,
-                ),
-                color: theme.buttonPrimary,
-              ),
-              title: l10n.globalSystemPrompt,
-              subtitle: _promptPreview(context, prompt),
-              onTap: () => _showGlobalSystemPromptEditor(
-                context,
-                ref,
-                initialValue: prompt ?? '',
-              ),
-            );
-          },
-          loading: () =>
-              _buildPromptLoadingTile(context, l10n.globalSystemPrompt),
-          error: (_, _) => _buildPromptErrorTile(
-            context,
-            title: l10n.globalSystemPrompt,
-            subtitle: l10n.unableToLoadOpenWebuiSettings,
-          ),
-        ),
+        _SectionHeader(title: l10n.advancedPromptOverrides),
         const SizedBox(height: Spacing.sm),
         ExpandableCard(
           title: l10n.modelSystemPrompts,
@@ -569,24 +544,6 @@ class AppCustomizationPage extends ConsumerWidget {
             loading: () => _buildCenteredProgress(),
             error: (_, _) =>
                 _buildPromptErrorText(context, l10n.unableToLoadModels),
-          ),
-        ),
-        const SizedBox(height: Spacing.sm),
-        ExpandableCard(
-          title: l10n.folderSystemPrompts,
-          subtitle: folders.maybeWhen(
-            data: (items) => l10n.accessibleFoldersCount(items.length),
-            orElse: () => l10n.openWebuiFolderSettings,
-          ),
-          icon: UiUtils.platformIcon(
-            ios: CupertinoIcons.folder,
-            android: Icons.folder_outlined,
-          ),
-          child: folders.when(
-            data: (items) => _buildFolderPromptList(context, ref, items),
-            loading: () => _buildCenteredProgress(),
-            error: (_, _) =>
-                _buildPromptErrorText(context, l10n.unableToLoadFolders),
           ),
         ),
       ],
@@ -620,39 +577,6 @@ class AppCustomizationPage extends ConsumerWidget {
             onTap: () => _showModelSystemPromptEditor(context, ref, models[i]),
           ),
           if (i != models.length - 1) const SizedBox(height: Spacing.xs),
-        ],
-      ],
-    );
-  }
-
-  Widget _buildFolderPromptList(
-    BuildContext context,
-    WidgetRef ref,
-    List<Folder> folders,
-  ) {
-    final l10n = AppLocalizations.of(context)!;
-    if (folders.isEmpty) {
-      return _buildPromptErrorText(context, l10n.noAccessibleFoldersFound);
-    }
-
-    return Column(
-      children: [
-        for (var i = 0; i < folders.length; i++) ...[
-          CustomizationTile(
-            leading: _buildIconBadge(
-              context,
-              UiUtils.platformIcon(
-                ios: CupertinoIcons.folder,
-                android: Icons.folder_outlined,
-              ),
-              color: context.conduitTheme.buttonPrimary,
-            ),
-            title: folders[i].name,
-            subtitle: _promptPreview(context, _extractFolderPrompt(folders[i])),
-            onTap: () =>
-                _showFolderSystemPromptEditor(context, ref, folders[i]),
-          ),
-          if (i != folders.length - 1) const SizedBox(height: Spacing.xs),
         ],
       ],
     );
@@ -695,7 +619,7 @@ class AppCustomizationPage extends ConsumerWidget {
   Widget _buildCenteredProgress() {
     return const Padding(
       padding: EdgeInsets.all(Spacing.md),
-      child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+      child: Center(child: ConduitLoadingIndicator(isCompact: true)),
     );
   }
 
@@ -705,7 +629,7 @@ class AppCustomizationPage extends ConsumerWidget {
       padding: const EdgeInsets.all(Spacing.md),
       child: Text(
         text,
-        style: AppTypography.bodyMediumStyle.copyWith(
+        style: theme.bodyMedium?.copyWith(
           color: theme.sidebarForeground.withValues(alpha: 0.75),
         ),
       ),
@@ -764,42 +688,6 @@ class AppCustomizationPage extends ConsumerWidget {
     );
   }
 
-  Future<void> _showFolderSystemPromptEditor(
-    BuildContext context,
-    WidgetRef ref,
-    Folder folder,
-  ) async {
-    final api = ref.read(apiServiceProvider);
-    if (api == null) return;
-
-    final l10n = AppLocalizations.of(context)!;
-    late final Map<String, dynamic>? detail;
-    try {
-      detail = await api.getFolderById(folder.id);
-    } catch (_) {
-      if (!context.mounted) return;
-      _showPromptSnackBar(context, l10n.unableToLoadFolder);
-      return;
-    }
-    if (!context.mounted) return;
-    if (detail == null) {
-      _showPromptSnackBar(context, l10n.unableToLoadFolder);
-      return;
-    }
-
-    final fullFolder = Folder.fromJson(detail);
-    await _showServerPromptEditor(
-      context,
-      title: l10n.folderSystemPromptTitle(fullFolder.name),
-      description: l10n.folderSystemPromptEditorDescription,
-      initialValue: _extractFolderPrompt(fullFolder) ?? '',
-      onSave: (value) async {
-        await api.updateFolderSystemPrompt(fullFolder.id, value);
-      },
-      afterSave: () => unawaited(ref.read(foldersProvider.notifier).refresh()),
-    );
-  }
-
   Future<void> _showServerPromptEditor(
     BuildContext context, {
     required String title,
@@ -811,12 +699,17 @@ class AppCustomizationPage extends ConsumerWidget {
   }) async {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
-    final messenger = ScaffoldMessenger.maybeOf(context);
+    void showMessage(String message) {
+      if (context.mounted) {
+        UiUtils.showMessage(context, message);
+      }
+    }
 
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      barrierColor: settingsSheetBarrierColor(context),
       builder: (sheetContext) => _ServerPromptEditorSheet(
         title: title,
         description: description,
@@ -829,7 +722,7 @@ class AppCustomizationPage extends ConsumerWidget {
         promptHint: l10n.enterSystemPrompt,
         errorMessage: l10n.errorMessage,
         savedMessage: l10n.saved,
-        messenger: messenger,
+        showMessage: showMessage,
         afterSave: afterSave,
         onSave: onSave,
       ),
@@ -837,9 +730,7 @@ class AppCustomizationPage extends ConsumerWidget {
   }
 
   void _showPromptSnackBar(BuildContext context, String message) {
-    ScaffoldMessenger.maybeOf(
-      context,
-    )?.showSnackBar(SnackBar(content: Text(message)));
+    UiUtils.showMessage(context, message);
   }
 
   String? _extractSystemPrompt(Map<String, dynamic> settings) {
@@ -860,21 +751,6 @@ class AppCustomizationPage extends ConsumerWidget {
       if (value.isNotEmpty) return value;
     }
     return null;
-  }
-
-  String? _extractFolderPrompt(Folder folder) {
-    final value = folder.data?['system_prompt'];
-    if (value is String && value.trim().isNotEmpty) {
-      return value.trim();
-    }
-    return null;
-  }
-
-  String _promptPreview(BuildContext context, String? prompt) {
-    if (prompt == null || prompt.isEmpty) {
-      return AppLocalizations.of(context)!.notSet;
-    }
-    return prompt;
   }
 
   Widget _buildSocketHealthSection(BuildContext context, WidgetRef ref) {
@@ -913,7 +789,6 @@ class AppCustomizationPage extends ConsumerWidget {
     WidgetRef ref,
     AppSettings settings,
   ) async {
-    final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final options = <({AndroidAssistantTrigger value, String label})>[
       (
@@ -932,111 +807,33 @@ class AppCustomizationPage extends ConsumerWidget {
 
     await showModalBottomSheet<void>(
       context: context,
-      backgroundColor: theme.sidebarBackground,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(AppBorderRadius.modal),
-        ),
-      ),
+      backgroundColor: Colors.transparent,
+      barrierColor: settingsSheetBarrierColor(context),
+      isScrollControlled: true,
       builder: (sheetContext) {
-        return SafeArea(
-          top: false,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: Spacing.lg,
-                  vertical: Spacing.md,
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            l10n.androidAssistantTitle,
-                            style:
-                                theme.headingSmall?.copyWith(
-                                  color: theme.sidebarForeground,
-                                ) ??
-                                AppTypography.headlineSmallStyle.copyWith(
-                                  color: theme.sidebarForeground,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                          ),
-                          const SizedBox(height: Spacing.xs),
-                          Text(
-                            l10n.androidAssistantDescription,
-                            style:
-                                theme.bodySmall?.copyWith(
-                                  color: theme.sidebarForeground.withValues(
-                                    alpha: 0.7,
-                                  ),
-                                ) ??
-                                AppTypography.bodySmallStyle.copyWith(
-                                  color: theme.sidebarForeground.withValues(
-                                    alpha: 0.7,
-                                  ),
-                                ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      icon: Icon(
-                        Platform.isIOS ? CupertinoIcons.xmark : Icons.close,
-                        color: theme.iconPrimary,
-                      ),
-                      onPressed: () => Navigator.of(sheetContext).pop(),
-                    ),
-                  ],
-                ),
-              ),
-              const Divider(height: 1),
-              for (var i = 0; i < options.length; i++) ...[
-                () {
-                  final option = options[i];
-                  final selected =
-                      settings.androidAssistantTrigger == option.value;
-                  return AdaptiveListTile(
-                    leading: Icon(
-                      selected
-                          ? (Platform.isIOS
-                                ? CupertinoIcons.checkmark_circle_fill
-                                : Icons.check_circle)
-                          : (Platform.isIOS
-                                ? CupertinoIcons.circle
-                                : Icons.circle_outlined),
-                      color: selected
-                          ? theme.buttonPrimary
-                          : theme.iconSecondary,
-                    ),
-                    title: Text(
-                      option.label,
-                      style: theme.bodyMedium?.copyWith(
-                        color: theme.sidebarForeground,
-                        fontWeight: selected
-                            ? FontWeight.w600
-                            : FontWeight.w500,
-                      ),
-                    ),
-                    onTap: () {
-                      if (!selected) {
-                        ref
-                            .read(appSettingsProvider.notifier)
-                            .setAndroidAssistantTrigger(option.value);
-                      }
-                      Navigator.of(sheetContext).pop();
-                    },
-                  );
-                }(),
-                if (i != options.length - 1) const Divider(height: 1),
-              ],
-              const SizedBox(height: Spacing.lg),
-            ],
-          ),
+        return SettingsSelectorSheet(
+          title: l10n.androidAssistantTitle,
+          description: l10n.androidAssistantDescription,
+          itemCount: options.length,
+          initialChildSize: 0.46,
+          minChildSize: 0.34,
+          maxChildSize: 0.72,
+          itemBuilder: (context, index) {
+            final option = options[index];
+            final selected = settings.androidAssistantTrigger == option.value;
+            return SettingsSelectorTile(
+              title: option.label,
+              selected: selected,
+              onTap: () {
+                if (!selected) {
+                  ref
+                      .read(appSettingsProvider.notifier)
+                      .setAndroidAssistantTrigger(option.value);
+                }
+                Navigator.of(sheetContext).pop();
+              },
+            );
+          },
         );
       },
     );
@@ -1099,15 +896,10 @@ class AppCustomizationPage extends ConsumerWidget {
                   Expanded(
                     child: Text(
                       l10n.sttEngineLabel,
-                      style:
-                          theme.bodyMedium?.copyWith(
-                            color: theme.sidebarForeground,
-                            fontWeight: FontWeight.w600,
-                          ) ??
-                          AppTypography.bodyMediumStyle.copyWith(
-                            color: theme.sidebarForeground,
-                            fontWeight: FontWeight.w600,
-                          ),
+                      style: theme.bodyMedium?.copyWith(
+                        color: theme.sidebarForeground,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                 ],
@@ -1149,13 +941,9 @@ class AppCustomizationPage extends ConsumerWidget {
                   key: ValueKey<String>(
                     'stt-desc-${settings.sttPreference.name}',
                   ),
-                  style:
-                      theme.bodyMedium?.copyWith(
-                        color: theme.sidebarForeground.withValues(alpha: 0.9),
-                      ) ??
-                      AppTypography.bodyMediumStyle.copyWith(
-                        color: theme.sidebarForeground.withValues(alpha: 0.9),
-                      ),
+                  style: theme.bodyMedium?.copyWith(
+                    color: theme.sidebarForeground.withValues(alpha: 0.9),
+                  ),
                 ),
               ),
               if (warnings.isNotEmpty) ...[
@@ -1165,15 +953,10 @@ class AppCustomizationPage extends ConsumerWidget {
                     padding: const EdgeInsets.only(top: Spacing.xs),
                     child: Text(
                       warning,
-                      style:
-                          theme.bodySmall?.copyWith(
-                            color: theme.error,
-                            fontWeight: FontWeight.w600,
-                          ) ??
-                          AppTypography.bodySmallStyle.copyWith(
-                            color: theme.error,
-                            fontWeight: FontWeight.w600,
-                          ),
+                      style: theme.bodySmall?.copyWith(
+                        color: theme.error,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                 ),
@@ -1190,45 +973,29 @@ class AppCustomizationPage extends ConsumerWidget {
                         children: [
                           Text(
                             l10n.sttSilenceDuration,
-                            style:
-                                theme.bodyMedium?.copyWith(
-                                  color: theme.sidebarForeground,
-                                  fontWeight: FontWeight.w600,
-                                ) ??
-                                AppTypography.bodyMediumStyle.copyWith(
-                                  color: theme.sidebarForeground,
-                                  fontWeight: FontWeight.w600,
-                                ),
+                            style: theme.bodyMedium?.copyWith(
+                              color: theme.sidebarForeground,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                           const SizedBox(height: Spacing.xs),
                           Text(
                             '${settings.voiceSilenceDuration}ms',
-                            style:
-                                theme.bodySmall?.copyWith(
-                                  color: theme.sidebarForeground.withValues(
-                                    alpha: 0.7,
-                                  ),
-                                ) ??
-                                AppTypography.bodySmallStyle.copyWith(
-                                  color: theme.sidebarForeground.withValues(
-                                    alpha: 0.7,
-                                  ),
-                                ),
+                            style: theme.bodySmall?.copyWith(
+                              color: theme.sidebarForeground.withValues(
+                                alpha: 0.7,
+                              ),
+                            ),
                           ),
                         ],
                       ),
                     ),
                     Text(
                       '${(settings.voiceSilenceDuration / 1000).toStringAsFixed(1)}s',
-                      style:
-                          theme.bodyMedium?.copyWith(
-                            color: theme.buttonPrimary,
-                            fontWeight: FontWeight.w600,
-                          ) ??
-                          AppTypography.bodyMediumStyle.copyWith(
-                            color: theme.buttonPrimary,
-                            fontWeight: FontWeight.w600,
-                          ),
+                      style: theme.bodyMedium?.copyWith(
+                        color: theme.buttonPrimary,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ],
                 ),
@@ -1248,13 +1015,9 @@ class AppCustomizationPage extends ConsumerWidget {
                 ),
                 Text(
                   l10n.sttSilenceDurationDescription,
-                  style:
-                      theme.bodySmall?.copyWith(
-                        color: theme.sidebarForeground.withValues(alpha: 0.7),
-                      ) ??
-                      AppTypography.bodySmallStyle.copyWith(
-                        color: theme.sidebarForeground.withValues(alpha: 0.7),
-                      ),
+                  style: theme.bodySmall?.copyWith(
+                    color: theme.sidebarForeground.withValues(alpha: 0.7),
+                  ),
                 ),
               ],
             ],
@@ -1314,14 +1077,10 @@ class AppCustomizationPage extends ConsumerWidget {
                   const SizedBox(width: Spacing.md),
                   Text(
                     l10n.ttsEngineLabel,
-                    style:
-                        theme.bodyMedium?.copyWith(
-                          color: theme.sidebarForeground,
-                          fontWeight: FontWeight.w600,
-                        ) ??
-                        AppTypography.bodyMediumStyle.copyWith(
-                          color: theme.sidebarForeground,
-                        ),
+                    style: theme.bodyMedium?.copyWith(
+                      color: theme.sidebarForeground,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ],
               ),
@@ -1358,13 +1117,9 @@ class AppCustomizationPage extends ConsumerWidget {
                 child: Text(
                   ttsDescription,
                   key: ValueKey<String>('tts-desc-${settings.ttsEngine.name}'),
-                  style:
-                      theme.bodyMedium?.copyWith(
-                        color: theme.sidebarForeground.withValues(alpha: 0.9),
-                      ) ??
-                      AppTypography.bodyMediumStyle.copyWith(
-                        color: theme.sidebarForeground.withValues(alpha: 0.9),
-                      ),
+                  style: theme.bodyMedium?.copyWith(
+                    color: theme.sidebarForeground.withValues(alpha: 0.9),
+                  ),
                 ),
               ),
               if (warnings.isNotEmpty) ...[
@@ -1374,15 +1129,10 @@ class AppCustomizationPage extends ConsumerWidget {
                     padding: const EdgeInsets.only(top: Spacing.xs),
                     child: Text(
                       warning,
-                      style:
-                          theme.bodySmall?.copyWith(
-                            color: theme.error,
-                            fontWeight: FontWeight.w600,
-                          ) ??
-                          AppTypography.bodySmallStyle.copyWith(
-                            color: theme.error,
-                            fontWeight: FontWeight.w600,
-                          ),
+                      style: theme.bodySmall?.copyWith(
+                        color: theme.error,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                 ),
@@ -1524,26 +1274,18 @@ class AppCustomizationPage extends ConsumerWidget {
               Expanded(
                 child: Text(
                   title,
-                  style:
-                      theme.bodyMedium?.copyWith(
-                        color: theme.sidebarForeground,
-                        fontWeight: FontWeight.w500,
-                      ) ??
-                      AppTypography.bodyMediumStyle.copyWith(
-                        color: theme.sidebarForeground,
-                      ),
+                  style: theme.bodyMedium?.copyWith(
+                    color: theme.sidebarForeground,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
               ),
               Text(
                 label,
-                style:
-                    theme.bodyMedium?.copyWith(
-                      color: theme.sidebarForeground.withValues(alpha: 0.75),
-                      fontWeight: FontWeight.w500,
-                    ) ??
-                    AppTypography.bodyMediumStyle.copyWith(
-                      color: theme.sidebarForeground.withValues(alpha: 0.75),
-                    ),
+                style: theme.bodyMedium?.copyWith(
+                  color: theme.sidebarForeground.withValues(alpha: 0.75),
+                  fontWeight: FontWeight.w500,
+                ),
               ),
             ],
           ),
@@ -1626,208 +1368,97 @@ class AppCustomizationPage extends ConsumerWidget {
 
     // Combine: matching voices first, then others
     final voices = [...matchingVoices, ...otherVoices];
+    final entries = <({String? section, Map<String, dynamic>? voice})>[
+      (section: null, voice: null),
+      if (matchingVoices.isNotEmpty && otherVoices.isNotEmpty)
+        (
+          section: l10n.ttsVoicesForLanguage(appLanguageCode.toUpperCase()),
+          voice: null,
+        ),
+      if (matchingVoices.isNotEmpty && otherVoices.isNotEmpty)
+        for (final voice in matchingVoices) (section: null, voice: voice),
+      if (matchingVoices.isNotEmpty && otherVoices.isNotEmpty)
+        (section: l10n.ttsOtherVoices, voice: null),
+      if (matchingVoices.isNotEmpty && otherVoices.isNotEmpty)
+        for (final voice in otherVoices) (section: null, voice: voice),
+      if (matchingVoices.isEmpty || otherVoices.isEmpty)
+        for (final voice in voices) (section: null, voice: voice),
+    ];
 
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: theme.sidebarBackground,
+      backgroundColor: Colors.transparent,
+      barrierColor: settingsSheetBarrierColor(context),
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
       builder: (BuildContext sheetContext) {
-        return DraggableScrollableSheet(
+        return SettingsSelectorSheet(
+          title: l10n.ttsSelectVoice,
+          itemCount: entries.length,
           initialChildSize: 0.7,
           minChildSize: 0.5,
           maxChildSize: 0.95,
-          expand: false,
-          builder: (context, scrollController) {
-            return Column(
-              children: [
-                _SheetHeader(
-                  title: l10n.ttsSelectVoice,
-                  onClose: () => Navigator.of(sheetContext).pop(),
+          itemBuilder: (context, index) {
+            final entry = entries[index];
+            if (entry.section != null) {
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  Spacing.sm,
+                  Spacing.md,
+                  Spacing.sm,
+                  Spacing.xs,
                 ),
-                const Divider(height: 1),
-                // System Default Option
-                AdaptiveListTile(
-                  leading: Icon(
-                    UiUtils.platformIcon(
-                      ios: CupertinoIcons.speaker_3,
-                      android: Icons.record_voice_over,
-                    ),
-                    color: theme.sidebarForeground,
-                  ),
-                  title: Text(
-                    l10n.ttsSystemDefault,
-                    style:
-                        theme.bodyMedium?.copyWith(
-                          color: theme.sidebarForeground,
-                          fontWeight:
-                              (settings.ttsEngine == TtsEngine.server
-                                  ? settings.ttsServerVoiceId == null
-                                  : settings.ttsVoice == null)
-                              ? FontWeight.bold
-                              : FontWeight.normal,
-                        ) ??
-                        AppTypography.bodyMediumStyle.copyWith(
-                          color: theme.sidebarForeground,
-                        ),
-                  ),
-                  trailing:
-                      (settings.ttsEngine == TtsEngine.server
-                          ? settings.ttsServerVoiceId == null
-                          : settings.ttsVoice == null)
-                      ? Icon(
-                          Platform.isIOS
-                              ? CupertinoIcons.check_mark
-                              : Icons.check,
-                          color: theme.buttonPrimary,
-                        )
-                      : null,
-                  onTap: () {
-                    final notifier = ref.read(appSettingsProvider.notifier);
-                    if (settings.ttsEngine == TtsEngine.server) {
-                      notifier.setTtsServerVoiceId(null);
-                      notifier.setTtsServerVoiceName(null);
-                    } else {
-                      notifier.setTtsVoice(null);
-                    }
-                    Navigator.of(sheetContext).pop();
-                  },
-                ),
-                const Divider(height: 1),
-                // Voices List
-                Expanded(
-                  child: ListView.builder(
-                    controller: scrollController,
-                    itemCount:
-                        voices.length +
-                        (matchingVoices.isNotEmpty && otherVoices.isNotEmpty
-                            ? 2
-                            : 0),
-                    itemBuilder: (context, index) {
-                      // Show section header for matching voices
-                      if (index == 0 &&
-                          matchingVoices.isNotEmpty &&
-                          otherVoices.isNotEmpty) {
-                        return Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                          child: Text(
-                            l10n.ttsVoicesForLanguage(
-                              appLanguageCode.toUpperCase(),
-                            ),
-                            style: AppTypography.labelStyle.copyWith(
-                              color: theme.sidebarForeground.withValues(
-                                alpha: 0.75,
-                              ),
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        );
-                      }
-
-                      // Show section header for other voices
-                      if (index == matchingVoices.length + 1 &&
-                          matchingVoices.isNotEmpty &&
-                          otherVoices.isNotEmpty) {
-                        return Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                          child: Text(
-                            l10n.ttsOtherVoices,
-                            style: AppTypography.labelStyle.copyWith(
-                              color: theme.sidebarForeground.withValues(
-                                alpha: 0.75,
-                              ),
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        );
-                      }
-
-                      // Adjust index for headers
-                      int voiceIndex = index;
-                      if (matchingVoices.isNotEmpty && otherVoices.isNotEmpty) {
-                        if (index == 0) return const SizedBox.shrink();
-                        if (index <= matchingVoices.length) {
-                          voiceIndex = index - 1;
-                        } else {
-                          voiceIndex = index - 2;
-                        }
-                      }
-
-                      final voice = voices[voiceIndex];
-                      final voiceId = _getVoiceIdentifier(
-                        voice,
-                        settings.ttsEngine,
-                      );
-                      final displayName = _formatVoiceName(voice);
-                      final subtitle = _getVoiceSubtitle(voice);
-                      final isSelected = settings.ttsEngine == TtsEngine.server
-                          ? settings.ttsServerVoiceId == voiceId
-                          : settings.ttsVoice == voiceId;
-
-                      return AdaptiveListTile(
-                        leading: Icon(
-                          UiUtils.platformIcon(
-                            ios: CupertinoIcons.person_fill,
-                            android: Icons.person,
-                          ),
-                          color: theme.sidebarForeground,
-                        ),
-                        title: Text(
-                          displayName,
-                          style:
-                              theme.bodyMedium?.copyWith(
-                                color: theme.sidebarForeground,
-                                fontWeight: isSelected
-                                    ? FontWeight.bold
-                                    : FontWeight.normal,
-                              ) ??
-                              AppTypography.bodyMediumStyle.copyWith(
-                                color: theme.sidebarForeground,
-                              ),
-                        ),
-                        subtitle: subtitle.isNotEmpty
-                            ? Text(
-                                subtitle,
-                                style:
-                                    theme.bodySmall?.copyWith(
-                                      color: theme.sidebarForeground.withValues(
-                                        alpha: 0.75,
-                                      ),
-                                    ) ??
-                                    AppTypography.bodySmallStyle.copyWith(
-                                      color: theme.sidebarForeground.withValues(
-                                        alpha: 0.75,
-                                      ),
-                                    ),
-                              )
-                            : null,
-                        trailing: isSelected
-                            ? Icon(
-                                Platform.isIOS
-                                    ? CupertinoIcons.check_mark
-                                    : Icons.check,
-                                color: theme.buttonPrimary,
-                              )
-                            : null,
-                        onTap: () {
-                          final notifier = ref.read(
-                            appSettingsProvider.notifier,
-                          );
-                          if (settings.ttsEngine == TtsEngine.server) {
-                            notifier.setTtsServerVoiceId(voiceId);
-                            notifier.setTtsServerVoiceName(displayName);
-                          } else {
-                            notifier.setTtsVoice(voiceId);
-                          }
-                          Navigator.of(sheetContext).pop();
-                        },
-                      );
-                    },
+                child: Text(
+                  entry.section!,
+                  style: theme.bodySmall?.copyWith(
+                    color: theme.textSecondary,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
-              ],
+              );
+            }
+
+            final voice = entry.voice;
+            if (voice == null) {
+              final selected = settings.ttsEngine == TtsEngine.server
+                  ? settings.ttsServerVoiceId == null
+                  : settings.ttsVoice == null;
+              return SettingsSelectorTile(
+                title: l10n.ttsSystemDefault,
+                selected: selected,
+                onTap: () {
+                  final notifier = ref.read(appSettingsProvider.notifier);
+                  if (settings.ttsEngine == TtsEngine.server) {
+                    notifier.setTtsServerVoiceId(null);
+                    notifier.setTtsServerVoiceName(null);
+                  } else {
+                    notifier.setTtsVoice(null);
+                  }
+                  Navigator.of(sheetContext).pop();
+                },
+              );
+            }
+
+            final voiceId = _getVoiceIdentifier(voice, settings.ttsEngine);
+            final displayName = _formatVoiceName(l10n, voice);
+            final subtitle = _getVoiceSubtitle(voice);
+            final selected = settings.ttsEngine == TtsEngine.server
+                ? settings.ttsServerVoiceId == voiceId
+                : settings.ttsVoice == voiceId;
+
+            return SettingsSelectorTile(
+              title: displayName,
+              subtitle: subtitle.isEmpty ? null : subtitle,
+              selected: selected,
+              onTap: () {
+                final notifier = ref.read(appSettingsProvider.notifier);
+                if (settings.ttsEngine == TtsEngine.server) {
+                  notifier.setTtsServerVoiceId(voiceId);
+                  notifier.setTtsServerVoiceName(displayName);
+                } else {
+                  notifier.setTtsVoice(voiceId);
+                }
+                Navigator.of(sheetContext).pop();
+              },
             );
           },
         );
@@ -1936,8 +1567,8 @@ class AppCustomizationPage extends ConsumerWidget {
     return voiceName;
   }
 
-  String _formatVoiceName(Map<String, dynamic> voice) {
-    final name = voice['name'] as String? ?? 'Unknown';
+  String _formatVoiceName(AppLocalizations l10n, Map<String, dynamic> voice) {
+    final name = voice['name'] as String? ?? l10n.unknownLabel;
     final locale = voice['locale'] as String? ?? '';
 
     // Handle Android-style voice IDs with # separator (e.g., "en-us-x-sfg#male_1-local")
@@ -2084,7 +1715,6 @@ class AppCustomizationPage extends ConsumerWidget {
     required bool allowPolling,
     required bool allowWebsocketOnly,
   }) async {
-    final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
     var current = settings.socketTransportMode;
 
@@ -2114,57 +1744,33 @@ class AppCustomizationPage extends ConsumerWidget {
 
     await showModalBottomSheet<void>(
       context: context,
-      backgroundColor: theme.sidebarBackground,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(AppBorderRadius.modal),
-        ),
-      ),
+      backgroundColor: Colors.transparent,
+      barrierColor: settingsSheetBarrierColor(context),
+      isScrollControlled: true,
       builder: (sheetContext) {
-        return SafeArea(
-          top: false,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _SheetHeader(
-                title: l10n.transportMode,
-                onClose: () => Navigator.of(sheetContext).pop(),
-              ),
-              const Divider(height: 1),
-              for (var i = 0; i < options.length; i++) ...[
-                () {
-                  final option = options[i];
-                  final selected = current == option.value;
-                  return AdaptiveListTile(
-                    leading: Icon(
-                      selected
-                          ? (Platform.isIOS
-                                ? CupertinoIcons.checkmark_circle_fill
-                                : Icons.check_circle)
-                          : (Platform.isIOS
-                                ? CupertinoIcons.circle
-                                : Icons.circle_outlined),
-                      color: selected
-                          ? theme.buttonPrimary
-                          : theme.iconSecondary,
-                    ),
-                    title: Text(option.title),
-                    subtitle: Text(option.subtitle),
-                    onTap: () {
-                      if (!selected) {
-                        ref
-                            .read(appSettingsProvider.notifier)
-                            .setSocketTransportMode(option.value);
-                      }
-                      Navigator.of(sheetContext).pop();
-                    },
-                  );
-                }(),
-                if (i != options.length - 1) const Divider(height: 1),
-              ],
-              const SizedBox(height: Spacing.lg),
-            ],
-          ),
+        return SettingsSelectorSheet(
+          title: l10n.transportMode,
+          itemCount: options.length,
+          initialChildSize: 0.42,
+          minChildSize: 0.32,
+          maxChildSize: 0.68,
+          itemBuilder: (context, index) {
+            final option = options[index];
+            final selected = current == option.value;
+            return SettingsSelectorTile(
+              title: option.title,
+              subtitle: option.subtitle,
+              selected: selected,
+              onTap: () {
+                if (!selected) {
+                  ref
+                      .read(appSettingsProvider.notifier)
+                      .setSocketTransportMode(option.value);
+                }
+                Navigator.of(sheetContext).pop();
+              },
+            );
+          },
         );
       },
     );
@@ -2187,7 +1793,7 @@ class AppCustomizationPage extends ConsumerWidget {
       ),
       child: Text(
         label,
-        style: AppTypography.labelMediumStyle.copyWith(
+        style: theme.bodySmall?.copyWith(
           color: theme.buttonPrimary,
           fontWeight: FontWeight.w600,
         ),
@@ -2222,72 +1828,42 @@ class AppCustomizationPage extends ConsumerWidget {
     String activePaletteId,
   ) async {
     final l10n = AppLocalizations.of(context)!;
-    final theme = context.conduitTheme;
     final palettes = TweakcnThemes.all;
 
     await showModalBottomSheet<void>(
       context: context,
-      backgroundColor: theme.sidebarBackground,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(AppBorderRadius.modal),
-        ),
-      ),
+      backgroundColor: Colors.transparent,
+      barrierColor: settingsSheetBarrierColor(context),
+      isScrollControlled: true,
       builder: (sheetContext) {
-        return SafeArea(
-          top: false,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _SheetHeader(
-                title: l10n.themePalette,
-                onClose: () => Navigator.of(sheetContext).pop(),
+        return SettingsSelectorSheet(
+          title: l10n.themePalette,
+          itemCount: palettes.length,
+          initialChildSize: 0.66,
+          minChildSize: 0.42,
+          maxChildSize: 0.86,
+          itemBuilder: (context, index) {
+            final palette = palettes[index];
+            return SettingsSelectorTile(
+              title: palette.label(l10n),
+              subtitle: palette.description(l10n),
+              selected: palette.id == activePaletteId,
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (final color in palette.preview.take(3))
+                    _PaletteColorDot(color: color),
+                ],
               ),
-              const Divider(height: 1),
-              Flexible(
-                child: ListView.separated(
-                  shrinkWrap: true,
-                  itemCount: palettes.length,
-                  separatorBuilder: (_, _) => const Divider(height: 1),
-                  itemBuilder: (context, index) {
-                    final palette = palettes[index];
-                    final isSelected = palette.id == activePaletteId;
-                    return AdaptiveListTile(
-                      leading: Icon(
-                        isSelected
-                            ? (Platform.isIOS
-                                  ? CupertinoIcons.checkmark_circle_fill
-                                  : Icons.check_circle)
-                            : (Platform.isIOS
-                                  ? CupertinoIcons.circle
-                                  : Icons.circle_outlined),
-                        color: isSelected
-                            ? theme.buttonPrimary
-                            : theme.iconSecondary,
-                      ),
-                      title: Text(palette.label(l10n)),
-                      subtitle: Text(palette.description(l10n)),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          for (final color in palette.preview.take(3))
-                            _PaletteColorDot(color: color),
-                        ],
-                      ),
-                      onTap: () async {
-                        await ref
-                            .read(appThemePaletteProvider.notifier)
-                            .setPalette(palette.id);
-                        if (!sheetContext.mounted) return;
-                        Navigator.of(sheetContext).pop();
-                      },
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(height: Spacing.sm),
-            ],
-          ),
+              onTap: () async {
+                await ref
+                    .read(appThemePaletteProvider.notifier)
+                    .setPalette(palette.id);
+                if (!sheetContext.mounted) return;
+                Navigator.of(sheetContext).pop();
+              },
+            );
+          },
         );
       },
     );
@@ -2295,170 +1871,44 @@ class AppCustomizationPage extends ConsumerWidget {
 
   Future<String?> _showLanguageSelector(BuildContext context, String current) {
     final normalizedCurrent = current.replaceAll('_', '-');
+    final l10n = AppLocalizations.of(context)!;
+    final options = <({String value, String label})>[
+      (value: 'system', label: l10n.system),
+      (value: 'en', label: l10n.english),
+      (value: 'de', label: l10n.deutsch),
+      (value: 'es', label: l10n.espanol),
+      (value: 'fr', label: l10n.francais),
+      (value: 'it', label: l10n.italiano),
+      (value: 'nl', label: l10n.nederlands),
+      (value: 'ru', label: l10n.russian),
+      (value: 'zh', label: l10n.chineseSimplified),
+      (value: 'zh-Hant', label: l10n.chineseTraditional),
+      (value: 'ko', label: l10n.korean),
+      (value: 'ja', label: l10n.japanese),
+    ];
 
     return showModalBottomSheet<String>(
       context: context,
       backgroundColor: Colors.transparent,
+      barrierColor: settingsSheetBarrierColor(context),
       isScrollControlled: true,
-      builder: (sheetContext) => Container(
-        decoration: BoxDecoration(
-          color: sheetContext.sidebarTheme.background,
-          borderRadius: const BorderRadius.vertical(
-            top: Radius.circular(AppBorderRadius.modal),
-          ),
-          boxShadow: ConduitShadows.modal(sheetContext),
-        ),
-        child: SafeArea(
-          top: false,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _SheetHeader(
-                title: AppLocalizations.of(sheetContext)!.appLanguage,
-                onClose: () => Navigator.of(sheetContext).pop(),
-              ),
-              const Divider(height: 1),
-              AdaptiveListTile(
-                title: Text(AppLocalizations.of(sheetContext)!.system),
-                trailing: normalizedCurrent == 'system'
-                    ? Icon(
-                        Platform.isIOS
-                            ? CupertinoIcons.check_mark
-                            : Icons.check,
-                      )
-                    : null,
-                onTap: () => Navigator.pop(sheetContext, 'system'),
-              ),
-              AdaptiveListTile(
-                title: Text(AppLocalizations.of(sheetContext)!.english),
-                trailing: normalizedCurrent == 'en'
-                    ? Icon(
-                        Platform.isIOS
-                            ? CupertinoIcons.check_mark
-                            : Icons.check,
-                      )
-                    : null,
-                onTap: () => Navigator.pop(sheetContext, 'en'),
-              ),
-              AdaptiveListTile(
-                title: Text(AppLocalizations.of(sheetContext)!.deutsch),
-                trailing: normalizedCurrent == 'de'
-                    ? Icon(
-                        Platform.isIOS
-                            ? CupertinoIcons.check_mark
-                            : Icons.check,
-                      )
-                    : null,
-                onTap: () => Navigator.pop(sheetContext, 'de'),
-              ),
-              AdaptiveListTile(
-                title: Text(AppLocalizations.of(sheetContext)!.espanol),
-                trailing: normalizedCurrent == 'es'
-                    ? Icon(
-                        Platform.isIOS
-                            ? CupertinoIcons.check_mark
-                            : Icons.check,
-                      )
-                    : null,
-                onTap: () => Navigator.pop(sheetContext, 'es'),
-              ),
-              AdaptiveListTile(
-                title: Text(AppLocalizations.of(sheetContext)!.francais),
-                trailing: normalizedCurrent == 'fr'
-                    ? Icon(
-                        Platform.isIOS
-                            ? CupertinoIcons.check_mark
-                            : Icons.check,
-                      )
-                    : null,
-                onTap: () => Navigator.pop(sheetContext, 'fr'),
-              ),
-              AdaptiveListTile(
-                title: Text(AppLocalizations.of(sheetContext)!.italiano),
-                trailing: normalizedCurrent == 'it'
-                    ? Icon(
-                        Platform.isIOS
-                            ? CupertinoIcons.check_mark
-                            : Icons.check,
-                      )
-                    : null,
-                onTap: () => Navigator.pop(sheetContext, 'it'),
-              ),
-              AdaptiveListTile(
-                title: Text(AppLocalizations.of(sheetContext)!.nederlands),
-                trailing: normalizedCurrent == 'nl'
-                    ? Icon(
-                        Platform.isIOS
-                            ? CupertinoIcons.check_mark
-                            : Icons.check,
-                      )
-                    : null,
-                onTap: () => Navigator.pop(sheetContext, 'nl'),
-              ),
-              AdaptiveListTile(
-                title: Text(AppLocalizations.of(sheetContext)!.russian),
-                trailing: normalizedCurrent == 'ru'
-                    ? Icon(
-                        Platform.isIOS
-                            ? CupertinoIcons.check_mark
-                            : Icons.check,
-                      )
-                    : null,
-                onTap: () => Navigator.pop(sheetContext, 'ru'),
-              ),
-              AdaptiveListTile(
-                title: Text(
-                  AppLocalizations.of(sheetContext)!.chineseSimplified,
-                ),
-                trailing: normalizedCurrent == 'zh'
-                    ? Icon(
-                        Platform.isIOS
-                            ? CupertinoIcons.check_mark
-                            : Icons.check,
-                      )
-                    : null,
-                onTap: () => Navigator.pop(sheetContext, 'zh'),
-              ),
-              AdaptiveListTile(
-                title: Text(
-                  AppLocalizations.of(sheetContext)!.chineseTraditional,
-                ),
-                trailing: normalizedCurrent == 'zh-Hant'
-                    ? Icon(
-                        Platform.isIOS
-                            ? CupertinoIcons.check_mark
-                            : Icons.check,
-                      )
-                    : null,
-                onTap: () => Navigator.pop(sheetContext, 'zh-Hant'),
-              ),
-              AdaptiveListTile(
-                title: Text(AppLocalizations.of(sheetContext)!.korean),
-                trailing: normalizedCurrent == 'ko'
-                    ? Icon(
-                        Platform.isIOS
-                            ? CupertinoIcons.check_mark
-                            : Icons.check,
-                      )
-                    : null,
-                onTap: () => Navigator.pop(sheetContext, 'ko'),
-              ),
-              AdaptiveListTile(
-                title: Text(AppLocalizations.of(sheetContext)!.japanese),
-                trailing: normalizedCurrent == 'ja'
-                    ? Icon(
-                        Platform.isIOS
-                            ? CupertinoIcons.check_mark
-                            : Icons.check,
-                      )
-                    : null,
-                onTap: () => Navigator.pop(sheetContext, 'ja'),
-              ),
-              const SizedBox(height: Spacing.sm),
-            ],
-          ),
-        ),
-      ),
+      builder: (sheetContext) {
+        return SettingsSelectorSheet(
+          title: AppLocalizations.of(sheetContext)!.appLanguage,
+          itemCount: options.length,
+          initialChildSize: 0.72,
+          minChildSize: 0.42,
+          maxChildSize: 0.86,
+          itemBuilder: (context, index) {
+            final option = options[index];
+            return SettingsSelectorTile(
+              title: option.label,
+              selected: normalizedCurrent == option.value,
+              onTap: () => Navigator.pop(sheetContext, option.value),
+            );
+          },
+        );
+      },
     );
   }
 }
@@ -2477,8 +1927,8 @@ class _ServerPromptEditorSheet extends StatefulWidget {
     required this.errorMessage,
     required this.savedMessage,
     required this.onSave,
+    required this.showMessage,
     this.afterSave,
-    this.messenger,
   });
 
   final String title;
@@ -2493,8 +1943,8 @@ class _ServerPromptEditorSheet extends StatefulWidget {
   final String errorMessage;
   final String savedMessage;
   final Future<void> Function(String value) onSave;
+  final ValueChanged<String> showMessage;
   final VoidCallback? afterSave;
-  final ScaffoldMessengerState? messenger;
 
   @override
   State<_ServerPromptEditorSheet> createState() =>
@@ -2525,20 +1975,12 @@ class _ServerPromptEditorSheetState extends State<_ServerPromptEditorSheet> {
       Navigator.of(context).pop();
       WidgetsBinding.instance.addPostFrameCallback((_) {
         widget.afterSave?.call();
-        if (widget.messenger?.mounted ?? false) {
-          widget.messenger!.showSnackBar(
-            SnackBar(content: Text(widget.savedMessage)),
-          );
-        }
+        widget.showMessage(widget.savedMessage);
       });
     } catch (_) {
       if (!mounted) return;
       setState(() => _saving = false);
-      if (widget.messenger?.mounted ?? false) {
-        widget.messenger!.showSnackBar(
-          SnackBar(content: Text(widget.errorMessage)),
-        );
-      }
+      widget.showMessage(widget.errorMessage);
     }
   }
 
@@ -2567,7 +2009,7 @@ class _ServerPromptEditorSheetState extends State<_ServerPromptEditorSheet> {
           children: [
             Text(
               widget.title,
-              style: AppTypography.headlineSmallStyle.copyWith(
+              style: theme.headingSmall?.copyWith(
                 color: theme.sidebarForeground,
                 fontWeight: FontWeight.w700,
               ),
@@ -2575,47 +2017,39 @@ class _ServerPromptEditorSheetState extends State<_ServerPromptEditorSheet> {
             const SizedBox(height: Spacing.xs),
             Text(
               widget.description,
-              style: AppTypography.bodySmallStyle.copyWith(
+              style: theme.bodySmall?.copyWith(
                 color: theme.sidebarForeground.withValues(alpha: 0.75),
               ),
             ),
             const SizedBox(height: Spacing.md),
-            TextField(
+            ConduitInput(
               controller: _controller,
               readOnly: widget.readOnly || _saving,
               minLines: 5,
               maxLines: 10,
+              hint: widget.promptHint,
+              keyboardType: TextInputType.multiline,
               textInputAction: TextInputAction.newline,
-              decoration: InputDecoration(
-                hintText: widget.promptHint,
-                filled: true,
-                fillColor: theme.cardBackground.withValues(alpha: 0.7),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(AppBorderRadius.medium),
-                ),
-              ),
             ),
             const SizedBox(height: Spacing.md),
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                TextButton(
+                ConduitButton(
+                  text: widget.readOnly
+                      ? widget.closeLabel
+                      : widget.cancelLabel,
+                  isSecondary: true,
+                  isCompact: true,
                   onPressed: _saving ? null : () => Navigator.of(context).pop(),
-                  child: Text(
-                    widget.readOnly ? widget.closeLabel : widget.cancelLabel,
-                  ),
                 ),
                 if (!widget.readOnly) ...[
                   const SizedBox(width: Spacing.sm),
-                  FilledButton(
+                  ConduitButton(
+                    text: widget.saveLabel,
+                    isLoading: _saving,
+                    isCompact: true,
                     onPressed: _saving ? null : _save,
-                    child: _saving
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : Text(widget.saveLabel),
                   ),
                 ],
               ],
@@ -2686,53 +2120,7 @@ class _SectionHeader extends StatelessWidget {
     final theme = context.conduitTheme;
     return Text(
       title,
-      style:
-          theme.headingSmall?.copyWith(color: theme.sidebarForeground) ??
-          AppTypography.headlineSmallStyle.copyWith(
-            color: theme.sidebarForeground,
-          ),
-    );
-  }
-}
-
-class _SheetHeader extends StatelessWidget {
-  const _SheetHeader({required this.title, required this.onClose});
-
-  final String title;
-  final VoidCallback onClose;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-    return Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: Spacing.lg,
-        vertical: Spacing.md,
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              title,
-              style:
-                  theme.headingSmall?.copyWith(
-                    color: theme.sidebarForeground,
-                  ) ??
-                  AppTypography.headlineSmallStyle.copyWith(
-                    color: theme.sidebarForeground,
-                    fontWeight: FontWeight.w600,
-                  ),
-            ),
-          ),
-          IconButton(
-            onPressed: onClose,
-            icon: Icon(
-              Platform.isIOS ? CupertinoIcons.xmark : Icons.close,
-              color: theme.iconPrimary,
-            ),
-          ),
-        ],
-      ),
+      style: theme.headingSmall?.copyWith(color: theme.sidebarForeground),
     );
   }
 }

@@ -250,6 +250,7 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
                       itemExtent: 72,
                       itemCount: filtered.length,
                       padding: EdgeInsets.only(
+                        top: Spacing.sm,
                         bottom: sidebarPrimaryCircleButtonScrollPadding(
                           context,
                         ),

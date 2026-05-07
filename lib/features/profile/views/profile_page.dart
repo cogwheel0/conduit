@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import '../../../core/widgets/error_boundary.dart';
@@ -15,19 +13,12 @@ import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/navigation_service.dart';
-import '../../chat/providers/chat_providers.dart' show restoreDefaultModel;
 import '../../auth/providers/unified_auth_providers.dart';
-import '../../../core/services/settings_service.dart';
-import '../../../core/models/model.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/models/user.dart' as models;
-import 'dart:async';
 import '../../../core/utils/user_display_name.dart';
 import '../../../core/utils/user_avatar_utils.dart';
-import '../../../core/utils/model_icon_utils.dart';
 import '../../../shared/widgets/user_avatar.dart';
-import '../../../shared/widgets/model_avatar.dart';
-import '../widgets/default_model_sheet.dart';
 import '../widgets/profile_setting_tile.dart';
 
 /// Profile page (You tab) showing user info and main actions
@@ -125,13 +116,9 @@ class ProfilePage extends ConsumerWidget {
 
   Widget _buildSupportSection(BuildContext context) {
     final theme = context.conduitTheme;
-    final textTheme =
-        theme.bodySmall?.copyWith(
-          color: theme.sidebarForeground.withValues(alpha: 0.75),
-        ) ??
-        AppTypography.bodySmallStyle.copyWith(
-          color: theme.sidebarForeground.withValues(alpha: 0.75),
-        );
+    final textTheme = theme.bodySmall?.copyWith(
+      color: theme.sidebarForeground.withValues(alpha: 0.75),
+    );
 
     final supportTiles = [
       _buildSupportOption(
@@ -217,9 +204,6 @@ class ProfilePage extends ConsumerWidget {
           AppLocalizations.of(context)!.errorMessage,
         );
       }
-    } on PlatformException catch (_) {
-      if (!context.mounted) return;
-      UiUtils.showMessage(context, AppLocalizations.of(context)!.errorMessage);
     } catch (_) {
       if (!context.mounted) return;
       UiUtils.showMessage(context, AppLocalizations.of(context)!.errorMessage);
@@ -231,7 +215,11 @@ class ProfilePage extends ConsumerWidget {
     dynamic user,
     ApiService? api,
   ) {
-    final displayName = deriveUserDisplayName(user);
+    final l10n = AppLocalizations.of(context)!;
+    final displayName = deriveUserDisplayName(
+      user,
+      fallback: l10n.userFallbackName,
+    );
     final characters = displayName.characters;
     final initial = characters.isNotEmpty
         ? characters.first.toUpperCase()
@@ -258,23 +246,25 @@ class ProfilePage extends ConsumerWidget {
       return null;
     }
 
-    final email = extractEmail(user) ?? 'No email';
+    final email = extractEmail(user) ?? l10n.noEmailLabel;
     final theme = context.conduitTheme;
 
-    return Container(
-      padding: const EdgeInsets.all(Spacing.md),
-      decoration: BoxDecoration(
-        color: theme.sidebarAccent.withValues(alpha: 0.6),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
         borderRadius: BorderRadius.circular(AppBorderRadius.large),
-        border: Border.all(
-          color: theme.sidebarBorder.withValues(alpha: 0.6),
-          width: BorderWidth.thin,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+        onTap: () => context.pushNamed(RouteNames.accountSettings),
+        child: Container(
+          padding: const EdgeInsets.all(Spacing.md),
+          decoration: BoxDecoration(
+            color: theme.sidebarAccent.withValues(alpha: 0.6),
+            borderRadius: BorderRadius.circular(AppBorderRadius.large),
+            border: Border.all(
+              color: theme.sidebarBorder.withValues(alpha: 0.6),
+              width: BorderWidth.thin,
+            ),
+          ),
+          child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               UserAvatar(size: 56, imageUrl: avatarUrl, fallbackText: initial),
@@ -321,24 +311,56 @@ class ProfilePage extends ConsumerWidget {
                   ],
                 ),
               ),
+              const SizedBox(width: Spacing.sm),
+              Icon(
+                UiUtils.platformIcon(
+                  ios: CupertinoIcons.chevron_right,
+                  android: Icons.chevron_right,
+                ),
+                color: theme.iconSecondary,
+                size: IconSize.small,
+              ),
             ],
           ),
-        ],
+        ),
       ),
     );
   }
 
   Widget _buildAccountSection(BuildContext context, WidgetRef ref) {
     final items = [
-      _buildDefaultModelTile(context, ref),
+      _buildAccountOption(
+        context,
+        icon: UiUtils.platformIcon(
+          ios: CupertinoIcons.person_crop_circle_badge_checkmark,
+          android: Icons.auto_awesome,
+        ),
+        title: AppLocalizations.of(context)!.personalization,
+        subtitle: AppLocalizations.of(context)!.personalizationSubtitle,
+        onTap: () {
+          context.pushNamed(RouteNames.personalization);
+        },
+      ),
+      _buildAccountOption(
+        context,
+        icon: UiUtils.platformIcon(
+          ios: CupertinoIcons.waveform,
+          android: Icons.graphic_eq,
+        ),
+        title: AppLocalizations.of(context)!.audioSettingsTitle,
+        subtitle: AppLocalizations.of(context)!.audioSettingsSubtitle,
+        onTap: () {
+          context.pushNamed(RouteNames.audioSettings);
+        },
+      ),
       _buildAccountOption(
         context,
         icon: UiUtils.platformIcon(
           ios: CupertinoIcons.slider_horizontal_3,
           android: Icons.tune,
         ),
-        title: AppLocalizations.of(context)!.appCustomization,
-        subtitle: AppLocalizations.of(context)!.appCustomizationSubtitle,
+        title: AppLocalizations.of(context)!.appAndChat,
+        subtitle: AppLocalizations.of(context)!.appAndChatSubtitle,
         onTap: () {
           context.pushNamed(RouteNames.appCustomization);
         },
@@ -396,123 +418,6 @@ class ProfilePage extends ConsumerWidget {
     );
   }
 
-  Widget _buildDefaultModelTile(BuildContext context, WidgetRef ref) {
-    final settings = ref.watch(appSettingsProvider);
-    final modelsAsync = ref.watch(modelsProvider);
-    final api = ref.watch(apiServiceProvider);
-
-    return modelsAsync.when(
-      data: (models) {
-        final currentModel = models.firstWhere(
-          (m) => m.id == settings.defaultModel,
-          orElse: () => models.isNotEmpty
-              ? models.first
-              : Model(
-                  id: 'none',
-                  name: AppLocalizations.of(context)!.noModelsAvailable,
-                ),
-        );
-
-        final selectedModelExplicit = settings.defaultModel != null;
-        final modelIconUrl = selectedModelExplicit
-            ? resolveModelIconUrlForModel(api, currentModel)
-            : null;
-        final modelLabel = selectedModelExplicit
-            ? currentModel.name
-            : AppLocalizations.of(context)!.autoSelect;
-
-        final theme = context.conduitTheme;
-
-        Widget leading;
-        if (selectedModelExplicit) {
-          leading = Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: theme.sidebarAccent.withValues(alpha: 0.8),
-              borderRadius: BorderRadius.circular(AppBorderRadius.small),
-              border: Border.all(
-                color: theme.cardBorder,
-                width: BorderWidth.thin,
-              ),
-            ),
-            alignment: Alignment.center,
-            child: ModelAvatar(
-              size: 28,
-              imageUrl: modelIconUrl,
-              label: currentModel.name,
-            ),
-          );
-        } else {
-          leading = _buildIconBadge(
-            context,
-            UiUtils.platformIcon(
-              ios: CupertinoIcons.wand_stars,
-              android: Icons.auto_awesome,
-            ),
-            color: theme.buttonPrimary,
-          );
-        }
-
-        return ProfileSettingTile(
-          leading: leading,
-          title: AppLocalizations.of(context)!.defaultModel,
-          subtitle: modelLabel,
-          onTap: () => _showModelSelector(context, ref, models),
-        );
-      },
-      loading: () => ProfileSettingTile(
-        leading: _buildIconBadge(
-          context,
-          UiUtils.platformIcon(
-            ios: CupertinoIcons.cube_box,
-            android: Icons.psychology,
-          ),
-          color: context.conduitTheme.buttonPrimary,
-        ),
-        title: AppLocalizations.of(context)!.defaultModel,
-        subtitle: AppLocalizations.of(context)!.loadingModels,
-        showChevron: false,
-        trailing: SizedBox(
-          width: 20,
-          height: 20,
-          child: CircularProgressIndicator(
-            strokeWidth: 2,
-            valueColor: AlwaysStoppedAnimation<Color>(
-              context.conduitTheme.buttonPrimary,
-            ),
-          ),
-        ),
-      ),
-      error: (error, stack) => ProfileSettingTile(
-        leading: _buildIconBadge(
-          context,
-          UiUtils.platformIcon(
-            ios: CupertinoIcons.exclamationmark_triangle,
-            android: Icons.error_outline,
-          ),
-          color: Colors.red,
-        ),
-        title: AppLocalizations.of(context)!.defaultModel,
-        subtitle: AppLocalizations.of(context)!.failedToLoadModels,
-        showChevron: false,
-        onTap: () => ref.invalidate(modelsProvider),
-        trailing: IconButton(
-          onPressed: () => ref.invalidate(modelsProvider),
-          tooltip: AppLocalizations.of(context)!.retry,
-          icon: Icon(
-            UiUtils.platformIcon(
-              ios: CupertinoIcons.refresh,
-              android: Icons.refresh,
-            ),
-            color: Colors.red,
-            size: IconSize.small,
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildIconBadge(
     BuildContext context,
     IconData icon, {
@@ -545,100 +450,8 @@ class ProfilePage extends ConsumerWidget {
       ),
       title: AppLocalizations.of(context)!.aboutApp,
       subtitle: AppLocalizations.of(context)!.aboutAppSubtitle,
-      onTap: () => _showAboutDialog(context),
+      onTap: () => context.pushNamed(RouteNames.about),
     );
-  }
-
-  Future<void> _showAboutDialog(BuildContext context) async {
-    try {
-      final info = await PackageInfo.fromPlatform();
-      // Update dialog with dynamic version each time
-      // GitHub repo URL source of truth
-      const githubUrl = 'https://github.com/cogwheel0/conduit';
-
-      if (!context.mounted) return;
-      final l10n = AppLocalizations.of(context)!;
-      await ThemedDialogs.show(
-        context,
-        title: l10n.aboutConduit,
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(l10n.versionLabel(info.version, info.buildNumber)),
-            const SizedBox(height: Spacing.md),
-            InkWell(
-              onTap: () => launchUrlString(
-                githubUrl,
-                mode: LaunchMode.externalApplication,
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    UiUtils.platformIcon(
-                      ios: CupertinoIcons.link,
-                      android: Icons.link,
-                    ),
-                    size: IconSize.small,
-                    color: context.conduitTheme.buttonPrimary,
-                  ),
-                  const SizedBox(width: Spacing.xs),
-                  Text(
-                    l10n.githubRepository,
-                    style: AppTypography.bodyMediumStyle.copyWith(
-                      color: context.conduitTheme.buttonPrimary,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text(l10n.closeButtonSemantic),
-          ),
-        ],
-      );
-    } catch (e) {
-      if (!context.mounted) return;
-      UiUtils.showMessage(
-        context,
-        AppLocalizations.of(context)!.unableToLoadAppInfo,
-      );
-    }
-  }
-
-  Future<void> _showModelSelector(
-    BuildContext context,
-    WidgetRef ref,
-    List<Model> models,
-  ) async {
-    final result = await showModalBottomSheet<String?>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => DefaultModelBottomSheet(
-        models: models,
-        currentDefaultModelId: ref.read(appSettingsProvider).defaultModel,
-      ),
-    );
-
-    // result is non-null only when Save button is pressed
-    // null means the sheet was dismissed without saving
-    if (result != null) {
-      // Handle special case: 'auto-select' should be stored as null
-      final modelIdToSave = result == 'auto-select' ? null : result;
-      await ref
-          .read(appSettingsProvider.notifier)
-          .setDefaultModel(modelIdToSave);
-
-      // Immediately apply the new default model selection
-      await restoreDefaultModel(ref);
-    }
   }
 
   void _signOut(BuildContext context, WidgetRef ref) async {

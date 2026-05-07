@@ -53,12 +53,15 @@ class SidebarUserPillOverlay extends ConsumerWidget {
     if (user == null) return const SizedBox.shrink();
 
     final api = ref.watch(apiServiceProvider);
-    final displayName = deriveUserDisplayName(user);
+    final l10n = AppLocalizations.of(context)!;
+    final displayName = deriveUserDisplayName(
+      user,
+      fallback: l10n.userFallbackName,
+    );
     final avatarUrl = resolveUserAvatarUrlForUser(api, user);
     final initial = _displayInitial(displayName);
     final topInset = MediaQuery.paddingOf(context).top;
     final expanded = ref.watch(sidebarHeaderSearchExpandedProvider);
-    final l10n = AppLocalizations.of(context)!;
 
     return Padding(
       key: const ValueKey<String>('sidebar-user-pill-overlay'),
