@@ -1,21 +1,16 @@
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/providers/app_providers.dart';
 import '../../../shared/theme/theme_extensions.dart';
-import '../../../shared/widgets/drawer_slot.dart';
 import '../providers/sidebar_providers.dart';
 import '../../channels/widgets/channel_list_tab.dart';
 import '../../notes/widgets/notes_list_tab.dart';
 import 'chats_drawer.dart';
 import 'sidebar_user_pill.dart';
-
-/// Height for [AdaptiveScaffold] used only as a bottom bar shell (compact
-/// Material [NavigationBar] uses [_kSidebarNavigationBarHeight] logical px;
-/// shell adds a few px so [CupertinoTabBar] is not clipped).
-const double _kSidebarFooterShellHeight = 64;
 
 /// Compact bottom bar height on Material (default M3 bar is ~80 logical px).
 const double _kSidebarNavigationBarHeight = 56;
@@ -38,6 +33,25 @@ class _SidebarTabDefinition {
       ValueKey<String>('sidebar-tab-layer-${id.name}');
 }
 
+class _SidebarNavigationItem {
+  const _SidebarNavigationItem.search({
+    required this.label,
+    required this.destination,
+  }) : tabDefinition = null;
+
+  const _SidebarNavigationItem.content({
+    required this.label,
+    required this.destination,
+    required this.tabDefinition,
+  });
+
+  final String label;
+  final AdaptiveNavigationDestination destination;
+  final _SidebarTabDefinition? tabDefinition;
+
+  bool get isSearchAction => tabDefinition == null;
+}
+
 IconData _materialTabIcon(_SidebarTabId id, {bool selected = false}) {
   switch (id) {
     case _SidebarTabId.chats:
@@ -46,6 +60,30 @@ IconData _materialTabIcon(_SidebarTabId id, {bool selected = false}) {
       return selected ? Icons.note : Icons.note_outlined;
     case _SidebarTabId.channels:
       return Icons.tag;
+  }
+}
+
+IconData _cupertinoTabIcon(_SidebarTabId id, {bool selected = false}) {
+  switch (id) {
+    case _SidebarTabId.chats:
+      return selected
+          ? CupertinoIcons.chat_bubble_fill
+          : CupertinoIcons.chat_bubble;
+    case _SidebarTabId.notes:
+      return selected ? CupertinoIcons.doc_text_fill : CupertinoIcons.doc_text;
+    case _SidebarTabId.channels:
+      return selected ? CupertinoIcons.number_circle_fill : CupertinoIcons.tag;
+  }
+}
+
+String _sfSymbolTabIcon(_SidebarTabId id, {bool selected = false}) {
+  switch (id) {
+    case _SidebarTabId.chats:
+      return selected ? 'bubble.left.fill' : 'bubble.left';
+    case _SidebarTabId.notes:
+      return selected ? 'doc.text.fill' : 'doc.text';
+    case _SidebarTabId.channels:
+      return selected ? 'number.circle.fill' : 'number.circle';
   }
 }
 
@@ -64,16 +102,8 @@ class _SidebarMaterialBottomNavigationBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: conduitTheme.surfaceBackground,
-        border: Border(
-          top: BorderSide(
-            color: conduitTheme.dividerColor,
-            width: BorderWidth.thin,
-          ),
-        ),
-      ),
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(AppBorderRadius.pill),
       child: NavigationBarTheme(
         data: NavigationBarTheme.of(context).copyWith(
           height: _kSidebarNavigationBarHeight,
@@ -130,11 +160,10 @@ class _SidebarMaterialBottomNavigationBar extends StatelessWidget {
 /// in [ResponsiveDrawerLayout]. Tab selection is persisted via
 /// [sidebarActiveTabProvider].
 ///
-/// [DrawerSlot] keeps swipe-to-dismiss gestures on the main panel only so
-/// tab taps stay reliable. The sidebar does not use the iOS 26 native
-/// [UITabBar] ([UiKitView]): it does not lay out to drawer width when nested;
-/// [useNativeBottomBar] is false so Flutter draws [CupertinoTabBar] / Material
-/// [NavigationBar] from [AdaptiveBottomNavigationBar.items] instead.
+/// The sidebar is rendered inside one package-owned [AdaptiveScaffold] so
+/// `adaptive_platform_ui` can host the native iOS 26 [UITabBar] using its
+/// intended full-body layout. Older iOS versions use an explicit
+/// [CupertinoTabBar], and Material platforms use an explicit [NavigationBar].
 ///
 /// Notes and Channels tabs are each independently optional. When the
 /// server disables a feature (via [notesFeatureEnabledProvider] or
@@ -264,29 +293,50 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
   }
 
   AdaptiveBottomNavigationBar _sidebarAdaptiveBottomNavigationBar(
-    List<_SidebarTabDefinition> tabDefinitions,
+    List<_SidebarNavigationItem> navigationItems,
     ConduitThemeExtension conduitTheme,
+    int selectedIndex,
+    ValueChanged<int> onTap,
   ) {
-    final idx = _tabController.index.clamp(0, tabDefinitions.length - 1);
-    final items = <AdaptiveNavigationDestination>[
-      for (final def in tabDefinitions)
-        AdaptiveNavigationDestination(
-          icon: _materialTabIcon(def.id),
-          selectedIcon: _materialTabIcon(def.id, selected: true),
-          label: def.label,
-        ),
-    ];
-
-    final onTap = (int index) => _tabController.animateTo(index);
-
     return AdaptiveBottomNavigationBar(
-      items: items,
-      selectedIndex: idx,
+      items: [for (final item in navigationItems) item.destination],
+      selectedIndex: selectedIndex,
       onTap: onTap,
-      useNativeBottomBar: false,
+      useNativeBottomBar: true,
+      cupertinoTabBar: CupertinoTabBar(
+        currentIndex: selectedIndex,
+        onTap: onTap,
+        height: _kSidebarNavigationBarHeight,
+        backgroundColor: conduitTheme.surfaceBackground,
+        activeColor: conduitTheme.buttonPrimary,
+        inactiveColor: conduitTheme.textSecondary,
+        border: null,
+        items: [
+          for (final item in navigationItems)
+            BottomNavigationBarItem(
+              icon: Icon(
+                item.isSearchAction
+                    ? CupertinoIcons.search
+                    : _cupertinoTabIcon(item.tabDefinition!.id),
+              ),
+              activeIcon: Icon(
+                item.isSearchAction
+                    ? CupertinoIcons.search
+                    : _cupertinoTabIcon(item.tabDefinition!.id, selected: true),
+              ),
+              label: item.label,
+            ),
+        ],
+      ),
       bottomNavigationBar: _SidebarMaterialBottomNavigationBar(
-        tabDefinitions: tabDefinitions,
-        selectedIndex: idx,
+        tabDefinitions: [
+          for (final item in navigationItems)
+            if (!item.isSearchAction) item.tabDefinition!,
+        ],
+        selectedIndex: _tabController.index.clamp(
+          0,
+          navigationItems.where((item) => !item.isSearchAction).length - 1,
+        ),
         onTap: onTap,
         conduitTheme: conduitTheme,
       ),
@@ -295,9 +345,48 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
     );
   }
 
+  List<_SidebarNavigationItem> _sidebarNavigationItems(
+    List<_SidebarTabDefinition> tabDefinitions,
+    String searchLabel,
+    bool includeSearchAction,
+  ) {
+    return <_SidebarNavigationItem>[
+      for (final def in tabDefinitions)
+        _SidebarNavigationItem.content(
+          label: def.label,
+          destination: AdaptiveNavigationDestination(
+            icon: _sfSymbolTabIcon(def.id),
+            selectedIcon: _sfSymbolTabIcon(def.id, selected: true),
+            label: def.label,
+          ),
+          tabDefinition: def,
+        ),
+      if (includeSearchAction)
+        _SidebarNavigationItem.search(
+          label: searchLabel,
+          destination: AdaptiveNavigationDestination(
+            icon: 'magnifyingglass',
+            selectedIcon: 'magnifyingglass',
+            label: searchLabel,
+            isSearch: true,
+          ),
+        ),
+    ];
+  }
+
+  void _openSidebarSearch() {
+    ref.read(sidebarHeaderSearchExpandedProvider.notifier).setExpanded(true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref.read(sidebarSearchFieldFocusNodeProvider).requestFocus();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final localizations = AppLocalizations.of(context)!;
+    final searchLabel = MaterialLocalizations.of(context).searchFieldLabel;
+    final showsNativeSearchAction = PlatformInfo.isIOS26OrHigher();
     final tabDefinitions = <_SidebarTabDefinition>[
       _SidebarTabDefinition(
         id: _SidebarTabId.chats,
@@ -317,6 +406,11 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
           body: const ChannelListTab(),
         ),
     ];
+    final navigationItems = _sidebarNavigationItems(
+      tabDefinitions,
+      searchLabel,
+      showsNativeSearchAction,
+    );
 
     final conduitTheme = context.conduitTheme;
     final sidebarTheme = context.sidebarTheme;
@@ -329,6 +423,21 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
           0,
           tabDefinitions.length - 1,
         );
+        final selectedNavigationIndex = activeIndex;
+
+        void onTap(int index) {
+          final item = navigationItems[index];
+          if (item.isSearchAction) {
+            _openSidebarSearch();
+            setState(() {});
+            return;
+          }
+
+          final tabIndex = tabDefinitions.indexOf(item.tabDefinition!);
+          if (tabIndex >= 0) {
+            _tabController.animateTo(tabIndex);
+          }
+        }
 
         return Container(
           key: const ValueKey<String>('sidebar-page-surface'),
@@ -340,78 +449,56 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
             data: Theme.of(
               context,
             ).copyWith(scaffoldBackgroundColor: backgroundColor),
-            child: DrawerSlot(
-              mainPanel: SafeArea(
+            child: AdaptiveScaffold(
+              minimizeBehavior: TabBarMinimizeBehavior.never,
+              body: SafeArea(
                 top: true,
                 bottom: false,
                 left: false,
                 right: false,
-                child: Scaffold(
-                  resizeToAvoidBottomInset: true,
-                  backgroundColor: backgroundColor,
-                  body: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const SidebarUserPillOverlay(),
-                      Expanded(
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            for (
-                              var index = 0;
-                              index < tabDefinitions.length;
-                              index++
-                            )
-                              KeyedSubtree(
-                                key: tabDefinitions[index].layerKey,
-                                child: IgnorePointer(
-                                  ignoring: index != activeIndex,
-                                  child: TickerMode(
-                                    enabled: index == activeIndex,
-                                    child: ExcludeFocus(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const SidebarUserPillOverlay(),
+                    Expanded(
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          for (
+                            var index = 0;
+                            index < tabDefinitions.length;
+                            index++
+                          )
+                            KeyedSubtree(
+                              key: tabDefinitions[index].layerKey,
+                              child: IgnorePointer(
+                                ignoring: index != activeIndex,
+                                child: TickerMode(
+                                  enabled: index == activeIndex,
+                                  child: ExcludeFocus(
+                                    excluding: index != activeIndex,
+                                    child: ExcludeSemantics(
                                       excluding: index != activeIndex,
-                                      child: ExcludeSemantics(
-                                        excluding: index != activeIndex,
-                                        child: Opacity(
-                                          opacity: index == activeIndex ? 1 : 0,
-                                          child: tabDefinitions[index].body,
-                                        ),
+                                      child: Opacity(
+                                        opacity: index == activeIndex ? 1 : 0,
+                                        child: tabDefinitions[index].body,
                                       ),
                                     ),
                                   ),
                                 ),
                               ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              footerPanel: SafeArea(
-                top: false,
-                bottom: true,
-                left: false,
-                right: false,
-                child: Theme(
-                  data: Theme.of(context).copyWith(
-                    navigationBarTheme: NavigationBarTheme.of(
-                      context,
-                    ).copyWith(height: _kSidebarNavigationBarHeight),
-                  ),
-                  child: SizedBox(
-                    height: _kSidebarFooterShellHeight,
-                    width: double.infinity,
-                    child: AdaptiveScaffold(
-                      resizeToAvoidBottomInset: false,
-                      body: const SizedBox.shrink(),
-                      bottomNavigationBar: _sidebarAdaptiveBottomNavigationBar(
-                        tabDefinitions,
-                        conduitTheme,
+                            ),
+                        ],
                       ),
                     ),
-                  ),
+                  ],
                 ),
+              ),
+              bottomNavigationBar: _sidebarAdaptiveBottomNavigationBar(
+                navigationItems,
+                conduitTheme,
+                selectedNavigationIndex,
+                onTap,
               ),
             ),
           ),

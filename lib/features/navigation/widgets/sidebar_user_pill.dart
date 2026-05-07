@@ -1,3 +1,4 @@
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -13,6 +14,7 @@ import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../../auth/providers/unified_auth_providers.dart';
 import '../providers/sidebar_providers.dart';
+import '../utils/sidebar_create_action.dart';
 
 /// Resolves the best available current user for sidebar UI.
 dynamic resolveSidebarUser(WidgetRef ref) {
@@ -62,6 +64,8 @@ class SidebarUserPillOverlay extends ConsumerWidget {
     final initial = _displayInitial(displayName);
     final topInset = MediaQuery.paddingOf(context).top;
     final expanded = ref.watch(sidebarHeaderSearchExpandedProvider);
+    final showInlineSearchTrigger = !PlatformInfo.isIOS26OrHigher();
+    final createAction = sidebarCreateActionForActiveTab(ref, l10n);
 
     return Padding(
       key: const ValueKey<String>('sidebar-user-pill-overlay'),
@@ -83,9 +87,33 @@ class SidebarUserPillOverlay extends ConsumerWidget {
         firstChild: Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            const _SidebarBrandTitle(),
+            _SidebarProfilePillButton(
+              semanticLabel: l10n.manage,
+              initial: initial,
+              avatarUrl: avatarUrl,
+            ),
             const Spacer(),
-            _CollapsedSearchProfilePill(initial: initial, avatarUrl: avatarUrl),
+            if (showInlineSearchTrigger) ...[
+              _SidebarIconPillButton(
+                semanticLabel: MaterialLocalizations.of(
+                  context,
+                ).searchFieldLabel,
+                tooltip: MaterialLocalizations.of(context).searchFieldLabel,
+                icon: UiUtils.searchIcon,
+                onTap: () {
+                  ref
+                      .read(sidebarHeaderSearchExpandedProvider.notifier)
+                      .setExpanded(true);
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    ref
+                        .read(sidebarSearchFieldFocusNodeProvider)
+                        .requestFocus();
+                  });
+                },
+              ),
+              const SizedBox(width: Spacing.sm),
+            ],
+            _SidebarCreateActionButton(action: createAction),
           ],
         ),
         secondChild: _ExpandedSidebarSearchBar(
@@ -101,114 +129,156 @@ class SidebarUserPillOverlay extends ConsumerWidget {
   }
 }
 
-class _SidebarBrandTitle extends StatelessWidget {
-  const _SidebarBrandTitle();
+class _SidebarIconPillButton extends StatelessWidget {
+  const _SidebarIconPillButton({
+    required this.semanticLabel,
+    required this.tooltip,
+    required this.icon,
+    required this.onTap,
+  });
+
+  final String semanticLabel;
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-    final titleStyle = AppTypography.usesAppleRamp
-        ? AppTypography.displayMediumStyle
-        : AppTypography.headlineMediumStyle;
-    return Text(
-      'Conduit',
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: titleStyle.copyWith(
-        color: theme.textPrimary,
-        fontWeight: FontWeight.w600,
+    final conduitTheme = context.conduitTheme;
+
+    return Semantics(
+      label: semanticLabel,
+      button: true,
+      child: Tooltip(
+        message: tooltip,
+        child: GestureDetector(
+          onTap: onTap,
+          child: FloatingAppBarPill(
+            isCircular: true,
+            child: Icon(
+              icon,
+              color: conduitTheme.iconPrimary,
+              size: IconSize.appBar,
+            ),
+          ),
+        ),
       ),
     );
   }
 }
 
-class _CollapsedSearchProfilePill extends ConsumerWidget {
-  const _CollapsedSearchProfilePill({
+class _SidebarProfilePillButton extends StatelessWidget {
+  const _SidebarProfilePillButton({
+    required this.semanticLabel,
     required this.initial,
     required this.avatarUrl,
   });
 
+  final String semanticLabel;
   final String initial;
   final String? avatarUrl;
 
   static const double _avatarSize = 36;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final conduitTheme = context.conduitTheme;
-    final l10n = AppLocalizations.of(context)!;
-    final searchLabel = MaterialLocalizations.of(context).searchFieldLabel;
-
-    return FloatingAppBarPill(
-      key: const ValueKey<String>('sidebar-user-pill'),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: Spacing.sm,
-          vertical: Spacing.xs,
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: semanticLabel,
+      button: true,
+      child: GestureDetector(
+        onTap: () {
+          Navigator.of(context).maybePop();
+          context.pushNamed(RouteNames.profile);
+        },
+        child: FloatingAppBarPill(
+          isCircular: true,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(AppBorderRadius.avatar),
+            child: UserAvatar(
+              size: _avatarSize,
+              imageUrl: avatarUrl,
+              fallbackText: initial,
+            ),
+          ),
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Semantics(
-              label: searchLabel,
-              button: true,
-              child: InkWell(
-                onTap: () {
-                  ref
-                      .read(sidebarHeaderSearchExpandedProvider.notifier)
-                      .setExpanded(true);
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    ref
-                        .read(sidebarSearchFieldFocusNodeProvider)
-                        .requestFocus();
-                  });
-                },
-                customBorder: const CircleBorder(),
-                child: Padding(
-                  padding: const EdgeInsets.all(Spacing.xs),
-                  child: Icon(
-                    UiUtils.searchIcon,
-                    size: IconSize.medium,
-                    color: conduitTheme.iconPrimary,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: Spacing.md),
-            Semantics(
-              label: l10n.manage,
-              button: true,
-              child: InkWell(
-                onTap: () {
-                  Navigator.of(context).maybePop();
-                  context.pushNamed(RouteNames.profile);
-                },
-                customBorder: CircleBorder(
-                  side: BorderSide(
-                    color: conduitTheme.buttonPrimary.withValues(alpha: 0.25),
-                    width: BorderWidth.thin,
-                  ),
-                ),
-                child: Container(
-                  width: _avatarSize,
-                  height: _avatarSize,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(AppBorderRadius.avatar),
-                    border: Border.all(
-                      color: conduitTheme.buttonPrimary.withValues(alpha: 0.25),
-                      width: BorderWidth.thin,
+      ),
+    );
+  }
+}
+
+class _SidebarCreateActionButton extends ConsumerWidget {
+  const _SidebarCreateActionButton({required this.action});
+
+  final SidebarCreateActionSpec action;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return _SidebarLabeledPillButton(
+      semanticLabel: action.tooltip,
+      tooltip: action.tooltip,
+      icon: action.icon,
+      text: action.label,
+      onTap: () => runSidebarCreateAction(context, ref),
+    );
+  }
+}
+
+class _SidebarLabeledPillButton extends StatelessWidget {
+  const _SidebarLabeledPillButton({
+    required this.semanticLabel,
+    required this.tooltip,
+    required this.icon,
+    required this.text,
+    required this.onTap,
+  });
+
+  final String semanticLabel;
+  final String tooltip;
+  final IconData icon;
+  final String text;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final conduitTheme = context.conduitTheme;
+
+    return Semantics(
+      label: semanticLabel,
+      button: true,
+      child: Tooltip(
+        message: tooltip,
+        child: GestureDetector(
+          onTap: onTap,
+          child: FloatingAppBarPill(
+            child: SizedBox(
+              height: TouchTarget.minimum,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Icon(
+                      icon,
+                      color: conduitTheme.textPrimary.withValues(alpha: 0.7),
+                      size: IconSize.md,
                     ),
-                  ),
-                  clipBehavior: Clip.hardEdge,
-                  child: UserAvatar(
-                    size: _avatarSize,
-                    imageUrl: avatarUrl,
-                    fallbackText: initial,
-                  ),
+                    const SizedBox(width: Spacing.sm),
+                    Text(
+                      text,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.labelStyle.copyWith(
+                        color: conduitTheme.textPrimary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -246,27 +316,18 @@ class _ExpandedSidebarSearchBar extends ConsumerWidget {
             },
           ),
         ),
-        const SizedBox(width: Spacing.xs),
-        IconButton(
+        const SizedBox(width: Spacing.sm),
+        _SidebarIconPillButton(
+          semanticLabel: MaterialLocalizations.of(context).closeButtonLabel,
           tooltip: MaterialLocalizations.of(context).closeButtonLabel,
-          visualDensity: VisualDensity.compact,
-          padding: EdgeInsets.zero,
-          constraints: const BoxConstraints(
-            minWidth: TouchTarget.minimum,
-            minHeight: TouchTarget.minimum,
-          ),
-          onPressed: () {
+          icon: UiUtils.closeIcon,
+          onTap: () {
             controller.clear();
             ref
                 .read(sidebarHeaderSearchExpandedProvider.notifier)
                 .setExpanded(false);
             focusNode.unfocus();
           },
-          icon: Icon(
-            UiUtils.closeIcon,
-            size: IconSize.medium,
-            color: context.conduitTheme.iconPrimary,
-          ),
         ),
       ],
     );

@@ -32,6 +32,7 @@ class ResponsiveDrawerLayout extends StatefulWidget {
   final bool pushContent;
   final double contentScaleDelta;
   final VoidCallback? onOpenStart;
+  final double mobileBottomDragGestureExclusion;
 
   // Tablet-specific configuration
   final double tabletDrawerWidth; // Fixed width for tablet drawer
@@ -49,6 +50,7 @@ class ResponsiveDrawerLayout extends StatefulWidget {
     this.pushContent = true,
     this.contentScaleDelta = 0.02,
     this.onOpenStart,
+    this.mobileBottomDragGestureExclusion = 0.0,
     this.tabletDrawerWidth = 320.0,
     this.tabletDismissible = true,
     this.tabletInitiallyDocked = true,
@@ -366,6 +368,38 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
     );
   }
 
+  Widget _buildMobileDrawerPanel(ConduitThemeExtension theme) {
+    final drawerPanel = RepaintBoundary(
+      child: Material(
+        color: theme.surfaceBackground,
+        elevation: 8,
+        child: widget.drawer,
+      ),
+    );
+
+    final excludedHeight = widget.mobileBottomDragGestureExclusion.clamp(
+      0.0,
+      MediaQuery.of(context).size.height,
+    );
+
+    return Stack(
+      children: [
+        drawerPanel,
+        if (excludedHeight < MediaQuery.of(context).size.height)
+          Positioned.fill(
+            bottom: excludedHeight,
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onHorizontalDragStart: _onDragStart,
+              onHorizontalDragUpdate: _onDragUpdate,
+              onHorizontalDragEnd: _onDragEnd,
+              onHorizontalDragCancel: _onDragCancel,
+            ),
+          ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
@@ -501,20 +535,7 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
                               widget.drawer as DrawerSlot,
                             ),
                           )
-                        : GestureDetector(
-                            behavior: HitTestBehavior.translucent,
-                            onHorizontalDragStart: _onDragStart,
-                            onHorizontalDragUpdate: _onDragUpdate,
-                            onHorizontalDragEnd: _onDragEnd,
-                            onHorizontalDragCancel: _onDragCancel,
-                            child: RepaintBoundary(
-                              child: Material(
-                                color: theme.surfaceBackground,
-                                elevation: 8,
-                                child: widget.drawer,
-                              ),
-                            ),
-                          ),
+                        : _buildMobileDrawerPanel(theme),
                   ),
                 ],
               ),

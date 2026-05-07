@@ -84,22 +84,6 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
     }
   }
 
-  Future<void> _createNote() async {
-    ConduitHaptics.lightImpact();
-    final dateFormat = DateFormat('yyyy-MM-dd');
-    final defaultTitle = dateFormat.format(DateTime.now());
-    final note = await ref
-        .read(noteCreatorProvider.notifier)
-        .createNote(title: defaultTitle);
-    if (note != null && mounted) {
-      NavigationService.router.go('/notes/${note.id}');
-      final isTablet = MediaQuery.of(context).size.shortestSide >= 600;
-      if (!isTablet) {
-        ResponsiveDrawerLayout.of(context)?.close();
-      }
-    }
-  }
-
   Future<void> _deleteNote(Note note) =>
       confirmAndDeleteNote(context, ref, note);
 
@@ -253,95 +237,76 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
             ? ref.watch(notesListProvider)
             : ref.watch(filteredNotesProvider(query));
 
-        return Stack(
-          children: [
-            Positioned.fill(
-              child: notes.when(
-                data: (noteList) {
-                  if (noteList.isEmpty) {
-                    return Center(
-                      child: Text(
-                        query.isEmpty ? l10n.noNotesYet : l10n.noNotesFound,
-                        style: AppTypography.sidebarSupportingStyle.copyWith(
-                          color: theme.textSecondary,
-                        ),
-                      ),
-                    );
-                  }
-                  final pinnedNotes = noteList
-                      .where((note) => note.isPinned)
-                      .toList(growable: false);
-                  final otherNotes = noteList
-                      .where((note) => !note.isPinned)
-                      .toList(growable: false);
-                  final hasPinnedSection = pinnedNotes.isNotEmpty;
-                  final showPinned = ref.watch(notesShowPinnedProvider);
-                  final showRecent = ref.watch(notesShowRecentProvider);
-                  final needsSectionGap =
-                      hasPinnedSection && otherNotes.isNotEmpty;
-                  final hasRecentSection = otherNotes.isNotEmpty;
+        return notes.when(
+          data: (noteList) {
+            if (noteList.isEmpty) {
+              return Center(
+                child: Text(
+                  query.isEmpty ? l10n.noNotesYet : l10n.noNotesFound,
+                  style: AppTypography.sidebarSupportingStyle.copyWith(
+                    color: theme.textSecondary,
+                  ),
+                ),
+              );
+            }
+            final pinnedNotes = noteList
+                .where((note) => note.isPinned)
+                .toList(growable: false);
+            final otherNotes = noteList
+                .where((note) => !note.isPinned)
+                .toList(growable: false);
+            final hasPinnedSection = pinnedNotes.isNotEmpty;
+            final showPinned = ref.watch(notesShowPinnedProvider);
+            final showRecent = ref.watch(notesShowRecentProvider);
+            final needsSectionGap = hasPinnedSection && otherNotes.isNotEmpty;
+            final hasRecentSection = otherNotes.isNotEmpty;
 
-                  var itemCount = 0;
-                  if (hasPinnedSection) {
-                    itemCount += 1;
-                    if (showPinned) {
-                      itemCount += pinnedNotes.length;
-                    }
-                  }
-                  if (needsSectionGap) {
-                    itemCount += 1;
-                  }
-                  if (hasRecentSection) {
-                    itemCount += 1;
-                    if (showRecent) {
-                      itemCount += otherNotes.length;
-                    }
-                  }
+            var itemCount = 0;
+            if (hasPinnedSection) {
+              itemCount += 1;
+              if (showPinned) {
+                itemCount += pinnedNotes.length;
+              }
+            }
+            if (needsSectionGap) {
+              itemCount += 1;
+            }
+            if (hasRecentSection) {
+              itemCount += 1;
+              if (showRecent) {
+                itemCount += otherNotes.length;
+              }
+            }
 
-                  return RefreshIndicator(
-                    onRefresh: () async {
-                      ConduitHaptics.lightImpact();
-                      await ref.read(notesListProvider.notifier).refresh();
-                    },
-                    child: ListView.builder(
-                      padding: EdgeInsets.only(
-                        bottom: sidebarPrimaryCircleButtonScrollPadding(
-                          context,
-                        ),
-                      ),
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      itemCount: itemCount,
-                      itemBuilder: (context, index) {
-                        return _buildNotesListItem(
-                          index: index,
-                          l10n: l10n,
-                          pinnedNotes: pinnedNotes,
-                          otherNotes: otherNotes,
-                          hasPinnedSection: hasPinnedSection,
-                          hasRecentSection: hasRecentSection,
-                          needsSectionGap: needsSectionGap,
-                          showPinned: showPinned,
-                          showRecent: showRecent,
-                        );
-                      },
-                    ),
+            return RefreshIndicator(
+              onRefresh: () async {
+                ConduitHaptics.lightImpact();
+                await ref.read(notesListProvider.notifier).refresh();
+              },
+              child: ListView.builder(
+                padding: EdgeInsets.only(
+                  bottom: sidebarTabContentBottomPadding(context),
+                ),
+                physics: const AlwaysScrollableScrollPhysics(),
+                itemCount: itemCount,
+                itemBuilder: (context, index) {
+                  return _buildNotesListItem(
+                    index: index,
+                    l10n: l10n,
+                    pinnedNotes: pinnedNotes,
+                    otherNotes: otherNotes,
+                    hasPinnedSection: hasPinnedSection,
+                    hasRecentSection: hasRecentSection,
+                    needsSectionGap: needsSectionGap,
+                    showPinned: showPinned,
+                    showRecent: showRecent,
                   );
                 },
-                loading: () => const Center(child: CircularProgressIndicator()),
-                error: (err, _) => Center(child: Text(l10n.failedToLoadNotes)),
               ),
-            ),
-            Positioned.directional(
-              textDirection: Directionality.of(context),
-              end: Spacing.md,
-              bottom: Spacing.md,
-              child: SidebarPrimaryCircleButton(
-                onPressed: _createNote,
-                icon: UiUtils.newNoteIcon,
-                tooltip: l10n.createNote,
-              ),
-            ),
-          ],
+            );
+          },
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (err, _) => Center(child: Text(l10n.failedToLoadNotes)),
         );
       },
     );

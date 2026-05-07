@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 
 import '../theme/theme_extensions.dart';
 
+const double _kSidebarNativeBottomBarContentHeight = 50.0;
+
 /// Circular filled primary action for sidebar tab stacks and matching routes.
 ///
 /// Uses [AdaptiveButtonStyle.filled] so appearance adapts per platform.
@@ -41,8 +43,27 @@ class SidebarPrimaryCircleButton extends StatelessWidget {
   }
 }
 
+/// Bottom inset so sidebar tab content clears the native iOS 26 tab bar.
+double sidebarTabContentBottomPadding(BuildContext context) {
+  if (!PlatformInfo.isIOS26OrHigher()) {
+    return Spacing.md;
+  }
+
+  final bottomPadding = MediaQuery.viewPaddingOf(context).bottom;
+  return bottomPadding + _kSidebarNativeBottomBarContentHeight + Spacing.md;
+}
+
+/// Height excluded from drawer drag gestures above the native sidebar tab bar.
+double sidebarBottomBarGestureExclusionHeight(BuildContext context) {
+  if (!PlatformInfo.isIOS26OrHigher()) {
+    return 0.0;
+  }
+
+  return sidebarTabContentBottomPadding(context);
+}
+
 /// Bottom inset so scrollable content clears [SidebarPrimaryCircleButton].
 double sidebarPrimaryCircleButtonScrollPadding(BuildContext context) {
-  final bottomPadding = MediaQuery.of(context).viewPadding.bottom;
+  final bottomPadding = MediaQuery.viewPaddingOf(context).bottom;
   return bottomPadding + Spacing.md + TouchTarget.minimum + Spacing.md;
 }

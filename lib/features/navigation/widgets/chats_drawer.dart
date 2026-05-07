@@ -8,17 +8,14 @@ import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/providers/app_providers.dart';
-import '../../../core/services/settings_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../chat/providers/chat_providers.dart' as chat;
-import '../../chat/providers/context_attachments_provider.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
-import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/modal_safe_area.dart';
 import '../../../shared/widgets/sidebar_primary_circle_button.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
@@ -175,15 +172,13 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
 
   Widget _buildRefreshableScrollableSlivers({required List<Widget> slivers}) {
     // Top inset matches Notes tab pinned header row (`EdgeInsets` top 8).
-    // Bottom inset for safe area and floating new-chat button.
+    // Bottom inset keeps the last row clear of the native bottom tab bar.
     final paddedSlivers = <Widget>[
       const SliverToBoxAdapter(child: SizedBox(height: Spacing.sm)),
       ...slivers,
-      // Bottom padding for safe-area inset, floating button, scroll end room.
+      // Bottom padding for the tab bar and a little breathing room.
       SliverToBoxAdapter(
-        child: SizedBox(
-          height: sidebarPrimaryCircleButtonScrollPadding(context),
-        ),
+        child: SizedBox(height: sidebarTabContentBottomPadding(context)),
       ),
     ];
 
@@ -490,44 +485,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-
-    return Stack(
-      children: [
-        Positioned.fill(child: _buildConversationList(context)),
-        Positioned.directional(
-          textDirection: Directionality.of(context),
-          end: Spacing.md,
-          bottom: Spacing.md,
-          child: SidebarPrimaryCircleButton(
-            onPressed: _startNewChat,
-            icon: UiUtils.newChatIcon,
-            tooltip: AppLocalizations.of(context)!.newChat,
-          ),
-        ),
-      ],
-    );
-  }
-
-  void _startNewChat() {
-    ConduitHaptics.selectionClick();
-    ref.read(chat.chatMessagesProvider.notifier).clearMessages();
-    ref.read(activeConversationProvider.notifier).clear();
-    ref.read(contextAttachmentsProvider.notifier).clear();
-    chat.restoreDefaultModel(ref);
-
-    NavigationService.router.go(Routes.chat);
-
-    if (mounted) {
-      final isTablet = MediaQuery.of(context).size.shortestSide >= 600;
-      if (!isTablet) {
-        ResponsiveDrawerLayout.of(context)?.close();
-      }
-    }
-
-    final settings = ref.read(appSettingsProvider);
-    ref
-        .read(temporaryChatEnabledProvider.notifier)
-        .set(settings.temporaryChatByDefault);
+    return _buildConversationList(context);
   }
 
   Widget _buildConversationList(BuildContext context) {
