@@ -36,6 +36,22 @@ class NavigationService {
     return router.routeInformationProvider.value.uri.toString();
   }
 
+  /// The current folder ID when the active route is `/folder/:id`.
+  static String? get currentFolderId {
+    final current = currentRoute;
+    if (current == null) return null;
+
+    final uri = Uri.tryParse(current);
+    if (uri == null) return null;
+
+    final segments = uri.pathSegments;
+    if (segments.length == 2 && segments.first == 'folder') {
+      return segments[1];
+    }
+
+    return null;
+  }
+
   /// Navigate to a specific route path.
   static Future<void> navigateTo(String routeName) async {
     final router = _router;
@@ -84,6 +100,8 @@ class NavigationService {
   }
 
   static Future<void> navigateToChat() => navigateTo(Routes.chat);
+  static Future<void> navigateToFolder(String folderId) =>
+      navigateTo(Routes.folderPath(folderId));
   static Future<void> navigateToLogin() => navigateTo(Routes.serverConnection);
   static Future<void> navigateToProfile() => navigateTo(Routes.profile);
   static Future<void> navigateToServerConnection() =>
@@ -101,6 +119,7 @@ class NavigationService {
 class Routes {
   static const String splash = '/splash';
   static const String chat = '/chat';
+  static const String folder = '/folder/:id';
   static const String login = '/login';
   static const String serverConnection = '/server-connection';
   static const String connectionIssue = '/connection-issue';
@@ -112,12 +131,15 @@ class Routes {
   static const String notes = '/notes';
   static const String noteEditor = '/notes/:id';
   static const String channel = '/channel/:id';
+
+  static String folderPath(String id) => '/folder/$id';
 }
 
 /// Friendly names for GoRouter routes to support context.pushNamed.
 class RouteNames {
   static const String splash = 'splash';
   static const String chat = 'chat';
+  static const String folder = 'folder';
   static const String login = 'login';
   static const String serverConnection = 'server-connection';
   static const String connectionIssue = 'connection-issue';

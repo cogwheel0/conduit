@@ -41,6 +41,11 @@ final class PreferenceKeys {
   static const String drawerShowFolders = 'drawer_show_folders';
   static const String drawerShowRecent = 'drawer_show_recent';
 
+  /// Notes sidebar tab section visibility (separate from [drawerShowPinned] /
+  /// [drawerShowRecent]).
+  static const String notesListShowPinned = 'notes_list_show_pinned';
+  static const String notesListShowRecent = 'notes_list_show_recent';
+
   static const String sidebarActiveTab = 'sidebar_active_tab';
 }
 

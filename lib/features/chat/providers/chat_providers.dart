@@ -2644,8 +2644,16 @@ Future<void> sendMessageFromService(
   List<String>? attachments, [
   List<String>? toolIds,
   bool isVoiceMode = false,
+  String? pendingFolderIdOverride,
 ]) async {
-  await _sendMessageInternal(ref, message, attachments, toolIds, isVoiceMode);
+  await _sendMessageInternal(
+    ref,
+    message,
+    attachments,
+    toolIds,
+    isVoiceMode,
+    pendingFolderIdOverride,
+  );
 }
 
 Future<void> sendMessageWithContainer(
@@ -2671,6 +2679,7 @@ Future<void> _sendMessageInternal(
   List<String>? attachments, [
   List<String>? toolIds,
   bool isVoiceMode = false,
+  String? pendingFolderIdOverride,
 ]) async {
   final reviewerMode = ref.read(reviewerModeProvider);
   final api = ref.read(apiServiceProvider);
@@ -2822,7 +2831,8 @@ Future<void> _sendMessageInternal(
   var activeConversation = ref.read(activeConversationProvider);
 
   if (activeConversation == null) {
-    final pendingFolderId = ref.read(pendingFolderIdProvider);
+    final pendingFolderId =
+        pendingFolderIdOverride ?? ref.read(pendingFolderIdProvider);
     final isTemporary = ref.read(temporaryChatEnabledProvider);
 
     if (isTemporary) {

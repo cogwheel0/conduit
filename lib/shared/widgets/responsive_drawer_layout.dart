@@ -4,12 +4,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
 import 'package:flutter/services.dart';
 import 'package:conduit/core/services/haptic_service.dart';
+
 import '../../shared/theme/theme_extensions.dart';
+import 'drawer_slot.dart';
 
 enum _DrawerSettleEndpoint { open, closed }
 
 /// A responsive layout that shows a persistent drawer on tablets (side-by-side)
 /// and an overlay drawer on mobile devices.
+///
+/// When the [drawer] is a [DrawerSlot], horizontal swipe-to-close gestures on
+/// mobile apply only to [DrawerSlot.mainPanel], not [DrawerSlot.footerPanel]
+/// (e.g. a bottom tab bar with platform views).
 ///
 /// On tablets (shortestSide >= 600), the drawer is always visible alongside
 /// the content. On mobile, it behaves like a standard slide drawer.
@@ -316,6 +322,50 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
     _resetDragState();
   }
 
+  Widget _buildTabletDrawerSlot(ConduitThemeExtension theme, DrawerSlot slot) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(
+          child: Material(
+            color: theme.surfaceBackground,
+            child: slot.mainPanel,
+          ),
+        ),
+        Material(color: theme.surfaceBackground, child: slot.footerPanel),
+      ],
+    );
+  }
+
+  Widget _buildMobileDrawerSlotPanel(
+    ConduitThemeExtension theme,
+    DrawerSlot slot,
+  ) {
+    return Material(
+      elevation: 8,
+      color: theme.surfaceBackground,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onHorizontalDragStart: _onDragStart,
+              onHorizontalDragUpdate: _onDragUpdate,
+              onHorizontalDragEnd: _onDragEnd,
+              onHorizontalDragCancel: _onDragCancel,
+              child: Material(
+                color: theme.surfaceBackground,
+                child: slot.mainPanel,
+              ),
+            ),
+          ),
+          Material(color: theme.surfaceBackground, child: slot.footerPanel),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
@@ -351,10 +401,12 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
           child: ClipRect(
             child: IgnorePointer(
               ignoring: widget.tabletDismissible && !_isTabletDocked,
-              child: Material(
-                color: theme.surfaceBackground,
-                child: widget.drawer,
-              ),
+              child: widget.drawer is DrawerSlot
+                  ? _buildTabletDrawerSlot(theme, widget.drawer as DrawerSlot)
+                  : Material(
+                      color: theme.surfaceBackground,
+                      child: widget.drawer,
+                    ),
             ),
           ),
         ),
@@ -442,26 +494,32 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
                     top: 0,
                     bottom: 0,
                     width: _panelWidth,
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.translucent,
-                      onHorizontalDragStart: _onDragStart,
-                      onHorizontalDragUpdate: _onDragUpdate,
-                      onHorizontalDragEnd: _onDragEnd,
-                      onHorizontalDragCancel: _onDragCancel,
-                      child: child!,
-                    ),
+                    child: widget.drawer is DrawerSlot
+                        ? RepaintBoundary(
+                            child: _buildMobileDrawerSlotPanel(
+                              theme,
+                              widget.drawer as DrawerSlot,
+                            ),
+                          )
+                        : GestureDetector(
+                            behavior: HitTestBehavior.translucent,
+                            onHorizontalDragStart: _onDragStart,
+                            onHorizontalDragUpdate: _onDragUpdate,
+                            onHorizontalDragEnd: _onDragEnd,
+                            onHorizontalDragCancel: _onDragCancel,
+                            child: RepaintBoundary(
+                              child: Material(
+                                color: theme.surfaceBackground,
+                                elevation: 8,
+                                child: widget.drawer,
+                              ),
+                            ),
+                          ),
                   ),
                 ],
               ),
             );
           },
-          child: RepaintBoundary(
-            child: Material(
-              color: theme.surfaceBackground,
-              elevation: 8,
-              child: widget.drawer,
-            ),
-          ),
         ),
       ],
     );

@@ -95,6 +95,7 @@ class TaskQueueNotifier extends Notifier<List<OutboundTask>> {
 
   Future<String> enqueueSendText({
     required String? conversationId,
+    String? pendingFolderId,
     required String text,
     List<String>? attachments,
     List<String>? toolIds,
@@ -104,6 +105,7 @@ class TaskQueueNotifier extends Notifier<List<OutboundTask>> {
     final task = OutboundTask.sendTextMessage(
       id: id,
       conversationId: conversationId,
+      pendingFolderId: pendingFolderId,
       text: text,
       attachments: attachments ?? const [],
       toolIds: toolIds ?? const [],

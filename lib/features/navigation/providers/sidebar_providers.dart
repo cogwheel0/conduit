@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
@@ -26,4 +27,28 @@ class SidebarActiveTab extends _$SidebarActiveTab {
     state = index.clamp(0, 2);
     _box.put(PreferenceKeys.sidebarActiveTab, state);
   }
+}
+
+/// Whether the sidebar header search field is expanded (full bar vs icon + avatar).
+@Riverpod(keepAlive: true)
+class SidebarHeaderSearchExpanded extends _$SidebarHeaderSearchExpanded {
+  @override
+  bool build() => false;
+
+  void setExpanded(bool value) => state = value;
+}
+
+/// Shared with [ChatsDrawer], [NotesListTab], and [ChannelListTab] for list search.
+@Riverpod(keepAlive: true)
+TextEditingController sidebarSearchFieldController(Ref ref) {
+  final c = TextEditingController();
+  ref.onDispose(c.dispose);
+  return c;
+}
+
+@Riverpod(keepAlive: true)
+FocusNode sidebarSearchFieldFocusNode(Ref ref) {
+  final n = FocusNode(debugLabel: 'sidebar_header_search');
+  ref.onDispose(n.dispose);
+  return n;
 }

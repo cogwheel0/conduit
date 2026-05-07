@@ -10,12 +10,12 @@ import '../../../core/utils/debug_logger.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/utils/ui_utils.dart';
-import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/sidebar_primary_circle_button.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../auth/providers/unified_auth_providers.dart';
-import '../../navigation/widgets/sidebar_user_pill.dart';
+import '../../navigation/providers/sidebar_providers.dart';
 import '../providers/channel_providers.dart';
 import 'channel_form_dialog.dart';
 
@@ -31,8 +31,6 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
     with AutomaticKeepAliveClientMixin {
   static final _channelRoutePattern = RegExp(r'^/channel/(.+)$');
 
-  final TextEditingController _searchController = TextEditingController();
-  String _query = '';
   String? _activeChannelId;
 
   @override
@@ -52,7 +50,6 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
     NavigationService.router.routeInformationProvider.removeListener(
       _onRouteChanged,
     );
-    _searchController.dispose();
     super.dispose();
   }
 
@@ -67,10 +64,6 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
     if (newId != _activeChannelId) {
       setState(() => _activeChannelId = newId);
     }
-  }
-
-  void _onSearchChanged(String value) {
-    setState(() => _query = value.trim().toLowerCase());
   }
 
   void _onChannelTap(Channel channel) {
@@ -216,97 +209,93 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
     super.build(context);
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
-    final bottomInset = sidebarUserPillContentInset(context, ref);
     final channelsAsync = ref.watch(channelsListProvider);
+    final searchController = ref.watch(sidebarSearchFieldControllerProvider);
 
-    return Padding(
-      padding: EdgeInsets.only(bottom: bottomInset),
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-            child: Row(
-              children: [
-                Expanded(
-                  child: ConduitGlassSearchField(
-                    controller: _searchController,
-                    hintText: l10n.searchChannels,
-                    onChanged: _onSearchChanged,
-                    query: _query,
-                    onClear: () {
-                      _searchController.clear();
-                      _onSearchChanged('');
-                    },
-                  ),
-                ),
-                const SizedBox(width: 8),
-                FloatingAppBarIconButton(
-                  icon: UiUtils.newChannelIcon,
-                  onTap: _showCreateChannelDialog,
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: channelsAsync.when(
-              data: (channels) {
-                final filtered = _query.isEmpty
-                    ? channels
-                    : channels
-                          .where((c) => c.name.toLowerCase().contains(_query))
-                          .toList();
+    return ValueListenableBuilder<TextEditingValue>(
+      valueListenable: searchController,
+      builder: (context, value, _) {
+        final queryLower = value.text.trim().toLowerCase();
 
-                if (filtered.isEmpty) {
-                  return Center(
-                    child: Text(
-                      l10n.channelEmptyState,
-                      style: AppTypography.sidebarSupportingStyle.copyWith(
-                        color: theme.textSecondary,
+        return Stack(
+          children: [
+            Positioned.fill(
+              child: channelsAsync.when(
+                data: (channels) {
+                  final filtered = queryLower.isEmpty
+                      ? channels
+                      : channels
+                            .where(
+                              (c) => c.name.toLowerCase().contains(queryLower),
+                            )
+                            .toList();
+
+                  if (filtered.isEmpty) {
+                    return Center(
+                      child: Text(
+                        l10n.channelEmptyState,
+                        style: AppTypography.sidebarSupportingStyle.copyWith(
+                          color: theme.textSecondary,
+                        ),
                       ),
+                    );
+                  }
+
+                  return RefreshIndicator(
+                    onRefresh: () async {
+                      ConduitHaptics.lightImpact();
+                      await ref.read(channelsListProvider.notifier).refresh();
+                    },
+                    child: ListView.builder(
+                      itemExtent: 72,
+                      itemCount: filtered.length,
+                      padding: EdgeInsets.only(
+                        bottom: sidebarPrimaryCircleButtonScrollPadding(
+                          context,
+                        ),
+                      ),
+                      itemBuilder: (context, index) {
+                        final ch = filtered[index];
+                        return _ChannelTile(
+                          channel: ch,
+                          selected: ch.id == _activeChannelId,
+                          onTap: () => _onChannelTap(ch),
+                          actions: _buildChannelActions(ch),
+                        );
+                      },
                     ),
                   );
-                }
-
-                return RefreshIndicator(
-                  onRefresh: () async {
-                    ConduitHaptics.lightImpact();
-                    await ref.read(channelsListProvider.notifier).refresh();
-                  },
-                  child: ListView.builder(
-                    itemExtent: 72,
-                    itemCount: filtered.length,
-                    padding: EdgeInsets.zero,
-                    itemBuilder: (context, index) {
-                      final ch = filtered[index];
-                      return _ChannelTile(
-                        channel: ch,
-                        selected: ch.id == _activeChannelId,
-                        onTap: () => _onChannelTap(ch),
-                        actions: _buildChannelActions(ch),
-                      );
-                    },
+                },
+                loading: () => const Center(child: CircularProgressIndicator()),
+                error: (err, _) => Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(l10n.channelLoadError),
+                      const SizedBox(height: 8),
+                      TextButton(
+                        onPressed: () =>
+                            ref.read(channelsListProvider.notifier).refresh(),
+                        child: Text(l10n.retry),
+                      ),
+                    ],
                   ),
-                );
-              },
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (err, _) => Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(l10n.channelLoadError),
-                    const SizedBox(height: 8),
-                    TextButton(
-                      onPressed: () =>
-                          ref.read(channelsListProvider.notifier).refresh(),
-                      child: Text(l10n.retry),
-                    ),
-                  ],
                 ),
               ),
             ),
-          ),
-        ],
-      ),
+            Positioned.directional(
+              textDirection: Directionality.of(context),
+              end: Spacing.md,
+              bottom: Spacing.md,
+              child: SidebarPrimaryCircleButton(
+                onPressed: _showCreateChannelDialog,
+                icon: UiUtils.newChannelIcon,
+                tooltip: l10n.channelCreateTitle,
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }

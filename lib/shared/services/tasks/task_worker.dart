@@ -70,6 +70,8 @@ class TaskWorker {
         task.text,
         task.attachments.isEmpty ? null : task.attachments,
         task.toolIds.isEmpty ? null : task.toolIds,
+        false,
+        task.pendingFolderId,
       );
     } finally {
       try {

@@ -18,6 +18,7 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
+import '../../../shared/widgets/sidebar_primary_circle_button.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../providers/notes_providers.dart';
@@ -134,7 +135,11 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
           ),
         ),
         body: _buildBody(context),
-        floatingActionButton: _buildFAB(context),
+        floatingActionButton: SidebarPrimaryCircleButton(
+          onPressed: _createNewNote,
+          icon: UiUtils.newNoteIcon,
+          tooltip: l10n.createNote,
+        ),
       ),
     );
   }
@@ -258,8 +263,14 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
       }
     }
 
-    // Add bottom padding for FAB
-    slivers.add(const SliverToBoxAdapter(child: SizedBox(height: 80)));
+    // Bottom padding for primary circle action (aligned with sidebar tabs).
+    slivers.add(
+      SliverToBoxAdapter(
+        child: SizedBox(
+          height: sidebarPrimaryCircleButtonScrollPadding(context),
+        ),
+      ),
+    );
 
     return _buildRefreshableScrollView(slivers);
   }
@@ -792,19 +803,6 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildFAB(BuildContext context) {
-    final theme = context.conduitTheme;
-    final l10n = AppLocalizations.of(context)!;
-
-    return AdaptiveFloatingActionButton(
-      onPressed: _createNewNote,
-      backgroundColor: theme.buttonPrimary,
-      foregroundColor: theme.buttonPrimaryText,
-      tooltip: l10n.createNote,
-      child: Icon(Platform.isIOS ? CupertinoIcons.add : Icons.add_rounded),
     );
   }
 }

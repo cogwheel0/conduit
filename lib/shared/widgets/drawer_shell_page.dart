@@ -25,7 +25,6 @@ class DrawerShellPage extends ConsumerWidget {
     final scrim = Platform.isIOS
         ? context.colorTokens.scrimMedium
         : context.colorTokens.scrimStrong;
-    final theme = context.conduitTheme;
 
     return ResponsiveDrawerLayout(
       maxFraction: isTablet ? 0.42 : 1.0,
@@ -38,21 +37,10 @@ class DrawerShellPage extends ConsumerWidget {
       onOpenStart: () {
         // Suppress composer auto-focus when drawer opens on mobile
         try {
-          ref
-              .read(composerAutofocusEnabledProvider.notifier)
-              .set(false);
+          ref.read(composerAutofocusEnabledProvider.notifier).set(false);
         } catch (_) {}
       },
-      drawer: Container(
-        color: theme.surfaceBackground,
-        child: const SafeArea(
-          top: true,
-          bottom: true,
-          left: false,
-          right: false,
-          child: SidebarPage(),
-        ),
-      ),
+      drawer: const SidebarPage(),
       child: child,
     );
   }

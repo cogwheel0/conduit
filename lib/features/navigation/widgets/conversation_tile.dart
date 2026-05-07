@@ -184,28 +184,21 @@ class ConversationTile extends StatefulWidget {
 }
 
 class _ConversationTileState extends State<ConversationTile> {
-  bool _isHovered = false;
-
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
-    final sidebarTheme = context.sidebarTheme;
     final borderRadius = BorderRadius.circular(AppBorderRadius.card);
 
-    // Use opaque backgrounds for proper context menu snapshot rendering
-    final Color baseBackground = sidebarTheme.background;
+    // Match the chats drawer scroll surface (surfaceBackground), not
+    // sidebarTheme.background, so tiles align in light and dark.
+    final Color baseBackground = theme.surfaceBackground;
 
     final Color background = widget.selected
         ? Color.alphaBlend(
             theme.buttonPrimary.withValues(alpha: 0.1),
             baseBackground,
           )
-        : (_isHovered
-              ? Color.alphaBlend(
-                  theme.buttonPrimary.withValues(alpha: 0.05),
-                  baseBackground,
-                )
-              : baseBackground);
+        : baseBackground;
 
     Color? overlayForStates(Set<WidgetState> states) {
       if (states.contains(WidgetState.pressed)) {
@@ -217,42 +210,40 @@ class _ConversationTileState extends State<ConversationTile> {
     return Semantics(
       selected: widget.selected,
       button: true,
-      child: MouseRegion(
-        onEnter: (_) => setState(() => _isHovered = true),
-        onExit: (_) => setState(() => _isHovered = false),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOutCubic,
-          margin: const EdgeInsets.symmetric(
-            horizontal: Spacing.xs,
-            vertical: Spacing.xxs,
-          ),
-          decoration: BoxDecoration(
-            color: background,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        margin: const EdgeInsets.only(
+          left: 0,
+          right: Spacing.xs,
+          top: Spacing.xxs,
+          bottom: Spacing.xxs,
+        ),
+        decoration: BoxDecoration(
+          color: background,
+          borderRadius: borderRadius,
+        ),
+        child: Material(
+          color: Colors.transparent,
+          borderRadius: borderRadius,
+          child: InkWell(
             borderRadius: borderRadius,
-          ),
-          child: Material(
-            color: Colors.transparent,
-            borderRadius: borderRadius,
-            child: InkWell(
-              borderRadius: borderRadius,
-              onTap: widget.isLoading ? null : widget.onTap,
-              overlayColor: WidgetStateProperty.resolveWith(overlayForStates),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(
-                  minHeight: TouchTarget.listItem,
+            onTap: widget.isLoading ? null : widget.onTap,
+            overlayColor: WidgetStateProperty.resolveWith(overlayForStates),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(
+                minHeight: TouchTarget.listItem,
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: Spacing.md,
+                  vertical: Spacing.sm,
                 ),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: Spacing.md,
-                    vertical: Spacing.sm,
-                  ),
-                  child: ConversationTileContent(
-                    title: widget.title,
-                    pinned: widget.pinned,
-                    selected: widget.selected,
-                    isLoading: widget.isLoading,
-                  ),
+                child: ConversationTileContent(
+                  title: widget.title,
+                  pinned: widget.pinned,
+                  selected: widget.selected,
+                  isLoading: widget.isLoading,
                 ),
               ),
             ),

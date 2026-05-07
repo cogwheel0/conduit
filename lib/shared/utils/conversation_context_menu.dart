@@ -6,6 +6,8 @@ import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/measure_size.dart';
+import 'package:conduit/shared/widgets/modal_safe_area.dart';
+import 'package:conduit/shared/widgets/sheet_handle.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
 import 'package:cupertino_context_menu_plus/cupertino_context_menu_plus.dart';
 import 'package:flutter/cupertino.dart';
@@ -15,6 +17,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:conduit/features/chat/providers/chat_providers.dart' as chat;
 import 'package:conduit/features/chat/widgets/chat_share_sheet.dart';
+import 'package:conduit/features/navigation/widgets/folder_tree_guides.dart';
 
 /// Defines an action for use in Conduit context menus.
 class ConduitContextMenuAction {
@@ -469,82 +472,78 @@ Future<_ConversationMoveTarget?> _showConversationMoveSheet(
   required String? currentFolderId,
 }) {
   final theme = context.conduitTheme;
-  final sortedFolders = [...folders]
-    ..sort((a, b) {
-      final updatedA = a.updatedAt;
-      final updatedB = b.updatedAt;
-      if (updatedA != null && updatedB != null) {
-        return updatedB.compareTo(updatedA);
-      }
-      if (updatedA != null) return -1;
-      if (updatedB != null) return 1;
-      return a.name.toLowerCase().compareTo(b.name.toLowerCase());
-    });
-  final folderTargets = sortedFolders
-      .where((folder) => folder.id != currentFolderId)
-      .toList(growable: false);
+  final treeEntries = folderTreeEntriesForTargets(
+    folders: folders,
+    omitFolderId: currentFolderId,
+  );
 
   return showModalBottomSheet<_ConversationMoveTarget>(
     context: context,
-    backgroundColor: theme.surfaceContainer,
+    isScrollControlled: true,
+    useSafeArea: false,
+    backgroundColor: theme.surfaceBackground,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(
         top: Radius.circular(AppBorderRadius.bottomSheet),
       ),
     ),
     builder: (sheetContext) {
-      return SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(
-            Spacing.md,
-            Spacing.md,
-            Spacing.md,
-            Spacing.lg,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: Spacing.sm),
-                child: Text(
-                  'Move to folder',
-                  style: AppTypography.titleMediumStyle.copyWith(
-                    color: theme.textPrimary,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+      final maxListHeight = MediaQuery.sizeOf(sheetContext).height * 0.62;
+
+      return ModalSheetSafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Center(child: SheetHandle()),
+            const SizedBox(height: Spacing.sm),
+            Text(
+              'Move to folder',
+              style: AppTypography.headlineSmallStyle.copyWith(
+                color: theme.textPrimary,
+                fontWeight: FontWeight.w700,
               ),
-              const SizedBox(height: Spacing.sm),
-              Flexible(
-                child: ListView(
-                  shrinkWrap: true,
-                  children: [
-                    if (currentFolderId != null)
-                      _MoveTargetTile(
-                        icon: Platform.isIOS
-                            ? CupertinoIcons.folder_badge_minus
-                            : Icons.folder_off_outlined,
-                        label: 'No folder',
-                        onTap: () => Navigator.of(
-                          sheetContext,
-                        ).pop(const _ConversationMoveTarget(folderId: null)),
+            ),
+            const SizedBox(height: Spacing.md),
+            ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: maxListHeight),
+              child: ListView(
+                shrinkWrap: true,
+                physics: const ClampingScrollPhysics(),
+                padding: EdgeInsets.zero,
+                children: [
+                  if (currentFolderId != null)
+                    _MoveTargetTile(
+                      icon: Platform.isIOS
+                          ? CupertinoIcons.folder_badge_minus
+                          : Icons.folder_off_outlined,
+                      label: 'No folder',
+                      onTap: () => Navigator.of(
+                        sheetContext,
+                      ).pop(const _ConversationMoveTarget(folderId: null)),
+                    ),
+                  for (final entry in treeEntries)
+                    FolderTreeHierarchyNode(
+                      key: ValueKey<String>(
+                        'move-chat-tree-${entry.folder.id}',
                       ),
-                    for (final folder in folderTargets)
-                      _MoveTargetTile(
+                      ancestorHasMoreSiblings: entry.ancestorHasMoreSiblings,
+                      showBranch: true,
+                      hasMoreSiblings: entry.hasMoreSiblings,
+                      child: _MoveTargetTile(
                         icon: Platform.isIOS
                             ? CupertinoIcons.folder
                             : Icons.folder_outlined,
-                        label: folder.name,
-                        onTap: () => Navigator.of(
-                          sheetContext,
-                        ).pop(_ConversationMoveTarget(folderId: folder.id)),
+                        label: entry.folder.name,
+                        onTap: () => Navigator.of(sheetContext).pop(
+                          _ConversationMoveTarget(folderId: entry.folder.id),
+                        ),
                       ),
-                  ],
-                ),
+                    ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       );
     },
@@ -565,18 +564,38 @@ class _MoveTargetTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
-    return ListTile(
-      leading: Icon(icon, color: theme.iconPrimary, size: IconSize.medium),
-      title: Text(
-        label,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: AppTypography.bodyMediumStyle.copyWith(color: theme.textPrimary),
-      ),
-      shape: RoundedRectangleBorder(
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
         borderRadius: BorderRadius.circular(AppBorderRadius.md),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: TouchTarget.listItem),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: Spacing.sm,
+              vertical: Spacing.sm,
+            ),
+            child: Row(
+              children: [
+                Icon(icon, color: theme.iconPrimary, size: IconSize.listItem),
+                const SizedBox(width: Spacing.sm),
+                Expanded(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.sidebarTitleStyle.copyWith(
+                      color: theme.textPrimary,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
-      onTap: onTap,
     );
   }
 }

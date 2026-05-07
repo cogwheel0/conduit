@@ -12,6 +12,7 @@ abstract class OutboundTask with _$OutboundTask {
   const factory OutboundTask.sendTextMessage({
     required String id,
     String? conversationId,
+    String? pendingFolderId,
     required String text,
     @Default(<String>[]) List<String> attachments,
     @Default(<String>[]) List<String> toolIds,

@@ -1,3 +1,5 @@
+import 'dart:ui' show Tristate;
+
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/models/channel.dart';
 import 'package:conduit/core/models/conversation.dart';
@@ -17,10 +19,17 @@ import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
 import 'package:conduit/features/notes/widgets/notes_list_tab.dart';
 import 'package:conduit/features/notes/providers/notes_providers.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/shared/theme/theme_extensions.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+
+/// Label within [NavigationBar] built by adaptive_platform_ui from
+/// [AdaptiveBottomNavigationBar.items].
+Finder _sidebarBottomNavTabLabel(String label) =>
+    find.descendant(of: find.byType(NavigationBar), matching: find.text(label));
 
 void main() {
   testWidgets(
@@ -51,9 +60,7 @@ void main() {
 
       await tester.pumpWidget(_buildSidebarHarness(controllers: controllers));
 
-      await tester.tap(
-        find.byKey(const ValueKey<String>('sidebar-tab-selector-notes')),
-      );
+      await tester.tap(_sidebarBottomNavTabLabel('Notes'));
       await tester.pump();
 
       final notesLayer = tester.widget<Opacity>(
@@ -99,10 +106,7 @@ void main() {
       );
 
       expect(channelsLayer.opacity, 1);
-      expect(
-        find.byKey(const ValueKey<String>('sidebar-tab-selector-notes')),
-        findsNothing,
-      );
+      expect(_sidebarBottomNavTabLabel('Notes'), findsNothing);
       expect(controllers.activeTabNotifier.currentValue, 1);
     },
   );
@@ -123,10 +127,7 @@ void main() {
 
     expect(channelsLayer.opacity, 1);
     expect(controllers.activeTabNotifier.currentValue, 1);
-    expect(
-      find.byKey(const ValueKey<String>('sidebar-tab-selector-notes')),
-      findsNothing,
-    );
+    expect(_sidebarBottomNavTabLabel('Notes'), findsNothing);
   });
 
   testWidgets('inactive layers are excluded from focus and semantics', (
@@ -175,36 +176,34 @@ void main() {
     expect(inactiveSemantics.excluding, isTrue);
   });
 
-  testWidgets('renders pill tab bar instead of TabBar', (tester) async {
+  testWidgets('renders adaptive bottom tab bar instead of TabBar', (
+    tester,
+  ) async {
     final controllers = _SidebarHarnessControllers();
     await tester.pumpWidget(_buildSidebarHarness(controllers: controllers));
 
     expect(find.byType(TabBar), findsNothing);
-    expect(
-      find.byKey(const ValueKey<String>('sidebar-pill-tab-bar')),
-      findsOneWidget,
+    expect(find.byType(NavigationBar), findsOneWidget);
+    final navigationBar = tester.widget<NavigationBar>(
+      find.byType(NavigationBar),
     );
+    expect(navigationBar.height, 56);
     expect(
-      find.byKey(const ValueKey<String>('sidebar-tab-selector-chats')),
-      findsOneWidget,
+      navigationBar.labelBehavior,
+      NavigationDestinationLabelBehavior.alwaysShow,
     );
-    expect(
-      find.byKey(const ValueKey<String>('sidebar-tab-selector-notes')),
-      findsOneWidget,
-    );
-    expect(
-      find.byKey(const ValueKey<String>('sidebar-tab-selector-channels')),
-      findsOneWidget,
-    );
+    expect(_sidebarBottomNavTabLabel('Chats'), findsOneWidget);
+    expect(_sidebarBottomNavTabLabel('Notes'), findsOneWidget);
+    expect(_sidebarBottomNavTabLabel('Channels'), findsOneWidget);
   });
 
-  testWidgets('pill tab bar tapping switches active tab', (tester) async {
+  testWidgets('adaptive bottom bar tapping switches active tab', (
+    tester,
+  ) async {
     final controllers = _SidebarHarnessControllers();
     await tester.pumpWidget(_buildSidebarHarness(controllers: controllers));
 
-    await tester.tap(
-      find.byKey(const ValueKey<String>('sidebar-tab-selector-channels')),
-    );
+    await tester.tap(_sidebarBottomNavTabLabel('Channels'));
     await tester.pumpAndSettle();
 
     final channelsLayer = tester.widget<Opacity>(
@@ -218,58 +217,27 @@ void main() {
     expect(chatsLayer.opacity, 0);
   });
 
-  testWidgets('pill tab bar provides tab semantics', (tester) async {
+  testWidgets('adaptive bottom bar provides tab semantics', (tester) async {
     final controllers = _SidebarHarnessControllers();
     await tester.pumpWidget(_buildSidebarHarness(controllers: controllers));
 
-    final pillBar = find.byKey(const ValueKey<String>('sidebar-pill-tab-bar'));
+    final barScope = find.byType(NavigationBar);
 
-    final containerSemantics = tester.widget<Semantics>(
-      find.descendant(
-        of: pillBar,
-        matching: find.byWidgetPredicate(
-          (widget) =>
-              widget is Semantics &&
-              widget.container &&
-              widget.properties.label == 'Tab bar',
-        ),
-      ),
+    final chatsSemantics = tester.getSemantics(
+      find.descendant(of: barScope, matching: find.text('Chats')).first,
     );
-    expect(containerSemantics, isNotNull);
+    expect(
+      chatsSemantics.getSemanticsData().flagsCollection.isSelected,
+      Tristate.isTrue,
+    );
 
-    final activeSelectorFinder = find.byKey(
-      const ValueKey<String>('sidebar-tab-selector-chats'),
+    final channelsSemantics = tester.getSemantics(
+      find.descendant(of: barScope, matching: find.text('Channels')).first,
     );
-    final activeTabSemantics = tester.widget<Semantics>(
-      find.descendant(
-        of: activeSelectorFinder,
-        matching: find.byWidgetPredicate(
-          (widget) =>
-              widget is Semantics &&
-              widget.properties.label == 'Chats' &&
-              widget.properties.selected == true &&
-              widget.properties.button == true,
-        ),
-      ),
+    expect(
+      channelsSemantics.getSemanticsData().flagsCollection.isSelected,
+      Tristate.isFalse,
     );
-    expect(activeTabSemantics, isNotNull);
-
-    final inactiveSelectorFinder = find.byKey(
-      const ValueKey<String>('sidebar-tab-selector-channels'),
-    );
-    final inactiveTabSemantics = tester.widget<Semantics>(
-      find.descendant(
-        of: inactiveSelectorFinder,
-        matching: find.byWidgetPredicate(
-          (widget) =>
-              widget is Semantics &&
-              widget.properties.label == 'Channels' &&
-              widget.properties.selected == false &&
-              widget.properties.button == true,
-        ),
-      ),
-    );
-    expect(inactiveTabSemantics, isNotNull);
   });
 
   testWidgets('channel layer state survives notes toggle', (tester) async {
@@ -315,29 +283,110 @@ void main() {
       find.byKey(const ValueKey<String>('sidebar-user-pill')),
       findsOneWidget,
     );
-    expect(find.text('Ava'), findsOneWidget);
 
-    await tester.tap(
-      find.byKey(const ValueKey<String>('sidebar-tab-selector-notes')),
-    );
+    await tester.tap(_sidebarBottomNavTabLabel('Notes'));
     await tester.pumpAndSettle();
 
     expect(
       find.byKey(const ValueKey<String>('sidebar-user-pill')),
       findsOneWidget,
     );
-    expect(find.text('Ava'), findsOneWidget);
 
-    await tester.tap(
-      find.byKey(const ValueKey<String>('sidebar-tab-selector-channels')),
-    );
+    await tester.tap(_sidebarBottomNavTabLabel('Channels'));
     await tester.pumpAndSettle();
 
     expect(
       find.byKey(const ValueKey<String>('sidebar-user-pill')),
       findsOneWidget,
     );
-    expect(find.text('Ava'), findsOneWidget);
+  });
+
+  testWidgets('sidebar brand title uses the compact Material scale', (
+    tester,
+  ) async {
+    final controllers = _SidebarHarnessControllers();
+    const user = User(
+      id: 'user-1',
+      username: 'ava',
+      email: 'ava@example.com',
+      name: 'Ava',
+      role: 'user',
+    );
+
+    await tester.pumpWidget(
+      _buildSidebarHarness(controllers: controllers, currentUser: user),
+    );
+
+    final brandTitle = tester.widget<Text>(find.text('Conduit'));
+
+    expect(
+      brandTitle.style?.fontSize,
+      AppTypography.headlineMediumStyle.fontSize,
+    );
+  });
+
+  testWidgets('closing expanded search clears the active filter', (
+    tester,
+  ) async {
+    final controllers = _SidebarHarnessControllers();
+    final timestamp = DateTime(2026, 1, 1);
+    const user = User(
+      id: 'user-1',
+      username: 'ava',
+      name: 'Ava',
+      email: 'ava@example.com',
+      role: 'user',
+    );
+
+    await tester.pumpWidget(
+      _buildSidebarHarness(
+        controllers: controllers,
+        currentUser: user,
+        conversations: [
+          Conversation(
+            id: 'alpha-chat',
+            title: 'Alpha Chat',
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          ),
+          Conversation(
+            id: 'beta-chat',
+            title: 'Beta Chat',
+            createdAt: timestamp,
+            updatedAt: timestamp.add(const Duration(minutes: 1)),
+          ),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final closeLabel = MaterialLocalizations.of(
+      tester.element(find.byType(NavigationBar)),
+    ).closeButtonLabel;
+
+    expect(find.text('Alpha Chat'), findsOneWidget);
+    expect(find.text('Beta Chat'), findsOneWidget);
+
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('sidebar-user-pill')),
+        matching: find.byIcon(Icons.search),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), 'zzz');
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Alpha Chat'), findsNothing);
+    expect(find.text('Beta Chat'), findsNothing);
+
+    await tester.tap(find.byTooltip(closeLabel));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Alpha Chat'), findsOneWidget);
+    expect(find.text('Beta Chat'), findsOneWidget);
   });
 
   testWidgets('nested folders render stacked under their parent', (
@@ -383,13 +432,115 @@ void main() {
     expect(parentFinder, findsOneWidget);
     expect(childFinder, findsOneWidget);
     expect(chatFinder, findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('tree-guides-folder-child-folder')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('tree-guides-chat-nested-chat')),
+      findsOneWidget,
+    );
 
-    final parentOffset = tester.getTopLeft(parentFinder);
-    final childOffset = tester.getTopLeft(childFinder);
-    final chatOffset = tester.getTopLeft(chatFinder);
+    final parentOffset = tester.getTopLeft(
+      find.byKey(const ValueKey<String>('folder-open-parent-folder')),
+    );
+    final childOffset = tester.getTopLeft(
+      find.byKey(const ValueKey<String>('folder-open-child-folder')),
+    );
+    final chatOffset = tester.getTopLeft(
+      find.byKey(const ValueKey<String>('drawer-chat-nested-chat')),
+    );
 
     expect(childOffset.dx, greaterThan(parentOffset.dx));
-    expect(chatOffset.dx, greaterThan(childOffset.dx));
+    expect(chatOffset.dx, greaterThanOrEqualTo(childOffset.dx));
+  });
+
+  testWidgets('folder rows no longer show inline new chat buttons', (
+    tester,
+  ) async {
+    final controllers = _SidebarHarnessControllers();
+
+    await tester.pumpWidget(
+      _buildSidebarHarness(
+        controllers: controllers,
+        folders: const [
+          Folder(id: 'parent-folder', name: 'Parent Folder', isExpanded: true),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is Icon &&
+            (widget.icon == CupertinoIcons.plus_circle ||
+                widget.icon == Icons.add_circle_outline_rounded),
+      ),
+      findsNothing,
+    );
+  });
+
+  testWidgets('tapping a folder row opens the folder route', (tester) async {
+    final controllers = _SidebarHarnessControllers();
+
+    await tester.pumpWidget(
+      _buildSidebarHarness(
+        controllers: controllers,
+        folders: const [
+          Folder(id: 'parent-folder', name: 'Parent Folder', isExpanded: false),
+          Folder(
+            id: 'child-folder',
+            name: 'Child Folder',
+            parentId: 'parent-folder',
+            isExpanded: false,
+          ),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Child Folder'), findsNothing);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('folder-open-parent-folder')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(NavigationService.currentRoute, '/folder/parent-folder');
+    expect(find.text('Child Folder'), findsNothing);
+  });
+
+  testWidgets('tapping a folder arrow only expands inline contents', (
+    tester,
+  ) async {
+    final controllers = _SidebarHarnessControllers();
+
+    await tester.pumpWidget(
+      _buildSidebarHarness(
+        controllers: controllers,
+        folders: const [
+          Folder(id: 'parent-folder', name: 'Parent Folder', isExpanded: false),
+          Folder(
+            id: 'child-folder',
+            name: 'Child Folder',
+            parentId: 'parent-folder',
+            isExpanded: false,
+          ),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Child Folder'), findsNothing);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('folder-expand-parent-folder')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(NavigationService.currentRoute, '/chat');
+    expect(find.text('Child Folder'), findsOneWidget);
   });
 
   testWidgets('folders with missing parents fall back to the root level', (
@@ -466,14 +617,22 @@ Widget _buildSidebarHarness({
     routes: [
       GoRoute(
         path: '/chat',
+        name: RouteNames.chat,
+        builder: (context, state) => const Scaffold(body: SidebarPage()),
+      ),
+      GoRoute(
+        path: '/folder/:id',
+        name: RouteNames.folder,
         builder: (context, state) => const Scaffold(body: SidebarPage()),
       ),
       GoRoute(
         path: '/notes/:id',
+        name: RouteNames.noteEditor,
         builder: (context, state) => const Scaffold(body: SidebarPage()),
       ),
       GoRoute(
         path: '/channel/:id',
+        name: RouteNames.channel,
         builder: (context, state) => const Scaffold(body: SidebarPage()),
       ),
     ],
