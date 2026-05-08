@@ -30,27 +30,29 @@ class ConversationDragFeedback extends StatelessWidget {
     final borderRadius = BorderRadius.circular(AppBorderRadius.small);
     final borderColor = theme.surfaceContainerHighest.withValues(alpha: 0.40);
 
-    return Material(
-      color: Colors.transparent,
-      elevation: Elevation.low,
-      borderRadius: borderRadius,
-      child: Container(
-        constraints: const BoxConstraints(minHeight: TouchTarget.listItem),
-        padding: const EdgeInsets.symmetric(
-          horizontal: Spacing.md,
-          vertical: Spacing.xs,
-        ),
-        decoration: BoxDecoration(
-          color: theme.surfaceContainer,
-          borderRadius: borderRadius,
-          border: Border.all(color: borderColor, width: BorderWidth.thin),
-        ),
-        child: ConversationTileContent(
-          title: title,
-          pinned: pinned,
-          selected: false,
-          isLoading: false,
-        ),
+    return Container(
+      constraints: const BoxConstraints(minHeight: TouchTarget.listItem),
+      padding: const EdgeInsets.symmetric(
+        horizontal: Spacing.md,
+        vertical: Spacing.xs,
+      ),
+      decoration: BoxDecoration(
+        color: theme.surfaceContainer,
+        borderRadius: borderRadius,
+        border: Border.all(color: borderColor, width: BorderWidth.thin),
+        boxShadow: [
+          BoxShadow(
+            color: theme.cardShadow.withValues(alpha: 0.12),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: ConversationTileContent(
+        title: title,
+        pinned: pinned,
+        selected: false,
+        isLoading: false,
       ),
     );
   }
@@ -200,13 +202,6 @@ class _ConversationTileState extends State<ConversationTile> {
           )
         : baseBackground;
 
-    Color? overlayForStates(Set<WidgetState> states) {
-      if (states.contains(WidgetState.pressed)) {
-        return theme.buttonPrimary.withValues(alpha: Alpha.buttonPressed);
-      }
-      return Colors.transparent;
-    }
-
     return Semantics(
       selected: widget.selected,
       button: true,
@@ -223,28 +218,21 @@ class _ConversationTileState extends State<ConversationTile> {
           color: background,
           borderRadius: borderRadius,
         ),
-        child: Material(
-          color: Colors.transparent,
-          borderRadius: borderRadius,
-          child: InkWell(
-            borderRadius: borderRadius,
-            onTap: widget.isLoading ? null : widget.onTap,
-            overlayColor: WidgetStateProperty.resolveWith(overlayForStates),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(
-                minHeight: TouchTarget.listItem,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: widget.isLoading ? null : widget.onTap,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: TouchTarget.listItem),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: Spacing.md,
+                vertical: Spacing.sm,
               ),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: Spacing.md,
-                  vertical: Spacing.sm,
-                ),
-                child: ConversationTileContent(
-                  title: widget.title,
-                  pinned: widget.pinned,
-                  selected: widget.selected,
-                  isLoading: widget.isLoading,
-                ),
+              child: ConversationTileContent(
+                title: widget.title,
+                pinned: widget.pinned,
+                selected: widget.selected,
+                isLoading: widget.isLoading,
               ),
             ),
           ),

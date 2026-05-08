@@ -61,51 +61,27 @@ class AppCustomizationPage extends ConsumerWidget {
     final currentLanguageCode = locale?.toLanguageTag() ?? 'system';
     final languageLabel = _resolveLanguageLabel(context, currentLanguageCode);
     final activeTheme = ref.watch(appThemePaletteProvider);
-    final canPop = ModalRoute.of(context)?.canPop ?? false;
-    final topPadding =
-        MediaQuery.of(context).padding.top + kTextTabBarHeight + 24;
 
-    return Scaffold(
-      backgroundColor: context.conduitTheme.surfaceBackground,
-      extendBodyBehindAppBar: true,
-      appBar: FloatingAppBar(
-        leading: canPop ? const FloatingAppBarBackButton() : null,
-        title: FloatingAppBarTitle(text: l10n.appAndChat),
-      ),
-      body: ListView(
-        physics: const BouncingScrollPhysics(
-          parent: AlwaysScrollableScrollPhysics(),
+    return SettingsPageScaffold(
+      title: l10n.appAndChat,
+      children: [
+        _buildThemesDropdownSection(
+          context,
+          ref,
+          themeMode,
+          themeDescription,
+          activeTheme,
+          settings,
         ),
-        padding: EdgeInsets.fromLTRB(
-          Spacing.pagePadding,
-          topPadding,
-          Spacing.pagePadding,
-          Spacing.pagePadding + MediaQuery.of(context).padding.bottom,
-        ),
-        children: [
-          _buildThemesDropdownSection(
-            context,
-            ref,
-            themeMode,
-            themeDescription,
-            activeTheme,
-            settings,
-          ),
-          _sectionGap,
-          _buildLanguageSection(
-            context,
-            ref,
-            currentLanguageCode,
-            languageLabel,
-          ),
-          _sectionGap,
-          _buildChatSection(context, ref, settings),
-          _sectionGap,
-          _buildSystemPromptsSection(context, ref),
-          _sectionGap,
-          _buildSocketHealthSection(context, ref),
-        ],
-      ),
+        _sectionGap,
+        _buildLanguageSection(context, ref, currentLanguageCode, languageLabel),
+        _sectionGap,
+        _buildChatSection(context, ref, settings),
+        _sectionGap,
+        _buildSystemPromptsSection(context, ref),
+        _sectionGap,
+        _buildSocketHealthSection(context, ref),
+      ],
     );
   }
 

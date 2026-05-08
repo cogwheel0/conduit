@@ -2,6 +2,7 @@ import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../shared/theme/theme_extensions.dart';
+import '../../shared/widgets/adaptive_route_shell.dart';
 import '../error/enhanced_error_service.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 
@@ -141,104 +142,101 @@ class _ErrorBoundaryState extends ConsumerState<ErrorBoundary> {
 
       return Directionality(
         textDirection: direction,
-        child: AdaptiveScaffold(
-          body: SafeArea(
-            child: Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: Spacing.pagePadding,
-                  vertical: Spacing.lg,
-                ),
-                child: Container(
-                  constraints: const BoxConstraints(maxWidth: 480),
-                  decoration: BoxDecoration(
-                    color: context.conduitTheme.cardBackground,
-                    borderRadius: BorderRadius.circular(
-                      context.conduitTheme.radiusLg,
-                    ),
-                    border: Border.all(
-                      color: context.conduitTheme.cardBorder,
-                      width: BorderWidth.regular,
-                    ),
-                    boxShadow: context.conduitTheme.cardShadows,
+        child: AdaptiveRouteShell(
+          bodySafeArea: true,
+          body: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(
+                horizontal: Spacing.pagePadding,
+                vertical: Spacing.lg,
+              ),
+              child: Container(
+                constraints: const BoxConstraints(maxWidth: 480),
+                decoration: BoxDecoration(
+                  color: context.conduitTheme.cardBackground,
+                  borderRadius: BorderRadius.circular(
+                    context.conduitTheme.radiusLg,
                   ),
-                  padding: const EdgeInsets.all(Spacing.xl),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Error icon with gradient background
-                      Container(
-                        width: 80,
-                        height: 80,
-                        decoration: BoxDecoration(
-                          color: context.conduitTheme.errorBackground,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          Icons.error_outline_rounded,
-                          size: 40,
-                          color: context.conduitTheme.error,
-                        ),
+                  border: Border.all(
+                    color: context.conduitTheme.cardBorder,
+                    width: BorderWidth.regular,
+                  ),
+                  boxShadow: context.conduitTheme.cardShadows,
+                ),
+                padding: const EdgeInsets.all(Spacing.xl),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Error icon with gradient background
+                    Container(
+                      width: 80,
+                      height: 80,
+                      decoration: BoxDecoration(
+                        color: context.conduitTheme.errorBackground,
+                        shape: BoxShape.circle,
                       ),
-                      const SizedBox(height: Spacing.lg),
-
-                      // Error title
-                      Text(
-                        AppLocalizations.of(context)?.errorMessage ??
-                            'Something went wrong',
-                        style: context.conduitTheme.headingSmall,
-                        textAlign: TextAlign.center,
+                      child: Icon(
+                        Icons.error_outline_rounded,
+                        size: 40,
+                        color: context.conduitTheme.error,
                       ),
-                      const SizedBox(height: Spacing.sm),
+                    ),
+                    const SizedBox(height: Spacing.lg),
 
-                      // Error description
-                      Text(
-                        enhancedErrorService.getUserMessage(_error!),
-                        textAlign: TextAlign.center,
-                        style: context.conduitTheme.bodySmall?.copyWith(
-                          color: context.conduitTheme.textSecondary,
-                        ),
+                    // Error title
+                    Text(
+                      AppLocalizations.of(context)?.errorMessage ??
+                          'Something went wrong',
+                      style: context.conduitTheme.headingSmall,
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: Spacing.sm),
+
+                    // Error description
+                    Text(
+                      enhancedErrorService.getUserMessage(_error!),
+                      textAlign: TextAlign.center,
+                      style: context.conduitTheme.bodySmall?.copyWith(
+                        color: context.conduitTheme.textSecondary,
                       ),
+                    ),
 
-                      if (widget.allowRetry) ...[
-                        const SizedBox(height: Spacing.xl),
+                    if (widget.allowRetry) ...[
+                      const SizedBox(height: Spacing.xl),
 
-                        // Retry button
-                        SizedBox(
-                          width: double.infinity,
-                          child: AdaptiveButton.child(
-                            onPressed: _retry,
-                            color: context.conduitTheme.buttonPrimary,
-                            style: AdaptiveButtonStyle.filled,
-                            borderRadius: BorderRadius.circular(
-                              context.conduitTheme.radiusMd,
-                            ),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: Spacing.lg,
-                              vertical: Spacing.md,
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(Icons.refresh_rounded),
-                                const SizedBox(width: Spacing.sm),
-                                Text(
-                                  AppLocalizations.of(context)?.retry ??
-                                      'Try Again',
-                                  style: context.conduitTheme.bodySmall
-                                      ?.copyWith(
-                                    fontWeight: FontWeight.w600,
-                                    color: context
-                                        .conduitTheme.buttonPrimaryText,
-                                  ),
+                      // Retry button
+                      SizedBox(
+                        width: double.infinity,
+                        child: AdaptiveButton.child(
+                          onPressed: _retry,
+                          color: context.conduitTheme.buttonPrimary,
+                          style: AdaptiveButtonStyle.filled,
+                          borderRadius: BorderRadius.circular(
+                            context.conduitTheme.radiusMd,
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: Spacing.lg,
+                            vertical: Spacing.md,
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.refresh_rounded),
+                              const SizedBox(width: Spacing.sm),
+                              Text(
+                                AppLocalizations.of(context)?.retry ??
+                                    'Try Again',
+                                style: context.conduitTheme.bodySmall?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                  color: context.conduitTheme.buttonPrimaryText,
                                 ),
-                              ],
-                            ),
+                              ),
+                            ],
                           ),
                         ),
-                      ],
+                      ),
                     ],
-                  ),
+                  ],
                 ),
               ),
             ),
@@ -340,10 +338,7 @@ class AsyncErrorBoundary extends ConsumerWidget {
                         children: [
                           const Icon(Icons.refresh),
                           const SizedBox(width: Spacing.sm),
-                          Text(
-                            AppLocalizations.of(context)?.retry ??
-                                'Retry',
-                          ),
+                          Text(AppLocalizations.of(context)?.retry ?? 'Retry'),
                         ],
                       ),
                     ),

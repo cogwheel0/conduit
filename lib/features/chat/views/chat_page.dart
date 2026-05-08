@@ -48,9 +48,7 @@ import '../providers/context_attachments_provider.dart';
 import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/measure_size.dart';
-import '../../../shared/widgets/conduit_components.dart';
-import '../../../shared/widgets/middle_ellipsis_text.dart';
-import 'package:flutter/gestures.dart' show DragStartBehavior;
+import '../../../shared/widgets/adaptive_toolbar_components.dart';
 
 class ChatPage extends ConsumerStatefulWidget {
   const ChatPage({super.key});
@@ -67,7 +65,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   bool _showScrollToBottom = false;
   Timer? _scrollDebounceTimer;
   bool _isDeactivated = false;
-  double _inputHeight = 0; // dynamic input height to position scroll button
+  double _inputHeight = 0;
   bool _lastKeyboardVisible = false; // track keyboard visibility transitions
   bool _keyboardScrollCallbackScheduled = false;
   bool _didStartupFocus = false; // one-time auto-focus on startup
@@ -825,6 +823,39 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
   }
 
+  void _dismissComposerFocus() {
+    try {
+      ref.read(composerAutofocusEnabledProvider.notifier).set(false);
+    } catch (_) {}
+    FocusManager.instance.primaryFocus?.unfocus();
+    try {
+      SystemChannels.textInput.invokeMethod('TextInput.hide');
+    } catch (_) {}
+  }
+
+  Future<void> _refreshActiveConversation() async {
+    final api = ref.read(apiServiceProvider);
+    final active = ref.read(activeConversationProvider);
+    if (api != null && active != null) {
+      try {
+        final full = await api.getConversation(active.id);
+        ref.read(activeConversationProvider.notifier).set(full);
+      } catch (e) {
+        DebugLogger.log(
+          'Failed to refresh conversation: $e',
+          scope: 'chat/page',
+        );
+      }
+    }
+
+    try {
+      refreshConversationsCache(ref);
+      await ref.read(conversationsProvider.future);
+    } catch (_) {}
+
+    await Future.delayed(const Duration(milliseconds: 300));
+  }
+
   void _handleVoiceCall() {
     unawaited(
       ref.read(voiceCallLauncherProvider).launch(startNewConversation: false),
@@ -1214,59 +1245,18 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       );
     }
 
-    final theme = context.conduitTheme;
-    return SizedBox(
-      width: buttonSize,
-      height: buttonSize,
-      child: Material(
-        color: theme.surfaceContainerHighest,
-        shape: CircleBorder(
-          side: BorderSide(color: theme.cardBorder, width: BorderWidth.thin),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: _userScrollToBottom,
-          customBorder: const CircleBorder(),
-          child: Center(
-            child: Icon(icon, size: iconSize, color: theme.textPrimary),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAppBarPill({
-    required BuildContext context,
-    required Widget child,
-    bool isCircular = false,
-  }) {
-    return FloatingAppBarPill(isCircular: isCircular, child: child);
-  }
-
-  Widget _buildAppBarIconButton({
-    required BuildContext context,
-    required VoidCallback onPressed,
-    required IconData fallbackIcon,
-    required String sfSymbol,
-    required Color color,
-  }) {
-    if (PlatformInfo.isIOS26OrHigher()) {
-      return AdaptiveButton.child(
-        onPressed: onPressed,
-        style: AdaptiveButtonStyle.glass,
-        size: AdaptiveButtonSize.large,
-        minSize: const Size(TouchTarget.minimum, TouchTarget.minimum),
-        useSmoothRectangleBorder: false,
-        child: Icon(fallbackIcon, size: IconSize.appBar, color: color),
-      );
-    }
-
-    return GestureDetector(
-      onTap: onPressed,
-      child: _buildAppBarPill(
-        context: context,
-        isCircular: true,
-        child: Icon(fallbackIcon, color: color, size: IconSize.appBar),
+    return AdaptiveButton.child(
+      onPressed: _userScrollToBottom,
+      style: AdaptiveButtonStyle.glass,
+      size: AdaptiveButtonSize.medium,
+      minSize: const Size.square(buttonSize),
+      padding: EdgeInsets.zero,
+      borderRadius: BorderRadius.circular(buttonSize),
+      useSmoothRectangleBorder: false,
+      child: Icon(
+        icon,
+        size: iconSize,
+        color: context.conduitTheme.textPrimary,
       ),
     );
   }
@@ -1913,9 +1903,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         ? _formatModelDisplayName(selectedModel.name)
         : null;
     final modelLabel = formattedModelName ?? l10n.chooseModel;
-    final TextStyle modelTextStyle = AppTypography.standard.copyWith(
-      color: context.conduitTheme.textPrimary,
-      fontWeight: FontWeight.w600,
+    final overlayStyle = theme.appBarTheme.systemOverlayStyle;
+    final hasMessages = ref.watch(
+      chatMessagesProvider.select((messages) => messages.isNotEmpty),
     );
 
     // Keyboard visibility - use viewInsetsOf for more efficient partial subscription
@@ -1938,660 +1928,540 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       });
     }
 
-    return ErrorBoundary(
-      child: PopScope(
-        canPop: false,
-        onPopInvokedWithResult: (bool didPop, Object? result) async {
-          if (didPop) return;
+    Widget page = PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (bool didPop, Object? result) async {
+        if (didPop) return;
 
-          // First, if any input has focus, clear focus and consume back press.
-          // Also covers native platform inputs which don't participate in
-          // Flutter's focus tree (composerHasFocusProvider tracks them).
-          final hasNativeFocus = ref.read(composerHasFocusProvider);
-          final currentFocus = FocusManager.instance.primaryFocus;
-          if (hasNativeFocus ||
-              (currentFocus != null && currentFocus.hasFocus)) {
-            try {
-              ref.read(composerAutofocusEnabledProvider.notifier).set(false);
-            } catch (_) {}
-            currentFocus?.unfocus();
-            return;
-          }
+        // First, if any input has focus, clear focus and consume back press.
+        // Also covers native platform inputs which don't participate in
+        // Flutter's focus tree (composerHasFocusProvider tracks them).
+        final hasNativeFocus = ref.read(composerHasFocusProvider);
+        final currentFocus = FocusManager.instance.primaryFocus;
+        if (hasNativeFocus || (currentFocus != null && currentFocus.hasFocus)) {
+          _dismissComposerFocus();
+          return;
+        }
 
-          // Auto-handle leaving without confirmation
-          final messages = ref.read(chatMessagesProvider);
-          final isStreaming = messages.any((msg) => msg.isStreaming);
-          if (isStreaming) {
-            ref.read(chatMessagesProvider.notifier).finishStreaming();
-          }
+        // Auto-handle leaving without confirmation
+        final messages = ref.read(chatMessagesProvider);
+        final isStreaming = messages.any((msg) => msg.isStreaming);
+        if (isStreaming) {
+          ref.read(chatMessagesProvider.notifier).finishStreaming();
+        }
 
-          // Do not push conversation state back to server on exit.
-          // Server already maintains chat state from message sends.
-          // Keep any local persistence only.
+        // Do not push conversation state back to server on exit.
+        // Server already maintains chat state from message sends.
+        // Keep any local persistence only.
 
-          if (context.mounted) {
-            final navigator = Navigator.of(context);
-            if (navigator.canPop()) {
-              navigator.pop();
-            } else {
-              final shouldExit = await ThemedDialogs.confirm(
-                context,
-                title: l10n.appTitle,
-                message: l10n.endYourSession,
-                confirmText: l10n.confirm,
-                cancelText: l10n.cancel,
-                isDestructive: Platform.isAndroid,
-              );
+        if (context.mounted) {
+          final navigator = Navigator.of(context);
+          if (navigator.canPop()) {
+            navigator.pop();
+          } else {
+            final shouldExit = await ThemedDialogs.confirm(
+              context,
+              title: l10n.appTitle,
+              message: l10n.endYourSession,
+              confirmText: l10n.confirm,
+              cancelText: l10n.cancel,
+              isDestructive: Platform.isAndroid,
+            );
 
-              if (!shouldExit || !context.mounted) return;
+            if (!shouldExit || !context.mounted) return;
 
-              if (Platform.isAndroid) {
-                SystemNavigator.pop();
-              }
+            if (Platform.isAndroid) {
+              SystemNavigator.pop();
             }
           }
-        },
-        child: Scaffold(
-          backgroundColor: context.conduitTheme.surfaceBackground,
-          // Replace Scaffold drawer with a tunable slide drawer for gentler snap behavior.
-          drawerEnableOpenDragGesture: false,
-          drawerDragStartBehavior: DragStartBehavior.down,
-          extendBodyBehindAppBar: true,
-          appBar: AppBar(
-            backgroundColor: Colors.transparent,
-            elevation: Elevation.none,
-            surfaceTintColor: Colors.transparent,
-            shadowColor: Colors.transparent,
-            toolbarHeight: kTextTabBarHeight,
-            centerTitle: false,
-            titleSpacing: Spacing.sm,
-            leadingWidth: 44 + Spacing.inputPadding + Spacing.xs,
-            leading: Builder(
-              builder: (ctx) => Padding(
-                padding: const EdgeInsets.only(left: Spacing.inputPadding),
-                child: Center(
-                  child: _buildAppBarIconButton(
-                    context: ctx,
-                    onPressed: () {
-                      final layout = ResponsiveDrawerLayout.of(ctx);
-                      if (layout == null) return;
-
-                      final isDrawerOpen = layout.isOpen;
-                      if (!isDrawerOpen) {
-                        try {
-                          ref
-                              .read(composerAutofocusEnabledProvider.notifier)
-                              .set(false);
-                          FocusManager.instance.primaryFocus?.unfocus();
-                          SystemChannels.textInput.invokeMethod(
-                            'TextInput.hide',
-                          );
-                        } catch (_) {}
-                      }
-                      layout.toggle();
-                    },
-                    fallbackIcon: Platform.isIOS
-                        ? CupertinoIcons.line_horizontal_3
-                        : Icons.menu,
-                    sfSymbol: 'line.3.horizontal',
-                    color: context.conduitTheme.textPrimary,
+        }
+      },
+      child: AdaptiveScaffold(
+        // Replace Scaffold drawer with a tunable slide drawer for gentler snap behavior.
+        drawerEnableOpenDragGesture: false,
+        extendBodyBehindAppBar: true,
+        appBar: _buildAdaptiveChatAppBar(
+          context: context,
+          isLoadingConversation: isLoadingConversation,
+          isReviewerMode: isReviewerMode,
+          modelLabel: modelLabel,
+        ),
+        body: GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onTap: _dismissComposerFocus,
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: ConduitRefreshIndicator(
+                  edgeOffset:
+                      MediaQuery.of(context).padding.top + kTextTabBarHeight,
+                  onRefresh: _refreshActiveConversation,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: _dismissComposerFocus,
+                    child: RepaintBoundary(child: _buildMessagesList(theme)),
                   ),
                 ),
               ),
-            ),
-            title: LayoutBuilder(
-              builder: (context, constraints) {
-                // Build model selector pill
-                // Show skeleton when loading, actual model selector otherwise
-                final Widget modelPill;
-                if (isLoadingConversation) {
-                  // Show skeleton pill while loading conversation
-                  modelPill = _buildAppBarPill(
-                    context: context,
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(minHeight: 44),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: Spacing.sm,
-                        ),
-                        child: Center(
-                          widthFactor: 1,
-                          child: ConduitLoading.skeleton(
-                            width: 80,
-                            height: 14,
-                            borderRadius: BorderRadius.circular(
-                              AppBorderRadius.sm,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  );
-                } else {
-                  Future<void> openModelSelector() async {
-                    final modelsAsync = ref.read(modelsProvider);
-
-                    if (modelsAsync.isLoading) {
-                      try {
-                        final models = await ref.read(modelsProvider.future);
-                        if (!mounted) return;
-                        // ignore: use_build_context_synchronously
-                        _showModelDropdown(context, ref, models);
-                      } catch (e) {
-                        DebugLogger.error(
-                          'model-load-failed',
-                          scope: 'chat/model-selector',
-                          error: e,
-                        );
-                      }
-                    } else if (modelsAsync.hasValue) {
-                      _showModelDropdown(context, ref, modelsAsync.value!);
-                    } else if (modelsAsync.hasError) {
-                      try {
-                        ref.invalidate(modelsProvider);
-                        final models = await ref.read(modelsProvider.future);
-                        if (!mounted) return;
-                        // ignore: use_build_context_synchronously
-                        _showModelDropdown(context, ref, models);
-                      } catch (e) {
-                        DebugLogger.error(
-                          'model-refresh-failed',
-                          scope: 'chat/model-selector',
-                          error: e,
-                        );
-                      }
-                    }
-                  }
-
-                  final maxPillWidth = (constraints.maxWidth - Spacing.xxl)
-                      .clamp(140.0, 300.0)
-                      .toDouble();
-
-                  if (PlatformInfo.isIOS26OrHigher()) {
-                    final textPainter = TextPainter(
-                      text: TextSpan(text: modelLabel, style: modelTextStyle),
-                      maxLines: 1,
-                      textScaler: MediaQuery.textScalerOf(context),
-                      textDirection: Directionality.of(context),
-                    )..layout(maxWidth: maxPillWidth);
-
-                    final targetPillWidth =
-                        (textPainter.width +
-                                10 +
-                                Spacing.xs +
-                                IconSize.xs +
-                                Spacing.xs +
-                                12)
-                            .clamp(0.0, maxPillWidth)
-                            .toDouble();
-
-                    modelPill = AdaptiveButton.child(
-                      onPressed: () {
-                        openModelSelector();
-                      },
-                      style: AdaptiveButtonStyle.glass,
-                      size: AdaptiveButtonSize.large,
-                      minSize: Size(targetPillWidth, 44),
-                      useSmoothRectangleBorder: false,
-                      child: Padding(
-                        padding: const EdgeInsets.only(
-                          left: 10,
-                          right: Spacing.xs,
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Flexible(
-                              child: MiddleEllipsisText(
-                                modelLabel,
-                                style: modelTextStyle,
-                                textAlign: TextAlign.center,
-                                semanticsLabel: modelLabel,
-                              ),
-                            ),
-                            const SizedBox(width: Spacing.xs),
-                            Icon(
-                              CupertinoIcons.chevron_down,
-                              color: context.conduitTheme.iconSecondary,
-                              size: IconSize.small,
-                            ),
-                          ],
-                        ),
+              Positioned(
+                bottom: (_inputHeight > 0)
+                    ? _inputHeight
+                    : (Spacing.xxl + Spacing.xxxl),
+                left: 0,
+                right: 0,
+                child: AnimatedSwitcher(
+                  duration: AnimationDuration.microInteraction,
+                  switchInCurve: AnimationCurves.microInteraction,
+                  switchOutCurve: AnimationCurves.microInteraction,
+                  transitionBuilder: (child, animation) {
+                    final slideAnimation = Tween<Offset>(
+                      begin: const Offset(0, 0.15),
+                      end: Offset.zero,
+                    ).animate(animation);
+                    return FadeTransition(
+                      opacity: animation,
+                      child: SlideTransition(
+                        position: slideAnimation,
+                        child: child,
                       ),
                     );
-                  } else {
-                    modelPill = GestureDetector(
-                      onTap: openModelSelector,
-                      child: _buildAppBarPill(
-                        context: context,
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(minHeight: 44),
-                          child: Padding(
-                            padding: const EdgeInsets.only(
-                              left: 12.0,
-                              right: Spacing.sm,
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                ConstrainedBox(
-                                  constraints: BoxConstraints(
-                                    maxWidth:
-                                        constraints.maxWidth - Spacing.xxl,
-                                  ),
-                                  child: MiddleEllipsisText(
-                                    modelLabel,
-                                    style: modelTextStyle,
-                                    textAlign: TextAlign.center,
-                                    semanticsLabel: modelLabel,
-                                  ),
-                                ),
-                                const SizedBox(width: Spacing.xs),
-                                Icon(
-                                  Platform.isIOS
-                                      ? CupertinoIcons.chevron_down
-                                      : Icons.keyboard_arrow_down,
-                                  color: context.conduitTheme.iconSecondary,
-                                  size: IconSize.medium,
-                                ),
-                              ],
-                            ),
+                  },
+                  child:
+                      (_showScrollToBottom &&
+                          !keyboardVisible &&
+                          canScroll &&
+                          hasMessages)
+                      ? Center(
+                          key: const ValueKey('scroll_to_bottom_visible'),
+                          child: AdaptiveTooltip(
+                            message: 'Scroll to bottom',
+                            child: _buildScrollToBottomButton(context),
                           ),
+                        )
+                      : const SizedBox.shrink(
+                          key: ValueKey('scroll_to_bottom_hidden'),
                         ),
-                      ),
-                    );
-                  }
-                }
-
-                return Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 200),
-                      switchInCurve: Curves.easeOut,
-                      switchOutCurve: Curves.easeIn,
-                      child: KeyedSubtree(
-                        key: ValueKey(
-                          isLoadingConversation
-                              ? 'model-loading'
-                              : 'model-$modelLabel',
-                        ),
-                        child: modelPill,
-                      ),
-                    ),
-                    if (isReviewerMode)
-                      Padding(
-                        padding: const EdgeInsets.only(top: Spacing.xs),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: Spacing.sm,
-                            vertical: 1.0,
-                          ),
-                          decoration: BoxDecoration(
-                            color: context.conduitTheme.success.withValues(
-                              alpha: 0.1,
-                            ),
-                            borderRadius: BorderRadius.circular(
-                              AppBorderRadius.badge,
-                            ),
-                            border: Border.all(
-                              color: context.conduitTheme.success.withValues(
-                                alpha: 0.3,
-                              ),
-                              width: BorderWidth.thin,
-                            ),
-                          ),
-                          child: Text(
-                            'REVIEWER MODE',
-                            style: AppTypography.labelSmallStyle.copyWith(
-                              color: context.conduitTheme.success,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                );
-              },
-            ),
-            actions: [
-              // Temporary chat toggle / Save chat button
-              // Shows save when temporary + has messages,
-              // otherwise shows the toggle
-              Consumer(
-                builder: (context, ref, _) {
-                  final isTemporary = ref.watch(temporaryChatEnabledProvider);
-                  final activeConversation = ref.watch(
-                    activeConversationProvider,
-                  );
-                  final hasMessages = ref
-                      .watch(chatMessagesProvider)
-                      .isNotEmpty;
-
-                  final showToggle =
-                      activeConversation == null ||
-                      isTemporaryChat(activeConversation.id);
-
-                  if (!showToggle) {
-                    return const SizedBox.shrink();
-                  }
-
-                  // Show save button when temporary
-                  // chat has messages
-                  if (isTemporary &&
-                      hasMessages &&
-                      activeConversation != null) {
-                    return AdaptiveTooltip(
-                      message: AppLocalizations.of(context)!.saveChat,
-                      child: _buildAppBarIconButton(
-                        context: context,
-                        onPressed: _saveTemporaryChat,
-                        fallbackIcon: Platform.isIOS
-                            ? CupertinoIcons.arrow_down_doc
-                            : Icons.save_alt,
-                        sfSymbol: 'square.and.arrow.down',
-                        color: context.conduitTheme.textPrimary,
-                      ),
-                    );
-                  }
-
-                  // Show toggle button
-                  return AdaptiveTooltip(
-                    message: isTemporary
-                        ? AppLocalizations.of(context)!.temporaryChatTooltip
-                        : AppLocalizations.of(context)!.temporaryChat,
-                    child: _buildAppBarIconButton(
-                      context: context,
-                      onPressed: () {
-                        ConduitHaptics.selectionClick();
-                        final current = ref.read(temporaryChatEnabledProvider);
-                        ref
-                            .read(temporaryChatEnabledProvider.notifier)
-                            .set(!current);
-                      },
-                      fallbackIcon: isTemporary
-                          ? (Platform.isIOS
-                                ? CupertinoIcons.eye_slash
-                                : Icons.visibility_off)
-                          : (Platform.isIOS
-                                ? CupertinoIcons.eye
-                                : Icons.visibility_outlined),
-                      sfSymbol: isTemporary ? 'eye.slash' : 'eye',
-                      color: isTemporary
-                          ? Colors.blue
-                          : context.conduitTheme.textPrimary,
-                    ),
-                  );
-                },
+                ),
               ),
-              const SizedBox(width: Spacing.sm),
-              Consumer(
-                builder: (context, ref, _) {
-                  final activeConversation = ref.watch(
-                    activeConversationProvider,
-                  );
-                  if (activeConversation == null ||
-                      isTemporaryChat(activeConversation.id)) {
-                    return const SizedBox.shrink();
-                  }
-
-                  return Padding(
-                    padding: const EdgeInsets.only(right: Spacing.sm),
-                    child: AdaptiveTooltip(
-                      message: AppLocalizations.of(context)!.shareChat,
-                      child: _buildAppBarIconButton(
-                        context: context,
-                        onPressed: () {
-                          ConduitHaptics.selectionClick();
-                          showChatShareSheet(
-                            context: context,
-                            conversation: activeConversation,
-                          );
-                        },
-                        fallbackIcon: Platform.isIOS
-                            ? CupertinoIcons.share
-                            : Icons.ios_share_rounded,
-                        sfSymbol: 'square.and.arrow.up',
-                        color: context.conduitTheme.textPrimary,
-                      ),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: RepaintBoundary(
+                  child: MeasureSize(
+                    onChange: (size) {
+                      if (!mounted) return;
+                      setState(() => _inputHeight = size.height);
+                      if (MediaQuery.viewInsetsOf(context).bottom > 0) {
+                        _scheduleKeyboardScrollToBottom();
+                      }
+                    },
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const SizedBox(height: Spacing.xl),
+                        const FileAttachmentWidget(),
+                        const ContextAttachmentWidget(),
+                        ModernChatInput(
+                          onSendMessage: (text) =>
+                              _handleMessageSend(text, selectedModel),
+                          enabled: !isLoadingConversation,
+                          onVoiceInput: null,
+                          onVoiceCall: _handleVoiceCall,
+                          onFileAttachment: _handleFileAttachment,
+                          onServerFileAttachment: _handleServerFileAttachment,
+                          onImageAttachment: _handleImageAttachment,
+                          onCameraCapture: () =>
+                              _handleImageAttachment(fromCamera: true),
+                          onWebAttachment: _promptAttachWebpage,
+                          onPastedAttachments: _handlePastedAttachments,
+                        ),
+                      ],
                     ),
-                  );
-                },
-              ),
-              Padding(
-                padding: const EdgeInsets.only(right: Spacing.inputPadding),
-                child: AdaptiveTooltip(
-                  message: AppLocalizations.of(context)!.newChat,
-                  child: _buildAppBarIconButton(
-                    context: context,
-                    onPressed: _handleNewChat,
-                    fallbackIcon: Platform.isIOS
-                        ? CupertinoIcons.create
-                        : Icons.add_comment,
-                    sfSymbol: 'square.and.pencil',
-                    color: context.conduitTheme.textPrimary,
                   ),
                 ),
               ),
             ],
           ),
-          body: GestureDetector(
-            behavior: HitTestBehavior.translucent,
-            onTap: () {
-              try {
-                ref.read(composerAutofocusEnabledProvider.notifier).set(false);
-              } catch (_) {}
-              FocusManager.instance.primaryFocus?.unfocus();
-              try {
-                SystemChannels.textInput.invokeMethod('TextInput.hide');
-              } catch (_) {}
-            },
-            child: Stack(
-              children: [
-                // Messages Area fills entire space with pull-to-refresh
-                Positioned.fill(
-                  child: ConduitRefreshIndicator(
-                    // Position indicator below the floating app bar
-                    edgeOffset:
-                        MediaQuery.of(context).padding.top + kTextTabBarHeight,
-                    onRefresh: () async {
-                      // Reload active conversation messages from server
-                      final api = ref.read(apiServiceProvider);
-                      final active = ref.read(activeConversationProvider);
-                      if (api != null && active != null) {
-                        try {
-                          final full = await api.getConversation(active.id);
-                          ref
-                              .read(activeConversationProvider.notifier)
-                              .set(full);
-                        } catch (e) {
-                          DebugLogger.log(
-                            'Failed to refresh conversation: $e',
-                            scope: 'chat/page',
-                          );
-                        }
-                      }
+        ),
+      ),
+    );
 
-                      // Also refresh the conversations list to reconcile missed events
-                      // and keep timestamps/order in sync with the server.
-                      try {
-                        refreshConversationsCache(ref);
-                        // Best-effort await to stabilize UI; ignore errors.
-                        await ref.read(conversationsProvider.future);
-                      } catch (_) {}
+    if (overlayStyle != null) {
+      page = AnnotatedRegion<SystemUiOverlayStyle>(
+        value: overlayStyle,
+        child: page,
+      );
+    }
 
-                      // Add small delay for better UX feedback
-                      await Future.delayed(const Duration(milliseconds: 300));
-                    },
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: () {
-                        try {
-                          ref
-                              .read(composerAutofocusEnabledProvider.notifier)
-                              .set(false);
-                        } catch (_) {}
-                        FocusManager.instance.primaryFocus?.unfocus();
-                        try {
-                          SystemChannels.textInput.invokeMethod(
-                            'TextInput.hide',
-                          );
-                        } catch (_) {}
-                      },
-                      child: RepaintBoundary(child: _buildMessagesList(theme)),
+    return ErrorBoundary(child: page);
+  }
+
+  void _toggleResponsiveDrawer(BuildContext context) {
+    final layout = ResponsiveDrawerLayout.of(context);
+    if (layout == null) return;
+
+    final isDrawerOpen = layout.isOpen;
+    if (!isDrawerOpen) {
+      _dismissComposerFocus();
+    }
+    layout.toggle();
+  }
+
+  Future<void> _openModelSelector(BuildContext context) async {
+    final modelsAsync = ref.read(modelsProvider);
+
+    if (modelsAsync.isLoading) {
+      try {
+        final models = await ref.read(modelsProvider.future);
+        if (!mounted || !context.mounted) return;
+        _showModelDropdown(context, ref, models);
+      } catch (e) {
+        DebugLogger.error(
+          'model-load-failed',
+          scope: 'chat/model-selector',
+          error: e,
+        );
+      }
+    } else if (modelsAsync.hasValue) {
+      _showModelDropdown(context, ref, modelsAsync.value!);
+    } else if (modelsAsync.hasError) {
+      try {
+        ref.invalidate(modelsProvider);
+        final models = await ref.read(modelsProvider.future);
+        if (!mounted || !context.mounted) return;
+        _showModelDropdown(context, ref, models);
+      } catch (e) {
+        DebugLogger.error(
+          'model-refresh-failed',
+          scope: 'chat/model-selector',
+          error: e,
+        );
+      }
+    }
+  }
+
+  AdaptiveAppBar _buildAdaptiveChatAppBar({
+    required BuildContext context,
+    required bool isLoadingConversation,
+    required bool isReviewerMode,
+    required String modelLabel,
+  }) {
+    final tintColor = context.conduitTheme.textPrimary;
+
+    return buildConduitAdaptiveToolbarAppBar(
+      context: context,
+      tintColor: tintColor,
+      buildNativeLeading: () => _buildNativeToolbarLeading(
+        context: context,
+        isLoadingConversation: isLoadingConversation,
+        modelLabel: modelLabel,
+      ),
+      buildNativeActions: () {
+        final activeConversation = ref.watch(activeConversationProvider);
+        final isTemporary = ref.watch(temporaryChatEnabledProvider);
+        final hasMessages = ref.watch(
+          chatMessagesProvider.select((messages) => messages.isNotEmpty),
+        );
+        return _buildAdaptiveToolbarActions(
+          context: context,
+          activeConversation: activeConversation,
+          isTemporary: isTemporary,
+          hasMessages: hasMessages,
+        );
+      },
+      buildMaterialLeading: () => ConduitAdaptiveAppBarIconButton(
+        icon: Platform.isIOS ? CupertinoIcons.line_horizontal_3 : Icons.menu,
+        onPressed: () => _toggleResponsiveDrawer(context),
+        iconColor: tintColor,
+      ),
+      buildMaterialTitle: () => _buildMaterialToolbarTitle(
+        context: context,
+        isLoadingConversation: isLoadingConversation,
+        isReviewerMode: isReviewerMode,
+        modelLabel: modelLabel,
+      ),
+      buildMaterialActions: () => _buildMaterialToolbarActions(context),
+    );
+  }
+
+  Widget _buildNativeToolbarLeading({
+    required BuildContext context,
+    required bool isLoadingConversation,
+    required String modelLabel,
+  }) {
+    final maxModelWidth = resolveConduitAdaptiveLeadingPillWidth(
+      context,
+      trailingActionCount: 2,
+      maxWidth: 220,
+    );
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ConduitAdaptiveAppBarIconButton(
+          icon: Platform.isIOS ? CupertinoIcons.line_horizontal_3 : Icons.menu,
+          onPressed: () => _toggleResponsiveDrawer(context),
+          iconColor: context.conduitTheme.textPrimary,
+        ),
+        const SizedBox(width: Spacing.xs),
+        ConduitAdaptiveAppBarModelSelector(
+          label: modelLabel,
+          maxWidth: maxModelWidth,
+          isLoading: isLoadingConversation,
+          onPressed: () => _openModelSelector(context),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMaterialToolbarTitle({
+    required BuildContext context,
+    required bool isLoadingConversation,
+    required bool isReviewerMode,
+    required String modelLabel,
+  }) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxPillWidth = resolveConduitAdaptiveToolbarPillWidth(
+          availableWidth: constraints.maxWidth,
+          maxWidth: 300,
+          preferredPadding: Spacing.xxl,
+        );
+
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Align(
+              alignment: Alignment.centerLeft,
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 200),
+                switchInCurve: Curves.easeOut,
+                switchOutCurve: Curves.easeIn,
+                child: KeyedSubtree(
+                  key: ValueKey(
+                    isLoadingConversation
+                        ? 'model-loading'
+                        : 'model-$modelLabel',
+                  ),
+                  child: ConduitAdaptiveAppBarModelSelector(
+                    key: ValueKey(
+                      isLoadingConversation
+                          ? 'chat-model-selector-loading'
+                          : 'chat-model-selector-$modelLabel',
                     ),
+                    label: modelLabel,
+                    maxWidth: maxPillWidth,
+                    isLoading: isLoadingConversation,
+                    onPressed: () => _openModelSelector(context),
                   ),
                 ),
-
-                // Floating input area with attachments and blur background
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  child: RepaintBoundary(
-                    child: MeasureSize(
-                      onChange: (size) {
-                        if (mounted) {
-                          setState(() {
-                            _inputHeight = size.height;
-                          });
-                          if (MediaQuery.viewInsetsOf(context).bottom > 0) {
-                            _scheduleKeyboardScrollToBottom();
-                          }
-                        }
-                      },
-                      child: Container(
-                        decoration: BoxDecoration(
-                          // Gradient fade from transparent to solid background
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            stops: const [0.0, 0.4, 1.0],
-                            colors: [
-                              theme.scaffoldBackgroundColor.withValues(
-                                alpha: 0.0,
-                              ),
-                              theme.scaffoldBackgroundColor.withValues(
-                                alpha: 0.85,
-                              ),
-                              theme.scaffoldBackgroundColor,
-                            ],
-                          ),
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            // Top padding for gradient fade area
-                            const SizedBox(height: Spacing.xl),
-                            // File attachments
-                            const FileAttachmentWidget(),
-                            const ContextAttachmentWidget(),
-                            // RepaintBoundary prevents BackdropFilter
-                            // (AdaptiveBlurView) from going blank when
-                            // a modal sheet scrolls over it.
-                            RepaintBoundary(
-                              child: ModernChatInput(
-                                onSendMessage: (text) =>
-                                    _handleMessageSend(text, selectedModel),
-                                enabled: !isLoadingConversation,
-                                onVoiceInput: null,
-                                onVoiceCall: _handleVoiceCall,
-                                onFileAttachment: _handleFileAttachment,
-                                onServerFileAttachment:
-                                    _handleServerFileAttachment,
-                                onImageAttachment: _handleImageAttachment,
-                                onCameraCapture: () =>
-                                    _handleImageAttachment(fromCamera: true),
-                                onWebAttachment: _promptAttachWebpage,
-                                onPastedAttachments: _handlePastedAttachments,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-
-                // Floating app bar gradient overlay
-                Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  child: IgnorePointer(
-                    child: Container(
-                      height:
-                          MediaQuery.of(context).padding.top +
-                          kTextTabBarHeight +
-                          Spacing.xl,
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          stops: const [0.0, 0.4, 1.0],
-                          colors: [
-                            theme.scaffoldBackgroundColor,
-                            theme.scaffoldBackgroundColor.withValues(
-                              alpha: 0.85,
-                            ),
-                            theme.scaffoldBackgroundColor.withValues(
-                              alpha: 0.0,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-
-                // Floating Scroll to Bottom Button with smooth appear/disappear
-                Positioned(
-                  bottom: (_inputHeight > 0)
-                      ? _inputHeight
-                      : (Spacing.xxl + Spacing.xxxl),
-                  left: 0,
-                  right: 0,
-                  child: AnimatedSwitcher(
-                    duration: AnimationDuration.microInteraction,
-                    switchInCurve: AnimationCurves.microInteraction,
-                    switchOutCurve: AnimationCurves.microInteraction,
-                    transitionBuilder: (child, animation) {
-                      final slideAnimation = Tween<Offset>(
-                        begin: const Offset(0, 0.15),
-                        end: Offset.zero,
-                      ).animate(animation);
-                      return FadeTransition(
-                        opacity: animation,
-                        child: SlideTransition(
-                          position: slideAnimation,
-                          child: child,
-                        ),
-                      );
-                    },
-                    child:
-                        (_showScrollToBottom &&
-                            !keyboardVisible &&
-                            canScroll &&
-                            ref.watch(chatMessagesProvider).isNotEmpty)
-                        ? Center(
-                            key: const ValueKey('scroll_to_bottom_visible'),
-                            child: AdaptiveTooltip(
-                              message: 'Scroll to bottom',
-                              child: _buildScrollToBottomButton(context),
-                            ),
-                          )
-                        : const SizedBox.shrink(
-                            key: ValueKey('scroll_to_bottom_hidden'),
-                          ),
-                  ),
-                ),
-                // Edge overlay removed; rely on native interactive drawer drag
-              ],
+              ),
             ),
+            if (isReviewerMode)
+              Padding(
+                padding: const EdgeInsets.only(top: Spacing.xs),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: Spacing.sm,
+                    vertical: 1.0,
+                  ),
+                  decoration: BoxDecoration(
+                    color: context.conduitTheme.success.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(AppBorderRadius.badge),
+                    border: Border.all(
+                      color: context.conduitTheme.success.withValues(
+                        alpha: 0.3,
+                      ),
+                      width: BorderWidth.thin,
+                    ),
+                  ),
+                  child: Text(
+                    'REVIEWER MODE',
+                    style: AppTypography.labelSmallStyle.copyWith(
+                      color: context.conduitTheme.success,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  List<Widget> _buildMaterialToolbarActions(BuildContext context) {
+    return [
+      Consumer(
+        builder: (context, ref, _) {
+          final isTemporary = ref.watch(temporaryChatEnabledProvider);
+          final activeConversation = ref.watch(activeConversationProvider);
+          final hasMessages = ref.watch(
+            chatMessagesProvider.select((messages) => messages.isNotEmpty),
+          );
+
+          final showToggle =
+              activeConversation == null ||
+              isTemporaryChat(activeConversation.id);
+
+          if (!showToggle) {
+            return const SizedBox.shrink();
+          }
+
+          if (isTemporary && hasMessages && activeConversation != null) {
+            return AdaptiveTooltip(
+              message: AppLocalizations.of(context)!.saveChat,
+              child: ConduitAdaptiveAppBarIconButton(
+                icon: Platform.isIOS
+                    ? CupertinoIcons.arrow_down_doc
+                    : Icons.save_alt,
+                onPressed: _saveTemporaryChat,
+                iconColor: context.conduitTheme.textPrimary,
+              ),
+            );
+          }
+
+          return AdaptiveTooltip(
+            message: isTemporary
+                ? AppLocalizations.of(context)!.temporaryChatTooltip
+                : AppLocalizations.of(context)!.temporaryChat,
+            child: ConduitAdaptiveAppBarIconButton(
+              icon: isTemporary
+                  ? (Platform.isIOS
+                        ? CupertinoIcons.eye_slash
+                        : Icons.visibility_off)
+                  : (Platform.isIOS
+                        ? CupertinoIcons.eye
+                        : Icons.visibility_outlined),
+              onPressed: () {
+                ConduitHaptics.selectionClick();
+                final current = ref.read(temporaryChatEnabledProvider);
+                ref.read(temporaryChatEnabledProvider.notifier).set(!current);
+              },
+              iconColor: isTemporary
+                  ? Colors.blue
+                  : context.conduitTheme.textPrimary,
+            ),
+          );
+        },
+      ),
+      const SizedBox(width: Spacing.sm),
+      Consumer(
+        builder: (context, ref, _) {
+          final activeConversation = ref.watch(activeConversationProvider);
+          if (activeConversation == null ||
+              isTemporaryChat(activeConversation.id)) {
+            return const SizedBox.shrink();
+          }
+
+          return Padding(
+            padding: const EdgeInsets.only(right: Spacing.sm),
+            child: AdaptiveTooltip(
+              message: AppLocalizations.of(context)!.shareChat,
+              child: ConduitAdaptiveAppBarIconButton(
+                icon: Platform.isIOS
+                    ? CupertinoIcons.share
+                    : Icons.ios_share_rounded,
+                onPressed: () {
+                  ConduitHaptics.selectionClick();
+                  showChatShareSheet(
+                    context: context,
+                    conversation: activeConversation,
+                  );
+                },
+                iconColor: context.conduitTheme.textPrimary,
+              ),
+            ),
+          );
+        },
+      ),
+      Padding(
+        padding: const EdgeInsets.only(right: Spacing.inputPadding),
+        child: AdaptiveTooltip(
+          message: AppLocalizations.of(context)!.newChat,
+          child: ConduitAdaptiveAppBarIconButton(
+            icon: Platform.isIOS ? CupertinoIcons.create : Icons.add_comment,
+            onPressed: _handleNewChat,
+            iconColor: context.conduitTheme.textPrimary,
           ),
-        ), // Scaffold
-      ), // PopScope
-    ); // ErrorBoundary
+        ),
+      ),
+    ];
+  }
+
+  List<AdaptiveAppBarAction> _buildAdaptiveToolbarActions({
+    required BuildContext context,
+    required dynamic activeConversation,
+    required bool isTemporary,
+    required bool hasMessages,
+  }) {
+    final actions = <AdaptiveAppBarAction>[];
+    final defaultTint = context.conduitTheme.textPrimary;
+    final showToggle =
+        activeConversation == null || isTemporaryChat(activeConversation.id);
+
+    if (showToggle) {
+      if (isTemporary && hasMessages && activeConversation != null) {
+        actions.add(
+          AdaptiveAppBarAction(
+            iosSymbol: 'square.and.arrow.down',
+            icon: Platform.isIOS
+                ? CupertinoIcons.arrow_down_doc
+                : Icons.save_alt,
+            tintColor: defaultTint,
+            onPressed: _saveTemporaryChat,
+          ),
+        );
+      } else {
+        actions.add(
+          AdaptiveAppBarAction(
+            iosSymbol: isTemporary ? 'eye.slash' : 'eye',
+            icon: isTemporary
+                ? (Platform.isIOS
+                      ? CupertinoIcons.eye_slash
+                      : Icons.visibility_off)
+                : (Platform.isIOS
+                      ? CupertinoIcons.eye
+                      : Icons.visibility_outlined),
+            tintColor: isTemporary ? Colors.blue : defaultTint,
+            onPressed: () {
+              ConduitHaptics.selectionClick();
+              final current = ref.read(temporaryChatEnabledProvider);
+              ref.read(temporaryChatEnabledProvider.notifier).set(!current);
+            },
+          ),
+        );
+      }
+    }
+
+    if (activeConversation != null && !isTemporaryChat(activeConversation.id)) {
+      actions.add(
+        AdaptiveAppBarAction(
+          iosSymbol: 'square.and.arrow.up',
+          icon: Platform.isIOS ? CupertinoIcons.share : Icons.ios_share_rounded,
+          tintColor: defaultTint,
+          onPressed: () {
+            ConduitHaptics.selectionClick();
+            showChatShareSheet(
+              context: context,
+              conversation: activeConversation,
+            );
+          },
+        ),
+      );
+    }
+
+    actions.add(
+      AdaptiveAppBarAction(
+        iosSymbol: 'square.and.pencil',
+        icon: Platform.isIOS ? CupertinoIcons.create : Icons.add_comment,
+        tintColor: defaultTint,
+        onPressed: _handleNewChat,
+      ),
+    );
+
+    return actions;
   }
 
   // Removed legacy save-before-leave hook; server manages chat state via background pipeline.
@@ -2603,11 +2473,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   ) {
     // Ensure keyboard is closed before presenting modal
     final hadFocus = ref.read(composerHasFocusProvider);
-    try {
-      ref.read(composerAutofocusEnabledProvider.notifier).set(false);
-      FocusManager.instance.primaryFocus?.unfocus();
-      SystemChannels.textInput.invokeMethod('TextInput.hide');
-    } catch (_) {}
+    _dismissComposerFocus();
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,

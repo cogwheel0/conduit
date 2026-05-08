@@ -83,7 +83,6 @@ dependencies:
   adaptive_platform_ui: ^0.1.103
   flutter_tex: ^5.2.6
   gaimon: ^1.4.2
-  cupertino_context_menu_plus: ^1.0.3
   
 dev_dependencies:
   flutter_test:

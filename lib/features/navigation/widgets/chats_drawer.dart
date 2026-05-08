@@ -174,7 +174,9 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     // Top inset matches Notes tab pinned header row (`EdgeInsets` top 8).
     // Bottom inset keeps the last row clear of the native bottom tab bar.
     final paddedSlivers = <Widget>[
-      const SliverToBoxAdapter(child: SizedBox(height: Spacing.sm)),
+      SliverToBoxAdapter(
+        child: SizedBox(height: sidebarTabContentTopPadding(context)),
+      ),
       ...slivers,
       // Bottom padding for the tab bar and a little breathing room.
       SliverToBoxAdapter(
@@ -931,9 +933,9 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       return headerContent;
     }
 
-    return InkWell(
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: onToggle,
-      borderRadius: BorderRadius.circular(AppBorderRadius.xs),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: Spacing.xxs),
         child: headerContent,
@@ -948,9 +950,9 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
 
     return Row(
       children: [
-        InkWell(
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
           onTap: () => ref.read(showFoldersProvider.notifier).toggle(),
-          borderRadius: BorderRadius.circular(AppBorderRadius.xs),
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: Spacing.xxs),
             child: Row(
@@ -1015,29 +1017,17 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
             ? theme.navigationSelected.withValues(alpha: 0.7)
             : theme.surfaceContainerHighest.withValues(alpha: 0.40);
 
-        Color? overlayForStates(Set<WidgetState> states) {
-          if (states.contains(WidgetState.pressed)) {
-            return theme.buttonPrimary.withValues(alpha: Alpha.buttonPressed);
-          }
-          if (states.contains(WidgetState.hovered) ||
-              states.contains(WidgetState.focused)) {
-            return theme.buttonPrimary.withValues(alpha: Alpha.hover);
-          }
-          return Colors.transparent;
-        }
-
-        final rowContent = Material(
-          color: baseColor,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppBorderRadius.small),
-            side: BorderSide(color: borderColor, width: BorderWidth.thin),
-          ),
-          child: InkWell(
-            key: ValueKey<String>('folder-open-$folderId'),
-            borderRadius: BorderRadius.circular(AppBorderRadius.small),
-            onTap: () => _openFolderPage(folderId),
-            onLongPress: null, // Handled by ConduitContextMenu
-            overlayColor: WidgetStateProperty.resolveWith(overlayForStates),
+        final rowContent = GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          key: ValueKey<String>('folder-open-$folderId'),
+          onTap: () => _openFolderPage(folderId),
+          onLongPress: null, // Handled by ConduitContextMenu
+          child: Container(
+            decoration: BoxDecoration(
+              color: baseColor,
+              borderRadius: BorderRadius.circular(AppBorderRadius.small),
+              border: Border.all(color: borderColor, width: BorderWidth.thin),
+            ),
             child: ConstrainedBox(
               constraints: const BoxConstraints(
                 minHeight: TouchTarget.listItem,
@@ -1524,30 +1514,22 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
   Widget _buildArchivedHeader(int count) {
     final theme = context.conduitTheme;
     final show = ref.watch(showArchivedProvider);
-    return Material(
-      color: show ? theme.navigationSelectedBackground : theme.surfaceContainer,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppBorderRadius.small),
-        side: BorderSide(
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => ref.read(showArchivedProvider.notifier).set(!show),
+      child: Container(
+        decoration: BoxDecoration(
           color: show
-              ? theme.navigationSelected
-              : theme.surfaceContainerHighest.withValues(alpha: 0.40),
-          width: BorderWidth.thin,
+              ? theme.navigationSelectedBackground
+              : theme.surfaceContainer,
+          borderRadius: BorderRadius.circular(AppBorderRadius.small),
+          border: Border.all(
+            color: show
+                ? theme.navigationSelected
+                : theme.surfaceContainerHighest.withValues(alpha: 0.40),
+            width: BorderWidth.thin,
+          ),
         ),
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(AppBorderRadius.small),
-        onTap: () => ref.read(showArchivedProvider.notifier).set(!show),
-        overlayColor: WidgetStateProperty.resolveWith((states) {
-          if (states.contains(WidgetState.pressed)) {
-            return theme.buttonPrimary.withValues(alpha: Alpha.buttonPressed);
-          }
-          if (states.contains(WidgetState.hovered) ||
-              states.contains(WidgetState.focused)) {
-            return theme.buttonPrimary.withValues(alpha: Alpha.hover);
-          }
-          return Colors.transparent;
-        }),
         child: ConstrainedBox(
           constraints: const BoxConstraints(minHeight: TouchTarget.listItem),
           child: Padding(
@@ -1699,35 +1681,32 @@ class _FolderMoveTargetTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppBorderRadius.md),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: TouchTarget.listItem),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: Spacing.sm,
-              vertical: Spacing.sm,
-            ),
-            child: Row(
-              children: [
-                Icon(icon, color: theme.iconPrimary, size: IconSize.listItem),
-                const SizedBox(width: Spacing.sm),
-                Expanded(
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTypography.sidebarTitleStyle.copyWith(
-                      color: theme.textPrimary,
-                      fontWeight: FontWeight.w400,
-                    ),
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: TouchTarget.listItem),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: Spacing.sm,
+            vertical: Spacing.sm,
+          ),
+          child: Row(
+            children: [
+              Icon(icon, color: theme.iconPrimary, size: IconSize.listItem),
+              const SizedBox(width: Spacing.sm),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.sidebarTitleStyle.copyWith(
+                    color: theme.textPrimary,
+                    fontWeight: FontWeight.w400,
                   ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),

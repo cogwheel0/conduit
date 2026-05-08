@@ -329,23 +329,26 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Expanded(
-          child: Material(
+          child: ColoredBox(
             color: theme.surfaceBackground,
             child: slot.mainPanel,
           ),
         ),
-        Material(color: theme.surfaceBackground, child: slot.footerPanel),
+        ColoredBox(color: theme.surfaceBackground, child: slot.footerPanel),
       ],
     );
+  }
+
+  BoxDecoration _drawerPanelDecoration(ConduitThemeExtension theme) {
+    return BoxDecoration(color: theme.surfaceBackground);
   }
 
   Widget _buildMobileDrawerSlotPanel(
     ConduitThemeExtension theme,
     DrawerSlot slot,
   ) {
-    return Material(
-      elevation: 8,
-      color: theme.surfaceBackground,
+    return Container(
+      decoration: _drawerPanelDecoration(theme),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -356,13 +359,13 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
               onHorizontalDragUpdate: _onDragUpdate,
               onHorizontalDragEnd: _onDragEnd,
               onHorizontalDragCancel: _onDragCancel,
-              child: Material(
+              child: ColoredBox(
                 color: theme.surfaceBackground,
                 child: slot.mainPanel,
               ),
             ),
           ),
-          Material(color: theme.surfaceBackground, child: slot.footerPanel),
+          ColoredBox(color: theme.surfaceBackground, child: slot.footerPanel),
         ],
       ),
     );
@@ -370,9 +373,8 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
 
   Widget _buildMobileDrawerPanel(ConduitThemeExtension theme) {
     final drawerPanel = RepaintBoundary(
-      child: Material(
-        color: theme.surfaceBackground,
-        elevation: 8,
+      child: Container(
+        decoration: _drawerPanelDecoration(theme),
         child: widget.drawer,
       ),
     );
@@ -426,18 +428,13 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
           duration: _tabletDuration,
           curve: Curves.easeOutCubic,
           width: targetWidth,
-          decoration: BoxDecoration(
-            color: theme.surfaceBackground,
-            border: Border(
-              right: BorderSide(color: theme.dividerColor, width: 1),
-            ),
-          ),
+          decoration: BoxDecoration(color: theme.surfaceBackground),
           child: ClipRect(
             child: IgnorePointer(
               ignoring: widget.tabletDismissible && !_isTabletDocked,
               child: widget.drawer is DrawerSlot
                   ? _buildTabletDrawerSlot(theme, widget.drawer as DrawerSlot)
-                  : Material(
+                  : ColoredBox(
                       color: theme.surfaceBackground,
                       child: widget.drawer,
                     ),

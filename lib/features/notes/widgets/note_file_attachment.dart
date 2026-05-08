@@ -59,132 +59,127 @@ class NoteFileAttachment extends StatelessWidget {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppBorderRadius.md),
-        child: Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: Spacing.sm,
-            vertical: Spacing.sm,
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: Spacing.sm,
+          vertical: Spacing.sm,
+        ),
+        decoration: BoxDecoration(
+          color: theme.surfaceContainer.withValues(alpha: 0.5),
+          borderRadius: BorderRadius.circular(AppBorderRadius.md),
+          border: Border.all(
+            color: theme.cardBorder.withValues(alpha: 0.3),
+            width: BorderWidth.thin,
           ),
-          decoration: BoxDecoration(
-            color: theme.surfaceContainer.withValues(alpha: 0.5),
-            borderRadius: BorderRadius.circular(AppBorderRadius.md),
-            border: Border.all(
-              color: theme.cardBorder.withValues(alpha: 0.3),
-              width: BorderWidth.thin,
-            ),
-          ),
-          child: Row(
-            children: [
-              // File icon
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: _iconColor(theme).withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(AppBorderRadius.sm),
-                ),
-                child: isLoading
-                    ? Center(
-                        child: SizedBox(
-                          width: IconSize.sm,
-                          height: IconSize.sm,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation(
-                              _iconColor(theme),
-                            ),
-                          ),
-                        ),
-                      )
-                    : Icon(_icon, color: _iconColor(theme), size: IconSize.md),
+        ),
+        child: Row(
+          children: [
+            // File icon
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: _iconColor(theme).withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(AppBorderRadius.sm),
               ),
-
-              const SizedBox(width: Spacing.sm),
-
-              // File info
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      _fileName,
-                      style: AppTypography.bodySmallStyle.copyWith(
-                        color: theme.textPrimary,
-                        fontWeight: FontWeight.w500,
+              child: isLoading
+                  ? Center(
+                      child: SizedBox(
+                        width: IconSize.sm,
+                        height: IconSize.sm,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation(_iconColor(theme)),
+                        ),
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                    )
+                  : Icon(_icon, color: _iconColor(theme), size: IconSize.md),
+            ),
+
+            const SizedBox(width: Spacing.sm),
+
+            // File info
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    _fileName,
+                    style: AppTypography.bodySmallStyle.copyWith(
+                      color: theme.textPrimary,
+                      fontWeight: FontWeight.w500,
                     ),
-                    const SizedBox(height: 2),
-                    Row(
-                      children: [
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
+                      Text(
+                        _isAudio
+                            ? l10n.audioFileType
+                            : _isImage
+                            ? l10n.imageFileType
+                            : l10n.file,
+                        style: AppTypography.captionStyle.copyWith(
+                          color: theme.textSecondary,
+                        ),
+                      ),
+                      if (_fileSize != null) ...[
                         Text(
-                          _isAudio
-                              ? l10n.audioFileType
-                              : _isImage
-                              ? l10n.imageFileType
-                              : l10n.file,
+                          ' · ',
                           style: AppTypography.captionStyle.copyWith(
                             color: theme.textSecondary,
                           ),
                         ),
-                        if (_fileSize != null) ...[
-                          Text(
-                            ' · ',
-                            style: AppTypography.captionStyle.copyWith(
-                              color: theme.textSecondary,
-                            ),
+                        Text(
+                          FileTypeUtils.formatFileSize(_fileSize),
+                          style: AppTypography.captionStyle.copyWith(
+                            color: theme.textSecondary,
                           ),
-                          Text(
-                            FileTypeUtils.formatFileSize(_fileSize),
-                            style: AppTypography.captionStyle.copyWith(
-                              color: theme.textSecondary,
-                            ),
-                          ),
-                        ],
+                        ),
                       ],
-                    ),
-                  ],
+                    ],
+                  ),
+                ],
+              ),
+            ),
+
+            // Play button for audio
+            if (_isAudio && !isLoading)
+              IconButton(
+                icon: Icon(
+                  Platform.isIOS
+                      ? CupertinoIcons.play_circle_fill
+                      : Icons.play_circle_filled_rounded,
+                  color: _iconColor(theme),
+                  size: IconSize.lg,
                 ),
+                onPressed: onTap,
+                tooltip: l10n.playAudio,
               ),
 
-              // Play button for audio
-              if (_isAudio && !isLoading)
-                IconButton(
-                  icon: Icon(
-                    Platform.isIOS
-                        ? CupertinoIcons.play_circle_fill
-                        : Icons.play_circle_filled_rounded,
-                    color: _iconColor(theme),
-                    size: IconSize.lg,
-                  ),
-                  onPressed: onTap,
-                  tooltip: l10n.playAudio,
+            // Delete button
+            if (showDelete && !isLoading)
+              IconButton(
+                icon: Icon(
+                  Platform.isIOS
+                      ? CupertinoIcons.xmark_circle_fill
+                      : Icons.cancel_rounded,
+                  color: theme.textSecondary.withValues(alpha: 0.5),
+                  size: IconSize.md,
                 ),
-
-              // Delete button
-              if (showDelete && !isLoading)
-                IconButton(
-                  icon: Icon(
-                    Platform.isIOS
-                        ? CupertinoIcons.xmark_circle_fill
-                        : Icons.cancel_rounded,
-                    color: theme.textSecondary.withValues(alpha: 0.5),
-                    size: IconSize.md,
-                  ),
-                  onPressed: () {
-                    ConduitHaptics.lightImpact();
-                    onDelete?.call();
-                  },
-                  tooltip: l10n.removeFile,
-                ),
-            ],
-          ),
+                onPressed: () {
+                  ConduitHaptics.lightImpact();
+                  onDelete?.call();
+                },
+                tooltip: l10n.removeFile,
+              ),
+          ],
         ),
       ),
     );

@@ -94,9 +94,9 @@ class AboutPage extends ConsumerWidget {
           _AboutRow(label: l10n.appVersion, value: versionLabel),
           const SizedBox(height: Spacing.md),
           Divider(color: theme.cardBorder.withValues(alpha: 0.5), height: 1),
-          InkWell(
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
             onTap: () => _openGithub(context),
-            borderRadius: BorderRadius.circular(AppBorderRadius.standard),
             child: Padding(
               padding: const EdgeInsets.only(top: Spacing.md),
               child: Row(

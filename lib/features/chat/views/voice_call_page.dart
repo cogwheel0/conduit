@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
 import '../voice_call/application/voice_call_controller.dart';
@@ -69,10 +70,11 @@ class _VoiceCallPageState extends ConsumerState<VoiceCallPage>
     final primaryColor = conduit.buttonPrimary;
     final textColor = conduit.textPrimary;
 
-    return Scaffold(
+    return AdaptiveRouteShell(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       extendBodyBehindAppBar: true,
-      appBar: FloatingAppBar(
+      appBar: AdaptiveAppBar(
+        title: l10n.voiceCallTitle,
         leading: FloatingAppBarIconButton(
           icon: Platform.isIOS ? CupertinoIcons.xmark : Icons.close,
           onTap: () async {
@@ -81,70 +83,68 @@ class _VoiceCallPageState extends ConsumerState<VoiceCallPage>
             Navigator.of(this.context).pop();
           },
         ),
-        title: FloatingAppBarTitle(text: l10n.voiceCallTitle),
       ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            if (snapshot.failure != null)
-              _buildBanner(context, snapshot.failure!.message),
-            Expanded(
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  return SingleChildScrollView(
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(
-                        minHeight: constraints.maxHeight,
-                        minWidth: constraints.maxWidth,
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 24),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              selectedModel?.name ?? '',
-                              style: Theme.of(context).textTheme.bodyLarge
-                                  ?.copyWith(
-                                    color: textColor.withValues(alpha: 0.7),
-                                  ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              _formatElapsed(snapshot.elapsed),
-                              style: Theme.of(context).textTheme.bodySmall
-                                  ?.copyWith(
-                                    color: textColor.withValues(alpha: 0.6),
-                                  ),
-                            ),
-                            const SizedBox(height: 40),
-                            _buildStatusIndicator(
-                              snapshot,
-                              primaryColor,
-                              textColor,
-                            ),
-                            const SizedBox(height: 40),
-                            Text(
-                              _phaseLabel(snapshot.phase, l10n),
-                              style: Theme.of(context).textTheme.headlineMedium
-                                  ?.copyWith(fontWeight: FontWeight.w600),
-                            ),
-                            const SizedBox(height: 24),
-                            _buildTextDisplay(snapshot, textColor),
-                          ],
-                        ),
+      bodySafeArea: true,
+      body: Column(
+        children: [
+          if (snapshot.failure != null)
+            _buildBanner(context, snapshot.failure!.message),
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                return SingleChildScrollView(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      minHeight: constraints.maxHeight,
+                      minWidth: constraints.maxWidth,
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            selectedModel?.name ?? '',
+                            style: Theme.of(context).textTheme.bodyLarge
+                                ?.copyWith(
+                                  color: textColor.withValues(alpha: 0.7),
+                                ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            _formatElapsed(snapshot.elapsed),
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(
+                                  color: textColor.withValues(alpha: 0.6),
+                                ),
+                          ),
+                          const SizedBox(height: 40),
+                          _buildStatusIndicator(
+                            snapshot,
+                            primaryColor,
+                            textColor,
+                          ),
+                          const SizedBox(height: 40),
+                          Text(
+                            _phaseLabel(snapshot.phase, l10n),
+                            style: Theme.of(context).textTheme.headlineMedium
+                                ?.copyWith(fontWeight: FontWeight.w600),
+                          ),
+                          const SizedBox(height: 24),
+                          _buildTextDisplay(snapshot, textColor),
+                        ],
                       ),
                     ),
-                  );
-                },
-              ),
+                  ),
+                );
+              },
             ),
-            Padding(
-              padding: const EdgeInsets.all(24),
-              child: _buildControlButtons(context, snapshot, l10n),
-            ),
-          ],
-        ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(24),
+            child: _buildControlButtons(context, snapshot, l10n),
+          ),
+        ],
       ),
     );
   }

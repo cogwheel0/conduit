@@ -1,0 +1,294 @@
+import 'dart:io' show Platform;
+
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
+
+import '../theme/theme_extensions.dart';
+import 'conduit_components.dart';
+import 'conduit_loading.dart';
+import 'middle_ellipsis_text.dart';
+
+/// Builds the shared floating toolbar shell used by chat-style pages.
+///
+/// Only the active platform branch is evaluated so callers can pass rebuild-
+/// heavy builders without paying for both toolbars on every frame.
+AdaptiveAppBar buildConduitAdaptiveToolbarAppBar({
+  required BuildContext context,
+  required Color tintColor,
+  required Widget Function() buildNativeLeading,
+  required List<AdaptiveAppBarAction> Function() buildNativeActions,
+  required Widget Function() buildMaterialLeading,
+  required Widget Function() buildMaterialTitle,
+  required List<Widget> Function() buildMaterialActions,
+}) {
+  if (PlatformInfo.isIOS26OrHigher()) {
+    return AdaptiveAppBar(
+      leading: buildNativeLeading(),
+      tintColor: tintColor,
+      actions: buildNativeActions(),
+    );
+  }
+
+  return AdaptiveAppBar(
+    appBar: AppBar(
+      backgroundColor: Colors.transparent,
+      elevation: Elevation.none,
+      surfaceTintColor: Colors.transparent,
+      shadowColor: Colors.transparent,
+      toolbarHeight: kTextTabBarHeight,
+      centerTitle: false,
+      titleSpacing: Spacing.sm,
+      leadingWidth: 44 + Spacing.inputPadding + Spacing.xs,
+      leading: Padding(
+        padding: const EdgeInsets.only(left: Spacing.inputPadding),
+        child: Center(child: buildMaterialLeading()),
+      ),
+      title: buildMaterialTitle(),
+      actions: buildMaterialActions(),
+    ),
+  );
+}
+
+/// Resolves a stable pill width inside a constrained toolbar slot.
+///
+/// The result never exceeds the available space. When the preferred padding
+/// would make the pill too small, the helper still keeps a small minimum gap so
+/// the title does not visually collide with neighboring controls.
+double resolveConduitAdaptiveToolbarPillWidth({
+  required double availableWidth,
+  required double maxWidth,
+  double preferredPadding = 0,
+  double minimumPadding = Spacing.sm,
+}) {
+  final preferredReservedPadding = preferredPadding > minimumPadding
+      ? preferredPadding
+      : minimumPadding;
+  final effectivePadding = availableWidth > minimumPadding
+      ? preferredReservedPadding
+            .clamp(minimumPadding, availableWidth)
+            .toDouble()
+      : 0.0;
+  final effectiveWidth = availableWidth - effectivePadding;
+
+  return effectiveWidth.clamp(0.0, maxWidth).toDouble();
+}
+
+/// Estimates a safe leading-pill width for native adaptive toolbars.
+///
+/// Native toolbars do not automatically rebalance the leading area against
+/// trailing actions, so callers provide the trailing action count and let this
+/// helper reserve the remaining space before sizing the pill.
+double resolveConduitAdaptiveLeadingPillWidth(
+  BuildContext context, {
+  required int trailingActionCount,
+  required double maxWidth,
+  double trailingActionSpacing = Spacing.sm,
+}) {
+  final trailingSpacing = trailingActionCount > 1
+      ? (trailingActionCount - 1) * trailingActionSpacing
+      : 0.0;
+  final trailingWidth = trailingActionCount > 0
+      ? (trailingActionCount * TouchTarget.minimum) +
+            trailingSpacing +
+            Spacing.inputPadding
+      : Spacing.inputPadding;
+  final availableWidth =
+      MediaQuery.sizeOf(context).width -
+      TouchTarget.minimum -
+      Spacing.xs -
+      trailingWidth -
+      (Spacing.inputPadding * 2);
+
+  return resolveConduitAdaptiveToolbarPillWidth(
+    availableWidth: availableWidth,
+    maxWidth: maxWidth,
+  );
+}
+
+/// Measures a text pill and clamps it to the safe toolbar width budget.
+double resolveConduitAdaptiveTextPillWidth({
+  required BuildContext context,
+  required String label,
+  required TextStyle textStyle,
+  required double maxWidth,
+  double minWidth = 0,
+  double horizontalPadding = 0,
+  double leadingWidth = 0,
+  double trailingWidth = 0,
+}) {
+  final safeMaxWidth = maxWidth.clamp(0.0, double.infinity).toDouble();
+  if (safeMaxWidth == 0) {
+    return 0;
+  }
+  final safeMinWidth = minWidth.clamp(0.0, safeMaxWidth).toDouble();
+  final textPainter = TextPainter(
+    text: TextSpan(text: label, style: textStyle),
+    maxLines: 1,
+    textScaler: MediaQuery.textScalerOf(context),
+    textDirection: Directionality.of(context),
+  )..layout(minWidth: 0, maxWidth: double.infinity);
+
+  final measuredWidth =
+      textPainter.width + horizontalPadding + leadingWidth + trailingWidth;
+
+  return measuredWidth.clamp(safeMinWidth, safeMaxWidth).toDouble();
+}
+
+/// Adaptive floating app-bar icon button for route-level toolbar actions.
+class ConduitAdaptiveAppBarIconButton extends StatelessWidget {
+  /// Creates an adaptive toolbar icon button.
+  const ConduitAdaptiveAppBarIconButton({
+    super.key,
+    required this.icon,
+    this.onPressed,
+    this.iconColor,
+  });
+
+  /// Icon shown inside the control.
+  final IconData icon;
+
+  /// Invoked when the control is tapped.
+  final VoidCallback? onPressed;
+
+  /// Optional icon tint.
+  final Color? iconColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final effectiveIconColor = iconColor ?? context.conduitTheme.textPrimary;
+
+    if (PlatformInfo.isIOS26OrHigher()) {
+      return AdaptiveButton.child(
+        onPressed: onPressed,
+        style: AdaptiveButtonStyle.glass,
+        size: AdaptiveButtonSize.large,
+        minSize: const Size(TouchTarget.minimum, TouchTarget.minimum),
+        useSmoothRectangleBorder: false,
+        child: Icon(icon, size: IconSize.appBar, color: effectiveIconColor),
+      );
+    }
+
+    return GestureDetector(
+      onTap: onPressed,
+      child: FloatingAppBarPill(
+        isCircular: true,
+        child: Icon(icon, color: effectiveIconColor, size: IconSize.appBar),
+      ),
+    );
+  }
+}
+
+/// Adaptive model-selector control used by floating route toolbars.
+class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
+  /// Creates an adaptive toolbar model selector.
+  const ConduitAdaptiveAppBarModelSelector({
+    super.key,
+    required this.label,
+    required this.maxWidth,
+    required this.onPressed,
+    this.isLoading = false,
+    this.textStyle,
+  });
+
+  /// Text shown inside the selector.
+  final String label;
+
+  /// Maximum width available for the selector.
+  ///
+  /// Short labels shrink to fit their content while longer labels ellipsize
+  /// inside this cap so toolbar layout still respects neighboring actions.
+  final double maxWidth;
+
+  /// Invoked when the selector is tapped.
+  final VoidCallback onPressed;
+
+  /// Whether to render a loading placeholder instead of the current label.
+  final bool isLoading;
+
+  /// Optional text style override for the selector label.
+  final TextStyle? textStyle;
+
+  @override
+  Widget build(BuildContext context) {
+    final effectiveTextStyle =
+        textStyle ??
+        AppTypography.standard.copyWith(
+          color: context.conduitTheme.textPrimary,
+          fontWeight: FontWeight.w600,
+        );
+    final safeMaxWidth = maxWidth.clamp(0.0, double.infinity).toDouble();
+    if (safeMaxWidth == 0) {
+      return const SizedBox.shrink();
+    }
+    final chevronSize = PlatformInfo.isIOS26OrHigher()
+        ? IconSize.small
+        : IconSize.medium;
+    final targetWidth = isLoading
+        ? safeMaxWidth.clamp(0.0, 104.0).toDouble()
+        : resolveConduitAdaptiveTextPillWidth(
+            context: context,
+            label: label,
+            textStyle: effectiveTextStyle,
+            maxWidth: safeMaxWidth,
+            minWidth: 96,
+            horizontalPadding: 10 + Spacing.xs + 12,
+            trailingWidth: chevronSize + Spacing.xs,
+          );
+    final child = SizedBox(
+      width: targetWidth,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 44),
+        child: Padding(
+          padding: const EdgeInsets.only(left: 10, right: Spacing.xs),
+          child: Center(
+            widthFactor: 1,
+            child: isLoading
+                ? ConduitLoading.skeleton(
+                    width: 80,
+                    height: 14,
+                    borderRadius: BorderRadius.circular(AppBorderRadius.sm),
+                  )
+                : Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: MiddleEllipsisText(
+                          label,
+                          style: effectiveTextStyle,
+                          textAlign: TextAlign.center,
+                          semanticsLabel: label,
+                        ),
+                      ),
+                      const SizedBox(width: Spacing.xs),
+                      Icon(
+                        Platform.isIOS
+                            ? CupertinoIcons.chevron_down
+                            : Icons.keyboard_arrow_down,
+                        color: context.conduitTheme.iconSecondary,
+                        size: chevronSize,
+                      ),
+                    ],
+                  ),
+          ),
+        ),
+      ),
+    );
+
+    if (PlatformInfo.isIOS26OrHigher()) {
+      return AdaptiveButton.child(
+        onPressed: isLoading ? () {} : onPressed,
+        style: AdaptiveButtonStyle.glass,
+        size: AdaptiveButtonSize.large,
+        minSize: Size(targetWidth, 44),
+        useSmoothRectangleBorder: false,
+        child: child,
+      );
+    }
+
+    return GestureDetector(
+      onTap: isLoading ? null : onPressed,
+      child: FloatingAppBarPill(child: child),
+    );
+  }
+}

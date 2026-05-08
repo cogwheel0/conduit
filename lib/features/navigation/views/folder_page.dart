@@ -14,13 +14,15 @@ import '../../../core/models/model.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/haptic_service.dart';
 import '../../../core/services/navigation_service.dart';
+import '../../../core/services/platform_service.dart';
 import '../../../core/services/settings_service.dart';
 import '../../../core/widgets/error_boundary.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/services/tasks/task_queue.dart';
-import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/adaptive_route_shell.dart';
+import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/measure_size.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
@@ -104,34 +106,268 @@ class _FolderPageState extends ConsumerState<FolderPage> {
 
   String _formatModelDisplayName(String name) => name.trim();
 
-  Widget _buildAppBarPill({required Widget child, bool isCircular = false}) {
-    return FloatingAppBarPill(isCircular: isCircular, child: child);
+  AdaptiveAppBar _buildAdaptiveAppBar(
+    BuildContext context,
+    AppLocalizations l10n,
+    Folder? folder,
+  ) {
+    final tintColor = context.conduitTheme.textPrimary;
+    final hasOverflowMenu = folder != null;
+
+    return buildConduitAdaptiveToolbarAppBar(
+      context: context,
+      tintColor: tintColor,
+      buildNativeLeading: () {
+        final maxPillWidth = resolveConduitAdaptiveLeadingPillWidth(
+          context,
+          trailingActionCount: hasOverflowMenu ? 3 : 2,
+          maxWidth: 200,
+        );
+        final label = _formatModelDisplayName(
+          ref.watch(selectedModelProvider)?.name ?? l10n.chooseModel,
+        );
+
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ConduitAdaptiveAppBarIconButton(
+              key: const ValueKey<String>('folder-page-drawer-button-native'),
+              icon: Platform.isIOS
+                  ? CupertinoIcons.line_horizontal_3
+                  : Icons.menu,
+              onPressed: _toggleDrawer,
+              iconColor: tintColor,
+            ),
+            const SizedBox(width: Spacing.xs),
+            ConduitAdaptiveAppBarModelSelector(
+              key: const ValueKey<String>('folder-page-model-selector-native'),
+              label: label,
+              maxWidth: maxPillWidth,
+              onPressed: _showModelSelector,
+            ),
+          ],
+        );
+      },
+      buildNativeActions: () =>
+          _buildNativeFolderToolbarActions(context, l10n, folder),
+      buildMaterialLeading: () => ConduitAdaptiveAppBarIconButton(
+        key: const ValueKey<String>('folder-page-drawer-button'),
+        icon: Platform.isIOS ? CupertinoIcons.line_horizontal_3 : Icons.menu,
+        onPressed: _toggleDrawer,
+        iconColor: tintColor,
+      ),
+      buildMaterialTitle: () => LayoutBuilder(
+        builder: (context, constraints) {
+          final maxPillWidth = resolveConduitAdaptiveToolbarPillWidth(
+            availableWidth: constraints.maxWidth,
+            maxWidth: 200,
+            preferredPadding: Spacing.xxl,
+          );
+          final label = _formatModelDisplayName(
+            ref.watch(selectedModelProvider)?.name ?? l10n.chooseModel,
+          );
+          return Align(
+            alignment: Alignment.centerLeft,
+            child: ConduitAdaptiveAppBarModelSelector(
+              key: const ValueKey<String>('folder-page-model-selector'),
+              label: label,
+              maxWidth: maxPillWidth,
+              onPressed: _showModelSelector,
+            ),
+          );
+        },
+      ),
+      buildMaterialActions: () =>
+          _buildMaterialFolderToolbarActions(context, l10n, folder),
+    );
   }
 
-  Widget _buildAppBarIconButton({
-    Key? key,
-    required VoidCallback onPressed,
-    required IconData fallbackIcon,
-    required Color color,
-  }) {
-    if (PlatformInfo.isIOS26OrHigher()) {
-      return AdaptiveButton.child(
-        key: key,
-        onPressed: onPressed,
-        style: AdaptiveButtonStyle.glass,
-        size: AdaptiveButtonSize.large,
-        minSize: const Size(TouchTarget.minimum, TouchTarget.minimum),
-        useSmoothRectangleBorder: false,
-        child: Icon(fallbackIcon, size: IconSize.appBar, color: color),
+  List<AdaptiveAppBarAction> _buildNativeFolderToolbarActions(
+    BuildContext context,
+    AppLocalizations l10n,
+    Folder? folder,
+  ) {
+    final isTemporary = ref.watch(temporaryChatEnabledProvider);
+    final actions = <AdaptiveAppBarAction>[
+      AdaptiveAppBarAction(
+        iosSymbol: isTemporary ? 'eye.slash' : 'eye',
+        icon: isTemporary
+            ? (Platform.isIOS ? CupertinoIcons.eye_slash : Icons.visibility_off)
+            : (Platform.isIOS ? CupertinoIcons.eye : Icons.visibility_outlined),
+        tintColor: isTemporary ? Colors.blue : context.conduitTheme.textPrimary,
+        onPressed: () {
+          ConduitHaptics.selectionClick();
+          final current = ref.read(temporaryChatEnabledProvider);
+          ref.read(temporaryChatEnabledProvider.notifier).set(!current);
+        },
+      ),
+      AdaptiveAppBarAction(
+        iosSymbol: 'square.and.pencil',
+        icon: Platform.isIOS ? CupertinoIcons.create : Icons.add_comment,
+        tintColor: context.conduitTheme.textPrimary,
+        onPressed: _handleNewChat,
+      ),
+    ];
+
+    if (folder != null) {
+      actions.add(
+        AdaptiveAppBarAction(
+          iosSymbol: 'ellipsis',
+          icon: Platform.isIOS
+              ? CupertinoIcons.ellipsis
+              : Icons.more_vert_rounded,
+          tintColor: context.conduitTheme.textPrimary,
+          onPressed: () {
+            ConduitHaptics.selectionClick();
+            _dismissComposerFocus();
+            _showFolderMoreActions(context, l10n, folder);
+          },
+        ),
       );
     }
 
-    return GestureDetector(
-      key: key,
-      onTap: onPressed,
-      child: _buildAppBarPill(
-        isCircular: true,
-        child: Icon(fallbackIcon, color: color, size: IconSize.appBar),
+    return actions;
+  }
+
+  List<Widget> _buildMaterialFolderToolbarActions(
+    BuildContext context,
+    AppLocalizations l10n,
+    Folder? folder,
+  ) {
+    return [
+      Consumer(
+        builder: (context, ref, _) {
+          final isTemporary = ref.watch(temporaryChatEnabledProvider);
+          return AdaptiveTooltip(
+            message: isTemporary
+                ? l10n.temporaryChatTooltip
+                : l10n.temporaryChat,
+            child: ConduitAdaptiveAppBarIconButton(
+              key: const ValueKey<String>('folder-page-temp-button'),
+              icon: isTemporary
+                  ? (Platform.isIOS
+                        ? CupertinoIcons.eye_slash
+                        : Icons.visibility_off)
+                  : (Platform.isIOS
+                        ? CupertinoIcons.eye
+                        : Icons.visibility_outlined),
+              onPressed: () {
+                ConduitHaptics.selectionClick();
+                final current = ref.read(temporaryChatEnabledProvider);
+                ref.read(temporaryChatEnabledProvider.notifier).set(!current);
+              },
+              iconColor: isTemporary
+                  ? Colors.blue
+                  : context.conduitTheme.textPrimary,
+            ),
+          );
+        },
+      ),
+      const SizedBox(width: Spacing.sm),
+      if (folder != null) ...[
+        AdaptiveTooltip(
+          message: l10n.newChat,
+          child: ConduitAdaptiveAppBarIconButton(
+            key: const ValueKey<String>('folder-page-new-chat-button'),
+            icon: Platform.isIOS ? CupertinoIcons.create : Icons.add_comment,
+            onPressed: _handleNewChat,
+            iconColor: context.conduitTheme.textPrimary,
+          ),
+        ),
+        const SizedBox(width: Spacing.sm),
+        Padding(
+          padding: const EdgeInsets.only(right: Spacing.inputPadding),
+          child: AdaptivePopupMenuButton.widget<String>(
+            items: [
+              AdaptivePopupMenuItem<String>(
+                label: 'Edit Folder',
+                value: 'edit-folder',
+                icon: Platform.isIOS
+                    ? CupertinoIcons.pencil
+                    : Icons.edit_outlined,
+              ),
+              AdaptivePopupMenuItem<String>(
+                label: 'System Prompt',
+                value: 'system-prompt',
+                icon: Platform.isIOS
+                    ? CupertinoIcons.text_alignleft
+                    : Icons.text_snippet_outlined,
+              ),
+            ],
+            onSelected: (_, entry) {
+              final value = entry.value;
+              if (value == null) {
+                return;
+              }
+              _handleFolderToolbarSelection(folder, value);
+            },
+            buttonStyle: PopupButtonStyle.glass,
+            child: ConduitAdaptiveAppBarIconButton(
+              key: const ValueKey<String>('folder-page-overflow-button'),
+              icon: Platform.isIOS
+                  ? CupertinoIcons.ellipsis
+                  : Icons.more_vert_rounded,
+              iconColor: context.conduitTheme.textPrimary,
+            ),
+          ),
+        ),
+      ] else
+        Padding(
+          padding: const EdgeInsets.only(right: Spacing.inputPadding),
+          child: AdaptiveTooltip(
+            message: l10n.newChat,
+            child: ConduitAdaptiveAppBarIconButton(
+              key: const ValueKey<String>('folder-page-new-chat-button'),
+              icon: Platform.isIOS ? CupertinoIcons.create : Icons.add_comment,
+              onPressed: _handleNewChat,
+              iconColor: context.conduitTheme.textPrimary,
+            ),
+          ),
+        ),
+    ];
+  }
+
+  void _handleFolderToolbarSelection(Folder folder, String action) {
+    ConduitHaptics.selectionClick();
+    _dismissComposerFocus();
+
+    switch (action) {
+      case 'edit-folder':
+        _showEditFolderSheet(folder);
+        return;
+      case 'system-prompt':
+        _showSystemPromptSheet(folder);
+        return;
+    }
+  }
+
+  Future<void> _showFolderMoreActions(
+    BuildContext context,
+    AppLocalizations l10n,
+    Folder folder,
+  ) async {
+    await PlatformService.showPlatformActionSheet<void>(
+      context: context,
+      title: folder.name,
+      actions: [
+        PlatformActionSheetAction(
+          title: 'Edit Folder',
+          onPressed: () {
+            Navigator.of(context).pop();
+            _handleFolderToolbarSelection(folder, 'edit-folder');
+          },
+        ),
+        PlatformActionSheetAction(
+          title: 'System Prompt',
+          onPressed: () {
+            Navigator.of(context).pop();
+            _handleFolderToolbarSelection(folder, 'system-prompt');
+          },
+        ),
+      ],
+      cancelAction: PlatformActionSheetAction(
+        title: l10n.cancel,
+        onPressed: () => Navigator.of(context).pop(),
       ),
     );
   }
@@ -166,14 +402,13 @@ class _FolderPageState extends ConsumerState<FolderPage> {
     } catch (_) {
       return;
     } finally {
-      if (!mounted || !hadFocus) {
-        return;
+      if (mounted && hadFocus) {
+        try {
+          ref.read(chat.composerAutofocusEnabledProvider.notifier).set(true);
+        } catch (_) {}
+        final current = ref.read(chat.inputFocusTriggerProvider);
+        ref.read(chat.inputFocusTriggerProvider.notifier).set(current + 1);
       }
-      try {
-        ref.read(chat.composerAutofocusEnabledProvider.notifier).set(true);
-      } catch (_) {}
-      final current = ref.read(chat.inputFocusTriggerProvider);
-      ref.read(chat.inputFocusTriggerProvider.notifier).set(current + 1);
     }
   }
 
@@ -728,160 +963,10 @@ class _FolderPageState extends ConsumerState<FolderPage> {
     );
 
     return ErrorBoundary(
-      child: Scaffold(
+      child: AdaptiveRouteShell(
         backgroundColor: context.conduitTheme.surfaceBackground,
         extendBodyBehindAppBar: true,
-        appBar: AppBar(
-          backgroundColor: Colors.transparent,
-          elevation: Elevation.none,
-          surfaceTintColor: Colors.transparent,
-          shadowColor: Colors.transparent,
-          toolbarHeight: kTextTabBarHeight,
-          centerTitle: false,
-          titleSpacing: Spacing.sm,
-          leadingWidth: 44 + Spacing.inputPadding + Spacing.xs,
-          leading: Padding(
-            padding: const EdgeInsets.only(left: Spacing.inputPadding),
-            child: Center(
-              child: _buildAppBarIconButton(
-                key: const ValueKey<String>('folder-page-drawer-button'),
-                onPressed: _toggleDrawer,
-                fallbackIcon: Platform.isIOS
-                    ? CupertinoIcons.line_horizontal_3
-                    : Icons.menu,
-                color: context.conduitTheme.textPrimary,
-              ),
-            ),
-          ),
-          title: LayoutBuilder(
-            builder: (context, constraints) {
-              final maxPillWidth = (constraints.maxWidth - Spacing.xxl)
-                  .clamp(120.0, 200.0)
-                  .toDouble();
-              return Align(
-                alignment: Alignment.centerLeft,
-                child: _FolderModelSelectorPill(
-                  key: const ValueKey<String>('folder-page-model-selector'),
-                  maxWidth: maxPillWidth,
-                  label: _formatModelDisplayName(
-                    ref.watch(selectedModelProvider)?.name ?? l10n.chooseModel,
-                  ),
-                  onTap: _showModelSelector,
-                ),
-              );
-            },
-          ),
-          actions: [
-            Consumer(
-              builder: (context, ref, _) {
-                final isTemporary = ref.watch(temporaryChatEnabledProvider);
-                return AdaptiveTooltip(
-                  message: isTemporary
-                      ? l10n.temporaryChatTooltip
-                      : l10n.temporaryChat,
-                  child: _buildAppBarIconButton(
-                    key: const ValueKey<String>('folder-page-temp-button'),
-                    onPressed: () {
-                      ConduitHaptics.selectionClick();
-                      final current = ref.read(temporaryChatEnabledProvider);
-                      ref
-                          .read(temporaryChatEnabledProvider.notifier)
-                          .set(!current);
-                    },
-                    fallbackIcon: isTemporary
-                        ? (Platform.isIOS
-                              ? CupertinoIcons.eye_slash
-                              : Icons.visibility_off)
-                        : (Platform.isIOS
-                              ? CupertinoIcons.eye
-                              : Icons.visibility_outlined),
-                    color: isTemporary
-                        ? Colors.blue
-                        : context.conduitTheme.textPrimary,
-                  ),
-                );
-              },
-            ),
-            const SizedBox(width: Spacing.sm),
-            if (folder != null) ...[
-              AdaptiveTooltip(
-                message: l10n.newChat,
-                child: _buildAppBarIconButton(
-                  key: const ValueKey<String>('folder-page-new-chat-button'),
-                  onPressed: _handleNewChat,
-                  fallbackIcon: Platform.isIOS
-                      ? CupertinoIcons.create
-                      : Icons.add_comment,
-                  color: context.conduitTheme.textPrimary,
-                ),
-              ),
-              const SizedBox(width: Spacing.sm),
-              Padding(
-                padding: const EdgeInsets.only(right: Spacing.inputPadding),
-                child: AdaptivePopupMenuButton.widget<String>(
-                  items: [
-                    AdaptivePopupMenuItem<String>(
-                      label: 'Edit Folder',
-                      value: 'edit-folder',
-                      icon: Platform.isIOS
-                          ? CupertinoIcons.pencil
-                          : Icons.edit_outlined,
-                    ),
-                    AdaptivePopupMenuItem<String>(
-                      label: 'System Prompt',
-                      value: 'system-prompt',
-                      icon: Platform.isIOS
-                          ? CupertinoIcons.text_alignleft
-                          : Icons.text_snippet_outlined,
-                    ),
-                  ],
-                  onSelected: (_, entry) {
-                    switch (entry.value) {
-                      case 'edit-folder':
-                        ConduitHaptics.selectionClick();
-                        _dismissComposerFocus();
-                        _showEditFolderSheet(folder);
-                        return;
-                      case 'system-prompt':
-                        ConduitHaptics.selectionClick();
-                        _dismissComposerFocus();
-                        _showSystemPromptSheet(folder);
-                        return;
-                    }
-                  },
-                  buttonStyle: PopupButtonStyle.glass,
-                  child: KeyedSubtree(
-                    key: const ValueKey<String>('folder-page-overflow-button'),
-                    child: _buildAppBarPill(
-                      isCircular: true,
-                      child: Icon(
-                        Platform.isIOS
-                            ? CupertinoIcons.ellipsis
-                            : Icons.more_vert_rounded,
-                        color: context.conduitTheme.textPrimary,
-                        size: IconSize.appBar,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ] else
-              Padding(
-                padding: const EdgeInsets.only(right: Spacing.inputPadding),
-                child: AdaptiveTooltip(
-                  message: l10n.newChat,
-                  child: _buildAppBarIconButton(
-                    key: const ValueKey<String>('folder-page-new-chat-button'),
-                    onPressed: _handleNewChat,
-                    fallbackIcon: Platform.isIOS
-                        ? CupertinoIcons.create
-                        : Icons.add_comment,
-                    color: context.conduitTheme.textPrimary,
-                  ),
-                ),
-              ),
-          ],
-        ),
+        appBar: _buildAdaptiveAppBar(context, l10n, folder),
         body: _buildBody(context, foldersAsync),
       ),
     );
@@ -1138,65 +1223,6 @@ class _FolderPageState extends ConsumerState<FolderPage> {
           textAlign: TextAlign.center,
           style: AppTypography.bodyMediumStyle.copyWith(
             color: context.conduitTheme.textSecondary,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _FolderModelSelectorPill extends StatelessWidget {
-  const _FolderModelSelectorPill({
-    super.key,
-    required this.maxWidth,
-    required this.label,
-    required this.onTap,
-  });
-
-  /// Upper bound for the pill width, derived from the app bar title slot.
-  final double maxWidth;
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-
-    return ConstrainedBox(
-      constraints: BoxConstraints(maxWidth: maxWidth),
-      child: GestureDetector(
-        onTap: onTap,
-        child: FloatingAppBarPill(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: TouchTarget.minimum),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: Spacing.navigationPadding,
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: MiddleEllipsisText(
-                      label,
-                      style: AppTypography.standard.copyWith(
-                        color: theme.textPrimary,
-                        fontWeight: FontWeight.w600,
-                      ),
-                      textAlign: TextAlign.center,
-                      semanticsLabel: label,
-                    ),
-                  ),
-                  const SizedBox(width: Spacing.xs),
-                  Icon(
-                    Platform.isIOS
-                        ? CupertinoIcons.chevron_down
-                        : Icons.keyboard_arrow_down,
-                    color: theme.iconSecondary,
-                    size: IconSize.medium,
-                  ),
-                ],
-              ),
-            ),
           ),
         ),
       ),
@@ -1865,45 +1891,41 @@ class _FolderListTile extends StatelessWidget {
         color: theme.surfaceContainer,
         borderRadius: borderRadius,
       ),
-      child: Material(
-        color: Colors.transparent,
-        borderRadius: borderRadius,
-        child: InkWell(
-          borderRadius: borderRadius,
-          onTap: onTap,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: TouchTarget.listItem),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: Spacing.md,
-                vertical: Spacing.sm,
-              ),
-              child: Row(
-                children: [
-                  FolderIconGlyph(
-                    iconAlias: iconAlias,
-                    size: IconSize.listItem,
-                    color: theme.iconPrimary,
-                  ),
-                  const SizedBox(width: Spacing.sm),
-                  Expanded(
-                    child: MiddleEllipsisText(
-                      name,
-                      style: AppTypography.sidebarTitleStyle.copyWith(
-                        color: theme.textPrimary,
-                      ),
-                      semanticsLabel: name,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: TouchTarget.listItem),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: Spacing.md,
+              vertical: Spacing.sm,
+            ),
+            child: Row(
+              children: [
+                FolderIconGlyph(
+                  iconAlias: iconAlias,
+                  size: IconSize.listItem,
+                  color: theme.iconPrimary,
+                ),
+                const SizedBox(width: Spacing.sm),
+                Expanded(
+                  child: MiddleEllipsisText(
+                    name,
+                    style: AppTypography.sidebarTitleStyle.copyWith(
+                      color: theme.textPrimary,
                     ),
+                    semanticsLabel: name,
                   ),
-                  Icon(
-                    Platform.isIOS
-                        ? CupertinoIcons.chevron_right
-                        : Icons.chevron_right_rounded,
-                    color: theme.iconSecondary,
-                    size: IconSize.listItem,
-                  ),
-                ],
-              ),
+                ),
+                Icon(
+                  Platform.isIOS
+                      ? CupertinoIcons.chevron_right
+                      : Icons.chevron_right_rounded,
+                  color: theme.iconSecondary,
+                  size: IconSize.listItem,
+                ),
+              ],
             ),
           ),
         ),

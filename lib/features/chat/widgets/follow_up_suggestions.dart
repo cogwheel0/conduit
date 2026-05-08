@@ -66,31 +66,35 @@ class _MinimalFollowUpButton extends StatelessWidget {
         (textStyle.fontSize ?? AppTypography.chatMessageStyle.fontSize ?? 16) +
         1;
 
-    return InkWell(
-      onTap: enabled ? onPressed : null,
-      borderRadius: BorderRadius.circular(AppBorderRadius.small),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: Spacing.xs),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.subdirectory_arrow_right_rounded,
-              size: iconSize,
-              color: enabled
-                  ? theme.buttonPrimary.withValues(alpha: 0.7)
-                  : theme.textSecondary.withValues(alpha: 0.4),
-            ),
-            const SizedBox(width: Spacing.xs),
-            Flexible(
-              child: Text(
-                label,
-                style: textStyle,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: enabled ? onPressed : null,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: Spacing.xs),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.subdirectory_arrow_right_rounded,
+                size: iconSize,
+                color: enabled
+                    ? theme.buttonPrimary.withValues(alpha: 0.7)
+                    : theme.textSecondary.withValues(alpha: 0.4),
               ),
-            ),
-          ],
+              const SizedBox(width: Spacing.xs),
+              Flexible(
+                child: Text(
+                  label,
+                  style: textStyle,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

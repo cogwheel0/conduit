@@ -272,13 +272,16 @@ class _EnhancedAttachmentState extends ConsumerState<EnhancedAttachment> {
       ),
     );
 
-    return InkWell(
-      borderRadius: BorderRadius.circular(AppBorderRadius.md),
-      onTap: () async {
-        await ConduitHaptics.mediumImpact();
-        await _shareFile();
-      },
-      child: card,
+    return Semantics(
+      button: true,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () async {
+          await ConduitHaptics.mediumImpact();
+          await _shareFile();
+        },
+        child: card,
+      ),
     );
   }
 

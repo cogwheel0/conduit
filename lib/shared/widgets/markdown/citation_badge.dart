@@ -88,30 +88,27 @@ class CitationBadge extends StatelessWidget {
     return AdaptiveTooltip(
       message: title,
       preferBelow: false,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () {
-            if (onTap != null) {
-              onTap!();
-            } else if (url != null) {
-              _launchSourceUrl(url);
-            }
-          },
-          borderRadius: BorderRadius.circular(20),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-            margin: const EdgeInsets.symmetric(horizontal: 1),
-            decoration: BoxDecoration(
-              color: theme.surfaceContainer.withValues(alpha: 0.24),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Text(
-              displayTitle,
-              style: badgeTextStyle,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
+          if (onTap != null) {
+            onTap!();
+          } else if (url != null) {
+            _launchSourceUrl(url);
+          }
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+          margin: const EdgeInsets.symmetric(horizontal: 1),
+          decoration: BoxDecoration(
+            color: theme.surfaceContainer.withValues(alpha: 0.24),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            displayTitle,
+            style: badgeTextStyle,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
         ),
       ),

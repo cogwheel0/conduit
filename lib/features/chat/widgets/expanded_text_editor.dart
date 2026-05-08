@@ -90,19 +90,24 @@ class _ExpandedTextEditorSheetState extends State<ExpandedTextEditorSheet> {
       sendButton = SizedBox(
         width: buttonSize,
         height: buttonSize,
-        child: Material(
-          color: _hasText ? theme.buttonPrimary : theme.surfaceContainerHighest,
-          shape: CircleBorder(
-            side: BorderSide(
-              color: _hasText ? theme.buttonPrimary : theme.cardBorder,
-              width: BorderWidth.thin,
+        child: DecoratedBox(
+          decoration: ShapeDecoration(
+            color: _hasText
+                ? theme.buttonPrimary
+                : theme.surfaceContainerHighest,
+            shape: CircleBorder(
+              side: BorderSide(
+                color: _hasText ? theme.buttonPrimary : theme.cardBorder,
+                width: BorderWidth.thin,
+              ),
             ),
           ),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: _hasText ? widget.onSend : null,
-            customBorder: const CircleBorder(),
-            child: Center(child: sendIcon),
+          child: ClipOval(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _hasText ? widget.onSend : null,
+              child: Center(child: sendIcon),
+            ),
           ),
         ),
       );
@@ -110,73 +115,70 @@ class _ExpandedTextEditorSheetState extends State<ExpandedTextEditorSheet> {
 
     // useSafeArea: true on the showModalBottomSheet call already constrains
     // the sheet to the safe area — no manual height calculation needed.
-    return Material(
-      color: Colors.transparent,
-      child: Container(
-        height: double.infinity,
-        decoration: BoxDecoration(
-          color: theme.surfaceBackground,
-          borderRadius: const BorderRadius.vertical(
-            top: Radius.circular(AppBorderRadius.bottomSheet),
+    return Container(
+      height: double.infinity,
+      decoration: BoxDecoration(
+        color: theme.surfaceBackground,
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(AppBorderRadius.bottomSheet),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Drag handle — primary dismiss affordance.
+          Center(
+            child: Container(
+              width: 36,
+              height: 4,
+              margin: const EdgeInsets.symmetric(vertical: Spacing.sm),
+              decoration: BoxDecoration(
+                color: theme.dividerColor,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
           ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Drag handle — primary dismiss affordance.
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                margin: const EdgeInsets.symmetric(vertical: Spacing.sm),
-                decoration: BoxDecoration(
-                  color: theme.dividerColor,
-                  borderRadius: BorderRadius.circular(2),
-                ),
+          // Text editor
+          Expanded(
+            child: TextField(
+              controller: widget.controller,
+              autofocus: true,
+              maxLines: null,
+              expands: true,
+              textAlignVertical: TextAlignVertical.top,
+              style: AppTypography.chatMessageStyle.copyWith(
+                color: theme.textPrimary,
+                height: 1.5,
               ),
-            ),
-            // Text editor
-            Expanded(
-              child: TextField(
-                controller: widget.controller,
-                autofocus: true,
-                maxLines: null,
-                expands: true,
-                textAlignVertical: TextAlignVertical.top,
-                style: AppTypography.chatMessageStyle.copyWith(
-                  color: theme.textPrimary,
-                  height: 1.5,
-                ),
-                decoration: context.conduitInputStyles
-                    .borderless(hint: l10n.messageHintText)
-                    .copyWith(
-                      contentPadding: const EdgeInsets.fromLTRB(
-                        Spacing.md,
-                        Spacing.xs,
-                        Spacing.md,
-                        Spacing.sm,
-                      ),
-                      isDense: true,
+              decoration: context.conduitInputStyles
+                  .borderless(hint: l10n.messageHintText)
+                  .copyWith(
+                    contentPadding: const EdgeInsets.fromLTRB(
+                      Spacing.md,
+                      Spacing.xs,
+                      Spacing.md,
+                      Spacing.sm,
                     ),
-              ),
+                    isDense: true,
+                  ),
             ),
-            // Bottom bar — send button, keyboard-aware.
-            Padding(
-              padding: EdgeInsets.fromLTRB(
-                Spacing.screenPadding,
-                Spacing.sm,
-                Spacing.screenPadding,
-                viewInsets.bottom > 0
-                    ? viewInsets.bottom + Spacing.sm
-                    : Spacing.md + viewPadding.bottom,
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [sendButton],
-              ),
+          ),
+          // Bottom bar — send button, keyboard-aware.
+          Padding(
+            padding: EdgeInsets.fromLTRB(
+              Spacing.screenPadding,
+              Spacing.sm,
+              Spacing.screenPadding,
+              viewInsets.bottom > 0
+                  ? viewInsets.bottom + Spacing.sm
+                  : Spacing.md + viewPadding.bottom,
             ),
-          ],
-        ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [sendButton],
+            ),
+          ),
+        ],
       ),
     );
   }

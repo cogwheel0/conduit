@@ -14,6 +14,7 @@ import '../../../core/services/navigation_service.dart';
 import '../../../core/widgets/error_boundary.dart';
 import '../../../shared/services/brand_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../core/auth/auth_state_manager.dart';
 import '../../../core/utils/debug_logger.dart';
@@ -274,7 +275,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     final safePadding = MediaQuery.of(context).padding;
 
     return ErrorBoundary(
-      child: Scaffold(
+      child: AdaptiveRouteShell(
         backgroundColor: context.conduitTheme.surfaceBackground,
         body: Column(
           children: [

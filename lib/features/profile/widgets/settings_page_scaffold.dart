@@ -1,7 +1,8 @@
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
-import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/modal_safe_area.dart';
 import '../../../shared/widgets/sheet_handle.dart';
 
@@ -131,75 +132,69 @@ class SettingsSelectorTile extends StatelessWidget {
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: Spacing.xxs),
-      child: Material(
-        color: background,
-        borderRadius: borderRadius,
-        child: InkWell(
-          borderRadius: borderRadius,
-          onTap: onTap,
-          overlayColor: WidgetStateProperty.resolveWith((states) {
-            if (states.contains(WidgetState.pressed)) {
-              return theme.buttonPrimary.withValues(alpha: Alpha.buttonPressed);
-            }
-            return Colors.transparent;
-          }),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: Spacing.sm,
-              vertical: Spacing.xs,
-            ),
-            child: Row(
-              children: [
-                if (leading != null) ...[
-                  leading!,
-                  const SizedBox(width: Spacing.sm),
-                ],
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Container(
+          decoration: BoxDecoration(
+            color: background,
+            borderRadius: borderRadius,
+          ),
+          padding: const EdgeInsets.symmetric(
+            horizontal: Spacing.sm,
+            vertical: Spacing.xs,
+          ),
+          child: Row(
+            children: [
+              if (leading != null) ...[
+                leading!,
+                const SizedBox(width: Spacing.sm),
+              ],
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      title,
+                      style: AppTypography.bodyMediumStyle.copyWith(
+                        color: selected
+                            ? theme.textPrimary
+                            : theme.textSecondary,
+                        fontWeight: selected
+                            ? FontWeight.w600
+                            : FontWeight.w400,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    if (subtitle != null && subtitle!.isNotEmpty) ...[
+                      const SizedBox(height: 2),
                       Text(
-                        title,
-                        style: AppTypography.bodyMediumStyle.copyWith(
-                          color: selected
-                              ? theme.textPrimary
-                              : theme.textSecondary,
-                          fontWeight: selected
-                              ? FontWeight.w600
-                              : FontWeight.w400,
+                        subtitle!,
+                        style: AppTypography.labelSmallStyle.copyWith(
+                          color: theme.textSecondary,
                         ),
-                        maxLines: 1,
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      if (subtitle != null && subtitle!.isNotEmpty) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          subtitle!,
-                          style: AppTypography.labelSmallStyle.copyWith(
-                            color: theme.textSecondary,
-                          ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
                     ],
-                  ),
+                  ],
                 ),
-                if (trailing != null) ...[
-                  const SizedBox(width: Spacing.xs),
-                  trailing!,
-                ],
-                if (selected) ...[
-                  const SizedBox(width: Spacing.xs),
-                  Icon(
-                    Icons.check,
-                    color: theme.buttonPrimary,
-                    size: IconSize.medium,
-                  ),
-                ],
+              ),
+              if (trailing != null) ...[
+                const SizedBox(width: Spacing.xs),
+                trailing!,
               ],
-            ),
+              if (selected) ...[
+                const SizedBox(width: Spacing.xs),
+                Icon(
+                  Icons.check,
+                  color: theme.buttonPrimary,
+                  size: IconSize.medium,
+                ),
+              ],
+            ],
           ),
         ),
       ),
@@ -251,17 +246,14 @@ class SettingsPageScaffold extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final canPop = ModalRoute.of(context)?.canPop ?? false;
-    final topPadding =
-        MediaQuery.of(context).padding.top + kTextTabBarHeight + 24;
+    final mediaQuery = MediaQuery.of(context);
+    final topPadding = PlatformInfo.isIOS26OrHigher()
+        ? mediaQuery.padding.top + kTextTabBarHeight + Spacing.lg
+        : Spacing.lg;
 
-    return Scaffold(
+    return AdaptiveRouteShell(
       backgroundColor: context.conduitTheme.surfaceBackground,
-      extendBodyBehindAppBar: true,
-      appBar: FloatingAppBar(
-        leading: canPop ? const FloatingAppBarBackButton() : null,
-        title: FloatingAppBarTitle(text: title),
-      ),
+      appBar: AdaptiveAppBar(title: title),
       body: ListView(
         physics: const BouncingScrollPhysics(
           parent: AlwaysScrollableScrollPhysics(),
@@ -270,7 +262,7 @@ class SettingsPageScaffold extends StatelessWidget {
           Spacing.pagePadding,
           topPadding,
           Spacing.pagePadding,
-          Spacing.pagePadding + MediaQuery.of(context).padding.bottom,
+          Spacing.pagePadding + mediaQuery.padding.bottom,
         ),
         children: children,
       ),

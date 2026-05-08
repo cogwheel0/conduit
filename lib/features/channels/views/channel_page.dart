@@ -14,9 +14,12 @@ import '../../../core/models/channel_message.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/services/navigation_service.dart';
+import '../../../core/services/platform_service.dart';
 import '../../../core/utils/model_icon_utils.dart';
 import '../../../core/utils/user_avatar_utils.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/widgets/adaptive_route_shell.dart';
+import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/model_avatar.dart';
@@ -481,39 +484,6 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     ];
   }
 
-  Widget _buildReactionContextMenuTop(ChannelMessage message) {
-    final theme = context.conduitTheme;
-
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: theme.surfaces.popover,
-        borderRadius: BorderRadius.circular(AppBorderRadius.round),
-        boxShadow: theme.popoverShadows,
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: Spacing.xs,
-          vertical: Spacing.xxs,
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (final emoji in _reactionEmojis)
-              CupertinoButton(
-                padding: const EdgeInsets.all(Spacing.xs),
-                minimumSize: const Size.square(36),
-                onPressed: () {
-                  Navigator.of(context, rootNavigator: true).pop();
-                  Future.microtask(() => _toggleReaction(message, emoji));
-                },
-                child: Text(emoji, style: const TextStyle(fontSize: 24)),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
   void _showEmojiPicker(ChannelMessage message) {
     final theme = context.conduitTheme;
 
@@ -536,8 +506,8 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
             runSpacing: Spacing.md,
             alignment: WrapAlignment.center,
             children: _reactionEmojis.map((emoji) {
-              return InkWell(
-                borderRadius: BorderRadius.circular(AppBorderRadius.round),
+              return GestureDetector(
+                behavior: HitTestBehavior.opaque,
                 onTap: () {
                   Navigator.pop(ctx);
                   _toggleReaction(message, emoji);
@@ -662,84 +632,194 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     return _buildScaffold(context, theme);
   }
 
+  Widget _buildChannelTitlePill(
+    BuildContext context,
+    ConduitThemeExtension theme,
+    Channel? channel, {
+    required double maxWidth,
+  }) {
+    final label = channel?.name ?? '';
+    final textStyle = AppTypography.bodyMediumStyle.copyWith(
+      color: theme.textPrimary,
+      fontWeight: FontWeight.w500,
+    );
+    final targetWidth = resolveConduitAdaptiveTextPillWidth(
+      context: context,
+      label: label,
+      textStyle: textStyle,
+      maxWidth: maxWidth,
+      horizontalPadding: Spacing.md * 2 + 6,
+      leadingWidth: IconSize.appBar,
+    );
+
+    return SizedBox(
+      width: targetWidth,
+      child: FloatingAppBarPill(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: Spacing.md,
+            vertical: Spacing.sm,
+          ),
+          child: Row(
+            children: [
+              Icon(
+                channel?.isPrivate == true ? Icons.lock_outlined : Icons.tag,
+                size: IconSize.appBar,
+                color: theme.textPrimary,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  label,
+                  style: textStyle,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _buildChannelToolbarActions(
+    ConduitThemeExtension theme,
+    Channel? channel,
+    AppLocalizations? l10n,
+  ) {
+    return [
+      if (channel?.userCount != null)
+        Padding(
+          padding: const EdgeInsets.only(right: Spacing.xs),
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _showMemberList,
+            child: FloatingAppBarPill(
+              isCircular: true,
+              child: Icon(
+                Icons.people_outline,
+                size: IconSize.appBar,
+                color: theme.textPrimary,
+              ),
+            ),
+          ),
+        ),
+      Padding(
+        padding: const EdgeInsets.only(right: Spacing.inputPadding),
+        child: _buildMoreMenuButton(channel, theme, l10n),
+      ),
+    ];
+  }
+
+  List<AdaptiveAppBarAction> _buildNativeChannelToolbarActions(
+    BuildContext context,
+    ConduitThemeExtension theme,
+    Channel? channel,
+    AppLocalizations? l10n,
+  ) {
+    final actions = <AdaptiveAppBarAction>[
+      if (channel?.userCount != null)
+        AdaptiveAppBarAction(
+          iosSymbol: 'person.2',
+          icon: Icons.people_outline,
+          tintColor: theme.textPrimary,
+          onPressed: _showMemberList,
+        ),
+      AdaptiveAppBarAction(
+        iosSymbol: 'ellipsis',
+        icon: Platform.isIOS
+            ? CupertinoIcons.ellipsis_vertical
+            : Icons.more_vert,
+        tintColor: theme.textPrimary,
+        onPressed: () => _showChannelMoreActions(context, channel, l10n),
+      ),
+    ];
+
+    return actions;
+  }
+
+  void _toggleDrawer() {
+    ResponsiveDrawerLayout.of(context)?.toggle();
+  }
+
+  AdaptiveAppBar _buildAdaptiveChannelAppBar(
+    BuildContext context,
+    ConduitThemeExtension theme,
+    Channel? channel,
+    AppLocalizations? l10n,
+  ) {
+    final maxTitleWidth = resolveConduitAdaptiveLeadingPillWidth(
+      context,
+      trailingActionCount: channel?.userCount != null ? 2 : 1,
+      maxWidth: 260,
+    );
+    final tintColor = theme.textPrimary;
+
+    return buildConduitAdaptiveToolbarAppBar(
+      context: context,
+      tintColor: tintColor,
+      buildNativeLeading: () {
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ConduitAdaptiveAppBarIconButton(
+              icon: Platform.isIOS
+                  ? CupertinoIcons.line_horizontal_3
+                  : Icons.menu,
+              onPressed: _toggleDrawer,
+              iconColor: tintColor,
+            ),
+            const SizedBox(width: Spacing.xs),
+            _buildChannelTitlePill(
+              context,
+              theme,
+              channel,
+              maxWidth: maxTitleWidth,
+            ),
+          ],
+        );
+      },
+      buildNativeActions: () =>
+          _buildNativeChannelToolbarActions(context, theme, channel, l10n),
+      buildMaterialLeading: () => ConduitAdaptiveAppBarIconButton(
+        icon: Platform.isIOS ? CupertinoIcons.line_horizontal_3 : Icons.menu,
+        onPressed: _toggleDrawer,
+        iconColor: tintColor,
+      ),
+      buildMaterialTitle: () => Align(
+        alignment: Alignment.centerLeft,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final titleWidth = resolveConduitAdaptiveToolbarPillWidth(
+              availableWidth: constraints.maxWidth,
+              maxWidth: 260,
+            );
+            return Padding(
+              padding: const EdgeInsets.only(left: Spacing.sm),
+              child: _buildChannelTitlePill(
+                context,
+                theme,
+                channel,
+                maxWidth: titleWidth,
+              ),
+            );
+          },
+        ),
+      ),
+      buildMaterialActions: () =>
+          _buildChannelToolbarActions(theme, channel, l10n),
+    );
+  }
+
   Widget _buildScaffold(BuildContext context, ConduitThemeExtension theme) {
     final l10n = AppLocalizations.of(context);
     final channel = ref.watch(activeChannelProvider);
     final messagesAsync = ref.watch(channelMessagesProvider(widget.channelId));
 
-    return Scaffold(
+    return AdaptiveRouteShell(
       backgroundColor: theme.surfaceBackground,
       extendBodyBehindAppBar: true,
-      appBar: FloatingAppBar(
-        balanceLeading: false,
-        leading: Builder(
-          builder: (ctx) => FloatingAppBarIconButton(
-            icon: Platform.isIOS
-                ? CupertinoIcons.line_horizontal_3
-                : Icons.menu,
-            onTap: () => ResponsiveDrawerLayout.of(ctx)?.toggle(),
-          ),
-        ),
-        title: Align(
-          alignment: Alignment.centerLeft,
-          child: Padding(
-            padding: const EdgeInsets.only(left: Spacing.sm),
-            child: FloatingAppBarPill(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: Spacing.md,
-                  vertical: Spacing.sm,
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      channel?.isPrivate == true
-                          ? Icons.lock_outlined
-                          : Icons.tag,
-                      size: IconSize.appBar,
-                      color: theme.textPrimary,
-                    ),
-                    const SizedBox(width: 6),
-                    Flexible(
-                      child: Text(
-                        channel?.name ?? '',
-                        style: AppTypography.bodyMediumStyle.copyWith(
-                          color: theme.textPrimary,
-                          fontWeight: FontWeight.w500,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-        actions: [
-          if (channel?.userCount != null)
-            Padding(
-              padding: const EdgeInsets.only(right: Spacing.xs),
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: _showMemberList,
-                child: FloatingAppBarPill(
-                  isCircular: true,
-                  child: Icon(
-                    Icons.people_outline,
-                    size: IconSize.appBar,
-                    color: theme.textPrimary,
-                  ),
-                ),
-              ),
-            ),
-          Padding(
-            padding: const EdgeInsets.only(right: Spacing.inputPadding),
-            child: _buildMoreMenuButton(channel, theme, l10n),
-          ),
-        ],
-      ),
+      appBar: _buildAdaptiveChannelAppBar(context, theme, channel, l10n),
       body: Row(
         children: [
           Expanded(
@@ -921,8 +1001,6 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
           onSubmitEdit: () => _submitEdit(message),
           onCancelEdit: _cancelEditing,
           contextMenuActions: _buildMessageActions(message),
-          contextMenuTopWidgetBuilder: (_) =>
-              _buildReactionContextMenuTop(message),
           onReactionTap: (emoji) => _toggleReaction(message, emoji),
           onThreadTap: message.parentId == null
               ? () => _openThread(message)
@@ -1037,35 +1115,35 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     ConduitThemeExtension theme,
     AppLocalizations? l10n,
   ) {
-    return PopupMenuButton<String>(
-      color: theme.surfaceContainer,
-      onSelected: (value) {
-        switch (value) {
-          case 'edit':
-            if (channel != null) _editChannel(channel);
-          case 'leave':
-            _leaveChannel();
-          case 'delete':
-            _deleteChannel();
-        }
-      },
-      itemBuilder: (ctx) => [
-        PopupMenuItem(
+    return AdaptivePopupMenuButton.widget<String>(
+      items: [
+        AdaptivePopupMenuItem<String>(
           value: 'edit',
-          child: Text(l10n?.channelEdit ?? 'Edit Channel'),
+          label: l10n?.channelEdit ?? 'Edit Channel',
+          icon: Platform.isIOS ? 'pencil' : Icons.edit_outlined,
         ),
-        PopupMenuItem(
+        AdaptivePopupMenuItem<String>(
           value: 'leave',
-          child: Text(l10n?.channelLeave ?? 'Leave Channel'),
+          label: l10n?.channelLeave ?? 'Leave Channel',
+          icon: Platform.isIOS
+              ? 'rectangle.portrait.and.arrow.right'
+              : Icons.logout,
         ),
-        PopupMenuItem(
+        const AdaptivePopupMenuDivider(),
+        AdaptivePopupMenuItem<String>(
           value: 'delete',
-          child: Text(
-            l10n?.channelDelete ?? 'Delete Channel',
-            style: AppTypography.bodyMediumStyle.copyWith(color: theme.error),
-          ),
+          label: l10n?.channelDelete ?? 'Delete Channel',
+          icon: Platform.isIOS ? 'trash' : Icons.delete_outline,
         ),
       ],
+      onSelected: (_, entry) {
+        final value = entry.value;
+        if (value == null) {
+          return;
+        }
+        _handleChannelToolbarSelection(value, channel);
+      },
+      buttonStyle: PopupButtonStyle.glass,
       child: FloatingAppBarPill(
         isCircular: true,
         child: Icon(
@@ -1073,6 +1151,61 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
           color: theme.textPrimary,
           size: IconSize.appBar,
         ),
+      ),
+    );
+  }
+
+  void _handleChannelToolbarSelection(String action, Channel? channel) {
+    switch (action) {
+      case 'edit':
+        if (channel != null) {
+          _editChannel(channel);
+        }
+        return;
+      case 'leave':
+        _leaveChannel();
+        return;
+      case 'delete':
+        _deleteChannel();
+        return;
+    }
+  }
+
+  Future<void> _showChannelMoreActions(
+    BuildContext context,
+    Channel? channel,
+    AppLocalizations? l10n,
+  ) async {
+    await PlatformService.showPlatformActionSheet<void>(
+      context: context,
+      title: channel?.name ?? '',
+      actions: [
+        PlatformActionSheetAction(
+          title: l10n?.channelEdit ?? 'Edit Channel',
+          onPressed: () {
+            Navigator.of(context).pop();
+            _handleChannelToolbarSelection('edit', channel);
+          },
+        ),
+        PlatformActionSheetAction(
+          title: l10n?.channelLeave ?? 'Leave Channel',
+          onPressed: () {
+            Navigator.of(context).pop();
+            _handleChannelToolbarSelection('leave', channel);
+          },
+        ),
+        PlatformActionSheetAction(
+          title: l10n?.channelDelete ?? 'Delete Channel',
+          isDestructive: true,
+          onPressed: () {
+            Navigator.of(context).pop();
+            _handleChannelToolbarSelection('delete', channel);
+          },
+        ),
+      ],
+      cancelAction: PlatformActionSheetAction(
+        title: l10n?.cancel ?? 'Cancel',
+        onPressed: () => Navigator.of(context).pop(),
       ),
     );
   }
@@ -1095,7 +1228,6 @@ class _MessageBubble extends StatelessWidget {
     this.onSubmitEdit,
     this.onCancelEdit,
     required this.contextMenuActions,
-    this.contextMenuTopWidgetBuilder,
     required this.onReactionTap,
     this.onThreadTap,
   });
@@ -1113,7 +1245,6 @@ class _MessageBubble extends StatelessWidget {
   final VoidCallback? onSubmitEdit;
   final VoidCallback? onCancelEdit;
   final List<ConduitContextMenuAction> contextMenuActions;
-  final WidgetBuilder? contextMenuTopWidgetBuilder;
   final ValueChanged<String> onReactionTap;
   final VoidCallback? onThreadTap;
 
@@ -1124,7 +1255,6 @@ class _MessageBubble extends StatelessWidget {
 
     return ConduitContextMenu(
       actions: contextMenuActions,
-      topWidgetBuilder: contextMenuTopWidgetBuilder,
       child: Padding(
         padding: EdgeInsets.only(
           left: Spacing.md,

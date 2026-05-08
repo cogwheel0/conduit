@@ -12,6 +12,7 @@ import 'package:share_plus/share_plus.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import '../../../core/providers/app_providers.dart';
+import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../auth/providers/unified_auth_providers.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../core/network/self_signed_image_cache_manager.dart';
@@ -704,30 +705,25 @@ class _EnhancedImageAttachmentState
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(AppBorderRadius.md),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: widget.onTap ?? () => _showFullScreenImage(context),
-            child: Hero(
-              tag: _heroTag,
-              flightShuttleBuilder:
-                  (
-                    flightContext,
-                    animation,
-                    flightDirection,
-                    fromHeroContext,
-                    toHeroContext,
-                  ) {
-                    final hero = flightDirection == HeroFlightDirection.push
-                        ? fromHeroContext.widget as Hero
-                        : toHeroContext.widget as Hero;
-                    return FadeTransition(
-                      opacity: animation,
-                      child: hero.child,
-                    );
-                  },
-              child: imageWidget,
-            ),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: widget.onTap ?? () => _showFullScreenImage(context),
+          child: Hero(
+            tag: _heroTag,
+            flightShuttleBuilder:
+                (
+                  flightContext,
+                  animation,
+                  flightDirection,
+                  fromHeroContext,
+                  toHeroContext,
+                ) {
+                  final hero = flightDirection == HeroFlightDirection.push
+                      ? fromHeroContext.widget as Hero
+                      : toHeroContext.widget as Hero;
+                  return FadeTransition(opacity: animation, child: hero.child);
+                },
+            child: imageWidget,
           ),
         ),
       ),
@@ -898,7 +894,7 @@ class FullScreenImageViewer extends ConsumerWidget {
     final background = tokens.neutralTone10;
     final iconColor = tokens.neutralOnSurface;
 
-    return Scaffold(
+    return AdaptiveRouteShell(
       backgroundColor: background,
       body: Stack(
         children: [

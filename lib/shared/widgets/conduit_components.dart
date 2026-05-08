@@ -379,38 +379,35 @@ class ConduitGlassSearchField extends StatelessWidget {
     } else {
       final placeholderColor = context.conduitTheme.inputPlaceholder;
       final clearIcon = Icon(Icons.clear, color: hintColor, size: 18);
-      searchField = Material(
-        color: Colors.transparent,
-        child: TextField(
-          controller: controller,
-          focusNode: focusNode,
-          onChanged: onChanged,
-          textAlignVertical: TextAlignVertical.center,
-          style: AppTypography.standard.copyWith(color: textColor),
-          decoration: InputDecoration(
-            isDense: true,
-            hintText: hintText,
-            hintStyle: AppTypography.standard.copyWith(color: placeholderColor),
-            prefixIcon: Icon(Icons.search, color: hintColor, size: 18),
-            prefixIconConstraints: const BoxConstraints(
-              minWidth: TouchTarget.minimum,
-              minHeight: TouchTarget.minimum,
-            ),
-            suffixIcon: query.isNotEmpty
-                ? IconButton(onPressed: onClear, icon: clearIcon)
-                : null,
-            suffixIconConstraints: const BoxConstraints(
-              minWidth: TouchTarget.minimum,
-              minHeight: TouchTarget.minimum,
-            ),
-            filled: false,
-            border: InputBorder.none,
-            enabledBorder: InputBorder.none,
-            focusedBorder: InputBorder.none,
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: Spacing.sm,
-              vertical: Spacing.sm,
-            ),
+      searchField = TextField(
+        controller: controller,
+        focusNode: focusNode,
+        onChanged: onChanged,
+        textAlignVertical: TextAlignVertical.center,
+        style: AppTypography.standard.copyWith(color: textColor),
+        decoration: InputDecoration(
+          isDense: true,
+          hintText: hintText,
+          hintStyle: AppTypography.standard.copyWith(color: placeholderColor),
+          prefixIcon: Icon(Icons.search, color: hintColor, size: 18),
+          prefixIconConstraints: const BoxConstraints(
+            minWidth: TouchTarget.minimum,
+            minHeight: TouchTarget.minimum,
+          ),
+          suffixIcon: query.isNotEmpty
+              ? IconButton(onPressed: onClear, icon: clearIcon)
+              : null,
+          suffixIconConstraints: const BoxConstraints(
+            minWidth: TouchTarget.minimum,
+            minHeight: TouchTarget.minimum,
+          ),
+          filled: false,
+          border: InputBorder.none,
+          enabledBorder: InputBorder.none,
+          focusedBorder: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: Spacing.sm,
+            vertical: Spacing.sm,
           ),
         ),
       );

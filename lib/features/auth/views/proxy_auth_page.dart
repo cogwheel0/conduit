@@ -1,5 +1,6 @@
 import 'dart:io' show Platform;
 
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
 import 'package:flutter/material.dart';
@@ -13,6 +14,7 @@ import '../../../core/models/server_config.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../core/widgets/error_boundary.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 
@@ -847,27 +849,22 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
     final l10n = AppLocalizations.of(context);
 
     return ErrorBoundary(
-      child: Scaffold(
+      child: AdaptiveRouteShell(
         backgroundColor: context.conduitTheme.surfaceBackground,
         extendBodyBehindAppBar: true,
-        appBar: FloatingAppBar(
-          leading: FloatingAppBarBackButton(
-            onTap: () => context.pop(const ProxyAuthResult.failed()),
-          ),
-          title: FloatingAppBarTitle(
-            text: l10n?.proxyAuthentication ?? 'Proxy Authentication',
-          ),
+        appBar: AdaptiveAppBar(
+          title: l10n?.proxyAuthentication ?? 'Proxy Authentication',
           actions: [
             if (_controller != null)
-              FloatingAppBarAction(
-                child: FloatingAppBarIconButton(
-                  icon: Platform.isIOS ? CupertinoIcons.refresh : Icons.refresh,
-                  onTap: _refresh,
-                ),
+              AdaptiveAppBarAction(
+                iosSymbol: 'arrow.clockwise',
+                icon: Platform.isIOS ? CupertinoIcons.refresh : Icons.refresh,
+                onPressed: _refresh,
               ),
           ],
         ),
-        body: SafeArea(child: _buildBody(l10n)),
+        bodySafeArea: true,
+        body: _buildBody(l10n),
       ),
     );
   }

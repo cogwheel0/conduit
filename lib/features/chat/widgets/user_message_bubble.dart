@@ -467,60 +467,57 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
 
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 280),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(AppBorderRadius.md),
-          onTap: noteId == null || noteId.isEmpty
-              ? null
-              : () {
-                  ConduitHaptics.selectionClick();
-                  NavigationService.router.go('/notes/$noteId');
-                },
-          child: Ink(
-            padding: const EdgeInsets.all(Spacing.md),
-            decoration: BoxDecoration(
-              color: theme.cardBackground,
-              borderRadius: BorderRadius.circular(AppBorderRadius.md),
-              border: Border.all(
-                color: theme.textPrimary.withValues(alpha: 0.12),
-                width: BorderWidth.regular,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: noteId == null || noteId.isEmpty
+            ? null
+            : () {
+                ConduitHaptics.selectionClick();
+                NavigationService.router.go('/notes/$noteId');
+              },
+        child: Container(
+          padding: const EdgeInsets.all(Spacing.md),
+          decoration: BoxDecoration(
+            color: theme.cardBackground,
+            borderRadius: BorderRadius.circular(AppBorderRadius.md),
+            border: Border.all(
+              color: theme.textPrimary.withValues(alpha: 0.12),
+              width: BorderWidth.regular,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: theme.buttonPrimary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(AppBorderRadius.small),
+                ),
+                alignment: Alignment.center,
+                child: Icon(
+                  Platform.isIOS
+                      ? CupertinoIcons.doc_text
+                      : Icons.sticky_note_2_outlined,
+                  color: theme.buttonPrimary,
+                  size: IconSize.medium,
+                ),
               ),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    color: theme.buttonPrimary.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(AppBorderRadius.small),
-                  ),
-                  alignment: Alignment.center,
-                  child: Icon(
-                    Platform.isIOS
-                        ? CupertinoIcons.doc_text
-                        : Icons.sticky_note_2_outlined,
-                    color: theme.buttonPrimary,
-                    size: IconSize.medium,
+              const SizedBox(width: Spacing.sm),
+              Flexible(
+                child: Text(
+                  title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.bodySmallStyle.copyWith(
+                    color: theme.textPrimary,
+                    fontWeight: FontWeight.w600,
+                    height: 1.3,
                   ),
                 ),
-                const SizedBox(width: Spacing.sm),
-                Flexible(
-                  child: Text(
-                    title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTypography.bodySmallStyle.copyWith(
-                      color: theme.textPrimary,
-                      fontWeight: FontWeight.w600,
-                      height: 1.3,
-                    ),
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
@@ -641,11 +638,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
           // Display images outside and above the text bubble (iMessage style)
           // Prioritize files array over attachmentIds to avoid duplication
           if (attachmentContent != null)
-            ConduitContextMenu(
-              actions: actions,
-              keepChildVisibleDuringPress: true,
-              child: attachmentContent,
-            ),
+            ConduitContextMenu(actions: actions, child: attachmentContent),
 
           // Display text bubble if there's text content
           if (hasText) const SizedBox(height: Spacing.xs),
@@ -658,7 +651,6 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
                     constraints: BoxConstraints(maxWidth: bubbleMaxWidth),
                     child: ConduitContextMenu(
                       actions: actions,
-                      keepChildVisibleDuringPress: true,
                       child: Container(
                         key: const Key('user-message-bubble-surface'),
                         padding: const EdgeInsets.all(Spacing.sm + Spacing.xs),
@@ -750,79 +742,73 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
         // Cancel button
-        Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: _cancelInlineEdit,
-            borderRadius: BorderRadius.circular(AppBorderRadius.small),
-            child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: Spacing.md,
-                vertical: Spacing.xs,
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: _cancelInlineEdit,
+          child: Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: Spacing.md,
+              vertical: Spacing.xs,
+            ),
+            decoration: BoxDecoration(
+              color: theme.surfaceContainer,
+              borderRadius: BorderRadius.circular(AppBorderRadius.small),
+              border: Border.all(
+                color: theme.cardBorder,
+                width: BorderWidth.thin,
               ),
-              decoration: BoxDecoration(
-                color: theme.surfaceContainer,
-                borderRadius: BorderRadius.circular(AppBorderRadius.small),
-                border: Border.all(
-                  color: theme.cardBorder,
-                  width: BorderWidth.thin,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Platform.isIOS ? CupertinoIcons.xmark : Icons.close,
+                  size: IconSize.xs,
+                  color: theme.textSecondary,
                 ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Platform.isIOS ? CupertinoIcons.xmark : Icons.close,
-                    size: IconSize.xs,
+                const SizedBox(width: Spacing.xs),
+                Text(
+                  l10n.cancel,
+                  style: AppTypography.standard.copyWith(
                     color: theme.textSecondary,
+                    fontWeight: FontWeight.w500,
                   ),
-                  const SizedBox(width: Spacing.xs),
-                  Text(
-                    l10n.cancel,
-                    style: AppTypography.standard.copyWith(
-                      color: theme.textSecondary,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ),
         const SizedBox(width: Spacing.sm),
         // Save button
-        Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: _saveInlineEdit,
-            borderRadius: BorderRadius.circular(AppBorderRadius.small),
-            child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: Spacing.md,
-                vertical: Spacing.xs,
-              ),
-              decoration: BoxDecoration(
-                color: theme.buttonPrimary,
-                borderRadius: BorderRadius.circular(AppBorderRadius.small),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Platform.isIOS ? CupertinoIcons.check_mark : Icons.check,
-                    size: IconSize.xs,
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: _saveInlineEdit,
+          child: Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: Spacing.md,
+              vertical: Spacing.xs,
+            ),
+            decoration: BoxDecoration(
+              color: theme.buttonPrimary,
+              borderRadius: BorderRadius.circular(AppBorderRadius.small),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Platform.isIOS ? CupertinoIcons.check_mark : Icons.check,
+                  size: IconSize.xs,
+                  color: theme.buttonPrimaryText,
+                ),
+                const SizedBox(width: Spacing.xs),
+                Text(
+                  l10n.save,
+                  style: AppTypography.standard.copyWith(
                     color: theme.buttonPrimaryText,
+                    fontWeight: FontWeight.w600,
                   ),
-                  const SizedBox(width: Spacing.xs),
-                  Text(
-                    l10n.save,
-                    style: AppTypography.standard.copyWith(
-                      color: theme.buttonPrimaryText,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ),

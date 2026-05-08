@@ -225,7 +225,8 @@ class EnhancedAccessibilityService {
       button: onTap != null,
       selected: isSelected,
       child: AdaptiveCard(
-        child: InkWell(
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
           onTap: onTap,
           child: Padding(
             padding: const EdgeInsets.all(Spacing.md),

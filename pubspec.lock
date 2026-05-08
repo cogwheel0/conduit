@@ -297,14 +297,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.0.2"
-  cupertino_context_menu_plus:
-    dependency: "direct main"
-    description:
-      name: cupertino_context_menu_plus
-      sha256: "82881ce112484756afc5f6fe81fd79d8d71c6c8bab0fca3319d43554d08197c2"
-      url: "https://pub.dev"
-    source: hosted
-    version: "1.0.3"
   cupertino_icons:
     dependency: "direct main"
     description:

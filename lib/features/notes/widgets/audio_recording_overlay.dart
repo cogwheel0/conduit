@@ -167,7 +167,7 @@ class _AudioRecordingOverlayState extends State<AudioRecordingOverlay>
     final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context)!;
 
-    return Material(
+    return ColoredBox(
       color: Colors.black.withValues(alpha: 0.92),
       child: SafeArea(
         child: Stack(

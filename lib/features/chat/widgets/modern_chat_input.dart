@@ -1381,10 +1381,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                       ),
                     ),
                   ),
-                Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(AppBorderRadius.card),
+                Semantics(
+                  button: true,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
                     onTap: () {
                       _applyContextSuggestion(suggestion);
                     },
@@ -1932,7 +1932,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       );
 
       // Use AdaptiveButton glass for single-line compact input.
-      // Multiline uses AdaptiveBlurView for dynamic height.
+      // Multiline falls back to a regular themed Material surface.
       final bool useNativeCompactGlass =
           _useIOS26NativeControls && !_isMultiline;
       final Widget textFieldShell = useNativeCompactGlass
@@ -1975,7 +1975,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               child: textFieldContent,
             );
 
-      final bottomPadding = MediaQuery.of(context).viewPadding.bottom;
+      final bottomPadding = PlatformInfo.isIOS26OrHigher()
+          ? Spacing.md
+          : MediaQuery.of(context).viewPadding.bottom;
       return Padding(
         padding: EdgeInsets.fromLTRB(
           Spacing.screenPadding,
@@ -2044,7 +2046,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     );
 
     // Wrap with padding for floating effect, accounting for safe area
-    final bottomPadding = MediaQuery.of(context).viewPadding.bottom;
+    final bottomPadding = PlatformInfo.isIOS26OrHigher()
+        ? Spacing.md
+        : MediaQuery.of(context).viewPadding.bottom;
     return Padding(
       padding: EdgeInsets.fromLTRB(
         Spacing.screenPadding,
@@ -2600,10 +2604,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
       curve: Curves.easeOutCubic,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(AppBorderRadius.round),
+      child: Semantics(
+        button: true,
+        enabled: enabled,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
           onTap: onTap == null
               ? null
               : () {
@@ -2702,16 +2707,19 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       key: key,
       width: size,
       height: size,
-      child: Material(
-        color: bgColor,
-        shape: CircleBorder(
-          side: BorderSide(color: borderColor, width: BorderWidth.thin),
+      child: DecoratedBox(
+        decoration: ShapeDecoration(
+          color: bgColor,
+          shape: CircleBorder(
+            side: BorderSide(color: borderColor, width: BorderWidth.thin),
+          ),
         ),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onPressed,
-          customBorder: const CircleBorder(),
-          child: Center(child: child),
+        child: ClipOval(
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: onPressed,
+            child: Center(child: child),
+          ),
         ),
       ),
     );
@@ -2719,22 +2727,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   /// Builds the composer shell container.
   ///
-  /// On iOS, uses [AdaptiveBlurView] for native glass/blur effects.
-  /// On Android/web/desktop, uses a Material surface container with a
-  /// subtle border for better contrast and a native look.
+  /// Uses a themed Material surface with a subtle border for contrast.
   Widget _buildComposerShell({
     Key? key,
     required Widget child,
     required BorderRadius borderRadius,
   }) {
-    if (!kIsWeb && Platform.isIOS) {
-      return AdaptiveBlurView(
-        key: key,
-        blurStyle: BlurStyle.systemUltraThinMaterial,
-        borderRadius: borderRadius,
-        child: child,
-      );
-    }
     final theme = context.conduitTheme;
     return Container(
       key: key,

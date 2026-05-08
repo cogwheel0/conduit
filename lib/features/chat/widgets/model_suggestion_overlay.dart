@@ -101,10 +101,11 @@ class ModelSuggestionOverlay extends ConsumerWidget {
                 final profileUrl =
                     model.metadata?['profile_image_url'] as String?;
 
-                return Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(AppBorderRadius.card),
+                return Semantics(
+                  button: true,
+                  selected: isSelected,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
                     onTap: () => onModelSelected(model),
                     child: Container(
                       decoration: BoxDecoration(

@@ -1,13 +1,13 @@
-import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/widgets/adaptive_route_shell.dart';
 
 class SplashLauncherPage extends StatelessWidget {
   const SplashLauncherPage({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return AdaptiveScaffold(
+    return AdaptiveRouteShell(
       body: Center(
         child: SizedBox(
           width: 28,

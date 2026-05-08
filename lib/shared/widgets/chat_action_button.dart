@@ -9,8 +9,6 @@ class ChatActionButton extends ConsumerStatefulWidget {
   final IconData icon;
   final String label;
   final VoidCallback? onTap;
-  final EdgeInsetsGeometry padding;
-  final BorderRadius? borderRadius;
 
   /// SF Symbol name for iOS 26+ native rendering (e.g. 'doc.on.clipboard').
   final String? sfSymbol;
@@ -20,8 +18,6 @@ class ChatActionButton extends ConsumerStatefulWidget {
     required this.icon,
     required this.label,
     this.onTap,
-    this.padding = const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-    this.borderRadius,
     this.sfSymbol,
   });
 
@@ -37,6 +33,15 @@ class _ChatActionButtonState extends ConsumerState<ChatActionButton> {
     final theme = context.conduitTheme;
     final hapticEnabled = ref.read(hapticEnabledProvider);
     final radius = BorderRadius.circular(AppBorderRadius.circular);
+    final handleTap = widget.onTap == null
+        ? null
+        : () {
+            PlatformService.hapticFeedbackWithSettings(
+              type: HapticType.selection,
+              hapticEnabled: hapticEnabled,
+            );
+            widget.onTap!();
+          };
 
     if (PlatformInfo.isIOS26OrHigher() && widget.sfSymbol != null) {
       return AdaptiveTooltip(
@@ -46,15 +51,7 @@ class _ChatActionButtonState extends ConsumerState<ChatActionButton> {
           button: true,
           label: widget.label,
           child: AdaptiveButton.child(
-            onPressed: widget.onTap == null
-                ? null
-                : () {
-                    PlatformService.hapticFeedbackWithSettings(
-                      type: HapticType.selection,
-                      hapticEnabled: hapticEnabled,
-                    );
-                    widget.onTap!();
-                  },
+            onPressed: handleTap,
             style: AdaptiveButtonStyle.glass,
             size: AdaptiveButtonSize.small,
             minSize: const Size(30, 30),
@@ -69,8 +66,6 @@ class _ChatActionButtonState extends ConsumerState<ChatActionButton> {
       );
     }
 
-    final overlay = theme.buttonPrimary.withValues(alpha: 0.08);
-
     return AdaptiveTooltip(
       message: widget.label,
       waitDuration: const Duration(milliseconds: 600),
@@ -81,38 +76,31 @@ class _ChatActionButtonState extends ConsumerState<ChatActionButton> {
           scale: _pressed ? 0.95 : 1.0,
           duration: const Duration(milliseconds: 120),
           curve: Curves.easeOutCubic,
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              borderRadius: radius,
-              splashColor: overlay,
-              highlightColor: theme.textPrimary.withValues(alpha: 0.06),
-              onHighlightChanged: (v) => setState(() => _pressed = v),
-              onTap: widget.onTap == null
-                  ? null
-                  : () {
-                      PlatformService.hapticFeedbackWithSettings(
-                        type: HapticType.selection,
-                        hapticEnabled: hapticEnabled,
-                      );
-                      widget.onTap!();
-                    },
-              child: Ink(
-                width: 32,
-                height: 32,
-                decoration: BoxDecoration(
-                  color: theme.textPrimary.withValues(alpha: 0.04),
-                  borderRadius: radius,
-                  border: Border.all(
-                    color: theme.textPrimary.withValues(alpha: 0.08),
-                    width: BorderWidth.regular,
-                  ),
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTapDown: widget.onTap == null
+                ? null
+                : (_) => setState(() => _pressed = true),
+            onTapCancel: () => setState(() => _pressed = false),
+            onTapUp: widget.onTap == null
+                ? null
+                : (_) => setState(() => _pressed = false),
+            onTap: handleTap,
+            child: Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: theme.textPrimary.withValues(alpha: 0.04),
+                borderRadius: radius,
+                border: Border.all(
+                  color: theme.textPrimary.withValues(alpha: 0.08),
+                  width: BorderWidth.regular,
                 ),
-                child: Icon(
-                  widget.icon,
-                  size: IconSize.sm,
-                  color: theme.textPrimary.withValues(alpha: 0.8),
-                ),
+              ),
+              child: Icon(
+                widget.icon,
+                size: IconSize.sm,
+                color: theme.textPrimary.withValues(alpha: 0.8),
               ),
             ),
           ),

@@ -61,8 +61,9 @@ class PromptSuggestionOverlay extends ConsumerWidget {
       ),
       child: promptsAsync.when(
         data: (prompts) {
-          final List<Prompt> filtered =
-              filteredPrompts != null ? filteredPrompts!(prompts) : prompts;
+          final List<Prompt> filtered = filteredPrompts != null
+              ? filteredPrompts!(prompts)
+              : prompts;
           if (filtered.isEmpty) {
             return _PromptOverlayPlaceholder(
               leading: Icon(
@@ -96,18 +97,15 @@ class PromptSuggestionOverlay extends ConsumerWidget {
                 final prompt = filtered[index];
                 final bool isSelected = index == activeIndex;
                 final Color highlight = isSelected
-                    ? context
-                          .conduitTheme
-                          .navigationSelectedBackground
+                    ? context.conduitTheme.navigationSelectedBackground
                           .withValues(alpha: 0.4)
                     : Colors.transparent;
 
-                return Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(
-                      AppBorderRadius.card,
-                    ),
+                return Semantics(
+                  button: true,
+                  selected: isSelected,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
                     onTap: () => onPromptSelected(prompt),
                     child: Container(
                       decoration: BoxDecoration(
@@ -125,9 +123,7 @@ class PromptSuggestionOverlay extends ConsumerWidget {
                         children: [
                           Text(
                             prompt.command,
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodyMedium
+                            style: Theme.of(context).textTheme.bodyMedium
                                 ?.copyWith(
                                   fontWeight: FontWeight.w600,
                                   color: context.conduitTheme.textPrimary,
@@ -135,17 +131,12 @@ class PromptSuggestionOverlay extends ConsumerWidget {
                           ),
                           if (prompt.title.trim().isNotEmpty)
                             Padding(
-                              padding: const EdgeInsets.only(
-                                top: Spacing.xxs,
-                              ),
+                              padding: const EdgeInsets.only(top: Spacing.xxs),
                               child: Text(
                                 prompt.title,
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .bodySmall
+                                style: Theme.of(context).textTheme.bodySmall
                                     ?.copyWith(
-                                      color:
-                                          context.conduitTheme.textSecondary,
+                                      color: context.conduitTheme.textSecondary,
                                     ),
                               ),
                             ),
@@ -184,10 +175,7 @@ class PromptSuggestionOverlay extends ConsumerWidget {
 
 /// Placeholder shown when the prompt list is loading, empty, or errored.
 class _PromptOverlayPlaceholder extends StatelessWidget {
-  const _PromptOverlayPlaceholder({
-    required this.leading,
-    this.message,
-  });
+  const _PromptOverlayPlaceholder({required this.leading, this.message});
 
   final Widget leading;
   final String? message;

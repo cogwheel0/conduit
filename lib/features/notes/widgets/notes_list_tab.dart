@@ -104,9 +104,9 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
     final expanded = ref.watch(notesShowPinnedProvider);
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-      child: InkWell(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onTap: () => ref.read(notesShowPinnedProvider.notifier).toggle(),
-        borderRadius: BorderRadius.circular(AppBorderRadius.xs),
         child: Row(
           children: [
             Icon(
@@ -134,9 +134,9 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
     final expanded = ref.watch(notesShowRecentProvider);
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-      child: InkWell(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onTap: () => ref.read(notesShowRecentProvider.notifier).toggle(),
-        borderRadius: BorderRadius.circular(AppBorderRadius.xs),
         child: Row(
           children: [
             Icon(
@@ -285,6 +285,7 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
               },
               child: ListView.builder(
                 padding: EdgeInsets.only(
+                  top: sidebarTabContentTopPadding(context),
                   bottom: sidebarTabContentBottomPadding(context),
                 ),
                 physics: const AlwaysScrollableScrollPhysics(),
@@ -354,63 +355,59 @@ class _NoteListTile extends StatelessWidget {
             color: background,
             borderRadius: BorderRadius.circular(AppBorderRadius.md),
           ),
-          child: Material(
-            color: Colors.transparent,
-            borderRadius: BorderRadius.circular(AppBorderRadius.md),
-            child: InkWell(
-              onTap: onTap,
-              borderRadius: BorderRadius.circular(AppBorderRadius.md),
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTypography.sidebarTitleStyle.copyWith(
-                              color: theme.textPrimary,
-                              fontWeight: selected
-                                  ? FontWeight.w700
-                                  : FontWeight.w600,
-                            ),
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTypography.sidebarTitleStyle.copyWith(
+                            color: theme.textPrimary,
+                            fontWeight: selected
+                                ? FontWeight.w700
+                                : FontWeight.w600,
                           ),
                         ),
-                        if (note.isPinned) ...[
-                          Icon(
-                            UiUtils.pinIcon,
-                            size: 14,
-                            color: theme.buttonPrimary,
-                          ),
-                          const SizedBox(width: 6),
-                        ],
-                        const SizedBox(width: 8),
-                        Text(
-                          timeAgo,
-                          style: AppTypography.sidebarSupportingStyle.copyWith(
-                            color: theme.textSecondary,
-                          ),
+                      ),
+                      if (note.isPinned) ...[
+                        Icon(
+                          UiUtils.pinIcon,
+                          size: 14,
+                          color: theme.buttonPrimary,
                         ),
+                        const SizedBox(width: 6),
                       ],
-                    ),
-                    if (preview.isNotEmpty) ...[
-                      const SizedBox(height: 6),
+                      const SizedBox(width: 8),
                       Text(
-                        preview,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
+                        timeAgo,
                         style: AppTypography.sidebarSupportingStyle.copyWith(
                           color: theme.textSecondary,
-                          height: 1.4,
                         ),
                       ),
                     ],
+                  ),
+                  if (preview.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      preview,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.sidebarSupportingStyle.copyWith(
+                        color: theme.textSecondary,
+                        height: 1.4,
+                      ),
+                    ),
                   ],
-                ),
+                ],
               ),
             ),
           ),

@@ -20,15 +20,10 @@ import '../providers/sidebar_providers.dart';
 enum _SidebarCreateActionKind { chat, note, channel }
 
 class SidebarCreateActionSpec {
-  const SidebarCreateActionSpec({
-    required this.icon,
-    required this.label,
-    required this.tooltip,
-  });
+  const SidebarCreateActionSpec({required this.icon, required this.sfSymbol});
 
   final IconData icon;
-  final String label;
-  final String tooltip;
+  final String sfSymbol;
 }
 
 SidebarCreateActionSpec sidebarCreateActionForActiveTab(
@@ -43,18 +38,15 @@ SidebarCreateActionSpec sidebarCreateActionForActiveTab(
   return switch (kind) {
     _SidebarCreateActionKind.chat => SidebarCreateActionSpec(
       icon: UiUtils.newChatIcon,
-      label: l10n.newChat,
-      tooltip: l10n.newChat,
+      sfSymbol: 'square.and.pencil',
     ),
     _SidebarCreateActionKind.note => SidebarCreateActionSpec(
       icon: UiUtils.newNoteIcon,
-      label: l10n.createNote,
-      tooltip: l10n.createNote,
+      sfSymbol: 'doc.badge.plus',
     ),
     _SidebarCreateActionKind.channel => SidebarCreateActionSpec(
       icon: UiUtils.newChannelIcon,
-      label: l10n.channelCreateTitle,
-      tooltip: l10n.channelCreateTitle,
+      sfSymbol: 'number',
     ),
   };
 }

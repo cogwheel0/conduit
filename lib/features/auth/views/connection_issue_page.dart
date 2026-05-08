@@ -1,6 +1,5 @@
 import 'dart:io' show Platform;
 
-import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -12,6 +11,7 @@ import '../../../core/services/connectivity_service.dart';
 import '../../../core/widgets/error_boundary.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../providers/unified_auth_providers.dart';
@@ -37,50 +37,49 @@ class _ConnectionIssuePageState extends ConsumerState<ConnectionIssuePage> {
     final activeServer = activeServerAsync.asData?.value;
 
     return ErrorBoundary(
-      child: AdaptiveScaffold(
-        body: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: Spacing.pagePadding,
-              vertical: Spacing.lg,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Expanded(
-                  child: Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 480),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          _buildHeader(context, l10n, connectivity),
-                          if (activeServer != null) ...[
-                            const SizedBox(height: Spacing.sm),
-                            _buildServerDetails(context, activeServer),
-                          ],
-                          const SizedBox(height: Spacing.lg),
-                          Text(
-                            l10n.connectionIssueSubtitle,
-                            textAlign: TextAlign.center,
-                            style: context.conduitTheme.bodyMedium?.copyWith(
-                              color: context.conduitTheme.textSecondary,
-                              height: 1.4,
-                            ),
-                          ),
+      child: AdaptiveRouteShell(
+        bodySafeArea: true,
+        body: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: Spacing.pagePadding,
+            vertical: Spacing.lg,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 480),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _buildHeader(context, l10n, connectivity),
+                        if (activeServer != null) ...[
+                          const SizedBox(height: Spacing.sm),
+                          _buildServerDetails(context, activeServer),
                         ],
-                      ),
+                        const SizedBox(height: Spacing.lg),
+                        Text(
+                          l10n.connectionIssueSubtitle,
+                          textAlign: TextAlign.center,
+                          style: context.conduitTheme.bodyMedium?.copyWith(
+                            color: context.conduitTheme.textSecondary,
+                            height: 1.4,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-                _buildActions(context, l10n),
-                if (_statusMessage != null) ...[
-                  const SizedBox(height: Spacing.sm),
-                  _buildStatusMessage(context, _statusMessage!),
-                ],
+              ),
+              _buildActions(context, l10n),
+              if (_statusMessage != null) ...[
+                const SizedBox(height: Spacing.sm),
+                _buildStatusMessage(context, _statusMessage!),
               ],
-            ),
+            ],
           ),
         ),
       ),

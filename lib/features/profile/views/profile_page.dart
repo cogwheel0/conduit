@@ -1,3 +1,4 @@
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import 'package:flutter/cupertino.dart';
@@ -7,10 +8,10 @@ import 'package:url_launcher/url_launcher_string.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import '../../../core/widgets/error_boundary.dart';
 import '../../../shared/widgets/conduit_loading.dart';
+import '../../../shared/widgets/adaptive_route_shell.dart';
 
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
-import '../../../shared/widgets/conduit_components.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../auth/providers/unified_auth_providers.dart';
@@ -55,24 +56,18 @@ class ProfilePage extends ConsumerWidget {
     return ErrorBoundary(child: _buildScaffold(context, body: body));
   }
 
-  Scaffold _buildScaffold(BuildContext context, {required Widget body}) {
-    final canPop = ModalRoute.of(context)?.canPop ?? false;
+  Widget _buildScaffold(BuildContext context, {required Widget body}) {
     final l10n = AppLocalizations.of(context)!;
 
-    return Scaffold(
+    return AdaptiveRouteShell(
       backgroundColor: context.conduitTheme.surfaceBackground,
-      extendBodyBehindAppBar: true,
-      appBar: FloatingAppBar(
-        leading: canPop ? const FloatingAppBarBackButton() : null,
-        title: FloatingAppBarTitle(text: l10n.you),
-      ),
+      appBar: AdaptiveAppBar(title: l10n.you),
       body: body,
     );
   }
 
   Widget _buildCenteredState(BuildContext context, Widget child) {
-    final topPadding =
-        MediaQuery.of(context).padding.top + kTextTabBarHeight + 24;
+    final topPadding = _topContentPadding(context);
     return Padding(
       padding: EdgeInsets.fromLTRB(
         Spacing.pagePadding,
@@ -90,9 +85,8 @@ class ProfilePage extends ConsumerWidget {
     dynamic userData,
     ApiService? api,
   ) {
-    // Calculate top padding to account for app bar + safe area
-    final topPadding =
-        MediaQuery.of(context).padding.top + kTextTabBarHeight + 24;
+    final mediaQuery = MediaQuery.of(context);
+    final topPadding = _topContentPadding(context);
 
     return ListView(
       physics: const BouncingScrollPhysics(
@@ -102,7 +96,7 @@ class ProfilePage extends ConsumerWidget {
         Spacing.pagePadding,
         topPadding,
         Spacing.pagePadding,
-        Spacing.pagePadding + MediaQuery.of(context).padding.bottom,
+        Spacing.pagePadding + mediaQuery.padding.bottom,
       ),
       children: [
         _buildProfileHeader(context, userData, api),
@@ -112,6 +106,14 @@ class ProfilePage extends ConsumerWidget {
         _buildSupportSection(context),
       ],
     );
+  }
+
+  double _topContentPadding(BuildContext context) {
+    final mediaQuery = MediaQuery.of(context);
+    if (PlatformInfo.isIOS26OrHigher()) {
+      return mediaQuery.padding.top + kTextTabBarHeight + Spacing.lg;
+    }
+    return Spacing.lg;
   }
 
   Widget _buildSupportSection(BuildContext context) {
@@ -249,79 +251,74 @@ class ProfilePage extends ConsumerWidget {
     final email = extractEmail(user) ?? l10n.noEmailLabel;
     final theme = context.conduitTheme;
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(AppBorderRadius.large),
-        onTap: () => context.pushNamed(RouteNames.accountSettings),
-        child: Container(
-          padding: const EdgeInsets.all(Spacing.md),
-          decoration: BoxDecoration(
-            color: theme.sidebarAccent.withValues(alpha: 0.6),
-            borderRadius: BorderRadius.circular(AppBorderRadius.large),
-            border: Border.all(
-              color: theme.sidebarBorder.withValues(alpha: 0.6),
-              width: BorderWidth.thin,
-            ),
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => context.pushNamed(RouteNames.accountSettings),
+      child: Container(
+        padding: const EdgeInsets.all(Spacing.md),
+        decoration: BoxDecoration(
+          color: theme.sidebarAccent.withValues(alpha: 0.6),
+          borderRadius: BorderRadius.circular(AppBorderRadius.large),
+          border: Border.all(
+            color: theme.sidebarBorder.withValues(alpha: 0.6),
+            width: BorderWidth.thin,
           ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              UserAvatar(size: 56, imageUrl: avatarUrl, fallbackText: initial),
-              const SizedBox(width: Spacing.md),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      displayName,
-                      style: theme.headingMedium?.copyWith(
-                        color: theme.sidebarForeground,
-                        fontWeight: FontWeight.w600,
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            UserAvatar(size: 56, imageUrl: avatarUrl, fallbackText: initial),
+            const SizedBox(width: Spacing.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    displayName,
+                    style: theme.headingMedium?.copyWith(
+                      color: theme.sidebarForeground,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: Spacing.xs),
+                  Row(
+                    children: [
+                      Icon(
+                        UiUtils.platformIcon(
+                          ios: CupertinoIcons.envelope,
+                          android: Icons.mail_outline,
+                        ),
+                        size: IconSize.small,
+                        color: theme.sidebarForeground.withValues(alpha: 0.75),
                       ),
-                    ),
-                    const SizedBox(height: Spacing.xs),
-                    Row(
-                      children: [
-                        Icon(
-                          UiUtils.platformIcon(
-                            ios: CupertinoIcons.envelope,
-                            android: Icons.mail_outline,
-                          ),
-                          size: IconSize.small,
-                          color: theme.sidebarForeground.withValues(
-                            alpha: 0.75,
-                          ),
-                        ),
-                        const SizedBox(width: Spacing.xs),
-                        Flexible(
-                          child: Text(
-                            email,
-                            style: theme.bodySmall?.copyWith(
-                              color: theme.sidebarForeground.withValues(
-                                alpha: 0.75,
-                              ),
+                      const SizedBox(width: Spacing.xs),
+                      Flexible(
+                        child: Text(
+                          email,
+                          style: theme.bodySmall?.copyWith(
+                            color: theme.sidebarForeground.withValues(
+                              alpha: 0.75,
                             ),
-                            overflow: TextOverflow.ellipsis,
-                            maxLines: 1,
                           ),
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
                         ),
-                      ],
-                    ),
-                  ],
-                ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-              const SizedBox(width: Spacing.sm),
-              Icon(
-                UiUtils.platformIcon(
-                  ios: CupertinoIcons.chevron_right,
-                  android: Icons.chevron_right,
-                ),
-                color: theme.iconSecondary,
-                size: IconSize.small,
+            ),
+            const SizedBox(width: Spacing.sm),
+            Icon(
+              UiUtils.platformIcon(
+                ios: CupertinoIcons.chevron_right,
+                android: Icons.chevron_right,
               ),
-            ],
-          ),
+              color: theme.iconSecondary,
+              size: IconSize.small,
+            ),
+          ],
         ),
       ),
     );

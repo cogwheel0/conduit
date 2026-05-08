@@ -98,32 +98,27 @@ class OpenWebUISourcesWidget extends StatelessWidget {
       );
     }
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () => _showSourcesBottomSheet(context),
-        borderRadius: BorderRadius.circular(20),
-        hoverColor: theme.surfaceContainer.withValues(alpha: 0.1),
-        splashColor: theme.surfaceContainer.withValues(alpha: 0.2),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: theme.dividerColor.withValues(alpha: 0.5),
-              width: 1,
-            ),
-            color: theme.surfaceContainer.withValues(alpha: 0.3),
-            boxShadow: [
-              BoxShadow(
-                color: theme.cardShadow.withValues(alpha: 0.1),
-                blurRadius: 4,
-                offset: const Offset(0, 1),
-              ),
-            ],
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => _showSourcesBottomSheet(context),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: theme.dividerColor.withValues(alpha: 0.5),
+            width: 1,
           ),
-          child: chipContent,
+          color: theme.surfaceContainer.withValues(alpha: 0.3),
+          boxShadow: [
+            BoxShadow(
+              color: theme.cardShadow.withValues(alpha: 0.1),
+              blurRadius: 4,
+              offset: const Offset(0, 1),
+            ),
+          ],
         ),
+        child: chipContent,
       ),
     );
   }
@@ -275,106 +270,103 @@ class OpenWebUISourcesWidget extends StatelessWidget {
     final type = source.type?.trim();
     final hasType = type != null && type.isNotEmpty;
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: url == null ? null : () => _launchUrl(url),
-        borderRadius: BorderRadius.circular(AppBorderRadius.card),
-        child: Ink(
-          padding: const EdgeInsets.all(Spacing.md),
-          decoration: BoxDecoration(
-            color: theme.surfaceContainer.withValues(alpha: 0.36),
-            borderRadius: BorderRadius.circular(AppBorderRadius.card),
-            border: Border.all(
-              color: theme.dividerColor.withValues(alpha: 0.32),
-              width: 1,
-            ),
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: url == null ? null : () => _launchUrl(url),
+      child: Container(
+        padding: const EdgeInsets.all(Spacing.md),
+        decoration: BoxDecoration(
+          color: theme.surfaceContainer.withValues(alpha: 0.36),
+          borderRadius: BorderRadius.circular(AppBorderRadius.card),
+          border: Border.all(
+            color: theme.dividerColor.withValues(alpha: 0.32),
+            width: 1,
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _SourceIndexBadge(index: index + 1),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _SourceIndexBadge(index: index + 1),
+                const SizedBox(width: Spacing.sm),
+                if (url != null) ...[
+                  _SourceFavicon(url: url, size: 18),
                   const SizedBox(width: Spacing.sm),
-                  if (url != null) ...[
-                    _SourceFavicon(url: url, size: 18),
-                    const SizedBox(width: Spacing.sm),
-                  ] else ...[
-                    Container(
-                      width: 18,
-                      height: 18,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(9),
-                        color: theme.surfaceContainerHighest,
-                      ),
-                      alignment: Alignment.center,
-                      child: Icon(
-                        Icons.description_outlined,
-                        size: 11,
-                        color: theme.textSecondary,
-                      ),
+                ] else ...[
+                  Container(
+                    width: 18,
+                    height: 18,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(9),
+                      color: theme.surfaceContainerHighest,
                     ),
-                    const SizedBox(width: Spacing.sm),
-                  ],
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          displayText,
-                          style: AppTypography.bodyMediumStyle.copyWith(
-                            fontWeight: FontWeight.w600,
-                            color: theme.textPrimary,
-                          ),
-                        ),
-                        if (url != null) ...[
-                          const SizedBox(height: 2),
-                          Text(
-                            url,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTypography.bodySmallStyle.copyWith(
-                              color: theme.textSecondary,
-                            ),
-                          ),
-                        ] else if (hasType) ...[
-                          const SizedBox(height: 2),
-                          Text(
-                            type,
-                            style: AppTypography.bodySmallStyle.copyWith(
-                              color: theme.textSecondary,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  if (url != null) ...[
-                    const SizedBox(width: Spacing.sm),
-                    Icon(
-                      Icons.open_in_new_rounded,
-                      size: IconSize.sm,
+                    alignment: Alignment.center,
+                    child: Icon(
+                      Icons.description_outlined,
+                      size: 11,
                       color: theme.textSecondary,
                     ),
-                  ],
+                  ),
+                  const SizedBox(width: Spacing.sm),
                 ],
-              ),
-              if (snippet != null) ...[
-                const SizedBox(height: Spacing.sm),
-                Text(
-                  snippet,
-                  maxLines: 6,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTypography.bodySmallStyle.copyWith(
-                    height: 1.45,
-                    color: theme.textSecondary,
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        displayText,
+                        style: AppTypography.bodyMediumStyle.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: theme.textPrimary,
+                        ),
+                      ),
+                      if (url != null) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          url,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTypography.bodySmallStyle.copyWith(
+                            color: theme.textSecondary,
+                          ),
+                        ),
+                      ] else if (hasType) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          type,
+                          style: AppTypography.bodySmallStyle.copyWith(
+                            color: theme.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
+                if (url != null) ...[
+                  const SizedBox(width: Spacing.sm),
+                  Icon(
+                    Icons.open_in_new_rounded,
+                    size: IconSize.sm,
+                    color: theme.textSecondary,
+                  ),
+                ],
               ],
+            ),
+            if (snippet != null) ...[
+              const SizedBox(height: Spacing.sm),
+              Text(
+                snippet,
+                maxLines: 6,
+                overflow: TextOverflow.ellipsis,
+                style: AppTypography.bodySmallStyle.copyWith(
+                  height: 1.45,
+                  color: theme.textSecondary,
+                ),
+              ),
             ],
-          ),
+          ],
         ),
       ),
     );

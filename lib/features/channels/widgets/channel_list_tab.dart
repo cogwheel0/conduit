@@ -216,7 +216,7 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
                 itemExtent: 72,
                 itemCount: filtered.length,
                 padding: EdgeInsets.only(
-                  top: Spacing.sm,
+                  top: sidebarTabContentTopPadding(context),
                   bottom: sidebarTabContentBottomPadding(context),
                 ),
                 itemBuilder: (context, index) {
@@ -305,74 +305,70 @@ class _ChannelTile extends ConsumerWidget {
             color: background,
             borderRadius: BorderRadius.circular(AppBorderRadius.md),
           ),
-          child: Material(
-            color: Colors.transparent,
-            borderRadius: BorderRadius.circular(AppBorderRadius.md),
-            child: InkWell(
-              onTap: onTap,
-              borderRadius: BorderRadius.circular(AppBorderRadius.md),
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Row(
-                  children: [
-                    Icon(
-                      _channelIcon(),
-                      color: selected ? theme.textPrimary : theme.textSecondary,
-                      size: IconSize.listItem,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                children: [
+                  Icon(
+                    _channelIcon(),
+                    color: selected ? theme.textPrimary : theme.textSecondary,
+                    size: IconSize.listItem,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _channelDisplayName(),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTypography.sidebarTitleStyle.copyWith(
+                            color: selected
+                                ? theme.textPrimary
+                                : theme.textSecondary,
+                            fontWeight: selected
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                          ),
+                        ),
+                        if (channel.description.isNotEmpty) ...[
+                          const SizedBox(height: 2),
                           Text(
-                            _channelDisplayName(),
+                            channel.description,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: AppTypography.sidebarTitleStyle.copyWith(
-                              color: selected
-                                  ? theme.textPrimary
-                                  : theme.textSecondary,
-                              fontWeight: selected
-                                  ? FontWeight.w700
-                                  : FontWeight.w500,
-                            ),
+                            style: AppTypography.sidebarSupportingStyle
+                                .copyWith(color: theme.textSecondary),
                           ),
-                          if (channel.description.isNotEmpty) ...[
-                            const SizedBox(height: 2),
-                            Text(
-                              channel.description,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: AppTypography.sidebarSupportingStyle
-                                  .copyWith(color: theme.textSecondary),
-                            ),
-                          ],
                         ],
+                      ],
+                    ),
+                  ),
+                  if (unread > 0) ...[
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.primary,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        unread > 99 ? '99+' : '$unread',
+                        style: AppTypography.sidebarBadgeStyle.copyWith(
+                          color: Theme.of(context).colorScheme.onPrimary,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
-                    if (unread > 0) ...[
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Theme.of(context).colorScheme.primary,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(
-                          unread > 99 ? '99+' : '$unread',
-                          style: AppTypography.sidebarBadgeStyle.copyWith(
-                            color: Theme.of(context).colorScheme.onPrimary,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ],
                   ],
-                ),
+                ],
               ),
             ),
           ),

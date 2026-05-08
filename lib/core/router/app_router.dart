@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -22,6 +21,7 @@ import '../../features/navigation/views/folder_page.dart';
 import '../../shared/widgets/drawer_shell_page.dart';
 import '../../features/navigation/views/splash_launcher_page.dart';
 import '../../features/notes/views/notes_list_page.dart';
+import '../../shared/widgets/adaptive_route_shell.dart';
 import '../../features/channels/views/channel_page.dart';
 import '../../features/notes/views/note_editor_page.dart';
 import '../../features/profile/views/about_page.dart';
@@ -365,7 +365,7 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       final message =
           l10n?.routeNotFound(state.uri.path) ??
           'Route not found: ${state.uri.path}';
-      return AdaptiveScaffold(
+      return AdaptiveRouteShell(
         body: Center(child: Text(message, textAlign: TextAlign.center)),
       );
     },

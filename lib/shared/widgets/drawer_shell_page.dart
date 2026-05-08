@@ -14,6 +14,10 @@ import 'sidebar_primary_circle_button.dart';
 ///
 /// Used inside a [ShellRoute] so the drawer survives navigation
 /// between chat, channel, and note-editor pages on tablets.
+///
+/// This shell intentionally does not own an `AdaptiveRouteShell` because the
+/// child routes still need route-specific app bars, native tab bars, and
+/// fullscreen overlays.
 class DrawerShellPage extends ConsumerWidget {
   final Widget child;
 

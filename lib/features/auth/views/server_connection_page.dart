@@ -26,6 +26,7 @@ import '../../../core/widgets/error_boundary.dart';
 import '../providers/unified_auth_providers.dart';
 import '../../../shared/services/brand_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import 'proxy_auth_page.dart';
 
@@ -892,7 +893,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     final safePadding = MediaQuery.of(context).padding;
 
     return ErrorBoundary(
-      child: Scaffold(
+      child: AdaptiveRouteShell(
         backgroundColor: context.conduitTheme.surfaceBackground,
         body: Column(
           children: [
@@ -1152,7 +1153,8 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       child: Column(
         children: [
           // Toggle header
-          InkWell(
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
             onTap: () =>
                 setState(() => _showAdvancedSettings = !_showAdvancedSettings),
             child: Padding(

@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:conduit/core/models/folder.dart';
 import 'package:conduit/core/providers/app_providers.dart';
@@ -9,7 +7,6 @@ import 'package:conduit/shared/widgets/measure_size.dart';
 import 'package:conduit/shared/widgets/modal_safe_area.dart';
 import 'package:conduit/shared/widgets/sheet_handle.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
-import 'package:cupertino_context_menu_plus/cupertino_context_menu_plus.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:conduit/core/services/haptic_service.dart';
@@ -41,21 +38,18 @@ class ConduitContextMenuAction {
 /// A long-press context menu widget with platform-specific presentation.
 ///
 /// The app keeps its own action model so call sites can share haptics and
-/// icons while the menu presentation follows the current platform.
+/// icons while the menu presentation follows the current platform. On iOS we
+/// keep the child size stable during preview because stock
+/// [CupertinoContextMenu] can assert when the child is laid out by flex-based
+/// parents.
 class ConduitContextMenu extends StatefulWidget {
   final List<ConduitContextMenuAction> actions;
   final Widget child;
-  final Widget? topWidget;
-  final WidgetBuilder? topWidgetBuilder;
-  final bool keepChildVisibleDuringPress;
 
   const ConduitContextMenu({
     super.key,
     required this.actions,
     required this.child,
-    this.topWidget,
-    this.topWidgetBuilder,
-    this.keepChildVisibleDuringPress = false,
   });
 
   @override
@@ -63,7 +57,6 @@ class ConduitContextMenu extends StatefulWidget {
 }
 
 class _ConduitContextMenuState extends State<ConduitContextMenu> {
-  bool _isPressing = false;
   Size? _childSize;
 
   @override
@@ -72,69 +65,53 @@ class _ConduitContextMenuState extends State<ConduitContextMenu> {
       return widget.child;
     }
 
-    if (Platform.isIOS) {
+    if (PlatformInfo.isIOS) {
       return _buildCupertinoContextMenu(context);
     }
 
-    final menu = GestureDetector(
-      behavior: HitTestBehavior.translucent,
-      onLongPressStart: (details) {
-        _showMenu(context, details.globalPosition);
-      },
-      onSecondaryTapDown: (details) {
-        _showMenu(context, details.globalPosition);
-      },
+    return AdaptiveContextMenu(
+      actions: [
+        for (final action in widget.actions)
+          AdaptiveContextMenuAction(
+            title: action.label,
+            icon: action.materialIcon,
+            isDestructive: action.destructive,
+            onPressed: () {
+              ConduitHaptics.selectionClick();
+              action.onBeforeClose?.call();
+              action.onSelected();
+            },
+          ),
+      ],
       child: widget.child,
-    );
-
-    if (!widget.keepChildVisibleDuringPress) {
-      return menu;
-    }
-
-    return Listener(
-      onPointerDown: (_) => setState(() => _isPressing = true),
-      onPointerUp: (_) => setState(() => _isPressing = false),
-      onPointerCancel: (_) => setState(() => _isPressing = false),
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          if (_isPressing) IgnorePointer(child: widget.child),
-          menu,
-        ],
-      ),
     );
   }
 
   Widget _buildCupertinoContextMenu(BuildContext context) {
-    final theme = context.conduitTheme;
-    final contextMenu = CupertinoContextMenuPlus.builder(
-      showGrowAnimation: false,
-      previewLongPressTimeout: const Duration(milliseconds: 450),
-      modalReverseTransitionDuration: const Duration(milliseconds: 180),
-      barrierColor: const Color(0x3304040F),
-      backdropBlurSigma: 8,
-      actionsBackgroundColor: theme.surfaces.popover,
-      actionsBorderRadius: BorderRadius.circular(AppBorderRadius.lg),
-      topWidget: _buildDeferredTopWidget(),
+    final contextMenu = CupertinoContextMenu.builder(
       actions: [
         for (final action in widget.actions)
           CupertinoContextMenuAction(
             isDestructiveAction: action.destructive,
+            trailingIcon: action.cupertinoIcon,
             onPressed: () {
               Navigator.of(context, rootNavigator: true).pop();
-              Future.microtask(() => _selectAction(action));
+              Future.microtask(() {
+                ConduitHaptics.selectionClick();
+                action.onBeforeClose?.call();
+                action.onSelected();
+              });
             },
-            child: _CupertinoContextMenuItem(action: action),
+            child: Text(action.label),
           ),
       ],
       builder: (context, animation) {
-        final isMenuPreview = animation.value > 0;
-        final previewChild = Material(
-          type: MaterialType.transparency,
-          child: IgnorePointer(ignoring: isMenuPreview, child: widget.child),
+        final previewChild = IgnorePointer(
+          ignoring: animation.value > 0,
+          child: widget.child,
         );
         final size = _childSize;
-        if (isMenuPreview && size != null) {
+        if (animation.value > 0 && size != null) {
           return SizedBox(
             width: size.width,
             height: size.height,
@@ -148,51 +125,6 @@ class _ConduitContextMenuState extends State<ConduitContextMenu> {
     return MeasureSize(onChange: _handleChildSizeChanged, child: contextMenu);
   }
 
-  Widget? _buildDeferredTopWidget() {
-    final builder = widget.topWidgetBuilder;
-    if (builder != null) {
-      return _DeferredContextMenuTopWidget(builder: builder);
-    }
-    final topWidget = widget.topWidget;
-    if (topWidget == null) {
-      return null;
-    }
-    return _DeferredContextMenuTopWidget(builder: (_) => topWidget);
-  }
-
-  Future<void> _showMenu(BuildContext context, Offset globalPosition) async {
-    setState(() => _isPressing = false);
-
-    final overlay = Navigator.of(context).overlay?.context.findRenderObject();
-    if (overlay is! RenderBox) {
-      return;
-    }
-
-    final selected = await showMenu<int>(
-      context: context,
-      position: RelativeRect.fromRect(
-        Rect.fromPoints(globalPosition, globalPosition),
-        Offset.zero & overlay.size,
-      ),
-      items: [
-        for (var index = 0; index < widget.actions.length; index++)
-          PopupMenuItem<int>(
-            value: index,
-            child: _MaterialContextMenuItem(action: widget.actions[index]),
-          ),
-      ],
-    );
-    if (selected != null) {
-      _selectAction(widget.actions[selected]);
-    }
-  }
-
-  void _selectAction(ConduitContextMenuAction action) {
-    ConduitHaptics.selectionClick();
-    action.onBeforeClose?.call();
-    action.onSelected();
-  }
-
   void _handleChildSizeChanged(Size size) {
     if (!size.width.isFinite ||
         !size.height.isFinite ||
@@ -202,62 +134,6 @@ class _ConduitContextMenuState extends State<ConduitContextMenu> {
       return;
     }
     _childSize = size;
-  }
-}
-
-class _DeferredContextMenuTopWidget extends StatelessWidget {
-  const _DeferredContextMenuTopWidget({required this.builder});
-
-  final WidgetBuilder builder;
-
-  @override
-  Widget build(BuildContext context) => builder(context);
-}
-
-class _CupertinoContextMenuItem extends StatelessWidget {
-  const _CupertinoContextMenuItem({required this.action});
-
-  final ConduitContextMenuAction action;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = action.destructive
-        ? CupertinoColors.destructiveRed.resolveFrom(context)
-        : CupertinoColors.label.resolveFrom(context);
-
-    return Row(
-      children: [
-        Icon(action.cupertinoIcon, color: color, size: IconSize.medium),
-        const SizedBox(width: Spacing.md),
-        Expanded(
-          child: Text(action.label, style: TextStyle(color: color)),
-        ),
-      ],
-    );
-  }
-}
-
-class _MaterialContextMenuItem extends StatelessWidget {
-  const _MaterialContextMenuItem({required this.action});
-
-  final ConduitContextMenuAction action;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-    final color = action.destructive ? theme.error : theme.textPrimary;
-    return Row(
-      children: [
-        Icon(action.materialIcon, color: color, size: IconSize.medium),
-        const SizedBox(width: Spacing.md),
-        Expanded(
-          child: Text(
-            action.label,
-            style: AppTypography.bodyMediumStyle.copyWith(color: color),
-          ),
-        ),
-      ],
-    );
   }
 }
 
@@ -514,7 +390,7 @@ Future<_ConversationMoveTarget?> _showConversationMoveSheet(
                 children: [
                   if (currentFolderId != null)
                     _MoveTargetTile(
-                      icon: Platform.isIOS
+                      icon: PlatformInfo.isIOS
                           ? CupertinoIcons.folder_badge_minus
                           : Icons.folder_off_outlined,
                       label: 'No folder',
@@ -531,7 +407,7 @@ Future<_ConversationMoveTarget?> _showConversationMoveSheet(
                       showBranch: true,
                       hasMoreSiblings: entry.hasMoreSiblings,
                       child: _MoveTargetTile(
-                        icon: Platform.isIOS
+                        icon: PlatformInfo.isIOS
                             ? CupertinoIcons.folder
                             : Icons.folder_outlined,
                         label: entry.folder.name,
@@ -564,35 +440,32 @@ class _MoveTargetTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppBorderRadius.md),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: TouchTarget.listItem),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: Spacing.sm,
-              vertical: Spacing.sm,
-            ),
-            child: Row(
-              children: [
-                Icon(icon, color: theme.iconPrimary, size: IconSize.listItem),
-                const SizedBox(width: Spacing.sm),
-                Expanded(
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTypography.sidebarTitleStyle.copyWith(
-                      color: theme.textPrimary,
-                      fontWeight: FontWeight.w400,
-                    ),
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: TouchTarget.listItem),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: Spacing.sm,
+            vertical: Spacing.sm,
+          ),
+          child: Row(
+            children: [
+              Icon(icon, color: theme.iconPrimary, size: IconSize.listItem),
+              const SizedBox(width: Spacing.sm),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.sidebarTitleStyle.copyWith(
+                    color: theme.textPrimary,
+                    fontWeight: FontWeight.w400,
                   ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
