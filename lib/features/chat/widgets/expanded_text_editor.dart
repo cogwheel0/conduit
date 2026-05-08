@@ -1,5 +1,4 @@
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 
@@ -11,9 +10,9 @@ import 'package:conduit/l10n/app_localizations.dart';
 
 /// Full-screen bottom sheet editor shown when the chat input grows large.
 ///
-/// Uses [showModalBottomSheet] so Flutter's built-in drag-to-dismiss gesture
-/// works naturally — drag the handle at the top (or anywhere outside the text
-/// field) downward to close. The send button mirrors the compact chat input.
+/// Presented by the shared modal-sheet helper so Flutter's built-in
+/// drag-to-dismiss gesture works naturally. The send button mirrors the
+/// compact chat input.
 class ExpandedTextEditorSheet extends StatefulWidget {
   const ExpandedTextEditorSheet({
     super.key,
@@ -72,49 +71,21 @@ class _ExpandedTextEditorSheetState extends State<ExpandedTextEditorSheet> {
       color: iconColor,
     );
 
-    final Widget sendButton;
-    if (!kIsWeb && Platform.isIOS) {
-      sendButton = AdaptiveButton.child(
-        onPressed: _hasText ? widget.onSend : null,
-        enabled: _hasText,
-        style: AdaptiveButtonStyle.prominentGlass,
-        color: theme.buttonPrimary,
-        size: AdaptiveButtonSize.medium,
-        minSize: const Size(buttonSize, buttonSize),
-        padding: EdgeInsets.zero,
-        borderRadius: BorderRadius.circular(buttonSize),
-        useSmoothRectangleBorder: false,
-        child: sendIcon,
-      );
-    } else {
-      sendButton = SizedBox(
-        width: buttonSize,
-        height: buttonSize,
-        child: DecoratedBox(
-          decoration: ShapeDecoration(
-            color: _hasText
-                ? theme.buttonPrimary
-                : theme.surfaceContainerHighest,
-            shape: CircleBorder(
-              side: BorderSide(
-                color: _hasText ? theme.buttonPrimary : theme.cardBorder,
-                width: BorderWidth.thin,
-              ),
-            ),
-          ),
-          child: ClipOval(
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: _hasText ? widget.onSend : null,
-              child: Center(child: sendIcon),
-            ),
-          ),
-        ),
-      );
-    }
+    final sendButton = AdaptiveButton.child(
+      onPressed: _hasText ? widget.onSend : null,
+      enabled: _hasText,
+      style: AdaptiveButtonStyle.prominentGlass,
+      color: theme.buttonPrimary,
+      size: AdaptiveButtonSize.medium,
+      minSize: const Size(buttonSize, buttonSize),
+      padding: EdgeInsets.zero,
+      borderRadius: BorderRadius.circular(buttonSize),
+      useSmoothRectangleBorder: false,
+      child: sendIcon,
+    );
 
-    // useSafeArea: true on the showModalBottomSheet call already constrains
-    // the sheet to the safe area — no manual height calculation needed.
+    // useSafeArea: true on the presenter already constrains the sheet to the
+    // safe area, so no manual height calculation is needed.
     return Container(
       height: double.infinity,
       decoration: BoxDecoration(

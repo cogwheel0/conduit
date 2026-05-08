@@ -1,9 +1,7 @@
-import 'dart:io' show Platform;
 import 'dart:math' as math;
 
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -23,7 +21,7 @@ import '../../core/services/settings_service.dart';
 // FLOATING APP BAR COMPONENTS
 // =============================================================================
 
-/// A pill-shaped container with blur effect for floating app bar elements.
+/// A pill-shaped container for floating app bar elements.
 /// Used for back buttons, titles, and action buttons in the floating app bar.
 class FloatingAppBarPill extends StatelessWidget {
   final Widget child;
@@ -41,51 +39,10 @@ class FloatingAppBarPill extends StatelessWidget {
         ? BorderRadius.circular(100)
         : BorderRadius.circular(AppBorderRadius.pill);
 
-    final blurChild = isCircular
+    final surfaceChild = isCircular
         ? SizedBox(width: 44, height: 44, child: Center(child: child))
         : child;
 
-    if (PlatformInfo.isIOS26OrHigher()) {
-      return LayoutBuilder(
-        builder: (context, constraints) {
-          final hasBoundedWidth = constraints.maxWidth.isFinite;
-          final minSize = hasBoundedWidth
-              ? Size(
-                  constraints.maxWidth,
-                  isCircular ? TouchTarget.minimum : TouchTarget.input,
-                )
-              : null;
-
-          return Stack(
-            alignment: Alignment.center,
-            children: [
-              Positioned.fill(
-                child: IgnorePointer(
-                  child: AdaptiveButton.child(
-                    onPressed: () {},
-                    style: AdaptiveButtonStyle.glass,
-                    size: AdaptiveButtonSize.large,
-                    minSize: minSize,
-                    useSmoothRectangleBorder: false,
-                    child: const SizedBox.shrink(),
-                  ),
-                ),
-              ),
-              ClipRRect(borderRadius: borderRadius, child: blurChild),
-            ],
-          );
-        },
-      );
-    }
-
-    // On iOS, use glass blur. On Android/web/desktop, use Material surface.
-    if (!kIsWeb && Platform.isIOS) {
-      return AdaptiveBlurView(
-        blurStyle: BlurStyle.systemUltraThinMaterial,
-        borderRadius: borderRadius,
-        child: blurChild,
-      );
-    }
     final theme = context.conduitTheme;
     return Container(
       decoration: BoxDecoration(
@@ -93,13 +50,13 @@ class FloatingAppBarPill extends StatelessWidget {
         borderRadius: borderRadius,
         border: Border.all(color: theme.cardBorder, width: BorderWidth.thin),
       ),
-      child: blurChild,
+      child: surfaceChild,
     );
   }
 }
 
 /// A floating app bar with gradient background and pill-shaped elements.
-/// Provides a consistent app bar style across the app with blur effects.
+/// Provides a consistent app bar style across the app.
 ///
 /// Supports:
 /// - Simple title with optional leading/actions

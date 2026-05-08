@@ -1,3 +1,4 @@
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -67,20 +68,21 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
     return Semantics(
       label: l10n.manage,
       button: true,
-      child: GestureDetector(
-        onTap: () {
+      child: AdaptiveButton.child(
+        onPressed: () {
           Navigator.of(context).maybePop();
           context.pushNamed(RouteNames.profile);
         },
-        child: FloatingAppBarPill(
-          isCircular: true,
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(AppBorderRadius.avatar),
-            child: UserAvatar(
-              size: _avatarSize,
-              imageUrl: avatarUrl,
-              fallbackText: initial,
-            ),
+        style: AdaptiveButtonStyle.glass,
+        size: AdaptiveButtonSize.large,
+        minSize: const Size(TouchTarget.minimum, TouchTarget.minimum),
+        useSmoothRectangleBorder: false,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(AppBorderRadius.avatar),
+          child: UserAvatar(
+            size: _avatarSize,
+            imageUrl: avatarUrl,
+            fallbackText: initial,
           ),
         ),
       ),
@@ -90,20 +92,23 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
 
 /// Search field used as the sidebar adaptive app bar leading widget.
 class SidebarSearchAppBarLeading extends ConsumerWidget {
-  const SidebarSearchAppBarLeading({super.key, required this.hintText});
+  const SidebarSearchAppBarLeading({
+    super.key,
+    required this.hintText,
+    required this.maxWidth,
+  });
 
   final String hintText;
+  final double maxWidth;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final controller = ref.watch(sidebarSearchFieldControllerProvider);
     final focusNode = ref.watch(sidebarSearchFieldFocusNodeProvider);
-    final maxWidth = (MediaQuery.sizeOf(context).width - 96)
-        .clamp(180.0, double.infinity)
-        .toDouble();
+    final resolvedMaxWidth = maxWidth.clamp(0.0, double.infinity).toDouble();
 
     return ConstrainedBox(
-      constraints: BoxConstraints(maxWidth: maxWidth),
+      constraints: BoxConstraints(maxWidth: resolvedMaxWidth),
       child: ValueListenableBuilder<TextEditingValue>(
         valueListenable: controller,
         builder: (context, value, _) {

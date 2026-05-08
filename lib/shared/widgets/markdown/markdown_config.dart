@@ -15,6 +15,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 
 import '../web_content_embed.dart';
 import '../webview_content_height.dart';
+import '../themed_sheets.dart';
 import '../../theme/color_tokens.dart';
 import '../../theme/theme_extensions.dart';
 import 'renderer/markdown_style.dart';
@@ -171,15 +172,11 @@ class ConduitMarkdown {
     final theme = context.conduitTheme;
     final title = _previewTitleForLanguage(language);
 
-    return showModalBottomSheet<void>(
+    return ThemedSheets.showSurface<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: theme.surfaceBackground,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(AppBorderRadius.dialog),
-        ),
-      ),
+      showHandle: false,
+      padding: EdgeInsets.zero,
       builder: (sheetContext) {
         final markdownStyle = ConduitMarkdownStyle.fromTheme(sheetContext);
         return SafeArea(

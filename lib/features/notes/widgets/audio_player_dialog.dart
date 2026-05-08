@@ -11,6 +11,7 @@ import 'package:path_provider/path_provider.dart';
 import '../../../core/services/api_service.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/widgets/themed_dialogs.dart';
 
 /// A dialog for playing audio files.
 class AudioPlayerDialog extends StatefulWidget {
@@ -37,7 +38,7 @@ class AudioPlayerDialog extends StatefulWidget {
     required ApiService api,
     required String fileName,
   }) {
-    return showDialog(
+    return ThemedDialogs.showCustom<void>(
       context: context,
       builder: (context) => AudioPlayerDialog(
         fileId: fileId,

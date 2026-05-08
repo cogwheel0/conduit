@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher_string.dart';
 import '../../../core/models/chat_message.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/widgets/themed_sheets.dart';
 import 'assistant_detail_header.dart';
 
 /// Displays a list of code execution results as interactive chips.
@@ -61,15 +62,11 @@ class CodeExecutionListView extends StatelessWidget {
     ChatCodeExecution execution,
   ) async {
     final theme = context.conduitTheme;
-    await showModalBottomSheet<void>(
+    await ThemedSheets.showSurface<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: theme.surfaceBackground,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(AppBorderRadius.dialog),
-        ),
-      ),
+      showHandle: false,
+      padding: EdgeInsets.zero,
       builder: (ctx) {
         final result = execution.result;
         return DraggableScrollableSheet(

@@ -110,7 +110,7 @@ class ProfilePage extends ConsumerWidget {
 
   double _topContentPadding(BuildContext context) {
     final mediaQuery = MediaQuery.of(context);
-    if (PlatformInfo.isIOS26OrHigher()) {
+    if (Theme.of(context).platform == TargetPlatform.iOS) {
       return mediaQuery.padding.top + kTextTabBarHeight + Spacing.lg;
     }
     return Spacing.lg;

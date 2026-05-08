@@ -72,7 +72,7 @@ Future<ChannelFormResult?> showChannelFormDialog(
   final descriptionController = TextEditingController(text: initialDescription);
   var isPrivate = initialIsPrivate;
 
-  return showDialog<ChannelFormResult>(
+  return ThemedDialogs.showCustom<ChannelFormResult>(
     context: context,
     builder: (dialogContext) => StatefulBuilder(
       builder: (dialogContext, setDialogState) {

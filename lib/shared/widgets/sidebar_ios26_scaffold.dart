@@ -5,14 +5,15 @@ import 'package:flutter/widgets.dart';
 
 /// iOS 26 sidebar scaffold workaround for `adaptive_platform_ui`.
 ///
-/// `AdaptiveScaffold` currently rebuilds its internal `IOS26Scaffold` when the
-/// active bottom-navigation index changes. For the sidebar this remounts the
-/// entire tab body subtree, which resets scroll position and local widget state
-/// on every tab switch.
+/// `AdaptiveScaffold` currently turns a single tab body into one child per
+/// bottom-tab item before handing off to `IOS26Scaffold`. The sidebar already
+/// owns tab body switching through `_SidebarTabStack`, so that extra
+/// `IndexedStack` layer can switch between duplicate sidebar body trees and
+/// reset tab-local state.
 ///
-/// Until the package exposes a stable public fix, the sidebar uses the lower-
-/// level `IOS26Scaffold` directly while keeping the same adaptive bottom bar
-/// configuration, leading content, and toolbar actions.
+/// Until the package exposes a public single-body tab scaffold path, the
+/// sidebar uses the lower-level iOS 26 scaffold directly while keeping the same
+/// native toolbar and bottom-tab configuration.
 class SidebarIos26Scaffold extends StatelessWidget {
   const SidebarIos26Scaffold({
     super.key,

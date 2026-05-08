@@ -4,7 +4,6 @@ import 'package:conduit/l10n/app_localizations.dart';
 import '../../../core/widgets/error_boundary.dart';
 import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
-import '../../../shared/utils/glass_colors.dart';
 import 'package:flutter/services.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter/cupertino.dart';
@@ -13,7 +12,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'dart:io' show Platform;
 import 'dart:math' as math;
-import 'package:flutter/foundation.dart' show kIsWeb;
 
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import 'dart:async';
@@ -47,8 +45,10 @@ import '../../../core/models/model.dart';
 import '../providers/context_attachments_provider.dart';
 import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
+import '../../../shared/widgets/themed_sheets.dart';
 import '../../../shared/widgets/measure_size.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
+import '../../../shared/widgets/chrome_gradient_fade.dart';
 
 class ChatPage extends ConsumerStatefulWidget {
   const ChatPage({super.key});
@@ -521,9 +521,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       return;
     }
 
-    showModalBottomSheet<void>(
+    ThemedSheets.showCustom<void>(
       context: context,
-      backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (_) => ServerFilePickerSheet(
         onSelected: (file) {
@@ -663,7 +662,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final l10n = AppLocalizations.of(context)!;
     String url = '';
     bool submitting = false;
-    await showDialog<void>(
+    await ThemedDialogs.showCustom<void>(
       context: context,
       builder: (dialogContext) {
         String? errorText;
@@ -943,12 +942,16 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   /// User-initiated scroll to bottom (e.g. button tap).
   void _userScrollToBottom() {
+    _isUserInteractingWithScroll = false;
     if (_wantsPinToTop) {
       _endPinToTop(instant: true, preserveStreamingId: true);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _scrollToBottom(smooth: false);
+      });
+      return;
     }
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _scrollToBottom();
-    });
+
+    _scrollToBottom(smooth: false);
   }
 
   void _scheduleKeyboardScrollToBottom() {
@@ -985,6 +988,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       );
     } else {
       _scrollController.jumpTo(maxScroll);
+      _updateScrollToBottomVisibility();
     }
   }
 
@@ -1232,19 +1236,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     const buttonSize = 40.0;
     const iconSize = IconSize.medium;
 
-    if (!kIsWeb && Platform.isIOS) {
-      return AdaptiveButton.child(
-        onPressed: _userScrollToBottom,
-        style: AdaptiveButtonStyle.glass,
-        size: AdaptiveButtonSize.medium,
-        minSize: const Size.square(buttonSize),
-        padding: EdgeInsets.zero,
-        borderRadius: BorderRadius.circular(buttonSize),
-        useSmoothRectangleBorder: false,
-        child: Icon(icon, size: iconSize, color: GlassColors.label(context)),
-      );
-    }
-
     return AdaptiveButton.child(
       onPressed: _userScrollToBottom,
       style: AdaptiveButtonStyle.glass,
@@ -1475,6 +1466,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       _pinnedUserMessageId = null;
     }
 
+    final pinnedUserMessageIndex =
+        _wantsPinToTop && _pinnedUserMessageId != null
+        ? messages.indexWhere((message) => message.id == _pinnedUserMessageId)
+        : -1;
+
     // Pre-compute bubble adjacency in O(n) instead of O(n^2) per-item scan
     final bubbleAdjacency = _computeBubbleAdjacency(messages);
 
@@ -1588,12 +1584,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 Widget messageWidget;
 
                 if (isUser) {
-                  final isPinTarget =
-                      _wantsPinToTop && message.id == _pinnedUserMessageId;
+                  final isPinTarget = index == pinnedUserMessageIndex;
                   messageWidget = KeyedSubtree(
                     key: isPinTarget
                         ? _pinnedUserMessageKey
-                        : ValueKey('user-${message.id}'),
+                        : ValueKey('user-${message.id}-$index'),
                     child: UserMessageBubble(
                       message: message,
                       isUser: isUser,
@@ -1606,7 +1601,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   );
                 } else {
                   messageWidget = assistant.AssistantMessageWidget(
-                    key: ValueKey('assistant-${message.id}'),
+                    key: ValueKey('assistant-${message.id}-$index'),
                     message: message,
                     isStreaming: isStreaming,
                     showFollowUps: showFollowUps,
@@ -1898,7 +1893,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     );
     // Watch loading state for app bar skeleton
     final isLoadingConversation = ref.watch(isLoadingConversationProvider);
-    final isReviewerMode = ref.watch(reviewerModeProvider);
     final formattedModelName = selectedModel != null
         ? _formatModelDisplayName(selectedModel.name)
         : null;
@@ -1983,7 +1977,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         appBar: _buildAdaptiveChatAppBar(
           context: context,
           isLoadingConversation: isLoadingConversation,
-          isReviewerMode: isReviewerMode,
           modelLabel: modelLabel,
         ),
         body: GestureDetector(
@@ -2041,6 +2034,17 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                       : const SizedBox.shrink(
                           key: ValueKey('scroll_to_bottom_hidden'),
                         ),
+                ),
+              ),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: ConduitChromeGradientFade.bottom(
+                  contentHeight: math.max(
+                    _inputHeight,
+                    MediaQuery.viewPaddingOf(context).bottom + Spacing.xxxl,
+                  ),
                 ),
               ),
               Positioned(
@@ -2144,20 +2148,18 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   AdaptiveAppBar _buildAdaptiveChatAppBar({
     required BuildContext context,
     required bool isLoadingConversation,
-    required bool isReviewerMode,
     required String modelLabel,
   }) {
     final tintColor = context.conduitTheme.textPrimary;
 
     return buildConduitAdaptiveToolbarAppBar(
-      context: context,
       tintColor: tintColor,
-      buildNativeLeading: () => _buildNativeToolbarLeading(
+      buildLeading: () => _buildNativeToolbarLeading(
         context: context,
         isLoadingConversation: isLoadingConversation,
         modelLabel: modelLabel,
       ),
-      buildNativeActions: () {
+      buildActions: () {
         final activeConversation = ref.watch(activeConversationProvider);
         final isTemporary = ref.watch(temporaryChatEnabledProvider);
         final hasMessages = ref.watch(
@@ -2170,18 +2172,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           hasMessages: hasMessages,
         );
       },
-      buildMaterialLeading: () => ConduitAdaptiveAppBarIconButton(
-        icon: Platform.isIOS ? CupertinoIcons.line_horizontal_3 : Icons.menu,
-        onPressed: () => _toggleResponsiveDrawer(context),
-        iconColor: tintColor,
-      ),
-      buildMaterialTitle: () => _buildMaterialToolbarTitle(
-        context: context,
-        isLoadingConversation: isLoadingConversation,
-        isReviewerMode: isReviewerMode,
-        modelLabel: modelLabel,
-      ),
-      buildMaterialActions: () => _buildMaterialToolbarActions(context),
     );
   }
 
@@ -2213,181 +2203,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         ),
       ],
     );
-  }
-
-  Widget _buildMaterialToolbarTitle({
-    required BuildContext context,
-    required bool isLoadingConversation,
-    required bool isReviewerMode,
-    required String modelLabel,
-  }) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final maxPillWidth = resolveConduitAdaptiveToolbarPillWidth(
-          availableWidth: constraints.maxWidth,
-          maxWidth: 300,
-          preferredPadding: Spacing.xxl,
-        );
-
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Align(
-              alignment: Alignment.centerLeft,
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 200),
-                switchInCurve: Curves.easeOut,
-                switchOutCurve: Curves.easeIn,
-                child: KeyedSubtree(
-                  key: ValueKey(
-                    isLoadingConversation
-                        ? 'model-loading'
-                        : 'model-$modelLabel',
-                  ),
-                  child: ConduitAdaptiveAppBarModelSelector(
-                    key: ValueKey(
-                      isLoadingConversation
-                          ? 'chat-model-selector-loading'
-                          : 'chat-model-selector-$modelLabel',
-                    ),
-                    label: modelLabel,
-                    maxWidth: maxPillWidth,
-                    isLoading: isLoadingConversation,
-                    onPressed: () => _openModelSelector(context),
-                  ),
-                ),
-              ),
-            ),
-            if (isReviewerMode)
-              Padding(
-                padding: const EdgeInsets.only(top: Spacing.xs),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: Spacing.sm,
-                    vertical: 1.0,
-                  ),
-                  decoration: BoxDecoration(
-                    color: context.conduitTheme.success.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(AppBorderRadius.badge),
-                    border: Border.all(
-                      color: context.conduitTheme.success.withValues(
-                        alpha: 0.3,
-                      ),
-                      width: BorderWidth.thin,
-                    ),
-                  ),
-                  child: Text(
-                    'REVIEWER MODE',
-                    style: AppTypography.labelSmallStyle.copyWith(
-                      color: context.conduitTheme.success,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        );
-      },
-    );
-  }
-
-  List<Widget> _buildMaterialToolbarActions(BuildContext context) {
-    return [
-      Consumer(
-        builder: (context, ref, _) {
-          final isTemporary = ref.watch(temporaryChatEnabledProvider);
-          final activeConversation = ref.watch(activeConversationProvider);
-          final hasMessages = ref.watch(
-            chatMessagesProvider.select((messages) => messages.isNotEmpty),
-          );
-
-          final showToggle =
-              activeConversation == null ||
-              isTemporaryChat(activeConversation.id);
-
-          if (!showToggle) {
-            return const SizedBox.shrink();
-          }
-
-          if (isTemporary && hasMessages && activeConversation != null) {
-            return AdaptiveTooltip(
-              message: AppLocalizations.of(context)!.saveChat,
-              child: ConduitAdaptiveAppBarIconButton(
-                icon: Platform.isIOS
-                    ? CupertinoIcons.arrow_down_doc
-                    : Icons.save_alt,
-                onPressed: _saveTemporaryChat,
-                iconColor: context.conduitTheme.textPrimary,
-              ),
-            );
-          }
-
-          return AdaptiveTooltip(
-            message: isTemporary
-                ? AppLocalizations.of(context)!.temporaryChatTooltip
-                : AppLocalizations.of(context)!.temporaryChat,
-            child: ConduitAdaptiveAppBarIconButton(
-              icon: isTemporary
-                  ? (Platform.isIOS
-                        ? CupertinoIcons.eye_slash
-                        : Icons.visibility_off)
-                  : (Platform.isIOS
-                        ? CupertinoIcons.eye
-                        : Icons.visibility_outlined),
-              onPressed: () {
-                ConduitHaptics.selectionClick();
-                final current = ref.read(temporaryChatEnabledProvider);
-                ref.read(temporaryChatEnabledProvider.notifier).set(!current);
-              },
-              iconColor: isTemporary
-                  ? Colors.blue
-                  : context.conduitTheme.textPrimary,
-            ),
-          );
-        },
-      ),
-      const SizedBox(width: Spacing.sm),
-      Consumer(
-        builder: (context, ref, _) {
-          final activeConversation = ref.watch(activeConversationProvider);
-          if (activeConversation == null ||
-              isTemporaryChat(activeConversation.id)) {
-            return const SizedBox.shrink();
-          }
-
-          return Padding(
-            padding: const EdgeInsets.only(right: Spacing.sm),
-            child: AdaptiveTooltip(
-              message: AppLocalizations.of(context)!.shareChat,
-              child: ConduitAdaptiveAppBarIconButton(
-                icon: Platform.isIOS
-                    ? CupertinoIcons.share
-                    : Icons.ios_share_rounded,
-                onPressed: () {
-                  ConduitHaptics.selectionClick();
-                  showChatShareSheet(
-                    context: context,
-                    conversation: activeConversation,
-                  );
-                },
-                iconColor: context.conduitTheme.textPrimary,
-              ),
-            ),
-          );
-        },
-      ),
-      Padding(
-        padding: const EdgeInsets.only(right: Spacing.inputPadding),
-        child: AdaptiveTooltip(
-          message: AppLocalizations.of(context)!.newChat,
-          child: ConduitAdaptiveAppBarIconButton(
-            icon: Platform.isIOS ? CupertinoIcons.create : Icons.add_comment,
-            onPressed: _handleNewChat,
-            iconColor: context.conduitTheme.textPrimary,
-          ),
-        ),
-      ),
-    ];
   }
 
   List<AdaptiveAppBarAction> _buildAdaptiveToolbarActions({
@@ -2474,10 +2289,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     // Ensure keyboard is closed before presenting modal
     final hadFocus = ref.read(composerHasFocusProvider);
     _dismissComposerFocus();
-    showModalBottomSheet(
+    ThemedSheets.showCustom<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.transparent,
       builder: (context) => ModelSelectorSheet(models: models, ref: ref),
     ).whenComplete(() {
       if (!mounted) return;

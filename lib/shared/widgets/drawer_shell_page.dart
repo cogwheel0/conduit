@@ -7,7 +7,6 @@ import '../../features/chat/providers/chat_providers.dart';
 import '../../features/navigation/widgets/sidebar_page.dart';
 import '../../shared/theme/theme_extensions.dart';
 import 'responsive_drawer_layout.dart';
-import 'sidebar_primary_circle_button.dart';
 
 /// Shell widget that wraps child routes with a persistent
 /// [ResponsiveDrawerLayout] + [SidebarPage] drawer.

@@ -688,11 +688,8 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
       (value: 'custom', label: l10n.genderCustom),
     ];
 
-    await showModalBottomSheet<void>(
+    await showSettingsSheet<void>(
       context: context,
-      backgroundColor: Colors.transparent,
-      barrierColor: settingsSheetBarrierColor(context),
-      isScrollControlled: true,
       builder: (sheetContext) {
         return SettingsSelectorSheet(
           title: l10n.genderLabel,
@@ -728,7 +725,7 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
   }) async {
     DateTime selectedDate = initialDate;
 
-    return showModalBottomSheet<DateTime>(
+    return showSettingsSheet<DateTime>(
       context: context,
       builder: (context) {
         final theme = context.conduitTheme;

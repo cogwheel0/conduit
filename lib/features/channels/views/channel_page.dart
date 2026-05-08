@@ -14,17 +14,18 @@ import '../../../core/models/channel_message.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/services/navigation_service.dart';
-import '../../../core/services/platform_service.dart';
 import '../../../core/utils/model_icon_utils.dart';
 import '../../../core/utils/user_avatar_utils.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
+import '../../../shared/widgets/chrome_gradient_fade.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/model_avatar.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
+import '../../../shared/widgets/themed_sheets.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../../chat/services/file_attachment_service.dart';
 import '../../chat/widgets/modern_chat_input.dart';
@@ -74,7 +75,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     if (isTablet) {
       setState(() => _threadParent = message);
     } else {
-      showModalBottomSheet<void>(
+      ThemedSheets.showCustom<void>(
         context: context,
         isScrollControlled: true,
         useSafeArea: true,
@@ -485,41 +486,30 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   }
 
   void _showEmojiPicker(ChannelMessage message) {
-    final theme = context.conduitTheme;
-
-    showModalBottomSheet<void>(
+    ThemedSheets.showSurface<void>(
       context: context,
-      backgroundColor: theme.surfaceContainer,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(AppBorderRadius.bottomSheet),
-        ),
+      showHandle: false,
+      padding: const EdgeInsets.symmetric(
+        vertical: Spacing.md,
+        horizontal: Spacing.lg,
       ),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(
-            vertical: Spacing.md,
-            horizontal: Spacing.lg,
-          ),
-          child: Wrap(
-            spacing: Spacing.md,
-            runSpacing: Spacing.md,
-            alignment: WrapAlignment.center,
-            children: _reactionEmojis.map((emoji) {
-              return GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _toggleReaction(message, emoji);
-                },
-                child: Padding(
-                  padding: const EdgeInsets.all(Spacing.sm),
-                  child: Text(emoji, style: const TextStyle(fontSize: 28)),
-                ),
-              );
-            }).toList(),
-          ),
-        ),
+      builder: (ctx) => Wrap(
+        spacing: Spacing.md,
+        runSpacing: Spacing.md,
+        alignment: WrapAlignment.center,
+        children: _reactionEmojis.map((emoji) {
+          return GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () {
+              Navigator.pop(ctx);
+              _toggleReaction(message, emoji);
+            },
+            child: Padding(
+              padding: const EdgeInsets.all(Spacing.sm),
+              child: Text(emoji, style: const TextStyle(fontSize: 28)),
+            ),
+          );
+        }).toList(),
       ),
     );
   }
@@ -682,58 +672,32 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     );
   }
 
-  List<Widget> _buildChannelToolbarActions(
-    ConduitThemeExtension theme,
-    Channel? channel,
-    AppLocalizations? l10n,
-  ) {
-    return [
-      if (channel?.userCount != null)
-        Padding(
-          padding: const EdgeInsets.only(right: Spacing.xs),
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: _showMemberList,
-            child: FloatingAppBarPill(
-              isCircular: true,
-              child: Icon(
-                Icons.people_outline,
-                size: IconSize.appBar,
-                color: theme.textPrimary,
-              ),
-            ),
-          ),
-        ),
-      Padding(
-        padding: const EdgeInsets.only(right: Spacing.inputPadding),
-        child: _buildMoreMenuButton(channel, theme, l10n),
-      ),
-    ];
-  }
-
-  List<AdaptiveAppBarAction> _buildNativeChannelToolbarActions(
+  List<Widget> _buildChannelToolbarActionWidgets(
     BuildContext context,
     ConduitThemeExtension theme,
     Channel? channel,
     AppLocalizations? l10n,
   ) {
-    final actions = <AdaptiveAppBarAction>[
+    final actions = <Widget>[
       if (channel?.userCount != null)
-        AdaptiveAppBarAction(
-          iosSymbol: 'person.2',
+        ConduitAdaptiveAppBarIconButton(
           icon: Icons.people_outline,
-          tintColor: theme.textPrimary,
+          iconColor: theme.textPrimary,
           onPressed: _showMemberList,
         ),
-      AdaptiveAppBarAction(
-        iosSymbol: 'ellipsis',
-        icon: Platform.isIOS
-            ? CupertinoIcons.ellipsis_vertical
-            : Icons.more_vert,
-        tintColor: theme.textPrimary,
-        onPressed: () => _showChannelMoreActions(context, channel, l10n),
-      ),
     ];
+
+    if (actions.isNotEmpty) {
+      actions.add(const SizedBox(width: Spacing.sm));
+    }
+
+    actions.add(
+      _ChannelToolbarPopupButton(
+        l10n: l10n,
+        tintColor: theme.textPrimary,
+        onSelected: (action) => _handleChannelToolbarSelection(action, channel),
+      ),
+    );
 
     return actions;
   }
@@ -754,60 +718,52 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       maxWidth: 260,
     );
     final tintColor = theme.textPrimary;
-
-    return buildConduitAdaptiveToolbarAppBar(
-      context: context,
-      tintColor: tintColor,
-      buildNativeLeading: () {
-        return Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ConduitAdaptiveAppBarIconButton(
-              icon: Platform.isIOS
-                  ? CupertinoIcons.line_horizontal_3
-                  : Icons.menu,
-              onPressed: _toggleDrawer,
-              iconColor: tintColor,
-            ),
-            const SizedBox(width: Spacing.xs),
-            _buildChannelTitlePill(
-              context,
-              theme,
-              channel,
-              maxWidth: maxTitleWidth,
-            ),
-          ],
-        );
-      },
-      buildNativeActions: () =>
-          _buildNativeChannelToolbarActions(context, theme, channel, l10n),
-      buildMaterialLeading: () => ConduitAdaptiveAppBarIconButton(
-        icon: Platform.isIOS ? CupertinoIcons.line_horizontal_3 : Icons.menu,
-        onPressed: _toggleDrawer,
-        iconColor: tintColor,
-      ),
-      buildMaterialTitle: () => Align(
-        alignment: Alignment.centerLeft,
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final titleWidth = resolveConduitAdaptiveToolbarPillWidth(
-              availableWidth: constraints.maxWidth,
-              maxWidth: 260,
-            );
-            return Padding(
-              padding: const EdgeInsets.only(left: Spacing.sm),
-              child: _buildChannelTitlePill(
-                context,
-                theme,
-                channel,
-                maxWidth: titleWidth,
-              ),
-            );
-          },
+    final leading = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ConduitAdaptiveAppBarIconButton(
+          icon: Platform.isIOS ? CupertinoIcons.line_horizontal_3 : Icons.menu,
+          onPressed: _toggleDrawer,
+          iconColor: tintColor,
         ),
+        const SizedBox(width: Spacing.xs),
+        _buildChannelTitlePill(
+          context,
+          theme,
+          channel,
+          maxWidth: maxTitleWidth,
+        ),
+      ],
+    );
+    final actions = _buildChannelToolbarActionWidgets(
+      context,
+      theme,
+      channel,
+      l10n,
+    );
+
+    return AdaptiveAppBar(
+      useNativeToolbar: false,
+      tintColor: tintColor,
+      cupertinoNavigationBar: CupertinoNavigationBar(
+        automaticallyImplyLeading: false,
+        border: null,
+        backgroundColor: Colors.transparent,
+        enableBackgroundFilterBlur: false,
+        leading: leading,
+        trailing: Row(mainAxisSize: MainAxisSize.min, children: actions),
       ),
-      buildMaterialActions: () =>
-          _buildChannelToolbarActions(theme, channel, l10n),
+      appBar: AppBar(
+        automaticallyImplyLeading: false,
+        backgroundColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
+        elevation: Elevation.none,
+        scrolledUnderElevation: Elevation.none,
+        leadingWidth:
+            TouchTarget.minimum + Spacing.xs + maxTitleWidth + Spacing.md,
+        leading: leading,
+        actions: actions,
+      ),
     );
   }
 
@@ -820,114 +776,135 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       backgroundColor: theme.surfaceBackground,
       extendBodyBehindAppBar: true,
       appBar: _buildAdaptiveChannelAppBar(context, theme, channel, l10n),
-      body: Row(
+      body: Stack(
         children: [
-          Expanded(
-            child: Column(
-              children: [
-                Expanded(
-                  child: messagesAsync.when(
-                    data: (messages) =>
-                        _buildMessageList(messages, theme, l10n),
-                    loading: () =>
-                        const Center(child: CircularProgressIndicator()),
-                    error: (error, _) => Center(
-                      child: Text(
-                        error.toString(),
-                        style: AppTypography.bodyMediumStyle.copyWith(
-                          color: theme.error,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: Spacing.sm),
-                Consumer(
-                  builder: (context, ref, _) {
-                    final typingUsers = ref.watch(channelTypingUsersProvider);
-                    if (typingUsers.isEmpty) {
-                      return const SizedBox.shrink();
-                    }
-                    final names = typingUsers.values.toList();
-                    final text = names.length == 1
-                        ? '${names.first} '
-                              'is typing...'
-                        : '${names.join(", ")} '
-                              'are typing...';
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: Spacing.md,
-                        vertical: Spacing.xxs,
-                      ),
-                      child: Text(
-                        text,
-                        style: AppTypography.bodySmallStyle.copyWith(
-                          color: theme.textSecondary,
-                          fontStyle: FontStyle.italic,
-                        ),
-                      ),
-                    );
-                  },
-                ),
-                if (_replyToMessage != null)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: Spacing.md,
-                      vertical: Spacing.sm,
-                    ),
-                    color: theme.surfaceContainer,
-                    child: Row(
-                      children: [
-                        Icon(Icons.reply, size: 16, color: theme.textSecondary),
-                        const SizedBox(width: Spacing.sm),
-                        Expanded(
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  children: [
+                    Expanded(
+                      child: messagesAsync.when(
+                        data: (messages) =>
+                            _buildMessageList(messages, theme, l10n),
+                        loading: () =>
+                            const Center(child: CircularProgressIndicator()),
+                        error: (error, _) => Center(
                           child: Text(
-                            'Replying to '
-                            '${_replyToMessage!.userName}',
+                            error.toString(),
+                            style: AppTypography.bodyMediumStyle.copyWith(
+                              color: theme.error,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: Spacing.sm),
+                    Consumer(
+                      builder: (context, ref, _) {
+                        final typingUsers = ref.watch(
+                          channelTypingUsersProvider,
+                        );
+                        if (typingUsers.isEmpty) {
+                          return const SizedBox.shrink();
+                        }
+                        final names = typingUsers.values.toList();
+                        final text = names.length == 1
+                            ? '${names.first} '
+                                  'is typing...'
+                            : '${names.join(", ")} '
+                                  'are typing...';
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: Spacing.md,
+                            vertical: Spacing.xxs,
+                          ),
+                          child: Text(
+                            text,
                             style: AppTypography.bodySmallStyle.copyWith(
                               color: theme.textSecondary,
+                              fontStyle: FontStyle.italic,
                             ),
-                            overflow: TextOverflow.ellipsis,
                           ),
-                        ),
-                        IconButton(
-                          icon: Icon(
-                            Icons.close,
-                            size: 16,
-                            color: theme.textSecondary,
-                          ),
-                          onPressed: _clearReplyTo,
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                        ),
-                      ],
+                        );
+                      },
                     ),
-                  ),
-                RepaintBoundary(
-                  child: ModernChatInput(
-                    onSendMessage: _sendMessage,
-                    placeholder: 'Type here...',
-                    overflowButtonBuilder: _buildAttachmentButton,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (_threadParent != null)
-            SizedBox(
-              width: 320,
-              child: Padding(
-                padding: EdgeInsets.only(
-                  top: MediaQuery.of(context).padding.top + kTextTabBarHeight,
-                ),
-                child: ThreadPanel(
-                  channelId: widget.channelId,
-                  parentMessage: _threadParent!,
-                  onClose: () => setState(() => _threadParent = null),
-                  overflowButtonBuilder: _buildAttachmentButton,
+                    if (_replyToMessage != null)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: Spacing.md,
+                          vertical: Spacing.sm,
+                        ),
+                        color: theme.surfaceContainer,
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.reply,
+                              size: 16,
+                              color: theme.textSecondary,
+                            ),
+                            const SizedBox(width: Spacing.sm),
+                            Expanded(
+                              child: Text(
+                                'Replying to '
+                                '${_replyToMessage!.userName}',
+                                style: AppTypography.bodySmallStyle.copyWith(
+                                  color: theme.textSecondary,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            IconButton(
+                              icon: Icon(
+                                Icons.close,
+                                size: 16,
+                                color: theme.textSecondary,
+                              ),
+                              onPressed: _clearReplyTo,
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                            ),
+                          ],
+                        ),
+                      ),
+                    RepaintBoundary(
+                      child: ModernChatInput(
+                        onSendMessage: _sendMessage,
+                        placeholder: 'Type here...',
+                        overflowButtonBuilder: _buildAttachmentButton,
+                      ),
+                    ),
+                  ],
                 ),
               ),
+              if (_threadParent != null)
+                SizedBox(
+                  width: 320,
+                  child: Padding(
+                    padding: EdgeInsets.only(
+                      top:
+                          MediaQuery.of(context).padding.top +
+                          kTextTabBarHeight,
+                    ),
+                    child: ThreadPanel(
+                      channelId: widget.channelId,
+                      parentMessage: _threadParent!,
+                      onClose: () => setState(() => _threadParent = null),
+                      overflowButtonBuilder: _buildAttachmentButton,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            top: 0,
+            child: ConduitChromeGradientFade.top(
+              contentHeight:
+                  MediaQuery.viewPaddingOf(context).top + kTextTabBarHeight,
             ),
+          ),
         ],
       ),
     );
@@ -1034,69 +1011,63 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       final users = (result['users'] as List<dynamic>?) ?? [];
       final total = (result['total'] as int?) ?? users.length;
 
-      showModalBottomSheet<void>(
+      ThemedSheets.showSurface<void>(
         context: context,
-        backgroundColor: theme.surfaceContainer,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(
-            top: Radius.circular(AppBorderRadius.bottomSheet),
+        showHandle: false,
+        padding: EdgeInsets.zero,
+        builder: (ctx) => ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(ctx).size.height * 0.6,
           ),
-        ),
-        builder: (ctx) => SafeArea(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxHeight: MediaQuery.of(ctx).size.height * 0.6,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(Spacing.md),
-                  child: Text(
-                    'Members ($total)',
-                    style: AppTypography.titleMediumStyle.copyWith(
-                      color: theme.textPrimary,
-                      fontWeight: FontWeight.w600,
-                    ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(Spacing.md),
+                child: Text(
+                  'Members ($total)',
+                  style: AppTypography.titleMediumStyle.copyWith(
+                    color: theme.textPrimary,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
-                const Divider(height: 1),
-                Flexible(
-                  child: ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: users.length,
-                    itemBuilder: (ctx, index) {
-                      final u = users[index] as Map<String, dynamic>;
-                      final name = u['name'] as String? ?? 'Unknown';
-                      final role = u['role'] as String? ?? '';
-                      return ListTile(
-                        leading: CircleAvatar(
-                          radius: 16,
-                          child: Text(
-                            name[0].toUpperCase(),
-                            style: AppTypography.labelMediumStyle,
-                          ),
+              ),
+              const Divider(height: 1),
+              Flexible(
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: users.length,
+                  itemBuilder: (ctx, index) {
+                    final u = users[index] as Map<String, dynamic>;
+                    final name = u['name'] as String? ?? 'Unknown';
+                    final role = u['role'] as String? ?? '';
+                    return ListTile(
+                      leading: CircleAvatar(
+                        radius: 16,
+                        child: Text(
+                          name[0].toUpperCase(),
+                          style: AppTypography.labelMediumStyle,
                         ),
-                        title: Text(
-                          name,
-                          style: AppTypography.bodyMediumStyle.copyWith(
-                            color: theme.textPrimary,
-                          ),
+                      ),
+                      title: Text(
+                        name,
+                        style: AppTypography.bodyMediumStyle.copyWith(
+                          color: theme.textPrimary,
                         ),
-                        subtitle: role.isNotEmpty
-                            ? Text(
-                                role,
-                                style: AppTypography.bodySmallStyle.copyWith(
-                                  color: theme.textSecondary,
-                                ),
-                              )
-                            : null,
-                      );
-                    },
-                  ),
+                      ),
+                      subtitle: role.isNotEmpty
+                          ? Text(
+                              role,
+                              style: AppTypography.bodySmallStyle.copyWith(
+                                color: theme.textSecondary,
+                              ),
+                            )
+                          : null,
+                    );
+                  },
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       );
@@ -1108,51 +1079,6 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         stackTrace: st,
       );
     }
-  }
-
-  Widget _buildMoreMenuButton(
-    Channel? channel,
-    ConduitThemeExtension theme,
-    AppLocalizations? l10n,
-  ) {
-    return AdaptivePopupMenuButton.widget<String>(
-      items: [
-        AdaptivePopupMenuItem<String>(
-          value: 'edit',
-          label: l10n?.channelEdit ?? 'Edit Channel',
-          icon: Platform.isIOS ? 'pencil' : Icons.edit_outlined,
-        ),
-        AdaptivePopupMenuItem<String>(
-          value: 'leave',
-          label: l10n?.channelLeave ?? 'Leave Channel',
-          icon: Platform.isIOS
-              ? 'rectangle.portrait.and.arrow.right'
-              : Icons.logout,
-        ),
-        const AdaptivePopupMenuDivider(),
-        AdaptivePopupMenuItem<String>(
-          value: 'delete',
-          label: l10n?.channelDelete ?? 'Delete Channel',
-          icon: Platform.isIOS ? 'trash' : Icons.delete_outline,
-        ),
-      ],
-      onSelected: (_, entry) {
-        final value = entry.value;
-        if (value == null) {
-          return;
-        }
-        _handleChannelToolbarSelection(value, channel);
-      },
-      buttonStyle: PopupButtonStyle.glass,
-      child: FloatingAppBarPill(
-        isCircular: true,
-        child: Icon(
-          Platform.isIOS ? CupertinoIcons.ellipsis_vertical : Icons.more_vert,
-          color: theme.textPrimary,
-          size: IconSize.appBar,
-        ),
-      ),
-    );
   }
 
   void _handleChannelToolbarSelection(String action, Channel? channel) {
@@ -1170,44 +1096,72 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         return;
     }
   }
+}
 
-  Future<void> _showChannelMoreActions(
-    BuildContext context,
-    Channel? channel,
-    AppLocalizations? l10n,
-  ) async {
-    await PlatformService.showPlatformActionSheet<void>(
-      context: context,
-      title: channel?.name ?? '',
-      actions: [
-        PlatformActionSheetAction(
-          title: l10n?.channelEdit ?? 'Edit Channel',
-          onPressed: () {
-            Navigator.of(context).pop();
-            _handleChannelToolbarSelection('edit', channel);
-          },
+class _ChannelToolbarPopupButton extends StatelessWidget {
+  const _ChannelToolbarPopupButton({
+    required this.l10n,
+    required this.tintColor,
+    required this.onSelected,
+  });
+
+  final AppLocalizations? l10n;
+  final Color tintColor;
+  final ValueChanged<String> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return AdaptivePopupMenuButton.icon<String>(
+      icon: _buttonIcon(),
+      tint: tintColor,
+      size: TouchTarget.minimum,
+      buttonStyle: PopupButtonStyle.glass,
+      items: [
+        AdaptivePopupMenuItem<String>(
+          value: 'edit',
+          label: l10n?.channelEdit ?? 'Edit Channel',
+          icon: _itemIcon(
+            iosSymbol: 'pencil',
+            materialIcon: Icons.edit_outlined,
+          ),
         ),
-        PlatformActionSheetAction(
-          title: l10n?.channelLeave ?? 'Leave Channel',
-          onPressed: () {
-            Navigator.of(context).pop();
-            _handleChannelToolbarSelection('leave', channel);
-          },
+        AdaptivePopupMenuItem<String>(
+          value: 'leave',
+          label: l10n?.channelLeave ?? 'Leave Channel',
+          icon: _itemIcon(
+            iosSymbol: 'rectangle.portrait.and.arrow.right',
+            materialIcon: Icons.logout_outlined,
+          ),
         ),
-        PlatformActionSheetAction(
-          title: l10n?.channelDelete ?? 'Delete Channel',
-          isDestructive: true,
-          onPressed: () {
-            Navigator.of(context).pop();
-            _handleChannelToolbarSelection('delete', channel);
-          },
+        AdaptivePopupMenuItem<String>(
+          value: 'delete',
+          label: l10n?.channelDelete ?? 'Delete Channel',
+          icon: _itemIcon(
+            iosSymbol: 'trash',
+            materialIcon: Icons.delete_outline,
+          ),
         ),
       ],
-      cancelAction: PlatformActionSheetAction(
-        title: l10n?.cancel ?? 'Cancel',
-        onPressed: () => Navigator.of(context).pop(),
-      ),
+      onSelected: (_, entry) {
+        final value = entry.value;
+        if (value == null) {
+          return;
+        }
+
+        onSelected(value);
+      },
     );
+  }
+
+  dynamic _buttonIcon() {
+    return Platform.isIOS ? 'ellipsis' : Icons.more_vert;
+  }
+
+  dynamic _itemIcon({
+    required String iosSymbol,
+    required IconData materialIcon,
+  }) {
+    return Platform.isIOS ? iosSymbol : materialIcon;
   }
 }
 

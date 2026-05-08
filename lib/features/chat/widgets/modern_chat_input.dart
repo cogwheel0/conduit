@@ -9,7 +9,6 @@ import 'package:intl/intl.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
-import '../../../shared/utils/glass_colors.dart';
 // app_theme not required here; using theme extension tokens
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -39,6 +38,7 @@ import '../../../shared/utils/platform_utils.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import '../../../shared/widgets/modal_safe_area.dart';
 import '../../../shared/widgets/model_avatar.dart';
+import '../../../shared/widgets/themed_sheets.dart';
 import '../../../core/utils/prompt_variable_parser.dart';
 import '../../prompts/widgets/prompt_variable_dialog.dart';
 import '../../auth/providers/unified_auth_providers.dart';
@@ -100,16 +100,13 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   static const Duration _contextSuggestionDelay = Duration(milliseconds: 250);
   static const int _maxContextSuggestionsPerType = 4;
 
-  bool get _useIOS26NativeControls => PlatformInfo.isIOS26OrHigher();
-
   static const double _composerRadius = AppBorderRadius.card;
 
   final MentionTextEditingController _controller =
       MentionTextEditingController();
   final FocusNode _focusNode = FocusNode();
 
-  /// Preserves the text field widget across parent shell swaps (e.g. when the
-  /// compact shell switches between native glass and blur on multiline toggle).
+  /// Preserves the text field widget across parent shell swaps.
   /// Without this, different parent ValueKeys cause Flutter to unmount and
   /// remount the TextField, losing focus and keyboard state.
   final GlobalKey _textFieldKey = GlobalKey();
@@ -1141,9 +1138,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       }
     }
 
-    await showModalBottomSheet(
+    await ThemedSheets.showCustom<void>(
       context: context,
-      backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (modalContext) {
         return ModalSheetSafeArea(
@@ -1603,10 +1599,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
     final bool hasComposerFocus = _focusNode.hasFocus;
     final bool isActive = hasComposerFocus || _hasText;
-    final bool useGlassColors = !kIsWeb && Platform.isIOS;
-    final Color placeholderColor = useGlassColors
-        ? GlassColors.secondaryLabel(context)
-        : context.conduitTheme.textSecondary.withValues(alpha: 0.5);
+    final Color placeholderColor = context.conduitTheme.textSecondary
+        .withValues(alpha: 0.5);
     final Color placeholderBase = placeholderColor;
     final Color placeholderFocused = placeholderColor;
     final List<Widget> quickPills = <Widget>[];
@@ -1730,14 +1724,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         !_isRecording;
 
     // Keep iOS 26 single-line composer as capsule.
-    // Switch multiline to rounded rectangle to avoid oval morphing.
-    const double multilineRadius = AppBorderRadius.large;
-    final double compactRadius = _useIOS26NativeControls
-        ? (_isMultiline ? multilineRadius : AppBorderRadius.round)
-        : (_isMultiline ? AppBorderRadius.xl : AppBorderRadius.round);
-    final double expandedRadius = _useIOS26NativeControls
+    final double compactRadius = _isMultiline
         ? AppBorderRadius.xl
-        : _composerRadius;
+        : AppBorderRadius.round;
+    const double expandedRadius = _composerRadius;
     final BorderRadius shellRadius = BorderRadius.circular(
       showCompactComposer ? compactRadius : expandedRadius,
     );
@@ -1931,59 +1921,20 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         ),
       );
 
-      // Use AdaptiveButton glass for single-line compact input.
-      // Multiline falls back to a regular themed Material surface.
-      final bool useNativeCompactGlass =
-          _useIOS26NativeControls && !_isMultiline;
-      final Widget textFieldShell = useNativeCompactGlass
-          ? LayoutBuilder(
-              key: const ValueKey('compact-native-glass'),
-              builder: (context, constraints) {
-                final width = constraints.maxWidth.isFinite
-                    ? constraints.maxWidth
-                    : MediaQuery.of(context).size.width * 0.58;
+      final Widget textFieldShell = _buildComposerShell(
+        key: const ValueKey('compact-composer-shell'),
+        borderRadius: shellRadius,
+        useSmoothRectangleBorder: _isMultiline,
+        child: textFieldContent,
+      );
 
-                return ClipRRect(
-                  borderRadius: shellRadius,
-                  child: SizedBox(
-                    height: TouchTarget.input,
-                    child: Stack(
-                      children: [
-                        Positioned.fill(
-                          child: IgnorePointer(
-                            child: AdaptiveButton.child(
-                              onPressed: () {},
-                              enabled: true,
-                              style: AdaptiveButtonStyle.glass,
-                              size: AdaptiveButtonSize.large,
-                              minSize: Size(width, TouchTarget.input),
-                              useSmoothRectangleBorder: false,
-                              child: const SizedBox.shrink(),
-                            ),
-                          ),
-                        ),
-                        textFieldContent,
-                      ],
-                    ),
-                  ),
-                );
-              },
-            )
-          : _buildComposerShell(
-              key: const ValueKey('compact-glass-fallback'),
-              borderRadius: shellRadius,
-              child: textFieldContent,
-            );
-
-      final bottomPadding = PlatformInfo.isIOS26OrHigher()
-          ? Spacing.md
-          : MediaQuery.of(context).viewPadding.bottom;
+      final bottomPadding = _composerBottomPadding(context);
       return Padding(
         padding: EdgeInsets.fromLTRB(
           Spacing.screenPadding,
           0,
           Spacing.screenPadding,
-          bottomPadding + Spacing.md,
+          bottomPadding,
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -2046,15 +1997,13 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     );
 
     // Wrap with padding for floating effect, accounting for safe area
-    final bottomPadding = PlatformInfo.isIOS26OrHigher()
-        ? Spacing.md
-        : MediaQuery.of(context).viewPadding.bottom;
+    final bottomPadding = _composerBottomPadding(context);
     return Padding(
       padding: EdgeInsets.fromLTRB(
         Spacing.screenPadding,
         0,
         Spacing.screenPadding,
-        bottomPadding + Spacing.md,
+        bottomPadding,
       ),
       child: shell,
     );
@@ -2174,9 +2123,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 placeholderFocused,
                 factor,
               )!;
-              final textLabel = (!kIsWeb && Platform.isIOS)
-                  ? GlassColors.label(context)
-                  : context.conduitTheme.inputText;
+              final textLabel = context.conduitTheme.inputText;
               final Color animatedTextColor = Color.lerp(
                 textLabel.withValues(alpha: 0.88),
                 textLabel,
@@ -2666,9 +2613,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   /// Builds a circular icon button for the composer.
   ///
-  /// On iOS, uses [AdaptiveButton] with glass style for native appearance.
-  /// On Android/web/desktop, uses a Material-styled circular button with
-  /// theme-consistent colors matching the composer shell.
+  /// Uses [AdaptiveButton] so native glass and non-iOS fallbacks stay in the
+  /// adaptive package.
   Widget _buildComposerIconButton({
     Key? key,
     required VoidCallback? onPressed,
@@ -2680,60 +2626,57 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final theme = context.conduitTheme;
     final effectiveColor = color ?? theme.buttonPrimary;
 
-    if (!kIsWeb && Platform.isIOS) {
-      return AdaptiveButton.child(
-        key: key,
-        onPressed: onPressed,
-        enabled: onPressed != null,
-        style: isProminent
-            ? AdaptiveButtonStyle.prominentGlass
-            : AdaptiveButtonStyle.glass,
-        color: effectiveColor,
-        size: size > 40 ? AdaptiveButtonSize.large : AdaptiveButtonSize.medium,
-        minSize: Size(size, size),
-        padding: EdgeInsets.zero,
-        borderRadius: BorderRadius.circular(size),
-        useSmoothRectangleBorder: false,
-        child: child,
-      );
-    }
-
-    final bgColor = isProminent
-        ? effectiveColor
-        : theme.surfaceContainerHighest;
-    final borderColor = isProminent ? effectiveColor : theme.cardBorder;
-
-    return SizedBox(
+    return AdaptiveButton.child(
       key: key,
-      width: size,
-      height: size,
-      child: DecoratedBox(
-        decoration: ShapeDecoration(
-          color: bgColor,
-          shape: CircleBorder(
-            side: BorderSide(color: borderColor, width: BorderWidth.thin),
-          ),
-        ),
-        child: ClipOval(
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: onPressed,
-            child: Center(child: child),
-          ),
-        ),
-      ),
+      onPressed: onPressed,
+      enabled: onPressed != null,
+      style: isProminent
+          ? AdaptiveButtonStyle.prominentGlass
+          : AdaptiveButtonStyle.glass,
+      color: effectiveColor,
+      size: size > 40 ? AdaptiveButtonSize.large : AdaptiveButtonSize.medium,
+      minSize: Size(size, size),
+      padding: EdgeInsets.zero,
+      borderRadius: BorderRadius.circular(size),
+      useSmoothRectangleBorder: false,
+      child: child,
     );
   }
 
   /// Builds the composer shell container.
   ///
-  /// Uses a themed Material surface with a subtle border for contrast.
+  /// Uses package-provided glass on iOS and a themed Material surface elsewhere.
   Widget _buildComposerShell({
     Key? key,
     required Widget child,
     required BorderRadius borderRadius,
+    bool useSmoothRectangleBorder = true,
   }) {
     final theme = context.conduitTheme;
+
+    if (!kIsWeb && Platform.isIOS) {
+      return Stack(
+        key: key,
+        fit: StackFit.passthrough,
+        children: [
+          Positioned.fill(
+            child: IgnorePointer(
+              child: AdaptiveButton.child(
+                onPressed: () {},
+                style: AdaptiveButtonStyle.glass,
+                size: AdaptiveButtonSize.large,
+                padding: EdgeInsets.zero,
+                borderRadius: borderRadius,
+                useSmoothRectangleBorder: useSmoothRectangleBorder,
+                child: const SizedBox.expand(),
+              ),
+            ),
+          ),
+          child,
+        ],
+      );
+    }
+
     return Container(
       key: key,
       decoration: BoxDecoration(
@@ -2743,6 +2686,14 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       ),
       child: child,
     );
+  }
+
+  double _composerBottomPadding(BuildContext context) {
+    if (!kIsWeb && Platform.isIOS) {
+      return Spacing.md * 2;
+    }
+
+    return MediaQuery.viewPaddingOf(context).bottom + Spacing.md;
   }
 
   Widget _wrapIosSurfaceShadow(
@@ -2785,9 +2736,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       SystemChannels.textInput.invokeMethod('TextInput.hide');
     } catch (_) {}
 
-    showModalBottomSheet(
+    ThemedSheets.showCustom<void>(
       context: context,
-      backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (_) => ComposerOverflowSheet(
         onFileAttachment: widget.onFileAttachment,
@@ -2827,9 +2777,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     modalController.addListener(syncToMain);
     setState(() => _expandModalOpen = true);
 
-    showModalBottomSheet<bool>(
+    ThemedSheets.showCustom<bool>(
       context: context,
-      backgroundColor: Colors.transparent,
       isScrollControlled: true,
       enableDrag: true,
       useSafeArea: true,

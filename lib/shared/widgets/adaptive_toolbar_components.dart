@@ -5,48 +5,19 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../theme/theme_extensions.dart';
-import 'conduit_components.dart';
 import 'conduit_loading.dart';
 import 'middle_ellipsis_text.dart';
 
-/// Builds the shared floating toolbar shell used by chat-style pages.
-///
-/// Only the active platform branch is evaluated so callers can pass rebuild-
-/// heavy builders without paying for both toolbars on every frame.
+/// Builds the shared adaptive toolbar shell used by chat-style pages.
 AdaptiveAppBar buildConduitAdaptiveToolbarAppBar({
-  required BuildContext context,
   required Color tintColor,
-  required Widget Function() buildNativeLeading,
-  required List<AdaptiveAppBarAction> Function() buildNativeActions,
-  required Widget Function() buildMaterialLeading,
-  required Widget Function() buildMaterialTitle,
-  required List<Widget> Function() buildMaterialActions,
+  required Widget Function() buildLeading,
+  required List<AdaptiveAppBarAction> Function() buildActions,
 }) {
-  if (PlatformInfo.isIOS26OrHigher()) {
-    return AdaptiveAppBar(
-      leading: buildNativeLeading(),
-      tintColor: tintColor,
-      actions: buildNativeActions(),
-    );
-  }
-
   return AdaptiveAppBar(
-    appBar: AppBar(
-      backgroundColor: Colors.transparent,
-      elevation: Elevation.none,
-      surfaceTintColor: Colors.transparent,
-      shadowColor: Colors.transparent,
-      toolbarHeight: kTextTabBarHeight,
-      centerTitle: false,
-      titleSpacing: Spacing.sm,
-      leadingWidth: 44 + Spacing.inputPadding + Spacing.xs,
-      leading: Padding(
-        padding: const EdgeInsets.only(left: Spacing.inputPadding),
-        child: Center(child: buildMaterialLeading()),
-      ),
-      title: buildMaterialTitle(),
-      actions: buildMaterialActions(),
-    ),
+    leading: buildLeading(),
+    tintColor: tintColor,
+    actions: buildActions(),
   );
 }
 
@@ -158,23 +129,13 @@ class ConduitAdaptiveAppBarIconButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final effectiveIconColor = iconColor ?? context.conduitTheme.textPrimary;
 
-    if (PlatformInfo.isIOS26OrHigher()) {
-      return AdaptiveButton.child(
-        onPressed: onPressed,
-        style: AdaptiveButtonStyle.glass,
-        size: AdaptiveButtonSize.large,
-        minSize: const Size(TouchTarget.minimum, TouchTarget.minimum),
-        useSmoothRectangleBorder: false,
-        child: Icon(icon, size: IconSize.appBar, color: effectiveIconColor),
-      );
-    }
-
-    return GestureDetector(
-      onTap: onPressed,
-      child: FloatingAppBarPill(
-        isCircular: true,
-        child: Icon(icon, color: effectiveIconColor, size: IconSize.appBar),
-      ),
+    return AdaptiveButton.child(
+      onPressed: onPressed,
+      style: AdaptiveButtonStyle.glass,
+      size: AdaptiveButtonSize.large,
+      minSize: const Size(TouchTarget.minimum, TouchTarget.minimum),
+      useSmoothRectangleBorder: false,
+      child: Icon(icon, size: IconSize.appBar, color: effectiveIconColor),
     );
   }
 }
@@ -221,9 +182,7 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
     if (safeMaxWidth == 0) {
       return const SizedBox.shrink();
     }
-    final chevronSize = PlatformInfo.isIOS26OrHigher()
-        ? IconSize.small
-        : IconSize.medium;
+    final chevronSize = Platform.isIOS ? IconSize.small : IconSize.medium;
     final targetWidth = isLoading
         ? safeMaxWidth.clamp(0.0, 104.0).toDouble()
         : resolveConduitAdaptiveTextPillWidth(
@@ -275,20 +234,13 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
       ),
     );
 
-    if (PlatformInfo.isIOS26OrHigher()) {
-      return AdaptiveButton.child(
-        onPressed: isLoading ? () {} : onPressed,
-        style: AdaptiveButtonStyle.glass,
-        size: AdaptiveButtonSize.large,
-        minSize: Size(targetWidth, 44),
-        useSmoothRectangleBorder: false,
-        child: child,
-      );
-    }
-
-    return GestureDetector(
-      onTap: isLoading ? null : onPressed,
-      child: FloatingAppBarPill(child: child),
+    return AdaptiveButton.child(
+      onPressed: isLoading ? () {} : onPressed,
+      style: AdaptiveButtonStyle.glass,
+      size: AdaptiveButtonSize.large,
+      minSize: Size(targetWidth, 44),
+      useSmoothRectangleBorder: false,
+      child: child,
     );
   }
 }

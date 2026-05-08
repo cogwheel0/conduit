@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/widgets/themed_sheets.dart';
 
 /// Modal bottom sheet displaying usage/performance statistics for a
 /// chat response, matching Open WebUI's info button behavior.
@@ -13,47 +14,38 @@ class UsageStatsModal {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
 
-    showModalBottomSheet<void>(
+    ThemedSheets.showSurface<void>(
       context: context,
-      backgroundColor: theme.surfaceBackground,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(AppBorderRadius.dialog),
-        ),
-      ),
+      showHandle: false,
+      padding: const EdgeInsets.all(Spacing.lg),
       builder: (ctx) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(Spacing.lg),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Title
+            Row(
               children: [
-                // Title
-                Row(
-                  children: [
-                    Icon(
-                      Icons.analytics_outlined,
-                      size: IconSize.md,
-                      color: theme.textPrimary,
-                    ),
-                    const SizedBox(width: Spacing.sm),
-                    Text(
-                      l10n.usageInfoTitle,
-                      style: AppTypography.bodyLargeStyle.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: theme.textPrimary,
-                      ),
-                    ),
-                  ],
+                Icon(
+                  Icons.analytics_outlined,
+                  size: IconSize.md,
+                  color: theme.textPrimary,
                 ),
-                const SizedBox(height: Spacing.lg),
-
-                // Stats grid
-                ..._buildUsageStats(ctx, usage, l10n, theme),
+                const SizedBox(width: Spacing.sm),
+                Text(
+                  l10n.usageInfoTitle,
+                  style: AppTypography.bodyLargeStyle.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: theme.textPrimary,
+                  ),
+                ),
               ],
             ),
-          ),
+            const SizedBox(height: Spacing.lg),
+
+            // Stats grid
+            ..._buildUsageStats(ctx, usage, l10n, theme),
+          ],
         );
       },
     );

@@ -1373,7 +1373,6 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           icon: action.icon,
           label: action.label,
           onTap: action.onTap,
-          sfSymbol: action.sfSymbol,
         ),
       ...infoWidgets,
     ];
@@ -1546,14 +1545,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     required IconData icon,
     required String label,
     VoidCallback? onTap,
-    String? sfSymbol,
   }) {
-    return ChatActionButton(
-      icon: icon,
-      label: label,
-      onTap: onTap,
-      sfSymbol: sfSymbol,
-    );
+    return ChatActionButton(icon: icon, label: label, onTap: onTap);
   }
 
   Widget _buildVersionChip() {

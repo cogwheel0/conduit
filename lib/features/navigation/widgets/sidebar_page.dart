@@ -7,8 +7,8 @@ import '../../../core/providers/app_providers.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
+import '../../../shared/widgets/chrome_gradient_fade.dart';
 import '../../../shared/widgets/sidebar_ios26_scaffold.dart';
-import '../../../shared/widgets/sidebar_primary_circle_button.dart';
 import '../providers/sidebar_providers.dart';
 import '../utils/sidebar_create_action.dart';
 import '../../channels/widgets/channel_list_tab.dart';
@@ -19,6 +19,10 @@ import 'sidebar_user_pill.dart';
 /// Compact bottom bar height on Material (default M3 bar is ~80 logical px).
 const double _kSidebarNavigationBarHeight = 56;
 const double _kSidebarNavigationBarIconSize = 22;
+const double _kSidebarSearchCloseActionReserve = 64;
+const double _kSidebarSearchFieldReserve = 96;
+const double _kSidebarNativeLeadingVerticalOffset = 3;
+const double _kSidebarNativeBottomBarContentHeight = 50;
 
 enum _SidebarTabId { chats, notes, channels }
 
@@ -270,10 +274,12 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
   Widget _sidebarAppBarLeading({
     required AppLocalizations localizations,
     required bool isSearchExpanded,
+    required double toolbarWidth,
   }) {
     return isSearchExpanded
         ? SidebarSearchAppBarLeading(
             hintText: sidebarSearchHintForActiveTab(ref, localizations),
+            maxWidth: toolbarWidth - _kSidebarSearchFieldReserve,
           )
         : const SidebarProfileAppBarLeading();
   }
@@ -317,6 +323,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
     required Widget leading,
     required List<AdaptiveAppBarAction> actions,
     required bool isSearchExpanded,
+    required double toolbarWidth,
   }) {
     final backgroundColor = context.conduitTheme.surfaceBackground;
     return AppBar(
@@ -326,11 +333,13 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
       shadowColor: Colors.transparent,
       toolbarHeight: kTextTabBarHeight,
       leadingWidth: isSearchExpanded
-          ? MediaQuery.sizeOf(context).width - 64
+          ? (toolbarWidth - _kSidebarSearchCloseActionReserve)
+                .clamp(0.0, toolbarWidth)
+                .toDouble()
           : 60,
       leading: Padding(
         padding: const EdgeInsets.only(left: Spacing.inputPadding),
-        child: leading,
+        child: Align(alignment: Alignment.centerLeft, child: leading),
       ),
       actions: [
         for (var index = 0; index < actions.length; index++)
@@ -348,6 +357,24 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
               ),
             ),
           ),
+      ],
+    );
+  }
+
+  Widget _buildSidebarBodyWithBottomFade(Widget sidebarBody) {
+    return Stack(
+      children: [
+        Positioned.fill(child: sidebarBody),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: ConduitChromeGradientFade.bottom(
+            contentHeight:
+                MediaQuery.viewPaddingOf(context).bottom +
+                _kSidebarNativeBottomBarContentHeight,
+          ),
+        ),
       ],
     );
   }
@@ -385,17 +412,12 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
 
     final conduitTheme = context.conduitTheme;
     final isSearchExpanded = ref.watch(sidebarHeaderSearchExpandedProvider);
-    final appBarLeading = _sidebarAppBarLeading(
-      localizations: localizations,
-      isSearchExpanded: isSearchExpanded,
-    );
+    final useNativeIos26Chrome = PlatformInfo.isIOS26OrHigher();
     final appBarActions = _sidebarAppBarActions(
       context: context,
       localizations: localizations,
       isSearchExpanded: isSearchExpanded,
     );
-    final useNativeIos26Chrome = PlatformInfo.isIOS26OrHigher();
-
     void onTap(int index) =>
         ref.read(sidebarActiveTabProvider.notifier).set(index);
 
@@ -403,48 +425,64 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
       tabDefinitions: tabDefinitions,
       activeIndex: activeIndex,
     );
+    final sidebarBodyWithBottomFade = _buildSidebarBodyWithBottomFade(
+      sidebarBody,
+    );
 
     return KeyedSubtree(
       key: const ValueKey<String>('sidebar-page-surface'),
-      child: SidebarTabScaffoldLayout(
-        usesToolbarOverlay: useNativeIos26Chrome,
-        usesBottomBarOverlay: useNativeIos26Chrome,
-        // iOS 26 uses a small compatibility wrapper so tab changes keep the
-        // sidebar body mounted. Other platforms can stay on AdaptiveScaffold.
-        child: useNativeIos26Chrome
-            ? SidebarIos26Scaffold(
-                bottomNavigationBar: _sidebarBottomNavigationBar(
-                  navigationItems,
-                  conduitTheme,
-                  activeIndex,
-                  onTap,
-                ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final toolbarWidth = constraints.hasBoundedWidth
+              ? constraints.maxWidth
+              : MediaQuery.sizeOf(context).width;
+          final appBarLeading = _sidebarAppBarLeading(
+            localizations: localizations,
+            isSearchExpanded: isSearchExpanded,
+            toolbarWidth: toolbarWidth,
+          );
+          final adaptiveAppBarLeading = useNativeIos26Chrome
+              ? Transform.translate(
+                  offset: const Offset(0, _kSidebarNativeLeadingVerticalOffset),
+                  child: appBarLeading,
+                )
+              : appBarLeading;
+
+          final bottomNavigationBar = _sidebarBottomNavigationBar(
+            navigationItems,
+            conduitTheme,
+            activeIndex,
+            onTap,
+          );
+
+          if (useNativeIos26Chrome) {
+            return SidebarIos26Scaffold(
+              bottomNavigationBar: bottomNavigationBar,
+              leading: adaptiveAppBarLeading,
+              actions: appBarActions,
+              minimizeBehavior: TabBarMinimizeBehavior.never,
+              body: sidebarBodyWithBottomFade,
+            );
+          }
+
+          return AdaptiveScaffold(
+            minimizeBehavior: TabBarMinimizeBehavior.never,
+            appBar: AdaptiveAppBar(
+              useNativeToolbar: true,
+              leading: adaptiveAppBarLeading,
+              actions: appBarActions,
+              appBar: _sidebarMaterialAppBar(
+                context: context,
                 leading: appBarLeading,
                 actions: appBarActions,
-                minimizeBehavior: TabBarMinimizeBehavior.never,
-                body: sidebarBody,
-              )
-            : AdaptiveScaffold(
-                minimizeBehavior: TabBarMinimizeBehavior.never,
-                appBar: AdaptiveAppBar(
-                  useNativeToolbar: true,
-                  leading: appBarLeading,
-                  actions: appBarActions,
-                  appBar: _sidebarMaterialAppBar(
-                    context: context,
-                    leading: appBarLeading,
-                    actions: appBarActions,
-                    isSearchExpanded: isSearchExpanded,
-                  ),
-                ),
-                bottomNavigationBar: _sidebarBottomNavigationBar(
-                  navigationItems,
-                  conduitTheme,
-                  activeIndex,
-                  onTap,
-                ),
-                body: sidebarBody,
+                isSearchExpanded: isSearchExpanded,
+                toolbarWidth: toolbarWidth,
               ),
+            ),
+            bottomNavigationBar: bottomNavigationBar,
+            body: sidebarBodyWithBottomFade,
+          );
+        },
       ),
     );
   }

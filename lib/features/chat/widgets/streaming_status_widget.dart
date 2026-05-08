@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher_string.dart';
 import '../../../core/models/chat_message.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/widgets/themed_sheets.dart';
 import 'assistant_detail_header.dart';
 
 /// A minimal, unobtrusive streaming status widget inspired by OpenWebUI.
@@ -68,15 +69,11 @@ class _StreamingStatusWidgetState extends State<StreamingStatusWidget> {
     final current = updates.last;
     final title = _resolveStatusDescription(current);
 
-    showModalBottomSheet<void>(
+    ThemedSheets.showSurface<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: theme.surfaceBackground,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(AppBorderRadius.dialog),
-        ),
-      ),
+      showHandle: false,
+      padding: EdgeInsets.zero,
       builder: (ctx) {
         return DraggableScrollableSheet(
           initialChildSize: 0.6,

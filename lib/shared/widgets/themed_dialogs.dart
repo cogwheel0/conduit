@@ -138,7 +138,7 @@ class ThemedDialogs {
     List<Widget>? actions,
     bool barrierDismissible = true,
   }) {
-    return showDialog<T>(
+    return showCustom<T>(
       context: context,
       barrierDismissible: barrierDismissible,
       builder: (ctx) => buildBase(
@@ -147,6 +147,19 @@ class ThemedDialogs {
         content: content,
         actions: actions,
       ),
+    );
+  }
+
+  /// Show custom dialog content through the shared dialog route defaults.
+  static Future<T?> showCustom<T>({
+    required BuildContext context,
+    required WidgetBuilder builder,
+    bool barrierDismissible = true,
+  }) {
+    return showDialog<T>(
+      context: context,
+      barrierDismissible: barrierDismissible,
+      builder: builder,
     );
   }
 

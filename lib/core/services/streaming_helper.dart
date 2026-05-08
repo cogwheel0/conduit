@@ -2722,7 +2722,7 @@ Future<String?> _showInputDialog(Map<String, dynamic> data) async {
   final initialValue = data['value']?.toString() ?? '';
   final controller = TextEditingController(text: initialValue);
 
-  final result = await showDialog<String>(
+  final result = await ThemedDialogs.showCustom<String>(
     context: ctx,
     barrierDismissible: false,
     builder: (dialogCtx) {

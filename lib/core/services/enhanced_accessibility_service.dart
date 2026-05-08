@@ -7,6 +7,7 @@ import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter/semantics.dart';
 import '../../shared/theme/tweakcn_themes.dart';
 import '../../shared/theme/theme_extensions.dart';
+import '../../shared/widgets/themed_dialogs.dart';
 import 'navigation_service.dart';
 
 /// Enhanced accessibility service for WCAG 2.2 AA compliance
@@ -362,7 +363,7 @@ class EnhancedAccessibilityService {
     required String title,
     bool barrierDismissible = true,
   }) {
-    return showDialog<T>(
+    return ThemedDialogs.showCustom<T>(
       context: context,
       barrierDismissible: barrierDismissible,
       builder: (dialogContext) {

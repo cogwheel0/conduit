@@ -8,6 +8,7 @@ import 'package:conduit/core/models/model.dart';
 import 'package:conduit/core/models/note.dart';
 import 'package:conduit/core/models/user.dart';
 import 'package:conduit/core/services/navigation_service.dart';
+import 'package:conduit/core/services/optimized_storage_service.dart';
 import 'package:conduit/core/services/settings_service.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/channels/widgets/channel_list_tab.dart';
@@ -481,6 +482,43 @@ void main() {
     );
   });
 
+  testWidgets('chat tab new chat clears stale folder target', (tester) async {
+    final controllers = _SidebarHarnessControllers();
+
+    await tester.pumpWidget(
+      _buildSidebarHarness(
+        controllers: controllers,
+        settings: const AppSettings(temporaryChatByDefault: true),
+        folders: const [
+          Folder(id: 'parent-folder', name: 'Parent Folder', isExpanded: false),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    NavigationService.router.go('/folder/parent-folder');
+    await tester.pumpAndSettle();
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(SidebarPage)),
+      listen: false,
+    );
+    container.read(pendingFolderIdProvider.notifier).set('parent-folder');
+    container.read(temporaryChatEnabledProvider.notifier).set(false);
+
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AppBar),
+        matching: find.byIcon(Icons.add),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(NavigationService.currentRoute, '/chat');
+    expect(container.read(pendingFolderIdProvider), isNull);
+    expect(container.read(temporaryChatEnabledProvider), isTrue);
+  });
+
   testWidgets('tapping a folder row opens the folder route', (tester) async {
     final controllers = _SidebarHarnessControllers();
 
@@ -611,6 +649,7 @@ Widget _buildSidebarHarness({
   User? currentUser,
   List<Conversation> conversations = const [],
   List<Folder> folders = const [],
+  AppSettings settings = const AppSettings(),
 }) {
   final router = GoRouter(
     initialLocation: '/chat',
@@ -642,7 +681,7 @@ Widget _buildSidebarHarness({
   return ProviderScope(
     overrides: [
       // ignore: scoped_providers_should_specify_dependencies
-      appSettingsProvider.overrideWithValue(const AppSettings()),
+      appSettingsProvider.overrideWithValue(settings),
       // ignore: scoped_providers_should_specify_dependencies
       apiServiceProvider.overrideWithValue(null),
       // ignore: scoped_providers_should_specify_dependencies
@@ -661,6 +700,10 @@ Widget _buildSidebarHarness({
       notesListProvider.overrideWith(_TestNotesList.new),
       // ignore: scoped_providers_should_specify_dependencies
       channelsListProvider.overrideWith(_TestChannelsList.new),
+      // ignore: scoped_providers_should_specify_dependencies
+      optimizedStorageServiceProvider.overrideWithValue(
+        _FakeOptimizedStorageService(),
+      ),
       // ignore: scoped_providers_should_specify_dependencies
       showPinnedProvider.overrideWith(_TestShowPinnedNotifier.new),
       // ignore: scoped_providers_should_specify_dependencies
@@ -755,6 +798,12 @@ class _TestNotesList extends NotesList {
 class _TestChannelsList extends ChannelsList {
   @override
   Future<List<Channel>> build() async => const [];
+}
+
+class _FakeOptimizedStorageService extends Fake
+    implements OptimizedStorageService {
+  @override
+  Future<void> saveLocalDefaultModel(Model? model) async {}
 }
 
 class _TestShowPinnedNotifier extends ShowPinnedNotifier {

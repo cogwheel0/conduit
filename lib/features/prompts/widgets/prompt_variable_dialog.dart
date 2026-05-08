@@ -6,6 +6,7 @@ import 'package:conduit/core/utils/prompt_variable_parser.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/conduit_input_styles.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
+import 'package:conduit/shared/widgets/themed_dialogs.dart';
 
 /// A dialog that collects user input for prompt variables.
 ///
@@ -31,7 +32,7 @@ class PromptVariableDialog extends StatefulWidget {
     required List<PromptVariable> variables,
     required String promptTitle,
   }) {
-    return showDialog<Map<String, String>>(
+    return ThemedDialogs.showCustom<Map<String, String>>(
       context: context,
       barrierDismissible: false,
       builder: (ctx) =>

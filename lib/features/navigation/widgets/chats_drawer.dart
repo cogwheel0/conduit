@@ -16,10 +16,8 @@ import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
-import '../../../shared/widgets/modal_safe_area.dart';
-import '../../../shared/widgets/sidebar_primary_circle_button.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
-import '../../../shared/widgets/sheet_handle.dart';
+import '../../../shared/widgets/themed_sheets.dart';
 import '../../../core/models/model.dart';
 import '../../../core/models/conversation.dart';
 import '../../../core/models/folder.dart';
@@ -1314,70 +1312,59 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     Folder folder,
     List<Folder> folders,
   ) {
-    final theme = context.conduitTheme;
     final currentParentId = _normalizeParentId(folder.parentId);
     final moveTargets = _folderMoveTargets(folder, folders);
 
-    return showModalBottomSheet<_FolderMoveTarget>(
+    return ThemedSheets.showSurface<_FolderMoveTarget>(
       context: context,
       isScrollControlled: true,
-      useSafeArea: false,
-      backgroundColor: theme.surfaceBackground,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(AppBorderRadius.bottomSheet),
-        ),
-      ),
       builder: (sheetContext) {
+        final theme = sheetContext.conduitTheme;
         final maxListHeight = MediaQuery.sizeOf(sheetContext).height * 0.62;
 
-        return ModalSheetSafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Center(child: SheetHandle()),
-              const SizedBox(height: Spacing.sm),
-              Text(
-                'Move folder',
-                style: AppTypography.headlineSmallStyle.copyWith(
-                  color: theme.textPrimary,
-                  fontWeight: FontWeight.w700,
-                ),
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Move folder',
+              style: AppTypography.headlineSmallStyle.copyWith(
+                color: theme.textPrimary,
+                fontWeight: FontWeight.w700,
               ),
-              const SizedBox(height: Spacing.md),
-              ConstrainedBox(
-                constraints: BoxConstraints(maxHeight: maxListHeight),
-                child: ListView(
-                  shrinkWrap: true,
-                  physics: const ClampingScrollPhysics(),
-                  padding: EdgeInsets.zero,
-                  children: [
-                    if (currentParentId != null)
-                      _FolderMoveTargetTile(
-                        icon: Platform.isIOS
-                            ? CupertinoIcons.folder_badge_minus
-                            : Icons.folder_off_outlined,
-                        label: 'Top level',
-                        onTap: () => Navigator.of(
-                          sheetContext,
-                        ).pop(const _FolderMoveTarget(parentId: null)),
-                      ),
-                    for (final target in moveTargets)
-                      _FolderMoveTargetTile(
-                        icon: Platform.isIOS
-                            ? CupertinoIcons.folder
-                            : Icons.folder_outlined,
-                        label: target.name,
-                        onTap: () => Navigator.of(
-                          sheetContext,
-                        ).pop(_FolderMoveTarget(parentId: target.id)),
-                      ),
-                  ],
-                ),
+            ),
+            const SizedBox(height: Spacing.md),
+            ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: maxListHeight),
+              child: ListView(
+                shrinkWrap: true,
+                physics: const ClampingScrollPhysics(),
+                padding: EdgeInsets.zero,
+                children: [
+                  if (currentParentId != null)
+                    _FolderMoveTargetTile(
+                      icon: Platform.isIOS
+                          ? CupertinoIcons.folder_badge_minus
+                          : Icons.folder_off_outlined,
+                      label: 'Top level',
+                      onTap: () => Navigator.of(
+                        sheetContext,
+                      ).pop(const _FolderMoveTarget(parentId: null)),
+                    ),
+                  for (final target in moveTargets)
+                    _FolderMoveTargetTile(
+                      icon: Platform.isIOS
+                          ? CupertinoIcons.folder
+                          : Icons.folder_outlined,
+                      label: target.name,
+                      onTap: () => Navigator.of(
+                        sheetContext,
+                      ).pop(_FolderMoveTarget(parentId: target.id)),
+                    ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         );
       },
     );

@@ -19,7 +19,6 @@ import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
-import '../../../shared/widgets/sidebar_primary_circle_button.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../providers/notes_providers.dart';
@@ -131,16 +130,6 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
                   Spacing.sm,
                 ),
                 child: _buildFloatingSearchField(context),
-              ),
-            ),
-            Positioned(
-              right: Spacing.pagePadding,
-              bottom:
-                  Spacing.pagePadding + MediaQuery.of(context).padding.bottom,
-              child: SidebarPrimaryCircleButton(
-                onPressed: _createNewNote,
-                icon: UiUtils.newNoteIcon,
-                tooltip: l10n.createNote,
               ),
             ),
           ],
@@ -267,15 +256,6 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
         );
       }
     }
-
-    // Bottom padding for primary circle action (aligned with sidebar tabs).
-    slivers.add(
-      SliverToBoxAdapter(
-        child: SizedBox(
-          height: sidebarPrimaryCircleButtonScrollPadding(context),
-        ),
-      ),
-    );
 
     return _buildRefreshableScrollView(slivers);
   }

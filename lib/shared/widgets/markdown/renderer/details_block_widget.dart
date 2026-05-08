@@ -8,6 +8,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import '../../../../core/utils/embed_utils.dart';
 import '../../../../core/utils/reasoning_parser.dart';
 import '../../assistant_detail_header.dart';
+import '../../themed_sheets.dart';
 import '../../web_content_embed.dart';
 import '../../../theme/theme_extensions.dart';
 import '../markdown_config.dart';
@@ -216,18 +217,13 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
       return;
     }
 
-    final theme = context.conduitTheme;
     _isSheetOpen = true;
 
-    showModalBottomSheet<void>(
+    ThemedSheets.showSurface<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: theme.surfaceBackground,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(AppBorderRadius.dialog),
-        ),
-      ),
+      showHandle: false,
+      padding: EdgeInsets.zero,
       builder: (sheetContext) {
         return ValueListenableBuilder<int>(
           valueListenable: _sheetRevision,

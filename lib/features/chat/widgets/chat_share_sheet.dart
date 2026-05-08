@@ -7,6 +7,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/sheet_handle.dart';
+import 'package:conduit/shared/widgets/themed_sheets.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -17,11 +18,10 @@ Future<void> showChatShareSheet({
   required BuildContext context,
   required Conversation conversation,
 }) {
-  return showModalBottomSheet<void>(
+  return ThemedSheets.showCustom<void>(
     context: context,
     useSafeArea: true,
     isScrollControlled: true,
-    backgroundColor: Colors.transparent,
     builder: (_) => ChatShareSheet(conversation: conversation),
   );
 }

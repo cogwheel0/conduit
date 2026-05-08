@@ -12,7 +12,6 @@ import '../../../core/services/navigation_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/utils/ui_utils.dart';
-import '../../../shared/widgets/sidebar_primary_circle_button.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../navigation/providers/sidebar_providers.dart';
 import '../../navigation/widgets/drawer_section_notifiers.dart';

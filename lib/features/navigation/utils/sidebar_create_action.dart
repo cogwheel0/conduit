@@ -7,13 +7,11 @@ import '../../../core/models/channel.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/haptic_service.dart';
 import '../../../core/services/navigation_service.dart';
-import '../../../core/services/settings_service.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../channels/providers/channel_providers.dart';
 import '../../channels/widgets/channel_form_dialog.dart';
 import '../../chat/providers/chat_providers.dart' as chat;
-import '../../chat/providers/context_attachments_provider.dart';
 import '../../notes/providers/notes_providers.dart';
 import '../providers/sidebar_providers.dart';
 
@@ -94,18 +92,9 @@ _SidebarCreateActionKind _resolveSidebarCreateActionKind({
 
 Future<void> _startNewChat(BuildContext context, WidgetRef ref) async {
   ConduitHaptics.selectionClick();
-  ref.read(chat.chatMessagesProvider.notifier).clearMessages();
-  ref.read(activeConversationProvider.notifier).clear();
-  ref.read(contextAttachmentsProvider.notifier).clear();
-  chat.restoreDefaultModel(ref);
-
+  chat.startNewChat(ref);
   NavigationService.router.go(Routes.chat);
   _closeSidebarIfNeeded(context);
-
-  final settings = ref.read(appSettingsProvider);
-  ref
-      .read(temporaryChatEnabledProvider.notifier)
-      .set(settings.temporaryChatByDefault);
 }
 
 Future<void> _createNote(BuildContext context, WidgetRef ref) async {

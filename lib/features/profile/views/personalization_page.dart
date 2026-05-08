@@ -365,11 +365,8 @@ class PersonalizationPage extends ConsumerWidget {
     required List<Model> models,
     required String? currentDefaultModelId,
   }) async {
-    final result = await showModalBottomSheet<String?>(
+    final result = await showSettingsSheet<String?>(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      barrierColor: settingsSheetBarrierColor(context),
       builder: (sheetContext) => DefaultModelBottomSheet(
         models: models,
         currentDefaultModelId: currentDefaultModelId,
@@ -395,11 +392,8 @@ class PersonalizationPage extends ConsumerWidget {
   }) async {
     final l10n = AppLocalizations.of(context)!;
 
-    await showModalBottomSheet<void>(
+    await showSettingsSheet<void>(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      barrierColor: settingsSheetBarrierColor(context),
       builder: (sheetContext) => _TextEditorSheet(
         title: title,
         description: description,

@@ -342,11 +342,8 @@ class AudioSettingsPage extends ConsumerWidget {
       return;
     }
 
-    await showModalBottomSheet<void>(
+    await showSettingsSheet<void>(
       context: context,
-      backgroundColor: Colors.transparent,
-      barrierColor: settingsSheetBarrierColor(context),
-      isScrollControlled: true,
       builder: (sheetContext) {
         return SettingsSelectorSheet(
           title: l10n.ttsSelectVoice,

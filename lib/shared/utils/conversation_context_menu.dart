@@ -4,9 +4,8 @@ import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/measure_size.dart';
-import 'package:conduit/shared/widgets/modal_safe_area.dart';
-import 'package:conduit/shared/widgets/sheet_handle.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
+import 'package:conduit/shared/widgets/themed_sheets.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:conduit/core/services/haptic_service.dart';
@@ -45,11 +44,13 @@ class ConduitContextMenuAction {
 class ConduitContextMenu extends StatefulWidget {
   final List<ConduitContextMenuAction> actions;
   final Widget child;
+  final WidgetBuilder? topWidgetBuilder;
 
   const ConduitContextMenu({
     super.key,
     required this.actions,
     required this.child,
+    this.topWidgetBuilder,
   });
 
   @override
@@ -111,14 +112,28 @@ class _ConduitContextMenuState extends State<ConduitContextMenu> {
           child: widget.child,
         );
         final size = _childSize;
+        Widget preview = previewChild;
         if (animation.value > 0 && size != null) {
-          return SizedBox(
+          preview = SizedBox(
             width: size.width,
             height: size.height,
             child: previewChild,
           );
         }
-        return previewChild;
+
+        final topWidgetBuilder = widget.topWidgetBuilder;
+        if (animation.value > 0 && topWidgetBuilder != null) {
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              topWidgetBuilder(context),
+              const SizedBox(height: Spacing.sm),
+              preview,
+            ],
+          );
+        }
+
+        return preview;
       },
     );
 
@@ -347,80 +362,67 @@ Future<_ConversationMoveTarget?> _showConversationMoveSheet(
   required List<Folder> folders,
   required String? currentFolderId,
 }) {
-  final theme = context.conduitTheme;
   final treeEntries = folderTreeEntriesForTargets(
     folders: folders,
     omitFolderId: currentFolderId,
   );
 
-  return showModalBottomSheet<_ConversationMoveTarget>(
+  return ThemedSheets.showSurface<_ConversationMoveTarget>(
     context: context,
     isScrollControlled: true,
-    useSafeArea: false,
-    backgroundColor: theme.surfaceBackground,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(
-        top: Radius.circular(AppBorderRadius.bottomSheet),
-      ),
-    ),
     builder: (sheetContext) {
+      final theme = sheetContext.conduitTheme;
       final maxListHeight = MediaQuery.sizeOf(sheetContext).height * 0.62;
 
-      return ModalSheetSafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Center(child: SheetHandle()),
-            const SizedBox(height: Spacing.sm),
-            Text(
-              'Move to folder',
-              style: AppTypography.headlineSmallStyle.copyWith(
-                color: theme.textPrimary,
-                fontWeight: FontWeight.w700,
-              ),
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Move to folder',
+            style: AppTypography.headlineSmallStyle.copyWith(
+              color: theme.textPrimary,
+              fontWeight: FontWeight.w700,
             ),
-            const SizedBox(height: Spacing.md),
-            ConstrainedBox(
-              constraints: BoxConstraints(maxHeight: maxListHeight),
-              child: ListView(
-                shrinkWrap: true,
-                physics: const ClampingScrollPhysics(),
-                padding: EdgeInsets.zero,
-                children: [
-                  if (currentFolderId != null)
-                    _MoveTargetTile(
+          ),
+          const SizedBox(height: Spacing.md),
+          ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: maxListHeight),
+            child: ListView(
+              shrinkWrap: true,
+              physics: const ClampingScrollPhysics(),
+              padding: EdgeInsets.zero,
+              children: [
+                if (currentFolderId != null)
+                  _MoveTargetTile(
+                    icon: PlatformInfo.isIOS
+                        ? CupertinoIcons.folder_badge_minus
+                        : Icons.folder_off_outlined,
+                    label: 'No folder',
+                    onTap: () => Navigator.of(
+                      sheetContext,
+                    ).pop(const _ConversationMoveTarget(folderId: null)),
+                  ),
+                for (final entry in treeEntries)
+                  FolderTreeHierarchyNode(
+                    key: ValueKey<String>('move-chat-tree-${entry.folder.id}'),
+                    ancestorHasMoreSiblings: entry.ancestorHasMoreSiblings,
+                    showBranch: true,
+                    hasMoreSiblings: entry.hasMoreSiblings,
+                    child: _MoveTargetTile(
                       icon: PlatformInfo.isIOS
-                          ? CupertinoIcons.folder_badge_minus
-                          : Icons.folder_off_outlined,
-                      label: 'No folder',
-                      onTap: () => Navigator.of(
-                        sheetContext,
-                      ).pop(const _ConversationMoveTarget(folderId: null)),
-                    ),
-                  for (final entry in treeEntries)
-                    FolderTreeHierarchyNode(
-                      key: ValueKey<String>(
-                        'move-chat-tree-${entry.folder.id}',
-                      ),
-                      ancestorHasMoreSiblings: entry.ancestorHasMoreSiblings,
-                      showBranch: true,
-                      hasMoreSiblings: entry.hasMoreSiblings,
-                      child: _MoveTargetTile(
-                        icon: PlatformInfo.isIOS
-                            ? CupertinoIcons.folder
-                            : Icons.folder_outlined,
-                        label: entry.folder.name,
-                        onTap: () => Navigator.of(sheetContext).pop(
-                          _ConversationMoveTarget(folderId: entry.folder.id),
-                        ),
+                          ? CupertinoIcons.folder
+                          : Icons.folder_outlined,
+                      label: entry.folder.name,
+                      onTap: () => Navigator.of(sheetContext).pop(
+                        _ConversationMoveTarget(folderId: entry.folder.id),
                       ),
                     ),
-                ],
-              ),
+                  ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       );
     },
   );

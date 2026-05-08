@@ -14,21 +14,23 @@ import '../../../core/models/model.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/haptic_service.dart';
 import '../../../core/services/navigation_service.dart';
-import '../../../core/services/platform_service.dart';
 import '../../../core/services/settings_service.dart';
 import '../../../core/widgets/error_boundary.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/services/tasks/task_queue.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
+import '../../../shared/widgets/chrome_gradient_fade.dart';
 import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/measure_size.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../../shared/widgets/sheet_handle.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
+import '../../../shared/widgets/themed_sheets.dart';
 import '../../chat/providers/chat_providers.dart' as chat;
 import '../../chat/providers/context_attachments_provider.dart';
 import '../../chat/services/file_attachment_service.dart';
@@ -113,218 +115,119 @@ class _FolderPageState extends ConsumerState<FolderPage> {
   ) {
     final tintColor = context.conduitTheme.textPrimary;
     final hasOverflowMenu = folder != null;
-
-    return buildConduitAdaptiveToolbarAppBar(
+    final leading = _buildFolderToolbarLeading(
       context: context,
+      l10n: l10n,
+      hasOverflowMenu: hasOverflowMenu,
       tintColor: tintColor,
-      buildNativeLeading: () {
-        final maxPillWidth = resolveConduitAdaptiveLeadingPillWidth(
-          context,
-          trailingActionCount: hasOverflowMenu ? 3 : 2,
-          maxWidth: 200,
-        );
-        final label = _formatModelDisplayName(
-          ref.watch(selectedModelProvider)?.name ?? l10n.chooseModel,
-        );
+    );
+    final actions = _buildFolderToolbarActionWidgets(context, folder);
+    final leadingWidth = resolveConduitAdaptiveLeadingPillWidth(
+      context,
+      trailingActionCount: hasOverflowMenu ? 3 : 2,
+      maxWidth: 200,
+    );
 
-        return Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ConduitAdaptiveAppBarIconButton(
-              key: const ValueKey<String>('folder-page-drawer-button-native'),
-              icon: Platform.isIOS
-                  ? CupertinoIcons.line_horizontal_3
-                  : Icons.menu,
-              onPressed: _toggleDrawer,
-              iconColor: tintColor,
-            ),
-            const SizedBox(width: Spacing.xs),
-            ConduitAdaptiveAppBarModelSelector(
-              key: const ValueKey<String>('folder-page-model-selector-native'),
-              label: label,
-              maxWidth: maxPillWidth,
-              onPressed: _showModelSelector,
-            ),
-          ],
-        );
-      },
-      buildNativeActions: () =>
-          _buildNativeFolderToolbarActions(context, l10n, folder),
-      buildMaterialLeading: () => ConduitAdaptiveAppBarIconButton(
-        key: const ValueKey<String>('folder-page-drawer-button'),
-        icon: Platform.isIOS ? CupertinoIcons.line_horizontal_3 : Icons.menu,
-        onPressed: _toggleDrawer,
-        iconColor: tintColor,
+    return AdaptiveAppBar(
+      useNativeToolbar: false,
+      tintColor: tintColor,
+      cupertinoNavigationBar: CupertinoNavigationBar(
+        automaticallyImplyLeading: false,
+        border: null,
+        backgroundColor: Colors.transparent,
+        enableBackgroundFilterBlur: false,
+        leading: leading,
+        trailing: Row(mainAxisSize: MainAxisSize.min, children: actions),
       ),
-      buildMaterialTitle: () => LayoutBuilder(
-        builder: (context, constraints) {
-          final maxPillWidth = resolveConduitAdaptiveToolbarPillWidth(
-            availableWidth: constraints.maxWidth,
-            maxWidth: 200,
-            preferredPadding: Spacing.xxl,
-          );
-          final label = _formatModelDisplayName(
-            ref.watch(selectedModelProvider)?.name ?? l10n.chooseModel,
-          );
-          return Align(
-            alignment: Alignment.centerLeft,
-            child: ConduitAdaptiveAppBarModelSelector(
-              key: const ValueKey<String>('folder-page-model-selector'),
-              label: label,
-              maxWidth: maxPillWidth,
-              onPressed: _showModelSelector,
-            ),
-          );
-        },
+      appBar: AppBar(
+        automaticallyImplyLeading: false,
+        backgroundColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
+        elevation: Elevation.none,
+        scrolledUnderElevation: Elevation.none,
+        leadingWidth:
+            TouchTarget.minimum + Spacing.xs + leadingWidth + Spacing.md,
+        leading: leading,
+        actions: actions,
       ),
-      buildMaterialActions: () =>
-          _buildMaterialFolderToolbarActions(context, l10n, folder),
     );
   }
 
-  List<AdaptiveAppBarAction> _buildNativeFolderToolbarActions(
+  Widget _buildFolderToolbarLeading({
+    required BuildContext context,
+    required AppLocalizations l10n,
+    required bool hasOverflowMenu,
+    required Color tintColor,
+  }) {
+    final maxPillWidth = resolveConduitAdaptiveLeadingPillWidth(
+      context,
+      trailingActionCount: hasOverflowMenu ? 3 : 2,
+      maxWidth: 200,
+    );
+    final label = _formatModelDisplayName(
+      ref.watch(selectedModelProvider)?.name ?? l10n.chooseModel,
+    );
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ConduitAdaptiveAppBarIconButton(
+          key: const ValueKey<String>('folder-page-drawer-button'),
+          icon: Platform.isIOS ? CupertinoIcons.line_horizontal_3 : Icons.menu,
+          onPressed: _toggleDrawer,
+          iconColor: tintColor,
+        ),
+        const SizedBox(width: Spacing.xs),
+        ConduitAdaptiveAppBarModelSelector(
+          key: const ValueKey<String>('folder-page-model-selector'),
+          label: label,
+          maxWidth: maxPillWidth,
+          onPressed: _showModelSelector,
+        ),
+      ],
+    );
+  }
+
+  List<Widget> _buildFolderToolbarActionWidgets(
     BuildContext context,
-    AppLocalizations l10n,
     Folder? folder,
   ) {
     final isTemporary = ref.watch(temporaryChatEnabledProvider);
-    final actions = <AdaptiveAppBarAction>[
-      AdaptiveAppBarAction(
-        iosSymbol: isTemporary ? 'eye.slash' : 'eye',
+    final actions = <Widget>[
+      ConduitAdaptiveAppBarIconButton(
+        key: const ValueKey<String>('folder-page-temp-button'),
         icon: isTemporary
             ? (Platform.isIOS ? CupertinoIcons.eye_slash : Icons.visibility_off)
             : (Platform.isIOS ? CupertinoIcons.eye : Icons.visibility_outlined),
-        tintColor: isTemporary ? Colors.blue : context.conduitTheme.textPrimary,
+        iconColor: isTemporary ? Colors.blue : context.conduitTheme.textPrimary,
         onPressed: () {
           ConduitHaptics.selectionClick();
           final current = ref.read(temporaryChatEnabledProvider);
           ref.read(temporaryChatEnabledProvider.notifier).set(!current);
         },
       ),
-      AdaptiveAppBarAction(
-        iosSymbol: 'square.and.pencil',
+      const SizedBox(width: Spacing.sm),
+      ConduitAdaptiveAppBarIconButton(
+        key: const ValueKey<String>('folder-page-new-chat-button'),
         icon: Platform.isIOS ? CupertinoIcons.create : Icons.add_comment,
-        tintColor: context.conduitTheme.textPrimary,
+        iconColor: context.conduitTheme.textPrimary,
         onPressed: _handleNewChat,
       ),
     ];
 
     if (folder != null) {
-      actions.add(
-        AdaptiveAppBarAction(
-          iosSymbol: 'ellipsis',
-          icon: Platform.isIOS
-              ? CupertinoIcons.ellipsis
-              : Icons.more_vert_rounded,
-          tintColor: context.conduitTheme.textPrimary,
-          onPressed: () {
-            ConduitHaptics.selectionClick();
-            _dismissComposerFocus();
-            _showFolderMoreActions(context, l10n, folder);
-          },
-        ),
-      );
+      actions
+        ..add(const SizedBox(width: Spacing.sm))
+        ..add(
+          _FolderToolbarPopupButton(
+            tintColor: context.conduitTheme.textPrimary,
+            onSelected: (action) =>
+                _handleFolderToolbarSelection(folder, action),
+          ),
+        );
     }
 
     return actions;
-  }
-
-  List<Widget> _buildMaterialFolderToolbarActions(
-    BuildContext context,
-    AppLocalizations l10n,
-    Folder? folder,
-  ) {
-    return [
-      Consumer(
-        builder: (context, ref, _) {
-          final isTemporary = ref.watch(temporaryChatEnabledProvider);
-          return AdaptiveTooltip(
-            message: isTemporary
-                ? l10n.temporaryChatTooltip
-                : l10n.temporaryChat,
-            child: ConduitAdaptiveAppBarIconButton(
-              key: const ValueKey<String>('folder-page-temp-button'),
-              icon: isTemporary
-                  ? (Platform.isIOS
-                        ? CupertinoIcons.eye_slash
-                        : Icons.visibility_off)
-                  : (Platform.isIOS
-                        ? CupertinoIcons.eye
-                        : Icons.visibility_outlined),
-              onPressed: () {
-                ConduitHaptics.selectionClick();
-                final current = ref.read(temporaryChatEnabledProvider);
-                ref.read(temporaryChatEnabledProvider.notifier).set(!current);
-              },
-              iconColor: isTemporary
-                  ? Colors.blue
-                  : context.conduitTheme.textPrimary,
-            ),
-          );
-        },
-      ),
-      const SizedBox(width: Spacing.sm),
-      if (folder != null) ...[
-        AdaptiveTooltip(
-          message: l10n.newChat,
-          child: ConduitAdaptiveAppBarIconButton(
-            key: const ValueKey<String>('folder-page-new-chat-button'),
-            icon: Platform.isIOS ? CupertinoIcons.create : Icons.add_comment,
-            onPressed: _handleNewChat,
-            iconColor: context.conduitTheme.textPrimary,
-          ),
-        ),
-        const SizedBox(width: Spacing.sm),
-        Padding(
-          padding: const EdgeInsets.only(right: Spacing.inputPadding),
-          child: AdaptivePopupMenuButton.widget<String>(
-            items: [
-              AdaptivePopupMenuItem<String>(
-                label: 'Edit Folder',
-                value: 'edit-folder',
-                icon: Platform.isIOS
-                    ? CupertinoIcons.pencil
-                    : Icons.edit_outlined,
-              ),
-              AdaptivePopupMenuItem<String>(
-                label: 'System Prompt',
-                value: 'system-prompt',
-                icon: Platform.isIOS
-                    ? CupertinoIcons.text_alignleft
-                    : Icons.text_snippet_outlined,
-              ),
-            ],
-            onSelected: (_, entry) {
-              final value = entry.value;
-              if (value == null) {
-                return;
-              }
-              _handleFolderToolbarSelection(folder, value);
-            },
-            buttonStyle: PopupButtonStyle.glass,
-            child: ConduitAdaptiveAppBarIconButton(
-              key: const ValueKey<String>('folder-page-overflow-button'),
-              icon: Platform.isIOS
-                  ? CupertinoIcons.ellipsis
-                  : Icons.more_vert_rounded,
-              iconColor: context.conduitTheme.textPrimary,
-            ),
-          ),
-        ),
-      ] else
-        Padding(
-          padding: const EdgeInsets.only(right: Spacing.inputPadding),
-          child: AdaptiveTooltip(
-            message: l10n.newChat,
-            child: ConduitAdaptiveAppBarIconButton(
-              key: const ValueKey<String>('folder-page-new-chat-button'),
-              icon: Platform.isIOS ? CupertinoIcons.create : Icons.add_comment,
-              onPressed: _handleNewChat,
-              iconColor: context.conduitTheme.textPrimary,
-            ),
-          ),
-        ),
-    ];
   }
 
   void _handleFolderToolbarSelection(Folder folder, String action) {
@@ -339,37 +242,6 @@ class _FolderPageState extends ConsumerState<FolderPage> {
         _showSystemPromptSheet(folder);
         return;
     }
-  }
-
-  Future<void> _showFolderMoreActions(
-    BuildContext context,
-    AppLocalizations l10n,
-    Folder folder,
-  ) async {
-    await PlatformService.showPlatformActionSheet<void>(
-      context: context,
-      title: folder.name,
-      actions: [
-        PlatformActionSheetAction(
-          title: 'Edit Folder',
-          onPressed: () {
-            Navigator.of(context).pop();
-            _handleFolderToolbarSelection(folder, 'edit-folder');
-          },
-        ),
-        PlatformActionSheetAction(
-          title: 'System Prompt',
-          onPressed: () {
-            Navigator.of(context).pop();
-            _handleFolderToolbarSelection(folder, 'system-prompt');
-          },
-        ),
-      ],
-      cancelAction: PlatformActionSheetAction(
-        title: l10n.cancel,
-        onPressed: () => Navigator.of(context).pop(),
-      ),
-    );
   }
 
   Future<void> _showModelSelector() async {
@@ -393,10 +265,9 @@ class _FolderPageState extends ConsumerState<FolderPage> {
         return;
       }
 
-      await showModalBottomSheet<void>(
+      await ThemedSheets.showCustom<void>(
         context: context,
         isScrollControlled: true,
-        backgroundColor: Colors.transparent,
         builder: (sheetContext) => ModelSelectorSheet(models: models, ref: ref),
       );
     } catch (_) {
@@ -621,9 +492,8 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       return;
     }
 
-    showModalBottomSheet<void>(
+    ThemedSheets.showCustom<void>(
       context: context,
-      backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (_) => ServerFilePickerSheet(
         onSelected: (file) {
@@ -723,7 +593,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
     final l10n = AppLocalizations.of(context)!;
     String url = '';
     bool submitting = false;
-    await showDialog<void>(
+    await ThemedDialogs.showCustom<void>(
       context: context,
       builder: (dialogContext) {
         String? errorText;
@@ -869,10 +739,9 @@ class _FolderPageState extends ConsumerState<FolderPage> {
   }
 
   Future<void> _showEditFolderSheet(Folder folder) async {
-    final updatedFolder = await showModalBottomSheet<Folder>(
+    final updatedFolder = await ThemedSheets.showCustom<Folder>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.transparent,
       builder: (sheetContext) => _FolderEditSheet(folder: folder),
     );
 
@@ -884,10 +753,9 @@ class _FolderPageState extends ConsumerState<FolderPage> {
   }
 
   Future<void> _showSystemPromptSheet(Folder folder) async {
-    final updatedFolder = await showModalBottomSheet<Folder>(
+    final updatedFolder = await ThemedSheets.showCustom<Folder>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.transparent,
       builder: (sheetContext) => _FolderSystemPromptSheet(folder: folder),
     );
 
@@ -990,8 +858,10 @@ class _FolderPageState extends ConsumerState<FolderPage> {
     );
   }
 
-  Widget _buildComposerOverlay(BuildContext context) {
+  Widget _buildComposerOverlay(BuildContext context, Folder folder) {
     final theme = Theme.of(context);
+    final folderName = folder.name.trim();
+    final placeholder = folderName.isEmpty ? null : 'Message $folderName';
 
     return RepaintBoundary(
       child: MeasureSize(
@@ -1038,6 +908,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
                       _handleImageAttachment(fromCamera: true),
                   onWebAttachment: _promptAttachWebpage,
                   onPastedAttachments: _handlePastedAttachments,
+                  placeholder: placeholder,
                 ),
               ),
             ],
@@ -1144,15 +1015,24 @@ class _FolderPageState extends ConsumerState<FolderPage> {
                   (_pendingConversationId == conversation.id) &&
                   ref.watch(chat.isLoadingConversationProvider);
 
-              return ConversationTile(
-                key: ValueKey<String>('folder-chat-${conversation.id}'),
-                title: conversation.title.isEmpty ? 'Chat' : conversation.title,
-                pinned: conversation.pinned,
-                selected: false,
-                isLoading: isLoadingSelected,
-                onTap: _isLoadingConversation
-                    ? null
-                    : () => _selectConversation(conversation.id),
+              return ConduitContextMenu(
+                actions: buildConversationActions(
+                  context: context,
+                  ref: ref,
+                  conversation: conversation,
+                ),
+                child: ConversationTile(
+                  key: ValueKey<String>('folder-chat-${conversation.id}'),
+                  title: conversation.title.isEmpty
+                      ? 'Chat'
+                      : conversation.title,
+                  pinned: conversation.pinned,
+                  selected: false,
+                  isLoading: isLoadingSelected,
+                  onTap: _isLoadingConversation
+                      ? null
+                      : () => _selectConversation(conversation.id),
+                ),
               );
             }, childCount: sortedConversations.length),
           ),
@@ -1206,8 +1086,17 @@ class _FolderPageState extends ConsumerState<FolderPage> {
           Positioned(
             left: 0,
             right: 0,
+            top: 0,
+            child: ConduitChromeGradientFade.top(
+              contentHeight:
+                  MediaQuery.viewPaddingOf(context).top + kTextTabBarHeight,
+            ),
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
             bottom: 0,
-            child: _buildComposerOverlay(context),
+            child: _buildComposerOverlay(context, folder),
           ),
         ],
       ),
@@ -1865,6 +1754,66 @@ class _SectionHeader extends StatelessWidget {
         ],
       ],
     );
+  }
+}
+
+class _FolderToolbarPopupButton extends StatelessWidget {
+  const _FolderToolbarPopupButton({
+    required this.tintColor,
+    required this.onSelected,
+  });
+
+  final Color tintColor;
+  final ValueChanged<String> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return KeyedSubtree(
+      key: const ValueKey<String>('folder-page-overflow-button'),
+      child: AdaptivePopupMenuButton.icon<String>(
+        icon: _buttonIcon(),
+        tint: tintColor,
+        size: TouchTarget.minimum,
+        buttonStyle: PopupButtonStyle.glass,
+        items: [
+          AdaptivePopupMenuItem<String>(
+            value: 'edit-folder',
+            label: 'Edit Folder',
+            icon: _itemIcon(
+              iosSymbol: 'pencil',
+              materialIcon: Icons.edit_outlined,
+            ),
+          ),
+          AdaptivePopupMenuItem<String>(
+            value: 'system-prompt',
+            label: 'System Prompt',
+            icon: _itemIcon(
+              iosSymbol: 'text.bubble',
+              materialIcon: Icons.notes_outlined,
+            ),
+          ),
+        ],
+        onSelected: (_, entry) {
+          final value = entry.value;
+          if (value == null) {
+            return;
+          }
+
+          onSelected(value);
+        },
+      ),
+    );
+  }
+
+  dynamic _buttonIcon() {
+    return Platform.isIOS ? 'ellipsis' : Icons.more_vert_rounded;
+  }
+
+  dynamic _itemIcon({
+    required String iosSymbol,
+    required IconData materialIcon,
+  }) {
+    return Platform.isIOS ? iosSymbol : materialIcon;
   }
 }
 

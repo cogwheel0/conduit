@@ -6,6 +6,7 @@ import 'api_error.dart';
 import 'api_error_handler.dart';
 import 'api_error_interceptor.dart';
 import '../../shared/theme/theme_extensions.dart';
+import '../../shared/widgets/themed_dialogs.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import '../utils/debug_logger.dart';
 
@@ -132,7 +133,7 @@ class EnhancedErrorService {
     final technicalDetails = getTechnicalDetails(error);
     final isRetryableError = isRetryable(error);
 
-    return showDialog<void>(
+    return ThemedDialogs.showCustom<void>(
       context: context,
       barrierDismissible: true,
       builder: (BuildContext context) {

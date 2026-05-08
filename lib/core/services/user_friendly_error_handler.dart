@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import '../../shared/theme/theme_extensions.dart';
+import '../../shared/widgets/themed_dialogs.dart';
 import 'navigation_service.dart';
 import '../utils/debug_logger.dart';
 
@@ -96,7 +97,7 @@ class UserFriendlyErrorHandler {
     final message = getUserMessage(error);
     final actions = getRecoveryActions(error);
 
-    return showDialog(
+    return ThemedDialogs.showCustom<void>(
       context: context,
       builder: (context) => ErrorDialog(
         message: message,

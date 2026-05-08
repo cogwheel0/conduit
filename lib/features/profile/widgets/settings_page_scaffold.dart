@@ -5,12 +5,28 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/modal_safe_area.dart';
 import '../../../shared/widgets/sheet_handle.dart';
+import '../../../shared/widgets/themed_sheets.dart';
 
 const settingsSectionGap = SizedBox(height: Spacing.lg);
 
 /// Returns the clear modal barrier used by settings bottom sheets.
 Color settingsSheetBarrierColor(BuildContext context) {
   return Colors.transparent;
+}
+
+Future<T?> showSettingsSheet<T>({
+  required BuildContext context,
+  required WidgetBuilder builder,
+  bool isScrollControlled = true,
+  bool useSafeArea = false,
+}) {
+  return ThemedSheets.showCustom<T>(
+    context: context,
+    isScrollControlled: isScrollControlled,
+    useSafeArea: useSafeArea,
+    barrierColor: settingsSheetBarrierColor(context),
+    builder: builder,
+  );
 }
 
 /// Model-selector style shell for settings pickers.
@@ -247,7 +263,7 @@ class SettingsPageScaffold extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final mediaQuery = MediaQuery.of(context);
-    final topPadding = PlatformInfo.isIOS26OrHigher()
+    final topPadding = Theme.of(context).platform == TargetPlatform.iOS
         ? mediaQuery.padding.top + kTextTabBarHeight + Spacing.lg
         : Spacing.lg;
 

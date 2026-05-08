@@ -8,7 +8,40 @@ import 'package:conduit/core/services/haptic_service.dart';
 import '../../shared/theme/theme_extensions.dart';
 import 'drawer_slot.dart';
 
+const double _kSidebarNativeBottomBarContentHeight = 50.0;
+
 enum _DrawerSettleEndpoint { open, closed }
+
+bool _usesNativeSidebarChrome(BuildContext context) =>
+    Theme.of(context).platform == TargetPlatform.iOS;
+
+/// Top inset so sidebar tab content starts below native sidebar chrome.
+double sidebarTabContentTopPadding(BuildContext context) {
+  if (!_usesNativeSidebarChrome(context)) {
+    return Spacing.sm;
+  }
+
+  return MediaQuery.viewPaddingOf(context).top + kTextTabBarHeight + Spacing.sm;
+}
+
+/// Bottom inset so sidebar tab content clears native sidebar chrome.
+double sidebarTabContentBottomPadding(BuildContext context) {
+  if (!_usesNativeSidebarChrome(context)) {
+    return Spacing.md;
+  }
+
+  final bottomPadding = MediaQuery.viewPaddingOf(context).bottom;
+  return bottomPadding + _kSidebarNativeBottomBarContentHeight + Spacing.md;
+}
+
+/// Height excluded from drawer drag gestures above the native sidebar tab bar.
+double sidebarBottomBarGestureExclusionHeight(BuildContext context) {
+  if (!_usesNativeSidebarChrome(context)) {
+    return 0.0;
+  }
+
+  return sidebarTabContentBottomPadding(context);
+}
 
 /// A responsive layout that shows a persistent drawer on tablets (side-by-side)
 /// and an overlay drawer on mobile devices.

@@ -681,11 +681,8 @@ class AppCustomizationPage extends ConsumerWidget {
       }
     }
 
-    await showModalBottomSheet<void>(
+    await showSettingsSheet<void>(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      barrierColor: settingsSheetBarrierColor(context),
       builder: (sheetContext) => _ServerPromptEditorSheet(
         title: title,
         description: description,
@@ -781,11 +778,8 @@ class AppCustomizationPage extends ConsumerWidget {
       ),
     ];
 
-    await showModalBottomSheet<void>(
+    await showSettingsSheet<void>(
       context: context,
-      backgroundColor: Colors.transparent,
-      barrierColor: settingsSheetBarrierColor(context),
-      isScrollControlled: true,
       builder: (sheetContext) {
         return SettingsSelectorSheet(
           title: l10n.androidAssistantTitle,
@@ -1361,11 +1355,8 @@ class AppCustomizationPage extends ConsumerWidget {
         for (final voice in voices) (section: null, voice: voice),
     ];
 
-    showModalBottomSheet<void>(
+    showSettingsSheet<void>(
       context: context,
-      backgroundColor: Colors.transparent,
-      barrierColor: settingsSheetBarrierColor(context),
-      isScrollControlled: true,
       builder: (BuildContext sheetContext) {
         return SettingsSelectorSheet(
           title: l10n.ttsSelectVoice,
@@ -1718,11 +1709,8 @@ class AppCustomizationPage extends ConsumerWidget {
       current = options.first.value;
     }
 
-    await showModalBottomSheet<void>(
+    await showSettingsSheet<void>(
       context: context,
-      backgroundColor: Colors.transparent,
-      barrierColor: settingsSheetBarrierColor(context),
-      isScrollControlled: true,
       builder: (sheetContext) {
         return SettingsSelectorSheet(
           title: l10n.transportMode,
@@ -1806,11 +1794,8 @@ class AppCustomizationPage extends ConsumerWidget {
     final l10n = AppLocalizations.of(context)!;
     final palettes = TweakcnThemes.all;
 
-    await showModalBottomSheet<void>(
+    await showSettingsSheet<void>(
       context: context,
-      backgroundColor: Colors.transparent,
-      barrierColor: settingsSheetBarrierColor(context),
-      isScrollControlled: true,
       builder: (sheetContext) {
         return SettingsSelectorSheet(
           title: l10n.themePalette,
@@ -1863,11 +1848,8 @@ class AppCustomizationPage extends ConsumerWidget {
       (value: 'ja', label: l10n.japanese),
     ];
 
-    return showModalBottomSheet<String>(
+    return showSettingsSheet<String>(
       context: context,
-      backgroundColor: Colors.transparent,
-      barrierColor: settingsSheetBarrierColor(context),
-      isScrollControlled: true,
       builder: (sheetContext) {
         return SettingsSelectorSheet(
           title: AppLocalizations.of(sheetContext)!.appLanguage,
