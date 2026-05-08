@@ -1016,10 +1016,12 @@ class _FolderPageState extends ConsumerState<FolderPage> {
                   ref.watch(chat.isLoadingConversationProvider);
 
               return ConduitContextMenu(
-                actions: buildConversationActions(
+                actions: buildConversationActionsWithFolders(
                   context: context,
                   ref: ref,
                   conversation: conversation,
+                  foldersEnabled: true,
+                  folders: folders,
                 ),
                 child: ConversationTile(
                   key: ValueKey<String>('folder-chat-${conversation.id}'),
@@ -1859,8 +1861,10 @@ class _FolderListTile extends StatelessWidget {
                 ),
                 const SizedBox(width: Spacing.sm),
                 Expanded(
-                  child: MiddleEllipsisText(
+                  child: Text(
                     name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: AppTypography.sidebarTitleStyle.copyWith(
                       color: theme.textPrimary,
                     ),

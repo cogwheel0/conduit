@@ -380,45 +380,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     BuildContext context,
     EditableTextState editableTextState,
   ) {
-    if (SystemContextMenu.isSupportedByField(editableTextState)) {
-      return SystemContextMenu.editableText(
-        editableTextState: editableTextState,
-        items: _buildIosSystemContextMenuItems(editableTextState),
-      );
-    }
-
+    // iOS 26 can assert when Flutter tries to show overlapping system edit
+    // menus while focus is changing. Use the Flutter-rendered toolbar until
+    // the platform SystemContextMenu path is reliable again.
     return _buildFallbackContextMenu(context, editableTextState);
-  }
-
-  List<IOSSystemContextMenuItem> _buildIosSystemContextMenuItems(
-    EditableTextState editableTextState,
-  ) {
-    final items = List<IOSSystemContextMenuItem>.from(
-      SystemContextMenu.getDefaultItems(editableTextState),
-    );
-
-    if (widget.onPastedAttachments == null ||
-        items.any((item) => item is IOSSystemContextMenuItemPaste)) {
-      return items;
-    }
-
-    final pasteItem = const IOSSystemContextMenuItemPaste();
-    final insertionIndex = items.indexWhere(
-      (item) =>
-          item is IOSSystemContextMenuItemSelectAll ||
-          item is IOSSystemContextMenuItemLookUp ||
-          item is IOSSystemContextMenuItemSearchWeb ||
-          item is IOSSystemContextMenuItemShare ||
-          item is IOSSystemContextMenuItemLiveText,
-    );
-
-    if (insertionIndex >= 0) {
-      items.insert(insertionIndex, pasteItem);
-    } else {
-      items.add(pasteItem);
-    }
-
-    return items;
   }
 
   /// Builds a Flutter-rendered fallback text editing menu.
@@ -426,10 +391,75 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     BuildContext context,
     EditableTextState editableTextState,
   ) {
+    final buttonItems = _buildFallbackContextMenuItems(
+      context,
+      editableTextState,
+    );
     return AdaptiveTextSelectionToolbar.buttonItems(
       anchors: editableTextState.contextMenuAnchors,
-      buttonItems: editableTextState.contextMenuButtonItems,
+      buttonItems: buttonItems,
     );
+  }
+
+  List<ContextMenuButtonItem> _buildFallbackContextMenuItems(
+    BuildContext context,
+    EditableTextState editableTextState,
+  ) {
+    final items = List<ContextMenuButtonItem>.from(
+      editableTextState.contextMenuButtonItems,
+    );
+    if (kIsWeb || !Platform.isIOS || widget.onPastedAttachments == null) {
+      return items;
+    }
+
+    final pasteIndex = items.indexWhere(
+      (item) => item.type == ContextMenuButtonType.paste,
+    );
+    if (pasteIndex >= 0) {
+      final defaultPaste = items[pasteIndex];
+      items[pasteIndex] = ContextMenuButtonItem(
+        type: defaultPaste.type,
+        label: defaultPaste.label,
+        onPressed: () {
+          unawaited(
+            _handleFallbackPaste(
+              editableTextState,
+              defaultPaste: defaultPaste.onPressed,
+            ),
+          );
+        },
+      );
+      return items;
+    }
+
+    items.add(
+      ContextMenuButtonItem(
+        type: ContextMenuButtonType.paste,
+        label: MaterialLocalizations.of(context).pasteButtonLabel,
+        onPressed: () {
+          unawaited(_handleFallbackPaste(editableTextState));
+        },
+      ),
+    );
+    return items;
+  }
+
+  Future<void> _handleFallbackPaste(
+    EditableTextState editableTextState, {
+    VoidCallback? defaultPaste,
+  }) async {
+    if (!mounted || !widget.enabled) {
+      return;
+    }
+
+    final handledImagePaste = await IosNativePasteService.instance
+        .requestPaste();
+    if (handledImagePaste) {
+      editableTextState.hideToolbar();
+      return;
+    }
+
+    defaultPaste?.call();
   }
 
   void _insertNewline() {
@@ -1533,16 +1563,24 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final isGenerating = ref.watch(isChatStreamingProvider);
     final stopGeneration = ref.read(stopGenerationProvider);
 
-    // Check if file uploads are in progress or complete
-    final attachedFiles = ref.watch(attachedFilesProvider);
-    final hasUploadsInProgress = attachedFiles.any(
-      (f) =>
-          f.status == FileUploadStatus.uploading ||
-          f.status == FileUploadStatus.pending,
+    // Watch only upload send-state booleans so metadata/progress churn does not
+    // fan out through the whole composer.
+    final hasUploadsInProgress = ref.watch(
+      attachedFilesProvider.select(
+        (files) => files.any(
+          (f) =>
+              f.status == FileUploadStatus.uploading ||
+              f.status == FileUploadStatus.pending,
+        ),
+      ),
     );
-    final allUploadsComplete =
-        attachedFiles.isEmpty ||
-        attachedFiles.every((f) => f.status == FileUploadStatus.completed);
+    final allUploadsComplete = ref.watch(
+      attachedFilesProvider.select(
+        (files) =>
+            files.isEmpty ||
+            files.every((f) => f.status == FileUploadStatus.completed),
+      ),
+    );
 
     final webSearchEnabled = ref.watch(webSearchEnabledProvider);
     final webSearchAvailable = ref.watch(webSearchAvailableProvider);
@@ -1575,10 +1613,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final selectedFilterIds = ref.watch(selectedFilterIdsProvider);
 
     // Get filters from the selected model for quick pills
-    final selectedModel = ref.watch(selectedModelProvider);
-    final availableFilters = selectedModel?.filters ?? const [];
-    final terminalActive =
-        selectedTerminalId != null && modelSupportsTerminal(selectedModel);
+    final availableFilters = ref.watch(
+      selectedModelProvider.select(
+        (model) => model?.filters ?? const <ToggleFilter>[],
+      ),
+    );
+    final terminalModelSupported = ref.watch(
+      selectedModelProvider.select(modelSupportsTerminal),
+    );
+    final terminalActive = selectedTerminalId != null && terminalModelSupported;
 
     final focusTick = ref.watch(inputFocusTriggerProvider);
     final autofocusEnabled = ref.watch(composerAutofocusEnabledProvider);

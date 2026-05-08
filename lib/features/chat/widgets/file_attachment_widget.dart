@@ -257,16 +257,13 @@ class _FileAttachmentCard extends ConsumerWidget {
 
   Widget _buildImagePreview(BuildContext context, Widget removeButton) {
     final File file = fileState.file;
-    final bool fileExists = file.existsSync();
-    final Widget basePreview = fileExists
-        ? Image.file(
-            file,
-            fit: BoxFit.cover,
-            filterQuality: FilterQuality.medium,
-            errorBuilder: (context, error, stackTrace) =>
-                _buildPreviewPlaceholderContent(context),
-          )
-        : _buildPreviewPlaceholderContent(context);
+    final Widget basePreview = Image.file(
+      file,
+      fit: BoxFit.cover,
+      filterQuality: FilterQuality.medium,
+      errorBuilder: (context, error, stackTrace) =>
+          _buildPreviewPlaceholderContent(context),
+    );
 
     return DecoratedBox(
       decoration: BoxDecoration(

@@ -149,6 +149,8 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
   Widget _conversationsSliver(
     List<dynamic> items, {
     List<bool> ancestorHasMoreSiblings = const <bool>[],
+    bool foldersEnabled = false,
+    List<Folder> folders = const <Folder>[],
   }) {
     return SliverList(
       delegate: SliverChildBuilderDelegate(
@@ -157,6 +159,8 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           ancestorHasMoreSiblings: ancestorHasMoreSiblings,
           showHierarchyBranch: ancestorHasMoreSiblings.isNotEmpty,
           hasMoreSiblings: index < items.length - 1,
+          foldersEnabled: foldersEnabled,
+          folders: folders,
         ),
         childCount: items.length,
       ),
@@ -314,6 +318,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       slivers.addAll(
         _buildFolderBranchSlivers(
           folder: folder,
+          allFolders: folders,
           childFoldersByParentId: childFoldersByParentId,
           folderConversationFallbacks: folderConversationFallbacks,
           fetchFromServerForFolders: fetchFromServerForFolders,
@@ -328,6 +333,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
 
   List<Widget> _buildFolderBranchSlivers({
     required Folder folder,
+    required List<Folder> allFolders,
     required Map<String?, List<Folder>> childFoldersByParentId,
     Map<String, List<dynamic>> folderConversationFallbacks =
         const <String, List<dynamic>>{},
@@ -375,6 +381,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         sliver: SliverToBoxAdapter(
           child: _buildFolderHeader(
             folder: folder,
+            allFolders: allFolders,
             depth: depth,
             hasMoreSiblings: hasMoreSiblings,
             ancestorHasMoreSiblings: ancestorHasMoreSiblings,
@@ -401,6 +408,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       slivers.addAll(
         _buildFolderBranchSlivers(
           folder: childFolder,
+          allFolders: allFolders,
           childFoldersByParentId: childFoldersByParentId,
           folderConversationFallbacks: folderConversationFallbacks,
           fetchFromServerForFolders: fetchFromServerForFolders,
@@ -460,6 +468,8 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           sliver: _conversationsSliver(
             conversations,
             ancestorHasMoreSiblings: nextAncestorHasMoreSiblings,
+            foldersEnabled: true,
+            folders: allFolders,
           ),
         ),
       );
@@ -494,12 +504,12 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
               conversationsNotifier.hasMoreRegularChats() ||
               _isLoadingMoreConversations;
           final foldersEnabled = ref.watch(foldersFeatureEnabledProvider);
-          final hasVisibleFolders = ref
-              .watch(foldersProvider)
-              .maybeWhen(
-                data: (folders) => foldersEnabled && folders.isNotEmpty,
-                orElse: () => false,
-              );
+          final foldersState = ref.watch(foldersProvider);
+          final folders = foldersState.maybeWhen(
+            data: (folders) => folders,
+            orElse: () => const <Folder>[],
+          );
+          final hasVisibleFolders = foldersEnabled && folders.isNotEmpty;
 
           if (list.isEmpty && !hasVisibleFolders) {
             return Center(
@@ -519,11 +529,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           final pinned = list.where((c) => c.pinned == true).toList();
 
           // Determine which folder IDs actually exist from the API
-          final foldersState = ref.watch(foldersProvider);
-          final availableFolderIds = foldersState.maybeWhen(
-            data: (folders) => folders.map((f) => f.id).toSet(),
-            orElse: () => <String>{},
-          );
+          final availableFolderIds = folders.map((f) => f.id).toSet();
 
           // Conversations that reference a non-existent/unknown folder should not disappear.
           // Treat those as regular until the folders list is available and contains the ID.
@@ -571,7 +577,11 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
               ),
               if (showPinned) ...[
                 const SliverToBoxAdapter(child: SizedBox(height: Spacing.xs)),
-                _conversationsSliver(pinned),
+                _conversationsSliver(
+                  pinned,
+                  foldersEnabled: foldersEnabled,
+                  folders: folders,
+                ),
               ],
               const SliverToBoxAdapter(child: SizedBox(height: Spacing.md)),
             ],
@@ -585,20 +595,18 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
             ],
             if (showFolders && foldersEnabled) ...[
               const SliverToBoxAdapter(child: SizedBox(height: Spacing.xs)),
-              ...ref
-                  .watch(foldersProvider)
-                  .when(
-                    data: (folders) => _buildFolderSectionSlivers(
-                      folders: folders,
-                      folderConversationFallbacks: folderConversationFallbacks,
-                    ),
-                    loading: () => [
-                      const SliverToBoxAdapter(child: SizedBox.shrink()),
-                    ],
-                    error: (e, st) => [
-                      const SliverToBoxAdapter(child: SizedBox.shrink()),
-                    ],
-                  ),
+              ...foldersState.when(
+                data: (folders) => _buildFolderSectionSlivers(
+                  folders: folders,
+                  folderConversationFallbacks: folderConversationFallbacks,
+                ),
+                loading: () => [
+                  const SliverToBoxAdapter(child: SizedBox.shrink()),
+                ],
+                error: (e, st) => [
+                  const SliverToBoxAdapter(child: SizedBox.shrink()),
+                ],
+              ),
             ],
             if (foldersEnabled)
               const SliverToBoxAdapter(child: SizedBox(height: Spacing.md)),
@@ -615,7 +623,11 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
               ),
               if (showRecent) ...[
                 const SliverToBoxAdapter(child: SizedBox(height: Spacing.xs)),
-                _conversationsSliver(regular),
+                _conversationsSliver(
+                  regular,
+                  foldersEnabled: foldersEnabled,
+                  folders: folders,
+                ),
               ],
             ],
 
@@ -629,7 +641,11 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
               ),
               if (ref.watch(showArchivedProvider)) ...[
                 const SliverToBoxAdapter(child: SizedBox(height: Spacing.xs)),
-                _conversationsSliver(archived),
+                _conversationsSliver(
+                  archived,
+                  foldersEnabled: foldersEnabled,
+                  folders: folders,
+                ),
               ],
             ],
             if (hasMoreRegularChats) _buildPaginationFooter(),
@@ -676,11 +692,13 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         final pinned = list.where((c) => c.pinned == true).toList();
 
         // For search results, apply the same folder safety logic
+        final foldersEnabled = ref.watch(foldersFeatureEnabledProvider);
         final foldersState = ref.watch(foldersProvider);
-        final availableFolderIds = foldersState.maybeWhen(
-          data: (folders) => folders.map((f) => f.id).toSet(),
-          orElse: () => <String>{},
+        final folders = foldersState.maybeWhen(
+          data: (folders) => folders,
+          orElse: () => const <Folder>[],
         );
+        final availableFolderIds = folders.map((f) => f.id).toSet();
 
         final regular = list.where((c) {
           final hasFolder = (c.folderId != null && c.folderId!.isNotEmpty);
@@ -739,7 +757,11 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           if (showPinned) {
             slivers.addAll([
               const SliverToBoxAdapter(child: SizedBox(height: Spacing.xs)),
-              _conversationsSliver(pinned),
+              _conversationsSliver(
+                pinned,
+                foldersEnabled: foldersEnabled,
+                folders: folders,
+              ),
             ]);
           }
           slivers.add(
@@ -748,7 +770,6 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         }
 
         // Folders section (hidden when feature is disabled server-side)
-        final foldersEnabled = ref.watch(foldersFeatureEnabledProvider);
         if (foldersEnabled) {
           slivers.add(
             SliverPadding(
@@ -763,21 +784,19 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
             const SliverToBoxAdapter(child: SizedBox(height: Spacing.xs)),
           );
 
-          final folderSlivers = ref
-              .watch(foldersProvider)
-              .when(
-                data: (folders) => _buildFolderSectionSlivers(
-                  folders: folders,
-                  folderConversationFallbacks: folderSearchResults,
-                  fetchFromServerForFolders: false,
-                ),
-                loading: () => <Widget>[
-                  const SliverToBoxAdapter(child: SizedBox.shrink()),
-                ],
-                error: (e, st) => <Widget>[
-                  const SliverToBoxAdapter(child: SizedBox.shrink()),
-                ],
-              );
+          final folderSlivers = foldersState.when(
+            data: (folders) => _buildFolderSectionSlivers(
+              folders: folders,
+              folderConversationFallbacks: folderSearchResults,
+              fetchFromServerForFolders: false,
+            ),
+            loading: () => <Widget>[
+              const SliverToBoxAdapter(child: SizedBox.shrink()),
+            ],
+            error: (e, st) => <Widget>[
+              const SliverToBoxAdapter(child: SizedBox.shrink()),
+            ],
+          );
           slivers.addAll(folderSlivers);
         }
 
@@ -802,7 +821,11 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           if (showRecent) {
             slivers.addAll([
               const SliverToBoxAdapter(child: SizedBox(height: Spacing.xs)),
-              _conversationsSliver(regular),
+              _conversationsSliver(
+                regular,
+                foldersEnabled: foldersEnabled,
+                folders: folders,
+              ),
             ]);
           }
         }
@@ -821,7 +844,13 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
             slivers.add(
               const SliverToBoxAdapter(child: SizedBox(height: Spacing.xs)),
             );
-            slivers.add(_conversationsSliver(archived));
+            slivers.add(
+              _conversationsSliver(
+                archived,
+                foldersEnabled: foldersEnabled,
+                folders: folders,
+              ),
+            );
           }
         }
 
@@ -964,6 +993,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
 
   Widget _buildFolderHeader({
     required Folder folder,
+    required List<Folder> allFolders,
     required int depth,
     required bool hasMoreSiblings,
     required List<bool> ancestorHasMoreSiblings,
@@ -1069,8 +1099,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
               );
 
         return ConduitContextMenu(
-          actions: _buildFolderActions(folder),
-          stabilizePreviewSize: false,
+          actions: _buildFolderActions(folder, allFolders),
           child: hierarchyWrapped,
         );
       },
@@ -1125,13 +1154,13 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     );
   }
 
-  List<ConduitContextMenuAction> _buildFolderActions(Folder folder) {
+  List<ConduitContextMenuAction> _buildFolderActions(
+    Folder folder,
+    List<Folder> folders,
+  ) {
     final l10n = AppLocalizations.of(context)!;
     final folderId = folder.id;
     final folderName = folder.name;
-    final folders = ref
-        .watch(foldersProvider)
-        .maybeWhen(data: (folders) => folders, orElse: () => const <Folder>[]);
     final moveTargets = _folderMoveTargets(folder, folders);
     final canMove =
         _normalizeParentId(folder.parentId) != null || moveTargets.isNotEmpty;
@@ -1412,6 +1441,8 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     List<bool> ancestorHasMoreSiblings = const <bool>[],
     bool showHierarchyBranch = false,
     bool hasMoreSiblings = false,
+    bool foldersEnabled = false,
+    List<Folder> folders = const <Folder>[],
   }) {
     // Only rebuild this tile when its own selected state changes.
     final isActive = ref.watch(
@@ -1445,12 +1476,13 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         : tileWidget;
 
     final tile = ConduitContextMenu(
-      actions: buildConversationActions(
+      actions: buildConversationActionsWithFolders(
         context: context,
         ref: ref,
         conversation: conv,
+        foldersEnabled: foldersEnabled,
+        folders: folders,
       ),
-      stabilizePreviewSize: false,
       child: wrappedTile,
     );
 

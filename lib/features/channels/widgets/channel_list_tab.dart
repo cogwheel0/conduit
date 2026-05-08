@@ -297,9 +297,7 @@ class _ChannelTile extends ConsumerWidget {
       actions: actions,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOutCubic,
+        child: Container(
           decoration: BoxDecoration(
             color: background,
             borderRadius: BorderRadius.circular(AppBorderRadius.md),

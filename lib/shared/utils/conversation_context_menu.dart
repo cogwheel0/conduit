@@ -172,14 +172,6 @@ List<ConduitContextMenuAction> buildConversationActions({
   required WidgetRef ref,
   required dynamic conversation,
 }) {
-  if (conversation == null) {
-    return [];
-  }
-
-  final l10n = AppLocalizations.of(context)!;
-  final bool isPinned = conversation.pinned == true;
-  final bool isArchived = conversation.archived == true;
-  final currentFolderId = _conversationFolderId(conversation);
   final foldersEnabled = ref.watch(foldersFeatureEnabledProvider);
   final folders = foldersEnabled
       ? ref
@@ -189,6 +181,31 @@ List<ConduitContextMenuAction> buildConversationActions({
               orElse: () => const <Folder>[],
             )
       : const <Folder>[];
+
+  return buildConversationActionsWithFolders(
+    context: context,
+    ref: ref,
+    conversation: conversation,
+    foldersEnabled: foldersEnabled,
+    folders: folders,
+  );
+}
+
+List<ConduitContextMenuAction> buildConversationActionsWithFolders({
+  required BuildContext context,
+  required WidgetRef ref,
+  required dynamic conversation,
+  required bool foldersEnabled,
+  required List<Folder> folders,
+}) {
+  if (conversation == null) {
+    return [];
+  }
+
+  final l10n = AppLocalizations.of(context)!;
+  final bool isPinned = conversation.pinned == true;
+  final bool isArchived = conversation.archived == true;
+  final currentFolderId = _conversationFolderId(conversation);
   final canMove =
       foldersEnabled &&
       (folders.any((folder) => folder.id != currentFolderId) ||

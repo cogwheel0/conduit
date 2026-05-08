@@ -25,6 +25,21 @@ import 'enhanced_image_attachment.dart';
 // Handles both /api/v1/files/{id} and /api/v1/files/{id}/content formats
 final _fileIdPattern = RegExp(r'/api/v1/files/([^/]+)(?:/content)?$');
 
+class _UserFilePartitions {
+  const _UserFilePartitions({
+    required this.imageFiles,
+    required this.noteFiles,
+    required this.nonImageFiles,
+  });
+
+  final List<dynamic> imageFiles;
+  final List<dynamic> noteFiles;
+  final List<dynamic> nonImageFiles;
+
+  bool get hasRenderableFiles =>
+      imageFiles.isNotEmpty || noteFiles.isNotEmpty || nonImageFiles.isNotEmpty;
+}
+
 class UserMessageBubble extends ConsumerStatefulWidget {
   final dynamic message;
   final bool isUser;
@@ -59,6 +74,8 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
   bool _isEditing = false;
   late final TextEditingController _editController;
   final FocusNode _editFocusNode = FocusNode();
+  List<dynamic>? _lastPartitionedFiles;
+  _UserFilePartitions? _lastFilePartitions;
 
   @override
   void initState() {
@@ -84,33 +101,10 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
     );
   }
 
-  Widget _buildUserFileImages() {
-    if (widget.message.files == null || widget.message.files!.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
-    final allFiles = widget.message.files!;
-
-    // Separate images and non-image files
-    // Match OpenWebUI: type === 'image' OR content_type starts with 'image/'
-    final imageFiles = allFiles
-        .where(
-          (file) =>
-              file is Map && isImageFile(file) && getFileUrl(file) != null,
-        )
-        .toList();
-    final noteFiles = allFiles
-        .where((file) => file is Map && _isRenderableNoteAttachment(file))
-        .toList();
-    final nonImageFiles = allFiles
-        .where(
-          (file) =>
-              file is Map &&
-              !_isRenderableNoteAttachment(file) &&
-              !isImageFile(file) &&
-              getFileUrl(file) != null,
-        )
-        .toList();
+  Widget _buildUserFileImages(_UserFilePartitions partitions) {
+    final imageFiles = partitions.imageFiles;
+    final noteFiles = partitions.noteFiles;
+    final nonImageFiles = partitions.nonImageFiles;
 
     final widgets = <Widget>[];
 
@@ -155,6 +149,54 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
       return false;
     }
     return file['type'] == 'note';
+  }
+
+  _UserFilePartitions? _currentFilePartitions() {
+    final files = widget.message.files;
+    if (files is! List || files.isEmpty) {
+      return null;
+    }
+    return _partitionUserFiles(files);
+  }
+
+  _UserFilePartitions _partitionUserFiles(List<dynamic> files) {
+    if (identical(_lastPartitionedFiles, files) &&
+        _lastFilePartitions != null) {
+      return _lastFilePartitions!;
+    }
+
+    final imageFiles = <dynamic>[];
+    final noteFiles = <dynamic>[];
+    final nonImageFiles = <dynamic>[];
+
+    for (final file in files) {
+      if (file is! Map) {
+        continue;
+      }
+      if (_isRenderableNoteAttachment(file)) {
+        noteFiles.add(file);
+        continue;
+      }
+
+      final fileUrl = getFileUrl(file);
+      if (fileUrl == null) {
+        continue;
+      }
+      if (isImageFile(file)) {
+        imageFiles.add(file);
+      } else {
+        nonImageFiles.add(file);
+      }
+    }
+
+    final partitions = _UserFilePartitions(
+      imageFiles: imageFiles,
+      noteFiles: noteFiles,
+      nonImageFiles: nonImageFiles,
+    );
+    _lastPartitionedFiles = files;
+    _lastFilePartitions = partitions;
+    return partitions;
   }
 
   Widget _buildFileImageLayout(List<dynamic> imageFiles, int imageCount) {
@@ -600,12 +642,8 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
         widget.message.attachmentIds != null &&
         widget.message.attachmentIds!.isNotEmpty;
     final hasText = widget.message.content.isNotEmpty;
-    final hasFilesFromArray =
-        widget.message.files != null &&
-        (widget.message.files as List).any(
-          (f) =>
-              f is Map && (f['url'] != null || _isRenderableNoteAttachment(f)),
-        );
+    final filePartitions = _currentFilePartitions();
+    final hasFilesFromArray = filePartitions?.hasRenderableFiles ?? false;
     // Prefer input/textPrimary colors during inline editing to avoid low contrast
     final inlineEditTextColor = theme.textPrimary;
     final inlineEditFill = theme.surfaceContainer.withValues(alpha: 0.92);
@@ -624,7 +662,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
     );
     final actions = _buildMessageActions(context);
     final attachmentContent = hasFilesFromArray
-        ? _buildUserFileImages()
+        ? _buildUserFileImages(filePartitions!)
         : hasImages
         ? _buildUserAttachmentImages()
         : null;

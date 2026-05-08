@@ -66,7 +66,9 @@ class _EnhancedAttachmentState extends ConsumerState<EnhancedAttachment> {
         return;
       }
 
-      final info = await api.getFileInfo(widget.attachmentId);
+      final info = Map<String, dynamic>.from(
+        await api.getFileInfo(widget.attachmentId),
+      );
       if (!mounted) return;
       setState(() {
         _fileInfo = info;

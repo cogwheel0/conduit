@@ -1,4 +1,3 @@
-import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -85,7 +84,7 @@ class CitationBadge extends StatelessWidget {
     );
     final displayTitle = SourceReferenceHelper.formatDisplayTitle(inlineTitle);
 
-    return AdaptiveTooltip(
+    return Tooltip(
       message: title,
       preferBelow: false,
       child: GestureDetector(
@@ -173,73 +172,85 @@ class CitationBadgeGroup extends StatelessWidget {
     final displayTitle = SourceReferenceHelper.formatDisplayTitle(firstTitle);
     final additionalCount = sourceIndices.length - 1;
 
-    final menuItems = sourceIndices
+    final validIndices = sourceIndices
         .where((index) => index >= 0 && index < sources.length)
-        .map((index) {
-          final source = sources[index];
-          final title = SourceReferenceHelper.getInlineSourceLabel(
-            source,
-            index,
-          );
-          return AdaptivePopupMenuItem<int>(
-            value: index,
-            label: SourceReferenceHelper.formatDisplayTitle(title),
-            icon: PlatformInfo.isIOS ? 'link' : Icons.link_rounded,
-          );
-        })
-        .toList();
+        .toList(growable: false);
 
-    return AdaptivePopupMenuButton.widget<int>(
-      items: menuItems,
-      onSelected: (_, entry) {
-        final index = entry.value;
-        if (index == null) return;
-
-        if (onSourceTap != null) {
-          onSourceTap!(index);
-          return;
-        }
-
-        if (index >= 0 && index < sources.length) {
-          final url = SourceReferenceHelper.getSourceUrl(sources[index]);
-          if (url != null) {
-            _launchSourceUrl(url);
-          }
-        }
-      },
-      buttonStyle: PopupButtonStyle.glass,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-        margin: const EdgeInsets.symmetric(horizontal: 1),
-        decoration: BoxDecoration(
-          color: theme.surfaceContainer.withValues(alpha: 0.24),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.link_rounded,
-              size: 9,
-              color: theme.textSecondary.withValues(alpha: 0.7),
-            ),
-            const SizedBox(width: 3),
-            Text(
-              displayTitle,
-              style: badgeTextStyle,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(width: 3),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-              decoration: BoxDecoration(
-                color: theme.buttonPrimary.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(AppBorderRadius.small),
+    return Material(
+      type: MaterialType.transparency,
+      child: PopupMenuButton<int>(
+        itemBuilder: (context) => [
+          for (final index in validIndices)
+            PopupMenuItem<int>(
+              value: index,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.link_rounded, size: 16),
+                  const SizedBox(width: Spacing.xs),
+                  Flexible(
+                    child: Text(
+                      SourceReferenceHelper.formatDisplayTitle(
+                        SourceReferenceHelper.getInlineSourceLabel(
+                          sources[index],
+                          index,
+                        ),
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
               ),
-              child: Text('+$additionalCount', style: countTextStyle),
             ),
-          ],
+        ],
+        onSelected: (index) {
+          if (onSourceTap != null) {
+            onSourceTap!(index);
+            return;
+          }
+
+          if (index >= 0 && index < sources.length) {
+            final url = SourceReferenceHelper.getSourceUrl(sources[index]);
+            if (url != null) {
+              _launchSourceUrl(url);
+            }
+          }
+        },
+        padding: EdgeInsets.zero,
+        tooltip: '',
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+          margin: const EdgeInsets.symmetric(horizontal: 1),
+          decoration: BoxDecoration(
+            color: theme.surfaceContainer.withValues(alpha: 0.24),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.link_rounded,
+                size: 9,
+                color: theme.textSecondary.withValues(alpha: 0.7),
+              ),
+              const SizedBox(width: 3),
+              Text(
+                displayTitle,
+                style: badgeTextStyle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(width: 3),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                decoration: BoxDecoration(
+                  color: theme.buttonPrimary.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(AppBorderRadius.small),
+                ),
+                child: Text('+$additionalCount', style: countTextStyle),
+              ),
+            ],
+          ),
         ),
       ),
     );

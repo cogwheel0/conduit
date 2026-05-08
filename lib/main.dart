@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:developer' as developer;
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
-import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter_driver/driver_extension.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -28,7 +27,7 @@ import 'shared/widgets/markdown/renderer/latex_rendering_server.dart';
 
 const bool _enableFlutterDriverExtension = bool.fromEnvironment(
   'ENABLE_FLUTTER_DRIVER_EXTENSION',
-  defaultValue: kDebugMode,
+  defaultValue: false,
 );
 
 developer.TimelineTask? _startupTimeline;

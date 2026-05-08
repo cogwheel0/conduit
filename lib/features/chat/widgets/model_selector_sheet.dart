@@ -80,6 +80,9 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final selectedModelId = widget.ref.watch(selectedModelProvider)?.id;
+    final api = widget.ref.watch(apiServiceProvider);
+
     return Stack(
       children: [
         Positioned.fill(
@@ -163,13 +166,7 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
                                       itemBuilder: (context, index) {
                                         final model = _filteredModels[index];
                                         final isSelected =
-                                            widget.ref
-                                                .watch(selectedModelProvider)
-                                                ?.id ==
-                                            model.id;
-                                        final api = widget.ref.watch(
-                                          apiServiceProvider,
-                                        );
+                                            selectedModelId == model.id;
                                         final iconUrl =
                                             resolveModelIconUrlForModel(
                                               api,

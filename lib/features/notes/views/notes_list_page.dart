@@ -18,7 +18,6 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/conduit_loading.dart';
-import '../../../shared/widgets/middle_ellipsis_text.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../providers/notes_providers.dart';
@@ -493,13 +492,16 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
                         Row(
                           children: [
                             Expanded(
-                              child: MiddleEllipsisText(
+                              child: Text(
                                 title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                                 style: AppTypography.bodyMediumStyle.copyWith(
                                   color: sidebarTheme.foreground,
                                   fontWeight: FontWeight.w600,
                                   height: 1.3,
                                 ),
+                                semanticsLabel: title,
                               ),
                             ),
                             if (note.isPinned) ...[

@@ -19,6 +19,14 @@ final class NativePasteBridge {
             name: Self.channelName,
             binaryMessenger: messenger
         )
+        channel?.setMethodCallHandler { [weak self] call, result in
+            guard call.method == "requestPaste" else {
+                result(FlutterMethodNotImplemented)
+                return
+            }
+
+            result(self?.handlePasteAction() ?? false)
+        }
         Self.installSwizzlesIfNeeded()
     }
 

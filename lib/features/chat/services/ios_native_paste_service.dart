@@ -19,6 +19,20 @@ class IosNativePasteService {
   /// Emits payloads when the native iOS text input view handles a paste.
   Stream<IosNativePastePayload> get onPaste => _pasteController.stream;
 
+  /// Asks the native bridge to read the current iOS pasteboard.
+  ///
+  /// Returns true when the bridge handled an image paste and emitted it through
+  /// [onPaste]. Plain text returns false so Flutter's normal paste action can
+  /// continue to handle it.
+  Future<bool> requestPaste() async {
+    try {
+      return await _iosNativePasteChannel.invokeMethod<bool>('requestPaste') ??
+          false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<void> _handleMethodCall(MethodCall call) async {
     if (call.method != 'onPaste') {
       return;

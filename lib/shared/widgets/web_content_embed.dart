@@ -32,6 +32,8 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
   WebViewControllerPlus? _controller;
   double _height = _embedDefaultHeight;
   bool _isLoading = true;
+  bool _loadScheduled = false;
+  bool _retryLoadScheduled = false;
   String? _loadError;
   int _loadRequestId = 0;
 
@@ -74,7 +76,6 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
   @override
   void initState() {
     super.initState();
-    _initializeController();
   }
 
   @override
@@ -82,8 +83,42 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.source != widget.source ||
         oldWidget.argsText != widget.argsText) {
+      _loadScheduled = false;
+      _retryLoadScheduled = false;
       _initializeController();
     }
+  }
+
+  void _scheduleControllerInitialization(BuildContext context) {
+    if (_loadScheduled || _controller != null || !_isSupported) {
+      return;
+    }
+
+    if (Scrollable.recommendDeferredLoadingForContext(context)) {
+      if (_retryLoadScheduled) {
+        return;
+      }
+      _retryLoadScheduled = true;
+      Future<void>.delayed(const Duration(milliseconds: 250), () {
+        if (!mounted) {
+          return;
+        }
+        _retryLoadScheduled = false;
+        if (_controller == null && !_loadScheduled) {
+          setState(() {});
+        }
+      });
+      return;
+    }
+
+    _retryLoadScheduled = false;
+    _loadScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      _initializeController();
+    });
   }
 
   Future<void> _initializeController() async {
@@ -214,6 +249,7 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
     }
 
     if (_controller == null) {
+      _scheduleControllerInitialization(context);
       return const _EmbedLoadingCard();
     }
 
