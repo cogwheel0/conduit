@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:developer' as developer;
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:flutter/foundation.dart' show kDebugMode;
+import 'package:flutter_driver/driver_extension.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
@@ -24,9 +26,18 @@ import 'core/services/quick_actions_service.dart';
 import 'core/providers/app_startup_providers.dart';
 import 'shared/widgets/markdown/renderer/latex_rendering_server.dart';
 
+const bool _enableFlutterDriverExtension = bool.fromEnvironment(
+  'ENABLE_FLUTTER_DRIVER_EXTENSION',
+  defaultValue: kDebugMode,
+);
+
 developer.TimelineTask? _startupTimeline;
 
 void main() {
+  if (_enableFlutterDriverExtension) {
+    enableFlutterDriverExtension();
+  }
+
   runZonedGuarded(
     () async {
       WidgetsFlutterBinding.ensureInitialized();

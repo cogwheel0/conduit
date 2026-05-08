@@ -18,7 +18,6 @@ import 'package:conduit/l10n/app_localizations.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../../shared/widgets/themed_sheets.dart';
-import '../../../core/models/model.dart';
 import '../../../core/models/conversation.dart';
 import '../../../core/models/folder.dart';
 import 'conversation_tile.dart';
@@ -150,7 +149,6 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
   Widget _conversationsSliver(
     List<dynamic> items, {
     List<bool> ancestorHasMoreSiblings = const <bool>[],
-    Map<String, Model> modelsById = const <String, Model>{},
   }) {
     return SliverList(
       delegate: SliverChildBuilderDelegate(
@@ -159,7 +157,6 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           ancestorHasMoreSiblings: ancestorHasMoreSiblings,
           showHierarchyBranch: ancestorHasMoreSiblings.isNotEmpty,
           hasMoreSiblings: index < items.length - 1,
-          modelsById: modelsById,
         ),
         childCount: items.length,
       ),
@@ -186,7 +183,6 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       key: const PageStorageKey<String>('chats_drawer_scroll'),
       controller: _listController,
       physics: const AlwaysScrollableScrollPhysics(),
-      cacheExtent: 800,
       slivers: paddedSlivers,
     );
 
@@ -284,7 +280,6 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
 
   List<Widget> _buildFolderSectionSlivers({
     required List<Folder> folders,
-    required Map<String, Model> modelsById,
     Map<String, List<dynamic>> folderConversationFallbacks =
         const <String, List<dynamic>>{},
     bool fetchFromServerForFolders = true,
@@ -320,7 +315,6 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         _buildFolderBranchSlivers(
           folder: folder,
           childFoldersByParentId: childFoldersByParentId,
-          modelsById: modelsById,
           folderConversationFallbacks: folderConversationFallbacks,
           fetchFromServerForFolders: fetchFromServerForFolders,
           depth: 0,
@@ -335,7 +329,6 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
   List<Widget> _buildFolderBranchSlivers({
     required Folder folder,
     required Map<String?, List<Folder>> childFoldersByParentId,
-    required Map<String, Model> modelsById,
     Map<String, List<dynamic>> folderConversationFallbacks =
         const <String, List<dynamic>>{},
     bool fetchFromServerForFolders = true,
@@ -409,7 +402,6 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         _buildFolderBranchSlivers(
           folder: childFolder,
           childFoldersByParentId: childFoldersByParentId,
-          modelsById: modelsById,
           folderConversationFallbacks: folderConversationFallbacks,
           fetchFromServerForFolders: fetchFromServerForFolders,
           depth: depth + 1,
@@ -468,7 +460,6 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           sliver: _conversationsSliver(
             conversations,
             ancestorHasMoreSiblings: nextAncestorHasMoreSiblings,
-            modelsById: modelsById,
           ),
         ),
       );
@@ -502,15 +493,6 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           final hasMoreRegularChats =
               conversationsNotifier.hasMoreRegularChats() ||
               _isLoadingMoreConversations;
-          // Build a models map once for this build.
-          final modelsAsync = ref.watch(modelsProvider);
-          final Map<String, Model> modelsById = modelsAsync.maybeWhen(
-            data: (models) => {
-              for (final m in models)
-                if (m.id.isNotEmpty) m.id: m,
-            },
-            orElse: () => const <String, Model>{},
-          );
           final foldersEnabled = ref.watch(foldersFeatureEnabledProvider);
           final hasVisibleFolders = ref
               .watch(foldersProvider)
@@ -589,7 +571,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
               ),
               if (showPinned) ...[
                 const SliverToBoxAdapter(child: SizedBox(height: Spacing.xs)),
-                _conversationsSliver(pinned, modelsById: modelsById),
+                _conversationsSliver(pinned),
               ],
               const SliverToBoxAdapter(child: SizedBox(height: Spacing.md)),
             ],
@@ -609,7 +591,6 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
                     data: (folders) => _buildFolderSectionSlivers(
                       folders: folders,
                       folderConversationFallbacks: folderConversationFallbacks,
-                      modelsById: modelsById,
                     ),
                     loading: () => [
                       const SliverToBoxAdapter(child: SizedBox.shrink()),
@@ -634,7 +615,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
               ),
               if (showRecent) ...[
                 const SliverToBoxAdapter(child: SizedBox(height: Spacing.xs)),
-                _conversationsSliver(regular, modelsById: modelsById),
+                _conversationsSliver(regular),
               ],
             ],
 
@@ -648,7 +629,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
               ),
               if (ref.watch(showArchivedProvider)) ...[
                 const SliverToBoxAdapter(child: SizedBox(height: Spacing.xs)),
-                _conversationsSliver(archived, modelsById: modelsById),
+                _conversationsSliver(archived),
               ],
             ],
             if (hasMoreRegularChats) _buildPaginationFooter(),
@@ -693,15 +674,6 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         }
 
         final pinned = list.where((c) => c.pinned == true).toList();
-        // Build a models map once for search builds too.
-        final modelsAsync = ref.watch(modelsProvider);
-        final Map<String, Model> modelsById = modelsAsync.maybeWhen(
-          data: (models) => {
-            for (final m in models)
-              if (m.id.isNotEmpty) m.id: m,
-          },
-          orElse: () => const <String, Model>{},
-        );
 
         // For search results, apply the same folder safety logic
         final foldersState = ref.watch(foldersProvider);
@@ -767,7 +739,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           if (showPinned) {
             slivers.addAll([
               const SliverToBoxAdapter(child: SizedBox(height: Spacing.xs)),
-              _conversationsSliver(pinned, modelsById: modelsById),
+              _conversationsSliver(pinned),
             ]);
           }
           slivers.add(
@@ -798,7 +770,6 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
                   folders: folders,
                   folderConversationFallbacks: folderSearchResults,
                   fetchFromServerForFolders: false,
-                  modelsById: modelsById,
                 ),
                 loading: () => <Widget>[
                   const SliverToBoxAdapter(child: SizedBox.shrink()),
@@ -831,7 +802,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           if (showRecent) {
             slivers.addAll([
               const SliverToBoxAdapter(child: SizedBox(height: Spacing.xs)),
-              _conversationsSliver(regular, modelsById: modelsById),
+              _conversationsSliver(regular),
             ]);
           }
         }
@@ -850,7 +821,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
             slivers.add(
               const SliverToBoxAdapter(child: SizedBox(height: Spacing.xs)),
             );
-            slivers.add(_conversationsSliver(archived, modelsById: modelsById));
+            slivers.add(_conversationsSliver(archived));
           }
         }
 
@@ -1035,65 +1006,52 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
                   horizontal: Spacing.md,
                   vertical: Spacing.xs,
                 ),
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final hasFiniteWidth = constraints.maxWidth.isFinite;
-                    final textFit = hasFiniteWidth
-                        ? FlexFit.tight
-                        : FlexFit.loose;
-
-                    return Row(
-                      mainAxisSize: hasFiniteWidth
-                          ? MainAxisSize.max
-                          : MainAxisSize.min,
-                      children: [
-                        FolderIconGlyph(
-                          iconAlias: folder.meta?['icon']?.toString(),
-                          isOpen: isExpanded,
+                child: Row(
+                  children: [
+                    FolderIconGlyph(
+                      iconAlias: folder.meta?['icon']?.toString(),
+                      isOpen: isExpanded,
+                      size: IconSize.listItem,
+                      color: theme.iconPrimary,
+                    ),
+                    const SizedBox(width: Spacing.sm),
+                    Expanded(
+                      child: Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.sidebarTitleStyle.copyWith(
+                          color: theme.textPrimary,
+                          fontWeight: isCurrentFolder
+                              ? FontWeight.w600
+                              : FontWeight.w400,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: Spacing.sm),
+                    SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: IconButton(
+                        key: ValueKey<String>('folder-expand-$folderId'),
+                        iconSize: IconSize.xs,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        style: IconButton.styleFrom(
+                          shape: const CircleBorder(),
+                        ),
+                        icon: Icon(
+                          _chatsDrawerDisclosureIcon(isExpanded),
+                          color: theme.iconSecondary,
                           size: IconSize.listItem,
-                          color: theme.iconPrimary,
                         ),
-                        const SizedBox(width: Spacing.sm),
-                        Flexible(
-                          fit: textFit,
-                          child: Text(
-                            name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTypography.sidebarTitleStyle.copyWith(
-                              color: theme.textPrimary,
-                              fontWeight: isCurrentFolder
-                                  ? FontWeight.w600
-                                  : FontWeight.w400,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: Spacing.sm),
-                        SizedBox(
-                          width: 22,
-                          height: 22,
-                          child: IconButton(
-                            key: ValueKey<String>('folder-expand-$folderId'),
-                            iconSize: IconSize.xs,
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(),
-                            style: IconButton.styleFrom(
-                              shape: const CircleBorder(),
-                            ),
-                            icon: Icon(
-                              _chatsDrawerDisclosureIcon(isExpanded),
-                              color: theme.iconSecondary,
-                              size: IconSize.listItem,
-                            ),
-                            onPressed: () {
-                              ConduitHaptics.selectionClick();
-                              _setFolderExpanded(folderId, !isExpanded);
-                            },
-                          ),
-                        ),
-                      ],
-                    );
-                  },
+                        onPressed: () {
+                          ConduitHaptics.selectionClick();
+                          _setFolderExpanded(folderId, !isExpanded);
+                        },
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -1112,6 +1070,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
 
         return ConduitContextMenu(
           actions: _buildFolderActions(folder),
+          stabilizePreviewSize: false,
           child: hierarchyWrapped,
         );
       },
@@ -1453,7 +1412,6 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     List<bool> ancestorHasMoreSiblings = const <bool>[],
     bool showHierarchyBranch = false,
     bool hasMoreSiblings = false,
-    Map<String, Model> modelsById = const <String, Model>{},
   }) {
     // Only rebuild this tile when its own selected state changes.
     final isActive = ref.watch(
@@ -1492,10 +1450,11 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         ref: ref,
         conversation: conv,
       ),
+      stabilizePreviewSize: false,
       child: wrappedTile,
     );
 
-    return RepaintBoundary(child: tile);
+    return tile;
   }
 
   Widget _buildArchivedHeader(int count) {
@@ -1524,57 +1483,47 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
               horizontal: Spacing.md,
               vertical: Spacing.xs,
             ),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final hasFiniteWidth = constraints.maxWidth.isFinite;
-                final textFit = hasFiniteWidth ? FlexFit.tight : FlexFit.loose;
-                return Row(
-                  mainAxisSize: hasFiniteWidth
-                      ? MainAxisSize.max
-                      : MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Platform.isIOS
-                          ? CupertinoIcons.archivebox
-                          : Icons.archive_rounded,
-                      color: theme.iconPrimary,
-                      size: IconSize.listItem,
+            child: Row(
+              children: [
+                Icon(
+                  Platform.isIOS
+                      ? CupertinoIcons.archivebox
+                      : Icons.archive_rounded,
+                  color: theme.iconPrimary,
+                  size: IconSize.listItem,
+                ),
+                const SizedBox(width: Spacing.sm),
+                Expanded(
+                  child: Text(
+                    AppLocalizations.of(context)!.archived,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.sidebarTitleStyle.copyWith(
+                      color: theme.textPrimary,
+                      fontWeight: FontWeight.w400,
                     ),
-                    const SizedBox(width: Spacing.sm),
-                    Flexible(
-                      fit: textFit,
-                      child: Text(
-                        AppLocalizations.of(context)!.archived,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.sidebarTitleStyle.copyWith(
-                          color: theme.textPrimary,
-                          fontWeight: FontWeight.w400,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: Spacing.sm),
-                    Text(
-                      '$count',
-                      style: AppTypography.sidebarSupportingStyle.copyWith(
-                        color: theme.textSecondary,
-                      ),
-                    ),
-                    const SizedBox(width: Spacing.xs),
-                    Icon(
-                      show
-                          ? (Platform.isIOS
-                                ? CupertinoIcons.chevron_up
-                                : Icons.expand_less)
-                          : (Platform.isIOS
-                                ? CupertinoIcons.chevron_down
-                                : Icons.expand_more),
-                      color: theme.iconSecondary,
-                      size: IconSize.listItem,
-                    ),
-                  ],
-                );
-              },
+                  ),
+                ),
+                const SizedBox(width: Spacing.sm),
+                Text(
+                  '$count',
+                  style: AppTypography.sidebarSupportingStyle.copyWith(
+                    color: theme.textSecondary,
+                  ),
+                ),
+                const SizedBox(width: Spacing.xs),
+                Icon(
+                  show
+                      ? (Platform.isIOS
+                            ? CupertinoIcons.chevron_up
+                            : Icons.expand_less)
+                      : (Platform.isIOS
+                            ? CupertinoIcons.chevron_down
+                            : Icons.expand_more),
+                  color: theme.iconSecondary,
+                  size: IconSize.listItem,
+                ),
+              ],
             ),
           ),
         ),

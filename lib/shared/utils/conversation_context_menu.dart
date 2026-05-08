@@ -45,12 +45,14 @@ class ConduitContextMenu extends StatefulWidget {
   final List<ConduitContextMenuAction> actions;
   final Widget child;
   final WidgetBuilder? topWidgetBuilder;
+  final bool stabilizePreviewSize;
 
   const ConduitContextMenu({
     super.key,
     required this.actions,
     required this.child,
     this.topWidgetBuilder,
+    this.stabilizePreviewSize = true,
   });
 
   @override
@@ -111,7 +113,7 @@ class _ConduitContextMenuState extends State<ConduitContextMenu> {
           ignoring: animation.value > 0,
           child: widget.child,
         );
-        final size = _childSize;
+        final size = widget.stabilizePreviewSize ? _childSize : null;
         Widget preview = previewChild;
         if (animation.value > 0 && size != null) {
           preview = SizedBox(
@@ -136,6 +138,10 @@ class _ConduitContextMenuState extends State<ConduitContextMenu> {
         return preview;
       },
     );
+
+    if (!widget.stabilizePreviewSize) {
+      return contextMenu;
+    }
 
     return MeasureSize(onChange: _handleChildSizeChanged, child: contextMenu);
   }
@@ -414,9 +420,9 @@ Future<_ConversationMoveTarget?> _showConversationMoveSheet(
                           ? CupertinoIcons.folder
                           : Icons.folder_outlined,
                       label: entry.folder.name,
-                      onTap: () => Navigator.of(sheetContext).pop(
-                        _ConversationMoveTarget(folderId: entry.folder.id),
-                      ),
+                      onTap: () => Navigator.of(
+                        sheetContext,
+                      ).pop(_ConversationMoveTarget(folderId: entry.folder.id)),
                     ),
                   ),
               ],

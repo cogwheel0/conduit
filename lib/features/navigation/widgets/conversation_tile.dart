@@ -4,7 +4,6 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
-import '../../../shared/widgets/middle_ellipsis_text.dart';
 
 /// Drag feedback widget shown while dragging a conversation tile.
 class ConversationDragFeedback extends StatelessWidget {
@@ -53,6 +52,7 @@ class ConversationDragFeedback extends StatelessWidget {
         pinned: pinned,
         selected: false,
         isLoading: false,
+        shrinkWrap: true,
       ),
     );
   }
@@ -72,6 +72,9 @@ class ConversationTileContent extends StatelessWidget {
   /// Whether the conversation is loading.
   final bool isLoading;
 
+  /// Whether the row should size itself to its contents instead of filling width.
+  final bool shrinkWrap;
+
   /// Creates the content layout for a conversation tile.
   const ConversationTileContent({
     super.key,
@@ -79,6 +82,7 @@ class ConversationTileContent extends StatelessWidget {
     required this.pinned,
     required this.selected,
     required this.isLoading,
+    this.shrinkWrap = false,
   });
 
   @override
@@ -92,70 +96,63 @@ class ConversationTileContent extends StatelessWidget {
       height: 1.4,
     );
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final hasFiniteWidth = constraints.maxWidth.isFinite;
-        final textFit = hasFiniteWidth ? FlexFit.tight : FlexFit.loose;
+    final trailingWidgets = <Widget>[];
 
-        final trailingWidgets = <Widget>[];
+    if (pinned) {
+      trailingWidgets.addAll([
+        const SizedBox(width: Spacing.sm),
+        Container(
+          padding: const EdgeInsets.all(Spacing.xxs),
+          decoration: BoxDecoration(
+            color: theme.buttonPrimary.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(AppBorderRadius.xs),
+          ),
+          child: Icon(
+            Platform.isIOS ? CupertinoIcons.pin_fill : Icons.push_pin_rounded,
+            color: theme.buttonPrimary.withValues(alpha: 0.7),
+            size: IconSize.xs,
+          ),
+        ),
+      ]);
+    }
 
-        if (pinned) {
-          trailingWidgets.addAll([
-            const SizedBox(width: Spacing.sm),
-            Container(
-              padding: const EdgeInsets.all(Spacing.xxs),
-              decoration: BoxDecoration(
-                color: theme.buttonPrimary.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(AppBorderRadius.xs),
-              ),
-              child: Icon(
-                Platform.isIOS
-                    ? CupertinoIcons.pin_fill
-                    : Icons.push_pin_rounded,
-                color: theme.buttonPrimary.withValues(alpha: 0.7),
-                size: IconSize.xs,
-              ),
-            ),
-          ]);
-        }
+    if (isLoading) {
+      trailingWidgets.addAll([
+        const SizedBox(width: Spacing.sm),
+        SizedBox(
+          width: IconSize.sm,
+          height: IconSize.sm,
+          child: CircularProgressIndicator(
+            strokeWidth: BorderWidth.medium,
+            valueColor: AlwaysStoppedAnimation<Color>(theme.loadingIndicator),
+          ),
+        ),
+      ]);
+    }
 
-        if (isLoading) {
-          trailingWidgets.addAll([
-            const SizedBox(width: Spacing.sm),
-            SizedBox(
-              width: IconSize.sm,
-              height: IconSize.sm,
-              child: CircularProgressIndicator(
-                strokeWidth: BorderWidth.medium,
-                valueColor: AlwaysStoppedAnimation<Color>(
-                  theme.loadingIndicator,
-                ),
-              ),
-            ),
-          ]);
-        }
+    final titleWidget = Text(
+      title,
+      style: textStyle,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      semanticsLabel: title,
+    );
 
-        return Row(
-          mainAxisSize: hasFiniteWidth ? MainAxisSize.max : MainAxisSize.min,
-          children: [
-            Flexible(
-              fit: textFit,
-              child: MiddleEllipsisText(
-                title,
-                style: textStyle,
-                semanticsLabel: title,
-              ),
-            ),
-            ...trailingWidgets,
-          ],
-        );
-      },
+    return Row(
+      mainAxisSize: shrinkWrap ? MainAxisSize.min : MainAxisSize.max,
+      children: [
+        if (shrinkWrap)
+          Flexible(fit: FlexFit.loose, child: titleWidget)
+        else
+          Expanded(child: titleWidget),
+        ...trailingWidgets,
+      ],
     );
   }
 }
 
 /// A tappable conversation tile with hover and selection states.
-class ConversationTile extends StatefulWidget {
+class ConversationTile extends StatelessWidget {
   /// The conversation title.
   final String title;
 
@@ -182,11 +179,6 @@ class ConversationTile extends StatefulWidget {
   });
 
   @override
-  State<ConversationTile> createState() => _ConversationTileState();
-}
-
-class _ConversationTileState extends State<ConversationTile> {
-  @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
     final borderRadius = BorderRadius.circular(AppBorderRadius.card);
@@ -195,7 +187,7 @@ class _ConversationTileState extends State<ConversationTile> {
     // sidebarTheme.background, so tiles align in light and dark.
     final Color baseBackground = theme.surfaceBackground;
 
-    final Color background = widget.selected
+    final Color background = selected
         ? Color.alphaBlend(
             theme.buttonPrimary.withValues(alpha: 0.1),
             baseBackground,
@@ -203,11 +195,9 @@ class _ConversationTileState extends State<ConversationTile> {
         : baseBackground;
 
     return Semantics(
-      selected: widget.selected,
+      selected: selected,
       button: true,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOutCubic,
+      child: Container(
         margin: const EdgeInsets.only(
           left: 0,
           right: Spacing.xs,
@@ -220,7 +210,7 @@ class _ConversationTileState extends State<ConversationTile> {
         ),
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTap: widget.isLoading ? null : widget.onTap,
+          onTap: isLoading ? null : onTap,
           child: ConstrainedBox(
             constraints: const BoxConstraints(minHeight: TouchTarget.listItem),
             child: Padding(
@@ -229,10 +219,10 @@ class _ConversationTileState extends State<ConversationTile> {
                 vertical: Spacing.sm,
               ),
               child: ConversationTileContent(
-                title: widget.title,
-                pinned: widget.pinned,
-                selected: widget.selected,
-                isLoading: widget.isLoading,
+                title: title,
+                pinned: pinned,
+                selected: selected,
+                isLoading: isLoading,
               ),
             ),
           ),

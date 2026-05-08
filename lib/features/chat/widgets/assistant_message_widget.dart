@@ -90,6 +90,8 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
 
 class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     with TickerProviderStateMixin {
+  static const _streamingDisplayUpdateInterval = Duration(milliseconds: 100);
+
   late AnimationController _fadeController;
   late AnimationController _slideController;
   String _displayedContent = '';
@@ -113,6 +115,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   /// Guards the triple-haptic so it fires only once per streaming session.
   bool _hasTriggeredContentHaptic = false;
   ProviderSubscription<String?>? _streamingContentSub;
+  Timer? _streamingDisplayTimer;
+  String? _pendingStreamingDisplayContent;
 
   bool get _shouldAnimateOnMount =>
       widget.animateOnMount && !_disableAnimations;
@@ -218,10 +222,12 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     if (oldWidget.isStreaming &&
         !widget.isStreaming &&
         oldWidget.message.id == widget.message.id) {
+      _flushPendingStreamingDisplayContent();
       _chunkFadeController.value = 1.0;
       _hasTriggeredContentHaptic = false;
       // Haptic: streaming finished
       _streamingHaptic(HapticType.medium);
+      _scheduleTtsPlainTextBuild(_displayedContent);
     }
 
     // Refresh rendered content when the active message changes.
@@ -357,6 +363,14 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           _ttsPlainText = '';
         });
       }
+      return;
+    }
+
+    if (widget.isStreaming) {
+      _ttsPlainTextDebounce?.cancel();
+      _ttsPlainTextDebounce = null;
+      _pendingTtsPlainTextPayload = null;
+      _pendingTtsPlainTextSource = null;
       return;
     }
 
@@ -725,15 +739,46 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       ) {
         if (next != null && next != _lastStreamingContent) {
           _lastStreamingContent = next;
-          _refreshDisplayedContent(next);
+          _queueStreamingDisplayContent(next);
         }
       }, fireImmediately: true);
     }
   }
 
+  void _queueStreamingDisplayContent(String content) {
+    if (content == _displayedContent ||
+        content == _pendingStreamingDisplayContent) {
+      return;
+    }
+
+    if (_displayedContent.isEmpty) {
+      _refreshDisplayedContent(content);
+      return;
+    }
+
+    _pendingStreamingDisplayContent = content;
+    _streamingDisplayTimer ??= Timer(
+      _streamingDisplayUpdateInterval,
+      _flushPendingStreamingDisplayContent,
+    );
+  }
+
+  void _flushPendingStreamingDisplayContent() {
+    _streamingDisplayTimer?.cancel();
+    _streamingDisplayTimer = null;
+
+    final pending = _pendingStreamingDisplayContent;
+    _pendingStreamingDisplayContent = null;
+    if (pending == null || pending == _displayedContent) {
+      return;
+    }
+    _refreshDisplayedContent(pending);
+  }
+
   @override
   void dispose() {
     _streamingContentSub?.close();
+    _streamingDisplayTimer?.cancel();
     _typingGateTimer?.cancel();
     _ttsPlainTextDebounce?.cancel();
     _pendingTtsPlainTextPayload = null;
@@ -1598,24 +1643,17 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         child: Semantics(
           button: true,
           label: l10n.more,
-          child: Container(
+          child: SizedBox(
             width: 32,
             height: 32,
-            decoration: BoxDecoration(
-              color: theme.textPrimary.withValues(alpha: 0.04),
-              borderRadius: BorderRadius.circular(AppBorderRadius.circular),
-              border: Border.all(
-                color: theme.textPrimary.withValues(alpha: 0.08),
-                width: BorderWidth.regular,
+            child: Center(
+              child: Icon(
+                Platform.isIOS
+                    ? CupertinoIcons.ellipsis
+                    : Icons.more_horiz_rounded,
+                size: IconSize.sm,
+                color: theme.textPrimary.withValues(alpha: 0.8),
               ),
-            ),
-            alignment: Alignment.center,
-            child: Icon(
-              Platform.isIOS
-                  ? CupertinoIcons.ellipsis
-                  : Icons.more_horiz_rounded,
-              size: IconSize.sm,
-              color: theme.textPrimary.withValues(alpha: 0.8),
             ),
           ),
         ),
