@@ -18,6 +18,7 @@ import '../providers/chat_providers.dart';
 import '../services/clipboard_attachment_service.dart';
 import '../services/file_attachment_service.dart';
 import '../services/ios_native_paste_service.dart';
+import '../services/ios_keyboard_attachment_bridge.dart';
 import '../providers/context_attachments_provider.dart';
 import '../providers/knowledge_cache_provider.dart';
 import '../../notes/providers/notes_providers.dart';
@@ -119,6 +120,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   DateTime _lastEditTime = DateTime(0);
   StreamSubscription<String>? _voiceStreamSubscription;
   StreamSubscription<IosNativePastePayload>? _pasteSubscription;
+  StreamSubscription<IosKeyboardAttachmentEvent>?
+  _keyboardAttachmentSubscription;
   late VoiceInputService _voiceService;
   StreamSubscription<String>? _textSub;
   Timer? _contextSuggestionDebounce;
@@ -135,6 +138,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   List<_ComposerContextSuggestion> _contextSuggestions =
       const <_ComposerContextSuggestion>[];
   int _contextSuggestionRequestId = 0;
+  bool _isNativeAttachmentPanelVisible = false;
+  String? _lastNativeAttachmentSignature;
 
   /// Service for handling clipboard paste operations.
   final ClipboardAttachmentService _clipboardService =
@@ -168,6 +173,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       ) {
         unawaited(_handleNativePastePayload(payload));
       });
+      _keyboardAttachmentSubscription = IosKeyboardAttachmentBridge
+          .instance
+          .events
+          .listen(_handleNativeKeyboardAttachmentEvent);
     }
 
     // Publish focus changes to listeners and guard against unexpected loss
@@ -213,8 +222,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     _pendingFocus = false;
     _voiceStreamSubscription?.cancel();
     _pasteSubscription?.cancel();
+    _keyboardAttachmentSubscription?.cancel();
     _textSub?.cancel();
     _contextSuggestionDebounce?.cancel();
+    if (!kIsWeb && Platform.isIOS) {
+      unawaited(IosKeyboardAttachmentBridge.instance.hide());
+    }
     _voiceService.stopListening();
     super.dispose();
   }
@@ -286,10 +299,58 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     _controller.clearMentions();
     _controller.clear();
     _focusNode.unfocus();
+    if (!kIsWeb && Platform.isIOS) {
+      unawaited(_hideNativeKeyboardAttachmentPanel());
+    }
     try {
       SystemChannels.textInput.invokeMethod('TextInput.hide');
     } catch (_) {
       // Silently handle if keyboard dismissal fails
+    }
+  }
+
+  void _handleNativeKeyboardAttachmentEvent(IosKeyboardAttachmentEvent event) {
+    if (!mounted || _isDeactivated) return;
+
+    switch (event) {
+      case IosKeyboardAttachmentVisibilityChanged(:final visible):
+        if (_isNativeAttachmentPanelVisible != visible) {
+          setState(() => _isNativeAttachmentPanelVisible = visible);
+        }
+      case IosKeyboardAttachmentAction(:final id):
+        _handleNativeKeyboardAttachmentAction(id);
+    }
+  }
+
+  void _handleNativeKeyboardAttachmentAction(String id) {
+    if (!mounted || _isDeactivated) return;
+
+    switch (id) {
+      case 'file':
+        widget.onFileAttachment?.call();
+      case 'serverFile':
+        widget.onServerFileAttachment?.call();
+      case 'photo':
+        widget.onImageAttachment?.call();
+      case 'camera':
+        widget.onCameraCapture?.call();
+      case 'web':
+        widget.onWebAttachment?.call();
+      case 'webSearch':
+        final notifier = ref.read(webSearchEnabledProvider.notifier);
+        notifier.set(!ref.read(webSearchEnabledProvider));
+      case 'imageGeneration':
+        final notifier = ref.read(imageGenerationEnabledProvider.notifier);
+        notifier.set(!ref.read(imageGenerationEnabledProvider));
+      case String id when id.startsWith('tool:'):
+        final toolId = id.substring('tool:'.length);
+        final current = List<String>.from(ref.read(selectedToolIdsProvider));
+        if (current.contains(toolId)) {
+          current.remove(toolId);
+        } else {
+          current.add(toolId);
+        }
+        ref.read(selectedToolIdsProvider.notifier).set(current);
     }
   }
 
@@ -1533,6 +1594,176 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     );
   }
 
+  List<IosKeyboardAttachmentActionConfig> _nativeKeyboardAttachmentActions({
+    required AppLocalizations l10n,
+    required bool webSearchAvailable,
+    required bool webSearchEnabled,
+    required bool imageGenerationAvailable,
+    required bool imageGenerationEnabled,
+    required List<Tool> availableTools,
+    required List<String> selectedToolIds,
+  }) {
+    if (kIsWeb || !Platform.isIOS) {
+      return const <IosKeyboardAttachmentActionConfig>[];
+    }
+
+    return <IosKeyboardAttachmentActionConfig>[
+      IosKeyboardAttachmentActionConfig(
+        id: 'file',
+        label: l10n.file,
+        sfSymbol: 'doc',
+        section: 'attachments',
+        enabled: widget.onFileAttachment != null,
+      ),
+      IosKeyboardAttachmentActionConfig(
+        id: 'serverFile',
+        label: l10n.files,
+        sfSymbol: 'folder',
+        section: 'attachments',
+        enabled: widget.onServerFileAttachment != null,
+      ),
+      IosKeyboardAttachmentActionConfig(
+        id: 'photo',
+        label: l10n.photo,
+        sfSymbol: 'photo',
+        section: 'attachments',
+        enabled: widget.onImageAttachment != null,
+      ),
+      IosKeyboardAttachmentActionConfig(
+        id: 'camera',
+        label: l10n.camera,
+        sfSymbol: 'camera',
+        section: 'attachments',
+        enabled: widget.onCameraCapture != null,
+      ),
+      IosKeyboardAttachmentActionConfig(
+        id: 'web',
+        label: l10n.webPage,
+        sfSymbol: 'globe',
+        section: 'attachments',
+        enabled: widget.onWebAttachment != null,
+      ),
+      if (webSearchAvailable)
+        IosKeyboardAttachmentActionConfig(
+          id: 'webSearch',
+          label: l10n.webSearch,
+          sfSymbol: 'magnifyingglass',
+          section: 'features',
+          selected: webSearchEnabled,
+          dismissesKeyboard: false,
+        ),
+      if (imageGenerationAvailable)
+        IosKeyboardAttachmentActionConfig(
+          id: 'imageGeneration',
+          label: l10n.imageGeneration,
+          sfSymbol: 'sparkles',
+          section: 'features',
+          selected: imageGenerationEnabled,
+          dismissesKeyboard: false,
+        ),
+      for (final tool in availableTools)
+        IosKeyboardAttachmentActionConfig(
+          id: 'tool:${tool.id}',
+          label: tool.name,
+          sfSymbol: _sfSymbolForNativeTool(tool),
+          section: 'tools',
+          selected: selectedToolIds.contains(tool.id),
+          dismissesKeyboard: false,
+        ),
+    ];
+  }
+
+  String _sfSymbolForNativeTool(Tool tool) {
+    final name = tool.name.toLowerCase();
+    if (name.contains('image') || name.contains('vision')) {
+      return 'photo';
+    }
+    if (name.contains('code') || name.contains('python')) {
+      return 'chevron.left.forwardslash.chevron.right';
+    }
+    if (name.contains('calculator') || name.contains('math')) {
+      return 'function';
+    }
+    if (name.contains('file') || name.contains('document')) {
+      return 'doc';
+    }
+    if (name.contains('api') || name.contains('request')) {
+      return 'cloud';
+    }
+    if (name.contains('search')) {
+      return 'magnifyingglass';
+    }
+    return 'square.grid.2x2';
+  }
+
+  void _configureNativeKeyboardAttachmentPanel(
+    List<IosKeyboardAttachmentActionConfig> actions,
+  ) {
+    if (actions.isEmpty) return;
+
+    final signature = actions
+        .map(
+          (action) => [
+            action.id,
+            action.label,
+            action.subtitle,
+            action.sfSymbol,
+            action.section,
+            action.enabled,
+            action.selected,
+            action.dismissesKeyboard,
+          ].join('\u001f'),
+        )
+        .join('\u001e');
+
+    if (_lastNativeAttachmentSignature == signature) {
+      return;
+    }
+    _lastNativeAttachmentSignature = signature;
+
+    unawaited(IosKeyboardAttachmentBridge.instance.configure(actions: actions));
+  }
+
+  Future<void> _handleOverflowButtonPressed(
+    List<IosKeyboardAttachmentActionConfig> nativeActions,
+  ) async {
+    ConduitHaptics.selectionClick();
+
+    if (!kIsWeb && Platform.isIOS && nativeActions.isNotEmpty) {
+      final handled = await _toggleNativeKeyboardAttachmentPanel(nativeActions);
+      if (handled) {
+        return;
+      }
+    }
+
+    if (mounted && !_isDeactivated) {
+      _showOverflowSheet();
+    }
+  }
+
+  Future<bool> _toggleNativeKeyboardAttachmentPanel(
+    List<IosKeyboardAttachmentActionConfig> actions,
+  ) async {
+    if (!widget.enabled) return false;
+
+    try {
+      ref.read(composerAutofocusEnabledProvider.notifier).set(true);
+    } catch (_) {}
+    _ensureFocusedIfEnabled();
+
+    await Future<void>.delayed(const Duration(milliseconds: 40));
+    if (!mounted || _isDeactivated) return false;
+
+    return IosKeyboardAttachmentBridge.instance.toggle(actions: actions);
+  }
+
+  Future<void> _hideNativeKeyboardAttachmentPanel() async {
+    if (kIsWeb || !Platform.isIOS || !_isNativeAttachmentPanelVisible) {
+      return;
+    }
+    await IosKeyboardAttachmentBridge.instance.hide();
+  }
+
   @override
   Widget build(BuildContext context) {
     ref.listen<bool>(composerAutofocusEnabledProvider, (previous, next) {
@@ -1586,6 +1817,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final webSearchAvailable = ref.watch(webSearchAvailableProvider);
     final imageGenEnabled = ref.watch(imageGenerationEnabledProvider);
     final imageGenAvailable = ref.watch(imageGenerationAvailableProvider);
+    final l10n = AppLocalizations.of(context)!;
     final notesEnabled = ref.watch(notesFeatureEnabledProvider);
     final isCreatingDraftNote = ref.watch(
       noteCreatorProvider.select((state) => state.isLoading),
@@ -1622,6 +1854,16 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       selectedModelProvider.select(modelSupportsTerminal),
     );
     final terminalActive = selectedTerminalId != null && terminalModelSupported;
+    final nativeAttachmentActions = _nativeKeyboardAttachmentActions(
+      l10n: l10n,
+      webSearchAvailable: webSearchAvailable,
+      webSearchEnabled: webSearchEnabled,
+      imageGenerationAvailable: imageGenAvailable,
+      imageGenerationEnabled: imageGenEnabled,
+      availableTools: availableTools,
+      selectedToolIds: selectedToolIds,
+    );
+    _configureNativeKeyboardAttachmentPanel(nativeAttachmentActions);
 
     final focusTick = ref.watch(inputFocusTriggerProvider);
     final autofocusEnabled = ref.watch(composerAutofocusEnabledProvider);
@@ -1846,13 +2088,14 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           child: Row(
             children: [
               _buildOverflowButton(
-                tooltip: AppLocalizations.of(context)!.more,
+                tooltip: l10n.more,
                 webSearchActive: webSearchEnabled,
                 imageGenerationActive: imageGenEnabled,
                 toolsActive: selectedToolIds.isNotEmpty,
                 terminalActive: terminalActive,
                 filtersActive: selectedFilterIds.isNotEmpty,
                 dense: true,
+                nativeActions: nativeAttachmentActions,
               ),
               const SizedBox(width: Spacing.xs),
               Expanded(
@@ -1992,12 +2235,13 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 _buildOverflowButton(
-                  tooltip: AppLocalizations.of(context)!.more,
+                  tooltip: l10n.more,
                   webSearchActive: webSearchEnabled,
                   imageGenerationActive: imageGenEnabled,
                   toolsActive: selectedToolIds.isNotEmpty,
                   terminalActive: terminalActive,
                   filtersActive: selectedFilterIds.isNotEmpty,
+                  nativeActions: nativeAttachmentActions,
                 ),
                 const SizedBox(width: Spacing.sm),
                 Expanded(
@@ -2087,6 +2331,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       excludeFromSemantics: true,
       onTap: () {
         if (!widget.enabled) return;
+        unawaited(_hideNativeKeyboardAttachmentPanel());
         // Explicit user intent to focus: re-enable autofocus and focus
         try {
           ref.read(composerAutofocusEnabledProvider.notifier).set(true);
@@ -2234,6 +2479,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   onSubmitted: (_) {},
                   onTap: () {
                     if (!widget.enabled) return;
+                    unawaited(_hideNativeKeyboardAttachmentPanel());
                     _ensureFocusedIfEnabled();
                   },
                 );
@@ -2292,6 +2538,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 onSubmitted: (_) {},
                 onTap: () {
                   if (!widget.enabled) return;
+                  unawaited(_hideNativeKeyboardAttachmentPanel());
                   _ensureFocusedIfEnabled();
                 },
               );
@@ -2310,6 +2557,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     required bool terminalActive,
     required bool filtersActive,
     bool dense = false,
+    List<IosKeyboardAttachmentActionConfig> nativeActions = const [],
   }) {
     final double buttonSize = dense ? 36.0 : TouchTarget.minimum;
 
@@ -2321,7 +2569,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final bool enabled = widget.enabled && !_isRecording;
 
     Color? activeColor;
-    if (webSearchActive ||
+    final bool nativePanelVisible =
+        !kIsWeb && Platform.isIOS && _isNativeAttachmentPanelVisible;
+
+    if (nativePanelVisible ||
+        webSearchActive ||
         imageGenerationActive ||
         toolsActive ||
         terminalActive ||
@@ -2338,7 +2590,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         : context.conduitTheme.textPrimary.withValues(alpha: Alpha.strong);
 
     final IconData overflowIcon;
-    if (webSearchActive) {
+    if (nativePanelVisible) {
+      overflowIcon = CupertinoIcons.xmark;
+    } else if (webSearchActive) {
       overflowIcon = Platform.isIOS ? CupertinoIcons.search : Icons.search;
     } else if (imageGenerationActive) {
       overflowIcon = Platform.isIOS ? CupertinoIcons.photo : Icons.image;
@@ -2361,8 +2615,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       child: _buildComposerIconButton(
         onPressed: enabled
             ? () {
-                ConduitHaptics.selectionClick();
-                _showOverflowSheet();
+                unawaited(_handleOverflowButtonPressed(nativeActions));
               }
             : null,
         size: buttonSize,

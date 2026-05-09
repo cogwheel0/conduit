@@ -851,6 +851,11 @@ struct AppShortcuts: AppShortcutsProvider {
     let pasteRegistrar = engineBridge.applicationRegistrar
     NativePasteBridge.shared.configure(messenger: pasteRegistrar.messenger())
 
+    let keyboardAttachmentRegistrar = engineBridge.applicationRegistrar
+    NativeKeyboardAttachmentBridge.shared.configure(
+      messenger: keyboardAttachmentRegistrar.messenger()
+    )
+
     // Setup background streaming handler
     let bgRegistrar = engineBridge.applicationRegistrar
     let channel = FlutterMethodChannel(
