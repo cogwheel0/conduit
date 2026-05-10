@@ -29,6 +29,13 @@ final class HiveStoreKeys {
   // synchronously in the chat send hot path so the first network round-trip
   // doesn't gate time-to-first-token.
   static const String cachedUserSystemPrompt = 'cached_user_system_prompt_v1';
+  // Epoch millis of the last successful refresh of cachedUserSystemPrompt.
+  // Used to rate-limit the per-send /user/settings refresh — the chat send
+  // path competes with /chat/completions for HTTP connections, and refreshing
+  // every send forces an extra TLS handshake when the pool can't reuse a
+  // socket for the completion.
+  static const String cachedUserSystemPromptUpdatedAt =
+      'cached_user_system_prompt_updated_at_v1';
 }
 
 /// Grouped Hive boxes that remain open for the app lifecycle.

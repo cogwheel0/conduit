@@ -524,6 +524,68 @@ class ConversationStore {
     await _db.delete('conversations', where: 'id = ?', whereArgs: [id]);
   }
 
+  /// Rewrites the primary key of a cached conversation row from [oldId] to
+  /// [newId], remapping every child message row in the same transaction.
+  ///
+  /// Used by the new-chat send path: the local UUID is generated client-side
+  /// so the SQLite outbox + streaming persistence can key on a stable id from
+  /// the very first byte. Once `POST /api/v1/chats/new` returns the server-
+  /// assigned id, this swaps the local id for the server one across all
+  /// rows. No-op when [oldId] equals [newId] or [oldId] does not exist.
+  Future<void> renameConversation({
+    required String oldId,
+    required String newId,
+  }) async {
+    if (oldId == newId) return;
+    await _db.transaction((txn) async {
+      final oldRows = await txn.query(
+        'conversations',
+        where: 'id = ?',
+        whereArgs: [oldId],
+        limit: 1,
+      );
+      if (oldRows.isEmpty) return;
+
+      final clone = Map<String, Object?>.from(oldRows.first);
+      clone['id'] = newId;
+
+      // If a row at newId already exists (rare race — server pre-existed
+      // the local placeholder somehow), leave it untouched and just rehome
+      // the messages. Otherwise materialise the new header before moving
+      // any FK children to satisfy the REFERENCES constraint.
+      final existsRows = await txn.query(
+        'conversations',
+        columns: ['id'],
+        where: 'id = ?',
+        whereArgs: [newId],
+        limit: 1,
+      );
+      if (existsRows.isEmpty) {
+        await txn.insert(
+          'conversations',
+          clone,
+          conflictAlgorithm: ConflictAlgorithm.abort,
+        );
+      }
+
+      await txn.update(
+        'messages',
+        {'conversation_id': newId},
+        where: 'conversation_id = ?',
+        whereArgs: [oldId],
+      );
+
+      // Now safe to drop the old header — all child messages have been
+      // rehomed, so the ON DELETE CASCADE is a no-op on rows that have
+      // already moved.
+      await txn.delete(
+        'conversations',
+        where: 'id = ?',
+        whereArgs: [oldId],
+      );
+    });
+  }
+
   // ---------------------------------------------------------------------------
   // Outbox — replaces the Hive task queue for sendText. SQLite is the single
   // source of truth for which messages are queued, retrying, or terminal.

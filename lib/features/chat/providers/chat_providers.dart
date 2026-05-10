@@ -14,6 +14,7 @@ import '../../../core/models/conversation.dart';
 import '../../../core/models/file_info.dart';
 import '../../../core/providers/app_providers.dart';
 
+import '../../../core/services/optimized_storage_service.dart';
 import '../../../core/services/settings_service.dart';
 import '../../../core/services/socket_service.dart';
 import '../../../core/services/streaming_response_controller.dart';
@@ -1500,6 +1501,20 @@ Future<String> _preseedAssistantAndPersist(
   return assistantMessageId;
 }
 
+/// How long a cached `/user/settings`-derived system prompt is considered
+/// fresh enough to skip the per-send refresh. Sends within this window reuse
+/// the cached value without firing a network call. Picked to be long enough
+/// to skip the refresh on rapid back-and-forth sends but short enough that
+/// changes in OpenWebUI settings show up within a few minutes.
+const Duration _systemPromptRefreshInterval = Duration(minutes: 5);
+
+Duration? _cachedSystemPromptAge(OptimizedStorageService storage) {
+  final updatedAt = storage.getCachedUserSystemPromptUpdatedAt();
+  if (updatedAt == null) return null;
+  final delta = DateTime.now().difference(updatedAt);
+  return delta.isNegative ? Duration.zero : delta;
+}
+
 String? _extractSystemPromptFromSettings(Map<String, dynamic>? settings) {
   if (settings == null) return null;
 
@@ -2900,18 +2915,29 @@ Future<void> _sendMessageInternal(
     // warmed on success below.
     final storage = ref.read(optimizedStorageServiceProvider);
     userSystemPrompt = storage.getCachedUserSystemPrompt();
+    final cacheAge = _cachedSystemPromptAge(storage);
+    final shouldRefreshSettings =
+        userSystemPrompt == null ||
+        cacheAge == null ||
+        cacheAge > _systemPromptRefreshInterval;
     final settingsFuture = userSystemPrompt == null
         // Cold cache: we have to await so the system prompt is included.
         ? api.getUserSettings().catchError((_) => null)
-        // Warm cache: kick a background refresh and don't block on it.
-        : (api.getUserSettings()
+        : shouldRefreshSettings
+        // Warm cache, but stale enough that we want a refresh. Fire it
+        // in the background without gating the send.
+        ? (api.getUserSettings()
                   .then((data) {
                     final fresh = _extractSystemPromptFromSettings(data);
                     unawaited(storage.setCachedUserSystemPrompt(fresh));
                     return data;
                   })
                   .catchError((_) => null)
-              as Future<Map<String, dynamic>?>);
+              as Future<Map<String, dynamic>?>)
+        // Warm and recent — skip the refresh entirely. The next stale
+        // send (or app launch) will pick up changes. Avoids competing
+        // with /chat/completions for an HTTP connection on every send.
+        : Future<Map<String, dynamic>?>.value(null);
     final fileInfoFutures = serverFileIds.map((fileId) async {
       // Cache hit: build the request shape entirely from local data.
       try {
@@ -2982,10 +3008,15 @@ Future<void> _sendMessageInternal(
       final pendingFolderId = ref.read(pendingFolderIdProvider);
       final isTemporary = ref.read(temporaryChatEnabledProvider);
       if (!isTemporary) {
-        // Build the local placeholder now and set it as active so the chat
-        // UI keeps rendering the user message while the server call is in
-        // flight. Streaming send is gated below until createConversation
-        // resolves to obtain the server-assigned conversation id.
+        // Build a local-first placeholder using a client-generated UUID so
+        // the chat UI, SQLite outbox, and streaming persistence all key on
+        // a stable id from the very first byte. The /api/v1/chats/new
+        // round-trip used to gate the streaming send below; instead we
+        // now run it concurrently with the chat completion and reconcile
+        // the server-assigned id afterwards (rename in SQLite, swap in
+        // the active conversation provider, and push the final state via
+        // syncConversationMessages so the server's chat record carries
+        // the assistant response too).
         createConversationFolderId = pendingFolderId;
         createConversationLocal = Conversation(
           id: const Uuid().v4(),
@@ -2999,6 +3030,21 @@ Future<void> _sendMessageInternal(
         ref
             .read(activeConversationProvider.notifier)
             .set(createConversationLocal);
+
+        // Persist the local placeholder to SQLite up front so granular
+        // streaming writes that follow have a parent row to attach to.
+        // Without this, the first chunks would race the rename below and
+        // either get dropped or land under a header that doesn't exist
+        // yet on a foreground crash.
+        try {
+          if (_shouldPersistGranular(
+            ref,
+            conversationId: createConversationLocal.id,
+          )) {
+            unawaited(storage.cacheConversation(createConversationLocal));
+          }
+        } catch (_) {}
+
         final lightweightForCreate = userMessage.copyWith(
           attachmentIds: null,
           files: null,
@@ -3032,64 +3078,22 @@ Future<void> _sendMessageInternal(
   // Check if we need to create a new conversation first
   var activeConversation = ref.read(activeConversationProvider);
 
-  // Phase 2.2: if we kicked createConversation in parallel with the file
-  // info resolution above, await it now and apply the server-assigned id +
-  // folder. The local placeholder is already set as active, so the chat UI
-  // has been rendering the user message throughout this delay.
-  if (pendingCreateConversation != null && createConversationLocal != null) {
-    final localPlaceholder = createConversationLocal;
-    final pendingFolderId = createConversationFolderId;
-    try {
-      final serverConversation = await pendingCreateConversation;
-
-      ref.read(pendingFolderIdProvider.notifier).clear();
-
-      final currentMessages = ref.read(chatMessagesProvider);
-      final updatedConversation = localPlaceholder.copyWith(
-        id: serverConversation.id,
-        systemPrompt: serverConversation.systemPrompt ?? userSystemPrompt,
-        messages: currentMessages,
-        folderId: serverConversation.folderId ?? pendingFolderId,
-      );
-      ref.read(activeConversationProvider.notifier).set(updatedConversation);
-      activeConversation = updatedConversation;
-
-      ref
-          .read(conversationsProvider.notifier)
-          .upsertConversation(
-            updatedConversation.copyWith(updatedAt: DateTime.now()),
-          );
-
-      // Phase 3b — now that the server has returned a real conversation
-      // id, persist the full conversation (header + user message +
-      // assistant placeholder) to SQLite in a single upsert. This is the
-      // canonical "first write" for a new chat. Subsequent streaming
-      // chunks piggyback on _persistStreamingMessage under the same id.
-      try {
-        if (_shouldPersistGranular(
-          ref,
-          conversationId: updatedConversation.id,
-        )) {
-          final storage = ref.read(optimizedStorageServiceProvider);
-          unawaited(storage.cacheConversation(updatedConversation));
-        }
-      } catch (_) {}
-
-      Future.delayed(const Duration(milliseconds: 100), () {
-        try {
-          final isMounted = ref is Ref ? ref.mounted : true;
-          if (isMounted) {
-            refreshConversationsCache(
-              ref,
-              includeFolders: pendingFolderId != null,
-            );
-          }
-        } catch (_) {}
-      });
-    } catch (e) {
-      ref.read(pendingFolderIdProvider.notifier).clear();
-    }
-  } else if (activeConversation == null) {
+  // Phase 2.3: do NOT gate the streaming send on the /api/v1/chats/new
+  // round-trip. The local placeholder is already set as the active
+  // conversation and persisted to SQLite, so the chat UI keeps rendering
+  // and the streaming write path has a stable id from the first byte. The
+  // create call continues running in the background; reconciliation
+  // (rename SQLite local→server id, swap provider state, sidebar upsert,
+  // push final state) fires below after dispatchChatTransport completes
+  // so the swap can't race the in-flight stream.
+  //
+  // For the current send turn, downstream sendMessageSession +
+  // dispatchChatTransport intentionally use the local UUID — the
+  // OpenWebUI middleware accepts unknown chat_ids gracefully (it just
+  // skips loading prior history) and the post-stream syncConversationMessages
+  // call below pushes the assistant response onto the server's chat record
+  // once both /chats/new and the stream have resolved.
+  if (pendingCreateConversation == null && activeConversation == null) {
     // No createConversation was kicked: either temporary chat or reviewer
     // mode. Build the appropriate local placeholder.
     final pendingFolderId = ref.read(pendingFolderIdProvider);
@@ -3503,6 +3507,29 @@ Future<void> _sendMessageInternal(
       unawaited(store.markSent(userMessageId));
     } catch (_) {}
 
+    // Phase 2.3 reconciliation — for new chats, the streaming send fired
+    // with our local UUID instead of waiting on /api/v1/chats/new. Now
+    // that the stream is finished and the user has seen the response,
+    // wait for the create call (usually already resolved by this point)
+    // and swap the local id for the server-assigned one across SQLite +
+    // the active conversation provider + the sidebar. Then push the
+    // final message list to the server's chat record so the assistant
+    // response — which the chat-completions endpoint didn't persist
+    // server-side under our local chat_id — is recoverable from another
+    // device.
+    if (pendingCreateConversation != null && createConversationLocal != null) {
+      unawaited(
+        _reconcileNewChatId(
+          ref: ref,
+          api: api!,
+          pendingCreateConversation: pendingCreateConversation,
+          localPlaceholder: createConversationLocal,
+          pendingFolderId: createConversationFolderId,
+          fallbackSystemPrompt: userSystemPrompt,
+        ),
+      );
+    }
+
     return;
   } catch (e, st) {
     DebugLogger.error(
@@ -3660,6 +3687,141 @@ _SendExceptionClassification _classifySendException(Object e) {
 ///   - temporary chats (`local:` prefix — never persisted by design)
 ///   - no active conversation, or empty/null id (new-chat window before
 ///     `createConversation` resolves with a server id)
+/// Reconciles the local UUID we used for a brand-new chat with the
+/// server-assigned id once `POST /api/v1/chats/new` resolves.
+///
+/// Runs *after* the streaming dispatch completes, so it can never race
+/// in-flight stream writes against the SQLite rename. Steps:
+///   1. Wait for the create call (usually already done by now).
+///   2. Rename the local conversation row + all its messages to the
+///      server-assigned id in one SQLite transaction.
+///   3. Swap the active conversation provider so future user actions
+///      (regenerate, edit, delete) hit the canonical id.
+///   4. Upsert the sidebar entry under the new id and trigger a
+///      conversations cache refresh.
+///   5. Push the final message list to the server's chat record via
+///      `syncConversationMessages` — the chat-completions request used
+///      our local id, so the server didn't persist the assistant turn
+///      under the real chat. Without this step the assistant response
+///      would be local-only until a future edit triggered a sync.
+///
+/// All errors are swallowed: this is a best-effort cleanup that runs
+/// after the user has already seen the response. Failure leaves the chat
+/// usable locally and the next successful sync will pick it up.
+Future<void> _reconcileNewChatId({
+  required dynamic ref,
+  required dynamic api,
+  required Future<Conversation> pendingCreateConversation,
+  required Conversation localPlaceholder,
+  required String? pendingFolderId,
+  required String? fallbackSystemPrompt,
+}) async {
+  Conversation serverConversation;
+  try {
+    serverConversation = await pendingCreateConversation;
+  } catch (e, st) {
+    DebugLogger.error(
+      'reconcile-new-chat: createConversation failed; chat stays local-only',
+      scope: 'chat/providers',
+      error: e,
+      stackTrace: st,
+    );
+    try {
+      ref.read(pendingFolderIdProvider.notifier).clear();
+    } catch (_) {}
+    return;
+  }
+
+  try {
+    ref.read(pendingFolderIdProvider.notifier).clear();
+  } catch (_) {}
+
+  final String localId = localPlaceholder.id;
+  final String serverId = serverConversation.id;
+
+  // 1. SQLite rename — must happen before we flip the in-memory state so
+  //    any reader picking up the new active id finds the rows under it.
+  if (localId != serverId) {
+    try {
+      final store = ref.read(conversationStoreProvider);
+      await store.renameConversation(oldId: localId, newId: serverId);
+    } catch (e, st) {
+      DebugLogger.error(
+        'reconcile-new-chat: SQLite rename failed',
+        scope: 'chat/providers',
+        error: e,
+        stackTrace: st,
+      );
+    }
+  }
+
+  // 2. Provider swap — only if the user is still on this chat. If they
+  //    navigated away to another chat mid-stream, leave the active
+  //    conversation alone and just update the sidebar.
+  final List<ChatMessage> finalMessages = ref.read(chatMessagesProvider);
+  final Conversation reconciled = localPlaceholder.copyWith(
+    id: serverId,
+    systemPrompt: serverConversation.systemPrompt ?? fallbackSystemPrompt,
+    messages: finalMessages,
+    folderId: serverConversation.folderId ?? pendingFolderId,
+    updatedAt: DateTime.now(),
+  );
+
+  try {
+    final stillActive = ref.read(activeConversationProvider);
+    if (stillActive?.id == localId) {
+      ref.read(activeConversationProvider.notifier).set(reconciled);
+    }
+  } catch (_) {}
+
+  // 3. Sidebar — upsert under the server id and drop any stale entry the
+  //    sidebar might have picked up under the local id.
+  try {
+    final convNotifier = ref.read(conversationsProvider.notifier);
+    convNotifier.upsertConversation(reconciled);
+  } catch (_) {}
+
+  Future.delayed(const Duration(milliseconds: 100), () {
+    try {
+      final isMounted = ref is Ref ? ref.mounted : true;
+      if (isMounted) {
+        refreshConversationsCache(
+          ref,
+          includeFolders: pendingFolderId != null,
+        );
+      }
+    } catch (_) {}
+  });
+
+  // 4. Server-side persistence — push the local snapshot to the server's
+  //    chat record so the assistant response is recoverable from another
+  //    device. Best-effort; the local state is the source of truth.
+  try {
+    await api.syncConversationMessages(
+      serverId,
+      finalMessages,
+      title: reconciled.title,
+      systemPrompt: reconciled.systemPrompt,
+    );
+  } catch (e, st) {
+    DebugLogger.warning(
+      'reconcile-new-chat: post-stream syncConversationMessages failed; '
+      'will retry on next conversation edit ($e)',
+      scope: 'chat/providers',
+    );
+    // Swallow — local-first means we tolerate a temporary server-side
+    // gap. Stack trace is logged for diagnostics.
+    if (st.toString().isNotEmpty) {
+      DebugLogger.error(
+        'reconcile-new-chat sync stack',
+        scope: 'chat/providers',
+        error: e,
+        stackTrace: st,
+      );
+    }
+  }
+}
+
 bool _shouldPersistGranular(dynamic ref, {String? conversationId}) {
   if (ref.read(reviewerModeProvider) as bool) return false;
   final id = conversationId ?? ref.read(activeConversationProvider)?.id;

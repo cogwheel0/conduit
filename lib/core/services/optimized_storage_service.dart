@@ -441,10 +441,17 @@ class OptimizedStorageService {
     try {
       if (prompt == null || prompt.trim().isEmpty) {
         await _cachesBox.delete(HiveStoreKeys.cachedUserSystemPrompt);
+        await _cachesBox.delete(
+          HiveStoreKeys.cachedUserSystemPromptUpdatedAt,
+        );
       } else {
         await _cachesBox.put(
           HiveStoreKeys.cachedUserSystemPrompt,
           prompt.trim(),
+        );
+        await _cachesBox.put(
+          HiveStoreKeys.cachedUserSystemPromptUpdatedAt,
+          DateTime.now().millisecondsSinceEpoch,
         );
       }
     } catch (error, stack) {
@@ -455,6 +462,27 @@ class OptimizedStorageService {
         stackTrace: stack,
       );
     }
+  }
+
+  /// Timestamp of the last [setCachedUserSystemPrompt] write, or null if the
+  /// cache has never been populated. Used by the chat send path to skip the
+  /// per-send /user/settings refresh when the cache is recent.
+  DateTime? getCachedUserSystemPromptUpdatedAt() {
+    try {
+      final stored = _cachesBox.get(
+        HiveStoreKeys.cachedUserSystemPromptUpdatedAt,
+      );
+      if (stored is int) {
+        return DateTime.fromMillisecondsSinceEpoch(stored);
+      }
+      if (stored is String) {
+        final parsed = int.tryParse(stored);
+        if (parsed != null) {
+          return DateTime.fromMillisecondsSinceEpoch(parsed);
+        }
+      }
+    } catch (_) {}
+    return null;
   }
 
   /// Persist a single message under [scaffold.id], scaffolding the
