@@ -7,6 +7,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/model.dart';
+import '../../../core/services/ios_native_dropdown_bridge.dart';
+import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/settings_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/theme/tweakcn_themes.dart';
@@ -559,18 +561,25 @@ class AppCustomizationPage extends ConsumerWidget {
   }
 
   Widget _buildPromptLoadingTile(BuildContext context, String title) {
-    final l10n = AppLocalizations.of(context)!;
+    final theme = context.conduitTheme;
+    final color = theme.buttonPrimary;
     return CustomizationTile(
-      leading: _buildIconBadge(
-        context,
-        UiUtils.platformIcon(
-          ios: CupertinoIcons.hourglass,
-          android: Icons.hourglass_empty,
+      leading: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(AppBorderRadius.small),
+          border: Border.all(
+            color: color.withValues(alpha: 0.2),
+            width: BorderWidth.thin,
+          ),
         ),
-        color: context.conduitTheme.buttonPrimary,
+        alignment: Alignment.center,
+        child: const ConduitLoadingIndicator(isCompact: true),
       ),
       title: title,
-      subtitle: l10n.loadingFromOpenWebui,
+      subtitle: '',
       showChevron: false,
     );
   }
@@ -679,6 +688,59 @@ class AppCustomizationPage extends ConsumerWidget {
       if (context.mounted) {
         UiUtils.showMessage(context, message);
       }
+    }
+
+    if (Platform.isIOS) {
+      try {
+        final result = await NativeSheetBridge.instance.presentSheet(
+          root: NativeSheetDetailConfig(
+            id: 'server-prompt-editor',
+            title: title,
+            subtitle: description,
+            items: [
+              NativeSheetItemConfig(
+                id: 'server-prompt-value',
+                title: title,
+                subtitle: readOnly ? description : l10n.enterSystemPrompt,
+                sfSymbol: 'text.bubble',
+                kind: readOnly
+                    ? NativeSheetItemKind.readOnlyText
+                    : NativeSheetItemKind.multilineTextField,
+                value: initialValue,
+                placeholder: readOnly ? null : l10n.enterSystemPrompt,
+              ),
+              if (!readOnly)
+                NativeSheetItemConfig(
+                  id: 'save',
+                  title: l10n.save,
+                  subtitle: l10n.saved,
+                  sfSymbol: 'checkmark.circle',
+                ),
+            ],
+          ),
+          rethrowErrors: true,
+        );
+        if (readOnly || result?.actionId != 'save') {
+          return;
+        }
+        final value = result?.values['server-prompt-value'] as String? ?? '';
+        try {
+          await onSave(value);
+          afterSave?.call();
+          showMessage(l10n.saved);
+        } catch (_) {
+          showMessage(l10n.errorMessage);
+        }
+        return;
+      } catch (_) {
+        if (!context.mounted) {
+          return;
+        }
+      }
+    }
+
+    if (!context.mounted) {
+      return;
     }
 
     await showSettingsSheet<void>(
@@ -1338,6 +1400,68 @@ class AppCustomizationPage extends ConsumerWidget {
 
     // Combine: matching voices first, then others
     final voices = [...matchingVoices, ...otherVoices];
+    const systemDefaultId = '__system_default__';
+    if (Platform.isIOS) {
+      try {
+        final selectedId = await NativeSheetBridge.instance
+            .presentOptionsSelector(
+              title: l10n.ttsSelectVoice,
+              selectedOptionId:
+                  ((settings.ttsEngine == TtsEngine.server
+                              ? settings.ttsServerVoiceId
+                              : settings.ttsVoice)
+                          ?.isNotEmpty ??
+                      false)
+                  ? settings.ttsEngine == TtsEngine.server
+                        ? settings.ttsServerVoiceId
+                        : settings.ttsVoice
+                  : systemDefaultId,
+              options: [
+                NativeSheetOptionConfig(
+                  id: systemDefaultId,
+                  label: l10n.ttsSystemDefault,
+                ),
+                for (final voice in voices)
+                  NativeSheetOptionConfig(
+                    id: _getVoiceIdentifier(voice, settings.ttsEngine),
+                    label: _formatVoiceName(l10n, voice),
+                    subtitle: _getVoiceSubtitle(voice),
+                  ),
+              ],
+              rethrowErrors: true,
+            );
+        if (selectedId == null) {
+          return;
+        }
+        final notifier = ref.read(appSettingsProvider.notifier);
+        if (selectedId == systemDefaultId) {
+          if (settings.ttsEngine == TtsEngine.server) {
+            notifier.setTtsServerVoiceId(null);
+            notifier.setTtsServerVoiceName(null);
+          } else {
+            notifier.setTtsVoice(null);
+          }
+          return;
+        }
+        final selectedVoice = voices.firstWhere(
+          (voice) =>
+              _getVoiceIdentifier(voice, settings.ttsEngine) == selectedId,
+        );
+        final displayName = _formatVoiceName(l10n, selectedVoice);
+        if (settings.ttsEngine == TtsEngine.server) {
+          notifier.setTtsServerVoiceId(selectedId);
+          notifier.setTtsServerVoiceName(displayName);
+        } else {
+          notifier.setTtsVoice(selectedId);
+        }
+        return;
+      } catch (_) {
+        if (!context.mounted) {
+          return;
+        }
+      }
+    }
+
     final entries = <({String? section, Map<String, dynamic>? voice})>[
       (section: null, voice: null),
       if (matchingVoices.isNotEmpty && otherVoices.isNotEmpty)
@@ -1354,6 +1478,10 @@ class AppCustomizationPage extends ConsumerWidget {
       if (matchingVoices.isEmpty || otherVoices.isEmpty)
         for (final voice in voices) (section: null, voice: voice),
     ];
+
+    if (!context.mounted) {
+      return;
+    }
 
     showSettingsSheet<void>(
       context: context,
@@ -1709,6 +1837,39 @@ class AppCustomizationPage extends ConsumerWidget {
       current = options.first.value;
     }
 
+    if (Platform.isIOS) {
+      try {
+        final selected = await NativeSheetBridge.instance
+            .presentOptionsSelector(
+              title: l10n.transportMode,
+              selectedOptionId: current,
+              options: [
+                for (final option in options)
+                  NativeSheetOptionConfig(
+                    id: option.value,
+                    label: option.title,
+                    subtitle: option.subtitle,
+                  ),
+              ],
+              rethrowErrors: true,
+            );
+        if (selected != null && selected != current) {
+          ref
+              .read(appSettingsProvider.notifier)
+              .setSocketTransportMode(selected);
+        }
+        return;
+      } catch (_) {
+        if (!context.mounted) {
+          return;
+        }
+      }
+    }
+
+    if (!context.mounted) {
+      return;
+    }
+
     await showSettingsSheet<void>(
       context: context,
       builder: (sheetContext) {
@@ -1794,6 +1955,39 @@ class AppCustomizationPage extends ConsumerWidget {
     final l10n = AppLocalizations.of(context)!;
     final palettes = TweakcnThemes.all;
 
+    if (Platform.isIOS) {
+      try {
+        final selectedId = await NativeSheetBridge.instance
+            .presentOptionsSelector(
+              title: l10n.themePalette,
+              selectedOptionId: activePaletteId,
+              options: [
+                for (final palette in palettes)
+                  NativeSheetOptionConfig(
+                    id: palette.id,
+                    label: palette.label(l10n),
+                    subtitle: palette.description(l10n),
+                  ),
+              ],
+              rethrowErrors: true,
+            );
+        if (selectedId != null) {
+          await ref
+              .read(appThemePaletteProvider.notifier)
+              .setPalette(selectedId);
+        }
+        return;
+      } catch (_) {
+        if (!context.mounted) {
+          return;
+        }
+      }
+    }
+
+    if (!context.mounted) {
+      return;
+    }
+
     await showSettingsSheet<void>(
       context: context,
       builder: (sheetContext) {
@@ -1830,7 +2024,10 @@ class AppCustomizationPage extends ConsumerWidget {
     );
   }
 
-  Future<String?> _showLanguageSelector(BuildContext context, String current) {
+  Future<String?> _showLanguageSelector(
+    BuildContext context,
+    String current,
+  ) async {
     final normalizedCurrent = current.replaceAll('_', '-');
     final l10n = AppLocalizations.of(context)!;
     final options = <({String value, String label})>[
@@ -1847,6 +2044,34 @@ class AppCustomizationPage extends ConsumerWidget {
       (value: 'ko', label: l10n.korean),
       (value: 'ja', label: l10n.japanese),
     ];
+
+    if (Platform.isIOS) {
+      try {
+        return await IosNativeDropdownBridge.instance.showFromContext(
+          context: context,
+          title: l10n.appLanguage,
+          options: [
+            for (final option in options)
+              IosNativeDropdownOption(
+                id: option.value,
+                label: option.label,
+                sfSymbol: normalizedCurrent == option.value
+                    ? 'checkmark'
+                    : null,
+              ),
+          ],
+          rethrowErrors: true,
+        );
+      } catch (_) {
+        if (!context.mounted) {
+          return null;
+        }
+      }
+    }
+
+    if (!context.mounted) {
+      return null;
+    }
 
     return showSettingsSheet<String>(
       context: context,

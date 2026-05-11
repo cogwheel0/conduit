@@ -18,6 +18,8 @@
 		CA4A256DAFB6E4374BC67B91 /* Pods_Runner.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E952EFF81F1FEABA348FE2CC /* Pods_Runner.framework */; };
 		D2A0B1C42F5E4D6C7B8A9012 /* NativePasteBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B1C32F5E4D6C7B8A9012 /* NativePasteBridge.swift */; };
 		D2A0B1D42F5E4D6C7B8A9012 /* NativeKeyboardAttachmentBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B1D32F5E4D6C7B8A9012 /* NativeKeyboardAttachmentBridge.swift */; };
+		D2A0B1E42F5E4D6C7B8A9012 /* NativeSheetBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B1E32F5E4D6C7B8A9012 /* NativeSheetBridge.swift */; };
+		D2A0B1F42F5E4D6C7B8A9012 /* NativeDropdownBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B1F32F5E4D6C7B8A9012 /* NativeDropdownBridge.swift */; };
 		F15AFEC42EE5499D00A1FABB /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F15AFEC32EE5499D00A1FABB /* WidgetKit.framework */; };
 		F15AFEC62EE5499D00A1FABB /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F15AFEC52EE5499D00A1FABB /* SwiftUI.framework */; };
 		F15AFED12EE5499E00A1FABB /* ConduitWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = F15AFEC22EE5499D00A1FABB /* ConduitWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -102,6 +104,8 @@
 		AEC6CFD537128217FAB31030 /* Pods-ShareExtension.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-ShareExtension.debug.xcconfig"; path = "Target Support Files/Pods-ShareExtension/Pods-ShareExtension.debug.xcconfig"; sourceTree = "<group>"; };
 		D2A0B1C32F5E4D6C7B8A9012 /* NativePasteBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePasteBridge.swift; sourceTree = "<group>"; };
 		D2A0B1D32F5E4D6C7B8A9012 /* NativeKeyboardAttachmentBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeKeyboardAttachmentBridge.swift; sourceTree = "<group>"; };
+		D2A0B1E32F5E4D6C7B8A9012 /* NativeSheetBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSheetBridge.swift; sourceTree = "<group>"; };
+		D2A0B1F32F5E4D6C7B8A9012 /* NativeDropdownBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDropdownBridge.swift; sourceTree = "<group>"; };
 		E590F0BC5DD9A3EFB1FDDDBF /* Pods-RunnerTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.release.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.release.xcconfig"; sourceTree = "<group>"; };
 		E952EFF81F1FEABA348FE2CC /* Pods_Runner.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Runner.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		F15AFEC22EE5499D00A1FABB /* ConduitWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ConduitWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -290,6 +294,8 @@
 				74858FAE1ED2DC5600515810 /* AppDelegate.swift */,
 				D2A0B1C32F5E4D6C7B8A9012 /* NativePasteBridge.swift */,
 				D2A0B1D32F5E4D6C7B8A9012 /* NativeKeyboardAttachmentBridge.swift */,
+				D2A0B1E32F5E4D6C7B8A9012 /* NativeSheetBridge.swift */,
+				D2A0B1F32F5E4D6C7B8A9012 /* NativeDropdownBridge.swift */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
 			);
 			path = Runner;
@@ -619,6 +625,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D2A0B1F42F5E4D6C7B8A9012 /* NativeDropdownBridge.swift in Sources */,
+				D2A0B1E42F5E4D6C7B8A9012 /* NativeSheetBridge.swift in Sources */,
 				D2A0B1D42F5E4D6C7B8A9012 /* NativeKeyboardAttachmentBridge.swift in Sources */,
 				D2A0B1C42F5E4D6C7B8A9012 /* NativePasteBridge.swift in Sources */,
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,

@@ -4,6 +4,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../services/api_service.dart';
 import '../auth/auth_state_manager.dart';
@@ -2244,8 +2245,10 @@ final rawUserSettingsProvider = FutureProvider<Map<String, dynamic>>((
 class PersonalizationSettings extends _$PersonalizationSettings {
   @override
   Future<ServerUserSettings> build() async {
-    final api = ref.watch(apiServiceProvider);
-    if (api == null) {
+    ref.watch(activeServerProvider.select((s) => s.asData?.value?.id));
+    final apiAlive = ref.watch(apiServiceProvider.select((a) => a != null));
+    final api = ref.read(apiServiceProvider);
+    if (!apiAlive || api == null) {
       return const ServerUserSettings();
     }
     return api.getServerUserSettingsModel();
@@ -2303,8 +2306,10 @@ class PersonalizationSettings extends _$PersonalizationSettings {
 class UserMemories extends _$UserMemories {
   @override
   Future<List<ServerMemory>> build() async {
-    final api = ref.watch(apiServiceProvider);
-    if (api == null) {
+    ref.watch(activeServerProvider.select((s) => s.asData?.value?.id));
+    final apiAlive = ref.watch(apiServiceProvider.select((a) => a != null));
+    final api = ref.read(apiServiceProvider);
+    if (!apiAlive || api == null) {
       return const <ServerMemory>[];
     }
     return _sortedMemories(await api.getMemories());
@@ -2478,12 +2483,19 @@ class AccountProfile extends _$AccountProfile {
 
 @Riverpod(keepAlive: true)
 Future<ServerAboutInfo?> serverAboutInfo(Ref ref) async {
-  final api = ref.watch(apiServiceProvider);
-  if (api == null) {
+  ref.watch(activeServerProvider.select((s) => s.asData?.value?.id));
+  final apiAlive = ref.watch(apiServiceProvider.select((a) => a != null));
+  final api = ref.read(apiServiceProvider);
+  if (!apiAlive || api == null) {
     return null;
   }
   return api.getServerAboutInfo();
 }
+
+/// Cached [PackageInfo] for About screens and native profile sheets.
+final packageInfoProvider = FutureProvider<PackageInfo>((ref) async {
+  return PackageInfo.fromPlatform();
+});
 
 // Conversation Suggestions provider
 @Riverpod(keepAlive: true)

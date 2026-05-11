@@ -16,6 +16,8 @@ import 'dart:math' as math;
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import 'dart:async';
 import '../../../core/providers/app_providers.dart';
+import '../../../core/network/image_header_utils.dart';
+import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/settings_service.dart';
 import '../../auth/providers/unified_auth_providers.dart';
 import '../providers/chat_providers.dart';
@@ -267,12 +269,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 
   Future<void> _checkAndLoadDemoConversation() async {
-    if (!mounted) return;
+    if (!context.mounted) return;
     final isReviewerMode = ref.read(reviewerModeProvider);
     if (!isReviewerMode) return;
 
     // Check if there's already an active conversation
-    if (!mounted) return;
+    if (!context.mounted) return;
     final activeConversation = ref.read(activeConversationProvider);
     if (activeConversation != null) {
       DebugLogger.log(
@@ -518,6 +520,55 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   void _handleServerFileAttachment() {
     final fileUploadCapableModels = ref.read(fileUploadCapableModelsProvider);
     if (fileUploadCapableModels.isEmpty || !mounted) {
+      return;
+    }
+
+    if (Platform.isIOS) {
+      unawaited(() async {
+        final files = await ref.read(userFilesProvider.future);
+        if (!mounted || files.isEmpty) {
+          return;
+        }
+        try {
+          final selectedId = await NativeSheetBridge.instance
+              .presentOptionsSelector(
+                title: AppLocalizations.of(context)!.files,
+                options: [
+                  for (final file in files)
+                    NativeSheetOptionConfig(
+                      id: file.id,
+                      label: file.displayName,
+                      subtitle: file.filename,
+                      sfSymbol: 'doc',
+                    ),
+                ],
+                rethrowErrors: true,
+              );
+          if (selectedId == null || !mounted) {
+            return;
+          }
+          for (final file in files) {
+            if (file.id == selectedId) {
+              ref.read(attachedFilesProvider.notifier).addRemoteFile(file);
+              break;
+            }
+          }
+          return;
+        } catch (_) {
+          if (!mounted) {
+            return;
+          }
+        }
+        ThemedSheets.showCustom<void>(
+          context: context,
+          isScrollControlled: true,
+          builder: (_) => ServerFilePickerSheet(
+            onSelected: (file) {
+              ref.read(attachedFilesProvider.notifier).addRemoteFile(file);
+            },
+          ),
+        );
+      }());
       return;
     }
 
@@ -2119,7 +2170,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       try {
         final models = await ref.read(modelsProvider.future);
         if (!mounted || !context.mounted) return;
-        _showModelDropdown(context, ref, models);
+        await _showModelDropdown(context, ref, models);
       } catch (e) {
         DebugLogger.error(
           'model-load-failed',
@@ -2128,13 +2179,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         );
       }
     } else if (modelsAsync.hasValue) {
-      _showModelDropdown(context, ref, modelsAsync.value!);
+      await _showModelDropdown(context, ref, modelsAsync.value!);
     } else if (modelsAsync.hasError) {
       try {
         ref.invalidate(modelsProvider);
         final models = await ref.read(modelsProvider.future);
         if (!mounted || !context.mounted) return;
-        _showModelDropdown(context, ref, models);
+        await _showModelDropdown(context, ref, models);
       } catch (e) {
         DebugLogger.error(
           'model-refresh-failed',
@@ -2282,19 +2333,22 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   // Removed legacy save-before-leave hook; server manages chat state via background pipeline.
 
-  void _showModelDropdown(
+  Future<void> _showModelDropdown(
     BuildContext context,
     WidgetRef ref,
     List<Model> models,
-  ) {
+  ) async {
     // Ensure keyboard is closed before presenting modal
     final hadFocus = ref.read(composerHasFocusProvider);
+    final api = ref.read(apiServiceProvider);
+    final avatarHeaders =
+        buildImageHeadersFromContainer(
+          ProviderScope.containerOf(context, listen: false),
+        ) ??
+        const <String, String>{};
     _dismissComposerFocus();
-    ThemedSheets.showCustom<void>(
-      context: context,
-      isScrollControlled: true,
-      builder: (context) => ModelSelectorSheet(models: models, ref: ref),
-    ).whenComplete(() {
+
+    Future<void> restoreFocusIfNeeded() async {
       if (!mounted) return;
       if (hadFocus) {
         // Re-enable autofocus and bump trigger to restore composer focus + IME
@@ -2304,7 +2358,55 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         final cur = ref.read(inputFocusTriggerProvider);
         ref.read(inputFocusTriggerProvider.notifier).set(cur + 1);
       }
-    });
+    }
+
+    if (Platform.isIOS) {
+      try {
+        final selectedId = await NativeSheetBridge.instance
+            .presentModelSelector(
+              title: AppLocalizations.of(context)!.chooseModel,
+              selectedModelId: ref.read(selectedModelProvider)?.id,
+              models: models
+                  .map(
+                    (model) => NativeSheetModelOption(
+                      id: model.id,
+                      name: model.name,
+                      subtitle: model.description ?? model.id,
+                      avatarUrl: resolveModelIconUrlForModel(api, model),
+                      avatarHeaders: avatarHeaders,
+                    ),
+                  )
+                  .toList(),
+              rethrowErrors: true,
+            );
+        if (!mounted) return;
+        if (selectedId != null) {
+          Model? selected;
+          for (final model in models) {
+            if (model.id == selectedId) {
+              selected = model;
+              break;
+            }
+          }
+          ref.read(selectedModelProvider.notifier).set(selected);
+        }
+        await restoreFocusIfNeeded();
+        return;
+      } catch (_) {
+        if (!mounted) {
+          return;
+        }
+      }
+    }
+
+    if (!context.mounted) return;
+
+    await ThemedSheets.showCustom<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => ModelSelectorSheet(models: models, ref: ref),
+    );
+    await restoreFocusIfNeeded();
   }
 }
 

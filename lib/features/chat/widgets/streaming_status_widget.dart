@@ -1,8 +1,11 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
 import '../../../core/models/chat_message.dart';
+import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/themed_sheets.dart';
@@ -64,10 +67,53 @@ class _StreamingStatusWidgetState extends State<StreamingStatusWidget> {
     BuildContext context, {
     required List<ChatStatusUpdate> updates,
     required bool isStreaming,
-  }) {
+  }) async {
     final theme = context.conduitTheme;
     final current = updates.last;
     final title = _resolveStatusDescription(current);
+
+    if (Platform.isIOS) {
+      final items = <NativeSheetItemConfig>[
+        for (var index = 0; index < updates.length; index++) ...[
+          NativeSheetItemConfig(
+            id: 'status-update-$index',
+            title: _resolveStatusDescription(updates[index]),
+            subtitle: _collectQueries(updates[index]).isEmpty
+                ? null
+                : _collectQueries(updates[index]).join(', '),
+            sfSymbol: 'circle.dotted',
+            kind: NativeSheetItemKind.info,
+          ),
+          for (final link in _collectLinks(updates[index]))
+            NativeSheetItemConfig(
+              id: 'status-link-$index-${link.url}',
+              title: link.title ?? link.url,
+              subtitle: link.url,
+              sfSymbol: 'link',
+              url: link.url,
+            ),
+        ],
+      ];
+      try {
+        await NativeSheetBridge.instance.presentSheet(
+          root: NativeSheetDetailConfig(
+            id: 'streaming-status',
+            title: title,
+            items: items,
+          ),
+          rethrowErrors: true,
+        );
+        return;
+      } catch (_) {
+        if (!context.mounted) {
+          return;
+        }
+      }
+    }
+
+    if (!context.mounted) {
+      return;
+    }
 
     ThemedSheets.showSurface<void>(
       context: context,

@@ -1,6 +1,9 @@
+import 'dart:io' show Platform;
+
 import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/haptic_service.dart';
+import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart' as chat;
 import 'package:conduit/features/chat/utils/chat_share_url.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -17,13 +20,160 @@ import 'package:share_plus/share_plus.dart';
 Future<void> showChatShareSheet({
   required BuildContext context,
   required Conversation conversation,
-}) {
+}) async {
+  if (Platform.isIOS) {
+    try {
+      return await _showNativeChatShareSheet(
+        context: context,
+        conversation: conversation,
+      );
+    } catch (_) {
+      if (!context.mounted) {
+        return;
+      }
+    }
+  }
   return ThemedSheets.showCustom<void>(
     context: context,
     useSafeArea: true,
     isScrollControlled: true,
     builder: (_) => ChatShareSheet(conversation: conversation),
   );
+}
+
+Future<void> _showNativeChatShareSheet({
+  required BuildContext context,
+  required Conversation conversation,
+}) async {
+  final container = ProviderScope.containerOf(context, listen: false);
+  final l10n = AppLocalizations.of(context)!;
+
+  void showMessage(String message) {
+    ScaffoldMessenger.maybeOf(
+      context,
+    )?.showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<String> ensureShareUrl() async {
+    final api = container.read(apiServiceProvider);
+    if (api == null) {
+      throw StateError('API service not available');
+    }
+
+    final shareId = await api.shareConversation(conversation.id);
+    if (shareId == null || shareId.isEmpty) {
+      throw StateError('Share id missing');
+    }
+    container
+        .read(conversationsProvider.notifier)
+        .updateConversation(
+          conversation.id,
+          (current) =>
+              current.copyWith(shareId: shareId, updatedAt: DateTime.now()),
+        );
+    refreshConversationsCache(container);
+    final activeConversation = container.read(activeConversationProvider);
+    if (activeConversation?.id == conversation.id) {
+      container
+          .read(activeConversationProvider.notifier)
+          .set(activeConversation!.copyWith(shareId: shareId));
+    }
+    return buildChatShareUrl(serverUrl: api.baseUrl, shareId: shareId);
+  }
+
+  Future<void> copyLink() async {
+    try {
+      final url = await ensureShareUrl();
+      await Clipboard.setData(ClipboardData(text: url));
+      ConduitHaptics.success();
+      showMessage(l10n.sharedChatCopied);
+    } catch (_) {
+      showMessage(l10n.chatShareFailed);
+    }
+  }
+
+  Future<void> shareLink() async {
+    try {
+      final url = await ensureShareUrl();
+      await SharePlus.instance.share(ShareParams(text: url));
+    } catch (_) {
+      showMessage(l10n.chatShareFailed);
+    }
+  }
+
+  Future<void> deleteLink() async {
+    try {
+      final api = container.read(apiServiceProvider);
+      if (api == null) {
+        throw StateError('API service not available');
+      }
+      await api.deleteSharedConversation(conversation.id);
+      container
+          .read(conversationsProvider.notifier)
+          .updateConversation(
+            conversation.id,
+            (current) =>
+                current.copyWith(shareId: null, updatedAt: DateTime.now()),
+          );
+      refreshConversationsCache(container);
+      final activeConversation = container.read(activeConversationProvider);
+      if (activeConversation?.id == conversation.id) {
+        container
+            .read(activeConversationProvider.notifier)
+            .set(activeConversation!.copyWith(shareId: null));
+      }
+      ConduitHaptics.success();
+      showMessage(l10n.sharedLinkDeleted);
+    } catch (_) {
+      showMessage(l10n.deleteSharedLinkFailed);
+    }
+  }
+
+  final hasExistingShare = conversation.shareId?.isNotEmpty == true;
+  final result = await NativeSheetBridge.instance.presentSheet(
+    root: NativeSheetDetailConfig(
+      id: 'chat-share',
+      title: l10n.shareChat,
+      subtitle: hasExistingShare
+          ? l10n.shareChatExisting
+          : l10n.shareChatDescription,
+      items: [
+        NativeSheetItemConfig(
+          id: 'copy-link',
+          title: hasExistingShare ? l10n.updateAndCopyLink : l10n.copyLink,
+          subtitle: l10n.sharedChatCopied,
+          sfSymbol: 'doc.on.doc',
+        ),
+        NativeSheetItemConfig(
+          id: 'share-link',
+          title: l10n.shareSystemSheet,
+          subtitle: l10n.shareChatDescription,
+          sfSymbol: 'square.and.arrow.up',
+        ),
+        if (hasExistingShare)
+          NativeSheetItemConfig(
+            id: 'delete-link',
+            title: l10n.shareChatDeleteLink,
+            subtitle: l10n.shareChatDeleteAndCreate,
+            sfSymbol: 'trash',
+            destructive: true,
+          ),
+      ],
+    ),
+    rethrowErrors: true,
+  );
+
+  switch (result?.actionId) {
+    case 'copy-link':
+      await copyLink();
+      break;
+    case 'share-link':
+      await shareLink();
+      break;
+    case 'delete-link':
+      await deleteLink();
+      break;
+  }
 }
 
 class ChatShareSheet extends ConsumerStatefulWidget {

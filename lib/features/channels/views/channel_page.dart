@@ -13,6 +13,7 @@ import '../../../core/models/channel.dart';
 import '../../../core/models/channel_message.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/api_service.dart';
+import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../core/utils/model_icon_utils.dart';
 import '../../../core/utils/user_avatar_utils.dart';
@@ -485,7 +486,36 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     ];
   }
 
-  void _showEmojiPicker(ChannelMessage message) {
+  void _showEmojiPicker(ChannelMessage message) async {
+    if (Platform.isIOS) {
+      try {
+        final emoji = await NativeSheetBridge.instance.presentOptionsSelector(
+          title: 'React',
+          options: [
+            for (final emoji in _reactionEmojis)
+              NativeSheetOptionConfig(
+                id: emoji,
+                label: emoji,
+                sfSymbol: 'face.smiling',
+              ),
+          ],
+          rethrowErrors: true,
+        );
+        if (emoji != null) {
+          _toggleReaction(message, emoji);
+        }
+        return;
+      } catch (_) {
+        if (!mounted) {
+          return;
+        }
+      }
+    }
+
+    if (!mounted) {
+      return;
+    }
+
     ThemedSheets.showSurface<void>(
       context: context,
       showHandle: false,
@@ -1010,6 +1040,35 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       if (!mounted) return;
       final users = (result['users'] as List<dynamic>?) ?? [];
       final total = (result['total'] as int?) ?? users.length;
+
+      if (Platform.isIOS) {
+        try {
+          await NativeSheetBridge.instance.presentSheet(
+            root: NativeSheetDetailConfig(
+              id: 'channel-members',
+              title: 'Members ($total)',
+              items: [
+                for (final user in users.cast<Map<String, dynamic>>())
+                  NativeSheetItemConfig(
+                    id: 'member-${user['id'] ?? user['name'] ?? users.indexOf(user)}',
+                    title: user['name'] as String? ?? 'Unknown',
+                    subtitle: user['role'] as String?,
+                    sfSymbol: 'person.circle',
+                    kind: NativeSheetItemKind.info,
+                  ),
+              ],
+            ),
+            rethrowErrors: true,
+          );
+          return;
+        } catch (_) {
+          if (!mounted) {
+            return;
+          }
+        }
+      }
+
+      if (!mounted) return;
 
       ThemedSheets.showSurface<void>(
         context: context,

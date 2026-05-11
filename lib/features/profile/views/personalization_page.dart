@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -8,9 +10,12 @@ import 'package:intl/intl.dart';
 import '../../../core/models/model.dart';
 import '../../../core/models/server_user_settings.dart';
 import '../../../core/models/server_memory.dart';
+import '../../../core/network/image_header_utils.dart';
 import '../../../core/providers/app_providers.dart';
+import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../core/services/settings_service.dart';
+import '../../../core/utils/model_icon_utils.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
@@ -22,11 +27,26 @@ import '../widgets/default_model_sheet.dart';
 import '../widgets/expandable_card.dart';
 import '../widgets/settings_page_scaffold.dart';
 
-class PersonalizationPage extends ConsumerWidget {
+class PersonalizationPage extends ConsumerStatefulWidget {
   const PersonalizationPage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<PersonalizationPage> createState() =>
+      _PersonalizationPageState();
+}
+
+class _PersonalizationPageState extends ConsumerState<PersonalizationPage> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.invalidate(personalizationSettingsProvider);
+      ref.invalidate(userMemoriesProvider);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final settingsAsync = ref.watch(personalizationSettingsProvider);
     final appSettings = ref.watch(appSettingsProvider);
@@ -207,9 +227,18 @@ class PersonalizationPage extends ConsumerWidget {
           title: l10n.manageMemories,
           subtitle: memoriesAsync.when(
             data: (memories) => l10n.savedMemoriesCount(memories.length),
-            loading: () => l10n.loadingFromOpenWebui,
+            loading: () => '',
             error: (_, _) => l10n.errorMessage,
           ),
+          subtitleWidget: memoriesAsync.isLoading
+              ? const Padding(
+                  padding: EdgeInsets.only(top: Spacing.xs),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: ConduitLoadingIndicator(isCompact: true),
+                  ),
+                )
+              : null,
           icon: UiUtils.platformIcon(
             ios: CupertinoIcons.collections,
             android: Icons.collections_bookmark_outlined,
@@ -365,6 +394,56 @@ class PersonalizationPage extends ConsumerWidget {
     required List<Model> models,
     required String? currentDefaultModelId,
   }) async {
+    final l10n = AppLocalizations.of(context)!;
+    final api = ref.read(apiServiceProvider);
+    final avatarHeaders =
+        buildImageHeadersFromContainer(
+          ProviderScope.containerOf(context, listen: false),
+        ) ??
+        const <String, String>{};
+
+    if (Platform.isIOS) {
+      try {
+        final result = await NativeSheetBridge.instance.presentModelSelector(
+          title: l10n.defaultModel,
+          selectedModelId: currentDefaultModelId ?? 'auto-select',
+          models: [
+            NativeSheetModelOption(
+              id: 'auto-select',
+              name: l10n.autoSelect,
+              subtitle: l10n.autoSelectDescription,
+              sfSymbol: 'wand.and.stars',
+            ),
+            ...models.map(
+              (model) => NativeSheetModelOption(
+                id: model.id,
+                name: model.name,
+                subtitle: model.description ?? model.id,
+                avatarUrl: resolveModelIconUrlForModel(api, model),
+                avatarHeaders: avatarHeaders,
+              ),
+            ),
+          ],
+          rethrowErrors: true,
+        );
+        if (result == null) return;
+        final selectedId = result == 'auto-select' ? null : result;
+        await ref
+            .read(appSettingsProvider.notifier)
+            .setDefaultModel(selectedId);
+        await restoreDefaultModel(ref);
+        return;
+      } catch (_) {
+        if (!context.mounted) {
+          return;
+        }
+      }
+    }
+
+    if (!context.mounted) {
+      return;
+    }
+
     final result = await showSettingsSheet<String?>(
       context: context,
       builder: (sheetContext) => DefaultModelBottomSheet(
@@ -391,6 +470,59 @@ class PersonalizationPage extends ConsumerWidget {
     required Future<void> Function(String value) onSave,
   }) async {
     final l10n = AppLocalizations.of(context)!;
+
+    if (Platform.isIOS) {
+      try {
+        final result = await NativeSheetBridge.instance.presentSheet(
+          root: NativeSheetDetailConfig(
+            id: 'text-editor-sheet',
+            title: title,
+            subtitle: description,
+            items: [
+              NativeSheetItemConfig(
+                id: 'text-editor-value',
+                title: title,
+                subtitle: hintText,
+                sfSymbol: 'text.bubble',
+                kind: NativeSheetItemKind.multilineTextField,
+                value: initialValue,
+                placeholder: hintText,
+              ),
+              NativeSheetItemConfig(
+                id: 'save',
+                title: l10n.save,
+                subtitle: l10n.saved,
+                sfSymbol: 'checkmark.circle',
+              ),
+            ],
+          ),
+          rethrowErrors: true,
+        );
+        if (result?.actionId != 'save') {
+          return;
+        }
+        final value = result?.values['text-editor-value'] as String? ?? '';
+        try {
+          await onSave(value);
+          if (context.mounted) {
+            UiUtils.showMessage(context, l10n.saved);
+          }
+        } catch (_) {
+          if (context.mounted) {
+            UiUtils.showMessage(context, l10n.errorMessage);
+          }
+        }
+        return;
+      } catch (_) {
+        if (!context.mounted) {
+          return;
+        }
+      }
+    }
+
+    if (!context.mounted) {
+      return;
+    }
 
     await showSettingsSheet<void>(
       context: context,
@@ -448,17 +580,25 @@ class PersonalizationPage extends ConsumerWidget {
   }
 
   Widget _buildLoadingTile(BuildContext context, {required String title}) {
-    final l10n = AppLocalizations.of(context)!;
+    final theme = context.conduitTheme;
+    final color = theme.buttonPrimary;
     return CustomizationTile(
-      leading: SettingsIconBadge(
-        icon: UiUtils.platformIcon(
-          ios: CupertinoIcons.hourglass,
-          android: Icons.hourglass_empty,
+      leading: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(AppBorderRadius.small),
+          border: Border.all(
+            color: color.withValues(alpha: 0.2),
+            width: BorderWidth.thin,
+          ),
         ),
-        color: context.conduitTheme.buttonPrimary,
+        alignment: Alignment.center,
+        child: const ConduitLoadingIndicator(isCompact: true),
       ),
       title: title,
-      subtitle: l10n.loadingFromOpenWebui,
+      subtitle: '',
       showChevron: false,
     );
   }

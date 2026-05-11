@@ -11,12 +11,16 @@ class ExpandableCard extends StatefulWidget {
     super.key,
     required this.title,
     required this.subtitle,
+    this.subtitleWidget,
     required this.icon,
     required this.child,
   });
 
   final String title;
   final String subtitle;
+
+  /// When set, shown instead of [subtitle] text (e.g. a compact progress row).
+  final Widget? subtitleWidget;
   final IconData icon;
   final Widget child;
 
@@ -105,16 +109,17 @@ class ExpandableCardState extends State<ExpandableCard>
                         ),
                       ),
                       const SizedBox(height: Spacing.xs),
-                      Text(
-                        widget.subtitle,
-                        style: theme.bodySmall?.copyWith(
-                          color: theme.sidebarForeground.withValues(
-                            alpha: 0.75,
+                      widget.subtitleWidget ??
+                          Text(
+                            widget.subtitle,
+                            style: theme.bodySmall?.copyWith(
+                              color: theme.sidebarForeground.withValues(
+                                alpha: 0.75,
+                              ),
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
                     ],
                   ),
                 ),

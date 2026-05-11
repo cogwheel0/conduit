@@ -1,8 +1,11 @@
+import 'dart:io' show Platform;
+
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/settings_service.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
@@ -342,6 +345,64 @@ class AudioSettingsPage extends ConsumerWidget {
       return;
     }
 
+    final notifier = ref.read(appSettingsProvider.notifier);
+    const systemDefaultId = '__system_default__';
+    if (Platform.isIOS) {
+      try {
+        final selectedId = await NativeSheetBridge.instance
+            .presentOptionsSelector(
+              title: l10n.ttsSelectVoice,
+              selectedOptionId: _isSystemDefaultSelected(settings)
+                  ? systemDefaultId
+                  : settings.ttsEngine == TtsEngine.server
+                  ? settings.ttsServerVoiceId
+                  : settings.ttsVoice,
+              options: [
+                NativeSheetOptionConfig(
+                  id: systemDefaultId,
+                  label: l10n.ttsSystemDefault,
+                ),
+                for (final voice in voices)
+                  NativeSheetOptionConfig(
+                    id: _voiceId(settings.ttsEngine, voice),
+                    label: (voice['name'] ?? voice['id'] ?? l10n.unknownLabel)
+                        .toString(),
+                    subtitle: (voice['locale'] as String?)?.trim(),
+                  ),
+              ],
+              rethrowErrors: true,
+            );
+        if (selectedId == null) {
+          return;
+        }
+        if (selectedId == systemDefaultId) {
+          if (settings.ttsEngine == TtsEngine.server) {
+            notifier.setTtsServerVoiceId(null);
+            notifier.setTtsServerVoiceName(null);
+          } else {
+            notifier.setTtsVoice(null);
+          }
+          return;
+        }
+        final selectedVoice = voices.cast<Map<String, dynamic>>().firstWhere(
+          (voice) => _voiceId(settings.ttsEngine, voice) == selectedId,
+        );
+        final selectedName =
+            (selectedVoice['name'] ?? selectedVoice['id'] ?? l10n.unknownLabel)
+                .toString();
+        if (settings.ttsEngine == TtsEngine.server) {
+          notifier.setTtsServerVoiceId(selectedId);
+          notifier.setTtsServerVoiceName(selectedName);
+        } else {
+          notifier.setTtsVoice(selectedId);
+        }
+        return;
+      } catch (_) {}
+      if (!context.mounted) {
+        return;
+      }
+    }
+
     await showSettingsSheet<void>(
       context: context,
       builder: (sheetContext) {
@@ -357,7 +418,6 @@ class AudioSettingsPage extends ConsumerWidget {
                 title: l10n.ttsSystemDefault,
                 selected: _isSystemDefaultSelected(settings),
                 onTap: () {
-                  final notifier = ref.read(appSettingsProvider.notifier);
                   if (settings.ttsEngine == TtsEngine.server) {
                     notifier.setTtsServerVoiceId(null);
                     notifier.setTtsServerVoiceName(null);
@@ -379,7 +439,6 @@ class AudioSettingsPage extends ConsumerWidget {
               selected: _isSelectedVoice(settings, voice),
               onTap: () {
                 final id = _voiceId(settings.ttsEngine, voice);
-                final notifier = ref.read(appSettingsProvider.notifier);
                 if (settings.ttsEngine == TtsEngine.server) {
                   notifier.setTtsServerVoiceId(id);
                   notifier.setTtsServerVoiceName(name);

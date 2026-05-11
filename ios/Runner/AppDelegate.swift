@@ -856,6 +856,16 @@ struct AppShortcuts: AppShortcutsProvider {
       messenger: keyboardAttachmentRegistrar.messenger()
     )
 
+    let nativeSheetRegistrar = engineBridge.applicationRegistrar
+    NativeSheetBridge.shared.configure(
+      messenger: nativeSheetRegistrar.messenger()
+    )
+
+    let nativeDropdownRegistrar = engineBridge.applicationRegistrar
+    NativeDropdownBridge.shared.configure(
+      messenger: nativeDropdownRegistrar.messenger()
+    )
+
     // Setup background streaming handler
     let bgRegistrar = engineBridge.applicationRegistrar
     let channel = FlutterMethodChannel(

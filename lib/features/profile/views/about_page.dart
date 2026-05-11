@@ -11,26 +11,39 @@ import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../widgets/settings_page_scaffold.dart';
 
-class AboutPage extends ConsumerWidget {
+class AboutPage extends ConsumerStatefulWidget {
   const AboutPage({super.key});
 
   static const _githubUrl = 'https://github.com/cogwheel0/conduit';
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<AboutPage> createState() => _AboutPageState();
+}
+
+class _AboutPageState extends ConsumerState<AboutPage> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.invalidate(serverAboutInfoProvider);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final serverAboutAsync = ref.watch(serverAboutInfoProvider);
+    final packageInfoAsync = ref.watch(packageInfoProvider);
 
     return SettingsPageScaffold(
       title: l10n.aboutApp,
       children: [
         SettingsSectionHeader(title: l10n.appInformation),
         const SizedBox(height: Spacing.sm),
-        FutureBuilder<PackageInfo>(
-          future: PackageInfo.fromPlatform(),
-          builder: (context, snapshot) {
-            return _buildAppCard(context, l10n, snapshot);
-          },
+        packageInfoAsync.when(
+          data: (info) => _buildAppCard(context, l10n, info),
+          loading: () => _buildLoadingCard(context),
+          error: (_, _) => _buildMessageCard(context, l10n.unableToLoadAppInfo),
         ),
         settingsSectionGap,
         SettingsSectionHeader(title: l10n.serverInformation),
@@ -39,11 +52,20 @@ class AboutPage extends ConsumerWidget {
           data: (about) => about == null
               ? _buildMessageCard(context, l10n.serverInfoUnavailable)
               : _buildServerCard(context, l10n, about),
-          loading: () => _buildMessageCard(context, l10n.loadingFromOpenWebui),
+          loading: () => _buildLoadingCard(context),
           error: (_, _) =>
               _buildMessageCard(context, l10n.unableToLoadOpenWebuiSettings),
         ),
       ],
+    );
+  }
+
+  Widget _buildLoadingCard(BuildContext context) {
+    return const ConduitCard(
+      child: Padding(
+        padding: EdgeInsets.symmetric(vertical: Spacing.lg),
+        child: Center(child: ConduitLoadingIndicator()),
+      ),
     );
   }
 
@@ -74,18 +96,12 @@ class AboutPage extends ConsumerWidget {
   Widget _buildAppCard(
     BuildContext context,
     AppLocalizations l10n,
-    AsyncSnapshot<PackageInfo> snapshot,
+    PackageInfo info,
   ) {
     final theme = context.conduitTheme;
-    final info = snapshot.data;
-    final versionLabel = switch ((info, snapshot.hasError)) {
-      (_, true) => l10n.unableToLoadAppInfo,
-      (final info?, false) =>
-        info.buildNumber.isEmpty
-            ? info.version
-            : '${info.version} (${info.buildNumber})',
-      _ => l10n.loadingProfile,
-    };
+    final versionLabel = info.buildNumber.isEmpty
+        ? info.version
+        : '${info.version} (${info.buildNumber})';
 
     return ConduitCard(
       child: Column(
@@ -159,7 +175,7 @@ class AboutPage extends ConsumerWidget {
   Future<void> _openGithub(BuildContext context) async {
     try {
       final launched = await launchUrlString(
-        _githubUrl,
+        AboutPage._githubUrl,
         mode: LaunchMode.externalApplication,
       );
       if (!launched && context.mounted) {

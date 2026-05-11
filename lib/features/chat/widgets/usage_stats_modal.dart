@@ -1,6 +1,10 @@
+import 'dart:convert';
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
+import '../../../core/services/native_sheet_bridge.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/themed_sheets.dart';
 
@@ -10,9 +14,39 @@ class UsageStatsModal {
   UsageStatsModal._();
 
   /// Shows a bottom sheet with usage/performance statistics for the response.
-  static void show(BuildContext context, Map<String, dynamic> usage) {
+  static void show(BuildContext context, Map<String, dynamic> usage) async {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
+
+    if (Platform.isIOS) {
+      try {
+        await NativeSheetBridge.instance.presentSheet(
+          root: NativeSheetDetailConfig(
+            id: 'usage-stats',
+            title: l10n.usageInfoTitle,
+            items: [
+              NativeSheetItemConfig(
+                id: 'usage-stats-text',
+                title: l10n.usageInfoTitle,
+                sfSymbol: 'chart.bar',
+                kind: NativeSheetItemKind.readOnlyText,
+                value: _buildUsageSummaryText(usage),
+              ),
+            ],
+          ),
+          rethrowErrors: true,
+        );
+        return;
+      } catch (_) {
+        if (!context.mounted) {
+          return;
+        }
+      }
+    }
+
+    if (!context.mounted) {
+      return;
+    }
 
     ThemedSheets.showSurface<void>(
       context: context,
@@ -265,6 +299,31 @@ class UsageStatsModal {
     if (value is num) return value;
     if (value is String) return num.tryParse(value);
     return null;
+  }
+
+  static String _buildUsageSummaryText(Map<String, dynamic> usage) {
+    final sortedKeys = usage.keys.toList()..sort();
+    return sortedKeys
+        .map((key) {
+          final value = usage[key];
+          final rendered = value is Map || value is List
+              ? jsonEncode(value)
+              : '$value';
+          return '${_humanizeKey(key)}: $rendered';
+        })
+        .join('\n');
+  }
+
+  static String _humanizeKey(String key) {
+    return key
+        .split('_')
+        .where((part) => part.isNotEmpty)
+        .map(
+          (part) => part.length == 1
+              ? part.toUpperCase()
+              : '${part[0].toUpperCase()}${part.substring(1)}',
+        )
+        .join(' ');
   }
 }
 

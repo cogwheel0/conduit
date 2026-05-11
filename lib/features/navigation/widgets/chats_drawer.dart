@@ -8,6 +8,7 @@ import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/providers/app_providers.dart';
+import '../../../core/services/native_sheet_bridge.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../chat/providers/chat_providers.dart' as chat;
 import '../../../core/utils/debug_logger.dart';
@@ -1161,7 +1162,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     final l10n = AppLocalizations.of(context)!;
     final folderId = folder.id;
     final folderName = folder.name;
-    final moveTargets = _folderMoveTargets(folder, folders);
+    final moveTargets = _folderMoveTargetEntries(folder, folders);
     final canMove =
         _normalizeParentId(folder.parentId) != null || moveTargets.isNotEmpty;
 
@@ -1213,18 +1214,18 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     ];
   }
 
-  List<Folder> _folderMoveTargets(Folder folder, List<Folder> folders) {
+  List<FolderTreeListEntry> _folderMoveTargetEntries(
+    Folder folder,
+    List<Folder> folders,
+  ) {
     final foldersById = <String, Folder>{
       for (final candidate in folders) candidate.id: candidate,
     };
     final currentParentId = _normalizeParentId(folder.parentId);
 
-    final targets = folders
+    final eligibleFolders = folders
         .where((candidate) {
           if (candidate.id == folder.id) {
-            return false;
-          }
-          if (candidate.id == currentParentId) {
             return false;
           }
           return !_isFolderDescendant(
@@ -1234,9 +1235,10 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           );
         })
         .toList(growable: false);
-
-    return targets
-      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    return folderTreeEntriesForTargets(
+      folders: eligibleFolders,
+      omitFolderId: currentParentId,
+    );
   }
 
   bool _isFolderDescendant({
@@ -1299,9 +1301,52 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
   Future<_FolderMoveTarget?> _showFolderMoveSheet(
     Folder folder,
     List<Folder> folders,
-  ) {
+  ) async {
     final currentParentId = _normalizeParentId(folder.parentId);
-    final moveTargets = _folderMoveTargets(folder, folders);
+    final moveTargets = _folderMoveTargetEntries(folder, folders);
+
+    if (Platform.isIOS) {
+      const topLevelId = '__top_level__';
+      try {
+        final selectedId = await NativeSheetBridge.instance
+            .presentOptionsSelector(
+              title: 'Move folder',
+              options: [
+                if (currentParentId != null)
+                  const NativeSheetOptionConfig(
+                    id: topLevelId,
+                    label: 'Top level',
+                    sfSymbol: 'folder.badge.minus',
+                  ),
+                for (final entry in moveTargets)
+                  NativeSheetOptionConfig(
+                    id: entry.folder.id,
+                    label: entry.folder.name,
+                    sfSymbol: 'folder',
+                    ancestorHasMoreSiblings: entry.ancestorHasMoreSiblings,
+                    showBranch: true,
+                    hasMoreSiblings: entry.hasMoreSiblings,
+                  ),
+              ],
+              rethrowErrors: true,
+            );
+        if (selectedId == null) {
+          return null;
+        }
+        if (selectedId == topLevelId) {
+          return const _FolderMoveTarget(parentId: null);
+        }
+        return _FolderMoveTarget(parentId: selectedId);
+      } catch (_) {
+        if (!mounted) {
+          return null;
+        }
+      }
+    }
+
+    if (!mounted) {
+      return null;
+    }
 
     return ThemedSheets.showSurface<_FolderMoveTarget>(
       context: context,
@@ -1339,15 +1384,23 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
                         sheetContext,
                       ).pop(const _FolderMoveTarget(parentId: null)),
                     ),
-                  for (final target in moveTargets)
-                    _FolderMoveTargetTile(
-                      icon: Platform.isIOS
-                          ? CupertinoIcons.folder
-                          : Icons.folder_outlined,
-                      label: target.name,
-                      onTap: () => Navigator.of(
-                        sheetContext,
-                      ).pop(_FolderMoveTarget(parentId: target.id)),
+                  for (final entry in moveTargets)
+                    FolderTreeHierarchyNode(
+                      key: ValueKey<String>(
+                        'move-folder-tree-${entry.folder.id}',
+                      ),
+                      ancestorHasMoreSiblings: entry.ancestorHasMoreSiblings,
+                      showBranch: true,
+                      hasMoreSiblings: entry.hasMoreSiblings,
+                      child: _FolderMoveTargetTile(
+                        icon: Platform.isIOS
+                            ? CupertinoIcons.folder
+                            : Icons.folder_outlined,
+                        label: entry.folder.name,
+                        onTap: () => Navigator.of(
+                          sheetContext,
+                        ).pop(_FolderMoveTarget(parentId: entry.folder.id)),
+                      ),
                     ),
                 ],
               ),

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io' show Platform;
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
@@ -13,6 +14,7 @@ import 'package:webview_flutter_plus/webview_flutter_plus.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
 
+import '../../../core/services/native_sheet_bridge.dart';
 import '../web_content_embed.dart';
 import '../webview_content_height.dart';
 import '../themed_sheets.dart';
@@ -172,9 +174,39 @@ class ConduitMarkdown {
     BuildContext context, {
     required String code,
     required String language,
-  }) {
+  }) async {
     final theme = context.conduitTheme;
     final title = _previewTitleForLanguage(language);
+
+    if (Platform.isIOS) {
+      try {
+        await NativeSheetBridge.instance.presentSheet(
+          root: NativeSheetDetailConfig(
+            id: 'code-preview',
+            title: title,
+            items: [
+              NativeSheetItemConfig(
+                id: 'code-preview-source',
+                title: title,
+                sfSymbol: 'doc.richtext',
+                kind: NativeSheetItemKind.readOnlyText,
+                value: code,
+              ),
+            ],
+          ),
+          rethrowErrors: true,
+        );
+        return;
+      } catch (_) {
+        if (!context.mounted) {
+          return;
+        }
+      }
+    }
+
+    if (!context.mounted) {
+      return;
+    }
 
     return ThemedSheets.showSurface<void>(
       context: context,

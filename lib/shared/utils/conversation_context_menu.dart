@@ -1,6 +1,7 @@
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:conduit/core/models/folder.dart';
 import 'package:conduit/core/providers/app_providers.dart';
+import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/measure_size.dart';
@@ -384,11 +385,54 @@ Future<_ConversationMoveTarget?> _showConversationMoveSheet(
   BuildContext context, {
   required List<Folder> folders,
   required String? currentFolderId,
-}) {
+}) async {
   final treeEntries = folderTreeEntriesForTargets(
     folders: folders,
     omitFolderId: currentFolderId,
   );
+
+  if (Theme.of(context).platform == TargetPlatform.iOS) {
+    const noFolderId = '__no_folder__';
+    try {
+      final selectedId = await NativeSheetBridge.instance
+          .presentOptionsSelector(
+            title: 'Move to folder',
+            options: [
+              if (currentFolderId != null)
+                const NativeSheetOptionConfig(
+                  id: noFolderId,
+                  label: 'No folder',
+                  sfSymbol: 'folder.badge.minus',
+                ),
+              for (final entry in treeEntries)
+                NativeSheetOptionConfig(
+                  id: entry.folder.id,
+                  label: entry.folder.name,
+                  sfSymbol: 'folder',
+                  ancestorHasMoreSiblings: entry.ancestorHasMoreSiblings,
+                  showBranch: true,
+                  hasMoreSiblings: entry.hasMoreSiblings,
+                ),
+            ],
+            rethrowErrors: true,
+          );
+      if (selectedId == null) {
+        return null;
+      }
+      if (selectedId == noFolderId) {
+        return const _ConversationMoveTarget(folderId: null);
+      }
+      return _ConversationMoveTarget(folderId: selectedId);
+    } catch (_) {
+      if (!context.mounted) {
+        return null;
+      }
+    }
+  }
+
+  if (!context.mounted) {
+    return null;
+  }
 
   return ThemedSheets.showSurface<_ConversationMoveTarget>(
     context: context,

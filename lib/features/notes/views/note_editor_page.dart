@@ -13,6 +13,7 @@ import 'package:intl/intl.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import '../../../core/models/note.dart';
 import '../../../core/providers/app_providers.dart';
+import '../../../core/services/ios_native_dropdown_bridge.dart';
 import '../../../core/widgets/error_boundary.dart';
 import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
@@ -476,9 +477,51 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   }
 
   /// Shows a bottom sheet to choose between dictation and audio recording.
-  void _showRecordingOptions() {
+  void _showRecordingOptions() async {
     final conduitTheme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
+
+    if (Platform.isIOS) {
+      try {
+        final selection = await IosNativeDropdownBridge.instance
+            .showFromContext(
+              context: context,
+              title: l10n.recordAudio,
+              options: [
+                IosNativeDropdownOption(
+                  id: 'dictation',
+                  label: l10n.dictation,
+                  subtitle: l10n.dictationDescription,
+                  sfSymbol: 'keyboard',
+                ),
+                IosNativeDropdownOption(
+                  id: 'record-audio',
+                  label: l10n.recordAudio,
+                  subtitle: l10n.recordAudioDescription,
+                  sfSymbol: 'mic.fill',
+                ),
+              ],
+              rethrowErrors: true,
+            );
+        switch (selection) {
+          case 'dictation':
+            _toggleDictation();
+          case 'record-audio':
+            _showAudioRecordingOverlay();
+          default:
+            break;
+        }
+        return;
+      } catch (_) {
+        if (!mounted) {
+          return;
+        }
+      }
+    }
+
+    if (!mounted) {
+      return;
+    }
 
     ThemedSheets.showSurface<void>(
       context: context,

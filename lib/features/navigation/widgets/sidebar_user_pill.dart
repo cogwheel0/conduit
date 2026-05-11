@@ -1,11 +1,20 @@
+import 'dart:convert';
+import 'dart:io' show Platform;
+import 'dart:typed_data';
+
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/models/user.dart';
+import '../../../core/network/image_header_utils.dart';
 import '../../../core/providers/app_providers.dart';
+import '../../../core/services/native_sheet_bridge.dart';
+import '../../../core/services/settings_service.dart';
 import '../../../core/services/navigation_service.dart';
+import '../../../core/utils/native_sheet_utils.dart';
 import '../../../core/utils/user_avatar_utils.dart';
 import '../../../core/utils/user_display_name.dart';
 import '../../../shared/theme/theme_extensions.dart';
@@ -69,9 +78,27 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
       label: l10n.manage,
       button: true,
       child: AdaptiveButton.child(
-        onPressed: () {
-          Navigator.of(context).maybePop();
-          context.pushNamed(RouteNames.profile);
+        onPressed: () async {
+          await Navigator.of(context).maybePop();
+          if (!context.mounted) return;
+
+          if (Platform.isIOS) {
+            final config = _buildNativeProfileSheetConfig(
+              context: context,
+              ref: ref,
+              user: user,
+              api: api,
+              displayName: displayName,
+              initials: initial,
+            );
+            final presented = await NativeSheetBridge.instance
+                .presentProfileMenu(config);
+            if (presented) return;
+          }
+
+          if (context.mounted) {
+            context.pushNamed(RouteNames.profile);
+          }
         },
         style: AdaptiveButtonStyle.glass,
         size: AdaptiveButtonSize.large,
@@ -88,6 +115,321 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
       ),
     );
   }
+
+  NativeProfileSheetConfig _buildNativeProfileSheetConfig({
+    required BuildContext context,
+    required WidgetRef ref,
+    required dynamic user,
+    required dynamic api,
+    required String displayName,
+    required String initials,
+  }) {
+    final l10n = AppLocalizations.of(context)!;
+    final avatarUrl = resolveUserAvatarUrlForUser(api, user);
+    final avatarBytes = _decodeDataImage(avatarUrl);
+    final email = _extractEmail(user) ?? l10n.noEmailLabel;
+    final accountProfile = ref.read(accountProfileProvider).asData?.value;
+    final appSettings = ref.read(appSettingsProvider);
+    final nativeAudio = _nativeAudioSheetParts(l10n, appSettings);
+
+    return NativeProfileSheetConfig(
+      profileMenuTitle: l10n.you,
+      profile: NativeProfileSheetUser(
+        displayName: displayName,
+        email: email,
+        initials: initials,
+        avatarUrl: avatarBytes == null ? avatarUrl : null,
+        avatarBytes: avatarBytes,
+        avatarHeaders: buildImageHeadersFromWidgetRef(ref) ?? const {},
+        bio: accountProfile?.bio,
+        gender: accountProfile?.gender,
+        dateOfBirth: accountProfile?.dateOfBirth,
+        profileImageUrl: accountProfile?.profileImageUrl,
+      ),
+      editProfileLabel: l10n.edit,
+      editProfileSheet: NativeEditProfileSheetConfig(
+        title: l10n.profileDetails,
+        saveLabel: l10n.saveProfile,
+        cancelLabel: l10n.cancel,
+        footerText: l10n.accountSettingsSubtitle,
+        nameLabel: l10n.name,
+        nameRequiredMessage: l10n.nameRequired,
+        customGenderRequiredMessage: l10n.customGenderRequired,
+        bioLabel: l10n.bioLabel,
+        bioHint: l10n.bioHint,
+        genderLabel: l10n.genderLabel,
+        genderPreferNotToSay: l10n.genderPreferNotToSay,
+        genderMale: l10n.genderMale,
+        genderFemale: l10n.genderFemale,
+        genderCustom: l10n.genderCustom,
+        customGenderLabel: l10n.customGenderLabel,
+        customGenderHint: l10n.customGenderHint,
+        birthDateLabel: l10n.birthDateLabel,
+        selectBirthDateLabel: l10n.selectBirthDate,
+        clearLabel: l10n.clear,
+        uploadFromDeviceLabel: l10n.uploadFromDevice,
+        useInitialsLabel: l10n.useInitials,
+        removeAvatarLabel: l10n.removeAvatar,
+        currentAvatarLabel: l10n.currentAvatar,
+      ),
+      supportTitle: l10n.supportConduit,
+      supportSubtitle: l10n.supportConduitSubtitle,
+      menuItems: [
+        NativeSheetItemConfig(
+          id: NativeSheetRoutes.accountSettings,
+          title: l10n.accountSettingsTitle,
+          subtitle: l10n.accountSettingsSubtitle,
+          sfSymbol: 'person.crop.circle',
+        ),
+        NativeSheetItemConfig(
+          id: NativeSheetRoutes.personalization,
+          title: l10n.personalization,
+          subtitle: l10n.personalizationSubtitle,
+          sfSymbol: 'person.crop.circle.badge.checkmark',
+        ),
+        NativeSheetItemConfig(
+          id: NativeSheetRoutes.audioSettings,
+          title: l10n.audioSettingsTitle,
+          subtitle: null,
+          sfSymbol: 'waveform',
+        ),
+        NativeSheetItemConfig(
+          id: NativeSheetRoutes.appCustomization,
+          title: l10n.appAndChat,
+          subtitle: l10n.chatSettings,
+          sfSymbol: 'slider.horizontal.3',
+        ),
+        NativeSheetItemConfig(
+          id: NativeSheetRoutes.about,
+          title: l10n.aboutApp,
+          subtitle: null,
+          sfSymbol: 'info.circle',
+        ),
+        NativeSheetItemConfig(
+          id: 'sign-out',
+          title: l10n.signOut,
+          subtitle: null,
+          sfSymbol: 'rectangle.portrait.and.arrow.right',
+          destructive: true,
+        ),
+      ],
+      supportItems: [
+        NativeSheetItemConfig(
+          id: 'buy-me-a-coffee',
+          title: l10n.buyMeACoffeeTitle,
+          subtitle: 'buymeacoffee.com/cogwheel0',
+          sfSymbol: 'gift',
+          url: 'https://www.buymeacoffee.com/cogwheel0',
+        ),
+        NativeSheetItemConfig(
+          id: 'github-sponsors',
+          title: l10n.githubSponsorsTitle,
+          subtitle: 'github.com/sponsors/cogwheel0',
+          sfSymbol: 'heart',
+          url: 'https://github.com/sponsors/cogwheel0',
+        ),
+      ],
+      detailSheets: [
+        buildNativeLoadingDetail(
+          l10n: l10n,
+          id: NativeSheetRoutes.accountSettings,
+          title: l10n.accountSettingsTitle,
+          subtitle: l10n.accountSettingsSubtitle,
+        ),
+        buildNativeLoadingDetail(
+          l10n: l10n,
+          id: NativeSheetRoutes.personalization,
+          title: l10n.personalization,
+          subtitle: l10n.personalizationSubtitle,
+        ),
+        NativeSheetDetailConfig(
+          id: NativeSheetRoutes.audioSettings,
+          title: l10n.audioSettingsTitle,
+          subtitle: l10n.audioSettingsSubtitle,
+          items: nativeAudio.mainItems,
+        ),
+        nativeAudio.voicePickerDetail,
+        buildNativeLoadingDetail(
+          l10n: l10n,
+          id: NativeSheetRoutes.appCustomization,
+          title: l10n.appAndChat,
+          subtitle: l10n.appAndChatSubtitle,
+        ),
+        buildNativeLoadingDetail(
+          l10n: l10n,
+          id: NativeSheetRoutes.about,
+          title: l10n.aboutApp,
+          subtitle: l10n.aboutAppSubtitle,
+        ),
+      ],
+    );
+  }
+
+  Uint8List? _decodeDataImage(String? dataUrl) {
+    if (dataUrl == null || !dataUrl.startsWith('data:image')) {
+      return null;
+    }
+    try {
+      final commaIndex = dataUrl.indexOf(',');
+      if (commaIndex == -1) return null;
+      return base64Decode(dataUrl.substring(commaIndex + 1));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String? _extractEmail(dynamic source) {
+    if (source is User) {
+      return source.email;
+    }
+    if (source is Map) {
+      final value = source['email'];
+      if (value is String && value.trim().isNotEmpty) {
+        return value.trim();
+      }
+      final nested = source['user'];
+      if (nested is Map) {
+        final nestedValue = nested['email'];
+        if (nestedValue is String && nestedValue.trim().isNotEmpty) {
+          return nestedValue.trim();
+        }
+      }
+    }
+    return null;
+  }
+}
+
+class _NativeAudioSheetParts {
+  const _NativeAudioSheetParts({
+    required this.mainItems,
+    required this.voicePickerDetail,
+  });
+
+  final List<NativeSheetItemConfig> mainItems;
+  final NativeSheetDetailConfig voicePickerDetail;
+}
+
+_NativeAudioSheetParts _nativeAudioSheetParts(
+  AppLocalizations l10n,
+  AppSettings appSettings,
+) {
+  final sttSegment = NativeSheetItemConfig(
+    id: 'stt-engine',
+    title: l10n.sttSettings,
+    subtitle: l10n.sttEngineDeviceDescription,
+    sfSymbol: 'mic',
+    kind: NativeSheetItemKind.segment,
+    value: appSettings.sttPreference.name,
+    options: [
+      NativeSheetOptionConfig(id: 'deviceOnly', label: l10n.sttEngineDevice),
+      NativeSheetOptionConfig(id: 'serverOnly', label: l10n.sttEngineServer),
+    ],
+  );
+
+  final silenceDivisions =
+      ((SettingsService.maxVoiceSilenceDurationMs -
+                  SettingsService.minVoiceSilenceDurationMs) ~/
+              100)
+          .clamp(1, 1000)
+          .toInt();
+
+  final silenceSlider = NativeSheetItemConfig(
+    id: 'stt-silence-duration',
+    title: l10n.sttSilenceDuration,
+    subtitle: l10n.sttSilenceDurationDescription,
+    sfSymbol: 'timer',
+    kind: NativeSheetItemKind.slider,
+    value: appSettings.voiceSilenceDuration.toDouble(),
+    min: SettingsService.minVoiceSilenceDurationMs.toDouble(),
+    max: SettingsService.maxVoiceSilenceDurationMs.toDouble(),
+    divisions: silenceDivisions,
+  );
+
+  final ttsSegment = NativeSheetItemConfig(
+    id: 'tts-engine',
+    title: l10n.ttsSettings,
+    subtitle: appSettings.ttsEngine == TtsEngine.server
+        ? l10n.ttsEngineServerDescription
+        : l10n.ttsEngineDeviceDescription,
+    sfSymbol: 'speaker.wave.2',
+    kind: NativeSheetItemKind.segment,
+    value: appSettings.ttsEngine.name,
+    options: [
+      NativeSheetOptionConfig(id: 'device', label: l10n.ttsEngineDevice),
+      NativeSheetOptionConfig(id: 'server', label: l10n.ttsEngineServer),
+    ],
+  );
+
+  final voicePickerNav = NativeSheetItemConfig(
+    id: 'tts-voice-picker',
+    title: l10n.ttsVoice,
+    subtitle: _nativeVoiceSubtitle(l10n, appSettings),
+    sfSymbol: 'person.wave.2',
+  );
+
+  final speechRateSlider = NativeSheetItemConfig(
+    id: 'tts-speech-rate',
+    title: l10n.ttsSpeechRate,
+    subtitle: '${(appSettings.ttsSpeechRate * 100).round()}%',
+    sfSymbol: 'gauge.with.dots.needle.67percent',
+    kind: NativeSheetItemKind.slider,
+    value: appSettings.ttsSpeechRate,
+    min: 0.25,
+    max: 2.0,
+    divisions: 35,
+  );
+
+  final previewNav = NativeSheetItemConfig(
+    id: 'tts-preview',
+    title: l10n.ttsPreview,
+    subtitle: l10n.ttsPreviewText,
+    sfSymbol: 'play.circle',
+    value: l10n.ttsPreviewText,
+  );
+
+  final sttItems = <NativeSheetItemConfig>[
+    sttSegment,
+    if (appSettings.sttPreference == SttPreference.serverOnly) silenceSlider,
+  ];
+
+  final ttsItems = <NativeSheetItemConfig>[
+    ttsSegment,
+    voicePickerNav,
+    if (appSettings.ttsEngine == TtsEngine.device) speechRateSlider,
+    previewNav,
+  ];
+
+  final mainItems = <NativeSheetItemConfig>[...sttItems, ...ttsItems];
+
+  final pickerRows = <NativeSheetItemConfig>[
+    NativeSheetItemConfig(
+      id: 'tts-voice-pick:${Uri.encodeComponent('__default__')}',
+      title: l10n.ttsSystemDefault,
+      sfSymbol: 'sparkles',
+      value: '',
+    ),
+  ];
+
+  final voicePickerDetail = NativeSheetDetailConfig(
+    id: 'tts-voice-picker',
+    title: l10n.ttsSelectVoice,
+    subtitle: l10n.ttsVoice,
+    items: pickerRows,
+  );
+
+  return _NativeAudioSheetParts(
+    mainItems: mainItems,
+    voicePickerDetail: voicePickerDetail,
+  );
+}
+
+String _nativeVoiceSubtitle(AppLocalizations l10n, AppSettings settings) {
+  if (settings.ttsEngine == TtsEngine.server) {
+    return settings.ttsServerVoiceName ??
+        settings.ttsServerVoiceId ??
+        l10n.ttsSystemDefault;
+  }
+  return settings.ttsVoice ?? l10n.ttsSystemDefault;
 }
 
 /// Search field used as the sidebar adaptive app bar leading widget.

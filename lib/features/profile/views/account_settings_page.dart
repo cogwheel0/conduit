@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform;
 import 'dart:ui' as ui;
 
 import 'package:flutter/cupertino.dart';
@@ -9,6 +10,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/models/account_metadata.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/api_service.dart';
+import '../../../core/services/ios_native_dropdown_bridge.dart';
+import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/utils/user_avatar_utils.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
@@ -52,6 +55,14 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
     _newPasswordController.dispose();
     _confirmPasswordController.dispose();
     super.dispose();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.invalidate(serverAboutInfoProvider);
+    });
   }
 
   @override
@@ -281,7 +292,7 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
           onTap: _savingProfile
               ? null
               : () {
-                  unawaited(_showGenderPickerSheet());
+                  unawaited(_showGenderPickerSheet(context));
                 },
           padding: const EdgeInsets.symmetric(
             horizontal: Spacing.md,
@@ -654,8 +665,33 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
     final lastDate = DateTime.now();
 
     final platform = Theme.of(context).platform;
+    if (Platform.isIOS) {
+      try {
+        final selected = await NativeSheetBridge.instance.presentDatePicker(
+          title: AppLocalizations.of(context)!.birthDateLabel,
+          initialDate: initialDate,
+          firstDate: firstDate,
+          lastDate: lastDate,
+          doneLabel: MaterialLocalizations.of(context).okButtonLabel,
+          cancelLabel: MaterialLocalizations.of(context).cancelButtonLabel,
+          rethrowErrors: true,
+        );
+        if (selected == null || !mounted) {
+          return;
+        }
+        setState(() {
+          _birthDateController.text = _formatBirthDate(selected);
+        });
+        return;
+      } catch (_) {}
+    }
+
+    if (!mounted) {
+      return;
+    }
+
     final DateTime? selected;
-    if (platform == TargetPlatform.iOS || platform == TargetPlatform.macOS) {
+    if (platform == TargetPlatform.macOS || platform == TargetPlatform.iOS) {
       selected = await _showCupertinoBirthDatePicker(
         initialDate: initialDate,
         firstDate: firstDate,
@@ -679,7 +715,7 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
     });
   }
 
-  Future<void> _showGenderPickerSheet() async {
+  Future<void> _showGenderPickerSheet(BuildContext anchorContext) async {
     final l10n = AppLocalizations.of(context)!;
     final options = <({String value, String label})>[
       (value: '', label: l10n.genderPreferNotToSay),
@@ -687,6 +723,38 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
       (value: 'female', label: l10n.genderFemale),
       (value: 'custom', label: l10n.genderCustom),
     ];
+
+    if (Platform.isIOS) {
+      try {
+        final nativeSelection = await IosNativeDropdownBridge.instance
+            .showFromContext(
+              context: anchorContext,
+              title: l10n.genderLabel,
+              options: [
+                for (final option in options)
+                  IosNativeDropdownOption(
+                    id: option.value,
+                    label: option.label,
+                    sfSymbol: option.value == _selectedGenderValue
+                        ? 'checkmark'
+                        : null,
+                  ),
+              ],
+              rethrowErrors: true,
+            );
+        if (nativeSelection == null) {
+          return;
+        }
+        setState(() {
+          _selectedGenderValue = nativeSelection;
+          if (_selectedGenderValue != 'custom') {
+            _genderController.clear();
+          }
+        });
+        return;
+      } catch (_) {}
+    }
+    if (!mounted) return;
 
     await showSettingsSheet<void>(
       context: context,

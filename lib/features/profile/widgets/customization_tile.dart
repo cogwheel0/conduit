@@ -13,6 +13,7 @@ class CustomizationTile extends StatelessWidget {
     required this.leading,
     required this.title,
     required this.subtitle,
+    this.subtitleTrailing,
     this.trailing,
     this.onTap,
     this.showChevron = true,
@@ -21,6 +22,9 @@ class CustomizationTile extends StatelessWidget {
   final Widget leading;
   final String title;
   final String subtitle;
+
+  /// Optional widget shown inline after the subtitle (e.g. compact loader).
+  final Widget? subtitleTrailing;
   final Widget? trailing;
   final VoidCallback? onTap;
   final bool showChevron;
@@ -48,11 +52,24 @@ class CustomizationTile extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: Spacing.xs),
-                Text(
-                  subtitle,
-                  style: theme.bodySmall?.copyWith(
-                    color: theme.sidebarForeground.withValues(alpha: 0.75),
-                  ),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        subtitle,
+                        style: theme.bodySmall?.copyWith(
+                          color: theme.sidebarForeground.withValues(
+                            alpha: 0.75,
+                          ),
+                        ),
+                      ),
+                    ),
+                    if (subtitleTrailing != null) ...[
+                      const SizedBox(width: Spacing.sm),
+                      subtitleTrailing!,
+                    ],
+                  ],
                 ),
               ],
             ),

@@ -1,9 +1,12 @@
+import 'dart:io' show Platform;
+
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../core/models/chat_message.dart';
+import '../../../../core/services/native_sheet_bridge.dart';
 import '../../../../shared/theme/theme_extensions.dart';
 import '../../../../shared/widgets/markdown/source_reference_helper.dart';
 import '../../../../shared/widgets/sheet_handle.dart';
@@ -120,7 +123,43 @@ class OpenWebUISourcesWidget extends StatelessWidget {
     );
   }
 
-  void _showSourcesBottomSheet(BuildContext context) {
+  void _showSourcesBottomSheet(BuildContext context) async {
+    if (Platform.isIOS) {
+      try {
+        await NativeSheetBridge.instance.presentSheet(
+          root: NativeSheetDetailConfig(
+            id: 'chat-sources',
+            title: _sourceCountLabel(sources.length),
+            items: [
+              for (var index = 0; index < sources.length; index++)
+                NativeSheetItemConfig(
+                  id: 'source-$index',
+                  title: SourceReferenceHelper.getSourceLabel(
+                    sources[index],
+                    index,
+                  ),
+                  subtitle: _sourceSnippet(sources[index]),
+                  sfSymbol: 'link',
+                  url: SourceReferenceHelper.getSourceUrl(
+                    sources[index],
+                  )?.toString(),
+                ),
+            ],
+          ),
+          rethrowErrors: true,
+        );
+        return;
+      } catch (_) {
+        if (!context.mounted) {
+          return;
+        }
+      }
+    }
+
+    if (!context.mounted) {
+      return;
+    }
+
     ThemedSheets.showSurface<void>(
       context: context,
       isScrollControlled: true,

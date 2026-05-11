@@ -1,8 +1,11 @@
+import 'dart:io' show Platform;
+
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
 import '../../../core/models/chat_message.dart';
+import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/themed_sheets.dart';
@@ -62,6 +65,74 @@ class CodeExecutionListView extends StatelessWidget {
     ChatCodeExecution execution,
   ) async {
     final theme = context.conduitTheme;
+    if (Platform.isIOS) {
+      try {
+        final result = execution.result;
+        await NativeSheetBridge.instance.presentSheet(
+          root: NativeSheetDetailConfig(
+            id: 'code-execution-details',
+            title: execution.name ?? 'Code execution',
+            items: [
+              if (execution.language != null)
+                NativeSheetItemConfig(
+                  id: 'code-language',
+                  title: 'Language',
+                  subtitle: execution.language,
+                  sfSymbol: 'chevron.left.forwardslash.chevron.right',
+                  kind: NativeSheetItemKind.info,
+                ),
+              if (execution.code != null && execution.code!.isNotEmpty)
+                NativeSheetItemConfig(
+                  id: 'code-source',
+                  title: 'Code',
+                  sfSymbol: 'doc.plaintext',
+                  kind: NativeSheetItemKind.readOnlyText,
+                  value: execution.code!,
+                ),
+              if (result?.error != null)
+                NativeSheetItemConfig(
+                  id: 'code-error',
+                  title: 'Error',
+                  sfSymbol: 'exclamationmark.triangle',
+                  kind: NativeSheetItemKind.readOnlyText,
+                  value: result!.error!,
+                  destructive: true,
+                ),
+              if (result?.output != null)
+                NativeSheetItemConfig(
+                  id: 'code-output',
+                  title: 'Output',
+                  sfSymbol: 'terminal',
+                  kind: NativeSheetItemKind.readOnlyText,
+                  value: result!.output!,
+                ),
+              if (result?.files.isNotEmpty == true)
+                for (var index = 0; index < result!.files.length; index++)
+                  NativeSheetItemConfig(
+                    id: 'code-file-$index',
+                    title:
+                        result.files[index].name ??
+                        result.files[index].url ??
+                        'Download',
+                    sfSymbol: 'doc',
+                    url: result.files[index].url,
+                  ),
+            ],
+          ),
+          rethrowErrors: true,
+        );
+        return;
+      } catch (_) {
+        if (!context.mounted) {
+          return;
+        }
+      }
+    }
+
+    if (!context.mounted) {
+      return;
+    }
+
     await ThemedSheets.showSurface<void>(
       context: context,
       isScrollControlled: true,

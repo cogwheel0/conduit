@@ -11,15 +11,19 @@ import 'package:go_router/go_router.dart';
 import '../../../core/models/conversation.dart';
 import '../../../core/models/folder.dart';
 import '../../../core/models/model.dart';
+import '../../../core/network/image_header_utils.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/haptic_service.dart';
+import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../core/services/settings_service.dart';
+import '../../../core/utils/model_icon_utils.dart';
 import '../../../core/widgets/error_boundary.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
+import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/services/tasks/task_queue.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
@@ -246,6 +250,12 @@ class _FolderPageState extends ConsumerState<FolderPage> {
 
   Future<void> _showModelSelector() async {
     final hadFocus = ref.read(chat.composerHasFocusProvider);
+    final api = ref.read(apiServiceProvider);
+    final avatarHeaders =
+        buildImageHeadersFromContainer(
+          ProviderScope.containerOf(context, listen: false),
+        ) ??
+        const <String, String>{};
     _dismissComposerFocus();
 
     try {
@@ -263,6 +273,46 @@ class _FolderPageState extends ConsumerState<FolderPage> {
 
       if (!mounted) {
         return;
+      }
+
+      if (Platform.isIOS) {
+        try {
+          final selectedId = await NativeSheetBridge.instance
+              .presentModelSelector(
+                title: AppLocalizations.of(context)!.chooseModel,
+                selectedModelId: ref.read(selectedModelProvider)?.id,
+                models: models
+                    .map(
+                      (model) => NativeSheetModelOption(
+                        id: model.id,
+                        name: model.name,
+                        subtitle: model.description ?? model.id,
+                        avatarUrl: resolveModelIconUrlForModel(api, model),
+                        avatarHeaders: avatarHeaders,
+                      ),
+                    )
+                    .toList(),
+                rethrowErrors: true,
+              );
+          if (!mounted) {
+            return;
+          }
+          if (selectedId != null) {
+            Model? selected;
+            for (final model in models) {
+              if (model.id == selectedId) {
+                selected = model;
+                break;
+              }
+            }
+            ref.read(selectedModelProvider.notifier).set(selected);
+          }
+          return;
+        } catch (_) {
+          if (!mounted) {
+            return;
+          }
+        }
       }
 
       await ThemedSheets.showCustom<void>(
@@ -489,6 +539,55 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       chat.fileUploadCapableModelsProvider,
     );
     if (fileUploadCapableModels.isEmpty || !mounted) {
+      return;
+    }
+
+    if (Platform.isIOS) {
+      unawaited(() async {
+        final files = await ref.read(userFilesProvider.future);
+        if (!mounted || files.isEmpty) {
+          return;
+        }
+        try {
+          final selectedId = await NativeSheetBridge.instance
+              .presentOptionsSelector(
+                title: AppLocalizations.of(context)!.files,
+                options: [
+                  for (final file in files)
+                    NativeSheetOptionConfig(
+                      id: file.id,
+                      label: file.displayName,
+                      subtitle: file.filename,
+                      sfSymbol: 'doc',
+                    ),
+                ],
+                rethrowErrors: true,
+              );
+          if (selectedId == null || !mounted) {
+            return;
+          }
+          for (final file in files) {
+            if (file.id == selectedId) {
+              ref.read(attachedFilesProvider.notifier).addRemoteFile(file);
+              break;
+            }
+          }
+          return;
+        } catch (_) {
+          if (!mounted) {
+            return;
+          }
+        }
+        ThemedSheets.showCustom<void>(
+          context: context,
+          isScrollControlled: true,
+          builder: (_) => ServerFilePickerSheet(
+            onSelected: (file) {
+              ref.read(attachedFilesProvider.notifier).addRemoteFile(file);
+            },
+          ),
+        );
+      }());
       return;
     }
 
@@ -739,6 +838,125 @@ class _FolderPageState extends ConsumerState<FolderPage> {
   }
 
   Future<void> _showEditFolderSheet(Folder folder) async {
+    if (Platform.isIOS) {
+      final l10n = AppLocalizations.of(context)!;
+      final api = ref.read(apiServiceProvider);
+      var latestFolder = folder;
+      if (api != null) {
+        try {
+          final detail = await api.getFolderById(folder.id);
+          if (detail != null) {
+            latestFolder = Folder.fromJson(detail);
+          }
+        } catch (_) {}
+      }
+
+      final currentIconAlias = normalizeFolderIconAlias(
+        latestFolder.meta?['icon']?.toString(),
+      );
+      try {
+        final result = await NativeSheetBridge.instance.presentSheet(
+          root: NativeSheetDetailConfig(
+            id: 'folder-edit-sheet',
+            title: 'Edit Folder',
+            subtitle: 'Update the folder name and icon on the server.',
+            items: [
+              NativeSheetItemConfig(
+                id: 'folder-name',
+                title: l10n.folderName,
+                sfSymbol: 'folder',
+                kind: NativeSheetItemKind.textField,
+                value: latestFolder.name,
+                placeholder: l10n.folderName,
+              ),
+              NativeSheetItemConfig(
+                id: 'folder-icon',
+                title: 'Icon',
+                subtitle: 'Choose the folder icon.',
+                sfSymbol: 'folder.badge.gearshape',
+                kind: NativeSheetItemKind.searchablePicker,
+                value: currentIconAlias ?? '__default__',
+                options: [
+                  const NativeSheetOptionConfig(
+                    id: '__default__',
+                    label: 'Default',
+                    sfSymbol: 'folder',
+                  ),
+                  for (final option in folderIconOptions)
+                    NativeSheetOptionConfig(
+                      id: option.alias,
+                      label: option.semanticLabel,
+                      sfSymbol: 'folder',
+                    ),
+                ],
+              ),
+              NativeSheetItemConfig(
+                id: 'save-folder',
+                title: l10n.save,
+                subtitle: l10n.saved,
+                sfSymbol: 'checkmark.circle',
+              ),
+            ],
+          ),
+          rethrowErrors: true,
+        );
+        if (result?.actionId != 'save-folder') {
+          return;
+        }
+        if (!mounted) {
+          return;
+        }
+        if (api == null) {
+          UiUtils.showMessage(context, l10n.errorMessage);
+          return;
+        }
+        final trimmedName = (result?.values['folder-name'] as String? ?? '')
+            .trim();
+        if (trimmedName.isEmpty) {
+          UiUtils.showMessage(context, l10n.validationMissingRequired);
+          return;
+        }
+        final selectedIconId = result?.values['folder-icon'] as String?;
+        final nextMeta = Map<String, dynamic>.from(
+          latestFolder.meta ?? const {},
+        );
+        nextMeta['icon'] =
+            selectedIconId == null || selectedIconId == '__default__'
+            ? ''
+            : selectedIconId;
+        try {
+          await api.updateFolder(
+            latestFolder.id,
+            name: trimmedName,
+            meta: nextMeta,
+          );
+          final detail = await api.getFolderById(latestFolder.id);
+          final updatedFolder = detail == null
+              ? latestFolder.copyWith(
+                  name: trimmedName,
+                  meta: nextMeta,
+                  updatedAt: DateTime.now(),
+                )
+              : Folder.fromJson(detail);
+          ref.read(foldersProvider.notifier).upsertFolder(updatedFolder);
+          if (!mounted) return;
+          UiUtils.showMessage(context, l10n.saved);
+        } catch (_) {
+          if (!mounted) return;
+          UiUtils.showMessage(context, l10n.errorMessage);
+        }
+        return;
+      } catch (_) {
+        if (!mounted) {
+          return;
+        }
+      }
+    }
+
+    if (!mounted) {
+      return;
+    }
+
     final updatedFolder = await ThemedSheets.showCustom<Folder>(
       context: context,
       isScrollControlled: true,
@@ -753,6 +971,86 @@ class _FolderPageState extends ConsumerState<FolderPage> {
   }
 
   Future<void> _showSystemPromptSheet(Folder folder) async {
+    if (Platform.isIOS) {
+      final l10n = AppLocalizations.of(context)!;
+      final api = ref.read(apiServiceProvider);
+      var latestFolder = folder;
+      if (api != null) {
+        try {
+          final detail = await api.getFolderById(folder.id);
+          if (detail != null) {
+            latestFolder = Folder.fromJson(detail);
+          }
+        } catch (_) {}
+      }
+
+      try {
+        final result = await NativeSheetBridge.instance.presentSheet(
+          root: NativeSheetDetailConfig(
+            id: 'folder-system-prompt-sheet',
+            title: l10n.folderSystemPromptTitle(latestFolder.name),
+            subtitle: l10n.folderSystemPromptEditorDescription,
+            items: [
+              NativeSheetItemConfig(
+                id: 'folder-system-prompt-value',
+                title: 'System Prompt',
+                subtitle: l10n.enterSystemPrompt,
+                sfSymbol: 'text.bubble',
+                kind: NativeSheetItemKind.multilineTextField,
+                value: _extractFolderSystemPrompt(latestFolder),
+                placeholder: l10n.enterSystemPrompt,
+              ),
+              NativeSheetItemConfig(
+                id: 'save-folder-system-prompt',
+                title: l10n.save,
+                subtitle: l10n.saved,
+                sfSymbol: 'checkmark.circle',
+              ),
+            ],
+          ),
+          rethrowErrors: true,
+        );
+        if (result?.actionId != 'save-folder-system-prompt') {
+          return;
+        }
+        if (!mounted) {
+          return;
+        }
+        if (api == null) {
+          UiUtils.showMessage(context, l10n.errorMessage);
+          return;
+        }
+        final nextData = Map<String, dynamic>.from(
+          latestFolder.data ?? const {},
+        );
+        nextData['system_prompt'] =
+            (result?.values['folder-system-prompt-value'] as String? ?? '')
+                .trim();
+        try {
+          await api.updateFolder(latestFolder.id, data: nextData);
+          final detail = await api.getFolderById(latestFolder.id);
+          final updatedFolder = detail == null
+              ? latestFolder.copyWith(data: nextData, updatedAt: DateTime.now())
+              : Folder.fromJson(detail);
+          ref.read(foldersProvider.notifier).upsertFolder(updatedFolder);
+          if (!mounted) return;
+          UiUtils.showMessage(context, l10n.saved);
+        } catch (_) {
+          if (!mounted) return;
+          UiUtils.showMessage(context, l10n.errorMessage);
+        }
+        return;
+      } catch (_) {
+        if (!mounted) {
+          return;
+        }
+      }
+    }
+
+    if (!mounted) {
+      return;
+    }
+
     final updatedFolder = await ThemedSheets.showCustom<Folder>(
       context: context,
       isScrollControlled: true,

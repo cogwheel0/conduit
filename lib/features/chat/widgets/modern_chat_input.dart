@@ -30,6 +30,7 @@ import '../../../core/models/prompt.dart';
 import '../../../core/models/toggle_filter.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/navigation_service.dart';
+import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/settings_service.dart';
 import '../../chat/services/voice_input_service.dart';
 import '../../../core/models/knowledge_base.dart';
@@ -1226,6 +1227,84 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         if (!mounted) return;
       } else {
         selectedBaseId = null;
+      }
+    }
+
+    if (Platform.isIOS) {
+      try {
+        final l10n = AppLocalizations.of(context)!;
+        final cacheState = ref.read(knowledgeCacheProvider);
+        final bases = cacheState.bases;
+        if (bases.isEmpty) {
+          return;
+        }
+        final selectedBase = await NativeSheetBridge.instance
+            .presentOptionsSelector(
+              title: l10n.knowledgeBase,
+              selectedOptionId: selectedBaseId,
+              options: [
+                for (final base in bases)
+                  NativeSheetOptionConfig(
+                    id: base.id,
+                    label: base.name,
+                    subtitle: base.description,
+                    sfSymbol: 'books.vertical',
+                  ),
+              ],
+              rethrowErrors: true,
+            );
+        if (selectedBase == null) {
+          return;
+        }
+        await cacheNotifier.fetchFilesForBase(selectedBase);
+        if (!mounted) {
+          return;
+        }
+        final selectedBaseModel = bases.firstWhere(
+          (base) => base.id == selectedBase,
+        );
+        final files =
+            ref.read(knowledgeCacheProvider).files[selectedBase] ??
+            const <KnowledgeBaseFile>[];
+        if (files.isEmpty) {
+          return;
+        }
+        final selectedFileId = await NativeSheetBridge.instance
+            .presentOptionsSelector(
+              title: selectedBaseModel.name,
+              subtitle: l10n.files,
+              options: [
+                for (final file in files)
+                  NativeSheetOptionConfig(
+                    id: file.id,
+                    label: file.meta?['name']?.toString() ?? file.filename,
+                    subtitle: file.meta?['source']?.toString() ?? file.filename,
+                    sfSymbol: 'doc.text',
+                  ),
+              ],
+              rethrowErrors: true,
+            );
+        if (selectedFileId == null || !mounted) {
+          return;
+        }
+        for (final file in files) {
+          if (file.id == selectedFileId) {
+            ref
+                .read(contextAttachmentsProvider.notifier)
+                .addKnowledge(
+                  displayName: file.meta?['name']?.toString() ?? file.filename,
+                  fileId: file.id,
+                  collectionName: selectedBaseModel.name,
+                  url: file.meta?['source']?.toString(),
+                );
+            break;
+          }
+        }
+        return;
+      } catch (_) {
+        if (!mounted) {
+          return;
+        }
       }
     }
 
@@ -3055,7 +3134,61 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     });
   }
 
-  void _showExpandTextModal() {
+  void _showExpandTextModal() async {
+    if (Platform.isIOS) {
+      final l10n = AppLocalizations.of(context)!;
+      final okLabel = MaterialLocalizations.of(context).okButtonLabel;
+      setState(() => _expandModalOpen = true);
+      try {
+        final result = await NativeSheetBridge.instance.presentSheet(
+          root: NativeSheetDetailConfig(
+            id: 'expanded-text-editor',
+            title: widget.placeholder ?? l10n.sendMessage,
+            items: [
+              NativeSheetItemConfig(
+                id: 'expanded-text-value',
+                title: widget.placeholder ?? l10n.sendMessage,
+                sfSymbol: 'text.alignleft',
+                kind: NativeSheetItemKind.multilineTextField,
+                value: _controller.text,
+                placeholder: widget.placeholder,
+              ),
+              NativeSheetItemConfig(
+                id: 'apply-expanded-text',
+                title: okLabel,
+                sfSymbol: 'checkmark.circle',
+              ),
+              NativeSheetItemConfig(
+                id: 'send-expanded-text',
+                title: l10n.sendMessage,
+                sfSymbol: 'arrow.up.circle',
+              ),
+            ],
+          ),
+          rethrowErrors: true,
+        );
+        final updatedText = result?.values['expanded-text-value'] as String?;
+        if (mounted && updatedText != null && _controller.text != updatedText) {
+          _controller.value = TextEditingValue(
+            text: updatedText,
+            selection: TextSelection.collapsed(offset: updatedText.length),
+          );
+        }
+        if (mounted) {
+          setState(() => _expandModalOpen = false);
+        }
+        if (result?.actionId == 'send-expanded-text' && mounted) {
+          _sendMessage();
+        }
+        return;
+      } catch (_) {
+        if (!mounted) {
+          return;
+        }
+        setState(() => _expandModalOpen = false);
+      }
+    }
+
     final modalController = TextEditingController(text: _controller.text);
 
     void syncToMain() {
@@ -3072,6 +3205,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
     modalController.addListener(syncToMain);
     setState(() => _expandModalOpen = true);
+
+    if (!mounted) {
+      return;
+    }
 
     ThemedSheets.showCustom<bool>(
       context: context,
