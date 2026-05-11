@@ -174,12 +174,32 @@ Future<ServerConfig?> activeServer(Ref ref) async {
   final configs = await ref.watch(serverConfigsProvider.future);
   final activeId = await storage.getActiveServerId();
 
-  if (activeId == null || configs.isEmpty) return null;
+  if (configs.isEmpty) return null;
 
+  if (activeId != null) {
+    for (final config in configs) {
+      if (config.id == activeId) {
+        return config;
+      }
+    }
+  }
+
+  final fallback = _recoverActiveServerConfig(configs);
+  if (fallback == null) return null;
+
+  await storage.setActiveServerId(fallback.id);
+  return fallback.isActive ? fallback : fallback.copyWith(isActive: true);
+}
+
+ServerConfig? _recoverActiveServerConfig(List<ServerConfig> configs) {
   for (final config in configs) {
-    if (config.id == activeId) {
+    if (config.isActive) {
       return config;
     }
+  }
+
+  if (configs.length == 1) {
+    return configs.first;
   }
 
   return null;
