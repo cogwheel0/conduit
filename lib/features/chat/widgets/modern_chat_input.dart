@@ -2152,7 +2152,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           padding: const EdgeInsets.fromLTRB(
             Spacing.inputPadding,
             0,
-            Spacing.inputPadding,
+            Spacing.sm,
             Spacing.sm,
           ),
           child: Row(
@@ -2210,7 +2210,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         padding: EdgeInsets.fromLTRB(
           Spacing.md,
           0,
-          Spacing.md,
+          Spacing.sm,
           Platform.isIOS && _isMultiline ? Spacing.sm : 0,
         ),
         constraints: const BoxConstraints(minHeight: TouchTarget.input),

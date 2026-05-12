@@ -1863,7 +1863,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           children: [
             Text(
               l10n.temporaryChat,
-              style: AppTypography.small.copyWith(
+              style: AppTypography.labelStyle.copyWith(
                 fontWeight: FontWeight.w600,
                 color: context.conduitTheme.textPrimary,
               ),
@@ -1872,7 +1872,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             const SizedBox(height: Spacing.xs),
             Text(
               l10n.temporaryChatTooltip,
-              style: AppTypography.small.copyWith(
+              style: AppTypography.bodyMediumStyle.copyWith(
                 color: context.conduitTheme.textSecondary,
               ),
               textAlign: TextAlign.center,
