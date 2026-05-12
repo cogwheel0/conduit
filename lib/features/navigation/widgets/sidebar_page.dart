@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
@@ -362,6 +364,10 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
   }
 
   Widget _buildSidebarBodyWithBottomFade(Widget sidebarBody) {
+    if (Platform.isAndroid) {
+      return sidebarBody;
+    }
+
     return Stack(
       children: [
         Positioned.fill(child: sidebarBody),

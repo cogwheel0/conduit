@@ -2211,7 +2211,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           Spacing.md,
           0,
           Spacing.md,
-          _isMultiline ? Spacing.sm : 0,
+          Platform.isIOS && _isMultiline ? Spacing.sm : 0,
         ),
         constraints: const BoxConstraints(minHeight: TouchTarget.input),
         alignment: Alignment.center,
@@ -2224,32 +2224,45 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   : CrossAxisAlignment.center,
               children: [
                 Expanded(
-                  child: _buildComposerTextField(
-                    brightness: brightness,
-                    sendOnEnter: sendOnEnter,
-                    voiceAvailable: voiceAvailable,
-                    isGenerating: isGenerating,
-                    allUploadsComplete: allUploadsComplete,
-                    placeholderBase: placeholderBase,
-                    placeholderFocused: placeholderFocused,
-                    contentPadding: const EdgeInsets.symmetric(
-                      vertical: Spacing.xs,
+                  child: Padding(
+                    padding: EdgeInsets.only(
+                      bottom: Platform.isAndroid && _isMultiline
+                          ? Spacing.sm
+                          : 0,
                     ),
-                    isActive: isActive,
+                    child: _buildComposerTextField(
+                      brightness: brightness,
+                      sendOnEnter: sendOnEnter,
+                      voiceAvailable: voiceAvailable,
+                      isGenerating: isGenerating,
+                      allUploadsComplete: allUploadsComplete,
+                      placeholderBase: placeholderBase,
+                      placeholderFocused: placeholderFocused,
+                      contentPadding: const EdgeInsets.symmetric(
+                        vertical: Spacing.xs,
+                      ),
+                      isActive: isActive,
+                    ),
                   ),
                 ),
                 if (!_hasText && voiceAvailable && !isGenerating) ...[
                   const SizedBox(width: Spacing.xs),
-                  // Wrap in the same height as the dense primary button so
-                  // the mic icon's visual center aligns with the button when
-                  // bottom-aligned in the multiline (crossAxisAlignment.end)
-                  // layout.
-                  SizedBox(
-                    height: 36.0,
-                    child: Center(child: _buildInlineMicAction(voiceAvailable)),
-                  ),
+                  Platform.isAndroid
+                      ? Transform.translate(
+                          offset: const Offset(Spacing.xxs, 0),
+                          child: _buildInlineMicAction(
+                            voiceAvailable,
+                            size: 36.0,
+                          ),
+                        )
+                      : SizedBox(
+                          height: 36.0,
+                          child: Center(
+                            child: _buildInlineMicAction(voiceAvailable),
+                          ),
+                        ),
                 ],
-                const SizedBox(width: Spacing.xs),
+                SizedBox(width: Platform.isAndroid ? 0 : Spacing.xs),
                 _buildPrimaryButton(
                   _hasText,
                   isGenerating,
@@ -2694,6 +2707,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
             : null,
         size: buttonSize,
         isProminent: isActive && !nativePanelVisible,
+        androidShowBackground: !isActive,
         color: nativePanelVisible ? theme.surfaceContainerHighest : null,
         child: Icon(overflowIcon, size: IconSize.large, color: iconColor),
       ),
@@ -2715,27 +2729,38 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     );
   }
 
-  Widget _buildInlineMicAction(bool voiceAvailable) {
+  Widget _buildInlineMicAction(bool voiceAvailable, {double? size}) {
     final bool enabledMic = widget.enabled && voiceAvailable;
+    final icon = Icon(
+      Platform.isIOS ? CupertinoIcons.mic : Icons.mic,
+      size: IconSize.large,
+      color: _isRecording
+          ? context.conduitTheme.buttonPrimary
+          : context.conduitTheme.textSecondary.withValues(
+              alpha: enabledMic ? Alpha.strong : Alpha.disabled,
+            ),
+    );
+    final onPressed = enabledMic
+        ? () {
+            ConduitHaptics.selectionClick();
+            _toggleVoice();
+          }
+        : null;
+
+    if (size != null) {
+      return _buildComposerIconButton(
+        onPressed: onPressed,
+        size: size,
+        child: icon,
+      );
+    }
+
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: enabledMic
-          ? () {
-              ConduitHaptics.selectionClick();
-              _toggleVoice();
-            }
-          : null,
+      onTap: onPressed,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
-        child: Icon(
-          Platform.isIOS ? CupertinoIcons.mic : Icons.mic,
-          size: IconSize.large,
-          color: _isRecording
-              ? context.conduitTheme.buttonPrimary
-              : context.conduitTheme.textSecondary.withValues(
-                  alpha: enabledMic ? Alpha.strong : Alpha.disabled,
-                ),
-        ),
+        child: icon,
       ),
     );
   }
@@ -2984,27 +3009,37 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   /// Builds a circular icon button for the composer.
   ///
-  /// Uses [AdaptiveButton] so native glass and non-iOS fallbacks stay in the
-  /// adaptive package.
+  /// Uses native glass on iOS while keeping Material composer buttons native to
+  /// Android instead of using the adaptive glass tonal fallback.
   Widget _buildComposerIconButton({
     Key? key,
     required VoidCallback? onPressed,
     required Widget child,
     required double size,
     bool isProminent = false,
+    bool androidShowBackground = false,
     Color? color,
   }) {
     final theme = context.conduitTheme;
     final effectiveColor = color ?? theme.buttonPrimary;
+    final androidBackgroundColor =
+        color ?? theme.surfaceContainerHighest.withValues(alpha: 0.95);
+    final buttonStyle = Platform.isAndroid
+        ? (isProminent || androidShowBackground
+              ? AdaptiveButtonStyle.filled
+              : AdaptiveButtonStyle.plain)
+        : (isProminent
+              ? AdaptiveButtonStyle.prominentGlass
+              : AdaptiveButtonStyle.glass);
 
     return AdaptiveButton.child(
       key: key,
       onPressed: onPressed,
       enabled: onPressed != null,
-      style: isProminent
-          ? AdaptiveButtonStyle.prominentGlass
-          : AdaptiveButtonStyle.glass,
-      color: effectiveColor,
+      style: buttonStyle,
+      color: Platform.isAndroid && androidShowBackground && !isProminent
+          ? androidBackgroundColor
+          : effectiveColor,
       size: size > 40 ? AdaptiveButtonSize.large : AdaptiveButtonSize.medium,
       minSize: Size(size, size),
       padding: EdgeInsets.zero,

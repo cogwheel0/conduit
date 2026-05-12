@@ -1,4 +1,5 @@
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+
 import 'package:flutter/material.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import 'package:flutter/cupertino.dart';
@@ -21,6 +22,7 @@ import '../../../core/utils/user_display_name.dart';
 import '../../../core/utils/user_avatar_utils.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../widgets/profile_setting_tile.dart';
+import '../widgets/profile_text_styles.dart';
 
 /// Profile page (You tab) showing user info and main actions
 /// Enhanced with production-grade design tokens for better cohesion
@@ -275,10 +277,9 @@ class ProfilePage extends ConsumerWidget {
                 children: [
                   Text(
                     displayName,
-                    style: theme.headingMedium?.copyWith(
-                      color: theme.sidebarForeground,
-                      fontWeight: FontWeight.w600,
-                    ),
+                    style: profileTitleTextStyle(context, large: true),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: Spacing.xs),
                   Row(

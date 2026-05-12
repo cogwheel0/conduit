@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/conduit_components.dart';
+import 'profile_text_styles.dart';
 
 /// Expandable card widget for collapsible settings sections.
 class ExpandableCard extends StatefulWidget {
@@ -103,20 +104,15 @@ class ExpandableCardState extends State<ExpandableCard>
                     children: [
                       Text(
                         widget.title,
-                        style: theme.bodyMedium?.copyWith(
-                          color: theme.sidebarForeground,
-                          fontWeight: FontWeight.w600,
-                        ),
+                        style: profileTitleTextStyle(context),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                       const SizedBox(height: Spacing.xs),
                       widget.subtitleWidget ??
                           Text(
                             widget.subtitle,
-                            style: theme.bodySmall?.copyWith(
-                              color: theme.sidebarForeground.withValues(
-                                alpha: 0.75,
-                              ),
-                            ),
+                            style: profileSubtitleTextStyle(context),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),

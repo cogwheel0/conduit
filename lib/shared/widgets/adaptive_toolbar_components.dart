@@ -13,12 +13,72 @@ AdaptiveAppBar buildConduitAdaptiveToolbarAppBar({
   required Color tintColor,
   required Widget Function() buildLeading,
   required List<AdaptiveAppBarAction> Function() buildActions,
+  double? leadingWidth,
 }) {
+  final leading = buildLeading();
+  final actions = buildActions();
+  final materialActions = actions
+      .map(
+        (action) => _buildMaterialToolbarAction(action, defaultTint: tintColor),
+      )
+      .toList(growable: false);
+
   return AdaptiveAppBar(
-    leading: buildLeading(),
+    useNativeToolbar: Platform.isIOS || leadingWidth == null,
+    leading: leading,
     tintColor: tintColor,
-    actions: buildActions(),
+    actions: actions,
+    appBar: leadingWidth == null
+        ? null
+        : _buildMaterialToolbarAppBar(
+            leading: leading,
+            leadingWidth: leadingWidth,
+            actions: materialActions,
+          ),
   );
+}
+
+PreferredSizeWidget _buildMaterialToolbarAppBar({
+  required Widget leading,
+  required double leadingWidth,
+  required List<Widget> actions,
+}) {
+  return AppBar(
+    automaticallyImplyLeading: false,
+    backgroundColor: Colors.transparent,
+    surfaceTintColor: Colors.transparent,
+    elevation: Elevation.none,
+    scrolledUnderElevation: Elevation.none,
+    leadingWidth: leadingWidth,
+    leading: leading,
+    actions: actions,
+  );
+}
+
+Widget _buildMaterialToolbarAction(
+  AdaptiveAppBarAction action, {
+  required Color defaultTint,
+}) {
+  final tintColor = action.tintColor ?? defaultTint;
+  if (action.title != null) {
+    return TextButton(
+      onPressed: action.onPressed,
+      style: TextButton.styleFrom(foregroundColor: tintColor),
+      child: Text(action.title!),
+    );
+  }
+
+  return ConduitAdaptiveAppBarIconButton(
+    icon: action.icon ?? Icons.circle,
+    onPressed: action.onPressed,
+    iconColor: tintColor,
+  );
+}
+
+AdaptiveButtonStyle _conduitToolbarButtonStyle() {
+  return Platform.isAndroid
+      ? AdaptiveButtonStyle.plain
+      : AdaptiveButtonStyle.glass;
 }
 
 /// Resolves a stable pill width inside a constrained toolbar slot.
@@ -131,8 +191,10 @@ class ConduitAdaptiveAppBarIconButton extends StatelessWidget {
 
     return AdaptiveButton.child(
       onPressed: onPressed,
-      style: AdaptiveButtonStyle.glass,
+      style: _conduitToolbarButtonStyle(),
+      color: Platform.isAndroid ? effectiveIconColor : null,
       size: AdaptiveButtonSize.large,
+      padding: EdgeInsets.zero,
       minSize: const Size(TouchTarget.minimum, TouchTarget.minimum),
       useSmoothRectangleBorder: false,
       child: Icon(icon, size: IconSize.appBar, color: effectiveIconColor),
@@ -183,6 +245,7 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
       return const SizedBox.shrink();
     }
     final chevronSize = Platform.isIOS ? IconSize.small : IconSize.medium;
+    const leadingPadding = 10.0;
     final targetWidth = isLoading
         ? safeMaxWidth.clamp(0.0, 104.0).toDouble()
         : resolveConduitAdaptiveTextPillWidth(
@@ -191,7 +254,7 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
             textStyle: effectiveTextStyle,
             maxWidth: safeMaxWidth,
             minWidth: 96,
-            horizontalPadding: 10 + Spacing.xs + 12,
+            horizontalPadding: leadingPadding + Spacing.xs + 12,
             trailingWidth: chevronSize + Spacing.xs,
           );
     final child = SizedBox(
@@ -199,7 +262,7 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
       child: ConstrainedBox(
         constraints: const BoxConstraints(minHeight: 44),
         child: Padding(
-          padding: const EdgeInsets.only(left: 10, right: Spacing.xs),
+          padding: EdgeInsets.only(left: leadingPadding, right: Spacing.xs),
           child: Center(
             widthFactor: 1,
             child: isLoading
@@ -236,8 +299,10 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
 
     return AdaptiveButton.child(
       onPressed: isLoading ? () {} : onPressed,
-      style: AdaptiveButtonStyle.glass,
+      style: _conduitToolbarButtonStyle(),
+      color: Platform.isAndroid ? context.conduitTheme.textPrimary : null,
       size: AdaptiveButtonSize.large,
+      padding: EdgeInsets.zero,
       minSize: Size(targetWidth, 44),
       useSmoothRectangleBorder: false,
       child: child,

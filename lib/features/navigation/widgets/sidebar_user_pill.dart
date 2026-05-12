@@ -73,6 +73,10 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
         ? 'U'
         : displayName.characters.first.toUpperCase();
     final avatarUrl = resolveUserAvatarUrlForUser(api, user);
+    final iconColor = context.conduitTheme.textPrimary;
+    final style = Platform.isAndroid
+        ? AdaptiveButtonStyle.plain
+        : AdaptiveButtonStyle.glass;
 
     return Semantics(
       label: l10n.manage,
@@ -100,8 +104,10 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
             context.pushNamed(RouteNames.profile);
           }
         },
-        style: AdaptiveButtonStyle.glass,
+        style: style,
+        color: Platform.isAndroid ? iconColor : null,
         size: AdaptiveButtonSize.large,
+        padding: EdgeInsets.zero,
         minSize: const Size(TouchTarget.minimum, TouchTarget.minimum),
         useSmoothRectangleBorder: false,
         child: ClipRRect(

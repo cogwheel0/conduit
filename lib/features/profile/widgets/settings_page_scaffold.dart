@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 
@@ -145,6 +147,19 @@ class SettingsSelectorTile extends StatelessWidget {
             theme.surfaceBackground,
           )
         : Colors.transparent;
+    final titleStyle =
+        (Platform.isAndroid
+                ? AppTypography.titleMediumStyle
+                : AppTypography.bodyMediumStyle)
+            .copyWith(
+              color: selected ? theme.textPrimary : theme.textSecondary,
+              fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+            );
+    final subtitleStyle =
+        (Platform.isAndroid
+                ? AppTypography.bodyMediumStyle
+                : AppTypography.labelSmallStyle)
+            .copyWith(color: theme.textSecondary);
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: Spacing.xxs),
@@ -173,14 +188,7 @@ class SettingsSelectorTile extends StatelessWidget {
                   children: [
                     Text(
                       title,
-                      style: AppTypography.bodyMediumStyle.copyWith(
-                        color: selected
-                            ? theme.textPrimary
-                            : theme.textSecondary,
-                        fontWeight: selected
-                            ? FontWeight.w600
-                            : FontWeight.w400,
-                      ),
+                      style: titleStyle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -188,9 +196,7 @@ class SettingsSelectorTile extends StatelessWidget {
                       const SizedBox(height: 2),
                       Text(
                         subtitle!,
-                        style: AppTypography.labelSmallStyle.copyWith(
-                          color: theme.textSecondary,
-                        ),
+                        style: subtitleStyle,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),

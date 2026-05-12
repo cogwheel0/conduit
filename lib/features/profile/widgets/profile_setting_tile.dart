@@ -1,9 +1,6 @@
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 
-import '../../../shared/theme/theme_extensions.dart';
-import '../../../shared/utils/ui_utils.dart';
-import '../../../shared/widgets/conduit_components.dart';
+import 'customization_tile.dart';
 
 /// A setting tile widget used in the profile page, showing a leading
 /// icon, title, subtitle, and optional trailing widget or chevron.
@@ -27,53 +24,13 @@ class ProfileSettingTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-    final textColor = theme.sidebarForeground;
-    final subtitleColor = theme.sidebarForeground.withValues(alpha: 0.75);
-
-    return ConduitCard(
-      padding: const EdgeInsets.all(Spacing.md),
+    return CustomizationTile(
+      leading: leading,
+      title: title,
+      subtitle: subtitle,
+      trailing: trailing,
       onTap: onTap,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          leading,
-          const SizedBox(width: Spacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: theme.bodyMedium?.copyWith(
-                    color: textColor,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: Spacing.xs),
-                Text(
-                  subtitle,
-                  style: theme.bodySmall?.copyWith(color: subtitleColor),
-                ),
-              ],
-            ),
-          ),
-          if (trailing != null) ...[
-            const SizedBox(width: Spacing.sm),
-            trailing!,
-          ] else if (showChevron && onTap != null) ...[
-            const SizedBox(width: Spacing.sm),
-            Icon(
-              UiUtils.platformIcon(
-                ios: CupertinoIcons.chevron_right,
-                android: Icons.chevron_right,
-              ),
-              color: theme.iconSecondary,
-              size: IconSize.small,
-            ),
-          ],
-        ],
-      ),
+      showChevron: showChevron,
     );
   }
 }

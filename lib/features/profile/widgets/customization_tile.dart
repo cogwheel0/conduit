@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/conduit_components.dart';
+import 'profile_text_styles.dart';
 
 /// A tile widget used in customization settings pages, showing a leading
 /// icon, title, subtitle, and optional trailing widget or chevron.
@@ -32,6 +33,7 @@ class CustomizationTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
+
     return ConduitCard(
       padding: const EdgeInsets.all(Spacing.md),
       onTap: onTap,
@@ -46,10 +48,9 @@ class CustomizationTile extends StatelessWidget {
               children: [
                 Text(
                   title,
-                  style: theme.bodyMedium?.copyWith(
-                    color: theme.sidebarForeground,
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: profileTitleTextStyle(context),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: Spacing.xs),
                 Row(
@@ -58,11 +59,9 @@ class CustomizationTile extends StatelessWidget {
                     Expanded(
                       child: Text(
                         subtitle,
-                        style: theme.bodySmall?.copyWith(
-                          color: theme.sidebarForeground.withValues(
-                            alpha: 0.75,
-                          ),
-                        ),
+                        style: profileSubtitleTextStyle(context),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                     if (subtitleTrailing != null) ...[

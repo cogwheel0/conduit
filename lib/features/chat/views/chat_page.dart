@@ -1286,20 +1286,23 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         : Icons.keyboard_arrow_down;
     const buttonSize = 40.0;
     const iconSize = IconSize.medium;
+    final theme = context.conduitTheme;
+    final style = Platform.isAndroid
+        ? AdaptiveButtonStyle.filled
+        : AdaptiveButtonStyle.glass;
 
     return AdaptiveButton.child(
       onPressed: _userScrollToBottom,
-      style: AdaptiveButtonStyle.glass,
+      style: style,
+      color: Platform.isAndroid
+          ? theme.surfaceContainerHighest.withValues(alpha: 0.95)
+          : null,
       size: AdaptiveButtonSize.medium,
       minSize: const Size.square(buttonSize),
       padding: EdgeInsets.zero,
       borderRadius: BorderRadius.circular(buttonSize),
       useSmoothRectangleBorder: false,
-      child: Icon(
-        icon,
-        size: iconSize,
-        color: context.conduitTheme.textPrimary,
-      ),
+      child: Icon(icon, size: iconSize, color: theme.textPrimary),
     );
   }
 
@@ -2202,13 +2205,24 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required String modelLabel,
   }) {
     final tintColor = context.conduitTheme.textPrimary;
+    const leadingGap = Spacing.sm;
+    final maxModelWidth = resolveConduitAdaptiveLeadingPillWidth(
+      context,
+      trailingActionCount: 2,
+      maxWidth: 220,
+    );
+    final leadingWidth =
+        TouchTarget.minimum + leadingGap + maxModelWidth + Spacing.md;
 
     return buildConduitAdaptiveToolbarAppBar(
       tintColor: tintColor,
+      leadingWidth: leadingWidth,
       buildLeading: () => _buildNativeToolbarLeading(
         context: context,
         isLoadingConversation: isLoadingConversation,
         modelLabel: modelLabel,
+        leadingGap: leadingGap,
+        maxModelWidth: maxModelWidth,
       ),
       buildActions: () {
         final activeConversation = ref.watch(activeConversationProvider);
@@ -2230,13 +2244,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required BuildContext context,
     required bool isLoadingConversation,
     required String modelLabel,
+    required double leadingGap,
+    required double maxModelWidth,
   }) {
-    final maxModelWidth = resolveConduitAdaptiveLeadingPillWidth(
-      context,
-      trailingActionCount: 2,
-      maxWidth: 220,
-    );
-
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -2246,7 +2256,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           onPressed: () => _toggleResponsiveDrawer(context),
           iconColor: context.conduitTheme.textPrimary,
         ),
-        const SizedBox(width: Spacing.xs),
+        SizedBox(width: leadingGap),
         ConduitAdaptiveAppBarModelSelector(
           label: modelLabel,
           maxWidth: maxModelWidth,
