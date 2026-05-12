@@ -1840,6 +1840,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final greetingText = resolvedGreetingName != null
         ? l10n.greetingTitle(resolvedGreetingName)
         : null;
+    final isTemporary = ref.watch(temporaryChatEnabledProvider);
 
     // Check if there's a pending folder for the new chat
     final pendingFolderId = ref.watch(pendingFolderIdProvider);
@@ -1857,6 +1858,27 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final greetingDisplay = greetingText ?? '';
+        final temporaryChatNotice = Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              l10n.temporaryChat,
+              style: AppTypography.small.copyWith(
+                fontWeight: FontWeight.w600,
+                color: context.conduitTheme.textPrimary,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: Spacing.xs),
+            Text(
+              l10n.temporaryChatTooltip,
+              style: AppTypography.small.copyWith(
+                color: context.conduitTheme.textSecondary,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        );
 
         return MediaQuery.removeViewInsets(
           context: context,
@@ -1885,6 +1907,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                           style: greetingStyle,
                           textAlign: TextAlign.center,
                         ),
+                        if (isTemporary) ...[
+                          const SizedBox(height: Spacing.md),
+                          temporaryChatNotice,
+                        ],
                         const SizedBox(height: Spacing.sm),
                         Row(
                           mainAxisSize: MainAxisSize.min,
@@ -1927,6 +1953,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                         ),
                       ),
                     ),
+                    if (isTemporary) ...[
+                      const SizedBox(height: Spacing.md),
+                      temporaryChatNotice,
+                    ],
                   ],
                 ],
               ),
@@ -2204,11 +2234,17 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required bool isLoadingConversation,
     required String modelLabel,
   }) {
+    final activeConversation = ref.watch(activeConversationProvider);
+    final isTemporary = ref.watch(temporaryChatEnabledProvider);
+    final hasMessages = ref.watch(
+      chatMessagesProvider.select((messages) => messages.isNotEmpty),
+    );
+    final showNewChatAction = activeConversation != null || hasMessages;
     final tintColor = context.conduitTheme.textPrimary;
     const leadingGap = Spacing.sm;
     final maxModelWidth = resolveConduitAdaptiveLeadingPillWidth(
       context,
-      trailingActionCount: 2,
+      trailingActionCount: showNewChatAction ? 2 : 1,
       maxWidth: 220,
     );
     final leadingWidth =
@@ -2225,16 +2261,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         maxModelWidth: maxModelWidth,
       ),
       buildActions: () {
-        final activeConversation = ref.watch(activeConversationProvider);
-        final isTemporary = ref.watch(temporaryChatEnabledProvider);
-        final hasMessages = ref.watch(
-          chatMessagesProvider.select((messages) => messages.isNotEmpty),
-        );
         return _buildAdaptiveToolbarActions(
           context: context,
           activeConversation: activeConversation,
           isTemporary: isTemporary,
           hasMessages: hasMessages,
+          showNewChatAction: showNewChatAction,
         );
       },
     );
@@ -2272,6 +2304,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required dynamic activeConversation,
     required bool isTemporary,
     required bool hasMessages,
+    required bool showNewChatAction,
   }) {
     final actions = <AdaptiveAppBarAction>[];
     final defaultTint = context.conduitTheme.textPrimary;
@@ -2329,14 +2362,16 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       );
     }
 
-    actions.add(
-      AdaptiveAppBarAction(
-        iosSymbol: 'square.and.pencil',
-        icon: Platform.isIOS ? CupertinoIcons.create : Icons.add_comment,
-        tintColor: defaultTint,
-        onPressed: _handleNewChat,
-      ),
-    );
+    if (showNewChatAction) {
+      actions.add(
+        AdaptiveAppBarAction(
+          iosSymbol: 'square.and.pencil',
+          icon: Platform.isIOS ? CupertinoIcons.create : Icons.add_comment,
+          tintColor: defaultTint,
+          onPressed: _handleNewChat,
+        ),
+      );
+    }
 
     return actions;
   }
