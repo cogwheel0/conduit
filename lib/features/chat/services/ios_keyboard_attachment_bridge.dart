@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:flutter/services.dart';
 
@@ -19,41 +20,58 @@ class IosKeyboardAttachmentBridge {
 
   Stream<IosKeyboardAttachmentEvent> get events => _events.stream;
 
-  Future<bool> configure({
+  Future<void> configure({
     required List<IosKeyboardAttachmentActionConfig> actions,
-  }) async {
-    return _invokeBool('configure', actions);
-  }
-
-  Future<bool> show({
-    required List<IosKeyboardAttachmentActionConfig> actions,
-  }) async {
-    return _invokeBool('show', actions);
+  }) {
+    if (!Platform.isIOS || actions.isEmpty) {
+      return Future<void>.value();
+    }
+    return _invokeVoid('configure', actions: actions);
   }
 
   Future<bool> toggle({
     required List<IosKeyboardAttachmentActionConfig> actions,
   }) async {
-    return _invokeBool('toggle', actions);
-  }
-
-  Future<bool> hide() async {
-    try {
-      return await _iosKeyboardAttachmentChannel.invokeMethod<bool>('hide') ??
-          false;
-    } catch (_) {
+    if (!Platform.isIOS || actions.isEmpty) {
       return false;
     }
+
+    return _invokeBool('toggle', actions: actions);
+  }
+
+  Future<void> hide() {
+    if (!Platform.isIOS) {
+      return Future<void>.value();
+    }
+    return _invokeVoid('hide');
+  }
+
+  Future<void> _invokeVoid(
+    String method, {
+    List<IosKeyboardAttachmentActionConfig> actions = const [],
+  }) async {
+    final payload = actions.isEmpty
+        ? null
+        : {'actions': actions.map((action) => action.toMap()).toList()};
+
+    try {
+      await _iosKeyboardAttachmentChannel.invokeMethod<void>(method, payload);
+    } catch (_) {}
   }
 
   Future<bool> _invokeBool(
-    String method,
-    List<IosKeyboardAttachmentActionConfig> actions,
-  ) async {
+    String method, {
+    List<IosKeyboardAttachmentActionConfig> actions = const [],
+  }) async {
+    final payload = actions.isEmpty
+        ? null
+        : {'actions': actions.map((action) => action.toMap()).toList()};
+
     try {
-      return await _iosKeyboardAttachmentChannel.invokeMethod<bool>(method, {
-            'actions': actions.map((action) => action.toMap()).toList(),
-          }) ??
+      return await _iosKeyboardAttachmentChannel.invokeMethod<bool>(
+            method,
+            payload,
+          ) ??
           false;
     } catch (_) {
       return false;

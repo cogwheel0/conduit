@@ -4,7 +4,7 @@ import UIKit
 
 private var nativeKeyboardAttachmentInputViewKey: UInt8 = 0
 
-private struct NativeKeyboardAttachmentAction {
+private struct NativeKeyboardAttachmentAction: Equatable {
     let id: String
     let label: String
     let subtitle: String?
@@ -50,6 +50,7 @@ final class NativeKeyboardAttachmentBridge {
     private weak var capturedFirstResponder: UIResponder?
     private weak var activeResponder: UIResponder?
     private var actions: [NativeKeyboardAttachmentAction] = []
+    private var shouldPresentOnNextFocus = false
     private var cachedKeyboardHeight = NativeKeyboardAttachmentInputView.defaultHeight
     private lazy var attachmentInputView = NativeKeyboardAttachmentInputView {
         [weak self] action in
@@ -60,13 +61,13 @@ final class NativeKeyboardAttachmentBridge {
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleKeyboardFrameChange(_:)),
-            name: UIResponder.keyboardWillChangeFrameNotification,
+            name: UIResponder.keyboardDidChangeFrameNotification,
             object: nil
         )
         NotificationCenter.default.addObserver(
             self,
-            selector: #selector(handleKeyboardFrameChange(_:)),
-            name: UIResponder.keyboardDidChangeFrameNotification,
+            selector: #selector(handleKeyboardDidHide(_:)),
+            name: UIResponder.keyboardDidHideNotification,
             object: nil
         )
     }
@@ -91,19 +92,16 @@ final class NativeKeyboardAttachmentBridge {
         switch call.method {
         case "configure":
             updateConfiguration(from: call.arguments)
-            result(true)
-        case "show":
-            updateConfiguration(from: call.arguments)
-            result(show())
+            result(nil)
         case "hide":
-            hide(reason: "method")
-            result(true)
+            hide()
+            result(nil)
         case "toggle":
-            updateConfiguration(from: call.arguments)
             if isPresented {
-                hide(reason: "toggle")
+                hide()
                 result(true)
             } else {
+                updateConfiguration(from: call.arguments)
                 result(show())
             }
         default:
@@ -116,14 +114,17 @@ final class NativeKeyboardAttachmentBridge {
             return
         }
 
-        if let rawActions = payload["actions"] as? [Any] {
-            actions = rawActions.compactMap { rawAction in
-                guard let actionPayload = rawAction as? [String: Any] else {
-                    return nil
-                }
-                return NativeKeyboardAttachmentAction(actionPayload)
+        if let rawActions = payload["actions"] as? [[String: Any]] {
+            let parsedActions: [NativeKeyboardAttachmentAction] = rawActions.compactMap(
+                NativeKeyboardAttachmentAction.init
+            )
+            guard parsedActions != actions else {
+                return
             }
-            attachmentInputView.update(actions: actions)
+            actions = parsedActions
+            if isPresented {
+                attachmentInputView.update(actions: parsedActions)
+            }
         }
     }
 
@@ -132,12 +133,24 @@ final class NativeKeyboardAttachmentBridge {
             return false
         }
 
-        guard let responder = currentFirstResponder(),
-              responder.isConduitFlutterTextInputView
-        else {
-            return false
+        if let responder = currentFirstResponder(),
+           responder.isConduitFlutterTextInputView {
+            activateAttachmentInputView(
+                for: responder,
+                reloadInputViews: true
+            )
+            return true
         }
 
+        shouldPresentOnNextFocus = true
+        return true
+    }
+
+    private func activateAttachmentInputView(
+        for responder: UIResponder,
+        reloadInputViews: Bool
+    ) {
+        shouldPresentOnNextFocus = false
         attachmentInputView.update(actions: actions)
         attachmentInputView.updatePreferredHeight(
             measuredKeyboardHeight(for: responder)
@@ -150,12 +163,28 @@ final class NativeKeyboardAttachmentBridge {
             .OBJC_ASSOCIATION_RETAIN_NONATOMIC
         )
         activeResponder = responder
-        responder.reloadInputViews()
+        if reloadInputViews {
+            responder.reloadInputViews()
+        }
         sendVisibilityChanged(true)
-        return true
     }
 
-    private func hide(reason: String) {
+    fileprivate func preparedInputView(for responder: UIResponder) -> UIView? {
+        guard shouldPresentOnNextFocus,
+              responder.isConduitFlutterTextInputView
+        else {
+            return nil
+        }
+
+        activateAttachmentInputView(
+            for: responder,
+            reloadInputViews: false
+        )
+        return attachmentInputView
+    }
+
+    private func hide() {
+        shouldPresentOnNextFocus = false
         guard let responder = activeResponder else {
             sendVisibilityChanged(false)
             return
@@ -190,15 +219,12 @@ final class NativeKeyboardAttachmentBridge {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
 
         if action.dismissesKeyboard {
-            hide(reason: "action")
+            hide()
         }
 
         channel?.invokeMethod(
             "onAction",
-            arguments: [
-                "id": action.id,
-                "dismissesKeyboard": action.dismissesKeyboard,
-            ]
+            arguments: ["id": action.id]
         )
     }
 
@@ -255,16 +281,23 @@ final class NativeKeyboardAttachmentBridge {
         let windowHeight = window?.bounds.height ?? UIScreen.main.bounds.height
         let visibleHeight = max(0, windowHeight - convertedFrame.minY)
 
-        guard visibleHeight > NativeKeyboardAttachmentInputView.minimumHeight else {
+        guard visibleHeight > NativeKeyboardAttachmentInputView.minimumHeight,
+              visibleHeight != cachedKeyboardHeight
+        else {
             return
         }
 
         cachedKeyboardHeight = visibleHeight
         attachmentInputView.updatePreferredHeight(visibleHeight)
-        if isPresented {
-            attachmentInputView.setNeedsLayout()
-            attachmentInputView.layoutIfNeeded()
-        }
+    }
+
+    /// Tap-outside (or other system) dismissal can hide the keyboard without
+    /// Flutter invoking `hide`; sync native state and notify Dart so the UI
+    /// does not keep showing the dismiss (X) control.
+    @objc
+    private func handleKeyboardDidHide(_: Notification) {
+        guard isPresented else { return }
+        hide()
     }
 
     private var activeResponderView: UIView? {
@@ -319,6 +352,7 @@ final class NativeKeyboardAttachmentBridge {
 private final class NativeKeyboardAttachmentInputView: UIInputView {
     static let defaultHeight: CGFloat = 300
     static let minimumHeight: CGFloat = 170
+    private static let panelCornerRadius: CGFloat = 26
 
     private let onSelect: (NativeKeyboardAttachmentAction) -> Void
     private let scrollView = UIScrollView()
@@ -326,24 +360,52 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
     private lazy var heightConstraint = heightAnchor.constraint(
         equalToConstant: Self.defaultHeight
     )
+    private lazy var stackTopConstraint = stackView.topAnchor.constraint(
+        equalTo: scrollView.contentLayoutGuide.topAnchor,
+        constant: topContentInset
+    )
+
+    private var topContentInset: CGFloat {
+        guard #available(iOS 26.0, *) else {
+            return 14
+        }
+        return traitCollection.verticalSizeClass == .compact ? 20 : 36
+    }
+
+    private var horizontalContentInset: CGFloat {
+        if #available(iOS 26.0, *) {
+            return 20
+        }
+        return 16
+    }
 
     init(onSelect: @escaping (NativeKeyboardAttachmentAction) -> Void) {
         self.onSelect = onSelect
         super.init(frame: .zero, inputViewStyle: .keyboard)
 
         allowsSelfSizing = false
-        backgroundColor = .systemBackground
+        backgroundColor = if #available(iOS 26.0, *) {
+            .clear
+        } else {
+            .systemBackground
+        }
         autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        clipsToBounds = true
+        layer.cornerRadius = Self.panelCornerRadius
+        layer.cornerCurve = .continuous
+        layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
 
         heightConstraint.priority = .required
         heightConstraint.isActive = true
 
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.alwaysBounceVertical = true
+        scrollView.showsVerticalScrollIndicator = false
         scrollView.keyboardDismissMode = .none
+        scrollView.contentInsetAdjustmentBehavior = .never
 
         stackView.axis = .vertical
-        stackView.spacing = 14
+        stackView.spacing = 18
         stackView.translatesAutoresizingMaskIntoConstraints = false
 
         addSubview(scrollView)
@@ -356,23 +418,20 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
             scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
             stackView.leadingAnchor.constraint(
                 equalTo: scrollView.contentLayoutGuide.leadingAnchor,
-                constant: 16
+                constant: horizontalContentInset
             ),
             stackView.trailingAnchor.constraint(
                 equalTo: scrollView.contentLayoutGuide.trailingAnchor,
-                constant: -16
+                constant: -horizontalContentInset
             ),
-            stackView.topAnchor.constraint(
-                equalTo: scrollView.contentLayoutGuide.topAnchor,
-                constant: 12
-            ),
+            stackTopConstraint,
             stackView.bottomAnchor.constraint(
                 equalTo: scrollView.contentLayoutGuide.bottomAnchor,
-                constant: -18
+                constant: -24
             ),
             stackView.widthAnchor.constraint(
                 equalTo: scrollView.frameLayoutGuide.widthAnchor,
-                constant: -32
+                constant: -2 * horizontalContentInset
             ),
         ])
     }
@@ -381,11 +440,23 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
         nil
     }
 
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        guard
+            previousTraitCollection?.verticalSizeClass != traitCollection.verticalSizeClass
+        else {
+            return
+        }
+        stackTopConstraint.constant = topContentInset
+    }
+
     func update(actions: [NativeKeyboardAttachmentAction]) {
         stackView.arrangedSubviews.forEach { view in
             stackView.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
+
+        var attachmentStrip: UIScrollView?
 
         let grouped = Dictionary(grouping: actions, by: \.section)
         let preferredOrder = ["attachments", "features", "tools"]
@@ -399,12 +470,18 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
                 continue
             }
 
-            addSectionTitle(title(for: key))
+            if key != "attachments", key != "features" {
+                addSectionTitle(title(for: key))
+            }
             if key == "attachments" {
-                addAttachmentRow(sectionActions)
+                attachmentStrip = addAttachmentRow(sectionActions)
             } else {
                 addListSection(sectionActions)
             }
+        }
+
+        if let strip = attachmentStrip {
+            stackView.setCustomSpacing(10, after: strip)
         }
     }
 
@@ -416,32 +493,44 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
     private func addSectionTitle(_ title: String) {
         let label = UILabel()
         label.text = title
-        label.font = .preferredFont(forTextStyle: .caption1)
+        label.font = UIFont.systemFont(
+            ofSize: UIFont.preferredFont(forTextStyle: .footnote).pointSize,
+            weight: .semibold
+        )
         label.adjustsFontForContentSizeCategory = true
-        label.textColor = .secondaryLabel
+        label.textColor = .tertiaryLabel
         label.setContentHuggingPriority(.required, for: .vertical)
         stackView.addArrangedSubview(label)
     }
 
-    private func addAttachmentRow(_ actions: [NativeKeyboardAttachmentAction]) {
+    /// Row height: tall enough for icon + caption without clipping; extra height reads as a gap below the row.
+    private var attachmentRowScrollHeight: CGFloat {
+        traitCollection.verticalSizeClass == .compact ? 92 : 108
+    }
+
+    @discardableResult
+    private func addAttachmentRow(_ actions: [NativeKeyboardAttachmentAction]) -> UIScrollView {
         let scroll = UIScrollView()
         scroll.showsHorizontalScrollIndicator = false
         scroll.alwaysBounceHorizontal = true
         scroll.translatesAutoresizingMaskIntoConstraints = false
+        scroll.clipsToBounds = false
 
         let row = UIStackView()
         row.axis = .horizontal
-        row.spacing = 10
+        row.alignment = .top
+        row.spacing = 12
         row.translatesAutoresizingMaskIntoConstraints = false
 
+        let rowHeight = attachmentRowScrollHeight
         scroll.addSubview(row)
         NSLayoutConstraint.activate([
             row.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor),
             row.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),
             row.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
             row.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
-            row.heightAnchor.constraint(equalTo: scroll.frameLayoutGuide.heightAnchor),
-            scroll.heightAnchor.constraint(equalToConstant: 86),
+            row.heightAnchor.constraint(equalToConstant: rowHeight),
+            scroll.heightAnchor.constraint(equalToConstant: rowHeight),
         ])
 
         actions.forEach { action in
@@ -450,10 +539,11 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
                 self?.onSelect(action)
             }, for: .touchUpInside)
             row.addArrangedSubview(button)
-            button.widthAnchor.constraint(equalToConstant: 72).isActive = true
+            button.widthAnchor.constraint(equalToConstant: 76).isActive = true
         }
 
         stackView.addArrangedSubview(scroll)
+        return scroll
     }
 
     private func addListSection(_ actions: [NativeKeyboardAttachmentAction]) {
@@ -494,6 +584,7 @@ private final class NativeKeyboardAttachmentTile: UIControl {
 
     private let action: NativeKeyboardAttachmentAction
     private let style: Style
+    private var gridButtonHeightConstraint: NSLayoutConstraint?
 
     init(action: NativeKeyboardAttachmentAction, style: Style) {
         self.action = action
@@ -501,12 +592,8 @@ private final class NativeKeyboardAttachmentTile: UIControl {
         super.init(frame: .zero)
 
         isEnabled = action.enabled
-        alpha = action.enabled ? 1 : 0.42
-        layer.cornerRadius = 14
-        layer.cornerCurve = .continuous
-        backgroundColor = action.selected
-            ? tintColor.withAlphaComponent(0.16)
-            : UIColor.secondarySystemBackground
+        alpha = action.enabled ? 1 : 0.48
+        backgroundColor = .clear
 
         switch style {
         case .grid:
@@ -520,66 +607,154 @@ private final class NativeKeyboardAttachmentTile: UIControl {
         nil
     }
 
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        guard style == .grid,
+              previousTraitCollection?.verticalSizeClass != traitCollection.verticalSizeClass
+        else {
+            return
+        }
+        gridButtonHeightConstraint?.constant = gridButtonHeight
+    }
+
     override var isHighlighted: Bool {
         didSet {
-            UIView.animate(withDuration: 0.12) {
+            UIView.animate(withDuration: 0.14) {
                 self.transform = self.isHighlighted
-                    ? CGAffineTransform(scaleX: 0.96, y: 0.96)
+                    ? CGAffineTransform(scaleX: 0.92, y: 0.92)
                     : .identity
                 self.alpha = self.action.enabled
-                    ? (self.isHighlighted ? 0.72 : 1)
-                    : 0.42
+                    ? (self.isHighlighted ? 0.84 : 1)
+                    : 0.48
             }
         }
     }
 
+    private var gridButtonHeight: CGFloat {
+        traitCollection.verticalSizeClass == .compact ? 40 : 50
+    }
+
+    private var listCornerRadius: CGFloat {
+        if #available(iOS 26.0, *) {
+            return 22
+        }
+        return 18
+    }
+
+    private func makeSignalStyleButton(
+        symbolName: String,
+        preferredSize: CGSize
+    ) -> UIButton {
+        let button: UIButton
+        if #available(iOS 26.0, *) {
+            button = UIButton(configuration: .glass())
+        } else {
+            button = UIButton(configuration: .gray())
+            button.configuration?.background.backgroundColorTransformer = UIConfigurationColorTransformer {
+                _ in UIColor.secondarySystemFill
+            }
+        }
+        button.isUserInteractionEnabled = false
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.configuration?.image = UIImage(systemName: symbolName)
+        button.configuration?.baseForegroundColor = action.enabled
+            ? (action.selected ? tintColor : .label)
+            : .tertiaryLabel
+        button.configuration?.cornerStyle = .capsule
+        button.configuration?.contentInsets = NSDirectionalEdgeInsets(
+            top: 10,
+            leading: 10,
+            bottom: 10,
+            trailing: 10
+        )
+        button.widthAnchor.constraint(equalToConstant: preferredSize.width).isActive = true
+        button.heightAnchor.constraint(equalToConstant: preferredSize.height).isActive = true
+        return button
+    }
+
     private func buildGridContent() {
-        let iconView = UIImageView(image: UIImage(systemName: action.sfSymbol))
-        iconView.tintColor = action.selected ? tintColor : .label
-        iconView.contentMode = .scaleAspectFit
-        iconView.translatesAutoresizingMaskIntoConstraints = false
+        let iconButton = makeSignalStyleButton(
+            symbolName: action.sfSymbol,
+            preferredSize: CGSize(width: 76, height: gridButtonHeight)
+        )
+        gridButtonHeightConstraint = iconButton.constraints.first {
+            $0.firstAttribute == .height
+        }
 
         let label = UILabel()
         label.text = action.label
-        label.font = .preferredFont(forTextStyle: .caption2)
+        label.font = UIFont.systemFont(
+            ofSize: UIFont.preferredFont(forTextStyle: .footnote).pointSize,
+            weight: .medium
+        )
         label.adjustsFontForContentSizeCategory = true
-        label.textColor = .label
+        label.textColor = if #available(iOS 26.0, *) {
+            action.enabled ? .label : .tertiaryLabel
+        } else {
+            action.enabled ? .secondaryLabel : .tertiaryLabel
+        }
         label.textAlignment = .center
         label.numberOfLines = 2
+        label.setContentCompressionResistancePriority(.required, for: .vertical)
 
-        let stack = UIStackView(arrangedSubviews: [iconView, label])
+        let stack = UIStackView(arrangedSubviews: [iconButton, label])
         stack.axis = .vertical
         stack.alignment = .center
-        stack.spacing = 7
+        stack.spacing = 6
         stack.isUserInteractionEnabled = false
         stack.translatesAutoresizingMaskIntoConstraints = false
 
         addSubview(stack)
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            stack.centerYAnchor.constraint(equalTo: centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 24),
-            iconView.heightAnchor.constraint(equalToConstant: 24),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 2),
+            stack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -2),
         ])
     }
 
     private func buildListContent() {
-        let iconView = UIImageView(image: UIImage(systemName: action.sfSymbol))
-        iconView.tintColor = action.selected ? tintColor : .label
-        iconView.contentMode = .scaleAspectFit
-        iconView.translatesAutoresizingMaskIntoConstraints = false
+        let backgroundView = UIVisualEffectView(
+            effect: UIBlurEffect(style: .systemThinMaterial)
+        )
+        backgroundView.translatesAutoresizingMaskIntoConstraints = false
+        backgroundView.isUserInteractionEnabled = false
+        backgroundView.layer.cornerRadius = listCornerRadius
+        backgroundView.layer.cornerCurve = .continuous
+        backgroundView.layer.masksToBounds = true
+        addSubview(backgroundView)
+
+        let selectionOverlay = UIView()
+        selectionOverlay.translatesAutoresizingMaskIntoConstraints = false
+        selectionOverlay.isUserInteractionEnabled = false
+        selectionOverlay.backgroundColor = tintColor.withAlphaComponent(0.14)
+        selectionOverlay.alpha = action.selected ? 1 : 0
+        backgroundView.contentView.addSubview(selectionOverlay)
+
+        let iconChip = makeSignalStyleButton(
+            symbolName: action.sfSymbol,
+            preferredSize: CGSize(width: 44, height: 38)
+        )
+        iconChip.configuration?.contentInsets = NSDirectionalEdgeInsets(
+            top: 8,
+            leading: 8,
+            bottom: 8,
+            trailing: 8
+        )
 
         let titleLabel = UILabel()
         titleLabel.text = action.label
-        titleLabel.font = .preferredFont(forTextStyle: .subheadline)
+        titleLabel.font = UIFont.systemFont(
+            ofSize: UIFont.preferredFont(forTextStyle: .body).pointSize,
+            weight: .semibold
+        )
         titleLabel.adjustsFontForContentSizeCategory = true
         titleLabel.textColor = .label
         titleLabel.numberOfLines = 1
 
         let subtitleLabel = UILabel()
         subtitleLabel.text = action.subtitle
-        subtitleLabel.font = .preferredFont(forTextStyle: .caption1)
+        subtitleLabel.font = .preferredFont(forTextStyle: .footnote)
         subtitleLabel.adjustsFontForContentSizeCategory = true
         subtitleLabel.textColor = .secondaryLabel
         subtitleLabel.numberOfLines = 2
@@ -596,21 +771,27 @@ private final class NativeKeyboardAttachmentTile: UIControl {
         accessory.contentMode = .scaleAspectFit
         accessory.translatesAutoresizingMaskIntoConstraints = false
 
-        let row = UIStackView(arrangedSubviews: [iconView, textStack, accessory])
+        let row = UIStackView(arrangedSubviews: [iconChip, textStack, accessory])
         row.axis = .horizontal
         row.alignment = .center
-        row.spacing = 12
+        row.spacing = 14
         row.isUserInteractionEnabled = false
         row.translatesAutoresizingMaskIntoConstraints = false
 
-        addSubview(row)
+        backgroundView.contentView.addSubview(row)
         NSLayoutConstraint.activate([
-            row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
-            row.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
-            row.topAnchor.constraint(equalTo: topAnchor, constant: 12),
-            row.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
-            iconView.widthAnchor.constraint(equalToConstant: 24),
-            iconView.heightAnchor.constraint(equalToConstant: 24),
+            backgroundView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            backgroundView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            backgroundView.topAnchor.constraint(equalTo: topAnchor),
+            backgroundView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            selectionOverlay.leadingAnchor.constraint(equalTo: backgroundView.contentView.leadingAnchor),
+            selectionOverlay.trailingAnchor.constraint(equalTo: backgroundView.contentView.trailingAnchor),
+            selectionOverlay.topAnchor.constraint(equalTo: backgroundView.contentView.topAnchor),
+            selectionOverlay.bottomAnchor.constraint(equalTo: backgroundView.contentView.bottomAnchor),
+            row.leadingAnchor.constraint(equalTo: backgroundView.contentView.leadingAnchor, constant: 14),
+            row.trailingAnchor.constraint(equalTo: backgroundView.contentView.trailingAnchor, constant: -14),
+            row.topAnchor.constraint(equalTo: backgroundView.contentView.topAnchor, constant: 12),
+            row.bottomAnchor.constraint(equalTo: backgroundView.contentView.bottomAnchor, constant: -12),
             accessory.widthAnchor.constraint(equalToConstant: 22),
             accessory.heightAnchor.constraint(equalToConstant: 22),
         ])
@@ -641,6 +822,6 @@ private extension UIResponder {
             return inputView
         }
 
-        return nil
+        return NativeKeyboardAttachmentBridge.shared.preparedInputView(for: self)
     }
 }

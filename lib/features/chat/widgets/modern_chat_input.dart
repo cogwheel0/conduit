@@ -46,6 +46,7 @@ import '../../prompts/widgets/prompt_variable_dialog.dart';
 import '../../auth/providers/unified_auth_providers.dart';
 import 'chat_input_intents.dart';
 import 'expanded_text_editor.dart';
+import 'composer_overflow_items.dart';
 import 'composer_overflow_menu.dart';
 import 'mention_text_controller.dart';
 import 'model_suggestion_overlay.dart';
@@ -140,7 +141,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       const <_ComposerContextSuggestion>[];
   int _contextSuggestionRequestId = 0;
   bool _isNativeAttachmentPanelVisible = false;
-  String? _lastNativeAttachmentSignature;
 
   /// Service for handling clipboard paste operations.
   final ClipboardAttachmentService _clipboardService =
@@ -190,6 +190,16 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         try {
           ref.read(composerHasFocusProvider.notifier).set(hasFocus);
         } catch (_) {}
+
+        // Dismissing the keyboard by tapping outside does not go through our
+        // toggle/hide path; clear native attachment state so the overflow icon
+        // returns to + when the panel is no longer on screen.
+        if (!hasFocus &&
+            !kIsWeb &&
+            Platform.isIOS &&
+            _isNativeAttachmentPanelVisible) {
+          unawaited(_hideNativeKeyboardAttachmentPanel());
+        }
 
         // If focus was lost within 500ms of the last text edit, the user was
         // actively typing and the loss was likely caused by a widget tree
@@ -327,31 +337,24 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     if (!mounted || _isDeactivated) return;
 
     switch (id) {
-      case 'file':
+      case ComposerOverflowActionIds.file:
         widget.onFileAttachment?.call();
-      case 'serverFile':
+        return;
+      case ComposerOverflowActionIds.serverFile:
         widget.onServerFileAttachment?.call();
-      case 'photo':
+        return;
+      case ComposerOverflowActionIds.photo:
         widget.onImageAttachment?.call();
-      case 'camera':
+        return;
+      case ComposerOverflowActionIds.camera:
         widget.onCameraCapture?.call();
-      case 'web':
+        return;
+      case ComposerOverflowActionIds.web:
         widget.onWebAttachment?.call();
-      case 'webSearch':
-        final notifier = ref.read(webSearchEnabledProvider.notifier);
-        notifier.set(!ref.read(webSearchEnabledProvider));
-      case 'imageGeneration':
-        final notifier = ref.read(imageGenerationEnabledProvider.notifier);
-        notifier.set(!ref.read(imageGenerationEnabledProvider));
-      case String id when id.startsWith('tool:'):
-        final toolId = id.substring('tool:'.length);
-        final current = List<String>.from(ref.read(selectedToolIdsProvider));
-        if (current.contains(toolId)) {
-          current.remove(toolId);
-        } else {
-          current.add(toolId);
-        }
-        ref.read(selectedToolIdsProvider.notifier).set(current);
+        return;
+      default:
+        toggleComposerOverflowSelection(ref, id);
+        return;
     }
   }
 
@@ -1673,6 +1676,16 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     );
   }
 
+  ComposerOverflowAttachmentAvailability get _overflowAttachmentAvailability {
+    return ComposerOverflowAttachmentAvailability(
+      file: widget.onFileAttachment != null,
+      serverFile: widget.onServerFileAttachment != null,
+      photo: widget.onImageAttachment != null,
+      camera: widget.onCameraCapture != null,
+      web: widget.onWebAttachment != null,
+    );
+  }
+
   List<IosKeyboardAttachmentActionConfig> _nativeKeyboardAttachmentActions({
     required AppLocalizations l10n,
     required bool webSearchAvailable,
@@ -1686,121 +1699,77 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       return const <IosKeyboardAttachmentActionConfig>[];
     }
 
-    return <IosKeyboardAttachmentActionConfig>[
-      IosKeyboardAttachmentActionConfig(
-        id: 'file',
-        label: l10n.file,
-        sfSymbol: 'doc',
-        section: 'attachments',
-        enabled: widget.onFileAttachment != null,
-      ),
-      IosKeyboardAttachmentActionConfig(
-        id: 'serverFile',
-        label: l10n.files,
-        sfSymbol: 'folder',
-        section: 'attachments',
-        enabled: widget.onServerFileAttachment != null,
-      ),
-      IosKeyboardAttachmentActionConfig(
-        id: 'photo',
-        label: l10n.photo,
-        sfSymbol: 'photo',
-        section: 'attachments',
-        enabled: widget.onImageAttachment != null,
-      ),
-      IosKeyboardAttachmentActionConfig(
-        id: 'camera',
-        label: l10n.camera,
-        sfSymbol: 'camera',
-        section: 'attachments',
-        enabled: widget.onCameraCapture != null,
-      ),
-      IosKeyboardAttachmentActionConfig(
-        id: 'web',
-        label: l10n.webPage,
-        sfSymbol: 'globe',
-        section: 'attachments',
-        enabled: widget.onWebAttachment != null,
-      ),
-      if (webSearchAvailable)
-        IosKeyboardAttachmentActionConfig(
-          id: 'webSearch',
-          label: l10n.webSearch,
-          sfSymbol: 'magnifyingglass',
-          section: 'features',
-          selected: webSearchEnabled,
-          dismissesKeyboard: false,
-        ),
-      if (imageGenerationAvailable)
-        IosKeyboardAttachmentActionConfig(
-          id: 'imageGeneration',
-          label: l10n.imageGeneration,
-          sfSymbol: 'sparkles',
-          section: 'features',
-          selected: imageGenerationEnabled,
-          dismissesKeyboard: false,
-        ),
-      for (final tool in availableTools)
-        IosKeyboardAttachmentActionConfig(
-          id: 'tool:${tool.id}',
-          label: tool.name,
-          sfSymbol: _sfSymbolForNativeTool(tool),
-          section: 'tools',
-          selected: selectedToolIds.contains(tool.id),
-          dismissesKeyboard: false,
-        ),
-    ];
+    return buildComposerOverflowItems(
+      l10n: l10n,
+      attachmentAvailability: _overflowAttachmentAvailability,
+      webSearchAvailable: webSearchAvailable,
+      webSearchEnabled: webSearchEnabled,
+      imageGenerationAvailable: imageGenerationAvailable,
+      imageGenerationEnabled: imageGenerationEnabled,
+      availableTools: availableTools,
+      selectedToolIds: selectedToolIds,
+    ).map(_nativeKeyboardAttachmentActionFromItem).toList(growable: false);
   }
 
-  String _sfSymbolForNativeTool(Tool tool) {
-    final name = tool.name.toLowerCase();
-    if (name.contains('image') || name.contains('vision')) {
-      return 'photo';
-    }
-    if (name.contains('code') || name.contains('python')) {
-      return 'chevron.left.forwardslash.chevron.right';
-    }
-    if (name.contains('calculator') || name.contains('math')) {
-      return 'function';
-    }
-    if (name.contains('file') || name.contains('document')) {
-      return 'doc';
-    }
-    if (name.contains('api') || name.contains('request')) {
-      return 'cloud';
-    }
-    if (name.contains('search')) {
-      return 'magnifyingglass';
-    }
-    return 'square.grid.2x2';
-  }
-
-  void _configureNativeKeyboardAttachmentPanel(
-    List<IosKeyboardAttachmentActionConfig> actions,
+  IosKeyboardAttachmentActionConfig _nativeKeyboardAttachmentActionFromItem(
+    ComposerOverflowItem item,
   ) {
-    if (actions.isEmpty) return;
+    return IosKeyboardAttachmentActionConfig(
+      id: item.id,
+      label: item.label,
+      subtitle: item.subtitle,
+      sfSymbol: item.sfSymbol,
+      section: item.section.nativeValue,
+      enabled: item.enabled,
+      selected: item.selected,
+      dismissesKeyboard: item.dismissesKeyboard,
+    );
+  }
 
-    final signature = actions
-        .map(
-          (action) => [
-            action.id,
-            action.label,
-            action.subtitle,
-            action.sfSymbol,
-            action.section,
-            action.enabled,
-            action.selected,
-            action.dismissesKeyboard,
-          ].join('\u001f'),
-        )
-        .join('\u001e');
+  List<IosKeyboardAttachmentActionConfig>
+  _currentNativeKeyboardAttachmentActions({required AppLocalizations l10n}) {
+    final availableTools = ref
+        .read(toolsListProvider)
+        .maybeWhen<List<Tool>>(
+          data: (tools) => tools,
+          orElse: () => const <Tool>[],
+        );
 
-    if (_lastNativeAttachmentSignature == signature) {
+    return _nativeKeyboardAttachmentActions(
+      l10n: l10n,
+      webSearchAvailable: ref.read(webSearchAvailableProvider),
+      webSearchEnabled: ref.read(webSearchEnabledProvider),
+      imageGenerationAvailable: ref.read(imageGenerationAvailableProvider),
+      imageGenerationEnabled: ref.read(imageGenerationEnabledProvider),
+      availableTools: availableTools,
+      selectedToolIds: ref.read(selectedToolIdsProvider),
+    );
+  }
+
+  void _scheduleNativeKeyboardAttachmentSync() {
+    if (kIsWeb || !Platform.isIOS || !_isNativeAttachmentPanelVisible) {
       return;
     }
-    _lastNativeAttachmentSignature = signature;
 
-    unawaited(IosKeyboardAttachmentBridge.instance.configure(actions: actions));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _isDeactivated || !_isNativeAttachmentPanelVisible) {
+        return;
+      }
+
+      final l10n = AppLocalizations.of(context);
+      if (l10n == null) {
+        return;
+      }
+
+      final actions = _currentNativeKeyboardAttachmentActions(l10n: l10n);
+      if (actions.isEmpty) {
+        return;
+      }
+
+      unawaited(
+        IosKeyboardAttachmentBridge.instance.configure(actions: actions),
+      );
+    });
   }
 
   Future<void> _handleOverflowButtonPressed(
@@ -1824,16 +1793,21 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     List<IosKeyboardAttachmentActionConfig> actions,
   ) async {
     if (!widget.enabled) return false;
+    final handled = await IosKeyboardAttachmentBridge.instance.toggle(
+      actions: actions,
+    );
+    if (!handled) {
+      return false;
+    }
 
-    try {
-      ref.read(composerAutofocusEnabledProvider.notifier).set(true);
-    } catch (_) {}
-    _ensureFocusedIfEnabled();
+    if (!_focusNode.hasFocus && !_isNativeAttachmentPanelVisible) {
+      try {
+        ref.read(composerAutofocusEnabledProvider.notifier).set(true);
+      } catch (_) {}
+      _ensureFocusedIfEnabled();
+    }
 
-    await Future<void>.delayed(const Duration(milliseconds: 40));
-    if (!mounted || _isDeactivated) return false;
-
-    return IosKeyboardAttachmentBridge.instance.toggle(actions: actions);
+    return true;
   }
 
   Future<void> _hideNativeKeyboardAttachmentPanel() async {
@@ -1867,6 +1841,24 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           ref.read(prefilledInputTextProvider.notifier).clear();
         } catch (_) {}
       });
+    });
+    ref.listen<bool>(webSearchAvailableProvider, (previous, next) {
+      _scheduleNativeKeyboardAttachmentSync();
+    });
+    ref.listen<bool>(webSearchEnabledProvider, (previous, next) {
+      _scheduleNativeKeyboardAttachmentSync();
+    });
+    ref.listen<bool>(imageGenerationAvailableProvider, (previous, next) {
+      _scheduleNativeKeyboardAttachmentSync();
+    });
+    ref.listen<bool>(imageGenerationEnabledProvider, (previous, next) {
+      _scheduleNativeKeyboardAttachmentSync();
+    });
+    ref.listen<List<String>>(selectedToolIdsProvider, (previous, next) {
+      _scheduleNativeKeyboardAttachmentSync();
+    });
+    ref.listen<AsyncValue<List<Tool>>>(toolsListProvider, (previous, next) {
+      _scheduleNativeKeyboardAttachmentSync();
     });
 
     // Use dedicated streaming provider to avoid rebuilding on every message change
@@ -1942,7 +1934,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       availableTools: availableTools,
       selectedToolIds: selectedToolIds,
     );
-    _configureNativeKeyboardAttachmentPanel(nativeAttachmentActions);
 
     final focusTick = ref.watch(inputFocusTriggerProvider);
     final autofocusEnabled = ref.watch(composerAutofocusEnabledProvider);
@@ -2651,8 +2642,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final bool nativePanelVisible =
         !kIsWeb && Platform.isIOS && _isNativeAttachmentPanelVisible;
 
-    if (nativePanelVisible ||
-        webSearchActive ||
+    // Native attachment panel uses an X to dismiss; keep it neutral like the idle
+    // + control, not the same primary-filled treatment as feature/tool "active" states.
+    if (webSearchActive ||
         imageGenerationActive ||
         toolsActive ||
         terminalActive ||
@@ -2661,12 +2653,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     }
 
     final bool isActive = activeColor != null;
+    final theme = context.conduitTheme;
 
     final Color iconColor = !enabled
-        ? context.conduitTheme.textPrimary.withValues(alpha: Alpha.disabled)
+        ? theme.textPrimary.withValues(alpha: Alpha.disabled)
+        : nativePanelVisible
+        ? theme.textPrimary.withValues(alpha: Alpha.strong)
         : isActive
-        ? context.conduitTheme.buttonPrimaryText
-        : context.conduitTheme.textPrimary.withValues(alpha: Alpha.strong);
+        ? theme.buttonPrimaryText
+        : theme.textPrimary.withValues(alpha: Alpha.strong);
 
     final IconData overflowIcon;
     if (nativePanelVisible) {
@@ -2698,7 +2693,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               }
             : null,
         size: buttonSize,
-        isProminent: isActive,
+        isProminent: isActive && !nativePanelVisible,
+        color: nativePanelVisible ? theme.surfaceContainerHighest : null,
         child: Icon(overflowIcon, size: IconSize.large, color: iconColor),
       ),
     );
