@@ -2185,7 +2185,7 @@ private final class NativeSheetMultilineTextTableViewCell: UITableViewCell, UITe
     private let stack = UIStackView()
     private let captionLabel = UILabel()
     private let textView = UITextView()
-    private var onCommit: ((String) -> Void)?
+    private var onChange: ((String) -> Void)?
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -2223,19 +2223,23 @@ private final class NativeSheetMultilineTextTableViewCell: UITableViewCell, UITe
 
     override func prepareForReuse() {
         super.prepareForReuse()
-        onCommit = nil
+        onChange = nil
         textView.text = ""
     }
 
-    func configure(item: NativeSheetItem, onEndEditing: @escaping (String) -> Void) {
+    func configure(
+        item: NativeSheetItem,
+        value: String,
+        onTextChanged: @escaping (String) -> Void
+    ) {
         captionLabel.text = item.title
-        textView.text = item.value as? String ?? ""
+        textView.text = value
         textView.accessibilityLabel = item.title
-        onCommit = onEndEditing
+        onChange = onTextChanged
     }
 
-    func textViewDidEndEditing(_ textView: UITextView) {
-        onCommit?(textView.text ?? "")
+    func textViewDidChange(_ textView: UITextView) {
+        onChange?(textView.text ?? "")
     }
 }
 
@@ -2402,6 +2406,8 @@ private final class NativeDetailTableViewController: UITableViewController {
     private let onSelect: (NativeSheetItem) -> Void
     private let onControlChanged: (NativeSheetItem, Any?) -> Void
     private let onClose: () -> Void
+    private var pendingTextValues: [String: String] = [:]
+    private var committedTextValues: [String: String] = [:]
 
     var detailId: String { detail.id }
 
@@ -2438,8 +2444,11 @@ private final class NativeDetailTableViewController: UITableViewController {
 
     func applyUpdatedDetail(_ newDetail: NativeSheetDetail) {
         detail = newDetail
+        pendingTextValues.removeAll()
+        committedTextValues.removeAll()
         title = newDetail.title
         navigationItem.title = newDetail.title
+        refreshNavigationAction()
         tableView.reloadData()
     }
 
@@ -2452,7 +2461,7 @@ private final class NativeDetailTableViewController: UITableViewController {
         super.viewDidLoad()
         title = detail.title
         navigationItem.largeTitleDisplayMode = .never
-        navigationItem.rightBarButtonItem = closeButton()
+        refreshNavigationAction()
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "cell")
         tableView.register(
             NativeSheetSegmentTableViewCell.self,
@@ -2541,8 +2550,8 @@ private final class NativeDetailTableViewController: UITableViewController {
                 withIdentifier: NativeSheetMultilineTextTableViewCell.reuseId,
                 for: indexPath
             ) as! NativeSheetMultilineTextTableViewCell
-            cell.configure(item: item) { [weak self] text in
-                self?.onControlChanged(item, text)
+            cell.configure(item: item, value: currentTextValue(for: item)) { [weak self] text in
+                self?.trackTextValueChanged(for: item, value: text)
             }
             return cell
         case "readOnlyText":
@@ -2583,6 +2592,7 @@ private final class NativeDetailTableViewController: UITableViewController {
              "multilineTextField", "slider", "readOnlyText":
             break
         default:
+            commitPendingTextChanges()
             onSelect(item)
         }
     }
@@ -2609,7 +2619,7 @@ private final class NativeDetailTableViewController: UITableViewController {
         case "textField", "secureTextField":
             configureNavigationCell(cell, item: item, showsDisclosure: false)
             let field = UITextField(frame: CGRect(x: 0, y: 0, width: 220, height: 36))
-            field.text = item.value as? String
+            field.text = currentTextValue(for: item)
             field.placeholder = item.placeholder
             field.textAlignment = .right
             field.font = .preferredFont(forTextStyle: .body)
@@ -2621,15 +2631,15 @@ private final class NativeDetailTableViewController: UITableViewController {
             field.autocorrectionType = item.kind == "secureTextField" ? .no : .yes
             field.autocapitalizationType = item.kind == "secureTextField" ? .none : .sentences
             field.addAction(UIAction { [weak self, weak field] _ in
-                self?.onControlChanged(item, field?.text ?? "")
+                self?.trackTextValueChanged(for: item, value: field?.text ?? "")
+            }, for: .editingChanged)
+            field.addAction(UIAction { [weak self, weak field] _ in
+                self?.trackTextValueChanged(for: item, value: field?.text ?? "")
             }, for: .editingDidEnd)
-            if item.kind == "textField" {
-                field.addAction(UIAction { [weak self, weak field] _ in
-                    self?.onControlChanged(item, field?.text ?? "")
-                }, for: .editingChanged)
-            }
-            field.addAction(UIAction { [weak field] _ in
+            field.addAction(UIAction { [weak self, weak field] _ in
+                self?.trackTextValueChanged(for: item, value: field?.text ?? "")
                 field?.resignFirstResponder()
+                self?.confirmPendingTextChanges()
             }, for: .primaryActionTriggered)
             cell.accessoryView = field
             cell.selectionStyle = .none
@@ -2661,6 +2671,86 @@ private final class NativeDetailTableViewController: UITableViewController {
             systemItem: .close,
             primaryAction: UIAction { [weak self] _ in self?.onClose() }
         )
+    }
+
+    private func refreshNavigationAction() {
+        if pendingTextValues.isEmpty {
+            navigationItem.rightBarButtonItem = closeButton()
+            return
+        }
+
+        let confirmButton = UIBarButtonItem(
+            image: UIImage(systemName: "checkmark"),
+            primaryAction: UIAction { [weak self] _ in
+                self?.confirmPendingTextChanges()
+            }
+        )
+        confirmButton.style = .done
+        confirmButton.accessibilityLabel = "Save changes"
+        navigationItem.rightBarButtonItem = confirmButton
+    }
+
+    private func currentTextValue(for item: NativeSheetItem) -> String {
+        pendingTextValues[item.id]
+            ?? committedTextValues[item.id]
+            ?? (item.value as? String)
+            ?? ""
+    }
+
+    private func baselineTextValue(for item: NativeSheetItem) -> String {
+        committedTextValues[item.id]
+            ?? (item.value as? String)
+            ?? ""
+    }
+
+    private func trackTextValueChanged(for item: NativeSheetItem, value: String) {
+        guard item.kind == "textField"
+            || item.kind == "secureTextField"
+            || item.kind == "multilineTextField"
+        else {
+            return
+        }
+
+        if value == baselineTextValue(for: item) {
+            pendingTextValues.removeValue(forKey: item.id)
+        } else {
+            pendingTextValues[item.id] = value
+        }
+        refreshNavigationAction()
+    }
+
+    @discardableResult
+    private func commitPendingTextChanges() -> Bool {
+        guard !pendingTextValues.isEmpty else { return false }
+
+        view.endEditing(true)
+        let changes = pendingTextValues
+        pendingTextValues.removeAll()
+
+        for (id, value) in changes {
+            guard let item = detail.items.first(where: { $0.id == id }) else { continue }
+            committedTextValues[id] = value
+            onControlChanged(item, value)
+        }
+        refreshNavigationAction()
+        return true
+    }
+
+    private func confirmPendingTextChanges() {
+        guard commitPendingTextChanges() else { return }
+        if let actionItem = textChangeConfirmationActionItem() {
+            onSelect(actionItem)
+        }
+    }
+
+    private func textChangeConfirmationActionItem() -> NativeSheetItem? {
+        mainItems.first { item in
+            item.kind == "navigation"
+                && !item.destructive
+                && item.url == nil
+                && !canNavigate(item)
+                && item.sfSymbol.contains("checkmark")
+        }
     }
 }
 
