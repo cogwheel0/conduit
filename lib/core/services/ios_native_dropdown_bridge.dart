@@ -31,6 +31,7 @@ class IosNativeDropdownBridge {
     required List<IosNativeDropdownOption> options,
     String? title,
     String? message,
+    String? cancelLabel,
     Rect? sourceRect,
     bool rethrowErrors = false,
   }) async {
@@ -39,6 +40,7 @@ class IosNativeDropdownBridge {
       return await _iosNativeDropdownChannel.invokeMethod<String>('show', {
         'title': title,
         'message': message,
+        'cancelLabel': cancelLabel,
         'options': options.map((option) => option.toMap()).toList(),
         if (sourceRect != null) 'sourceRect': _rectToMap(sourceRect),
       });
@@ -68,11 +70,13 @@ class IosNativeDropdownBridge {
     required List<IosNativeDropdownOption> options,
     String? title,
     String? message,
+    String? cancelLabel,
     bool rethrowErrors = false,
   }) {
     return show(
       title: title,
       message: message,
+      cancelLabel: cancelLabel,
       options: options,
       sourceRect: _globalRectForContext(context),
       rethrowErrors: rethrowErrors,

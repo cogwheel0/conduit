@@ -157,6 +157,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
         title: l10n.profileDetails,
         saveLabel: l10n.saveProfile,
         cancelLabel: l10n.cancel,
+        okLabel: l10n.ok,
         footerText: l10n.accountSettingsSubtitle,
         nameLabel: l10n.name,
         nameRequiredMessage: l10n.nameRequired,

@@ -31,6 +31,7 @@ private struct NativeDropdownOption {
 private struct NativeDropdownConfiguration {
     let title: String?
     let message: String?
+    let cancelLabel: String
     let options: [NativeDropdownOption]
     let sourceRect: CGRect?
 
@@ -47,6 +48,7 @@ private struct NativeDropdownConfiguration {
 
         title = payload["title"] as? String
         message = payload["message"] as? String
+        cancelLabel = (payload["cancelLabel"] as? String) ?? "Cancel"
 
         if let rect = payload["sourceRect"] as? [String: Any],
            let x = rect["x"] as? NSNumber,
@@ -145,7 +147,7 @@ final class NativeDropdownBridge {
         }
 
         controller.addAction(
-            UIAlertAction(title: "Cancel", style: .cancel) { _ in
+            UIAlertAction(title: configuration.cancelLabel, style: .cancel) { _ in
                 result(nil)
             }
         )
@@ -153,7 +155,7 @@ final class NativeDropdownBridge {
         if let popover = controller.popoverPresentationController {
             popover.sourceView = presenter.view
             if let sourceRect = configuration.sourceRect {
-                popover.sourceRect = sourceRect
+                popover.sourceRect = presenter.view.convert(sourceRect, from: nil)
             } else {
                 popover.sourceRect = CGRect(
                     x: presenter.view.bounds.midX,

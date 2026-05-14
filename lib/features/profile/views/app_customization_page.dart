@@ -698,6 +698,9 @@ class AppCustomizationPage extends ConsumerWidget {
             title: title,
             subtitle: description,
             confirmActionId: readOnly ? null : 'save',
+            confirmActionLabel: readOnly
+                ? null
+                : AppLocalizations.of(context)!.save,
             items: [
               NativeSheetItemConfig(
                 id: 'server-prompt-value',
@@ -2044,6 +2047,7 @@ class AppCustomizationPage extends ConsumerWidget {
         return await IosNativeDropdownBridge.instance.showFromContext(
           context: context,
           title: l10n.appLanguage,
+          cancelLabel: l10n.cancel,
           options: [
             for (final option in options)
               IosNativeDropdownOption(

@@ -54,6 +54,14 @@ Future<void> _showNativeChatShareSheet({
     )?.showSnackBar(SnackBar(content: Text(message)));
   }
 
+  Rect? shareOriginForContext() {
+    final renderObject = context.findRenderObject();
+    if (renderObject is! RenderBox || !renderObject.hasSize) {
+      return null;
+    }
+    return renderObject.localToGlobal(Offset.zero) & renderObject.size;
+  }
+
   Future<String> ensureShareUrl() async {
     final api = container.read(apiServiceProvider);
     if (api == null) {
@@ -95,7 +103,9 @@ Future<void> _showNativeChatShareSheet({
   Future<void> shareLink() async {
     try {
       final url = await ensureShareUrl();
-      await SharePlus.instance.share(ShareParams(text: url));
+      await SharePlus.instance.share(
+        ShareParams(text: url, sharePositionOrigin: shareOriginForContext()),
+      );
     } catch (_) {
       showMessage(l10n.chatShareFailed);
     }
@@ -141,13 +151,11 @@ Future<void> _showNativeChatShareSheet({
         NativeSheetItemConfig(
           id: 'copy-link',
           title: hasExistingShare ? l10n.updateAndCopyLink : l10n.copyLink,
-          subtitle: l10n.sharedChatCopied,
           sfSymbol: 'doc.on.doc',
         ),
         NativeSheetItemConfig(
           id: 'share-link',
           title: l10n.shareSystemSheet,
-          subtitle: l10n.shareChatDescription,
           sfSymbol: 'square.and.arrow.up',
         ),
         if (hasExistingShare)

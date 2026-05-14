@@ -730,6 +730,7 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
             .showFromContext(
               context: anchorContext,
               title: l10n.genderLabel,
+              cancelLabel: l10n.cancel,
               options: [
                 for (final option in options)
                   IosNativeDropdownOption(

@@ -19,6 +19,7 @@ private struct NativeEditProfileSheetCopy {
     let title: String
     let saveLabel: String
     let cancelLabel: String
+    let okLabel: String
     let footerText: String
     let nameLabel: String
     let nameRequiredMessage: String
@@ -45,6 +46,7 @@ private struct NativeEditProfileSheetCopy {
         title = (p["title"] as? String) ?? "Edit profile"
         saveLabel = (p["saveLabel"] as? String) ?? "Save profile"
         cancelLabel = (p["cancelLabel"] as? String) ?? "Cancel"
+        okLabel = (p["okLabel"] as? String) ?? "OK"
         footerText = (p["footerText"] as? String) ?? ""
         nameLabel = (p["nameLabel"] as? String) ?? "Name"
         nameRequiredMessage = (p["nameRequiredMessage"] as? String) ?? ""
@@ -395,19 +397,22 @@ private struct NativeSheetDetail {
     let subtitle: String?
     let items: [NativeSheetItem]
     let confirmActionId: String?
+    let confirmActionLabel: String?
 
     init(
         id: String,
         title: String,
         subtitle: String?,
         items: [NativeSheetItem],
-        confirmActionId: String? = nil
+        confirmActionId: String? = nil,
+        confirmActionLabel: String? = nil
     ) {
         self.id = id
         self.title = title
         self.subtitle = subtitle
         self.items = items
         self.confirmActionId = confirmActionId
+        self.confirmActionLabel = confirmActionLabel
     }
 
     init?(_ payload: [String: Any]) {
@@ -424,6 +429,7 @@ private struct NativeSheetDetail {
         self.title = title
         subtitle = payload["subtitle"] as? String
         confirmActionId = payload["confirmActionId"] as? String
+        confirmActionLabel = payload["confirmActionLabel"] as? String
         items = (payload["items"] as? [[String: Any]] ?? [])
             .compactMap(NativeSheetItem.init)
     }
@@ -650,7 +656,8 @@ final class NativeSheetBridge {
                 title: args["title"] as? String ?? existing.title,
                 subtitle: args["subtitle"] as? String ?? existing.subtitle,
                 items: items,
-                confirmActionId: existing.confirmActionId
+                confirmActionId: existing.confirmActionId,
+                confirmActionLabel: existing.confirmActionLabel
             )
             detailPayloads[detailId] = patched
             if activeDetailTableController?.detailId == detailId {
@@ -673,7 +680,7 @@ final class NativeSheetBridge {
             onClose: { [weak self] in self?.dismissActive() }
         )
         let navigation = NativeSheetNavigationController(rootViewController: controller)
-        return present(navigation)
+        return present(navigation, initialDetent: .large)
     }
 
     private func presentResultSheet(
@@ -698,7 +705,7 @@ final class NativeSheetBridge {
         let navigation = NativeSheetNavigationController(
             rootViewController: makeDetailController(detail: configuration.root)
         )
-        if !present(navigation) {
+        if !present(navigation, initialDetent: .large) {
             let pending = pendingResultSheetResult
             pendingResultSheetResult = nil
             resultSheetValues = [:]
@@ -739,12 +746,13 @@ final class NativeSheetBridge {
         }
 
         let navigation = NativeSheetNavigationController(rootViewController: controller)
-        _ = present(navigation)
+        _ = present(navigation, initialDetent: .large)
     }
 
     private func closeActiveSheet() {
         if activeSheetMode == .resultSheet {
-            resolvePendingResultSheet(nil)
+            resolvePendingResultSheetAfterDismiss(nil)
+            return
         }
         dismissActive()
     }
@@ -782,11 +790,10 @@ final class NativeSheetBridge {
                 arguments: ["id": actionId, "value": true]
             )
         case .resultSheet:
-            resolvePendingResultSheet([
+            resolvePendingResultSheetAfterDismiss([
                 "actionId": actionId,
                 "values": resultSheetValues
             ])
-            dismissActive()
         }
     }
 
@@ -836,11 +843,10 @@ final class NativeSheetBridge {
             return
         }
 
-        resolvePendingResultSheet([
+        resolvePendingResultSheetAfterDismiss([
             "actionId": item.id,
             "values": resultSheetValues
         ])
-        dismissActive()
     }
 
     private func resolvePendingResultSheet(_ payload: Any?) {
@@ -848,6 +854,34 @@ final class NativeSheetBridge {
             pendingResultSheetResult = nil
             pending(payload)
         }
+    }
+
+    private func resolvePendingResultSheetAfterDismiss(_ payload: Any?) {
+        guard let pending = pendingResultSheetResult else {
+            dismissActive()
+            return
+        }
+
+        pendingResultSheetResult = nil
+        flushActiveSheetEditing()
+
+        let controller = activeController
+        let completion = { [weak self] in
+            pending(payload)
+            self?.activeController = nil
+            self?.presentationDelegate = nil
+            self?.activeDetailTableController = nil
+            self?.detailPayloads = [:]
+            self?.resultSheetValues = [:]
+            self?.activeSheetMode = .profileMenu
+        }
+
+        guard let controller else {
+            completion()
+            return
+        }
+
+        controller.dismiss(animated: true, completion: completion)
     }
 
     private func presentEditProfileOverlay() {
@@ -863,11 +897,14 @@ final class NativeSheetBridge {
         )
         let navigation = NativeSheetNavigationController(rootViewController: overlay)
         navigation.modalPresentationStyle = .pageSheet
-        applySheetStyle(to: navigation)
+        applySheetStyle(to: navigation, initialDetent: .large)
         presenter.present(navigation, animated: true)
     }
 
-    private func present(_ controller: UIViewController) -> Bool {
+    private func present(
+        _ controller: UIViewController,
+        initialDetent: UISheetPresentationController.Detent.Identifier? = nil
+    ) -> Bool {
         guard let presenter = topViewController() else { return false }
         activeController = controller
         presentationDelegate = NativeSheetPresentationDelegate(
@@ -902,7 +939,7 @@ final class NativeSheetBridge {
 
         controller.modalPresentationStyle = .pageSheet
         controller.presentationController?.delegate = presentationDelegate
-        applySheetStyle(to: controller)
+        applySheetStyle(to: controller, initialDetent: initialDetent)
         presenter.present(controller, animated: true)
         return true
     }
@@ -947,7 +984,7 @@ final class NativeSheetBridge {
         )
         let navigation = NativeSheetNavigationController(rootViewController: controller)
 
-        if !present(navigation) {
+        if !present(navigation, initialDetent: .large) {
             pendingModelSelectorResult = nil
             activeSheetMode = .profileMenu
             result(FlutterError(
@@ -997,7 +1034,7 @@ final class NativeSheetBridge {
             }
         )
         let navigation = NativeSheetNavigationController(rootViewController: controller)
-        if !present(navigation) {
+        if !present(navigation, initialDetent: .large) {
             pendingOptionsSelectorResult = nil
             activeSheetMode = .profileMenu
             result(FlutterError(
@@ -1025,7 +1062,7 @@ final class NativeSheetBridge {
             }
         )
         let navigation = NativeSheetNavigationController(rootViewController: controller)
-        if !present(navigation) {
+        if !present(navigation, initialDetent: .large) {
             activeSheetMode = .profileMenu
             result(FlutterError(
                 code: "PRESENTATION_FAILED",
@@ -1035,9 +1072,15 @@ final class NativeSheetBridge {
         }
     }
 
-    private func applySheetStyle(to controller: UIViewController) {
+    private func applySheetStyle(
+        to controller: UIViewController,
+        initialDetent: UISheetPresentationController.Detent.Identifier? = nil
+    ) {
         guard let sheet = controller.sheetPresentationController else { return }
         sheet.detents = [.medium(), .large()]
+        if let initialDetent = initialDetent {
+            sheet.selectedDetentIdentifier = initialDetent
+        }
         sheet.prefersGrabberVisible = true
         sheet.prefersScrollingExpandsWhenScrolledToEdge = true
         sheet.prefersEdgeAttachedInCompactHeight = true
@@ -1092,11 +1135,10 @@ final class NativeSheetBridge {
                     arguments: ["id": item.id, "value": true]
                 )
             case .resultSheet:
-                resolvePendingResultSheet([
+                resolvePendingResultSheetAfterDismiss([
                     "actionId": item.id,
                     "values": resultSheetValues
                 ])
-                dismissActive()
             }
             return
         }
@@ -1106,7 +1148,8 @@ final class NativeSheetBridge {
             message: item.subtitle,
             preferredStyle: .alert
         )
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        let cancelTitle = configuration?.editProfileSheet.cancelLabel ?? "Cancel"
+        alert.addAction(UIAlertAction(title: cancelTitle, style: .cancel))
         alert.addAction(UIAlertAction(title: item.title, style: .destructive) { [weak self] _ in
             guard let self else { return }
             switch self.activeSheetMode {
@@ -1116,11 +1159,10 @@ final class NativeSheetBridge {
                     arguments: ["id": item.id, "value": true]
                 )
             case .resultSheet:
-                self.resolvePendingResultSheet([
+                self.resolvePendingResultSheetAfterDismiss([
                     "actionId": item.id,
                     "values": self.resultSheetValues
                 ])
-                self.dismissActive()
             }
         })
         presenter.present(alert, animated: true)
@@ -1367,6 +1409,7 @@ private final class NativeEditProfileSheetViewController: UIViewController, PHPi
         customGenderField.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 16, height: 44))
         customGenderField.leftViewMode = .always
         customGenderField.font = .preferredFont(forTextStyle: .body)
+        customGenderField.adjustsFontForContentSizeCategory = true
 
         let avatarCaption = UILabel()
         avatarCaption.text = copy.currentAvatarLabel
@@ -1431,6 +1474,7 @@ private final class NativeEditProfileSheetViewController: UIViewController, PHPi
         genderCfg.titleAlignment = .leading
         genderButton.configuration = genderCfg
         genderButton.contentHorizontalAlignment = .leading
+        genderButton.titleLabel?.adjustsFontForContentSizeCategory = true
         configureGenderControls()
 
         let genderStack = UIStackView(arrangedSubviews: [genderCaption, genderButton])
@@ -1472,6 +1516,14 @@ private final class NativeEditProfileSheetViewController: UIViewController, PHPi
         footer.textColor = .secondaryLabel
         footer.textAlignment = .center
         footer.numberOfLines = 0
+        [
+            avatarCaption,
+            bioCaption,
+            genderCaption,
+            customCaption,
+            birthCaption,
+            footer
+        ].forEach { $0.adjustsFontForContentSizeCategory = true }
 
         var saveCfg = UIButton.Configuration.filled()
         saveCfg.title = copy.saveLabel
@@ -1558,8 +1610,10 @@ private final class NativeEditProfileSheetViewController: UIViewController, PHPi
         cfg.cornerStyle = .medium
         let b = UIButton(configuration: cfg)
         b.titleLabel?.font = .preferredFont(forTextStyle: .caption1)
+        b.titleLabel?.adjustsFontForContentSizeCategory = true
         b.titleLabel?.numberOfLines = 2
         b.titleLabel?.textAlignment = .center
+        b.heightAnchor.constraint(greaterThanOrEqualToConstant: 52).isActive = true
         b.addAction(UIAction { _ in handler() }, for: .touchUpInside)
         return b
     }
@@ -1763,7 +1817,7 @@ private final class NativeEditProfileSheetViewController: UIViewController, PHPi
 
     private func presentValidationAlert(message: String) {
         let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        alert.addAction(UIAlertAction(title: copy.okLabel, style: .default))
         present(alert, animated: true)
     }
 }
@@ -1788,6 +1842,7 @@ private final class NativeSheetNavigationController: UINavigationController {
     override func viewDidLoad() {
         super.viewDidLoad()
         modalPresentationStyle = .pageSheet
+        navigationBar.prefersLargeTitles = false
     }
 }
 
@@ -1844,6 +1899,7 @@ private final class NativeProfileMenuTableViewController: UITableViewController 
         title = configuration.profileMenuTitle
         navigationItem.largeTitleDisplayMode = .never
         navigationItem.rightBarButtonItem = closeButton()
+        navigationController?.navigationBar.prefersLargeTitles = false
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "cell")
         NativeSheetSettingsStyle.apply(to: tableView)
         tableView.tableHeaderView = profileHeader()
@@ -1953,6 +2009,7 @@ private final class NativeProfileMenuTableViewController: UITableViewController 
         nameLabel.adjustsFontForContentSizeCategory = true
         nameLabel.textAlignment = .center
         nameLabel.textColor = .label
+        nameLabel.numberOfLines = 2
         stack.addArrangedSubview(nameLabel)
 
         let emailLabel = UILabel()
@@ -1961,6 +2018,7 @@ private final class NativeProfileMenuTableViewController: UITableViewController 
         emailLabel.adjustsFontForContentSizeCategory = true
         emailLabel.textAlignment = .center
         emailLabel.textColor = .secondaryLabel
+        emailLabel.numberOfLines = 2
         stack.addArrangedSubview(emailLabel)
 
         var editCfg = UIButton.Configuration.gray()
@@ -1969,8 +2027,10 @@ private final class NativeProfileMenuTableViewController: UITableViewController 
         editCfg.buttonSize = .small
         editCfg.baseForegroundColor = view.tintColor
         let editButton = UIButton(configuration: editCfg)
+        editButton.accessibilityLabel = configuration.editProfileLabel
         editButton.addAction(UIAction { [weak self] _ in self?.onEditProfile() }, for: .touchUpInside)
         stack.addArrangedSubview(editButton)
+        editButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
 
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
@@ -2027,9 +2087,11 @@ private final class NativeSheetSegmentTableViewCell: UITableViewCell {
         stack.spacing = 8
         stack.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.font = .preferredFont(forTextStyle: .body)
+        titleLabel.adjustsFontForContentSizeCategory = true
         titleLabel.numberOfLines = 0
         subtitleLabel.font = .preferredFont(forTextStyle: .footnote)
         subtitleLabel.textColor = .secondaryLabel
+        subtitleLabel.adjustsFontForContentSizeCategory = true
         subtitleLabel.numberOfLines = 0
         segmentedControl.selectedSegmentTintColor = .tintColor
         contentView.addSubview(stack)
@@ -2088,7 +2150,8 @@ private final class NativeSheetSegmentTableViewCell: UITableViewCell {
 private final class NativeSheetDropdownTableViewCell: UITableViewCell {
     static let reuseId = "NativeSheetDropdownTableViewCell"
 
-    private let rowStack = UIStackView()
+    private let rootStack = UIStackView()
+    private let headerStack = UIStackView()
     private let iconView = UIImageView()
     private let textStack = UIStackView()
     private let titleLabel = UILabel()
@@ -2102,10 +2165,13 @@ private final class NativeSheetDropdownTableViewCell: UITableViewCell {
         selectionStyle = .none
         NativeSheetSettingsStyle.applyCellStyle(self)
 
-        rowStack.axis = .horizontal
-        rowStack.alignment = .center
-        rowStack.spacing = NativeSheetSettingsStyle.iconSpacing
-        rowStack.translatesAutoresizingMaskIntoConstraints = false
+        rootStack.axis = .vertical
+        rootStack.spacing = 8
+        rootStack.translatesAutoresizingMaskIntoConstraints = false
+
+        headerStack.axis = .horizontal
+        headerStack.alignment = .top
+        headerStack.spacing = NativeSheetSettingsStyle.iconSpacing
 
         textStack.axis = .vertical
         textStack.spacing = 2
@@ -2118,37 +2184,37 @@ private final class NativeSheetDropdownTableViewCell: UITableViewCell {
         titleLabel.font = .preferredFont(forTextStyle: .body)
         titleLabel.textColor = .label
         titleLabel.adjustsFontForContentSizeCategory = true
-        titleLabel.numberOfLines = 1
+        titleLabel.numberOfLines = 0
 
         subtitleLabel.font = .preferredFont(forTextStyle: .footnote)
         subtitleLabel.textColor = .secondaryLabel
         subtitleLabel.adjustsFontForContentSizeCategory = true
-        subtitleLabel.numberOfLines = 1
+        subtitleLabel.numberOfLines = 0
 
         button.titleLabel?.font = .preferredFont(forTextStyle: .body)
         button.titleLabel?.adjustsFontForContentSizeCategory = true
+        button.titleLabel?.numberOfLines = 2
         button.tintColor = .secondaryLabel
-        button.contentHorizontalAlignment = .trailing
+        button.contentHorizontalAlignment = .leading
         button.showsMenuAsPrimaryAction = true
         button.changesSelectionAsPrimaryAction = true
-        button.setContentCompressionResistancePriority(.required, for: .horizontal)
-        button.setContentHuggingPriority(.required, for: .horizontal)
 
-        contentView.addSubview(rowStack)
-        rowStack.addArrangedSubview(iconView)
-        rowStack.addArrangedSubview(textStack)
-        rowStack.addArrangedSubview(button)
+        contentView.addSubview(rootStack)
+        rootStack.addArrangedSubview(headerStack)
+        rootStack.addArrangedSubview(button)
+        headerStack.addArrangedSubview(iconView)
+        headerStack.addArrangedSubview(textStack)
         textStack.addArrangedSubview(titleLabel)
         textStack.addArrangedSubview(subtitleLabel)
 
         NSLayoutConstraint.activate([
-            rowStack.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
-            rowStack.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
-            rowStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 11),
-            rowStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -11),
+            rootStack.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
+            rootStack.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
+            rootStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 11),
+            rootStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -11),
             iconView.widthAnchor.constraint(equalToConstant: NativeSheetSettingsStyle.iconSize),
             iconView.heightAnchor.constraint(equalToConstant: NativeSheetSettingsStyle.iconSize),
-            button.widthAnchor.constraint(lessThanOrEqualToConstant: 180),
+            button.heightAnchor.constraint(greaterThanOrEqualToConstant: 36),
         ])
     }
 
@@ -2190,10 +2256,15 @@ private final class NativeSheetDropdownTableViewCell: UITableViewCell {
     }
 
     private func setSelectedTitle(_ title: String) {
-        var configuration = UIButton.Configuration.plain()
+        var configuration = UIButton.Configuration.gray()
         configuration.title = title
-        configuration.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 0)
-        configuration.baseForegroundColor = .secondaryLabel
+        configuration.image = UIImage(systemName: "chevron.up.chevron.down")
+        configuration.imagePlacement = .trailing
+        configuration.imagePadding = 6
+        configuration.titleLineBreakMode = .byTruncatingTail
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10)
+        configuration.baseForegroundColor = .label
+        configuration.cornerStyle = .medium
         button.configuration = configuration
     }
 
@@ -2225,6 +2296,7 @@ private final class NativeSheetMultilineTextTableViewCell: UITableViewCell, UITe
         stack.translatesAutoresizingMaskIntoConstraints = false
         captionLabel.font = .preferredFont(forTextStyle: .caption1)
         captionLabel.textColor = .secondaryLabel
+        captionLabel.adjustsFontForContentSizeCategory = true
         captionLabel.numberOfLines = 0
         textView.font = .preferredFont(forTextStyle: .body)
         textView.adjustsFontForContentSizeCategory = true
@@ -2272,6 +2344,108 @@ private final class NativeSheetMultilineTextTableViewCell: UITableViewCell, UITe
     }
 }
 
+private final class NativeSheetTextFieldTableViewCell: UITableViewCell {
+    static let reuseId = "NativeSheetTextFieldTableViewCell"
+
+    private let stack = UIStackView()
+    private let titleLabel = UILabel()
+    private let subtitleLabel = UILabel()
+    private let textField = UITextField()
+    private var onChange: ((String) -> Void)?
+    private var onDone: (() -> Void)?
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        selectionStyle = .none
+        NativeSheetSettingsStyle.applyCellStyle(self)
+
+        stack.axis = .vertical
+        stack.spacing = 8
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        titleLabel.font = .preferredFont(forTextStyle: .body)
+        titleLabel.textColor = .label
+        titleLabel.adjustsFontForContentSizeCategory = true
+        titleLabel.numberOfLines = 0
+
+        subtitleLabel.font = .preferredFont(forTextStyle: .footnote)
+        subtitleLabel.textColor = .secondaryLabel
+        subtitleLabel.adjustsFontForContentSizeCategory = true
+        subtitleLabel.numberOfLines = 0
+
+        textField.font = .preferredFont(forTextStyle: .body)
+        textField.adjustsFontForContentSizeCategory = true
+        textField.backgroundColor = .tertiarySystemFill
+        textField.layer.cornerRadius = 12
+        textField.layer.cornerCurve = .continuous
+        textField.clipsToBounds = true
+        textField.textColor = .label
+        textField.tintColor = .tintColor
+        textField.returnKeyType = .done
+        textField.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 12, height: 44))
+        textField.leftViewMode = .always
+        textField.rightView = UIView(frame: CGRect(x: 0, y: 0, width: 12, height: 44))
+        textField.rightViewMode = .always
+        textField.addAction(UIAction { [weak self] _ in
+            self?.onChange?(self?.textField.text ?? "")
+        }, for: .editingChanged)
+        textField.addAction(UIAction { [weak self] _ in
+            self?.onChange?(self?.textField.text ?? "")
+        }, for: .editingDidEnd)
+        textField.addAction(UIAction { [weak self] _ in
+            self?.onChange?(self?.textField.text ?? "")
+            self?.textField.resignFirstResponder()
+            self?.onDone?()
+        }, for: .primaryActionTriggered)
+
+        contentView.addSubview(stack)
+        stack.addArrangedSubview(titleLabel)
+        stack.addArrangedSubview(subtitleLabel)
+        stack.addArrangedSubview(textField)
+
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 11),
+            stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -11),
+            textField.heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        onChange = nil
+        onDone = nil
+        textField.text = ""
+        textField.placeholder = nil
+        textField.isSecureTextEntry = false
+    }
+
+    func configure(
+        item: NativeSheetItem,
+        value: String,
+        onTextChanged: @escaping (String) -> Void,
+        onReturn: @escaping () -> Void
+    ) {
+        titleLabel.text = item.title
+        subtitleLabel.text = item.subtitle
+        subtitleLabel.isHidden = item.subtitle?.isEmpty ?? true
+        textField.text = value
+        textField.placeholder = item.placeholder
+        textField.isSecureTextEntry = item.kind == "secureTextField"
+        textField.textContentType = item.kind == "secureTextField" ? .password : nil
+        textField.autocorrectionType = item.kind == "secureTextField" ? .no : .yes
+        textField.autocapitalizationType = item.kind == "secureTextField" ? .none : .sentences
+        textField.accessibilityLabel = item.title
+        onChange = onTextChanged
+        onDone = onReturn
+    }
+}
+
 private final class NativeSheetReadOnlyTextTableViewCell: UITableViewCell {
     static let reuseId = "NativeSheetReadOnlyTextTableViewCell"
 
@@ -2288,6 +2462,7 @@ private final class NativeSheetReadOnlyTextTableViewCell: UITableViewCell {
         stack.translatesAutoresizingMaskIntoConstraints = false
         captionLabel.font = .preferredFont(forTextStyle: .caption1)
         captionLabel.textColor = .secondaryLabel
+        captionLabel.adjustsFontForContentSizeCategory = true
         captionLabel.numberOfLines = 0
         textView.font = .preferredFont(forTextStyle: .body)
         textView.adjustsFontForContentSizeCategory = true
@@ -2337,11 +2512,14 @@ private final class NativeSheetSliderTableViewCell: UITableViewCell {
         stack.spacing = 8
         stack.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.font = .preferredFont(forTextStyle: .body)
+        titleLabel.adjustsFontForContentSizeCategory = true
         titleLabel.numberOfLines = 0
         subtitleLabel.font = .preferredFont(forTextStyle: .footnote)
         subtitleLabel.textColor = .secondaryLabel
+        subtitleLabel.adjustsFontForContentSizeCategory = true
         subtitleLabel.numberOfLines = 0
         valueLabel.font = .preferredFont(forTextStyle: .body)
+        valueLabel.adjustsFontForContentSizeCategory = true
         valueLabel.textAlignment = .natural
         valueLabel.textColor = .secondaryLabel
         slider.addTarget(self, action: #selector(sliderEditingChanged), for: .valueChanged)
@@ -2509,6 +2687,10 @@ private final class NativeDetailTableViewController: UITableViewController {
             forCellReuseIdentifier: NativeSheetMultilineTextTableViewCell.reuseId
         )
         tableView.register(
+            NativeSheetTextFieldTableViewCell.self,
+            forCellReuseIdentifier: NativeSheetTextFieldTableViewCell.reuseId
+        )
+        tableView.register(
             NativeSheetReadOnlyTextTableViewCell.self,
             forCellReuseIdentifier: NativeSheetReadOnlyTextTableViewCell.reuseId
         )
@@ -2587,6 +2769,22 @@ private final class NativeDetailTableViewController: UITableViewController {
                 self?.trackTextValueChanged(for: item, value: text)
             }
             return cell
+        case "textField", "secureTextField":
+            let cell = tableView.dequeueReusableCell(
+                withIdentifier: NativeSheetTextFieldTableViewCell.reuseId,
+                for: indexPath
+            ) as! NativeSheetTextFieldTableViewCell
+            cell.configure(
+                item: item,
+                value: currentTextValue(for: item),
+                onTextChanged: { [weak self] text in
+                    self?.trackTextValueChanged(for: item, value: text)
+                },
+                onReturn: { [weak self] in
+                    self?.confirmPendingTextChanges()
+                }
+            )
+            return cell
         case "readOnlyText":
             let cell = tableView.dequeueReusableCell(
                 withIdentifier: NativeSheetReadOnlyTextTableViewCell.reuseId,
@@ -2649,34 +2847,6 @@ private final class NativeDetailTableViewController: UITableViewController {
             configureNavigationCell(cell, item: item, showsDisclosure: false)
             cell.selectionStyle = .none
 
-        case "textField", "secureTextField":
-            configureNavigationCell(cell, item: item, showsDisclosure: false)
-            let field = UITextField(frame: CGRect(x: 0, y: 0, width: 220, height: 36))
-            field.text = currentTextValue(for: item)
-            field.placeholder = item.placeholder
-            field.textAlignment = .right
-            field.font = .preferredFont(forTextStyle: .body)
-            field.adjustsFontForContentSizeCategory = true
-            field.textColor = .secondaryLabel
-            field.tintColor = view.tintColor
-            field.isSecureTextEntry = item.kind == "secureTextField"
-            field.returnKeyType = .done
-            field.autocorrectionType = item.kind == "secureTextField" ? .no : .yes
-            field.autocapitalizationType = item.kind == "secureTextField" ? .none : .sentences
-            field.addAction(UIAction { [weak self, weak field] _ in
-                self?.trackTextValueChanged(for: item, value: field?.text ?? "")
-            }, for: .editingChanged)
-            field.addAction(UIAction { [weak self, weak field] _ in
-                self?.trackTextValueChanged(for: item, value: field?.text ?? "")
-            }, for: .editingDidEnd)
-            field.addAction(UIAction { [weak self, weak field] _ in
-                self?.trackTextValueChanged(for: item, value: field?.text ?? "")
-                field?.resignFirstResponder()
-                self?.confirmPendingTextChanges()
-            }, for: .primaryActionTriggered)
-            cell.accessoryView = field
-            cell.selectionStyle = .none
-
         case "toggle":
             configureNavigationCell(cell, item: item, showsDisclosure: false)
             let toggle = UISwitch()
@@ -2706,15 +2876,20 @@ private final class NativeDetailTableViewController: UITableViewController {
         )
     }
 
-    private func confirmButton(actionId: String) -> UIBarButtonItem {
-        let button = UIBarButtonItem(
-            image: UIImage(systemName: "checkmark"),
-            primaryAction: UIAction { [weak self] _ in
-                self?.confirmConfiguredAction(actionId)
-            }
-        )
+    private func confirmButton(actionId: String, label: String? = nil) -> UIBarButtonItem {
+        let trimmedLabel = label?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let action = UIAction { [weak self] _ in
+            self?.confirmConfiguredAction(actionId)
+        }
+        let button: UIBarButtonItem
+        if let trimmedLabel = trimmedLabel, !trimmedLabel.isEmpty {
+            button = UIBarButtonItem(title: trimmedLabel, primaryAction: action)
+        } else if actionId.localizedCaseInsensitiveContains("save") {
+            button = UIBarButtonItem(systemItem: .save, primaryAction: action)
+        } else {
+            button = UIBarButtonItem(systemItem: .done, primaryAction: action)
+        }
         button.style = .done
-        button.accessibilityLabel = "Save changes"
         return button
     }
 
@@ -2724,7 +2899,10 @@ private final class NativeDetailTableViewController: UITableViewController {
             if navigationController?.viewControllers.first === self {
                 navigationItem.leftBarButtonItem = closeButton()
             }
-            navigationItem.rightBarButtonItem = confirmButton(actionId: confirmActionId)
+            navigationItem.rightBarButtonItem = confirmButton(
+                actionId: confirmActionId,
+                label: detail.confirmActionLabel
+            )
             return
         }
 
@@ -3027,12 +3205,14 @@ private final class NativeModelSelectorTableViewCell: UITableViewCell {
         titleLabel.text = model.name
         titleLabel.font = .preferredFont(forTextStyle: .body)
         titleLabel.textColor = .label
+        titleLabel.adjustsFontForContentSizeCategory = true
         titleLabel.numberOfLines = 2
 
         let subtitle = model.subtitle?.isEmpty == false ? model.subtitle! : model.id
         subtitleLabel.text = subtitle
         subtitleLabel.font = .preferredFont(forTextStyle: .footnote)
         subtitleLabel.textColor = .secondaryLabel
+        subtitleLabel.adjustsFontForContentSizeCategory = true
         subtitleLabel.numberOfLines = 2
         subtitleLabel.isHidden = subtitle == nil
 
@@ -3155,6 +3335,8 @@ private final class NativeSheetOptionTableViewCell: UITableViewCell {
         iconView.contentMode = .scaleAspectFit
         titleLabel.font = .preferredFont(forTextStyle: .body)
         subtitleLabel.font = .preferredFont(forTextStyle: .footnote)
+        titleLabel.adjustsFontForContentSizeCategory = true
+        subtitleLabel.adjustsFontForContentSizeCategory = true
 
         textStack.axis = .vertical
         textStack.spacing = 2

@@ -487,6 +487,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
             .showFromContext(
               context: context,
               title: l10n.recordAudio,
+              cancelLabel: l10n.cancel,
               options: [
                 IosNativeDropdownOption(
                   id: 'dictation',

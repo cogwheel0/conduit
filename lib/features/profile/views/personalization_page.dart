@@ -479,6 +479,7 @@ class _PersonalizationPageState extends ConsumerState<PersonalizationPage> {
             title: title,
             subtitle: description,
             confirmActionId: 'save',
+            confirmActionLabel: AppLocalizations.of(context)!.save,
             items: [
               NativeSheetItemConfig(
                 id: 'text-editor-value',

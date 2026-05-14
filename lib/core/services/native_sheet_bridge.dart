@@ -349,6 +349,7 @@ class NativeEditProfileSheetConfig {
     required this.title,
     required this.saveLabel,
     required this.cancelLabel,
+    required this.okLabel,
     required this.footerText,
     required this.nameLabel,
     required this.nameRequiredMessage,
@@ -374,6 +375,7 @@ class NativeEditProfileSheetConfig {
   final String title;
   final String saveLabel;
   final String cancelLabel;
+  final String okLabel;
   final String footerText;
   final String nameLabel;
   final String nameRequiredMessage;
@@ -400,6 +402,7 @@ class NativeEditProfileSheetConfig {
       'title': title,
       'saveLabel': saveLabel,
       'cancelLabel': cancelLabel,
+      'okLabel': okLabel,
       'footerText': footerText,
       'nameLabel': nameLabel,
       'nameRequiredMessage': nameRequiredMessage,
@@ -476,6 +479,7 @@ class NativeSheetDetailConfig {
     required this.items,
     this.subtitle,
     this.confirmActionId,
+    this.confirmActionLabel,
   });
 
   final String id;
@@ -483,6 +487,7 @@ class NativeSheetDetailConfig {
   final String? subtitle;
   final List<NativeSheetItemConfig> items;
   final String? confirmActionId;
+  final String? confirmActionLabel;
 
   Map<String, Object?> toMap() {
     return {
@@ -491,6 +496,7 @@ class NativeSheetDetailConfig {
       'subtitle': subtitle,
       'items': items.map((item) => item.toMap()).toList(),
       if (confirmActionId != null) 'confirmActionId': confirmActionId,
+      if (confirmActionLabel != null) 'confirmActionLabel': confirmActionLabel,
     };
   }
 }
