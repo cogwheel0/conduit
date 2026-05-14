@@ -394,12 +394,20 @@ private struct NativeSheetDetail {
     let title: String
     let subtitle: String?
     let items: [NativeSheetItem]
+    let confirmActionId: String?
 
-    init(id: String, title: String, subtitle: String?, items: [NativeSheetItem]) {
+    init(
+        id: String,
+        title: String,
+        subtitle: String?,
+        items: [NativeSheetItem],
+        confirmActionId: String? = nil
+    ) {
         self.id = id
         self.title = title
         self.subtitle = subtitle
         self.items = items
+        self.confirmActionId = confirmActionId
     }
 
     init?(_ payload: [String: Any]) {
@@ -415,6 +423,7 @@ private struct NativeSheetDetail {
         self.id = id
         self.title = title
         subtitle = payload["subtitle"] as? String
+        confirmActionId = payload["confirmActionId"] as? String
         items = (payload["items"] as? [[String: Any]] ?? [])
             .compactMap(NativeSheetItem.init)
     }
@@ -640,7 +649,8 @@ final class NativeSheetBridge {
                 id: existing.id,
                 title: args["title"] as? String ?? existing.title,
                 subtitle: args["subtitle"] as? String ?? existing.subtitle,
-                items: items
+                items: items,
+                confirmActionId: existing.confirmActionId
             )
             detailPayloads[detailId] = patched
             if activeDetailTableController?.detailId == detailId {
@@ -712,6 +722,9 @@ final class NativeSheetBridge {
             onControlChanged: { [weak self] item, value in
                 self?.handleCurrentSheetControlChanged(item, value: value)
             },
+            onConfirmAction: { [weak self] actionId in
+                self?.handleCurrentSheetConfirmAction(actionId)
+            },
             onClose: { [weak self] in self?.closeActiveSheet() }
         )
     }
@@ -758,6 +771,22 @@ final class NativeSheetBridge {
             } else {
                 resultSheetValues.removeValue(forKey: item.id)
             }
+        }
+    }
+
+    private func handleCurrentSheetConfirmAction(_ actionId: String) {
+        switch activeSheetMode {
+        case .profileMenu:
+            channel?.invokeMethod(
+                "onControlChanged",
+                arguments: ["id": actionId, "value": true]
+            )
+        case .resultSheet:
+            resolvePendingResultSheet([
+                "actionId": actionId,
+                "values": resultSheetValues
+            ])
+            dismissActive()
         }
     }
 
@@ -2405,6 +2434,7 @@ private final class NativeDetailTableViewController: UITableViewController {
     private let canNavigate: (NativeSheetItem) -> Bool
     private let onSelect: (NativeSheetItem) -> Void
     private let onControlChanged: (NativeSheetItem, Any?) -> Void
+    private let onConfirmAction: (String) -> Void
     private let onClose: () -> Void
     private var pendingTextValues: [String: String] = [:]
     private var committedTextValues: [String: String] = [:]
@@ -2428,12 +2458,14 @@ private final class NativeDetailTableViewController: UITableViewController {
         canNavigate: @escaping (NativeSheetItem) -> Bool,
         onSelect: @escaping (NativeSheetItem) -> Void,
         onControlChanged: @escaping (NativeSheetItem, Any?) -> Void,
+        onConfirmAction: @escaping (String) -> Void,
         onClose: @escaping () -> Void
     ) {
         self.detail = detail
         self.canNavigate = canNavigate
         self.onSelect = onSelect
         self.onControlChanged = onControlChanged
+        self.onConfirmAction = onConfirmAction
         self.onClose = onClose
         super.init(style: .insetGrouped)
     }
@@ -2455,6 +2487,7 @@ private final class NativeDetailTableViewController: UITableViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         NativeSheetBridge.shared.markDetailVisible(self)
+        refreshNavigationAction()
     }
 
     override func viewDidLoad() {
@@ -2673,21 +2706,34 @@ private final class NativeDetailTableViewController: UITableViewController {
         )
     }
 
+    private func confirmButton(actionId: String) -> UIBarButtonItem {
+        let button = UIBarButtonItem(
+            image: UIImage(systemName: "checkmark"),
+            primaryAction: UIAction { [weak self] _ in
+                self?.confirmConfiguredAction(actionId)
+            }
+        )
+        button.style = .done
+        button.accessibilityLabel = "Save changes"
+        return button
+    }
+
     private func refreshNavigationAction() {
+        navigationItem.leftBarButtonItem = nil
+        if let confirmActionId = detail.confirmActionId, !confirmActionId.isEmpty {
+            if navigationController?.viewControllers.first === self {
+                navigationItem.leftBarButtonItem = closeButton()
+            }
+            navigationItem.rightBarButtonItem = confirmButton(actionId: confirmActionId)
+            return
+        }
+
         if pendingTextValues.isEmpty {
             navigationItem.rightBarButtonItem = closeButton()
             return
         }
 
-        let confirmButton = UIBarButtonItem(
-            image: UIImage(systemName: "checkmark"),
-            primaryAction: UIAction { [weak self] _ in
-                self?.confirmPendingTextChanges()
-            }
-        )
-        confirmButton.style = .done
-        confirmButton.accessibilityLabel = "Save changes"
-        navigationItem.rightBarButtonItem = confirmButton
+        navigationItem.rightBarButtonItem = confirmButton(actionId: "")
     }
 
     private func currentTextValue(for item: NativeSheetItem) -> String {
@@ -2740,7 +2786,19 @@ private final class NativeDetailTableViewController: UITableViewController {
         guard commitPendingTextChanges() else { return }
         if let actionItem = textChangeConfirmationActionItem() {
             onSelect(actionItem)
+        } else if let confirmActionId = detail.confirmActionId, !confirmActionId.isEmpty {
+            onConfirmAction(confirmActionId)
         }
+    }
+
+    private func confirmConfiguredAction(_ actionId: String) {
+        if actionId.isEmpty {
+            confirmPendingTextChanges()
+            return
+        }
+
+        _ = commitPendingTextChanges()
+        onConfirmAction(actionId)
     }
 
     private func textChangeConfirmationActionItem() -> NativeSheetItem? {

@@ -478,6 +478,7 @@ class _PersonalizationPageState extends ConsumerState<PersonalizationPage> {
             id: 'text-editor-sheet',
             title: title,
             subtitle: description,
+            confirmActionId: 'save',
             items: [
               NativeSheetItemConfig(
                 id: 'text-editor-value',
@@ -487,12 +488,6 @@ class _PersonalizationPageState extends ConsumerState<PersonalizationPage> {
                 kind: NativeSheetItemKind.multilineTextField,
                 value: initialValue,
                 placeholder: hintText,
-              ),
-              NativeSheetItemConfig(
-                id: 'save',
-                title: l10n.save,
-                subtitle: l10n.saved,
-                sfSymbol: 'checkmark.circle',
               ),
             ],
           ),

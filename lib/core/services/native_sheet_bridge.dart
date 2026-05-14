@@ -475,12 +475,14 @@ class NativeSheetDetailConfig {
     required this.title,
     required this.items,
     this.subtitle,
+    this.confirmActionId,
   });
 
   final String id;
   final String title;
   final String? subtitle;
   final List<NativeSheetItemConfig> items;
+  final String? confirmActionId;
 
   Map<String, Object?> toMap() {
     return {
@@ -488,6 +490,7 @@ class NativeSheetDetailConfig {
       'title': title,
       'subtitle': subtitle,
       'items': items.map((item) => item.toMap()).toList(),
+      if (confirmActionId != null) 'confirmActionId': confirmActionId,
     };
   }
 }

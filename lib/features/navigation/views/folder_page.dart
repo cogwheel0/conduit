@@ -860,6 +860,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
             id: 'folder-edit-sheet',
             title: 'Edit Folder',
             subtitle: 'Update the folder name and icon on the server.',
+            confirmActionId: 'save-folder',
             items: [
               NativeSheetItemConfig(
                 id: 'folder-name',
@@ -889,12 +890,6 @@ class _FolderPageState extends ConsumerState<FolderPage> {
                       sfSymbol: 'folder',
                     ),
                 ],
-              ),
-              NativeSheetItemConfig(
-                id: 'save-folder',
-                title: l10n.save,
-                subtitle: l10n.saved,
-                sfSymbol: 'checkmark.circle',
               ),
             ],
           ),
@@ -938,9 +933,9 @@ class _FolderPageState extends ConsumerState<FolderPage> {
                   updatedAt: DateTime.now(),
                 )
               : Folder.fromJson(detail);
-          ref.read(foldersProvider.notifier).upsertFolderFromRemote(
-            updatedFolder,
-          );
+          ref
+              .read(foldersProvider.notifier)
+              .upsertFolderFromRemote(updatedFolder);
           if (!mounted) return;
           UiUtils.showMessage(context, l10n.saved);
         } catch (_) {
@@ -992,6 +987,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
             id: 'folder-system-prompt-sheet',
             title: l10n.folderSystemPromptTitle(latestFolder.name),
             subtitle: l10n.folderSystemPromptEditorDescription,
+            confirmActionId: 'save-folder-system-prompt',
             items: [
               NativeSheetItemConfig(
                 id: 'folder-system-prompt-value',
@@ -1001,12 +997,6 @@ class _FolderPageState extends ConsumerState<FolderPage> {
                 kind: NativeSheetItemKind.multilineTextField,
                 value: _extractFolderSystemPrompt(latestFolder),
                 placeholder: l10n.enterSystemPrompt,
-              ),
-              NativeSheetItemConfig(
-                id: 'save-folder-system-prompt',
-                title: l10n.save,
-                subtitle: l10n.saved,
-                sfSymbol: 'checkmark.circle',
               ),
             ],
           ),
@@ -1034,9 +1024,9 @@ class _FolderPageState extends ConsumerState<FolderPage> {
           final updatedFolder = detail == null
               ? latestFolder.copyWith(data: nextData, updatedAt: DateTime.now())
               : Folder.fromJson(detail);
-          ref.read(foldersProvider.notifier).upsertFolderFromRemote(
-            updatedFolder,
-          );
+          ref
+              .read(foldersProvider.notifier)
+              .upsertFolderFromRemote(updatedFolder);
           if (!mounted) return;
           UiUtils.showMessage(context, l10n.saved);
         } catch (_) {

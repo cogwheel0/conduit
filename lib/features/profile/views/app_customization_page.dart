@@ -697,6 +697,7 @@ class AppCustomizationPage extends ConsumerWidget {
             id: 'server-prompt-editor',
             title: title,
             subtitle: description,
+            confirmActionId: readOnly ? null : 'save',
             items: [
               NativeSheetItemConfig(
                 id: 'server-prompt-value',
@@ -709,13 +710,6 @@ class AppCustomizationPage extends ConsumerWidget {
                 value: initialValue,
                 placeholder: readOnly ? null : l10n.enterSystemPrompt,
               ),
-              if (!readOnly)
-                NativeSheetItemConfig(
-                  id: 'save',
-                  title: l10n.save,
-                  subtitle: l10n.saved,
-                  sfSymbol: 'checkmark.circle',
-                ),
             ],
           ),
           rethrowErrors: true,
