@@ -367,7 +367,7 @@ private struct NativeResultSheetConfiguration {
     private static func buildInitialValues(from details: [NativeSheetDetail]) -> [String: Any] {
         var values: [String: Any] = [:]
         for detail in details {
-            for item in detail.items {
+            for item in detail.allItems {
                 guard let value = initialValue(for: item) else { continue }
                 values[item.id] = value
             }
@@ -396,6 +396,7 @@ private struct NativeSheetDetail {
     let title: String
     let subtitle: String?
     let items: [NativeSheetItem]
+    let sections: [NativeSheetSection]
     let confirmActionId: String?
     let confirmActionLabel: String?
 
@@ -404,6 +405,7 @@ private struct NativeSheetDetail {
         title: String,
         subtitle: String?,
         items: [NativeSheetItem],
+        sections: [NativeSheetSection] = [],
         confirmActionId: String? = nil,
         confirmActionLabel: String? = nil
     ) {
@@ -411,6 +413,7 @@ private struct NativeSheetDetail {
         self.title = title
         self.subtitle = subtitle
         self.items = items
+        self.sections = sections
         self.confirmActionId = confirmActionId
         self.confirmActionLabel = confirmActionLabel
     }
@@ -432,6 +435,15 @@ private struct NativeSheetDetail {
         confirmActionLabel = payload["confirmActionLabel"] as? String
         items = (payload["items"] as? [[String: Any]] ?? [])
             .compactMap(NativeSheetItem.init)
+        sections = (payload["sections"] as? [[String: Any]] ?? [])
+            .compactMap(NativeSheetSection.init)
+    }
+
+    var allItems: [NativeSheetItem] {
+        if sections.isEmpty {
+            return items
+        }
+        return sections.flatMap(\.items)
     }
 }
 
@@ -679,6 +691,7 @@ final class NativeSheetBridge {
                 title: args["title"] as? String ?? existing.title,
                 subtitle: args["subtitle"] as? String ?? existing.subtitle,
                 items: items,
+                sections: existing.sections,
                 confirmActionId: existing.confirmActionId,
                 confirmActionLabel: existing.confirmActionLabel
             )
@@ -697,9 +710,6 @@ final class NativeSheetBridge {
         let controller = NativeProfileMenuTableViewController(
             configuration: configuration,
             onSelect: { [weak self] item in self?.handleSelection(item) },
-            onEditProfile: { [weak self] in
-                self?.presentEditProfileOverlay()
-            },
             onClose: { [weak self] in self?.dismissActive() }
         )
         let navigation = NativeSheetNavigationController(rootViewController: controller)
@@ -907,18 +917,69 @@ final class NativeSheetBridge {
         controller.dismiss(animated: true, completion: completion)
     }
 
-    private func presentEditProfileOverlay() {
+    private func presentProfilePhotoEditor() {
         guard let configuration = configuration else { return }
         guard let presenter = activeNavigationController?.visibleViewController else { return }
 
-        let overlay = NativeEditProfileSheetViewController(
+        let controller = NativeProfilePhotoEditorViewController(
             profile: configuration.profile,
             copy: configuration.editProfileSheet,
             onCommit: { [weak self] payload in
                 self?.channel?.invokeMethod("commitEditProfile", arguments: payload)
             }
         )
-        let navigation = NativeSheetNavigationController(rootViewController: overlay)
+        let navigation = NativeSheetNavigationController(rootViewController: controller)
+        navigation.modalPresentationStyle = .pageSheet
+        applySheetStyle(to: navigation, initialDetent: .large)
+        presenter.present(navigation, animated: true)
+    }
+
+    private func presentProfileNameEditor() {
+        guard let configuration = configuration else { return }
+        guard let presenter = activeNavigationController?.visibleViewController else { return }
+
+        let controller = NativeProfileNameEditorViewController(
+            profile: configuration.profile,
+            copy: configuration.editProfileSheet,
+            onCommit: { [weak self] payload in
+                self?.channel?.invokeMethod("commitEditProfile", arguments: payload)
+            }
+        )
+        let navigation = NativeSheetNavigationController(rootViewController: controller)
+        navigation.modalPresentationStyle = .pageSheet
+        applySheetStyle(to: navigation, initialDetent: .large)
+        presenter.present(navigation, animated: true)
+    }
+
+    private func presentProfileAboutEditor() {
+        guard let configuration = configuration else { return }
+        guard let presenter = activeNavigationController?.visibleViewController else { return }
+
+        let controller = NativeProfileAboutEditorViewController(
+            profile: configuration.profile,
+            copy: configuration.editProfileSheet,
+            onCommit: { [weak self] payload in
+                self?.channel?.invokeMethod("commitEditProfile", arguments: payload)
+            }
+        )
+        let navigation = NativeSheetNavigationController(rootViewController: controller)
+        navigation.modalPresentationStyle = .pageSheet
+        applySheetStyle(to: navigation, initialDetent: .large)
+        presenter.present(navigation, animated: true)
+    }
+
+    private func presentProfileDetailsEditor() {
+        guard let configuration = configuration else { return }
+        guard let presenter = activeNavigationController?.visibleViewController else { return }
+
+        let controller = NativeProfileDetailsEditorViewController(
+            profile: configuration.profile,
+            copy: configuration.editProfileSheet,
+            onCommit: { [weak self] payload in
+                self?.channel?.invokeMethod("commitEditProfile", arguments: payload)
+            }
+        )
+        let navigation = NativeSheetNavigationController(rootViewController: controller)
         navigation.modalPresentationStyle = .pageSheet
         applySheetStyle(to: navigation, initialDetent: .large)
         presenter.present(navigation, animated: true)
@@ -1121,9 +1182,21 @@ final class NativeSheetBridge {
             return
         }
 
-        if item.id == "profile-details" || item.id.hasPrefix("profile-edit:") {
-            presentEditProfileOverlay()
+        switch item.id {
+        case "profile-photo":
+            presentProfilePhotoEditor()
             return
+        case "profile-name":
+            presentProfileNameEditor()
+            return
+        case "profile-about":
+            presentProfileAboutEditor()
+            return
+        case "profile-details":
+            presentProfileDetailsEditor()
+            return
+        default:
+            break
         }
 
         if item.destructive,
@@ -1356,9 +1429,24 @@ private func nativeParseBirthDateIso(_ raw: String) -> Date? {
     return Calendar(identifier: .gregorian).date(from: dc)
 }
 
-// MARK: - Native edit profile overlay (stacked sheet)
+private func nativeProfileCommitPayload(
+    profile: NativeSheetProfile,
+    name: String? = nil,
+    profileImageUrl: String? = nil,
+    bio: String? = nil,
+    gender: String? = nil,
+    dateOfBirth: String? = nil
+) -> [String: Any] {
+    [
+        "name": name ?? profile.displayName,
+        "profileImageUrl": profileImageUrl ?? profile.savedProfileImageUrl ?? "",
+        "bio": bio ?? profile.bio,
+        "gender": gender ?? profile.gender,
+        "dateOfBirth": dateOfBirth ?? profile.dateOfBirth ?? "",
+    ]
+}
 
-private final class NativeEditProfileSheetViewController: UIViewController, PHPickerViewControllerDelegate {
+private final class NativeProfilePhotoEditorViewController: UIViewController, PHPickerViewControllerDelegate {
     private enum AvatarIntent {
         case unchanged
         case pickedJPEG(Data)
@@ -1369,20 +1457,320 @@ private final class NativeEditProfileSheetViewController: UIViewController, PHPi
     private let profile: NativeSheetProfile
     private let copy: NativeEditProfileSheetCopy
     private let onCommit: ([String: Any]) -> Void
-
-    private var avatarIntent: AvatarIntent = .unchanged
     private let avatarView: NativeAvatarView
-    private let cameraButton = UIButton(type: .system)
+    private let clearButton = UIButton(type: .system)
+    private var avatarIntent: AvatarIntent = .unchanged {
+        didSet { updateSetButton() }
+    }
 
-    private let nameField = UITextField()
-    private let bioField = UITextView()
+    init(
+        profile: NativeSheetProfile,
+        copy: NativeEditProfileSheetCopy,
+        onCommit: @escaping ([String: Any]) -> Void
+    ) {
+        self.profile = profile
+        self.copy = copy
+        self.onCommit = onCommit
+        self.avatarView = NativeAvatarView(profile: profile, diameter: 136)
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .systemGroupedBackground
+        navigationItem.title = "Edit Photo"
+        navigationItem.leftBarButtonItem = iconBarButton(
+            systemName: "xmark",
+            action: UIAction { [weak self] _ in self?.cancelTapped() }
+        )
+        navigationItem.rightBarButtonItem = iconBarButton(
+            systemName: "checkmark",
+            style: .done,
+            action: UIAction { [weak self] _ in self?.saveTapped() }
+        )
+        updateSetButton()
+
+        let avatarWrap = UIView()
+        avatarWrap.translatesAutoresizingMaskIntoConstraints = false
+        avatarWrap.addSubview(avatarView)
+        avatarWrap.addSubview(clearButton)
+
+        var clearConfiguration = UIButton.Configuration.filled()
+        clearConfiguration.image = UIImage(systemName: "xmark")
+        clearConfiguration.cornerStyle = .capsule
+        clearConfiguration.baseBackgroundColor = .secondarySystemGroupedBackground
+        clearConfiguration.baseForegroundColor = .secondaryLabel
+        clearButton.configuration = clearConfiguration
+        clearButton.translatesAutoresizingMaskIntoConstraints = false
+        clearButton.addAction(UIAction { [weak self] _ in self?.removeAvatarTapped() }, for: .touchUpInside)
+        clearButton.accessibilityLabel = copy.removeAvatarLabel
+
+        let photoButton = makeActionButton(title: "Photo", symbol: "photo.on.rectangle") { [weak self] in
+            self?.presentPhotoPicker()
+        }
+        let initialsButton = makeActionButton(title: "Initials", symbol: "textformat.abc") { [weak self] in
+            self?.useInitialsTapped()
+        }
+
+        let actionStack = UIStackView(arrangedSubviews: [photoButton, initialsButton])
+        actionStack.axis = .horizontal
+        actionStack.distribution = .fillEqually
+        actionStack.spacing = 12
+
+        let stack = UIStackView(arrangedSubviews: [avatarWrap, actionStack])
+        stack.axis = .vertical
+        stack.alignment = .fill
+        stack.spacing = 28
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            avatarView.centerXAnchor.constraint(equalTo: avatarWrap.centerXAnchor),
+            avatarView.topAnchor.constraint(equalTo: avatarWrap.topAnchor, constant: 24),
+            avatarView.bottomAnchor.constraint(equalTo: avatarWrap.bottomAnchor),
+            clearButton.widthAnchor.constraint(equalToConstant: 32),
+            clearButton.heightAnchor.constraint(equalToConstant: 32),
+            clearButton.trailingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: -4),
+            clearButton.topAnchor.constraint(equalTo: avatarView.topAnchor, constant: 4),
+            stack.leadingAnchor.constraint(equalTo: view.layoutMarginsGuide.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: view.layoutMarginsGuide.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
+        ])
+    }
+
+    private func makeActionButton(
+        title: String,
+        symbol: String,
+        handler: @escaping () -> Void
+    ) -> UIButton {
+        var configuration = UIButton.Configuration.gray()
+        configuration.title = title
+        configuration.image = UIImage(systemName: symbol)
+        configuration.imagePlacement = .top
+        configuration.imagePadding = 6
+        configuration.cornerStyle = .medium
+        let button = UIButton(configuration: configuration)
+        button.titleLabel?.adjustsFontForContentSizeCategory = true
+        button.titleLabel?.numberOfLines = 2
+        button.heightAnchor.constraint(greaterThanOrEqualToConstant: 76).isActive = true
+        button.addAction(UIAction { _ in handler() }, for: .touchUpInside)
+        return button
+    }
+
+    private func updateSetButton() {
+        navigationItem.rightBarButtonItem?.isEnabled = {
+            if case .unchanged = avatarIntent { return false }
+            return true
+        }()
+    }
+
+    @objc private func cancelTapped() {
+        dismiss(animated: true)
+    }
+
+    @objc private func saveTapped() {
+        let imageUrl: String
+        switch avatarIntent {
+        case .unchanged:
+            return
+        case .pickedJPEG(let data):
+            imageUrl = "data:image/jpeg;base64," + data.base64EncodedString()
+        case .initialsGenerated:
+            imageUrl = nativeInitialsAvatarDataUrl(name: profile.displayName) ?? ""
+        case .removed:
+            imageUrl = "/user.png"
+        }
+        onCommit(nativeProfileCommitPayload(profile: profile, profileImageUrl: imageUrl))
+        dismiss(animated: true)
+    }
+
+    private func presentPhotoPicker() {
+        var configuration = PHPickerConfiguration()
+        configuration.filter = .images
+        configuration.selectionLimit = 1
+        let picker = PHPickerViewController(configuration: configuration)
+        picker.delegate = self
+        present(picker, animated: true)
+    }
+
+    func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+        picker.dismiss(animated: true)
+        guard let provider = results.first?.itemProvider,
+              provider.canLoadObject(ofClass: UIImage.self) else {
+            return
+        }
+        provider.loadObject(ofClass: UIImage.self) { [weak self] object, _ in
+            DispatchQueue.main.async {
+                guard let self, let image = object as? UIImage else { return }
+                let toCompress = image.preparingThumbnailSide(1024) ?? image
+                guard let data = toCompress.jpegData(compressionQuality: 0.85) else { return }
+                self.avatarIntent = .pickedJPEG(data)
+                self.avatarView.setPickedPreview(toCompress)
+            }
+        }
+    }
+
+    private func useInitialsTapped() {
+        avatarIntent = .initialsGenerated
+        if let image = nativeInitialsAvatarUIImage(name: profile.displayName) {
+            avatarView.setPickedPreview(image)
+        }
+    }
+
+    private func removeAvatarTapped() {
+        avatarIntent = .removed
+        avatarView.showRemovedPlaceholder()
+    }
+}
+
+private final class NativeProfileNameEditorViewController: UIViewController {
+    private let profile: NativeSheetProfile
+    private let copy: NativeEditProfileSheetCopy
+    private let onCommit: ([String: Any]) -> Void
+    private let textField = UITextField()
+
+    init(
+        profile: NativeSheetProfile,
+        copy: NativeEditProfileSheetCopy,
+        onCommit: @escaping ([String: Any]) -> Void
+    ) {
+        self.profile = profile
+        self.copy = copy
+        self.onCommit = onCommit
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .systemGroupedBackground
+        navigationItem.title = copy.nameLabel
+        navigationItem.leftBarButtonItem = iconBarButton(
+            systemName: "xmark",
+            action: UIAction { [weak self] _ in self?.cancelTapped() }
+        )
+        navigationItem.rightBarButtonItem = iconBarButton(
+            systemName: "checkmark",
+            style: .done,
+            action: UIAction { [weak self] _ in self?.saveTapped() }
+        )
+
+        let row = inputContainer(caption: copy.nameLabel, field: textField)
+        textField.text = profile.displayName
+        textField.placeholder = copy.nameLabel
+        textField.returnKeyType = .done
+        textField.addAction(UIAction { [weak self] _ in self?.saveTapped() }, for: .primaryActionTriggered)
+
+        view.addSubview(row)
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: view.layoutMarginsGuide.leadingAnchor),
+            row.trailingAnchor.constraint(equalTo: view.layoutMarginsGuide.trailingAnchor),
+            row.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 24),
+        ])
+    }
+
+    @objc private func cancelTapped() {
+        dismiss(animated: true)
+    }
+
+    @objc private func saveTapped() {
+        let name = textField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !name.isEmpty else {
+            presentNativeValidationAlert(message: copy.nameRequiredMessage)
+            return
+        }
+        onCommit(nativeProfileCommitPayload(profile: profile, name: name))
+        dismiss(animated: true)
+    }
+}
+
+private final class NativeProfileAboutEditorViewController: UIViewController {
+    private let profile: NativeSheetProfile
+    private let copy: NativeEditProfileSheetCopy
+    private let onCommit: ([String: Any]) -> Void
+    private let textView = UITextView()
+
+    init(
+        profile: NativeSheetProfile,
+        copy: NativeEditProfileSheetCopy,
+        onCommit: @escaping ([String: Any]) -> Void
+    ) {
+        self.profile = profile
+        self.copy = copy
+        self.onCommit = onCommit
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .systemGroupedBackground
+        navigationItem.title = copy.bioLabel
+        navigationItem.leftBarButtonItem = iconBarButton(
+            systemName: "xmark",
+            action: UIAction { [weak self] _ in self?.cancelTapped() }
+        )
+        navigationItem.rightBarButtonItem = iconBarButton(
+            systemName: "checkmark",
+            style: .done,
+            action: UIAction { [weak self] _ in self?.saveTapped() }
+        )
+
+        let caption = UILabel()
+        caption.text = copy.bioLabel
+        caption.font = .preferredFont(forTextStyle: .caption1)
+        caption.textColor = .secondaryLabel
+        caption.adjustsFontForContentSizeCategory = true
+
+        textView.text = profile.bio
+        textView.font = .preferredFont(forTextStyle: .body)
+        textView.adjustsFontForContentSizeCategory = true
+        textView.backgroundColor = .secondarySystemGroupedBackground
+        textView.layer.cornerRadius = 12
+        textView.textContainerInset = UIEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
+        textView.heightAnchor.constraint(greaterThanOrEqualToConstant: 160).isActive = true
+
+        let stack = UIStackView(arrangedSubviews: [caption, textView])
+        stack.axis = .vertical
+        stack.spacing = 8
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: view.layoutMarginsGuide.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: view.layoutMarginsGuide.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 24),
+        ])
+    }
+
+    @objc private func cancelTapped() {
+        dismiss(animated: true)
+    }
+
+    @objc private func saveTapped() {
+        onCommit(nativeProfileCommitPayload(profile: profile, bio: textView.text ?? ""))
+        dismiss(animated: true)
+    }
+}
+
+private final class NativeProfileDetailsEditorViewController: UIViewController {
+    private let profile: NativeSheetProfile
+    private let copy: NativeEditProfileSheetCopy
+    private let onCommit: ([String: Any]) -> Void
     private let genderButton = UIButton(type: .system)
     private let customGenderField = UITextField()
     private let customGenderContainer = UIStackView()
-
     private let birthPicker = UIDatePicker()
     private let clearBirthButton = UIButton(type: .system)
-
     private var selectedGenderKey = ""
     private var birthIso: String
 
@@ -1394,7 +1782,6 @@ private final class NativeEditProfileSheetViewController: UIViewController, PHPi
         self.profile = profile
         self.copy = copy
         self.onCommit = onCommit
-        self.avatarView = NativeAvatarView(profile: profile, diameter: 104)
         self.birthIso = profile.dateOfBirth?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         super.init(nibName: nil, bundle: nil)
         applyGenderSelectionFromProfile()
@@ -1404,282 +1791,76 @@ private final class NativeEditProfileSheetViewController: UIViewController, PHPi
         nil
     }
 
-    private func applyGenderSelectionFromProfile() {
-        let g = profile.gender.trimmingCharacters(in: .whitespacesAndNewlines)
-        if g.isEmpty {
-            selectedGenderKey = ""
-            customGenderField.text = ""
-            return
-        }
-        if g == "male" || g == "female" {
-            selectedGenderKey = g
-            customGenderField.text = ""
-            return
-        }
-        selectedGenderKey = "custom"
-        customGenderField.text = g
-    }
-
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemGroupedBackground
         navigationItem.title = copy.title
-        navigationItem.largeTitleDisplayMode = .never
+        navigationItem.leftBarButtonItem = iconBarButton(
+            systemName: "xmark",
+            action: UIAction { [weak self] _ in self?.cancelTapped() }
+        )
+        navigationItem.rightBarButtonItem = iconBarButton(
+            systemName: "checkmark",
+            style: .done,
+            action: UIAction { [weak self] _ in self?.saveTapped() }
+        )
 
-        nameField.text = profile.displayName
-
-        bioField.font = .preferredFont(forTextStyle: .body)
-        bioField.adjustsFontForContentSizeCategory = true
-        bioField.backgroundColor = .secondarySystemFill
-        bioField.layer.cornerRadius = 12
-        bioField.textContainerInset = UIEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
-        bioField.text = profile.bio
+        var genderConfiguration = UIButton.Configuration.bordered()
+        genderConfiguration.titleAlignment = .leading
+        genderButton.configuration = genderConfiguration
+        genderButton.contentHorizontalAlignment = .leading
+        genderButton.showsMenuAsPrimaryAction = true
+        genderButton.changesSelectionAsPrimaryAction = true
+        rebuildGenderMenu()
 
         customGenderField.borderStyle = .none
         customGenderField.backgroundColor = .secondarySystemFill
         customGenderField.layer.cornerRadius = 22
         customGenderField.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 16, height: 44))
         customGenderField.leftViewMode = .always
-        customGenderField.font = .preferredFont(forTextStyle: .body)
-        customGenderField.adjustsFontForContentSizeCategory = true
-
-        let avatarCaption = UILabel()
-        avatarCaption.text = copy.currentAvatarLabel
-        avatarCaption.font = .preferredFont(forTextStyle: .caption1)
-        avatarCaption.textColor = .secondaryLabel
-
-        let avatarWrap = UIView()
-        avatarWrap.translatesAutoresizingMaskIntoConstraints = false
-        avatarWrap.addSubview(avatarView)
-
-        configureCameraButton()
-        avatarWrap.addSubview(cameraButton)
-
-        NSLayoutConstraint.activate([
-            avatarView.centerXAnchor.constraint(equalTo: avatarWrap.centerXAnchor),
-            avatarView.topAnchor.constraint(equalTo: avatarWrap.topAnchor),
-            avatarView.bottomAnchor.constraint(equalTo: avatarWrap.bottomAnchor),
-            cameraButton.widthAnchor.constraint(equalToConstant: 36),
-            cameraButton.heightAnchor.constraint(equalToConstant: 36),
-            cameraButton.trailingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: 4),
-            cameraButton.bottomAnchor.constraint(equalTo: avatarView.bottomAnchor, constant: 4),
-        ])
-
-        let avatarActions = UIStackView()
-        avatarActions.axis = .horizontal
-        avatarActions.spacing = 8
-        avatarActions.distribution = .fillEqually
-        avatarActions.addArrangedSubview(
-            makeSecondaryAction(title: copy.uploadFromDeviceLabel, symbol: "photo.on.rectangle") { [weak self] in
-                self?.presentPhotoPicker()
-            }
-        )
-        avatarActions.addArrangedSubview(
-            makeSecondaryAction(title: copy.useInitialsLabel, symbol: "textformat.abc") { [weak self] in
-                self?.useInitialsTapped()
-            }
-        )
-        avatarActions.addArrangedSubview(
-            makeSecondaryAction(title: copy.removeAvatarLabel, symbol: "trash") { [weak self] in
-                self?.removeAvatarTapped()
-            }
-        )
-
-        let bioCaption = UILabel()
-        bioCaption.text = copy.bioLabel
-        bioCaption.font = .preferredFont(forTextStyle: .caption1)
-        bioCaption.textColor = .secondaryLabel
-
-        let bioStack = UIStackView(arrangedSubviews: [bioCaption, bioField])
-        bioStack.axis = .vertical
-        bioStack.spacing = 6
-        bioField.heightAnchor.constraint(greaterThanOrEqualToConstant: 100).isActive = true
+        customGenderField.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
 
         configureBirthPicker()
-
-        let genderCaption = UILabel()
-        genderCaption.text = copy.genderLabel
-        genderCaption.font = .preferredFont(forTextStyle: .caption1)
-        genderCaption.textColor = .secondaryLabel
-
-        var genderCfg = UIButton.Configuration.bordered()
-        genderCfg.titleAlignment = .leading
-        genderButton.configuration = genderCfg
-        genderButton.contentHorizontalAlignment = .leading
-        genderButton.titleLabel?.adjustsFontForContentSizeCategory = true
-        configureGenderControls()
-
-        let genderStack = UIStackView(arrangedSubviews: [genderCaption, genderButton])
-        genderStack.axis = .vertical
-        genderStack.spacing = 6
-
-        let customCaption = UILabel()
-        customCaption.text = copy.customGenderLabel
-        customCaption.font = .preferredFont(forTextStyle: .caption1)
-        customCaption.textColor = .secondaryLabel
-
-        customGenderContainer.axis = .vertical
-        customGenderContainer.spacing = 6
-        customGenderContainer.isHidden = true
-        customGenderContainer.addArrangedSubview(customCaption)
-        customGenderContainer.addArrangedSubview(customGenderField)
-
-        let birthCaption = UILabel()
-        birthCaption.text = copy.birthDateLabel
-        birthCaption.font = .preferredFont(forTextStyle: .caption1)
-        birthCaption.textColor = .secondaryLabel
-
         clearBirthButton.setTitle(copy.clearLabel, for: .normal)
-        clearBirthButton.titleLabel?.font = .preferredFont(forTextStyle: .subheadline)
         clearBirthButton.addAction(UIAction { [weak self] _ in self?.clearBirthTapped() }, for: .touchUpInside)
+
+        let genderStack = labeledStack(caption: copy.genderLabel, arrangedSubviews: [genderButton])
+        customGenderContainer.axis = .vertical
+        customGenderContainer.spacing = 8
+        customGenderContainer.addArrangedSubview(captionLabel(copy.customGenderLabel))
+        customGenderContainer.addArrangedSubview(customGenderField)
 
         let birthRow = UIStackView(arrangedSubviews: [birthPicker, clearBirthButton])
         birthRow.axis = .horizontal
         birthRow.spacing = 12
         birthRow.alignment = .center
+        let birthStack = labeledStack(caption: copy.birthDateLabel, arrangedSubviews: [birthRow])
 
-        let birthStack = UIStackView(arrangedSubviews: [birthCaption, birthRow])
-        birthStack.axis = .vertical
-        birthStack.spacing = 8
-
-        let footer = UILabel()
-        footer.text = copy.footerText
-        footer.font = .preferredFont(forTextStyle: .footnote)
-        footer.textColor = .secondaryLabel
-        footer.textAlignment = .center
-        footer.numberOfLines = 0
-        [
-            avatarCaption,
-            bioCaption,
-            genderCaption,
-            customCaption,
-            birthCaption,
-            footer
-        ].forEach { $0.adjustsFontForContentSizeCategory = true }
-
-        var saveCfg = UIButton.Configuration.filled()
-        saveCfg.title = copy.saveLabel
-        saveCfg.cornerStyle = .capsule
-        let saveButton = UIButton(configuration: saveCfg)
-        saveButton.addAction(UIAction { [weak self] _ in self?.saveTapped() }, for: .touchUpInside)
-
-        var cancelCfg = UIButton.Configuration.plain()
-        cancelCfg.title = copy.cancelLabel
-        let cancelButton = UIButton(configuration: cancelCfg)
-        cancelButton.addAction(UIAction { [weak self] _ in self?.dismiss(animated: true) }, for: .touchUpInside)
-
-        let stack = UIStackView(arrangedSubviews: [
-            avatarCaption,
-            avatarWrap,
-            avatarActions,
-            Self.labeledSingleLineRow(
-                caption: copy.nameLabel,
-                field: nameField,
-                text: profile.displayName,
-                placeholder: copy.nameLabel
-            ),
-            bioStack,
-            genderStack,
-            customGenderContainer,
-            birthStack,
-            footer,
-            saveButton,
-            cancelButton,
-        ])
+        let stack = UIStackView(arrangedSubviews: [genderStack, customGenderContainer, birthStack])
         stack.axis = .vertical
-        stack.spacing = 20
+        stack.spacing = 24
         stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.setCustomSpacing(8, after: saveButton)
-
-        let scroll = UIScrollView()
-        scroll.translatesAutoresizingMaskIntoConstraints = false
-        scroll.alwaysBounceVertical = true
-        scroll.keyboardDismissMode = .interactive
-        scroll.addSubview(stack)
-        view.addSubview(scroll)
-
+        view.addSubview(stack)
         NSLayoutConstraint.activate([
-            scroll.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
-            scroll.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
-            scroll.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            scroll.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            stack.leadingAnchor.constraint(equalTo: scroll.frameLayoutGuide.leadingAnchor, constant: 20),
-            stack.trailingAnchor.constraint(equalTo: scroll.frameLayoutGuide.trailingAnchor, constant: -20),
-            stack.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor, constant: 16),
-            stack.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor, constant: -24),
+            stack.leadingAnchor.constraint(equalTo: view.layoutMarginsGuide.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: view.layoutMarginsGuide.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 24),
         ])
+        refreshCustomGenderVisibility()
     }
 
-    private func configureCameraButton() {
-        var cfg = UIButton.Configuration.filled()
-        cfg.image = UIImage(systemName: "camera.fill")
-        cfg.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold)
-        cfg.cornerStyle = .capsule
-        cfg.baseForegroundColor = UIColor { traits in
-            traits.userInterfaceStyle == .dark ? UIColor.black : UIColor.white
-        }
-        cfg.baseBackgroundColor = UIColor { traits in
-            traits.userInterfaceStyle == .dark
-                ? UIColor(white: 0.92, alpha: 1)
-                : UIColor(white: 0.14, alpha: 1)
-        }
-        cameraButton.configuration = cfg
-        cameraButton.translatesAutoresizingMaskIntoConstraints = false
-        cameraButton.accessibilityLabel = copy.uploadFromDeviceLabel
-        cameraButton.addAction(UIAction { [weak self] _ in self?.presentPhotoPicker() }, for: .touchUpInside)
-    }
-
-    private func makeSecondaryAction(
-        title: String,
-        symbol: String,
-        handler: @escaping () -> Void
-    ) -> UIButton {
-        var cfg = UIButton.Configuration.gray()
-        cfg.title = title
-        cfg.image = UIImage(systemName: symbol)
-        cfg.imagePlacement = .top
-        cfg.imagePadding = 4
-        cfg.cornerStyle = .medium
-        let b = UIButton(configuration: cfg)
-        b.titleLabel?.font = .preferredFont(forTextStyle: .caption1)
-        b.titleLabel?.adjustsFontForContentSizeCategory = true
-        b.titleLabel?.numberOfLines = 2
-        b.titleLabel?.textAlignment = .center
-        b.heightAnchor.constraint(greaterThanOrEqualToConstant: 52).isActive = true
-        b.addAction(UIAction { _ in handler() }, for: .touchUpInside)
-        return b
-    }
-
-    private func configureBirthPicker() {
-        birthPicker.datePickerMode = .date
-        birthPicker.preferredDatePickerStyle = .compact
-        birthPicker.maximumDate = Date()
-        if let min = Calendar.current.date(from: DateComponents(year: 1900, month: 1, day: 1)) {
-            birthPicker.minimumDate = min
-        }
-        if let d = nativeParseBirthDateIso(birthIso) {
-            birthPicker.date = d
+    private func applyGenderSelectionFromProfile() {
+        let gender = profile.gender.trimmingCharacters(in: .whitespacesAndNewlines)
+        if gender.isEmpty {
+            selectedGenderKey = ""
+            customGenderField.text = ""
+        } else if gender == "male" || gender == "female" {
+            selectedGenderKey = gender
+            customGenderField.text = ""
         } else {
-            birthPicker.date =
-                Calendar.current.date(from: DateComponents(year: 1990, month: 1, day: 1)) ?? Date()
+            selectedGenderKey = "custom"
+            customGenderField.text = gender
         }
-        birthPicker.addAction(UIAction { [weak self] _ in
-            guard let self else { return }
-            self.birthIso = nativeFormatBirthDateIso(self.birthPicker.date)
-        }, for: .valueChanged)
-    }
-
-    private func clearBirthTapped() {
-        birthIso = ""
-        if let d = Calendar.current.date(from: DateComponents(year: 1990, month: 1, day: 1)) {
-            birthPicker.date = d
-        }
-    }
-
-    private func configureGenderControls() {
-        genderButton.showsMenuAsPrimaryAction = true
-        genderButton.changesSelectionAsPrimaryAction = true
-        rebuildGenderMenu()
     }
 
     private func rebuildGenderMenu() {
@@ -1697,25 +1878,20 @@ private final class NativeEditProfileSheetViewController: UIViewController, PHPi
             }
         })
         refreshGenderTitle()
-        refreshCustomGenderVisibility()
     }
 
     private func refreshGenderTitle() {
-        var cfg = genderButton.configuration ?? .bordered()
-        cfg.title = genderTitle(for: selectedGenderKey)
-        genderButton.configuration = cfg
+        var configuration = genderButton.configuration ?? .bordered()
+        configuration.title = genderTitle(for: selectedGenderKey)
+        genderButton.configuration = configuration
     }
 
     private func genderTitle(for key: String) -> String {
         switch key {
-        case "male":
-            return copy.genderMale
-        case "female":
-            return copy.genderFemale
-        case "custom":
-            return copy.genderCustom
-        default:
-            return copy.genderPreferNotToSay
+        case "male": return copy.genderMale
+        case "female": return copy.genderFemale
+        case "custom": return copy.genderCustom
+        default: return copy.genderPreferNotToSay
         }
     }
 
@@ -1724,93 +1900,27 @@ private final class NativeEditProfileSheetViewController: UIViewController, PHPi
         customGenderField.placeholder = copy.customGenderHint
     }
 
-    private static func labeledSingleLineRow(
-        caption: String,
-        field: UITextField,
-        text: String,
-        placeholder: String
-    ) -> UIStackView {
-        let cap = UILabel()
-        cap.text = caption
-        cap.font = .preferredFont(forTextStyle: .caption1)
-        cap.textColor = .secondaryLabel
-
-        field.text = text
-        field.placeholder = placeholder
-        field.font = .preferredFont(forTextStyle: .body)
-        field.adjustsFontForContentSizeCategory = true
-        field.borderStyle = .none
-        field.backgroundColor = .secondarySystemFill
-        field.layer.cornerRadius = 22
-        field.clipsToBounds = true
-        field.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
-        field.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 16, height: 44))
-        field.leftViewMode = .always
-        field.rightView = UIView(frame: CGRect(x: 0, y: 0, width: 16, height: 44))
-        field.rightViewMode = .always
-
-        let pair = UIStackView(arrangedSubviews: [cap, field])
-        pair.axis = .vertical
-        pair.spacing = 6
-        pair.alignment = .fill
-        return pair
-    }
-
-    private func presentPhotoPicker() {
-        var config = PHPickerConfiguration()
-        config.filter = .images
-        config.selectionLimit = 1
-        let picker = PHPickerViewController(configuration: config)
-        picker.delegate = self
-        present(picker, animated: true)
-    }
-
-    func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
-        picker.dismiss(animated: true)
-        guard let provider = results.first?.itemProvider,
-              provider.canLoadObject(ofClass: UIImage.self) else {
-            return
+    private func configureBirthPicker() {
+        birthPicker.datePickerMode = .date
+        birthPicker.preferredDatePickerStyle = .compact
+        birthPicker.maximumDate = Date()
+        if let min = Calendar.current.date(from: DateComponents(year: 1900, month: 1, day: 1)) {
+            birthPicker.minimumDate = min
         }
-        provider.loadObject(ofClass: UIImage.self) { [weak self] object, _ in
-            DispatchQueue.main.async {
-                guard let image = object as? UIImage else { return }
-                let toCompress = image.preparingThumbnailSide(1024) ?? image
-                guard let data = toCompress.jpegData(compressionQuality: 0.85) else { return }
-                self?.avatarIntent = .pickedJPEG(data)
-                self?.avatarView.setPickedPreview(toCompress)
-            }
+        if let parsed = nativeParseBirthDateIso(birthIso) {
+            birthPicker.date = parsed
+        } else {
+            birthPicker.date = Calendar.current.date(from: DateComponents(year: 1990, month: 1, day: 1)) ?? Date()
         }
+        birthPicker.addAction(UIAction { [weak self] _ in
+            guard let self else { return }
+            self.birthIso = nativeFormatBirthDateIso(self.birthPicker.date)
+        }, for: .valueChanged)
     }
 
-    private func useInitialsTapped() {
-        let name =
-            nameField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? profile.displayName
-        avatarIntent = .initialsGenerated
-        if let img = nativeInitialsAvatarUIImage(
-            name: name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ? profile.displayName
-                : name
-        ) {
-            avatarView.setPickedPreview(img)
-        }
-    }
-
-    private func removeAvatarTapped() {
-        avatarIntent = .removed
-        avatarView.showRemovedPlaceholder()
-    }
-
-    private func resolvedProfileImageUrl(name: String) -> String {
-        switch avatarIntent {
-        case .unchanged:
-            return profile.savedProfileImageUrl ?? ""
-        case .pickedJPEG(let data):
-            return "data:image/jpeg;base64," + data.base64EncodedString()
-        case .initialsGenerated:
-            return nativeInitialsAvatarDataUrl(name: name) ?? ""
-        case .removed:
-            return "/user.png"
-        }
+    private func clearBirthTapped() {
+        birthIso = ""
+        birthPicker.date = Calendar.current.date(from: DateComponents(year: 1990, month: 1, day: 1)) ?? Date()
     }
 
     private func resolvedGenderPayload() -> String {
@@ -1824,32 +1934,74 @@ private final class NativeEditProfileSheetViewController: UIViewController, PHPi
         }
     }
 
-    private func saveTapped() {
-        let name = nameField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if name.isEmpty {
-            presentValidationAlert(message: copy.nameRequiredMessage)
-            return
-        }
-        if selectedGenderKey == "custom",
-           customGenderField.text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true {
-            presentValidationAlert(message: copy.customGenderRequiredMessage)
-            return
-        }
-
-        let payload: [String: Any] = [
-            "name": name,
-            "profileImageUrl": resolvedProfileImageUrl(name: name),
-            "bio": bioField.text ?? "",
-            "gender": resolvedGenderPayload(),
-            "dateOfBirth": birthIso.trimmingCharacters(in: .whitespacesAndNewlines),
-        ]
-        onCommit(payload)
+    @objc private func cancelTapped() {
         dismiss(animated: true)
     }
 
-    private func presentValidationAlert(message: String) {
+    @objc private func saveTapped() {
+        if selectedGenderKey == "custom",
+           customGenderField.text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true {
+            presentNativeValidationAlert(message: copy.customGenderRequiredMessage)
+            return
+        }
+        onCommit(nativeProfileCommitPayload(
+            profile: profile,
+            gender: resolvedGenderPayload(),
+            dateOfBirth: birthIso.trimmingCharacters(in: .whitespacesAndNewlines)
+        ))
+        dismiss(animated: true)
+    }
+}
+
+private func captionLabel(_ text: String) -> UILabel {
+    let label = UILabel()
+    label.text = text
+    label.font = .preferredFont(forTextStyle: .caption1)
+    label.textColor = .secondaryLabel
+    label.adjustsFontForContentSizeCategory = true
+    return label
+}
+
+private func labeledStack(caption: String, arrangedSubviews: [UIView]) -> UIStackView {
+    let stack = UIStackView(arrangedSubviews: [captionLabel(caption)] + arrangedSubviews)
+    stack.axis = .vertical
+    stack.spacing = 8
+    return stack
+}
+
+private func inputContainer(caption: String, field: UITextField) -> UIStackView {
+    field.font = .preferredFont(forTextStyle: .body)
+    field.adjustsFontForContentSizeCategory = true
+    field.backgroundColor = .secondarySystemGroupedBackground
+    field.borderStyle = .none
+    field.layer.cornerRadius = 12
+    field.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 12, height: 44))
+    field.leftViewMode = .always
+    field.rightView = UIView(frame: CGRect(x: 0, y: 0, width: 12, height: 44))
+    field.rightViewMode = .always
+    field.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
+    let stack = labeledStack(caption: caption, arrangedSubviews: [field])
+    stack.translatesAutoresizingMaskIntoConstraints = false
+    return stack
+}
+
+private func iconBarButton(
+    systemName: String,
+    style: UIBarButtonItem.Style = .plain,
+    action: UIAction
+) -> UIBarButtonItem {
+    let button = UIBarButtonItem(
+        image: UIImage(systemName: systemName),
+        primaryAction: action
+    )
+    button.style = style
+    return button
+}
+
+private extension UIViewController {
+    func presentNativeValidationAlert(message: String) {
         let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: copy.okLabel, style: .default))
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
         present(alert, animated: true)
     }
 }
@@ -1881,7 +2033,6 @@ private final class NativeSheetNavigationController: UINavigationController {
 private final class NativeProfileMenuTableViewController: UITableViewController {
     private let configuration: NativeSheetConfiguration
     private let onSelect: (NativeSheetItem) -> Void
-    private let onEditProfile: () -> Void
     private let onClose: () -> Void
 
     private var tableSections: [NativeSheetSection] {
@@ -1914,12 +2065,10 @@ private final class NativeProfileMenuTableViewController: UITableViewController 
     init(
         configuration: NativeSheetConfiguration,
         onSelect: @escaping (NativeSheetItem) -> Void,
-        onEditProfile: @escaping () -> Void,
         onClose: @escaping () -> Void
     ) {
         self.configuration = configuration
         self.onSelect = onSelect
-        self.onEditProfile = onEditProfile
         self.onClose = onClose
         super.init(style: .insetGrouped)
     }
@@ -2087,17 +2236,6 @@ private final class NativeProfileMenuTableViewController: UITableViewController 
         emailLabel.textColor = .secondaryLabel
         emailLabel.numberOfLines = 2
         stack.addArrangedSubview(emailLabel)
-
-        var editCfg = UIButton.Configuration.gray()
-        editCfg.title = configuration.editProfileLabel
-        editCfg.cornerStyle = .capsule
-        editCfg.buttonSize = .small
-        editCfg.baseForegroundColor = view.tintColor
-        let editButton = UIButton(configuration: editCfg)
-        editButton.accessibilityLabel = configuration.editProfileLabel
-        editButton.addAction(UIAction { [weak self] _ in self?.onEditProfile() }, for: .touchUpInside)
-        stack.addArrangedSubview(editButton)
-        editButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
 
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
@@ -2667,11 +2805,6 @@ private final class NativeSheetSliderTableViewCell: UITableViewCell {
 }
 
 private final class NativeDetailTableViewController: UITableViewController {
-    private enum Section {
-        case main
-        case destructive
-    }
-
     private var detail: NativeSheetDetail
     private let canNavigate: (NativeSheetItem) -> Bool
     private let onSelect: (NativeSheetItem) -> Void
@@ -2683,16 +2816,27 @@ private final class NativeDetailTableViewController: UITableViewController {
 
     var detailId: String { detail.id }
 
-    private var mainItems: [NativeSheetItem] {
-        detail.items.filter { !$0.destructive }
-    }
+    private var tableSections: [NativeSheetSection] {
+        if !detail.sections.isEmpty {
+            return detail.sections
+        }
 
-    private var destructiveItems: [NativeSheetItem] {
-        detail.items.filter(\.destructive)
-    }
+        var sections = [
+            NativeSheetSection(
+                title: nil,
+                footer: detail.subtitle,
+                items: detail.items.filter { !$0.destructive }
+            ),
+        ].filter { !$0.items.isEmpty }
 
-    private var visibleSections: [Section] {
-        destructiveItems.isEmpty ? [.main] : [.main, .destructive]
+        let destructiveItems = detail.items.filter(\.destructive)
+        if !destructiveItems.isEmpty {
+            sections.append(
+                NativeSheetSection(title: nil, footer: nil, items: destructiveItems)
+            )
+        }
+
+        return sections
     }
 
     init(
@@ -2776,7 +2920,14 @@ private final class NativeDetailTableViewController: UITableViewController {
         _ tableView: UITableView,
         titleForFooterInSection section: Int
     ) -> String? {
-        visibleSections[section] == .main ? detail.subtitle : nil
+        tableSections[section].footer
+    }
+
+    override func tableView(
+        _ tableView: UITableView,
+        titleForHeaderInSection section: Int
+    ) -> String? {
+        tableSections[section].title
     }
 
     override func tableView(
@@ -2788,16 +2939,11 @@ private final class NativeDetailTableViewController: UITableViewController {
     }
 
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        switch visibleSections[section] {
-        case .main:
-            return mainItems.count
-        case .destructive:
-            return destructiveItems.count
-        }
+        tableSections[section].items.count
     }
 
     override func numberOfSections(in tableView: UITableView) -> Int {
-        visibleSections.count
+        tableSections.count
     }
 
     override func tableView(
@@ -2893,12 +3039,7 @@ private final class NativeDetailTableViewController: UITableViewController {
     }
 
     private func item(at indexPath: IndexPath) -> NativeSheetItem {
-        switch visibleSections[indexPath.section] {
-        case .main:
-            return mainItems[indexPath.row]
-        case .destructive:
-            return destructiveItems[indexPath.row]
-        }
+        tableSections[indexPath.section].items[indexPath.row]
     }
 
     private func configureCell(_ cell: UITableViewCell, item: NativeSheetItem) {
@@ -2934,27 +3075,20 @@ private final class NativeDetailTableViewController: UITableViewController {
     }
 
     private func closeButton() -> UIBarButtonItem {
-        UIBarButtonItem(
-            systemItem: .close,
-            primaryAction: UIAction { [weak self] _ in self?.onClose() }
+        iconBarButton(
+            systemName: "xmark",
+            action: UIAction { [weak self] _ in self?.onClose() }
         )
     }
 
     private func confirmButton(actionId: String, label: String? = nil) -> UIBarButtonItem {
-        let trimmedLabel = label?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let action = UIAction { [weak self] _ in
-            self?.confirmConfiguredAction(actionId)
-        }
-        let button: UIBarButtonItem
-        if let trimmedLabel = trimmedLabel, !trimmedLabel.isEmpty {
-            button = UIBarButtonItem(title: trimmedLabel, primaryAction: action)
-        } else if actionId.localizedCaseInsensitiveContains("save") {
-            button = UIBarButtonItem(systemItem: .save, primaryAction: action)
-        } else {
-            button = UIBarButtonItem(systemItem: .done, primaryAction: action)
-        }
-        button.style = .done
-        return button
+        iconBarButton(
+            systemName: "checkmark",
+            style: .done,
+            action: UIAction { [weak self] _ in
+                self?.confirmConfiguredAction(actionId)
+            }
+        )
     }
 
     private func refreshNavigationAction() {
@@ -3016,7 +3150,7 @@ private final class NativeDetailTableViewController: UITableViewController {
         pendingTextValues.removeAll()
 
         for (id, value) in changes {
-            guard let item = detail.items.first(where: { $0.id == id }) else { continue }
+            guard let item = detail.allItems.first(where: { $0.id == id }) else { continue }
             committedTextValues[id] = value
             onControlChanged(item, value)
         }
@@ -3044,7 +3178,7 @@ private final class NativeDetailTableViewController: UITableViewController {
     }
 
     private func textChangeConfirmationActionItem() -> NativeSheetItem? {
-        mainItems.first { item in
+        tableSections.flatMap(\.items).first { item in
             item.kind == "navigation"
                 && !item.destructive
                 && item.url == nil
@@ -3683,17 +3817,14 @@ private final class NativeDatePickerViewController: UIViewController {
         super.viewDidLoad()
         title = configuration.title
         view.backgroundColor = .systemGroupedBackground
-        navigationItem.leftBarButtonItem = UIBarButtonItem(
-            title: configuration.cancelLabel,
-            style: .plain,
-            target: self,
-            action: #selector(cancelTapped)
+        navigationItem.leftBarButtonItem = iconBarButton(
+            systemName: "xmark",
+            action: UIAction { [weak self] _ in self?.cancelTapped() }
         )
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            title: configuration.doneLabel,
+        navigationItem.rightBarButtonItem = iconBarButton(
+            systemName: "checkmark",
             style: .done,
-            target: self,
-            action: #selector(doneTapped)
+            action: UIAction { [weak self] _ in self?.doneTapped() }
         )
 
         let container = UIView()

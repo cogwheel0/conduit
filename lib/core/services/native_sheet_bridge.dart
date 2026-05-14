@@ -507,7 +507,8 @@ class NativeSheetDetailConfig {
   const NativeSheetDetailConfig({
     required this.id,
     required this.title,
-    required this.items,
+    this.items = const [],
+    this.sections = const [],
     this.subtitle,
     this.confirmActionId,
     this.confirmActionLabel,
@@ -517,6 +518,7 @@ class NativeSheetDetailConfig {
   final String title;
   final String? subtitle;
   final List<NativeSheetItemConfig> items;
+  final List<NativeSheetSectionConfig> sections;
   final String? confirmActionId;
   final String? confirmActionLabel;
 
@@ -526,6 +528,8 @@ class NativeSheetDetailConfig {
       'title': title,
       'subtitle': subtitle,
       'items': items.map((item) => item.toMap()).toList(),
+      if (sections.isNotEmpty)
+        'sections': sections.map((section) => section.toMap()).toList(),
       if (confirmActionId != null) 'confirmActionId': confirmActionId,
       if (confirmActionLabel != null) 'confirmActionLabel': confirmActionLabel,
     };

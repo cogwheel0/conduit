@@ -276,33 +276,51 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
         NativeSheetDetailConfig(
           id: NativeSheetRoutes.profile,
           title: profileTitle,
-          subtitle: l10n.accountSettingsSubtitle,
-          items: [
-            NativeSheetItemConfig(
-              id: 'profile-edit:name',
-              title: l10n.name,
-              subtitle: profileSummary,
-              sfSymbol: 'person.text.rectangle',
+          sections: [
+            NativeSheetSectionConfig(
+              footer: l10n.accountSettingsSubtitle,
+              items: [
+                NativeSheetItemConfig(
+                  id: 'profile-photo',
+                  title: 'Edit Photo',
+                  sfSymbol: 'person.crop.circle',
+                ),
+              ],
             ),
-            NativeSheetItemConfig(
-              id: 'profile-edit:about',
-              title: l10n.bioLabel,
-              subtitle: accountProfile?.bio?.trim().isNotEmpty == true
-                  ? accountProfile!.bio!.trim()
-                  : l10n.notSet,
-              sfSymbol: 'text.bubble',
+            NativeSheetSectionConfig(
+              items: [
+                NativeSheetItemConfig(
+                  id: 'profile-name',
+                  title: l10n.name,
+                  subtitle: profileSummary,
+                  sfSymbol: 'person.text.rectangle',
+                ),
+                NativeSheetItemConfig(
+                  id: 'profile-about',
+                  title: l10n.bioLabel,
+                  subtitle: accountProfile?.bio?.trim().isNotEmpty == true
+                      ? accountProfile!.bio!.trim()
+                      : l10n.notSet,
+                  sfSymbol: 'text.bubble',
+                ),
+                NativeSheetItemConfig(
+                  id: 'profile-details',
+                  title: l10n.profileDetails,
+                  subtitle: l10n.genderLabel,
+                  sfSymbol: 'person.crop.circle',
+                ),
+              ],
             ),
-            NativeSheetItemConfig(
-              id: 'profile-edit:details',
-              title: l10n.profileDetails,
-              subtitle: l10n.genderLabel,
-              sfSymbol: 'person.crop.circle',
-            ),
-            NativeSheetItemConfig(
-              id: 'password',
-              title: l10n.changePasswordTitle,
-              subtitle: l10n.passwordChangesLabel,
-              sfSymbol: 'lock',
+            NativeSheetSectionConfig(
+              title: l10n.accountSettingsTitle,
+              items: [
+                NativeSheetItemConfig(
+                  id: 'password',
+                  title: l10n.changePasswordTitle,
+                  subtitle: l10n.passwordChangesLabel,
+                  sfSymbol: 'lock',
+                ),
+              ],
             ),
           ],
         ),
