@@ -277,7 +277,7 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
               }
             }
 
-            return RefreshIndicator(
+            return RefreshIndicator.adaptive(
               onRefresh: () async {
                 ConduitHaptics.lightImpact();
                 await ref.read(notesListProvider.notifier).refresh();

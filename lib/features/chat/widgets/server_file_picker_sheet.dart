@@ -129,7 +129,7 @@ class _ServerFilePickerSheetState extends ConsumerState<ServerFilePickerSheet> {
                         );
                       }
 
-                      return RefreshIndicator(
+                      return RefreshIndicator.adaptive(
                         onRefresh: _refreshFiles,
                         child: ListView.separated(
                           controller: scrollController,

@@ -206,7 +206,7 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
               );
             }
 
-            return RefreshIndicator(
+            return RefreshIndicator.adaptive(
               onRefresh: () async {
                 ConduitHaptics.lightImpact();
                 await ref.read(channelsListProvider.notifier).refresh();
