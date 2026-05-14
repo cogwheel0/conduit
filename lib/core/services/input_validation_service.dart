@@ -484,14 +484,8 @@ class _ValidatedFormFieldState extends State<ValidatedFormField> {
       },
       onFieldSubmitted: widget.onFieldSubmitted,
       decoration: context.conduitInputStyles
-          .standard(
-            hint: widget.hint,
-            error: _errorText,
-          )
-          .copyWith(
-            labelText: widget.label,
-            suffixIcon: widget.suffixIcon,
-          ),
+          .standard(hint: widget.hint, error: _errorText)
+          .copyWith(labelText: widget.label, suffixIcon: widget.suffixIcon),
     );
   }
 }

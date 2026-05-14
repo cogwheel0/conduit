@@ -7,9 +7,7 @@ void main() {
     testWidgets('renders with given width and height', (tester) async {
       await tester.pumpWidget(
         const MaterialApp(
-          home: Scaffold(
-            body: SkeletonLoader(width: 200, height: 20),
-          ),
+          home: Scaffold(body: SkeletonLoader(width: 200, height: 20)),
         ),
       );
 
@@ -28,9 +26,7 @@ void main() {
     testWidgets('animation is running after pump', (tester) async {
       await tester.pumpWidget(
         const MaterialApp(
-          home: Scaffold(
-            body: SkeletonLoader(width: 100, height: 16),
-          ),
+          home: Scaffold(body: SkeletonLoader(width: 100, height: 16)),
         ),
       );
 
@@ -47,11 +43,7 @@ void main() {
   group('SkeletonChatMessage', () {
     testWidgets('renders without errors', (tester) async {
       await tester.pumpWidget(
-        const MaterialApp(
-          home: Scaffold(
-            body: SkeletonChatMessage(),
-          ),
-        ),
+        const MaterialApp(home: Scaffold(body: SkeletonChatMessage())),
       );
 
       expect(find.byType(SkeletonChatMessage), findsOneWidget);
@@ -62,11 +54,7 @@ void main() {
   group('SkeletonListItem', () {
     testWidgets('renders without errors', (tester) async {
       await tester.pumpWidget(
-        const MaterialApp(
-          home: Scaffold(
-            body: SkeletonListItem(),
-          ),
-        ),
+        const MaterialApp(home: Scaffold(body: SkeletonListItem())),
       );
 
       expect(find.byType(SkeletonListItem), findsOneWidget);

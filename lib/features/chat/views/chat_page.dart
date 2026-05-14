@@ -232,6 +232,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
               messages: const [],
               updatedAt: DateTime.now(),
             ),
+            trustFolderConversation:
+                updatedConversation.folderId != null &&
+                updatedConversation.folderId!.isNotEmpty,
           );
       ref.read(temporaryChatEnabledProvider.notifier).set(false);
       refreshConversationsCache(ref);
@@ -1760,6 +1763,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             updatedConversation.id,
             message.id,
           );
+          ref
+              .read(conversationsProvider.notifier)
+              .trustConversation(updatedConversation.id);
         } catch (error, stackTrace) {
           DebugLogger.error(
             'delete-message-persist-failed',

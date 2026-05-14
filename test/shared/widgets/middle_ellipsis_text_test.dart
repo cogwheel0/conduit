@@ -8,10 +8,7 @@ void main() {
       await tester.pumpWidget(
         const MaterialApp(
           home: Scaffold(
-            body: SizedBox(
-              width: 300,
-              child: MiddleEllipsisText('Hello'),
-            ),
+            body: SizedBox(width: 300, child: MiddleEllipsisText('Hello')),
           ),
         ),
       );
@@ -36,20 +33,14 @@ void main() {
 
       // The Text widget inside uses semanticsLabel, which we can
       // verify by finding the widget via its semantics label.
-      expect(
-        find.bySemanticsLabel('Greeting text'),
-        findsOneWidget,
-      );
+      expect(find.bySemanticsLabel('Greeting text'), findsOneWidget);
     });
 
     testWidgets('handles empty text without throwing', (tester) async {
       await tester.pumpWidget(
         const MaterialApp(
           home: Scaffold(
-            body: SizedBox(
-              width: 300,
-              child: MiddleEllipsisText(''),
-            ),
+            body: SizedBox(width: 300, child: MiddleEllipsisText('')),
           ),
         ),
       );
@@ -62,10 +53,7 @@ void main() {
       await tester.pumpWidget(
         const MaterialApp(
           home: Scaffold(
-            body: SizedBox(
-              width: 300,
-              child: MiddleEllipsisText('Test'),
-            ),
+            body: SizedBox(width: 300, child: MiddleEllipsisText('Test')),
           ),
         ),
       );

@@ -12,7 +12,7 @@ const int _minValidAudioSize = 1000; // 1KB minimum
 class AudioRecordingException implements Exception {
   final String message;
   AudioRecordingException(this.message);
-  
+
   @override
   String toString() => message;
 }
@@ -182,9 +182,8 @@ class AudioRecordingService {
   /// Stream of amplitude values for visualization.
   ///
   /// Returns amplitude data every 100ms while recording.
-  Stream<Amplitude> get amplitudeStream => _recorder.onAmplitudeChanged(
-        const Duration(milliseconds: 100),
-      );
+  Stream<Amplitude> get amplitudeStream =>
+      _recorder.onAmplitudeChanged(const Duration(milliseconds: 100));
 
   /// Disposes of resources used by the service.
   ///
@@ -198,7 +197,9 @@ class AudioRecordingService {
       try {
         await cancelRecording();
       } catch (e) {
-        debugPrint('AudioRecordingService: Error cancelling recording in dispose: $e');
+        debugPrint(
+          'AudioRecordingService: Error cancelling recording in dispose: $e',
+        );
       }
     }
 
@@ -222,4 +223,3 @@ class AudioRecordingService {
     }
   }
 }
-

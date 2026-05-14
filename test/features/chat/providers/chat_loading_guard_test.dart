@@ -55,11 +55,7 @@ void main() {
       addTearDown(container.dispose);
 
       await expectLater(
-        sendMessageWithContainer(
-          container,
-          'How do I add flavour?',
-          null,
-        ),
+        sendMessageWithContainer(container, 'How do I add flavour?', null),
         throwsA(isA<StateError>()),
       );
 

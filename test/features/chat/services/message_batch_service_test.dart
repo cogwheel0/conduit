@@ -173,10 +173,7 @@ void main() {
       ];
       final result = service.filterMessages(
         messages: messages,
-        filter: const MessageFilter(
-          roles: ['user'],
-          contentFilter: 'hello',
-        ),
+        filter: const MessageFilter(roles: ['user'], contentFilter: 'hello'),
       );
       check(result).length.equals(1);
       check(result.first.id).equals('1');
@@ -335,8 +332,7 @@ void main() {
         );
         check(result.success).isTrue();
         final content = result.data!['content'] as String;
-        final parsed =
-            jsonDecode(content) as Map<String, dynamic>;
+        final parsed = jsonDecode(content) as Map<String, dynamic>;
         final msgs = parsed['messages'] as List;
         check(msgs).length.equals(2);
       });
@@ -347,8 +343,7 @@ void main() {
           format: ExportFormat.json,
         );
         final content = result.data!['content'] as String;
-        final parsed =
-            jsonDecode(content) as Map<String, dynamic>;
+        final parsed = jsonDecode(content) as Map<String, dynamic>;
         final first =
             (parsed['messages'] as List).first as Map<String, dynamic>;
         check(first).containsKey('timestamp');
@@ -360,10 +355,8 @@ void main() {
           format: ExportFormat.json,
         );
         final content = result.data!['content'] as String;
-        final parsed =
-            jsonDecode(content) as Map<String, dynamic>;
-        final second =
-            (parsed['messages'] as List)[1] as Map<String, dynamic>;
+        final parsed = jsonDecode(content) as Map<String, dynamic>;
+        final second = (parsed['messages'] as List)[1] as Map<String, dynamic>;
         check(second['model']).equals('gpt-4');
       });
 
@@ -374,8 +367,7 @@ void main() {
           options: const ExportOptions(includeMetadata: true),
         );
         final content = result.data!['content'] as String;
-        final parsed =
-            jsonDecode(content) as Map<String, dynamic>;
+        final parsed = jsonDecode(content) as Map<String, dynamic>;
         check(parsed).containsKey('exportedAt');
         check(parsed).containsKey('messageCount');
       });
@@ -389,8 +381,7 @@ void main() {
         );
         check(result.success).isTrue();
         final content = result.data!['content'] as String;
-        final lines =
-            content.trim().split('\n');
+        final lines = content.trim().split('\n');
         // Header + 2 data rows
         check(lines).length.equals(3);
         check(lines.first).contains('Role');
@@ -407,9 +398,7 @@ void main() {
       });
 
       test('escapes commas in CSV values', () async {
-        final messages = [
-          msg(content: 'hello, world'),
-        ];
+        final messages = [msg(content: 'hello, world')];
         final result = await service.exportMessages(
           messages: messages,
           format: ExportFormat.csv,
@@ -420,9 +409,7 @@ void main() {
       });
 
       test('escapes double quotes in CSV values', () async {
-        final messages = [
-          msg(content: 'say "hi"'),
-        ];
+        final messages = [msg(content: 'say "hi"')];
         final result = await service.exportMessages(
           messages: messages,
           format: ExportFormat.csv,
@@ -433,9 +420,7 @@ void main() {
       });
 
       test('escapes newlines in content', () async {
-        final messages = [
-          msg(content: 'line1\nline2'),
-        ];
+        final messages = [msg(content: 'line1\nline2')];
         final result = await service.exportMessages(
           messages: messages,
           format: ExportFormat.csv,

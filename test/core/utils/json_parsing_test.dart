@@ -9,10 +9,8 @@ void main() {
       final result = parseDateTime(null);
       final after = DateTime.now();
 
-      check(result.isAfter(before) || result.isAtSameMomentAs(before))
-          .isTrue();
-      check(result.isBefore(after) || result.isAtSameMomentAs(after))
-          .isTrue();
+      check(result.isAfter(before) || result.isAtSameMomentAs(before)).isTrue();
+      check(result.isBefore(after) || result.isAtSameMomentAs(after)).isTrue();
     });
 
     test('DateTime value is returned as-is', () {
@@ -27,8 +25,7 @@ void main() {
 
     test('int is treated as Unix seconds', () {
       final result = parseDateTime(1718451000);
-      final expected =
-          DateTime.fromMillisecondsSinceEpoch(1718451000 * 1000);
+      final expected = DateTime.fromMillisecondsSinceEpoch(1718451000 * 1000);
       check(result).equals(expected);
     });
 
@@ -37,10 +34,8 @@ void main() {
       final result = parseDateTime('not-a-date');
       final after = DateTime.now();
 
-      check(result.isAfter(before) || result.isAtSameMomentAs(before))
-          .isTrue();
-      check(result.isBefore(after) || result.isAtSameMomentAs(after))
-          .isTrue();
+      check(result.isAfter(before) || result.isAtSameMomentAs(before)).isTrue();
+      check(result.isBefore(after) || result.isAtSameMomentAs(after)).isTrue();
     });
 
     test('unrecognized type returns approximately DateTime.now()', () {
@@ -48,16 +43,13 @@ void main() {
       final result = parseDateTime([1, 2, 3]);
       final after = DateTime.now();
 
-      check(result.isAfter(before) || result.isAtSameMomentAs(before))
-          .isTrue();
-      check(result.isBefore(after) || result.isAtSameMomentAs(after))
-          .isTrue();
+      check(result.isAfter(before) || result.isAtSameMomentAs(before)).isTrue();
+      check(result.isBefore(after) || result.isAtSameMomentAs(after)).isTrue();
     });
 
     test('Unix timestamp 0 returns epoch', () {
       final result = parseDateTime(0);
-      check(result)
-          .equals(DateTime.fromMillisecondsSinceEpoch(0));
+      check(result).equals(DateTime.fromMillisecondsSinceEpoch(0));
     });
   });
 
@@ -78,8 +70,7 @@ void main() {
 
     test('int delegates to parseDateTime', () {
       final result = parseDateTimeOrNull(1718451000);
-      final expected =
-          DateTime.fromMillisecondsSinceEpoch(1718451000 * 1000);
+      final expected = DateTime.fromMillisecondsSinceEpoch(1718451000 * 1000);
       check(result).isNotNull().equals(expected);
     });
   });

@@ -85,7 +85,6 @@ class WorkerManager {
         StateError('WorkerManager disposed before job ${job.id} started'),
       );
     }
-
   }
 
   void _processQueue() {

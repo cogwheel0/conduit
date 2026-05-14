@@ -44,6 +44,7 @@ class OptimizedStorageService {
 
   static const String _authTokenKey = 'auth_token_v3';
   static const String _activeServerIdKey = PreferenceKeys.activeServerId;
+  static const String _serverConfigsCacheKey = 'server_configs_v1';
   static const String _themeModeKey = PreferenceKeys.themeMode;
   static const String _themePaletteKey = PreferenceKeys.themePalette;
   static const String _localeCodeKey = PreferenceKeys.localeCode;
@@ -61,6 +62,7 @@ class OptimizedStorageService {
   // Longer TTLs to reduce secure storage churn for OpenWebUI sessions.
   static const Duration _authTokenTtl = Duration(hours: 12);
   static const Duration _serverIdTtl = Duration(days: 7);
+  static const Duration _serverConfigsTtl = Duration(days: 7);
   static const Duration _credentialsFlagTtl = Duration(hours: 12);
 
   // ---------------------------------------------------------------------------
@@ -209,7 +211,8 @@ class OptimizedStorageService {
     try {
       final jsonString = jsonEncode(configs.map((c) => c.toJson()).toList());
       await _secureCredentialStorage.saveServerConfigs(jsonString);
-      _cacheManager.write('server_config_count', configs.length);
+      _cacheManager.invalidate(_activeServerIdKey);
+      _cacheServerConfigs(configs);
       DebugLogger.log(
         'Server configs saved (${configs.length} entries)',
         scope: 'storage/optimized',
@@ -224,18 +227,27 @@ class OptimizedStorageService {
   }
 
   Future<List<ServerConfig>> getServerConfigs() async {
+    final (hit: hasCachedConfigs, value: cachedConfigs) = _cacheManager
+        .lookup<List<ServerConfig>>(_serverConfigsCacheKey);
+    if (hasCachedConfigs && cachedConfigs != null) {
+      return cachedConfigs;
+    }
+
     try {
       final jsonString = await _secureCredentialStorage.getServerConfigs();
-      if (jsonString == null || jsonString.isEmpty) {
-        _cacheManager.write('server_config_count', 0);
+      if (jsonString == null) {
+        _cacheServerConfigs(const <ServerConfig>[]);
         return const [];
+      }
+      if (jsonString.isEmpty) {
+        throw const FormatException('Server configs payload was empty');
       }
 
       final decoded = jsonDecode(jsonString) as List<dynamic>;
       final configs = decoded
           .map((item) => ServerConfig.fromJson(item))
-          .toList();
-      _cacheManager.write('server_config_count', configs.length);
+          .toList(growable: false);
+      _cacheServerConfigs(configs);
       return configs;
     } catch (error) {
       DebugLogger.log(
@@ -252,20 +264,16 @@ class OptimizedStorageService {
     } else {
       await _preferencesBox.delete(_activeServerIdKey);
     }
-    _cacheManager.write(_activeServerIdKey, serverId, ttl: _serverIdTtl);
+    _cacheActiveServerId(serverId);
     await _syncActiveServerConfigFlags(serverId);
   }
 
   Future<String?> getActiveServerId() async {
-    final (hit: hasCachedId, value: cachedId) = _cacheManager.lookup<String>(
-      _activeServerIdKey,
+    final activeServerIdState = _readActiveServerIdState();
+    return _resolveValidatedActiveServerId(
+      rawServerId: activeServerIdState.rawServerId,
+      cacheWhenUnchanged: !activeServerIdState.hasCachedId,
     );
-    if (hasCachedId) {
-      return cachedId;
-    }
-    final serverId = _preferencesBox.get(_activeServerIdKey) as String?;
-    _cacheManager.write(_activeServerIdKey, serverId, ttl: _serverIdTtl);
-    return serverId;
   }
 
   Future<void> _syncActiveServerConfigFlags(String? serverId) async {
@@ -330,453 +338,323 @@ class OptimizedStorageService {
     await _preferencesBox.put(_reviewerModeKey, enabled);
   }
 
-  Future<List<Conversation>> getLocalConversations() async {
+  Future<T> _readSafely<T>({
+    required String errorMessage,
+    required Future<T> Function() read,
+    required T fallback,
+  }) async {
     try {
-      final stored = _cachesBox.get(_localConversationsKey);
-      if (stored == null) {
-        return const [];
-      }
-      final parsed = await _workerManager
-          .schedule<Map<String, dynamic>, List<Map<String, dynamic>>>(
-            _decodeStoredJsonListWorker,
-            {'stored': stored},
-            debugLabel: 'decode_local_conversations',
-          );
-      return parsed.map(Conversation.fromJson).toList(growable: false);
-    } catch (error, stack) {
-      DebugLogger.error(
-        'Failed to retrieve local conversations',
-        scope: 'storage/optimized',
-        error: error,
-        stackTrace: stack,
-      );
-      return const [];
+      return await read();
+    } catch (error, stackTrace) {
+      _logStorageError(errorMessage, error, stackTrace);
+      return fallback;
     }
   }
 
-  Future<void> saveLocalConversations(List<Conversation> conversations) async {
+  Future<T?> _readNullableSafely<T>({
+    required String errorMessage,
+    required Future<T?> Function() read,
+  }) async {
     try {
-      final jsonReady = conversations
-          .map((conversation) => conversation.toJson())
-          .toList();
-      final serialized = await _workerManager
-          .schedule<Map<String, dynamic>, String>(_encodeJsonListWorker, {
-            'items': jsonReady,
-          }, debugLabel: 'encode_local_conversations');
-      await _cachesBox.put(_localConversationsKey, serialized);
-    } catch (error, stack) {
-      DebugLogger.error(
-        'Failed to save local conversations',
-        scope: 'storage/optimized',
-        error: error,
-        stackTrace: stack,
-      );
+      return await read();
+    } catch (error, stackTrace) {
+      _logStorageError(errorMessage, error, stackTrace);
+      return null;
     }
   }
 
-  Future<List<Folder>> getLocalFolders() async {
+  T? _readNullableSafelySync<T>({
+    required String errorMessage,
+    required T? Function() read,
+  }) {
     try {
-      final stored = _cachesBox.get(_localFoldersKey);
-      if (stored == null) {
-        return const [];
-      }
-      final parsed = await _workerManager
-          .schedule<Map<String, dynamic>, List<Map<String, dynamic>>>(
-            _decodeStoredJsonListWorker,
-            {'stored': stored},
-            debugLabel: 'decode_local_folders',
-          );
-      return parsed.map(Folder.fromJson).toList(growable: false);
-    } catch (error, stack) {
-      DebugLogger.error(
-        'Failed to retrieve local folders',
-        scope: 'storage/optimized',
-        error: error,
-        stackTrace: stack,
-      );
-      return const [];
+      return read();
+    } catch (error, stackTrace) {
+      _logStorageError(errorMessage, error, stackTrace);
+      return null;
     }
   }
 
-  Future<void> saveLocalFolders(List<Folder> folders) async {
+  Future<void> _writeSafely({
+    required String errorMessage,
+    required Future<void> Function() write,
+  }) async {
     try {
-      final jsonReady = folders.map((folder) => folder.toJson()).toList();
-      final serialized = await _workerManager
-          .schedule<Map<String, dynamic>, String>(_encodeJsonListWorker, {
-            'items': jsonReady,
-          }, debugLabel: 'encode_local_folders');
-      await _cachesBox.put(_localFoldersKey, serialized);
-    } catch (error, stack) {
-      DebugLogger.error(
-        'Failed to save local folders',
-        scope: 'storage/optimized',
-        error: error,
-        stackTrace: stack,
-      );
+      await write();
+    } catch (error, stackTrace) {
+      _logStorageError(errorMessage, error, stackTrace);
     }
   }
 
-  Future<User?> getLocalUser() async {
-    try {
-      final stored = _cachesBox.get(_localUserKey);
-      if (stored == null) return null;
-      if (stored is String) {
-        final decoded = jsonDecode(stored);
-        if (decoded is Map<String, dynamic>) {
-          return User.fromJson(decoded);
+  void _logStorageError(String message, Object error, StackTrace stackTrace) {
+    DebugLogger.error(
+      message,
+      scope: 'storage/optimized',
+      error: error,
+      stackTrace: stackTrace,
+    );
+  }
+
+  Future<List<Conversation>> getLocalConversations() {
+    return _readSafely(
+      errorMessage: 'Failed to retrieve local conversations',
+      fallback: List<Conversation>.empty(growable: false),
+      read: () => _readServerScopedJsonList(
+        key: _localConversationsKey,
+        decodeDebugLabel: 'decode_local_conversations',
+        fromJson: Conversation.fromJson,
+        allowLegacyPayload: true,
+        migrateLegacy: true,
+      ),
+    );
+  }
+
+  Future<void> saveLocalConversations(List<Conversation> conversations) {
+    return _writeSafely(
+      errorMessage: 'Failed to save local conversations',
+      write: () => _saveServerScopedJsonList(
+        _localConversationsKey,
+        items: conversations,
+        toJson: (conversation) => conversation.toJson(),
+        encodeDebugLabel: 'encode_local_conversations',
+      ),
+    );
+  }
+
+  Future<List<Folder>> getLocalFolders() {
+    return _readSafely(
+      errorMessage: 'Failed to retrieve local folders',
+      fallback: List<Folder>.empty(growable: false),
+      read: () => _readServerScopedJsonList(
+        key: _localFoldersKey,
+        decodeDebugLabel: 'decode_local_folders',
+        fromJson: Folder.fromJson,
+        allowLegacyPayload: true,
+        migrateLegacy: true,
+      ),
+    );
+  }
+
+  Future<void> saveLocalFolders(List<Folder> folders) {
+    return _writeSafely(
+      errorMessage: 'Failed to save local folders',
+      write: () => _saveServerScopedJsonList(
+        _localFoldersKey,
+        items: folders,
+        toJson: (folder) => folder.toJson(),
+        encodeDebugLabel: 'encode_local_folders',
+      ),
+    );
+  }
+
+  Future<User?> getLocalUser() {
+    return _readNullableSafely(
+      errorMessage: 'Failed to retrieve local user',
+      read: () async {
+        final stored = _cachesBox.get(_localUserKey);
+        if (stored == null) return null;
+        return _decodeJsonObject(stored, User.fromJson);
+      },
+    );
+  }
+
+  Future<void> saveLocalUser(User? user) {
+    return _writeSafely(
+      errorMessage: 'Failed to save local user',
+      write: () async {
+        if (user == null) {
+          await _cachesBox.delete(_localUserKey);
+          await _cachesBox.delete(_localUserAvatarKey);
+          return;
         }
-      } else if (stored is Map<String, dynamic>) {
-        return User.fromJson(stored);
-      }
-    } catch (error, stack) {
-      DebugLogger.error(
-        'Failed to retrieve local user',
-        scope: 'storage/optimized',
-        error: error,
-        stackTrace: stack,
-      );
-    }
-    return null;
+        final serialized = jsonEncode(user.toJson());
+        await _cachesBox.put(_localUserKey, serialized);
+      },
+    );
   }
 
-  Future<void> saveLocalUser(User? user) async {
-    try {
-      if (user == null) {
-        await _cachesBox.delete(_localUserKey);
-        await _cachesBox.delete(_localUserAvatarKey);
-        return;
-      }
-      final serialized = jsonEncode(user.toJson());
-      await _cachesBox.put(_localUserKey, serialized);
-    } catch (error, stack) {
-      DebugLogger.error(
-        'Failed to save local user',
-        scope: 'storage/optimized',
-        error: error,
-        stackTrace: stack,
-      );
-    }
-  }
-
-  Future<String?> getLocalUserAvatar() async {
-    try {
-      final stored = _cachesBox.get(_localUserAvatarKey);
-      if (stored is String && stored.isNotEmpty) {
-        return stored;
-      }
-    } catch (error, stack) {
-      DebugLogger.error(
-        'Failed to retrieve local user avatar',
-        scope: 'storage/optimized',
-        error: error,
-        stackTrace: stack,
-      );
-    }
-    return null;
-  }
-
-  Future<void> saveLocalUserAvatar(String? avatarUrl) async {
-    try {
-      if (avatarUrl == null || avatarUrl.isEmpty) {
-        await _cachesBox.delete(_localUserAvatarKey);
-        return;
-      }
-      await _cachesBox.put(_localUserAvatarKey, avatarUrl);
-    } catch (error, stack) {
-      DebugLogger.error(
-        'Failed to save local user avatar',
-        scope: 'storage/optimized',
-        error: error,
-        stackTrace: stack,
-      );
-    }
-  }
-
-  Future<BackendConfig?> getLocalBackendConfig() async {
-    try {
-      final stored = _cachesBox.get(_localBackendConfigKey);
-      if (stored == null) return null;
-      final activeServerId = await getActiveServerId();
-      final (payload, ownerServerId) = _unwrapServerScoped(stored);
-      if (!_matchesActiveServer(activeServerId, ownerServerId)) {
+  Future<String?> getLocalUserAvatar() {
+    return _readNullableSafely(
+      errorMessage: 'Failed to retrieve local user avatar',
+      read: () async {
+        final stored = _cachesBox.get(_localUserAvatarKey);
+        if (stored is String && stored.isNotEmpty) {
+          return stored;
+        }
         return null;
-      }
-      if (payload is String) {
-        final decoded = jsonDecode(payload);
-        if (decoded is Map<String, dynamic>) {
-          return BackendConfig.fromJson(decoded);
+      },
+    );
+  }
+
+  Future<void> saveLocalUserAvatar(String? avatarUrl) {
+    return _writeSafely(
+      errorMessage: 'Failed to save local user avatar',
+      write: () async {
+        if (avatarUrl == null || avatarUrl.isEmpty) {
+          await _cachesBox.delete(_localUserAvatarKey);
+          return;
         }
-      } else if (payload is Map) {
-        return BackendConfig.fromJson(Map<String, dynamic>.from(payload));
-      }
-    } catch (error, stack) {
-      DebugLogger.error(
-        'Failed to retrieve local backend config',
-        scope: 'storage/optimized',
-        error: error,
-        stackTrace: stack,
-      );
-    }
-    return null;
+        await _cachesBox.put(_localUserAvatarKey, avatarUrl);
+      },
+    );
   }
 
-  Future<void> saveLocalBackendConfig(BackendConfig? config) async {
-    try {
-      if (config == null) {
-        await _cachesBox.delete(_localBackendConfigKey);
-        return;
-      }
-      final serialized = jsonEncode(config.toJson());
-      await _cachesBox.put(
-        _localBackendConfigKey,
-        _wrapServerScoped(serialized),
-      );
-    } catch (error, stack) {
-      DebugLogger.error(
-        'Failed to save local backend config',
-        scope: 'storage/optimized',
-        error: error,
-        stackTrace: stack,
-      );
-    }
+  Future<BackendConfig?> getLocalBackendConfig() {
+    return _readNullableSafely(
+      errorMessage: 'Failed to retrieve local backend config',
+      read: () => _readServerScopedJsonObject(
+        key: _localBackendConfigKey,
+        fromJson: BackendConfig.fromJson,
+      ),
+    );
   }
 
-  Future<SocketTransportAvailability?> getLocalTransportOptions() async {
-    try {
-      final stored = _cachesBox.get(_localTransportOptionsKey);
-      if (stored == null) return null;
-      final activeServerId = await getActiveServerId();
-      final (payload, ownerServerId) = _unwrapServerScoped(stored);
-      if (!_matchesActiveServer(activeServerId, ownerServerId)) {
-        return null;
-      }
-      if (payload is String) {
-        final decoded = jsonDecode(payload);
-        if (decoded is Map<String, dynamic>) {
-          return _transportFromJson(decoded);
+  Future<void> saveLocalBackendConfig(BackendConfig? config) {
+    return _writeSafely(
+      errorMessage: 'Failed to save local backend config',
+      write: () async {
+        if (config == null) {
+          await _cachesBox.delete(_localBackendConfigKey);
+          return;
         }
-      } else if (payload is Map) {
-        return _transportFromJson(Map<String, dynamic>.from(payload));
-      }
-    } catch (error, stack) {
-      DebugLogger.error(
-        'Failed to retrieve local transport options',
-        scope: 'storage/optimized',
-        error: error,
-        stackTrace: stack,
-      );
-    }
-    return null;
+        await _saveServerScopedJsonObject(
+          _localBackendConfigKey,
+          config,
+          toJson: (value) => value.toJson(),
+        );
+      },
+    );
   }
 
-  Future<void> saveLocalTransportOptions(
-    SocketTransportAvailability? options,
-  ) async {
-    try {
-      if (options == null) {
-        await _cachesBox.delete(_localTransportOptionsKey);
-        return;
-      }
-      final json = {
-        'allowPolling': options.allowPolling,
-        'allowWebsocketOnly': options.allowWebsocketOnly,
-      };
-      await _cachesBox.put(
-        _localTransportOptionsKey,
-        _wrapServerScoped(jsonEncode(json)),
-      );
-    } catch (error, stack) {
-      DebugLogger.error(
-        'Failed to save local transport options',
-        scope: 'storage/optimized',
-        error: error,
-        stackTrace: stack,
-      );
-    }
+  Future<SocketTransportAvailability?> getLocalTransportOptions() {
+    return _readNullableSafely(
+      errorMessage: 'Failed to retrieve local transport options',
+      read: () => _readServerScopedJsonObject(
+        key: _localTransportOptionsKey,
+        fromJson: _transportFromJson,
+      ),
+    );
+  }
+
+  Future<void> saveLocalTransportOptions(SocketTransportAvailability? options) {
+    return _writeSafely(
+      errorMessage: 'Failed to save local transport options',
+      write: () async {
+        if (options == null) {
+          await _cachesBox.delete(_localTransportOptionsKey);
+          return;
+        }
+        final json = {
+          'allowPolling': options.allowPolling,
+          'allowWebsocketOnly': options.allowWebsocketOnly,
+        };
+        await _saveServerScopedJsonObject(
+          _localTransportOptionsKey,
+          json,
+          toJson: (value) => value,
+        );
+      },
+    );
   }
 
   SocketTransportAvailability? getLocalTransportOptionsSync() {
-    try {
-      final stored = _cachesBox.get(_localTransportOptionsKey);
-      if (stored == null) return null;
-      final (payload, ownerServerId) = _unwrapServerScoped(stored);
-      if (!_matchesActiveServer(_readActiveServerIdSync(), ownerServerId)) {
-        return null;
-      }
-      if (payload is String) {
-        final decoded = jsonDecode(payload);
-        if (decoded is Map<String, dynamic>) {
-          return _transportFromJson(decoded);
+    return _readNullableSafelySync(
+      errorMessage: 'Failed to retrieve local transport options sync',
+      read: () => _readValidatedServerScopedJsonObjectSync(
+        _localTransportOptionsKey,
+        fromJson: _transportFromJson,
+      ),
+    );
+  }
+
+  Future<List<Model>> getLocalModels() {
+    return _readSafely(
+      errorMessage: 'Failed to retrieve local models',
+      fallback: List<Model>.empty(growable: false),
+      read: () => _readServerScopedJsonList(
+        key: _localModelsKey,
+        decodeDebugLabel: 'decode_local_models',
+        fromJson: Model.fromJson,
+      ),
+    );
+  }
+
+  Future<void> saveLocalModels(List<Model> models) {
+    return _writeSafely(
+      errorMessage: 'Failed to save local models',
+      write: () => _saveServerScopedJsonList(
+        _localModelsKey,
+        items: models,
+        toJson: (model) => model.toJson(),
+        encodeDebugLabel: 'encode_local_models',
+      ),
+    );
+  }
+
+  Future<List<Tool>> getLocalTools() {
+    return _readSafely(
+      errorMessage: 'Failed to retrieve local tools',
+      fallback: List<Tool>.empty(growable: false),
+      read: () => _readServerScopedJsonList(
+        key: _localToolsKey,
+        decodeDebugLabel: 'decode_local_tools',
+        fromJson: Tool.fromJson,
+      ),
+    );
+  }
+
+  Future<void> saveLocalTools(List<Tool> tools) {
+    return _writeSafely(
+      errorMessage: 'Failed to save local tools',
+      write: () => _saveServerScopedJsonList(
+        _localToolsKey,
+        items: tools,
+        toJson: (tool) => tool.toJson(),
+        encodeDebugLabel: 'encode_local_tools',
+      ),
+    );
+  }
+
+  Future<Model?> getLocalDefaultModel() {
+    return _readNullableSafely(
+      errorMessage: 'Failed to retrieve local default model',
+      read: () async {
+        final parsed = await _readServerScopedJsonObject(
+          key: _localDefaultModelKey,
+          fromJson: Model.fromJson,
+        );
+        if (parsed == null) return null;
+
+        final parsedModel = parsed;
+        final cachedModels = await getLocalModels();
+        final hasMatch = cachedModels.any(
+          (model) =>
+              model.id == parsedModel.id ||
+              model.name.trim() == parsedModel.name.trim(),
+        );
+        if (cachedModels.isNotEmpty && !hasMatch) {
+          return null;
         }
-      } else if (payload is Map) {
-        return _transportFromJson(Map<String, dynamic>.from(payload));
-      }
-    } catch (error, stack) {
-      DebugLogger.error(
-        'Failed to retrieve local transport options sync',
-        scope: 'storage/optimized',
-        error: error,
-        stackTrace: stack,
-      );
-    }
-    return null;
+        return parsedModel;
+      },
+    );
   }
 
-  Future<List<Model>> getLocalModels() async {
-    try {
-      final stored = _cachesBox.get(_localModelsKey);
-      if (stored == null) {
-        return const [];
-      }
-      final activeServerId = await getActiveServerId();
-      final (payload, ownerServerId) = _unwrapServerScoped(stored);
-      if (!_matchesActiveServer(activeServerId, ownerServerId)) {
-        return const [];
-      }
-      if (payload == null) return const [];
-      final parsed = await _workerManager
-          .schedule<Map<String, dynamic>, List<Map<String, dynamic>>>(
-            _decodeStoredJsonListWorker,
-            {'stored': payload},
-            debugLabel: 'decode_local_models',
-          );
-      return parsed.map(Model.fromJson).toList(growable: false);
-    } catch (error, stack) {
-      DebugLogger.error(
-        'Failed to retrieve local models',
-        scope: 'storage/optimized',
-        error: error,
-        stackTrace: stack,
-      );
-      return const [];
-    }
-  }
-
-  Future<void> saveLocalModels(List<Model> models) async {
-    try {
-      final jsonReady = models.map((model) => model.toJson()).toList();
-      final serialized = await _workerManager
-          .schedule<Map<String, dynamic>, String>(_encodeJsonListWorker, {
-            'items': jsonReady,
-          }, debugLabel: 'encode_local_models');
-      await _cachesBox.put(_localModelsKey, _wrapServerScoped(serialized));
-    } catch (error, stack) {
-      DebugLogger.error(
-        'Failed to save local models',
-        scope: 'storage/optimized',
-        error: error,
-        stackTrace: stack,
-      );
-    }
-  }
-
-  Future<List<Tool>> getLocalTools() async {
-    try {
-      final stored = _cachesBox.get(_localToolsKey);
-      if (stored == null) return const [];
-      final activeServerId = await getActiveServerId();
-      final (payload, ownerServerId) = _unwrapServerScoped(stored);
-      if (!_matchesActiveServer(activeServerId, ownerServerId)) {
-        return const [];
-      }
-      if (payload == null) return const [];
-      final parsed = await _workerManager
-          .schedule<Map<String, dynamic>, List<Map<String, dynamic>>>(
-            _decodeStoredJsonListWorker,
-            {'stored': payload},
-            debugLabel: 'decode_local_tools',
-          );
-      return parsed.map(Tool.fromJson).toList(growable: false);
-    } catch (error, stack) {
-      DebugLogger.error(
-        'Failed to retrieve local tools',
-        scope: 'storage/optimized',
-        error: error,
-        stackTrace: stack,
-      );
-      return const [];
-    }
-  }
-
-  Future<void> saveLocalTools(List<Tool> tools) async {
-    try {
-      final jsonReady = tools.map((tool) => tool.toJson()).toList();
-      final serialized = await _workerManager
-          .schedule<Map<String, dynamic>, String>(_encodeJsonListWorker, {
-            'items': jsonReady,
-          }, debugLabel: 'encode_local_tools');
-      await _cachesBox.put(_localToolsKey, _wrapServerScoped(serialized));
-    } catch (error, stack) {
-      DebugLogger.error(
-        'Failed to save local tools',
-        scope: 'storage/optimized',
-        error: error,
-        stackTrace: stack,
-      );
-    }
-  }
-
-  Future<Model?> getLocalDefaultModel() async {
-    try {
-      final stored = _cachesBox.get(_localDefaultModelKey);
-      if (stored == null) return null;
-      final activeServerId = await getActiveServerId();
-      final (payload, ownerServerId) = _unwrapServerScoped(stored);
-      if (!_matchesActiveServer(activeServerId, ownerServerId)) {
-        return null;
-      }
-      Model? parsed;
-      if (payload is String) {
-        final decoded = jsonDecode(payload);
-        if (decoded is Map<String, dynamic>) {
-          parsed = Model.fromJson(decoded);
+  Future<void> saveLocalDefaultModel(Model? model) {
+    return _writeSafely(
+      errorMessage: 'Failed to save local default model',
+      write: () async {
+        if (model == null) {
+          await _cachesBox.delete(_localDefaultModelKey);
+          return;
         }
-      } else if (payload is Map) {
-        parsed = Model.fromJson(Map<String, dynamic>.from(payload));
-      }
-      if (parsed == null) return null;
-
-      final parsedModel = parsed;
-      final cachedModels = await getLocalModels();
-      final hasMatch = cachedModels.any(
-        (model) =>
-            model.id == parsedModel.id ||
-            model.name.trim() == parsedModel.name.trim(),
-      );
-      if (cachedModels.isNotEmpty && !hasMatch) {
-        return null;
-      }
-      return parsedModel;
-    } catch (error, stack) {
-      DebugLogger.error(
-        'Failed to retrieve local default model',
-        scope: 'storage/optimized',
-        error: error,
-        stackTrace: stack,
-      );
-    }
-    return null;
-  }
-
-  Future<void> saveLocalDefaultModel(Model? model) async {
-    try {
-      if (model == null) {
-        await _cachesBox.delete(_localDefaultModelKey);
-        return;
-      }
-      final serialized = jsonEncode(model.toJson());
-      await _cachesBox.put(
-        _localDefaultModelKey,
-        _wrapServerScoped(serialized),
-      );
-    } catch (error, stack) {
-      DebugLogger.error(
-        'Failed to save local default model',
-        scope: 'storage/optimized',
-        error: error,
-        stackTrace: stack,
-      );
-    }
+        await _saveServerScopedJsonObject(
+          _localDefaultModelKey,
+          model,
+          toJson: (value) => value.toJson(),
+        );
+      },
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -803,7 +681,10 @@ class OptimizedStorageService {
     ]);
 
     _cacheManager.invalidateMatching(
-      (key) => key.contains('auth') || key.contains('credentials'),
+      (key) =>
+          key.contains('auth') ||
+          key.contains('credentials') ||
+          key == _serverConfigsCacheKey,
     );
 
     DebugLogger.log(
@@ -850,33 +731,325 @@ class OptimizedStorageService {
   // ---------------------------------------------------------------------------
   // Server scoping helpers
   // ---------------------------------------------------------------------------
+  bool _isServerScopedPayload(Object? stored) =>
+      stored is Map && stored.containsKey('data');
+
   (Object?, String?) _unwrapServerScoped(Object? stored) {
-    if (stored is Map && stored.containsKey('data')) {
-      final serverId = stored['serverId'];
-      return (stored['data'], serverId is String ? serverId : null);
+    if (_isServerScopedPayload(stored)) {
+      final scoped = stored as Map<Object?, Object?>;
+      final serverId = scoped['serverId'];
+      return (scoped['data'], serverId is String ? serverId : null);
     }
     return (stored, null);
   }
 
-  Map<String, Object?> _wrapServerScoped(Object data) {
-    return {'data': data, 'serverId': _readActiveServerIdSync()};
+  Future<Map<String, Object?>> _wrapServerScoped(Object data) async {
+    return _wrapServerScopedForServerId(data, await getActiveServerId());
+  }
+
+  Map<String, Object?> _wrapServerScopedForServerId(
+    Object? data,
+    String? serverId,
+  ) {
+    return {'data': data, 'serverId': _normalizeServerId(serverId)};
+  }
+
+  Future<void> _maybeMigrateLegacyServerScopedCache({
+    required String key,
+    required Object? stored,
+    required Object? payload,
+    required String? activeServerId,
+  }) async {
+    if (_isServerScopedPayload(stored)) {
+      return;
+    }
+
+    try {
+      await _cachesBox.put(
+        key,
+        _wrapServerScopedForServerId(payload, activeServerId),
+      );
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'Failed to migrate legacy server-scoped cache',
+        scope: 'storage/optimized',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'key': key, 'serverId': _normalizeServerId(activeServerId)},
+      );
+    }
+  }
+
+  Object? _resolveServerScopedPayload(
+    Object? stored, {
+    required String? activeServerId,
+    bool allowLegacyPayload = false,
+  }) {
+    if (stored == null) {
+      return null;
+    }
+
+    final isLegacyPayload = !_isServerScopedPayload(stored);
+    final (payload, ownerServerId) = _unwrapServerScoped(stored);
+    final shouldEnforceScope = !isLegacyPayload || !allowLegacyPayload;
+    if (shouldEnforceScope &&
+        !_matchesActiveServer(activeServerId, ownerServerId)) {
+      return null;
+    }
+    return payload;
+  }
+
+  Future<Object?> _getServerScopedPayload({
+    required String key,
+    bool allowLegacyPayload = false,
+    bool migrateLegacy = false,
+  }) async {
+    final stored = _cachesBox.get(key);
+    final activeServerId = await getActiveServerId();
+    final payload = _resolveServerScopedPayload(
+      stored,
+      activeServerId: activeServerId,
+      allowLegacyPayload: allowLegacyPayload,
+    );
+    if (payload == null) {
+      return null;
+    }
+
+    if (migrateLegacy) {
+      await _maybeMigrateLegacyServerScopedCache(
+        key: key,
+        stored: stored,
+        payload: payload,
+        activeServerId: activeServerId,
+      );
+    }
+
+    return payload;
+  }
+
+  Future<List<T>> _readServerScopedJsonList<T>({
+    required String key,
+    required String decodeDebugLabel,
+    required T Function(Map<String, dynamic> json) fromJson,
+    bool allowLegacyPayload = false,
+    bool migrateLegacy = false,
+  }) async {
+    final payload = await _getServerScopedPayload(
+      key: key,
+      allowLegacyPayload: allowLegacyPayload,
+      migrateLegacy: migrateLegacy,
+    );
+    if (payload == null) {
+      return List<T>.empty(growable: false);
+    }
+
+    final parsed = await _workerManager
+        .schedule<Map<String, dynamic>, List<Map<String, dynamic>>>(
+          _decodeStoredJsonListWorker,
+          {'stored': payload},
+          debugLabel: decodeDebugLabel,
+        );
+    return parsed.map(fromJson).toList(growable: false);
+  }
+
+  Future<void> _saveServerScopedJsonList<T>(
+    String key, {
+    required Iterable<T> items,
+    required Map<String, dynamic> Function(T item) toJson,
+    required String encodeDebugLabel,
+  }) async {
+    final jsonReady = items.map(toJson).toList(growable: false);
+    final serialized = await _workerManager
+        .schedule<Map<String, dynamic>, String>(_encodeJsonListWorker, {
+          'items': jsonReady,
+        }, debugLabel: encodeDebugLabel);
+    await _putServerScopedCacheValue(key, serialized);
+  }
+
+  Future<void> _putServerScopedCacheValue(String key, Object value) async {
+    await _cachesBox.put(key, await _wrapServerScoped(value));
+  }
+
+  Future<void> _saveServerScopedJsonObject<T>(
+    String key,
+    T value, {
+    required Object? Function(T value) toJson,
+  }) async {
+    await _putServerScopedCacheValue(key, jsonEncode(toJson(value)));
+  }
+
+  Future<T?> _readServerScopedJsonObject<T>({
+    required String key,
+    required T? Function(Map<String, dynamic> json) fromJson,
+  }) async {
+    final payload = await _getServerScopedPayload(key: key);
+    if (payload == null) {
+      return null;
+    }
+    return _decodeJsonObject(payload, fromJson);
   }
 
   bool _matchesActiveServer(String? activeServerId, String? ownerServerId) {
-    if (ownerServerId == null || ownerServerId.isEmpty) {
-      return activeServerId == null;
+    final normalizedActive = _normalizeServerId(activeServerId);
+    final normalizedOwner = _normalizeServerId(ownerServerId);
+    if (normalizedOwner == null) {
+      return normalizedActive == null;
     }
-    return activeServerId == ownerServerId;
+    return normalizedActive == normalizedOwner;
   }
 
-  String? _readActiveServerIdSync() {
+  String? _normalizeServerId(String? serverId) {
+    if (serverId == null || serverId.isEmpty) {
+      return null;
+    }
+    return serverId;
+  }
+
+  ({bool hasCachedId, String? rawServerId}) _readActiveServerIdState() {
     final (hit: hasCachedId, value: cachedId) = _cacheManager.lookup<String>(
       _activeServerIdKey,
     );
-    if (hasCachedId) {
-      return cachedId;
+    return (
+      hasCachedId: hasCachedId,
+      rawServerId: hasCachedId
+          ? cachedId
+          : _preferencesBox.get(_activeServerIdKey) as String?,
+    );
+  }
+
+  List<ServerConfig>? _readCachedServerConfigs() {
+    final (hit: hasCachedConfigs, value: cachedConfigs) = _cacheManager
+        .lookup<List<ServerConfig>>(_serverConfigsCacheKey);
+    return hasCachedConfigs ? cachedConfigs : null;
+  }
+
+  ({bool didValidate, String? serverId}) _validateServerIdAgainstConfigs(
+    String? serverId,
+    List<ServerConfig>? configs,
+  ) {
+    final normalizedServerId = _normalizeServerId(serverId);
+    if (normalizedServerId == null) {
+      return (didValidate: true, serverId: null);
     }
-    return _preferencesBox.get(_activeServerIdKey) as String?;
+    if (configs == null) {
+      return (didValidate: false, serverId: null);
+    }
+
+    final hasMatch = configs.any((config) => config.id == normalizedServerId);
+    return (didValidate: true, serverId: hasMatch ? normalizedServerId : null);
+  }
+
+  String? _finalizeValidatedActiveServerId({
+    required String? rawServerId,
+    required ({bool didValidate, String? serverId}) validation,
+    bool cacheWhenUnchanged = false,
+  }) {
+    if (!validation.didValidate) {
+      return null;
+    }
+
+    final validatedServerId = validation.serverId;
+    if (cacheWhenUnchanged || validatedServerId != rawServerId) {
+      _cacheActiveServerId(validatedServerId);
+    }
+    return validatedServerId;
+  }
+
+  Future<String?> _resolveValidatedActiveServerId({
+    required String? rawServerId,
+    bool cacheWhenUnchanged = false,
+  }) async {
+    var validation = _validateServerIdAgainstConfigs(
+      rawServerId,
+      _readCachedServerConfigs(),
+    );
+    if (!validation.didValidate) {
+      validation = _validateServerIdAgainstConfigs(
+        rawServerId,
+        await getServerConfigs(),
+      );
+    }
+    return _finalizeValidatedActiveServerId(
+      rawServerId: rawServerId,
+      validation: validation,
+      cacheWhenUnchanged: cacheWhenUnchanged,
+    );
+  }
+
+  /// Validates the active server id using only synchronously available cache.
+  ///
+  /// If the server config cache has not been hydrated yet, return `null` so
+  /// sync consumers fall back to safe defaults instead of trusting stale
+  /// server-scoped cache entries from a removed server.
+  String? _readValidatedActiveServerIdSync() {
+    final activeServerIdState = _readActiveServerIdState();
+    final validation = _validateServerIdAgainstConfigs(
+      activeServerIdState.rawServerId,
+      _readCachedServerConfigs(),
+    );
+    return _finalizeValidatedActiveServerId(
+      rawServerId: activeServerIdState.rawServerId,
+      validation: validation,
+    );
+  }
+
+  Object? _getValidatedServerScopedPayloadSync(String key) {
+    return _resolveServerScopedPayload(
+      _cachesBox.get(key),
+      activeServerId: _readValidatedActiveServerIdSync(),
+    );
+  }
+
+  T? _readValidatedServerScopedJsonObjectSync<T>(
+    String key, {
+    required T? Function(Map<String, dynamic> json) fromJson,
+  }) {
+    final payload = _getValidatedServerScopedPayloadSync(key);
+    if (payload == null) {
+      return null;
+    }
+    return _decodeJsonObject(payload, fromJson);
+  }
+
+  T? _decodeJsonObject<T>(
+    Object? stored,
+    T? Function(Map<String, dynamic> json) fromJson,
+  ) {
+    final json = _decodeJsonMap(stored);
+    if (json == null) {
+      return null;
+    }
+    return fromJson(json);
+  }
+
+  Map<String, dynamic>? _decodeJsonMap(Object? stored) {
+    if (stored is String) {
+      final decoded = jsonDecode(stored);
+      if (decoded is Map) {
+        return Map<String, dynamic>.from(decoded);
+      }
+      return null;
+    }
+    if (stored is Map<String, dynamic>) {
+      return stored;
+    }
+    if (stored is Map) {
+      return Map<String, dynamic>.from(stored);
+    }
+    return null;
+  }
+
+  void _cacheServerConfigs(List<ServerConfig> configs) {
+    _cacheManager.write('server_config_count', configs.length);
+    _cacheManager.write(
+      _serverConfigsCacheKey,
+      List<ServerConfig>.unmodifiable(configs),
+      ttl: _serverConfigsTtl,
+    );
+  }
+
+  void _cacheActiveServerId(String? serverId) {
+    _cacheManager.write(_activeServerIdKey, serverId, ttl: _serverIdTtl);
   }
 
   // ---------------------------------------------------------------------------

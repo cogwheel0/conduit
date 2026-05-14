@@ -23,9 +23,7 @@ void main() {
         ProviderScope(
           child: MaterialApp(
             home: Scaffold(
-              body: ErrorBoundary(
-                child: const Text('Hello World'),
-              ),
+              body: ErrorBoundary(child: const Text('Hello World')),
             ),
           ),
         ),
@@ -44,11 +42,7 @@ void main() {
       await tester.pumpWidget(
         ProviderScope(
           child: MaterialApp(
-            home: Scaffold(
-              body: ErrorBoundary(
-                child: const SizedBox.shrink(),
-              ),
-            ),
+            home: Scaffold(body: ErrorBoundary(child: const SizedBox.shrink())),
           ),
         ),
       );

@@ -63,9 +63,7 @@ NativeSheetDetailConfig buildNativeLoadingDetail({
     id: id,
     title: title,
     subtitle: subtitle ?? l10n.loadingShort,
-    items: [
-      buildNativeLoadingItem(l10n, id: '$id-loading'),
-    ],
+    items: [buildNativeLoadingItem(l10n, id: '$id-loading')],
   );
 }
 

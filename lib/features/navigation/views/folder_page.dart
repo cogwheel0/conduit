@@ -938,7 +938,9 @@ class _FolderPageState extends ConsumerState<FolderPage> {
                   updatedAt: DateTime.now(),
                 )
               : Folder.fromJson(detail);
-          ref.read(foldersProvider.notifier).upsertFolder(updatedFolder);
+          ref.read(foldersProvider.notifier).upsertFolderFromRemote(
+            updatedFolder,
+          );
           if (!mounted) return;
           UiUtils.showMessage(context, l10n.saved);
         } catch (_) {
@@ -967,7 +969,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       return;
     }
 
-    ref.read(foldersProvider.notifier).upsertFolder(updatedFolder);
+    ref.read(foldersProvider.notifier).upsertFolderFromRemote(updatedFolder);
   }
 
   Future<void> _showSystemPromptSheet(Folder folder) async {
@@ -1032,7 +1034,9 @@ class _FolderPageState extends ConsumerState<FolderPage> {
           final updatedFolder = detail == null
               ? latestFolder.copyWith(data: nextData, updatedAt: DateTime.now())
               : Folder.fromJson(detail);
-          ref.read(foldersProvider.notifier).upsertFolder(updatedFolder);
+          ref.read(foldersProvider.notifier).upsertFolderFromRemote(
+            updatedFolder,
+          );
           if (!mounted) return;
           UiUtils.showMessage(context, l10n.saved);
         } catch (_) {
@@ -1061,7 +1065,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       return;
     }
 
-    ref.read(foldersProvider.notifier).upsertFolder(updatedFolder);
+    ref.read(foldersProvider.notifier).upsertFolderFromRemote(updatedFolder);
   }
 
   void _openFolder(String folderId) {

@@ -40,30 +40,22 @@ class FileTypeUtils {
   };
 
   /// Video file extensions (lowercase, with leading dot).
-  static const Set<String> _videoExtensions = {
-    '.mp4',
-    '.avi',
-    '.mov',
-    '.mkv',
-  };
+  static const Set<String> _videoExtensions = {'.mp4', '.avi', '.mov', '.mkv'};
 
   /// Whether the extension represents an audio file.
   ///
   /// The [extension] should be lowercase with a leading dot (e.g. `.mp3`).
-  static bool isAudio(String extension) =>
-      _audioExtensions.contains(extension);
+  static bool isAudio(String extension) => _audioExtensions.contains(extension);
 
   /// Whether the extension represents an image file.
   ///
   /// The [extension] should be lowercase with a leading dot (e.g. `.png`).
-  static bool isImage(String extension) =>
-      _imageExtensions.contains(extension);
+  static bool isImage(String extension) => _imageExtensions.contains(extension);
 
   /// Whether the extension represents a video file.
   ///
   /// The [extension] should be lowercase with a leading dot (e.g. `.mp4`).
-  static bool isVideo(String extension) =>
-      _videoExtensions.contains(extension);
+  static bool isVideo(String extension) => _videoExtensions.contains(extension);
 
   /// Returns a platform-aware icon for the given file [extension].
   ///
@@ -76,9 +68,7 @@ class FileTypeUtils {
           : Icons.audio_file_rounded;
     }
     if (isImage(extension)) {
-      return Platform.isIOS
-          ? CupertinoIcons.photo
-          : Icons.image_rounded;
+      return Platform.isIOS ? CupertinoIcons.photo : Icons.image_rounded;
     }
     if (isVideo(extension)) {
       return Platform.isIOS
@@ -94,10 +84,7 @@ class FileTypeUtils {
   ///
   /// Audio files are orange, image files are blue, and other files
   /// fall back to [fallback].
-  static Color colorForExtension(
-    String extension, {
-    required Color fallback,
-  }) {
+  static Color colorForExtension(String extension, {required Color fallback}) {
     if (isAudio(extension)) return Colors.orange;
     if (isImage(extension)) return Colors.blue;
     return fallback;
@@ -142,8 +129,7 @@ class FileTypeUtils {
     if (const {'.pdf', '.doc', '.docx'}.contains(extension)) {
       return '\u{1F4C4}';
     }
-    if (const {'.xls', '.xlsx', '.ppt', '.pptx'}
-        .contains(extension)) {
+    if (const {'.xls', '.xlsx', '.ppt', '.pptx'}.contains(extension)) {
       return '\u{1F4CA}';
     }
 
@@ -152,18 +138,22 @@ class FileTypeUtils {
     if (images.contains(extension)) return '\u{1F5BC}\uFE0F';
 
     // Code
-    if (const {'.js', '.ts', '.py', '.dart', '.java', '.cpp'}
-        .contains(extension)) {
+    if (const {
+      '.js',
+      '.ts',
+      '.py',
+      '.dart',
+      '.java',
+      '.cpp',
+    }.contains(extension)) {
       return '\u{1F4BB}';
     }
-    if (const {'.html', '.css', '.json', '.xml'}
-        .contains(extension)) {
+    if (const {'.html', '.css', '.json', '.xml'}.contains(extension)) {
       return '\u{1F310}';
     }
 
     // Archives
-    if (const {'.zip', '.rar', '.7z', '.tar', '.gz'}
-        .contains(extension)) {
+    if (const {'.zip', '.rar', '.7z', '.tar', '.gz'}.contains(extension)) {
       return '\u{1F4E6}';
     }
 

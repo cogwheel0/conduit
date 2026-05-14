@@ -66,7 +66,7 @@ Future<void> _showNativeChatShareSheet({
     }
     container
         .read(conversationsProvider.notifier)
-        .updateConversation(
+        .updateConversationFromRemote(
           conversation.id,
           (current) =>
               current.copyWith(shareId: shareId, updatedAt: DateTime.now()),
@@ -110,7 +110,7 @@ Future<void> _showNativeChatShareSheet({
       await api.deleteSharedConversation(conversation.id);
       container
           .read(conversationsProvider.notifier)
-          .updateConversation(
+          .updateConversationFromRemote(
             conversation.id,
             (current) =>
                 current.copyWith(shareId: null, updatedAt: DateTime.now()),

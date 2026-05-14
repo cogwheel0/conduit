@@ -46,7 +46,7 @@ class CreateFolderDialog {
       );
       final folder = Folder.fromJson(Map<String, dynamic>.from(created));
       ConduitHaptics.lightImpact();
-      ref.read(foldersProvider.notifier).upsertFolder(folder);
+      ref.read(foldersProvider.notifier).upsertFolderFromRemote(folder);
       refreshConversationsCache(ref, includeFolders: true);
     } catch (e, stackTrace) {
       DebugLogger.error(

@@ -59,7 +59,10 @@ class _TestConversations extends Conversations {
   Future<List<Conversation>> build() async => const <Conversation>[];
 
   @override
-  Future<void> refresh({bool includeFolders = false}) async {}
+  Future<void> refresh({
+    bool includeFolders = false,
+    bool forceFresh = false,
+  }) async {}
 }
 
 class _RecordingShareAction {

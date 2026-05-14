@@ -15,6 +15,29 @@ class _TestActiveConversationNotifier extends ActiveConversationNotifier {
   Conversation? build() => null;
 }
 
+class _RecordingConversations extends Conversations {
+  Conversation? lastUpsertedConversation;
+  bool? lastTrustFolderConversation;
+
+  @override
+  Future<List<Conversation>> build() async => const <Conversation>[];
+
+  @override
+  Future<void> refresh({
+    bool includeFolders = false,
+    bool forceFresh = false,
+  }) async {}
+
+  @override
+  void upsertConversation(
+    Conversation conversation, {
+    bool trustFolderConversation = false,
+  }) {
+    lastUpsertedConversation = conversation;
+    lastTrustFolderConversation = trustFolderConversation;
+  }
+}
+
 class _FakeSocketService extends SocketService {
   _FakeSocketService()
     : super(
@@ -352,5 +375,53 @@ void main() {
 
       check(disposed).isTrue();
     });
+
+    test(
+      'finishStreaming keeps folder conversation summaries untrusted until the server confirms them',
+      () async {
+        final timestamp = DateTime.now();
+        final user = _userMessage('user-1', 'Hello', timestamp);
+        final assistant = ChatMessage(
+          id: 'assistant-1',
+          role: 'assistant',
+          content: 'Streaming answer',
+          timestamp: timestamp,
+          isStreaming: true,
+        );
+
+        final container = ProviderContainer(
+          overrides: [
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            conversationsProvider.overrideWith(_RecordingConversations.new),
+            socketServiceProvider.overrideWithValue(null),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        container.read(activeConversationProvider.notifier).set(
+          Conversation(
+            id: 'chat-1',
+            title: 'Folder Chat',
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            folderId: 'folder-1',
+            messages: [user, assistant],
+          ),
+        );
+
+        container.read(chatMessagesProvider.notifier).finishStreaming();
+        await pumpMicrotasks();
+
+        final recorder =
+            container.read(conversationsProvider.notifier)
+                as _RecordingConversations;
+
+        check(recorder.lastTrustFolderConversation).equals(false);
+        check(recorder.lastUpsertedConversation).isNotNull();
+        check(recorder.lastUpsertedConversation!.folderId).equals('folder-1');
+      },
+    );
   });
 }

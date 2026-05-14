@@ -37,10 +37,7 @@ void main() {
       });
 
       test('falls back to username', () {
-        final user = {
-          'username': 'charlie',
-          'email': 'charlie@example.com',
-        };
+        final user = {'username': 'charlie', 'email': 'charlie@example.com'};
         check(deriveUserDisplayName(user)).equals('charlie');
       });
 
@@ -73,11 +70,7 @@ void main() {
       });
 
       test('returns fallback when all fields are empty', () {
-        final user = <String, dynamic>{
-          'name': '',
-          'username': '',
-          'email': '',
-        };
+        final user = <String, dynamic>{'name': '', 'username': '', 'email': ''};
         check(deriveUserDisplayName(user)).equals('User');
       });
     });

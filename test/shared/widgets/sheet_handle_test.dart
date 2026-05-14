@@ -6,11 +6,7 @@ void main() {
   group('SheetHandle', () {
     testWidgets('renders as a centered widget', (tester) async {
       await tester.pumpWidget(
-        const MaterialApp(
-          home: Scaffold(
-            body: SheetHandle(),
-          ),
-        ),
+        const MaterialApp(home: Scaffold(body: SheetHandle())),
       );
 
       expect(find.byType(Center), findsOneWidget);
@@ -18,11 +14,7 @@ void main() {
 
     testWidgets('widget can be found by type', (tester) async {
       await tester.pumpWidget(
-        const MaterialApp(
-          home: Scaffold(
-            body: SheetHandle(),
-          ),
-        ),
+        const MaterialApp(home: Scaffold(body: SheetHandle())),
       );
 
       expect(find.byType(SheetHandle), findsOneWidget);

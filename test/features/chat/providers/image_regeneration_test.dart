@@ -434,9 +434,7 @@ void main() {
       notifier.updateLastMessageWithFunction(
         (m) => m.copyWith(
           isStreaming: false,
-          error: const ChatMessageError(
-            content: 'Transport setup failed',
-          ),
+          error: const ChatMessageError(content: 'Transport setup failed'),
         ),
       );
 

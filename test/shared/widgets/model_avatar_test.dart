@@ -5,14 +5,11 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('ModelAvatar', () {
-    testWidgets('renders with label showing first character',
-        (tester) async {
+    testWidgets('renders with label showing first character', (tester) async {
       await tester.pumpWidget(
         ProviderScope(
           child: MaterialApp(
-            home: Scaffold(
-              body: ModelAvatar(size: 40, label: 'GPT-4'),
-            ),
+            home: Scaffold(body: ModelAvatar(size: 40, label: 'GPT-4')),
           ),
         ),
       );
@@ -21,15 +18,10 @@ void main() {
       expect(find.text('G'), findsOneWidget);
     });
 
-    testWidgets('renders without label showing icon fallback',
-        (tester) async {
+    testWidgets('renders without label showing icon fallback', (tester) async {
       await tester.pumpWidget(
         ProviderScope(
-          child: MaterialApp(
-            home: Scaffold(
-              body: ModelAvatar(size: 40),
-            ),
-          ),
+          child: MaterialApp(home: Scaffold(body: ModelAvatar(size: 40))),
         ),
       );
 
@@ -41,9 +33,7 @@ void main() {
       await tester.pumpWidget(
         ProviderScope(
           child: MaterialApp(
-            home: Scaffold(
-              body: ModelAvatar(size: 40, label: 'Test'),
-            ),
+            home: Scaffold(body: ModelAvatar(size: 40, label: 'Test')),
           ),
         ),
       );

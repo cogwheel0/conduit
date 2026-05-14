@@ -289,7 +289,6 @@ class AppTheme {
           TargetPlatform.iOS || TargetPlatform.macOS => const Color(0x26007AFF),
           _ => variant.primary.withValues(alpha: 0.2),
         },
-        cursorColor: variant.primary,
         selectionHandleColor: variant.primary,
       ),
       extensions: <ThemeExtension<dynamic>>[

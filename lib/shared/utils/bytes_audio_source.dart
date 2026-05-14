@@ -34,7 +34,7 @@ class BytesAudioSource extends StreamAudioSource {
   Future<StreamAudioResponse> request([int? start, int? end]) async {
     start ??= 0;
     end ??= _bytes.length;
-    
+
     // Assert valid bounds in debug mode to catch bugs early, but don't
     // crash in release. just_audio should always pass valid ranges.
     assert(
@@ -45,7 +45,7 @@ class BytesAudioSource extends StreamAudioSource {
       end >= start && end <= _bytes.length,
       'BytesAudioSource: end ($end) out of bounds [$start, ${_bytes.length}]',
     );
-    
+
     return StreamAudioResponse(
       sourceLength: _bytes.length,
       contentLength: end - start,

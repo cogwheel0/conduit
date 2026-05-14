@@ -11,15 +11,11 @@ part 'sidebar_providers.g.dart';
 /// Persisted to Hive so reopening the sidebar remembers the last tab.
 @Riverpod(keepAlive: true)
 class SidebarActiveTab extends _$SidebarActiveTab {
-  Box<dynamic> get _box =>
-      Hive.box<dynamic>(HiveBoxNames.preferences);
+  Box<dynamic> get _box => Hive.box<dynamic>(HiveBoxNames.preferences);
 
   @override
   int build() {
-    return (_box.get(
-      PreferenceKeys.sidebarActiveTab,
-      defaultValue: 0,
-    ) as int)
+    return (_box.get(PreferenceKeys.sidebarActiveTab, defaultValue: 0) as int)
         .clamp(0, 2);
   }
 

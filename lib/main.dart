@@ -688,7 +688,8 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
             title: l10n.chatSettings,
             subtitle: l10n.chatSettings,
             items: [
-              if (transportAvail.allowPolling && transportAvail.allowWebsocketOnly)
+              if (transportAvail.allowPolling &&
+                  transportAvail.allowWebsocketOnly)
                 NativeSheetItemConfig(
                   id: 'transport-mode',
                   title: l10n.transportMode,
@@ -755,10 +756,7 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
                 l10n,
                 socketService.currentHealth,
               ),
-              items: nativeSocketHealthItems(
-                l10n,
-                socketService.currentHealth,
-              ),
+              items: nativeSocketHealthItems(l10n, socketService.currentHealth),
             ),
         ],
       );
@@ -845,10 +843,7 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
       final settings = await ref.read(personalizationSettingsProvider.future);
       if (!mounted) return;
       await _applyNativeDetail(
-        buildNativeSystemPromptDetail(
-          l10n,
-          value: settings.systemPrompt ?? '',
-        ),
+        buildNativeSystemPromptDetail(l10n, value: settings.systemPrompt ?? ''),
       );
     } catch (error, stackTrace) {
       DebugLogger.error(

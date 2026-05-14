@@ -12,7 +12,7 @@ bool isImageFile(dynamic file) {
 
 /// Extracts the file URL or ID from a file map.
 /// OpenWebUI stores either a full URL, data URL, or just the file ID.
-/// 
+///
 /// Returns the URL/ID string, or null if the file has no valid URL.
 String? getFileUrl(dynamic file) {
   if (file is! Map) return null;

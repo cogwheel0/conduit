@@ -306,8 +306,8 @@ class ConduitGlassSearchField extends StatelessWidget {
     final Widget searchField;
 
     if (PlatformInfo.isIOS) {
-      // CupertinoSearchTextField wrapped in CupertinoTheme so the cursor uses
-      // the iOS system-tint blue instead of inheriting a dark Material color.
+      // Keep the cursor on the iOS system tint instead of inheriting a
+      // low-contrast custom theme color.
       searchField = CupertinoTheme(
         data: const CupertinoThemeData(
           primaryColor: CupertinoColors.activeBlue,

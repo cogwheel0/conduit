@@ -35,7 +35,6 @@ class MentionTextEditingController extends TextEditingController {
   /// Active mention data, sorted by [TextRange.start].
   final List<MentionData> _mentionData = <MentionData>[];
 
-
   /// The color used for mention text. Updated by the widget that
   /// owns this controller whenever the theme changes.
   Color mentionColor = const Color(0xFF1976D2);
@@ -56,15 +55,15 @@ class MentionTextEditingController extends TextEditingController {
     String label = '',
   }) {
     _mentionData
-      ..add(MentionData(
-        range: TextRange(start: start, end: end),
-        idType: idType,
-        id: id,
-        label: label,
-      ))
-      ..sort(
-        (a, b) => a.range.start.compareTo(b.range.start),
-      );
+      ..add(
+        MentionData(
+          range: TextRange(start: start, end: end),
+          idType: idType,
+          id: id,
+          label: label,
+        ),
+      )
+      ..sort((a, b) => a.range.start.compareTo(b.range.start));
   }
 
   /// Removes all tracked mentions.
@@ -82,10 +81,8 @@ class MentionTextEditingController extends TextEditingController {
     int cursor = 0;
 
     for (final m in _mentionData) {
-      final start =
-          m.range.start.clamp(0, plainText.length);
-      final end =
-          m.range.end.clamp(start, plainText.length);
+      final start = m.range.start.clamp(0, plainText.length);
+      final end = m.range.end.clamp(start, plainText.length);
       if (start == end) continue;
 
       buf.write(plainText.substring(cursor, start));
@@ -110,10 +107,7 @@ class MentionTextEditingController extends TextEditingController {
 
   /// Walks the diff between [oldText] and [newText] and
   /// shifts / invalidates mention ranges accordingly.
-  void _reconcileMentions(
-    String oldText,
-    String newText,
-  ) {
+  void _reconcileMentions(String oldText, String newText) {
     if (oldText == newText) return;
 
     final int delta = newText.length - oldText.length;
@@ -167,42 +161,26 @@ class MentionTextEditingController extends TextEditingController {
     int cursor = 0;
 
     for (final MentionData m in _mentionData) {
-      final int start =
-          m.range.start.clamp(0, plainText.length);
-      final int end =
-          m.range.end.clamp(start, plainText.length);
+      final int start = m.range.start.clamp(0, plainText.length);
+      final int end = m.range.end.clamp(start, plainText.length);
       if (start == end) continue;
 
       if (start > cursor) {
         children.add(
-          TextSpan(
-            text: plainText.substring(cursor, start),
-            style: style,
-          ),
+          TextSpan(text: plainText.substring(cursor, start), style: style),
         );
       }
 
       children.add(
-        TextSpan(
-          text: plainText.substring(start, end),
-          style: mentionStyle,
-        ),
+        TextSpan(text: plainText.substring(start, end), style: mentionStyle),
       );
       cursor = end;
     }
 
     if (cursor < plainText.length) {
-      children.add(
-        TextSpan(
-          text: plainText.substring(cursor),
-          style: style,
-        ),
-      );
+      children.add(TextSpan(text: plainText.substring(cursor), style: style));
     }
 
-    return TextSpan(
-      style: style,
-      children: children,
-    );
+    return TextSpan(style: style, children: children);
   }
 }

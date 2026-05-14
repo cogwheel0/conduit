@@ -63,9 +63,10 @@ void main() {
     });
 
     test('list response extracts errors', () {
-      final result = parser.parseErrorResponse(
-        <dynamic>['Error one', 'Error two'],
-      );
+      final result = parser.parseErrorResponse(<dynamic>[
+        'Error one',
+        'Error two',
+      ]);
       check(result.message).equals('Error one');
       check(result.errors).deepEquals(['Error one', 'Error two']);
       check(result.metadata['format']).equals('list');
@@ -105,13 +106,10 @@ void main() {
         },
       });
       check(result.message).equals('Validation failed');
-      check(result.fieldErrors['email']).isNotNull().deepEquals([
-        'is required',
-        'must be valid',
-      ]);
-      check(result.fieldErrors['name']).isNotNull().deepEquals([
-        'too short',
-      ]);
+      check(
+        result.fieldErrors['email'],
+      ).isNotNull().deepEquals(['is required', 'must be valid']);
+      check(result.fieldErrors['name']).isNotNull().deepEquals(['too short']);
     });
 
     test('OpenAPI format with detail array containing loc/msg', () {
@@ -127,12 +125,12 @@ void main() {
           },
         ],
       });
-      check(result.fieldErrors['email']).isNotNull().deepEquals([
-        'field required',
-      ]);
-      check(result.fieldErrors['age']).isNotNull().deepEquals([
-        'must be positive',
-      ]);
+      check(
+        result.fieldErrors['email'],
+      ).isNotNull().deepEquals(['field required']);
+      check(
+        result.fieldErrors['age'],
+      ).isNotNull().deepEquals(['must be positive']);
     });
   });
 
@@ -150,18 +148,12 @@ void main() {
 
   group('formatFieldError', () {
     test('prepends formatted field name', () {
-      final result = parser.formatFieldError(
-        'first_name',
-        'is required',
-      );
+      final result = parser.formatFieldError('first_name', 'is required');
       check(result).equals('First Name: is required');
     });
 
     test('avoids duplicate when error contains field name', () {
-      final result = parser.formatFieldError(
-        'email',
-        'email must be valid',
-      );
+      final result = parser.formatFieldError('email', 'email must be valid');
       check(result).equals('email must be valid');
     });
   });

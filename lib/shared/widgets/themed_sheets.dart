@@ -109,10 +109,7 @@ class ConduitModalSheetSurface extends StatelessWidget {
       content = Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const SheetHandle(),
-          child,
-        ],
+        children: [const SheetHandle(), child],
       );
     }
 

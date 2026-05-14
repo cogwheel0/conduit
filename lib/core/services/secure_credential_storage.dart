@@ -262,7 +262,7 @@ class SecureCredentialStorage {
         scope: 'credentials/server-configs',
         error: e,
       );
-      return null;
+      rethrow;
     }
   }
 

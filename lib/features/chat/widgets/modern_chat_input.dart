@@ -2538,7 +2538,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   showCursor: true,
                   scrollPadding: const EdgeInsets.only(bottom: 80),
                   keyboardAppearance: brightness,
-                  cursorColor: animatedTextColor,
                   style: baseChatStyle.copyWith(
                     color: animatedTextColor,
                     fontStyle: _isRecording
@@ -2582,7 +2581,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 showCursor: true,
                 scrollPadding: const EdgeInsets.only(bottom: 80),
                 keyboardAppearance: brightness,
-                cursorColor: animatedTextColor,
                 style: baseChatStyle.copyWith(
                   color: animatedTextColor,
                   fontStyle: _isRecording ? FontStyle.italic : FontStyle.normal,

@@ -29,8 +29,7 @@ void main() {
     });
 
     test('number type with properties', () {
-      final vars =
-          parser.parse('{{age | number:min=0:max=120:step=1}}');
+      final vars = parser.parse('{{age | number:min=0:max=120:step=1}}');
       check(vars).length.equals(1);
       final v = vars.first;
       check(v.name).equals('age');
@@ -58,9 +57,7 @@ void main() {
     });
 
     test('placeholder property', () {
-      final vars = parser.parse(
-        '{{x | text:placeholder=Enter name}}',
-      );
+      final vars = parser.parse('{{x | text:placeholder=Enter name}}');
       check(vars).length.equals(1);
       check(vars.first.placeholder).equals('Enter name');
     });
@@ -72,9 +69,7 @@ void main() {
     });
 
     test('multiple variables', () {
-      final vars = parser.parse(
-        'Hello {{first}} and {{second}}!',
-      );
+      final vars = parser.parse('Hello {{first}} and {{second}}!');
       check(vars).length.equals(2);
       check(vars[0].name).equals('first');
       check(vars[1].name).equals('second');
@@ -86,8 +81,9 @@ void main() {
       check(vars).length.equals(1);
       check(vars.first.start).equals(6);
       check(vars.first.end).equals(14);
-      check(input.substring(vars.first.start, vars.first.end))
-          .equals('{{name}}');
+      check(
+        input.substring(vars.first.start, vars.first.end),
+      ).equals('{{name}}');
     });
 
     test('fullMatch contains braces', () {
@@ -159,9 +155,7 @@ void main() {
     });
 
     test('returns false for only system variables', () {
-      check(
-        parser.hasUserInputVariables('{{CURRENT_DATE}}'),
-      ).isFalse();
+      check(parser.hasUserInputVariables('{{CURRENT_DATE}}')).isFalse();
     });
 
     test('returns false for empty string', () {
@@ -169,11 +163,7 @@ void main() {
     });
 
     test('returns true when mix of system and custom', () {
-      check(
-        parser.hasUserInputVariables(
-          '{{CURRENT_DATE}} {{name}}',
-        ),
-      ).isTrue();
+      check(parser.hasUserInputVariables('{{CURRENT_DATE}} {{name}}')).isTrue();
     });
   });
 
@@ -184,34 +174,32 @@ void main() {
     );
 
     test('replaces matching variables', () {
-      final result = processor.applyUserValues(
-        'Hello {{name}}, age {{age}}',
-        {'name': 'Alice', 'age': '30'},
-      );
+      final result = processor.applyUserValues('Hello {{name}}, age {{age}}', {
+        'name': 'Alice',
+        'age': '30',
+      });
       check(result).equals('Hello Alice, age 30');
     });
 
     test('preserves unmatched variables', () {
-      final result = processor.applyUserValues(
-        'Hello {{name}} and {{other}}',
-        {'name': 'Alice'},
-      );
+      final result = processor.applyUserValues('Hello {{name}} and {{other}}', {
+        'name': 'Alice',
+      });
       check(result).equals('Hello Alice and {{other}}');
     });
 
     test('returns content unchanged when no variables', () {
-      final result = processor.applyUserValues(
-        'Hello world',
-        {'name': 'Alice'},
-      );
+      final result = processor.applyUserValues('Hello world', {
+        'name': 'Alice',
+      });
       check(result).equals('Hello world');
     });
 
     test('does not replace system variables', () {
-      final result = processor.applyUserValues(
-        '{{CURRENT_DATE}} {{name}}',
-        {'CURRENT_DATE': 'today', 'name': 'Alice'},
-      );
+      final result = processor.applyUserValues('{{CURRENT_DATE}} {{name}}', {
+        'CURRENT_DATE': 'today',
+        'name': 'Alice',
+      });
       check(result).equals('{{CURRENT_DATE}} Alice');
     });
   });

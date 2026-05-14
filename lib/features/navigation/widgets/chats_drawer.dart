@@ -1161,7 +1161,6 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
   ) {
     final l10n = AppLocalizations.of(context)!;
     final folderId = folder.id;
-    final folderName = folder.name;
     final moveTargets = _folderMoveTargetEntries(folder, folders);
     final canMove =
         _normalizeParentId(folder.parentId) != null || moveTargets.isNotEmpty;
@@ -1188,7 +1187,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         label: l10n.rename,
         onBeforeClose: () => ConduitHaptics.selectionClick(),
         onSelected: () async {
-          await _renameFolder(context, folderId, folderName);
+          await _renameFolder(context, folder);
         },
       ),
       if (canMove)
@@ -1208,7 +1207,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         destructive: true,
         onBeforeClose: () => ConduitHaptics.mediumImpact(),
         onSelected: () async {
-          await _confirmAndDeleteFolder(context, folderId, folderName);
+          await _confirmAndDeleteFolder(context, folder);
         },
       ),
     ];
@@ -1275,7 +1274,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       ConduitHaptics.selectionClick();
       ref
           .read(foldersProvider.notifier)
-          .updateFolder(
+          .updateFolderFromRemote(
             folder.id,
             (current) => current.copyWith(
               parentId: nextParentId,
@@ -1411,34 +1410,30 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     );
   }
 
-  Future<void> _renameFolder(
-    BuildContext context,
-    String folderId,
-    String currentName,
-  ) async {
+  Future<void> _renameFolder(BuildContext context, Folder folder) async {
     final newName = await ThemedDialogs.promptTextInput(
       context,
       title: AppLocalizations.of(context)!.rename,
       hintText: AppLocalizations.of(context)!.folderName,
-      initialValue: currentName,
+      initialValue: folder.name,
       confirmText: AppLocalizations.of(context)!.save,
       cancelText: AppLocalizations.of(context)!.cancel,
     );
 
     if (newName == null) return;
-    if (newName.isEmpty || newName == currentName) return;
+    if (newName.isEmpty || newName == folder.name) return;
 
     try {
       final api = ref.read(apiServiceProvider);
       if (api == null) throw Exception('No API service');
-      await api.updateFolder(folderId, name: newName);
+      await api.updateFolder(folder.id, name: newName);
       ConduitHaptics.selectionClick();
       ref
           .read(foldersProvider.notifier)
-          .updateFolder(
-            folderId,
-            (folder) =>
-                folder.copyWith(name: newName, updatedAt: DateTime.now()),
+          .updateFolderFromRemote(
+            folder.id,
+            (current) =>
+                current.copyWith(name: newName, updatedAt: DateTime.now()),
           );
       refreshConversationsCache(ref, includeFolders: true);
     } catch (e, stackTrace) {
@@ -1453,11 +1448,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     }
   }
 
-  Future<void> _confirmAndDeleteFolder(
-    BuildContext context,
-    String folderId,
-    String folderName,
-  ) async {
+  Future<void> _confirmAndDeleteFolder(BuildContext context, Folder folder) async {
     final l10n = AppLocalizations.of(context)!;
     final confirmed = await ThemedDialogs.confirm(
       context,
@@ -1473,9 +1464,9 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     try {
       final api = ref.read(apiServiceProvider);
       if (api == null) throw Exception('No API service');
-      await api.deleteFolder(folderId);
+      await api.deleteFolder(folder.id);
       ConduitHaptics.mediumImpact();
-      ref.read(foldersProvider.notifier).removeFolder(folderId);
+      ref.read(foldersProvider.notifier).removeFolderFromRemote(folder.id);
       refreshConversationsCache(ref, includeFolders: true);
     } catch (e, stackTrace) {
       if (!mounted) return;

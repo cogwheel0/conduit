@@ -5,8 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   group('formatDuration', () {
     test('returns "less than a second" for 0', () {
-      check(ReasoningParser.formatDuration(0))
-          .equals('less than a second');
+      check(ReasoningParser.formatDuration(0)).equals('less than a second');
     });
 
     test('returns "1 second" for 1', () {
@@ -26,8 +25,7 @@ void main() {
     });
 
     test('returns "about an hour" for 3600', () {
-      check(ReasoningParser.formatDuration(3600))
-          .equals('about an hour');
+      check(ReasoningParser.formatDuration(3600)).equals('about an hour');
     });
   });
 
@@ -41,25 +39,19 @@ void main() {
 
     test('detects <think> tag', () {
       check(
-        ReasoningParser.hasReasoningContent(
-          '<think>some thought</think>',
-        ),
+        ReasoningParser.hasReasoningContent('<think>some thought</think>'),
       ).isTrue();
     });
 
     test('detects <thinking> tag', () {
       check(
-        ReasoningParser.hasReasoningContent(
-          '<thinking>hmm</thinking>',
-        ),
+        ReasoningParser.hasReasoningContent('<thinking>hmm</thinking>'),
       ).isTrue();
     });
 
     test('detects unicode think tag', () {
       check(
-        ReasoningParser.hasReasoningContent(
-          '◁think▷reasoning◁/think▷',
-        ),
+        ReasoningParser.hasReasoningContent('◁think▷reasoning◁/think▷'),
       ).isTrue();
     });
 
@@ -71,9 +63,7 @@ void main() {
     });
 
     test('returns false for plain text', () {
-      check(
-        ReasoningParser.hasReasoningContent('Hello, world!'),
-      ).isFalse();
+      check(ReasoningParser.hasReasoningContent('Hello, world!')).isFalse();
     });
   });
 
@@ -91,8 +81,7 @@ void main() {
     });
 
     test('parses complete <think> block', () {
-      const content =
-          'Before <think>reasoning here</think> After';
+      const content = 'Before <think>reasoning here</think> After';
       final segs = ReasoningParser.segments(content);
       check(segs).isNotNull();
       final s = segs!;
@@ -202,8 +191,9 @@ void main() {
           '</details>';
       final segs = ReasoningParser.segments(content);
       check(segs).isNotNull();
-      check(segs!.first.entry!.blockType)
-          .equals(CollapsibleBlockType.codeInterpreter);
+      check(
+        segs!.first.entry!.blockType,
+      ).equals(CollapsibleBlockType.codeInterpreter);
     });
 
     test('handles multiple consecutive blocks', () {
@@ -224,16 +214,12 @@ void main() {
 
   group('parseReasoningContent', () {
     test('returns null for no reasoning', () {
-      check(
-        ReasoningParser.parseReasoningContent('plain text'),
-      ).isNull();
+      check(ReasoningParser.parseReasoningContent('plain text')).isNull();
     });
 
     test('extracts first block and mainContent', () {
-      const content =
-          'Hello <think>my reasoning</think> world';
-      final result =
-          ReasoningParser.parseReasoningContent(content);
+      const content = 'Hello <think>my reasoning</think> world';
+      final result = ReasoningParser.parseReasoningContent(content);
       check(result).isNotNull();
       check(result!.reasoning).equals('my reasoning');
       check(result.mainContent).equals('Hello  world');
@@ -249,8 +235,7 @@ void main() {
         duration: 0,
         isDone: true,
       );
-      check(entry.cleanedReasoning)
-          .equals('line one\nline two\nno space');
+      check(entry.cleanedReasoning).equals('line one\nline two\nno space');
     });
 
     test('formattedDuration delegates to formatDuration', () {

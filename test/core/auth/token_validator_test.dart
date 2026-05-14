@@ -63,24 +63,22 @@ void main() {
     });
 
     test('returns apiKeyNotSupported for sk- prefix', () {
-      final result =
-          TokenValidator.validateTokenFormat('sk-longenoughtoken123');
+      final result = TokenValidator.validateTokenFormat(
+        'sk-longenoughtoken123',
+      );
       check(result.isValid).isFalse();
-      check(result.status)
-          .equals(TokenValidationStatus.apiKeyNotSupported);
+      check(result.status).equals(TokenValidationStatus.apiKeyNotSupported);
       check(result.isApiKeyNotSupported).isTrue();
     });
 
     test('returns apiKeyNotSupported for api- prefix', () {
-      final result =
-          TokenValidator.validateTokenFormat('api-longenoughtoken');
+      final result = TokenValidator.validateTokenFormat('api-longenoughtoken');
       check(result.isValid).isFalse();
       check(result.isApiKeyNotSupported).isTrue();
     });
 
     test('returns apiKeyNotSupported for key- prefix', () {
-      final result =
-          TokenValidator.validateTokenFormat('key-longenoughtoken');
+      final result = TokenValidator.validateTokenFormat('key-longenoughtoken');
       check(result.isValid).isFalse();
       check(result.isApiKeyNotSupported).isTrue();
     });
@@ -123,8 +121,7 @@ void main() {
       final result = TokenValidator.validateTokenFormat(jwt);
       check(result.isValid).isTrue();
       check(result.isExpiringSoon).isTrue();
-      check(result.status)
-          .equals(TokenValidationStatus.expiringSoon);
+      check(result.status).equals(TokenValidationStatus.expiringSoon);
       check(result.expiryData).isNotNull();
     });
 
@@ -165,20 +162,14 @@ void main() {
     });
 
     test('falls back to name for username', () {
-      final jwt = fakeJwt({
-        'sub': 'user-1',
-        'name': 'Jane Doe',
-      });
+      final jwt = fakeJwt({'sub': 'user-1', 'name': 'Jane Doe'});
       final info = TokenValidator.extractUserInfo(jwt);
       check(info).isNotNull();
       check(info!['username']).equals('Jane Doe');
     });
 
     test('falls back to preferred_username for username', () {
-      final jwt = fakeJwt({
-        'sub': 'user-2',
-        'preferred_username': 'janedoe',
-      });
+      final jwt = fakeJwt({'sub': 'user-2', 'preferred_username': 'janedoe'});
       final info = TokenValidator.extractUserInfo(jwt);
       check(info).isNotNull();
       check(info!['username']).equals('janedoe');
@@ -215,8 +206,7 @@ void main() {
     });
 
     test('returns null for token with invalid base64 payload', () {
-      final info =
-          TokenValidator.extractUserInfo('header.!!!invalid!!!.sig');
+      final info = TokenValidator.extractUserInfo('header.!!!invalid!!!.sig');
       check(info).isNull();
     });
   });
@@ -262,22 +252,17 @@ void main() {
       check(result.expiryData).isNotNull();
     });
 
-    test('networkError() sets isValid false and hasNetworkError true',
-        () {
-      const result =
-          TokenValidationResult.networkError('network issue');
+    test('networkError() sets isValid false and hasNetworkError true', () {
+      const result = TokenValidationResult.networkError('network issue');
       check(result.isValid).isFalse();
       check(result.hasNetworkError).isTrue();
     });
 
-    test('apiKeyNotSupported() sets isValid false and correct status',
-        () {
-      const result =
-          TokenValidationResult.apiKeyNotSupported('no api keys');
+    test('apiKeyNotSupported() sets isValid false and correct status', () {
+      const result = TokenValidationResult.apiKeyNotSupported('no api keys');
       check(result.isValid).isFalse();
       check(result.isApiKeyNotSupported).isTrue();
-      check(result.status)
-          .equals(TokenValidationStatus.apiKeyNotSupported);
+      check(result.status).equals(TokenValidationStatus.apiKeyNotSupported);
     });
   });
 
@@ -323,9 +308,7 @@ void main() {
     });
 
     test('getCachedResult returns null for unknown token', () {
-      final cached = TokenValidationCache.getCachedResult(
-        'unknown-token-xyz',
-      );
+      final cached = TokenValidationCache.getCachedResult('unknown-token-xyz');
       check(cached).isNull();
     });
 

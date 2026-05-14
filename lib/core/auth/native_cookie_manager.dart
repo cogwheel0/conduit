@@ -58,5 +58,3 @@ class NativeCookieManager {
     return cookies.entries.map((e) => '${e.key}=${e.value}').join('; ');
   }
 }
-
-

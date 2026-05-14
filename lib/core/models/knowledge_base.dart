@@ -26,12 +26,14 @@ sealed class KnowledgeBase with _$KnowledgeBase {
       description: json['description'] as String?,
       createdAt: parseDateTime(json['created_at'] ?? json['createdAt']),
       updatedAt: parseDateTime(json['updated_at'] ?? json['updatedAt']),
-      itemCount: parseInt(
+      itemCount:
+          parseInt(
             json['file_count'] ?? json['item_count'] ?? json['itemCount'],
           ) ??
           0,
       metadata:
-          (json['metadata'] as Map<String, dynamic>?) ?? const <String, dynamic>{},
+          (json['metadata'] as Map<String, dynamic>?) ??
+          const <String, dynamic>{},
     );
   }
 }
@@ -58,7 +60,8 @@ sealed class KnowledgeBaseItem with _$KnowledgeBaseItem {
       createdAt: parseDateTime(json['created_at'] ?? json['createdAt']),
       updatedAt: parseDateTime(json['updated_at'] ?? json['updatedAt']),
       metadata:
-          (json['metadata'] as Map<String, dynamic>?) ?? const <String, dynamic>{},
+          (json['metadata'] as Map<String, dynamic>?) ??
+          const <String, dynamic>{},
     );
   }
 }

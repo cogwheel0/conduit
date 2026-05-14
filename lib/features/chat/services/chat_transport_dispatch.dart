@@ -275,7 +275,7 @@ Future<void> dispatchChatTransport({
           .set(active.copyWith(title: newTitle));
       ref
           .read(conversationsProvider.notifier)
-          .updateConversation(
+          .updateConversationFromRemote(
             active.id,
             (conversation) => conversation.copyWith(
               title: newTitle,
@@ -296,7 +296,12 @@ Future<void> dispatchChatTransport({
             ref.read(activeConversationProvider.notifier).set(refreshed);
             ref
                 .read(conversationsProvider.notifier)
-                .upsertConversation(refreshed.copyWith(messages: const []));
+                .upsertConversation(
+                  refreshed.copyWith(messages: const []),
+                  trustFolderConversation:
+                      refreshed.folderId != null &&
+                      refreshed.folderId!.isNotEmpty,
+                );
           } catch (_) {}
         });
       }

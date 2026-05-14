@@ -361,6 +361,8 @@ Future<void> _moveConversation(
             folderId: target.folderId,
             updatedAt: DateTime.now(),
           ),
+          trustFolderConversation:
+              target.folderId != null && target.folderId!.isNotEmpty,
         );
 
     final activeConversation = ref.read(activeConversationProvider);
@@ -570,7 +572,7 @@ Future<void> _renameConversation(
     ConduitHaptics.selectionClick();
     ref
         .read(conversationsProvider.notifier)
-        .updateConversation(
+        .updateConversationFromRemote(
           conversationId,
           (conversation) =>
               conversation.copyWith(title: newName, updatedAt: DateTime.now()),

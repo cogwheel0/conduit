@@ -37,18 +37,12 @@ sealed class Channel with _$Channel {
 
     // Response-only fields
     // (from ChannelResponse / ChannelFullResponse).
-    @Default(false)
-    @JsonKey(name: 'is_manager')
-    bool isManager,
-    @Default(false)
-    @JsonKey(name: 'write_access')
-    bool writeAccess,
+    @Default(false) @JsonKey(name: 'is_manager') bool isManager,
+    @Default(false) @JsonKey(name: 'write_access') bool writeAccess,
     @JsonKey(name: 'user_count') int? userCount,
 
     @JsonKey(name: 'last_read_at') int? lastReadAt,
-    @Default(0)
-    @JsonKey(name: 'unread_count')
-    int unreadCount,
+    @Default(0) @JsonKey(name: 'unread_count') int unreadCount,
     @JsonKey(name: 'last_message_at') int? lastMessageAt,
 
     /// Member user IDs (group/dm channels only).
@@ -71,15 +65,11 @@ sealed class Channel with _$Channel {
 
   /// Converts the nanosecond epoch timestamp to [DateTime].
   DateTime? get createdDateTime => createdAt != null
-      ? DateTime.fromMicrosecondsSinceEpoch(
-          createdAt! ~/ 1000,
-        )
+      ? DateTime.fromMicrosecondsSinceEpoch(createdAt! ~/ 1000)
       : null;
 
   /// Converts the nanosecond epoch timestamp to [DateTime].
   DateTime? get updatedDateTime => updatedAt != null
-      ? DateTime.fromMicrosecondsSinceEpoch(
-          updatedAt! ~/ 1000,
-        )
+      ? DateTime.fromMicrosecondsSinceEpoch(updatedAt! ~/ 1000)
       : null;
 }

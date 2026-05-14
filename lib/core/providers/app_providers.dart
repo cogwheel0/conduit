@@ -179,15 +179,22 @@ Future<ServerConfig?> activeServer(Ref ref) async {
   final configs = await ref.watch(serverConfigsProvider.future);
   final activeId = await storage.getActiveServerId();
 
-  if (activeId == null || configs.isEmpty) return null;
+  if (configs.isEmpty) return null;
 
+  ServerConfig? fallback;
   for (final config in configs) {
-    if (config.id == activeId) {
+    if (activeId != null && config.id == activeId) {
       return config;
     }
+    if (fallback == null && config.isActive) {
+      fallback = config;
+    }
   }
+  fallback ??= configs.length == 1 ? configs.first : null;
+  if (fallback == null) return null;
 
-  return null;
+  await storage.setActiveServerId(fallback.id);
+  return fallback.isActive ? fallback : fallback.copyWith(isActive: true);
 }
 
 final serverConnectionStateProvider = Provider<bool>((ref) {
@@ -1131,42 +1138,246 @@ class _ConversationsCacheTimestamp extends _$ConversationsCacheTimestamp {
   void set(DateTime? timestamp) => state = timestamp;
 }
 
-/// Clears the in-memory timestamp cache and triggers a refresh of the
-/// conversations provider. Optionally refreshes the folders provider so folder
-/// metadata stays in sync.
+/// Clears the in-memory timestamp cache and triggers a fresh conversations
+/// reload. Optionally refreshes folders in parallel so folder metadata does not
+/// wait on the page-1 conversations request to finish.
 void refreshConversationsCache(dynamic ref, {bool includeFolders = false}) {
-  ref.read(_conversationsCacheTimestampProvider.notifier).set(null);
-  ref.read(_folderConversationRefreshTickProvider.notifier).bump();
-  final notifier = ref.read(conversationsProvider.notifier);
-  unawaited(
-    notifier.refresh(includeFolders: includeFolders).catchError((
-      Object error,
-      StackTrace stackTrace,
-    ) {
-      DebugLogger.error(
-        'refresh-cache-failed',
-        scope: 'conversations',
-        error: error,
-        stackTrace: stackTrace,
-      );
-    }),
-  );
-  if (includeFolders) {
-    final foldersNotifier = ref.read(foldersProvider.notifier);
+  void refreshWithLogging({
+    required Future<void> Function() refresh,
+    required String event,
+    required String scope,
+  }) {
     unawaited(
-      foldersNotifier.refresh().catchError((
-        Object error,
-        StackTrace stackTrace,
-      ) {
+      refresh().catchError((Object error, StackTrace stackTrace) {
         DebugLogger.error(
-          'refresh-folders-cache-failed',
-          scope: 'folders',
+          event,
+          scope: scope,
           error: error,
           stackTrace: stackTrace,
         );
       }),
     );
   }
+
+  ref.read(_conversationsCacheTimestampProvider.notifier).set(null);
+  ref.read(_folderConversationRefreshTickProvider.notifier).bump();
+  refreshWithLogging(
+    refresh: () =>
+        ref.read(conversationsProvider.notifier).refresh(forceFresh: true),
+    event: 'refresh-cache-failed',
+    scope: 'conversations',
+  );
+  if (includeFolders) {
+    refreshWithLogging(
+      refresh: () =>
+          ref.read(foldersProvider.notifier).refresh(forceFresh: true),
+      event: 'refresh-folders-cache-failed',
+      scope: 'folders',
+    );
+  }
+}
+
+class _ScopedLoad<T> {
+  const _ScopedLoad({
+    required this.generation,
+    required this.key,
+    required this.data,
+  });
+
+  final int generation;
+  final _ServerScopedRequestKey key;
+  final T data;
+}
+
+class _ServerScopedRequestKey {
+  const _ServerScopedRequestKey({
+    required this.api,
+    required this.serverId,
+    required this.authToken,
+  });
+
+  final ApiService? api;
+  final String? serverId;
+  final String? authToken;
+
+  bool matches(_ServerScopedRequestKey other) =>
+      identical(api, other.api) &&
+      serverId == other.serverId &&
+      authToken == other.authToken;
+}
+
+typedef _TrackedScopedLoad<T> = ({
+  Future<_ScopedLoad<T>> future,
+  _ServerScopedRequestKey key,
+});
+
+typedef _UpdatedItem<T> = ({List<T> items, T item});
+typedef _RemovedItems<T> = ({List<T> items, bool didRemove});
+
+void _clearTrackedScopedLoadWhenSettled<T>({
+  required Future<T> future,
+  required Future<T>? Function() currentFuture,
+  required void Function() clearTrackedLoad,
+}) {
+  unawaited(
+    Future<void>(() async {
+      try {
+        await future;
+      } catch (_) {
+        // Errors are handled by the callers awaiting the request.
+      } finally {
+        if (identical(currentFuture(), future)) {
+          clearTrackedLoad();
+        }
+      }
+    }),
+  );
+}
+
+void _scheduleWarmRefresh({
+  required Future<void> Function() refresh,
+  required String scope,
+}) {
+  Future.microtask(() async {
+    try {
+      await refresh();
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'warm-refresh-failed',
+        scope: scope,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  });
+}
+
+Future<_ScopedLoad<T>?> _currentScopedInFlightLoad<T>({
+  required _TrackedScopedLoad<T>? inFlightLoad,
+  required bool Function(_ServerScopedRequestKey key) isCurrentKey,
+}) async {
+  final latest = inFlightLoad;
+  if (latest == null || !isCurrentKey(latest.key)) {
+    return null;
+  }
+  return latest.future;
+}
+
+Future<_ScopedLoad<T>?> _newerScopedLoad<T>({
+  required _ScopedLoad<T> load,
+  required _ScopedLoad<T>? latestCompletedLoad,
+  required _TrackedScopedLoad<T>? inFlightLoad,
+  required bool Function(_ServerScopedRequestKey key) isCurrentKey,
+}) async {
+  final latestCompleted = latestCompletedLoad;
+  if (latestCompleted != null &&
+      latestCompleted.generation != load.generation &&
+      isCurrentKey(latestCompleted.key)) {
+    return latestCompleted;
+  }
+
+  final latest = inFlightLoad;
+  if (latest == null) {
+    return null;
+  }
+
+  final latestLoad = await latest.future;
+  if (latestLoad.generation != load.generation) {
+    return latestLoad;
+  }
+  return null;
+}
+
+List<T> _upsertItemById<T>(
+  List<T> current,
+  T item, {
+  required String Function(T item) idOf,
+}) {
+  final updated = <T>[...current];
+  final itemId = idOf(item);
+  final index = updated.indexWhere((existing) => idOf(existing) == itemId);
+  if (index >= 0) {
+    updated[index] = item;
+  } else {
+    updated.add(item);
+  }
+  return updated;
+}
+
+_UpdatedItem<T>? _transformItemById<T>(
+  List<T> current,
+  String id,
+  T Function(T item) transform, {
+  required String Function(T item) idOf,
+}) {
+  final index = current.indexWhere((existing) => idOf(existing) == id);
+  if (index < 0) {
+    return null;
+  }
+  final updated = <T>[...current];
+  final transformed = transform(updated[index]);
+  updated[index] = transformed;
+  return (items: updated, item: transformed);
+}
+
+_RemovedItems<T> _removeItemById<T>(
+  List<T> current,
+  String id, {
+  required String Function(T item) idOf,
+}) {
+  final updated = <T>[...current];
+  final index = updated.indexWhere((existing) => idOf(existing) == id);
+  if (index >= 0) {
+    updated.removeAt(index);
+  }
+  return (items: updated, didRemove: index >= 0);
+}
+
+String? _normalizeScopedAuthToken(String? token) {
+  if (token == null || token.isEmpty) {
+    return null;
+  }
+  return token;
+}
+
+/// Keeps scope keys aligned with the auth token the ApiService will actually
+/// attach to the request.
+String? _syncApiAuthTokenForScopedRequest(
+  Ref ref,
+  ApiService? api, {
+  String? desiredAuthToken,
+}) {
+  final normalizedToken = _normalizeScopedAuthToken(
+    desiredAuthToken ?? ref.read(authTokenProvider3),
+  );
+  if (api != null && api.authToken != normalizedToken) {
+    api.updateAuthToken(normalizedToken);
+  }
+  return api?.authToken ?? normalizedToken;
+}
+
+_ServerScopedRequestKey _buildScopedRequestKey(
+  ApiService? api, {
+  required String? authToken,
+}) {
+  return _ServerScopedRequestKey(
+    api: api,
+    serverId: api?.serverConfig.id,
+    authToken: authToken,
+  );
+}
+
+_ServerScopedRequestKey _syncApiAuthTokenAndBuildScopedRequestKey(
+  Ref ref,
+  ApiService? api, {
+  String? desiredAuthToken,
+}) {
+  final authToken = _syncApiAuthTokenForScopedRequest(
+    ref,
+    api,
+    desiredAuthToken: desiredAuthToken,
+  );
+  return _buildScopedRequestKey(api, authToken: authToken);
 }
 
 // Conversation providers - Now using correct OpenWebUI API with caching and
@@ -1178,6 +1389,12 @@ class Conversations extends _$Conversations {
   int _currentRegularPage = 0;
   bool _allRegularChatsLoaded = false;
   bool _isLoadingMoreRegularChats = false;
+  int _currentInitialLoadGeneration = 0;
+  _TrackedScopedLoad<List<Conversation>>? _inFlightInitialLoad;
+  _ScopedLoad<List<Conversation>>? _latestInitialLoad;
+  _ServerScopedRequestKey? _currentConversationStateKey;
+  _ServerScopedRequestKey? _trustedFolderConversationStateKey;
+  final Set<String> _trustedFolderConversationIds = <String>{};
 
   bool hasMoreRegularChats() => !_allRegularChatsLoaded;
   bool isLoadingMoreRegularChats() => _isLoadingMoreRegularChats;
@@ -1188,6 +1405,8 @@ class Conversations extends _$Conversations {
     if (!authed) {
       DebugLogger.log('skip-unauthed', scope: 'conversations');
       _resetPaginationState(allLoaded: true);
+      _resetInitialLoadTracking();
+      _clearConversationScopeState();
       _updateCacheTimestamp(null);
       _persistConversationsAsync(const <Conversation>[]);
       return const [];
@@ -1195,6 +1414,8 @@ class Conversations extends _$Conversations {
 
     if (ref.watch(reviewerModeProvider)) {
       _resetPaginationState(currentPage: 1, allLoaded: true);
+      _resetInitialLoadTracking();
+      _clearConversationScopeState();
       return _demoConversations();
     }
 
@@ -1202,20 +1423,18 @@ class Conversations extends _$Conversations {
     try {
       final cached = await storage.getLocalConversations();
       if (cached.isNotEmpty) {
-        final sortedCached = _sortByUpdatedAt(cached);
-        final preparedCache = _prepareCachedSidebarFeed(sortedCached);
-        Future.microtask(() async {
-          try {
-            await refresh(includeFolders: true);
-          } catch (error, stackTrace) {
-            DebugLogger.error(
-              'warm-refresh-failed',
-              scope: 'conversations/cache',
-              error: error,
-              stackTrace: stackTrace,
-            );
-          }
-        });
+        final preparedCache = _prepareCachedSidebarFeed(cached);
+        // Treat cache-hydrated folder summaries as untrusted until the current
+        // auth scope confirms them with a fresh remote load.
+        _clearConversationScopeState();
+        _scheduleWarmRefresh(
+          refresh: () => refresh(),
+          scope: 'conversations/cache',
+        );
+        _scheduleWarmRefresh(
+          refresh: () => ref.read(foldersProvider.notifier).warmIfNeeded(),
+          scope: 'folders/cache',
+        );
         return preparedCache;
       }
     } catch (error, stackTrace) {
@@ -1227,15 +1446,19 @@ class Conversations extends _$Conversations {
       );
     }
 
-    final fresh = await _loadRemoteConversations(page: 1);
+    final fresh = await _loadAndRecordInitialConversations();
     _persistConversationsAsync(fresh);
     return fresh;
   }
 
-  Future<void> refresh({bool includeFolders = false}) async {
+  Future<void> refresh({
+    bool includeFolders = false,
+    bool forceFresh = false,
+  }) async {
     final authed = ref.read(isAuthenticatedProvider2);
     if (!authed) {
       _resetPaginationState(allLoaded: true);
+      _clearConversationScopeState();
       _updateCacheTimestamp(null);
       state = AsyncData<List<Conversation>>(<Conversation>[]);
       _persistConversationsAsync(const <Conversation>[]);
@@ -1247,6 +1470,7 @@ class Conversations extends _$Conversations {
 
     if (ref.read(reviewerModeProvider)) {
       _resetPaginationState(currentPage: 1, allLoaded: true);
+      _clearConversationScopeState();
       state = AsyncData<List<Conversation>>(_demoConversations());
       if (includeFolders) {
         unawaited(ref.read(foldersProvider.notifier).refresh());
@@ -1254,9 +1478,10 @@ class Conversations extends _$Conversations {
       return;
     }
 
-    final result = await AsyncValue.guard(
-      () => _loadRemoteConversations(page: 1),
-    );
+    final requestKey = _currentSyncedInitialLoadKey();
+    final result = await AsyncValue.guard(() async {
+      return _loadAndRecordInitialConversations(reuseInFlight: !forceFresh);
+    });
     if (!ref.mounted) return;
     result.when(
       data: (conversations) {
@@ -1264,12 +1489,24 @@ class Conversations extends _$Conversations {
         _persistConversationsAsync(conversations);
       },
       error: (error, stackTrace) {
+        final preservedCurrentScope = _shouldPreserveConversationStateOnError(
+          requestKey,
+        );
+        if (!preservedCurrentScope) {
+          _resetPaginationState(allLoaded: true);
+          _clearConversationScopeState();
+          _updateCacheTimestamp(null);
+          state = const AsyncData<List<Conversation>>(<Conversation>[]);
+        }
         DebugLogger.error(
           'refresh-failed',
           scope: 'conversations',
           error: error,
           stackTrace: stackTrace,
-          data: {'preservedData': state.asData != null},
+          data: {
+            'preservedData': preservedCurrentScope,
+            'requestScopeTrusted': _hasCurrentConversationStateFor(requestKey),
+          },
         );
       },
       loading: () {},
@@ -1295,6 +1532,12 @@ class Conversations extends _$Conversations {
       return;
     }
 
+    final requestKey = _currentSyncedInitialLoadKey();
+    if (!_hasCurrentConversationStateFor(requestKey)) {
+      await refresh(forceFresh: true);
+      return;
+    }
+
     final nextPage = (_currentRegularPage == 0 ? 1 : _currentRegularPage + 1);
     _isLoadingMoreRegularChats = true;
 
@@ -1307,6 +1550,23 @@ class Conversations extends _$Conversations {
         return;
       }
 
+      if (!_isCurrentInitialLoadKey(requestKey) ||
+          !_hasCurrentConversationStateFor(requestKey)) {
+        DebugLogger.log(
+          'page-discarded-stale-scope',
+          scope: 'conversations',
+          data: {'page': nextPage},
+        );
+        await refresh(forceFresh: true);
+        return;
+      }
+
+      final latestCurrent = state.asData?.value;
+      if (latestCurrent == null) {
+        await refresh(forceFresh: true);
+        return;
+      }
+
       _currentRegularPage = nextPage;
       if (nextConversations.isEmpty) {
         _allRegularChatsLoaded = true;
@@ -1315,7 +1575,8 @@ class Conversations extends _$Conversations {
 
       _allRegularChatsLoaded = nextConversations.length < _regularPageSize;
 
-      final merged = _mergeConversationLists(current, nextConversations);
+      final merged = _mergeConversationLists(latestCurrent, nextConversations);
+      _recordRemoteConversationScope(merged);
       _updateCacheTimestamp(DateTime.now());
       state = AsyncData<List<Conversation>>(merged);
       _persistConversationsAsync(merged);
@@ -1347,49 +1608,109 @@ class Conversations extends _$Conversations {
   void removeConversation(String id) {
     final current = state.asData?.value;
     if (current == null) return;
-    final updated = current
-        .where((conversation) => conversation.id != id)
-        .toList(growable: true);
-    _replaceState(updated);
-  }
-
-  void upsertConversation(Conversation conversation) {
-    final current = state.asData?.value ?? const <Conversation>[];
-    final updated = <Conversation>[...current];
-    final index = updated.indexWhere(
-      (element) => element.id == conversation.id,
+    final removal = _removeItemById(
+      current,
+      id,
+      idOf: (conversation) => conversation.id,
     );
-    if (index >= 0) {
-      updated[index] = conversation;
-    } else {
-      updated.add(conversation);
-    }
-    _replaceState(updated);
+    _replaceState(removal.items);
   }
 
-  void upsertConversations(Iterable<Conversation> conversations) {
+  void upsertConversation(
+    Conversation conversation, {
+    bool trustFolderConversation = false,
+  }) {
     final current = state.asData?.value ?? const <Conversation>[];
-    final merged = _mergeConversationLists(current, conversations);
-    _replaceState(merged);
+    final updated = _upsertItemById(
+      current,
+      conversation,
+      idOf: (item) => item.id,
+    );
+    _replaceState(
+      updated,
+      trustedFolderConversations: trustFolderConversation
+          ? <Conversation>[conversation]
+          : const <Conversation>[],
+    );
+  }
+
+  void upsertConversations(
+    Iterable<Conversation> conversations, {
+    bool trustFolderConversations = false,
+  }) {
+    final current = state.asData?.value ?? const <Conversation>[];
+    final incoming = conversations.toList(growable: false);
+    final merged = _mergeConversationLists(current, incoming);
+    _replaceState(
+      merged,
+      sort: false,
+      trustedFolderConversations: trustFolderConversations
+          ? incoming
+          : const <Conversation>[],
+    );
   }
 
   void updateConversation(
     String id,
-    Conversation Function(Conversation conversation) transform,
-  ) {
+    Conversation Function(Conversation conversation) transform, {
+    bool trustFolderConversation = false,
+  }) {
     final current = state.asData?.value;
     if (current == null) return;
-    final index = current.indexWhere((conversation) => conversation.id == id);
-    if (index < 0) return;
-    final updated = <Conversation>[...current];
-    updated[index] = transform(updated[index]);
-    _replaceState(updated);
+    final update = _transformItemById(
+      current,
+      id,
+      transform,
+      idOf: (conversation) => conversation.id,
+    );
+    if (update == null) return;
+    _replaceState(
+      update.items,
+      trustedFolderConversations: trustFolderConversation
+          ? <Conversation>[update.item]
+          : const <Conversation>[],
+    );
   }
 
-  void _replaceState(List<Conversation> conversations) {
-    final sorted = _sortByUpdatedAt(conversations);
-    state = AsyncData<List<Conversation>>(sorted);
-    _persistConversationsAsync(sorted);
+  /// Applies a server-confirmed conversation summary mutation.
+  ///
+  /// This re-trusts folder conversations for the current auth/server scope so
+  /// a subsequent forced refresh preserves them in the sidebar.
+  void updateConversationFromRemote(
+    String id,
+    Conversation Function(Conversation conversation) transform,
+  ) {
+    updateConversation(id, transform, trustFolderConversation: true);
+  }
+
+  /// Marks the current summary for [id] as server-confirmed without changing
+  /// its contents.
+  void trustConversation(String id) {
+    updateConversationFromRemote(id, (conversation) => conversation);
+  }
+
+  void _replaceState(
+    List<Conversation> conversations, {
+    Iterable<Conversation> trustedFolderConversations = const <Conversation>[],
+    bool sort = true,
+  }) {
+    final nextState = sort ? _sortByUpdatedAt(conversations) : conversations;
+    final currentKey = _currentSyncedInitialLoadKey();
+    _syncTrustedFolderConversationState(
+      nextState,
+      newlyTrustedConversations: trustedFolderConversations,
+      trustKey: currentKey,
+    );
+    state = AsyncData<List<Conversation>>(nextState);
+    if (_hasCurrentConversationStateFor(currentKey)) {
+      _persistConversationsAsync(nextState);
+      return;
+    }
+    DebugLogger.log(
+      'skip-stale-state-persist',
+      scope: 'conversations',
+      data: {'count': nextState.length},
+    );
   }
 
   void _persistConversationsAsync(List<Conversation> conversations) {
@@ -1416,51 +1737,131 @@ class Conversations extends _$Conversations {
     _isLoadingMoreRegularChats = false;
   }
 
-  List<Conversation> _prepareCachedSidebarFeed(
-    List<Conversation> conversations,
-  ) {
-    final pinned = <Conversation>[];
-    final archived = <Conversation>[];
-    final foldered = <Conversation>[];
-    final regular = <Conversation>[];
+  void _resetInitialLoadTracking() {
+    _currentInitialLoadGeneration++;
+    _inFlightInitialLoad = null;
+    _latestInitialLoad = null;
+  }
 
-    for (final conversation in conversations) {
-      if (conversation.archived) {
-        archived.add(conversation);
-      } else if (conversation.pinned) {
-        pinned.add(conversation);
-      } else if (_isFolderConversation(conversation)) {
-        foldered.add(conversation);
-      } else {
-        regular.add(conversation);
+  void _clearConversationScopeState() {
+    _currentConversationStateKey = null;
+    _trustedFolderConversationStateKey = null;
+    _trustedFolderConversationIds.clear();
+  }
+
+  void _recordRemoteConversationScope(List<Conversation> conversations) {
+    final currentKey = _currentSyncedInitialLoadKey();
+    _currentConversationStateKey = currentKey;
+    _syncTrustedFolderConversationState(
+      conversations,
+      newlyTrustedConversations: conversations,
+      trustKey: currentKey,
+    );
+  }
+
+  bool _hasCurrentConversationStateFor(_ServerScopedRequestKey key) =>
+      _currentConversationStateKey?.matches(key) ?? false;
+
+  bool _hasTrustedFolderConversationStateFor(_ServerScopedRequestKey key) =>
+      _trustedFolderConversationStateKey?.matches(key) ?? false;
+
+  bool _canPreserveCurrentConversationStateOnError(
+    _ServerScopedRequestKey requestKey,
+  ) =>
+      state.asData?.value != null &&
+      _hasCurrentConversationStateFor(requestKey);
+
+  bool _shouldPreserveConversationStateOnError(
+    _ServerScopedRequestKey requestKey,
+  ) {
+    if (_canPreserveCurrentConversationStateOnError(requestKey)) {
+      return true;
+    }
+    if (_isCurrentInitialLoadKey(requestKey) || state.asData?.value == null) {
+      return false;
+    }
+    return _hasCurrentConversationStateFor(_currentSyncedInitialLoadKey());
+  }
+
+  void _syncTrustedFolderConversationState(
+    List<Conversation> conversations, {
+    Iterable<Conversation> newlyTrustedConversations = const <Conversation>[],
+    required _ServerScopedRequestKey trustKey,
+  }) {
+    final activeFolderIds = conversations
+        .where(_isFolderConversation)
+        .map((conversation) => conversation.id)
+        .toSet();
+    _trustedFolderConversationIds.retainAll(activeFolderIds);
+
+    var addedTrustedFolderConversation = false;
+    for (final conversation in newlyTrustedConversations) {
+      if (_isFolderConversation(conversation) &&
+          activeFolderIds.contains(conversation.id)) {
+        _trustedFolderConversationIds.add(conversation.id);
+        addedTrustedFolderConversation = true;
       }
     }
 
-    final visibleRegular = regular
-        .take(_regularPageSize)
-        .toList(growable: false);
+    if (_trustedFolderConversationIds.isEmpty) {
+      _trustedFolderConversationStateKey = null;
+      return;
+    }
+
+    if (addedTrustedFolderConversation) {
+      _trustedFolderConversationStateKey = trustKey;
+    }
+  }
+
+  List<Conversation> _prepareCachedSidebarFeed(
+    List<Conversation> conversations,
+  ) {
+    final visible = <Conversation>[];
+    var totalRegularCount = 0;
+    var visibleRegularCount = 0;
+
+    for (final conversation in _sortByUpdatedAt(conversations)) {
+      final isRegular =
+          !conversation.archived &&
+          !conversation.pinned &&
+          !_isFolderConversation(conversation);
+      if (!isRegular) {
+        visible.add(conversation);
+        continue;
+      }
+
+      totalRegularCount += 1;
+      if (visibleRegularCount < _regularPageSize) {
+        visible.add(conversation);
+        visibleRegularCount += 1;
+      }
+    }
     _resetPaginationState(
-      currentPage: visibleRegular.isEmpty ? 0 : 1,
-      allLoaded: regular.length < _regularPageSize,
+      currentPage: visibleRegularCount == 0 ? 0 : 1,
+      allLoaded: totalRegularCount < _regularPageSize,
     );
-    return _sortByUpdatedAt([
-      ...pinned,
-      ...archived,
-      ...foldered,
-      ...visibleRegular,
-    ]);
+    return List<Conversation>.unmodifiable(visible);
   }
 
   List<Conversation> _mergeConversationLists(
     List<Conversation> current,
-    Iterable<Conversation> incoming,
-  ) {
+    Iterable<Conversation> incoming, {
+    bool authoritativeIncomingFolderIds = false,
+  }) {
     final merged = <String, Conversation>{};
     for (final conversation in current) {
-      _upsertConversationMap(merged, conversation);
+      _upsertConversationMap(
+        merged,
+        conversation,
+        authoritativeIncomingFolderIds: authoritativeIncomingFolderIds,
+      );
     }
     for (final conversation in incoming) {
-      _upsertConversationMap(merged, conversation);
+      _upsertConversationMap(
+        merged,
+        conversation,
+        authoritativeIncomingFolderIds: authoritativeIncomingFolderIds,
+      );
     }
     return _sortByUpdatedAt(merged.values.toList(growable: false));
   }
@@ -1475,24 +1876,33 @@ class Conversations extends _$Conversations {
 
   void _upsertConversationMap(
     Map<String, Conversation> conversationMap,
-    Conversation conversation,
-  ) {
+    Conversation conversation, {
+    bool authoritativeIncomingFolderIds = false,
+  }) {
     final existing = conversationMap[conversation.id];
     conversationMap[conversation.id] = existing == null
         ? conversation
-        : _mergeConversationSummary(existing, conversation);
+        : _mergeConversationSummary(
+            existing,
+            conversation,
+            authoritativeIncomingFolderIds: authoritativeIncomingFolderIds,
+          );
   }
 
   Conversation _mergeConversationSummary(
     Conversation existing,
-    Conversation incoming,
-  ) {
+    Conversation incoming, {
+    bool authoritativeIncomingFolderIds = false,
+  }) {
     final incomingHasResolvedTitle =
         incoming.title.isNotEmpty && incoming.title != 'Chat';
     final existingLooksLikePlaceholder =
         existing.title == 'Chat' && existing.messages.isEmpty;
     final preferIncomingSummary =
         existingLooksLikePlaceholder && incomingHasResolvedTitle;
+    final normalizedIncomingFolderId = _normalizeConversationFolderId(
+      incoming.folderId,
+    );
 
     return existing.copyWith(
       title: preferIncomingSummary
@@ -1519,9 +1929,18 @@ class Conversations extends _$Conversations {
       pinned: existing.pinned || incoming.pinned,
       archived: existing.archived || incoming.archived,
       shareId: incoming.shareId ?? existing.shareId,
-      folderId: incoming.folderId ?? existing.folderId,
+      folderId: authoritativeIncomingFolderIds
+          ? normalizedIncomingFolderId
+          : (normalizedIncomingFolderId ?? existing.folderId),
       tags: incoming.tags.isNotEmpty ? incoming.tags : existing.tags,
     );
+  }
+
+  String? _normalizeConversationFolderId(String? folderId) {
+    if (folderId == null || folderId.isEmpty) {
+      return null;
+    }
+    return folderId;
   }
 
   List<Conversation> _demoConversations() => [
@@ -1544,8 +1963,105 @@ class Conversations extends _$Conversations {
     ),
   ];
 
-  Future<List<Conversation>> _loadRemoteConversations({int page = 1}) async {
-    final api = ref.read(apiServiceProvider);
+  Future<List<Conversation>> _loadAndRecordInitialConversations({
+    bool reuseInFlight = true,
+  }) async {
+    final load = await _loadInitialRemoteConversations(
+      reuseInFlight: reuseInFlight,
+    );
+    final conversations = await _resolveCurrentInitialLoad(load);
+    _recordRemoteConversationScope(conversations);
+    return conversations;
+  }
+
+  Future<_ScopedLoad<List<Conversation>>> _loadInitialRemoteConversations({
+    bool reuseInFlight = true,
+  }) {
+    final requestKey = _currentSyncedInitialLoadKey();
+    if (reuseInFlight) {
+      final inFlight = _inFlightInitialLoad;
+      if (inFlight != null && inFlight.key.matches(requestKey)) {
+        return inFlight.future;
+      }
+    }
+
+    final generation = ++_currentInitialLoadGeneration;
+    final future =
+        _loadRemoteConversationsImpl(
+          page: 1,
+          initialLoadGeneration: generation,
+          initialLoadKey: requestKey,
+        ).then((conversations) {
+          final load = _ScopedLoad<List<Conversation>>(
+            generation: generation,
+            key: requestKey,
+            data: conversations,
+          );
+          if (load.generation == _currentInitialLoadGeneration &&
+              _isCurrentInitialLoadKey(load.key)) {
+            _latestInitialLoad = load;
+          }
+          return load;
+        });
+    _inFlightInitialLoad = (future: future, key: requestKey);
+    _clearTrackedScopedLoadWhenSettled(
+      future: future,
+      currentFuture: () => _inFlightInitialLoad?.future,
+      clearTrackedLoad: () => _inFlightInitialLoad = null,
+    );
+    return future;
+  }
+
+  Future<List<Conversation>> _resolveCurrentInitialLoad(
+    _ScopedLoad<List<Conversation>> load,
+  ) async {
+    final loadKeyIsCurrent = _isCurrentInitialLoadKey(load.key);
+    if (load.generation == _currentInitialLoadGeneration && loadKeyIsCurrent) {
+      return load.data;
+    }
+
+    if (!loadKeyIsCurrent) {
+      if (!ref.read(isAuthenticatedProvider2) ||
+          ref.read(reviewerModeProvider)) {
+        return const <Conversation>[];
+      }
+
+      final latestLoad = await _currentScopedInFlightLoad(
+        inFlightLoad: _inFlightInitialLoad,
+        isCurrentKey: _isCurrentInitialLoadKey,
+      );
+      if (latestLoad != null) {
+        return _resolveCurrentInitialLoad(latestLoad);
+      }
+
+      final freshLoad = await _loadInitialRemoteConversations();
+      return _resolveCurrentInitialLoad(freshLoad);
+    }
+
+    final newerLoad = await _newerScopedLoad(
+      load: load,
+      latestCompletedLoad: _latestInitialLoad,
+      inFlightLoad: _inFlightInitialLoad,
+      isCurrentKey: _isCurrentInitialLoadKey,
+    );
+    if (newerLoad != null) {
+      return _resolveCurrentInitialLoad(newerLoad);
+    }
+
+    final current = state.asData?.value;
+    if (current != null && _hasCurrentConversationStateFor(load.key)) {
+      return current;
+    }
+
+    return load.data;
+  }
+
+  Future<List<Conversation>> _loadRemoteConversationsImpl({
+    int page = 1,
+    int? initialLoadGeneration,
+    _ServerScopedRequestKey? initialLoadKey,
+  }) async {
+    final api = initialLoadKey?.api ?? ref.read(apiServiceProvider);
     if (api == null) {
       DebugLogger.warning('api-missing', scope: 'conversations');
       return const [];
@@ -1563,18 +2079,28 @@ class Conversations extends _$Conversations {
       );
       final pinnedFuture = api.getPinnedChats();
       final archivedFuture = api.getArchivedChats();
-      final results = await Future.wait<dynamic>([
+      final results = await Future.wait<List<Conversation>>([
         regularFuture,
         pinnedFuture,
         archivedFuture,
       ]);
-      final regularConversations = results[0] as List<Conversation>;
-      final pinnedConversations = results[1] as List<Conversation>;
-      final archivedConversations = results[2] as List<Conversation>;
+      final regularConversations = results[0];
+      final pinnedConversations = results[1];
+      final archivedConversations = results[2];
+      final allRegularChatsLoaded =
+          regularConversations.length < _regularPageSize;
+      final isSupersededInitialLoad =
+          page == 1 &&
+          initialLoadGeneration != null &&
+          (initialLoadGeneration != _currentInitialLoadGeneration ||
+              (initialLoadKey != null &&
+                  !_isCurrentInitialLoadKey(initialLoadKey)));
 
-      _currentRegularPage = page;
-      _allRegularChatsLoaded = regularConversations.length < _regularPageSize;
-      _isLoadingMoreRegularChats = false;
+      if (!isSupersededInitialLoad) {
+        _currentRegularPage = page;
+        _allRegularChatsLoaded = allRegularChatsLoaded;
+        _isLoadingMoreRegularChats = false;
+      }
 
       DebugLogger.log(
         'fetch-ok',
@@ -1584,18 +2110,33 @@ class Conversations extends _$Conversations {
           'regular': regularConversations.length,
           'pinned': pinnedConversations.length,
           'archived': archivedConversations.length,
-          'hasMore': !_allRegularChatsLoaded,
+          'hasMore': !allRegularChatsLoaded,
+          'superseded': isSupersededInitialLoad,
         },
       );
-      final preservedFolderConversations = (state.asData?.value ?? const [])
-          .where(_isFolderConversation)
-          .toList(growable: false);
-      final sortedConversations = _mergeConversationLists([
-        ...preservedFolderConversations,
-        ...pinnedConversations,
-        ...archivedConversations,
-      ], regularConversations);
-      _updateCacheTimestamp(DateTime.now());
+      final preservedFolderConversations =
+          initialLoadKey != null &&
+              !_hasTrustedFolderConversationStateFor(initialLoadKey)
+          ? const <Conversation>[]
+          : (state.asData?.value ?? const [])
+                .where(
+                  (conversation) =>
+                      _isFolderConversation(conversation) &&
+                      _trustedFolderConversationIds.contains(conversation.id),
+                )
+                .toList(growable: false);
+      final sortedConversations = _mergeConversationLists(
+        [
+          ...preservedFolderConversations,
+          ...pinnedConversations,
+          ...archivedConversations,
+        ],
+        regularConversations,
+        authoritativeIncomingFolderIds: true,
+      );
+      if (!isSupersededInitialLoad) {
+        _updateCacheTimestamp(DateTime.now());
+      }
       return sortedConversations;
     } catch (e, stackTrace) {
       DebugLogger.error(
@@ -1607,7 +2148,7 @@ class Conversations extends _$Conversations {
       if (e.toString().contains('403')) {
         DebugLogger.warning('endpoint-403', scope: 'conversations');
       }
-      return const [];
+      Error.throwWithStackTrace(e, stackTrace);
     }
   }
 
@@ -1616,6 +2157,14 @@ class Conversations extends _$Conversations {
     sorted.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
     return List<Conversation>.unmodifiable(sorted);
   }
+
+  _ServerScopedRequestKey _currentSyncedInitialLoadKey() {
+    final api = ref.read(apiServiceProvider);
+    return _syncApiAuthTokenAndBuildScopedRequestKey(ref, api);
+  }
+
+  bool _isCurrentInitialLoadKey(_ServerScopedRequestKey key) =>
+      key.matches(_currentSyncedInitialLoadKey());
 
   void _updateCacheTimestamp(DateTime? timestamp) {
     ref.read(_conversationsCacheTimestampProvider.notifier).set(timestamp);
@@ -1645,10 +2194,30 @@ final folderConversationSummariesProvider =
         return const <Conversation>[];
       }
 
+      final authToken = _normalizeScopedAuthToken(
+        ref.watch(authTokenProvider3),
+      );
+      if (authToken == null) {
+        return const <Conversation>[];
+      }
+
       final api = ref.watch(apiServiceProvider);
       if (api == null) {
         return const <Conversation>[];
       }
+      final requestAuthToken = _syncApiAuthTokenForScopedRequest(
+        ref,
+        api,
+        desiredAuthToken: authToken,
+      );
+      if (requestAuthToken == null) {
+        return const <Conversation>[];
+      }
+      final conversationsNotifier = ref.read(conversationsProvider.notifier);
+      final requestKey = _buildScopedRequestKey(
+        api,
+        authToken: requestAuthToken,
+      );
 
       try {
         final conversations = await api.getFolderConversationSummaries(
@@ -1661,9 +2230,23 @@ final folderConversationSummariesProvider =
                   : conversation,
             )
             .toList(growable: false);
-        ref
-            .read(conversationsProvider.notifier)
-            .upsertConversations(normalized);
+        final isCurrentScope =
+            ref.read(isAuthenticatedProvider2) &&
+            !ref.read(reviewerModeProvider) &&
+            conversationsNotifier._isCurrentInitialLoadKey(requestKey);
+        if (isCurrentScope) {
+          conversationsNotifier.upsertConversations(
+            normalized,
+            trustFolderConversations: true,
+          );
+        } else {
+          DebugLogger.log(
+            'folder-conversations-discarded-stale-scope',
+            scope: 'folders/conversations',
+            data: {'folderId': folderId},
+          );
+          return const <Conversation>[];
+        }
         return normalized;
       } catch (error, stackTrace) {
         DebugLogger.error(
@@ -2331,12 +2914,7 @@ class UserMemories extends _$UserMemories {
       return memory;
     }
 
-    state = AsyncData(
-      _sortedMemories([
-        ...state.asData?.value ?? const <ServerMemory>[],
-        memory,
-      ]),
-    );
+    _replaceState([..._currentMemories(), memory]);
     return memory;
   }
 
@@ -2354,12 +2932,14 @@ class UserMemories extends _$UserMemories {
       return updated;
     }
 
-    final current = state.asData?.value ?? const <ServerMemory>[];
-    final next = [
-      for (final memory in current)
-        if (memory.id == memoryId) updated else memory,
-    ];
-    state = AsyncData(_sortedMemories(next));
+    final current = _currentMemories();
+    final next = _transformItemById(
+      current,
+      memoryId,
+      (_) => updated,
+      idOf: (memory) => memory.id,
+    );
+    _replaceState(next?.items ?? current);
     return updated;
   }
 
@@ -2374,10 +2954,13 @@ class UserMemories extends _$UserMemories {
       return;
     }
 
-    state = AsyncData([
-      for (final memory in state.asData?.value ?? const <ServerMemory>[])
-        if (memory.id != memoryId) memory,
-    ]);
+    _replaceState(
+      _removeItemById(
+        _currentMemories(),
+        memoryId,
+        idOf: (memory) => memory.id,
+      ).items,
+    );
   }
 
   Future<void> clearAll() async {
@@ -2400,6 +2983,13 @@ class UserMemories extends _$UserMemories {
       return const <ServerMemory>[];
     }
     return _sortedMemories(await api.getMemories());
+  }
+
+  List<ServerMemory> _currentMemories() =>
+      state.asData?.value ?? const <ServerMemory>[];
+
+  void _replaceState(List<ServerMemory> memories) {
+    state = AsyncData<List<ServerMemory>>(_sortedMemories(memories));
   }
 
   List<ServerMemory> _sortedMemories(List<ServerMemory> memories) {
@@ -2613,13 +3203,23 @@ class ChannelsFeatureEnabledNotifier extends Notifier<bool> {
   }
 }
 
-// Folders provider
+typedef _FolderFetchPayload = ({List<Folder> folders, bool featureEnabled});
+
 @Riverpod(keepAlive: true)
 class Folders extends _$Folders {
+  int _currentLoadGeneration = 0;
+  _TrackedScopedLoad<_FolderFetchPayload>? _inFlightLoad;
+  _ScopedLoad<_FolderFetchPayload>? _latestLoad;
+  bool _lastRemoteLoadFailed = false;
+  _ServerScopedRequestKey? _currentFolderStateKey;
+  _ServerScopedRequestKey? _lastSuccessfulLoadKey;
+
   @override
   Future<List<Folder>> build() async {
     if (!ref.watch(isAuthenticatedProvider2)) {
       DebugLogger.log('skip-unauthed', scope: 'folders');
+      _resetLoadTracking();
+      _clearFolderScopeState(resetRemoteFailure: true);
       _persistFoldersAsync(const []);
       return const [];
     }
@@ -2627,113 +3227,384 @@ class Folders extends _$Folders {
     final storage = ref.watch(optimizedStorageServiceProvider);
     final cached = await storage.getLocalFolders();
     if (cached.isNotEmpty) {
-      Future.microtask(() async {
-        try {
-          await refresh();
-        } catch (error, stackTrace) {
-          DebugLogger.error(
-            'warm-refresh-failed',
-            scope: 'folders/cache',
-            error: error,
-            stackTrace: stackTrace,
-          );
-        }
-      });
+      // Keep cached folders visible for startup, but do not trust them for
+      // mutations until a remote load confirms the current auth/server scope.
+      _resetLoadTracking();
+      _clearFolderScopeState(resetRemoteFailure: true);
+      _scheduleWarmRefresh(refresh: refresh, scope: 'folders/cache');
       return _sort(cached);
     }
 
     final api = ref.watch(apiServiceProvider);
     if (api == null) {
       DebugLogger.warning('api-missing', scope: 'folders');
+      _resetLoadTracking();
+      _clearFolderScopeState();
       return const [];
     }
     final fresh = await _load(api);
     return fresh;
   }
 
-  Future<void> refresh() async {
+  Future<void> refresh({bool forceFresh = false}) async {
     if (!ref.read(isAuthenticatedProvider2)) {
+      _resetLoadTracking();
+      _clearFolderScopeState();
       state = const AsyncData<List<Folder>>([]);
       _persistFoldersAsync(const []);
       return;
     }
     final api = ref.read(apiServiceProvider);
     if (api == null) {
+      _resetLoadTracking();
+      _clearFolderScopeState();
       state = const AsyncData<List<Folder>>([]);
       _persistFoldersAsync(const []);
       return;
     }
-    final result = await AsyncValue.guard(() => _load(api));
+    final result = await AsyncValue.guard(
+      () => _load(api, reuseInFlight: !forceFresh),
+    );
     if (!ref.mounted) return;
     state = result;
   }
 
-  void upsertFolder(Folder folder) {
-    final current = state.asData?.value ?? const <Folder>[];
-    final updated = <Folder>[...current];
-    final index = updated.indexWhere((existing) => existing.id == folder.id);
-    if (index >= 0) {
-      updated[index] = folder;
-    } else {
-      updated.add(folder);
+  /// Warm folders with a retryable fetch path so background startup work can
+  /// distinguish an empty folder list from a failed load.
+  Future<void> warmIfNeeded() async {
+    if (!ref.read(isAuthenticatedProvider2)) {
+      _resetLoadTracking();
+      _clearFolderScopeState(resetRemoteFailure: true);
+      return;
     }
-    final sorted = _sort(updated);
-    state = AsyncData<List<Folder>>(sorted);
-    _persistFoldersAsync(sorted);
+
+    final api = ref.read(apiServiceProvider);
+    if (api == null) {
+      throw StateError('No API service available');
+    }
+    final requestKey = _currentSyncedFolderLoadKey(api);
+
+    if (state.hasValue &&
+        !_lastRemoteLoadFailed &&
+        (_lastSuccessfulLoadKey?.matches(requestKey) ?? false)) {
+      return;
+    }
+
+    final folders = await _load(api, throwOnError: true);
+    if (!ref.mounted) return;
+    state = AsyncData<List<Folder>>(folders);
+  }
+
+  void upsertFolder(Folder folder) {
+    if (!_hasCurrentFolderState()) {
+      _refreshFoldersForUntrustedState(action: 'upsert');
+      return;
+    }
+    final current = _currentFolderStateOrEmpty();
+    final updated = _upsertItemById(current, folder, idOf: (item) => item.id);
+    _replaceState(updated);
+  }
+
+  /// Applies a server-confirmed folder upsert.
+  ///
+  /// When the current folder list is still untrusted (for example after a
+  /// cache hydration or auth-scope change), the folder is updated in-memory so
+  /// the UI reflects the successful server write immediately, then a refresh is
+  /// scheduled to reconcile the full list without persisting mixed-scope data.
+  void upsertFolderFromRemote(Folder folder) {
+    final current = _currentFolderStateOrEmpty();
+    final updated = _upsertItemById(current, folder, idOf: (item) => item.id);
+    _applyRemoteFolderMutation(updated, action: 'upsert');
   }
 
   void updateFolder(String id, Folder Function(Folder folder) transform) {
+    if (!_hasCurrentFolderState()) {
+      _refreshFoldersForUntrustedState(action: 'update');
+      return;
+    }
     final current = state.asData?.value;
     if (current == null) return;
-    final index = current.indexWhere((folder) => folder.id == id);
-    if (index < 0) return;
-    final updated = <Folder>[...current];
-    updated[index] = transform(updated[index]);
-    final sorted = _sort(updated);
-    state = AsyncData<List<Folder>>(sorted);
-    _persistFoldersAsync(sorted);
+    final update = _transformItemById(
+      current,
+      id,
+      transform,
+      idOf: (folder) => folder.id,
+    );
+    if (update == null) return;
+    _replaceState(update.items);
+  }
+
+  /// Applies a server-confirmed folder update.
+  ///
+  /// If the folder is not currently present in memory, a refresh is triggered
+  /// so the current server scope can repopulate the folder list.
+  void updateFolderFromRemote(
+    String id,
+    Folder Function(Folder folder) transform,
+  ) {
+    final current = state.asData?.value;
+    if (current == null) {
+      _refreshFoldersForUntrustedState(action: 'remote-update');
+      return;
+    }
+    final update = _transformItemById(
+      current,
+      id,
+      transform,
+      idOf: (folder) => folder.id,
+    );
+    if (update == null) {
+      _refreshFoldersForUntrustedState(action: 'remote-update-missing');
+      return;
+    }
+    _applyRemoteFolderMutation(update.items, action: 'update');
   }
 
   void removeFolder(String id) {
+    if (!_hasCurrentFolderState()) {
+      _refreshFoldersForUntrustedState(action: 'remove');
+      return;
+    }
     final current = state.asData?.value;
     if (current == null) return;
-    final updated = current
-        .where((folder) => folder.id != id)
-        .toList(growable: true);
-    final sorted = _sort(updated);
-    state = AsyncData<List<Folder>>(sorted);
-    _persistFoldersAsync(sorted);
+    final removal = _removeItemById(current, id, idOf: (folder) => folder.id);
+    _replaceState(removal.items);
   }
 
-  Future<List<Folder>> _load(ApiService api) async {
-    try {
-      final (foldersData, featureEnabled) = await api.getFolders();
+  /// Applies a server-confirmed folder deletion.
+  ///
+  /// If the current list is untrusted, the removal is reflected in-memory but
+  /// not persisted until a reconciliation refresh confirms the new full list.
+  void removeFolderFromRemote(String id) {
+    final current = state.asData?.value;
+    if (current == null) {
+      _refreshFoldersForUntrustedState(action: 'remote-remove');
+      return;
+    }
+    final removal = _removeItemById(current, id, idOf: (folder) => folder.id);
+    if (!removal.didRemove) {
+      _refreshFoldersForUntrustedState(action: 'remote-remove-missing');
+      return;
+    }
+    _applyRemoteFolderMutation(removal.items, action: 'remove');
+  }
 
-      // Update the folders feature enabled state
-      ref
-          .read(foldersFeatureEnabledProvider.notifier)
-          .setEnabled(featureEnabled);
-
-      final folders = foldersData
-          .map((folderData) => Folder.fromJson(folderData))
-          .toList();
-      DebugLogger.log(
-        'fetch-ok',
-        scope: 'folders',
-        data: {'count': folders.length, 'enabled': featureEnabled},
-      );
-      final sorted = _sort(folders);
-      _persistFoldersAsync(sorted);
-      return sorted;
-    } catch (e, stackTrace) {
+  Future<List<Folder>> _load(
+    ApiService api, {
+    bool throwOnError = false,
+    bool preserveCurrentStateOnError = true,
+    bool reuseInFlight = true,
+  }) async {
+    final requestKey = _currentSyncedFolderLoadKey(api);
+    void logFailure({required Object error, required StackTrace stackTrace}) {
       DebugLogger.error(
         'fetch-failed',
         scope: 'folders',
-        error: e,
+        error: error,
         stackTrace: stackTrace,
       );
-      return const [];
     }
+
+    final inFlight = _inFlightLoad;
+    if (reuseInFlight && inFlight != null && inFlight.key.matches(requestKey)) {
+      try {
+        final load = await inFlight.future;
+        return _resolveCurrentFolderLoad(load, throwOnError: throwOnError);
+      } catch (error, stackTrace) {
+        logFailure(error: error, stackTrace: stackTrace);
+        if (throwOnError) {
+          rethrow;
+        }
+        return _folderErrorFallback(
+          requestKey,
+          preserveCurrentStateOnError: preserveCurrentStateOnError,
+        );
+      }
+    }
+
+    final generation = ++_currentLoadGeneration;
+    final future = _fetchFolders(api)
+        .then((payload) {
+          final load = _ScopedLoad<_FolderFetchPayload>(
+            generation: generation,
+            key: requestKey,
+            data: payload,
+          );
+          if (ref.mounted &&
+              load.generation == _currentLoadGeneration &&
+              _isCurrentFolderLoadKey(load.key)) {
+            _latestLoad = load;
+            _lastRemoteLoadFailed = false;
+            _currentFolderStateKey = load.key;
+            _lastSuccessfulLoadKey = load.key;
+            ref
+                .read(foldersFeatureEnabledProvider.notifier)
+                .setEnabled(load.data.featureEnabled);
+            _persistFoldersAsync(load.data.folders);
+          }
+          return load;
+        })
+        .catchError((Object error, StackTrace stackTrace) {
+          if (ref.mounted &&
+              generation == _currentLoadGeneration &&
+              _isCurrentFolderLoadKey(requestKey)) {
+            _lastRemoteLoadFailed = true;
+          }
+          return Error.throwWithStackTrace(error, stackTrace);
+        });
+    _inFlightLoad = (future: future, key: requestKey);
+    _clearTrackedScopedLoadWhenSettled(
+      future: future,
+      currentFuture: () => _inFlightLoad?.future,
+      clearTrackedLoad: () => _inFlightLoad = null,
+    );
+
+    try {
+      final load = await future;
+      return _resolveCurrentFolderLoad(load, throwOnError: throwOnError);
+    } catch (e, stackTrace) {
+      logFailure(error: e, stackTrace: stackTrace);
+      if (throwOnError) {
+        rethrow;
+      }
+      return _folderErrorFallback(
+        requestKey,
+        preserveCurrentStateOnError: preserveCurrentStateOnError,
+      );
+    }
+  }
+
+  Future<List<Folder>> _resolveCurrentFolderLoad(
+    _ScopedLoad<_FolderFetchPayload> load, {
+    required bool throwOnError,
+  }) async {
+    final loadKeyIsCurrent = _isCurrentFolderLoadKey(load.key);
+    if (load.generation == _currentLoadGeneration && loadKeyIsCurrent) {
+      return load.data.folders;
+    }
+
+    if (!loadKeyIsCurrent) {
+      if (!ref.read(isAuthenticatedProvider2)) {
+        return const <Folder>[];
+      }
+
+      final latest = _inFlightLoad;
+      if (latest != null && _isCurrentFolderLoadKey(latest.key)) {
+        try {
+          final latestLoad = await _currentScopedInFlightLoad(
+            inFlightLoad: _inFlightLoad,
+            isCurrentKey: _isCurrentFolderLoadKey,
+          );
+          if (latestLoad != null) {
+            return _resolveCurrentFolderLoad(
+              latestLoad,
+              throwOnError: throwOnError,
+            );
+          }
+        } catch (error) {
+          if (throwOnError) {
+            rethrow;
+          }
+          return _currentTrustedFolderStateOrEmpty();
+        }
+      }
+
+      final api = ref.read(apiServiceProvider);
+      if (api == null) {
+        if (throwOnError) {
+          throw StateError('No API service available');
+        }
+        return const <Folder>[];
+      }
+
+      try {
+        final freshLoad = await _load(
+          api,
+          throwOnError: throwOnError,
+          preserveCurrentStateOnError: false,
+        );
+        return freshLoad;
+      } catch (error) {
+        if (throwOnError) {
+          rethrow;
+        }
+        return _currentTrustedFolderStateOrEmpty();
+      }
+    }
+
+    final current = state.asData?.value;
+    if (current != null) {
+      return current;
+    }
+
+    try {
+      final newerLoad = await _newerScopedLoad(
+        load: load,
+        latestCompletedLoad: _latestLoad,
+        inFlightLoad: _inFlightLoad,
+        isCurrentKey: _isCurrentFolderLoadKey,
+      );
+      if (newerLoad != null) {
+        return _resolveCurrentFolderLoad(newerLoad, throwOnError: throwOnError);
+      }
+    } catch (error) {
+      if (throwOnError) {
+        rethrow;
+      }
+      return _currentFolderStateOrEmpty();
+    }
+
+    return load.data.folders;
+  }
+
+  List<Folder> _currentFolderStateOrEmpty() =>
+      state.asData?.value ?? const <Folder>[];
+
+  bool _canPreserveCurrentFolderStateOnError(
+    _ServerScopedRequestKey requestKey,
+  ) {
+    if (state.asData?.value == null) {
+      return false;
+    }
+    return _currentFolderStateKey?.matches(requestKey) ?? false;
+  }
+
+  List<Folder> _folderErrorFallback(
+    _ServerScopedRequestKey requestKey, {
+    required bool preserveCurrentStateOnError,
+  }) {
+    if (!preserveCurrentStateOnError) {
+      return _currentTrustedFolderStateOrEmpty();
+    }
+    if (_canPreserveCurrentFolderStateOnError(requestKey)) {
+      return _currentFolderStateOrEmpty();
+    }
+    if (!_isCurrentFolderLoadKey(requestKey)) {
+      return _currentTrustedFolderStateOrEmpty();
+    }
+    return const <Folder>[];
+  }
+
+  List<Folder> _currentTrustedFolderStateOrEmpty() {
+    final current = state.asData?.value;
+    if (current == null || !_hasCurrentFolderState()) {
+      return const <Folder>[];
+    }
+    return current;
+  }
+
+  Future<_FolderFetchPayload> _fetchFolders(ApiService api) async {
+    final (foldersData, featureEnabled) = await api.getFolders();
+
+    final folders = foldersData
+        .map((folderData) => Folder.fromJson(folderData))
+        .toList();
+    DebugLogger.log(
+      'fetch-ok',
+      scope: 'folders',
+      data: {'count': folders.length, 'enabled': featureEnabled},
+    );
+    return (folders: _sort(folders), featureEnabled: featureEnabled);
   }
 
   void _persistFoldersAsync(List<Folder> folders) {
@@ -2745,6 +3616,98 @@ class Folders extends _$Folders {
     final sorted = [...input];
     sorted.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
     return List<Folder>.unmodifiable(sorted);
+  }
+
+  void _replaceState(List<Folder> folders, {bool persist = true}) {
+    final sorted = _sort(folders);
+    state = AsyncData<List<Folder>>(sorted);
+    if (persist) {
+      _persistFoldersAsync(sorted);
+    }
+  }
+
+  _ServerScopedRequestKey _currentSyncedFolderLoadKey(ApiService api) {
+    return _syncApiAuthTokenAndBuildScopedRequestKey(ref, api);
+  }
+
+  bool _isCurrentFolderLoadKey(_ServerScopedRequestKey key) {
+    final api = ref.read(apiServiceProvider);
+    if (api == null) {
+      return false;
+    }
+    return key.matches(_currentSyncedFolderLoadKey(api));
+  }
+
+  bool _hasCurrentFolderState() {
+    if (state.asData?.value == null) {
+      return false;
+    }
+    final api = ref.read(apiServiceProvider);
+    if (api == null) {
+      return false;
+    }
+    return (_currentFolderStateKey?.matches(_currentSyncedFolderLoadKey(api)) ??
+        false);
+  }
+
+  void _applyRemoteFolderMutation(
+    List<Folder> folders, {
+    required String action,
+  }) {
+    if (_hasCurrentFolderState()) {
+      final api = ref.read(apiServiceProvider);
+      if (api != null && ref.read(isAuthenticatedProvider2)) {
+        final requestKey = _currentSyncedFolderLoadKey(api);
+        _currentFolderStateKey = requestKey;
+        _lastSuccessfulLoadKey = requestKey;
+        _lastRemoteLoadFailed = false;
+      }
+      _replaceState(folders);
+      return;
+    }
+
+    _replaceState(folders, persist: false);
+    _reconcileFoldersAfterRemoteMutation(action: action);
+  }
+
+  void _clearFolderScopeState({bool resetRemoteFailure = false}) {
+    if (resetRemoteFailure) {
+      _lastRemoteLoadFailed = false;
+    }
+    _currentFolderStateKey = null;
+    _lastSuccessfulLoadKey = null;
+  }
+
+  void _reconcileFoldersAfterRemoteMutation({required String action}) {
+    if (!ref.read(isAuthenticatedProvider2) ||
+        ref.read(apiServiceProvider) == null) {
+      return;
+    }
+    DebugLogger.log(
+      'reconcile-after-remote-mutation',
+      scope: 'folders',
+      data: {'action': action},
+    );
+    unawaited(refresh(forceFresh: true));
+  }
+
+  void _refreshFoldersForUntrustedState({required String action}) {
+    if (!ref.read(isAuthenticatedProvider2) ||
+        ref.read(apiServiceProvider) == null) {
+      return;
+    }
+    DebugLogger.log(
+      'skip-stale-state-mutation',
+      scope: 'folders',
+      data: {'action': action},
+    );
+    unawaited(refresh());
+  }
+
+  void _resetLoadTracking() {
+    _currentLoadGeneration++;
+    _inFlightLoad = null;
+    _latestLoad = null;
   }
 }
 
@@ -2785,23 +3748,15 @@ class UserFiles extends _$UserFiles {
     }
 
     final current = state.requireValue;
-    final updated = <FileInfo>[...current];
-    final index = updated.indexWhere((existing) => existing.id == file.id);
-    if (index >= 0) {
-      updated[index] = file;
-    } else {
-      updated.add(file);
-    }
-    state = AsyncData<List<FileInfo>>(_sort(updated));
+    final updated = _upsertItemById(current, file, idOf: (item) => item.id);
+    _replaceState(updated);
   }
 
   void remove(String id) {
     final current = state.asData?.value;
     if (current == null) return;
-    final updated = current
-        .where((file) => file.id != id)
-        .toList(growable: true);
-    state = AsyncData<List<FileInfo>>(_sort(updated));
+    final removal = _removeItemById(current, id, idOf: (file) => file.id);
+    _replaceState(removal.items);
   }
 
   Future<List<FileInfo>> _load(ApiService api) async {
@@ -2847,6 +3802,10 @@ class UserFiles extends _$UserFiles {
     return List<FileInfo>.unmodifiable(sorted);
   }
 
+  void _replaceState(List<FileInfo> files) {
+    state = AsyncData<List<FileInfo>>(_sort(files));
+  }
+
   Future<void> _loadRemainingPages(
     ApiService api, {
     required int loadGeneration,
@@ -2875,9 +3834,7 @@ class UserFiles extends _$UserFiles {
         totalCount ??= pageResult.total;
 
         final currentFiles = state.asData?.value ?? initialFiles;
-        state = AsyncData<List<FileInfo>>(
-          _sort(_mergeFiles(currentFiles, pageResult.items)),
-        );
+        _replaceState(_mergeFiles(currentFiles, pageResult.items));
 
         if (!pageResult.isPaginated) {
           return;
@@ -3029,25 +3986,23 @@ class KnowledgeBases extends _$KnowledgeBases {
 
   void upsert(KnowledgeBase knowledgeBase) {
     final current = state.asData?.value ?? const <KnowledgeBase>[];
-    final updated = <KnowledgeBase>[...current];
-    final index = updated.indexWhere(
-      (existing) => existing.id == knowledgeBase.id,
+    final updated = _upsertItemById(
+      current,
+      knowledgeBase,
+      idOf: (item) => item.id,
     );
-    if (index >= 0) {
-      updated[index] = knowledgeBase;
-    } else {
-      updated.add(knowledgeBase);
-    }
-    state = AsyncData<List<KnowledgeBase>>(_sort(updated));
+    _replaceState(updated);
   }
 
   void remove(String id) {
     final current = state.asData?.value;
     if (current == null) return;
-    final updated = current
-        .where((knowledgeBase) => knowledgeBase.id != id)
-        .toList(growable: true);
-    state = AsyncData<List<KnowledgeBase>>(_sort(updated));
+    final removal = _removeItemById(
+      current,
+      id,
+      idOf: (knowledgeBase) => knowledgeBase.id,
+    );
+    _replaceState(removal.items);
   }
 
   Future<List<KnowledgeBase>> _load(ApiService api) async {
@@ -3069,6 +4024,10 @@ class KnowledgeBases extends _$KnowledgeBases {
     final sorted = [...input];
     sorted.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
     return List<KnowledgeBase>.unmodifiable(sorted);
+  }
+
+  void _replaceState(List<KnowledgeBase> knowledgeBases) {
+    state = AsyncData<List<KnowledgeBase>>(_sort(knowledgeBases));
   }
 }
 

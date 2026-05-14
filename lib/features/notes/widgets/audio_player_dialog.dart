@@ -40,11 +40,8 @@ class AudioPlayerDialog extends StatefulWidget {
   }) {
     return ThemedDialogs.showCustom<void>(
       context: context,
-      builder: (context) => AudioPlayerDialog(
-        fileId: fileId,
-        api: api,
-        fileName: fileName,
-      ),
+      builder: (context) =>
+          AudioPlayerDialog(fileId: fileId, api: api, fileName: fileName),
     );
   }
 
@@ -77,13 +74,17 @@ class _AudioPlayerDialogState extends State<AudioPlayerDialog> {
       // Get file info first to determine the correct extension
       final fileInfo = await widget.api.getFileInfo(widget.fileId);
       final filename = fileInfo['filename'] as String? ?? 'audio.m4a';
-      final contentType = (fileInfo['meta'] as Map<String, dynamic>?)?['content_type'] as String?;
-      
-      debugPrint('AudioPlayerDialog: filename=$filename, contentType=$contentType');
+      final contentType =
+          (fileInfo['meta'] as Map<String, dynamic>?)?['content_type']
+              as String?;
+
+      debugPrint(
+        'AudioPlayerDialog: filename=$filename, contentType=$contentType',
+      );
       debugPrint('AudioPlayerDialog: fileInfo=$fileInfo');
-      
+
       // Extract extension from filename
-      final extension = filename.contains('.') 
+      final extension = filename.contains('.')
           ? filename.substring(filename.lastIndexOf('.'))
           : '.m4a';
 
@@ -91,7 +92,8 @@ class _AudioPlayerDialogState extends State<AudioPlayerDialog> {
       // Use timestamp suffix to prevent conflicts if same file opened multiple times
       final tempDir = await getTemporaryDirectory();
       final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final tempPath = '${tempDir.path}/audio_${widget.fileId}_$timestamp$extension';
+      final tempPath =
+          '${tempDir.path}/audio_${widget.fileId}_$timestamp$extension';
       _tempFile = File(tempPath);
 
       // Fetch file content through API (authenticated)
@@ -102,13 +104,19 @@ class _AudioPlayerDialogState extends State<AudioPlayerDialog> {
 
       final responseData = response.data;
       if (responseData is! List<int>) {
-        throw Exception('Unexpected response type: ${responseData.runtimeType}');
+        throw Exception(
+          'Unexpected response type: ${responseData.runtimeType}',
+        );
       }
       final bytes = responseData;
       debugPrint('AudioPlayerDialog: Downloaded ${bytes.length} bytes');
-      debugPrint('AudioPlayerDialog: First 20 bytes: ${bytes.take(20).toList()}');
-      debugPrint('AudioPlayerDialog: Response content-type: ${response.headers.value('content-type')}');
-      
+      debugPrint(
+        'AudioPlayerDialog: First 20 bytes: ${bytes.take(20).toList()}',
+      );
+      debugPrint(
+        'AudioPlayerDialog: Response content-type: ${response.headers.value('content-type')}',
+      );
+
       await _tempFile!.writeAsBytes(bytes);
       debugPrint('AudioPlayerDialog: Saved to $tempPath');
 
@@ -141,20 +149,25 @@ class _AudioPlayerDialogState extends State<AudioPlayerDialog> {
 
       // Load and play the file
       await _player.setFilePath(_tempFile!.path);
-      
+
       if (mounted) {
         setState(() => _isLoading = false);
       }
-      
+
       await _player.play();
     } catch (e) {
       debugPrint('AudioPlayerDialog: Error loading audio: $e');
       // Clean up temp file on error to avoid orphaned files
-      _tempFile?.delete().then((_) {
-        debugPrint('AudioPlayerDialog: Cleaned up temp file after error');
-      }).catchError((e) {
-        debugPrint('AudioPlayerDialog: Failed to clean up temp file after error: $e');
-      });
+      _tempFile
+          ?.delete()
+          .then((_) {
+            debugPrint('AudioPlayerDialog: Cleaned up temp file after error');
+          })
+          .catchError((e) {
+            debugPrint(
+              'AudioPlayerDialog: Failed to clean up temp file after error: $e',
+            );
+          });
       _tempFile = null;
       if (!mounted) return;
       setState(() {
@@ -177,7 +190,9 @@ class _AudioPlayerDialogState extends State<AudioPlayerDialog> {
   }
 
   Future<void> _seekTo(double value) async {
-    final position = Duration(milliseconds: (value * _duration.inMilliseconds).round());
+    final position = Duration(
+      milliseconds: (value * _duration.inMilliseconds).round(),
+    );
     await _player.seek(position);
   }
 
@@ -196,11 +211,14 @@ class _AudioPlayerDialogState extends State<AudioPlayerDialog> {
     // Fire-and-forget is acceptable here as just_audio handles cleanup internally.
     unawaited(_player.dispose());
     // Clean up temp file (fire and forget, log errors for debugging)
-    _tempFile?.delete().then((_) {
-      debugPrint('AudioPlayerDialog: Cleaned up temp file');
-    }).catchError((e) {
-      debugPrint('AudioPlayerDialog: Failed to clean up temp file: $e');
-    });
+    _tempFile
+        ?.delete()
+        .then((_) {
+          debugPrint('AudioPlayerDialog: Cleaned up temp file');
+        })
+        .catchError((e) {
+          debugPrint('AudioPlayerDialog: Failed to clean up temp file: $e');
+        });
     super.dispose();
   }
 
@@ -323,16 +341,15 @@ class _AudioPlayerDialogState extends State<AudioPlayerDialog> {
               SliderTheme(
                 data: SliderThemeData(
                   trackHeight: 4,
-                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                  thumbShape: const RoundSliderThumbShape(
+                    enabledThumbRadius: 6,
+                  ),
                   activeTrackColor: Colors.orange,
                   inactiveTrackColor: theme.surfaceContainerHighest,
                   thumbColor: Colors.orange,
                   overlayColor: Colors.orange.withValues(alpha: 0.2),
                 ),
-                child: AdaptiveSlider(
-                  value: progress,
-                  onChanged: _seekTo,
-                ),
+                child: AdaptiveSlider(value: progress, onChanged: _seekTo),
               ),
 
               // Time display
@@ -379,11 +396,11 @@ class _AudioPlayerDialogState extends State<AudioPlayerDialog> {
                   child: Icon(
                     _isPlaying
                         ? (Platform.isIOS
-                            ? CupertinoIcons.pause_fill
-                            : Icons.pause_rounded)
+                              ? CupertinoIcons.pause_fill
+                              : Icons.pause_rounded)
                         : (Platform.isIOS
-                            ? CupertinoIcons.play_fill
-                            : Icons.play_arrow_rounded),
+                              ? CupertinoIcons.play_fill
+                              : Icons.play_arrow_rounded),
                     color: Colors.white,
                     size: 32,
                   ),

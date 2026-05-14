@@ -14,9 +14,7 @@ void main() {
         });
 
         test('with an empty message', () {
-          final result = ReviewerModeService.generateResponse(
-            userMessage: '',
-          );
+          final result = ReviewerModeService.generateResponse(userMessage: '');
           check(result).isNotEmpty();
         });
 
@@ -47,18 +45,12 @@ void main() {
                 result.contains('help you explore') ||
                 result.contains('Welcome to Conduit') ||
                 result.contains('chat capabilities');
-            check(hasGreeting)
-                .isTrue();
+            check(hasGreeting).isTrue();
           }
         });
 
         test('code keywords produce code responses', () {
-          for (final keyword in [
-            'code',
-            'program',
-            'function',
-            'debug',
-          ]) {
+          for (final keyword in ['code', 'program', 'function', 'debug']) {
             final result = ReviewerModeService.generateResponse(
               userMessage: 'Tell me about $keyword',
             );
@@ -67,12 +59,7 @@ void main() {
         });
 
         test('feature keywords produce feature responses', () {
-          for (final keyword in [
-            'feature',
-            'capability',
-            'what can',
-            'help',
-          ]) {
+          for (final keyword in ['feature', 'capability', 'what can', 'help']) {
             final result = ReviewerModeService.generateResponse(
               userMessage: keyword,
             );
@@ -102,36 +89,30 @@ void main() {
           }
         });
 
-        test(
-          'uses "file" as default when filename is null '
-          'and general category is selected',
-          () {
-            final result = ReviewerModeService.generateResponse(
-              userMessage: 'random question',
-            );
-            check(result.contains('{filename}')).isFalse();
-          },
-        );
+        test('uses "file" as default when filename is null '
+            'and general category is selected', () {
+          final result = ReviewerModeService.generateResponse(
+            userMessage: 'random question',
+          );
+          check(result.contains('{filename}')).isFalse();
+        });
       });
 
       group('voice input detection', () {
-        test(
-          'uses voice category when isVoiceInput is true '
-          'and no keyword match',
-          () {
-            final results = <String>{};
-            for (var i = 0; i < 50; i++) {
-              results.add(
-                ReviewerModeService.generateResponse(
-                  userMessage: 'some voice text',
-                  isVoiceInput: true,
-                ),
-              );
-            }
-            final allResults = results.join('\n');
-            check(allResults.toLowerCase()).contains('voice');
-          },
-        );
+        test('uses voice category when isVoiceInput is true '
+            'and no keyword match', () {
+          final results = <String>{};
+          for (var i = 0; i < 50; i++) {
+            results.add(
+              ReviewerModeService.generateResponse(
+                userMessage: 'some voice text',
+                isVoiceInput: true,
+              ),
+            );
+          }
+          final allResults = results.join('\n');
+          check(allResults.toLowerCase()).contains('voice');
+        });
 
         test('replaces {transcript} with user message', () {
           final results = <String>{};

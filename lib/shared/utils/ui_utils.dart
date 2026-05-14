@@ -46,20 +46,14 @@ class UiUtils {
   static IconData get addIcon =>
       platformIcon(ios: CupertinoIcons.plus_circle, android: Icons.add);
 
-  static IconData get newChatIcon => platformIcon(
-    ios: CupertinoIcons.plus,
-    android: Icons.add,
-  );
+  static IconData get newChatIcon =>
+      platformIcon(ios: CupertinoIcons.plus, android: Icons.add);
 
-  static IconData get newNoteIcon => platformIcon(
-    ios: CupertinoIcons.plus,
-    android: Icons.add,
-  );
+  static IconData get newNoteIcon =>
+      platformIcon(ios: CupertinoIcons.plus, android: Icons.add);
 
-  static IconData get newChannelIcon => platformIcon(
-    ios: CupertinoIcons.plus,
-    android: Icons.add,
-  );
+  static IconData get newChannelIcon =>
+      platformIcon(ios: CupertinoIcons.plus, android: Icons.add);
 
   static IconData get attachIcon =>
       platformIcon(ios: CupertinoIcons.paperclip, android: Icons.attach_file);
@@ -114,13 +108,9 @@ class UiUtils {
     AdaptiveSnackBar.show(
       context,
       message: message,
-      type: isError
-          ? AdaptiveSnackBarType.error
-          : AdaptiveSnackBarType.info,
+      type: isError ? AdaptiveSnackBarType.error : AdaptiveSnackBarType.info,
       duration: duration ?? const Duration(seconds: 3),
-      action: onRetry != null
-          ? AppLocalizations.of(context)!.retry
-          : null,
+      action: onRetry != null ? AppLocalizations.of(context)!.retry : null,
       onActionPressed: onRetry,
     );
   }

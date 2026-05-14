@@ -63,9 +63,7 @@ class ChannelSocketHandler extends _$ChannelSocketHandler {
       timer.cancel();
     }
     _typingTimers.clear();
-    ref
-        .read(channelTypingUsersProvider.notifier)
-        .clear();
+    ref.read(channelTypingUsersProvider.notifier).clear();
   }
 
   /// Emits a read-status update to the server via socket.
@@ -79,18 +77,12 @@ class ChannelSocketHandler extends _$ChannelSocketHandler {
   }
 
   /// Emits a typing indicator to the server.
-  void emitTyping(
-    String channelId, {
-    bool typing = true,
-  }) {
+  void emitTyping(String channelId, {bool typing = true}) {
     final socket = ref.read(socketServiceProvider);
     if (socket == null) return;
     socket.emit('events:channel', {
       'channel_id': channelId,
-      'data': {
-        'type': 'typing',
-        'typing': typing,
-      },
+      'data': {'type': 'typing', 'typing': typing},
     });
   }
 
@@ -124,21 +116,18 @@ class ChannelSocketHandler extends _$ChannelSocketHandler {
       final type = envelope['type'] as String?;
       final data = envelope['data'];
       final notifier = ref.read(
-        channelMessagesProvider(_activeChannelId!)
-            .notifier,
+        channelMessagesProvider(_activeChannelId!).notifier,
       );
 
       switch (type) {
         case 'message':
           if (data is Map<String, dynamic>) {
-            final message =
-                ChannelMessage.fromJson(data);
+            final message = ChannelMessage.fromJson(data);
             notifier.prependMessage(message);
           }
         case 'message:update':
           if (data is Map<String, dynamic>) {
-            final message =
-                ChannelMessage.fromJson(data);
+            final message = ChannelMessage.fromJson(data);
             notifier.updateMessage(message);
           }
         case 'message:delete':
@@ -150,26 +139,17 @@ class ChannelSocketHandler extends _$ChannelSocketHandler {
           }
         case 'message:reply':
           if (data is Map<String, dynamic>) {
-            final parentId =
-                data['parent_id'] as String?;
+            final parentId = data['parent_id'] as String?;
             if (parentId != null) {
-              _refreshMessage(
-                _activeChannelId!,
-                parentId,
-              );
+              _refreshMessage(_activeChannelId!, parentId);
             }
           }
-        case 'message:reaction:add' ||
-              'message:reaction:remove':
+        case 'message:reaction:add' || 'message:reaction:remove':
           final messageId = data is Map
-              ? data['message_id'] as String? ??
-                  data['id'] as String?
+              ? data['message_id'] as String? ?? data['id'] as String?
               : null;
           if (messageId != null) {
-            _refreshMessage(
-              _activeChannelId!,
-              messageId,
-            );
+            _refreshMessage(_activeChannelId!, messageId);
           }
         case 'channel:delete':
           ref
@@ -195,26 +175,17 @@ class ChannelSocketHandler extends _$ChannelSocketHandler {
 
   /// Fetches a single message from the API and updates
   /// the local message list.
-  Future<void> _refreshMessage(
-    String channelId,
-    String messageId,
-  ) async {
+  Future<void> _refreshMessage(String channelId, String messageId) async {
     try {
       final api = ref.read(apiServiceProvider);
       if (api == null) return;
 
-      final json = await api.getChannelMessage(
-        channelId,
-        messageId,
-      );
+      final json = await api.getChannelMessage(channelId, messageId);
       if (json == null || !ref.mounted) return;
 
       final message = ChannelMessage.fromJson(json);
       ref
-          .read(
-            channelMessagesProvider(channelId)
-                .notifier,
-          )
+          .read(channelMessagesProvider(channelId).notifier)
           .updateMessage(message);
     } catch (e, st) {
       developer.log(
@@ -236,32 +207,25 @@ class ChannelSocketHandler extends _$ChannelSocketHandler {
     if (userData is! Map<String, dynamic>) return;
 
     final userId = userData['id'] as String?;
-    final userName =
-        userData['name'] as String? ?? '';
+    final userName = userData['name'] as String? ?? '';
     if (userId == null) return;
 
     // Don't show typing for self.
-    final currentUserId =
-        ref.read(currentUserProvider).value?.id;
+    final currentUserId = ref.read(currentUserProvider).value?.id;
     if (userId == currentUserId) return;
 
     final envelope = event['data'];
-    final isTyping =
-        envelope is Map && envelope['typing'] == true;
+    final isTyping = envelope is Map && envelope['typing'] == true;
 
-    final typingNotifier =
-        ref.read(channelTypingUsersProvider.notifier);
+    final typingNotifier = ref.read(channelTypingUsersProvider.notifier);
 
     if (isTyping) {
       typingNotifier.setTyping(userId, userName);
       _typingTimers[userId]?.cancel();
-      _typingTimers[userId] = Timer(
-        const Duration(seconds: 5),
-        () {
-          typingNotifier.clearTyping(userId);
-          _typingTimers.remove(userId);
-        },
-      );
+      _typingTimers[userId] = Timer(const Duration(seconds: 5), () {
+        typingNotifier.clearTyping(userId);
+        _typingTimers.remove(userId);
+      });
     } else {
       typingNotifier.clearTyping(userId);
       _typingTimers[userId]?.cancel();

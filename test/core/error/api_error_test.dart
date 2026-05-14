@@ -17,9 +17,9 @@ void main() {
       );
       check(error.type).equals(ApiErrorType.timeout);
       check(error.isRetryable).isTrue();
-      check(error.timeoutDuration).isNotNull().equals(
-        const Duration(seconds: 30),
-      );
+      check(
+        error.timeoutDuration,
+      ).isNotNull().equals(const Duration(seconds: 30));
     });
 
     test('authentication is not retryable', () {
@@ -48,9 +48,7 @@ void main() {
       );
       check(error.type).equals(ApiErrorType.rateLimit);
       check(error.isRetryable).isTrue();
-      check(error.retryAfter).isNotNull().equals(
-        const Duration(seconds: 60),
-      );
+      check(error.retryAfter).isNotNull().equals(const Duration(seconds: 60));
     });
 
     test('server is retryable', () {
@@ -119,14 +117,8 @@ void main() {
 
   group('Equality', () {
     test('same fields are equal', () {
-      const a = ApiError.network(
-        message: 'fail',
-        endpoint: '/api',
-      );
-      const b = ApiError.network(
-        message: 'fail',
-        endpoint: '/api',
-      );
+      const a = ApiError.network(message: 'fail', endpoint: '/api');
+      const b = ApiError.network(message: 'fail', endpoint: '/api');
       check(a).equals(b);
       check(a.hashCode).equals(b.hashCode);
     });
@@ -168,9 +160,7 @@ void main() {
     });
 
     test('hasGeneralErrors returns true when errors exist', () {
-      const response = ParsedErrorResponse(
-        errors: ['Something failed'],
-      );
+      const response = ParsedErrorResponse(errors: ['Something failed']);
       check(response.hasGeneralErrors).isTrue();
     });
 

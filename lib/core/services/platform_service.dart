@@ -272,7 +272,6 @@ class PlatformService {
       return materialTextSelectionControls;
     }
   }
-
 }
 
 /// Types of haptic feedback

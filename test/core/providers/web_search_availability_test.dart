@@ -128,9 +128,7 @@ void main() {
     });
 
     test('no features key at all -> visible', () {
-      final container = _container(
-        const AsyncData<Map<String, dynamic>>({}),
-      );
+      final container = _container(const AsyncData<Map<String, dynamic>>({}));
       addTearDown(container.dispose);
 
       expect(container.read(webSearchAvailableProvider), isTrue);
@@ -158,9 +156,8 @@ void main() {
       final container = ProviderContainer(
         overrides: [
           userPermissionsProvider.overrideWith(
-            (ref) => Future<Map<String, dynamic>>.error(
-              Exception('network error'),
-            ),
+            (ref) =>
+                Future<Map<String, dynamic>>.error(Exception('network error')),
           ),
         ],
       );

@@ -448,7 +448,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         try {
           ref
               .read(conversationsProvider.notifier)
-              .upsertConversation(refreshed.copyWith(messages: const []));
+              .upsertConversation(
+                refreshed.copyWith(messages: const []),
+                trustFolderConversation:
+                    refreshed.folderId != null &&
+                    refreshed.folderId!.isNotEmpty,
+              );
         } catch (_) {}
       }
 
@@ -1200,7 +1205,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
           ref
               .read(conversationsProvider.notifier)
-              .upsertConversation(updatedSummary.copyWith(messages: const []));
+              .upsertConversation(
+                updatedSummary.copyWith(messages: const []),
+              );
         } catch (_) {}
       }
     }
@@ -2905,6 +2912,9 @@ Future<void> _sendMessageInternal(
               .read(conversationsProvider.notifier)
               .upsertConversation(
                 updatedConversation.copyWith(updatedAt: DateTime.now()),
+                trustFolderConversation:
+                    updatedConversation.folderId != null &&
+                    updatedConversation.folderId!.isNotEmpty,
               );
 
           // Invalidate conversations provider to refresh the list
@@ -3424,7 +3434,7 @@ Future<void> pinConversation(
 
     ref
         .read(conversationsProvider.notifier)
-        .updateConversation(
+        .updateConversationFromRemote(
           conversationId,
           (conversation) =>
               conversation.copyWith(pinned: pinned, updatedAt: DateTime.now()),
@@ -3471,7 +3481,7 @@ Future<void> archiveConversation(
 
     ref
         .read(conversationsProvider.notifier)
-        .updateConversation(
+        .updateConversationFromRemote(
           conversationId,
           (conversation) => conversation.copyWith(
             archived: archived,
@@ -3507,7 +3517,7 @@ Future<String?> shareConversation(WidgetRef ref, String conversationId) async {
 
     ref
         .read(conversationsProvider.notifier)
-        .updateConversation(
+        .updateConversationFromRemote(
           conversationId,
           (conversation) => conversation.copyWith(
             shareId: shareId,
@@ -3544,7 +3554,7 @@ Future<void> deleteSharedConversation(
 
     ref
         .read(conversationsProvider.notifier)
-        .updateConversation(
+        .updateConversationFromRemote(
           conversationId,
           (conversation) =>
               conversation.copyWith(shareId: null, updatedAt: DateTime.now()),
@@ -3585,6 +3595,9 @@ Future<void> cloneConversation(WidgetRef ref, String conversationId) async {
         .read(conversationsProvider.notifier)
         .upsertConversation(
           clonedConversation.copyWith(updatedAt: DateTime.now()),
+          trustFolderConversation:
+              clonedConversation.folderId != null &&
+              clonedConversation.folderId!.isNotEmpty,
         );
     refreshConversationsCache(ref);
   } catch (e) {

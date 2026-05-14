@@ -327,7 +327,6 @@ class AuthStateManager extends _$AuthStateManager {
           _updateApiServiceToken(token);
           _preloadDefaultModel();
           _loadUserData();
-          _prefetchConversations();
 
           // Background server validation; if it fails, invalidate token gracefully
           final validToken = token; // Capture non-null token for closure
@@ -479,7 +478,6 @@ class AuthStateManager extends _$AuthStateManager {
 
         // Load user data in background (consistent with credentials method)
         _loadUserData();
-        _prefetchConversations();
 
         DebugLogger.auth('JWT token login successful');
         return true;
@@ -574,7 +572,6 @@ class AuthStateManager extends _$AuthStateManager {
 
       // Load user data in background
       _loadUserData();
-      _prefetchConversations();
 
       DebugLogger.auth('Login successful');
       return true;
@@ -683,7 +680,6 @@ class AuthStateManager extends _$AuthStateManager {
 
       // Load user data in background
       _loadUserData();
-      _prefetchConversations();
 
       DebugLogger.auth('LDAP login successful');
       return true;
@@ -1203,24 +1199,6 @@ class AuthStateManager extends _$AuthStateManager {
         if (!ref.mounted) return;
         DebugLogger.warning(
           'default-model-preload-failed',
-          scope: 'auth/state',
-          data: {'error': e.toString()},
-        );
-      }
-    });
-  }
-
-  /// Prime the conversations list so navigation drawers show real data after login.
-  void _prefetchConversations() {
-    Future.microtask(() {
-      if (!ref.mounted) return;
-      try {
-        refreshConversationsCache(ref, includeFolders: true);
-        DebugLogger.auth('Conversations prefetch scheduled');
-      } catch (e) {
-        if (!ref.mounted) return;
-        DebugLogger.warning(
-          'conversation-prefetch-failed',
           scope: 'auth/state',
           data: {'error': e.toString()},
         );
