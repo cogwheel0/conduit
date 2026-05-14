@@ -26,10 +26,17 @@ class NativeSheetRoutes {
   const NativeSheetRoutes._();
 
   static const profileMenu = 'profile-menu';
+  static const profile = 'profile';
   static const accountSettings = 'account-settings';
   static const personalization = 'personalization';
   static const audioSettings = 'audio-settings';
   static const appCustomization = 'app-customization';
+  static const appearance = 'appearance';
+  static const chats = 'chats';
+  static const voice = 'voice';
+  static const aiMemory = 'ai-memory';
+  static const dataConnection = 'data-connection';
+  static const helpAbout = 'help-about';
   static const about = 'about';
 }
 
@@ -313,6 +320,7 @@ class NativeProfileSheetConfig {
     this.supportTitle,
     this.supportSubtitle,
     this.supportItems = const [],
+    this.sections = const [],
   });
 
   final NativeProfileSheetUser profile;
@@ -325,6 +333,7 @@ class NativeProfileSheetConfig {
   final String? supportSubtitle;
   final List<NativeSheetItemConfig> menuItems;
   final List<NativeSheetItemConfig> supportItems;
+  final List<NativeSheetSectionConfig> sections;
   final List<NativeSheetDetailConfig> detailSheets;
 
   Map<String, Object?> toMap() {
@@ -338,7 +347,29 @@ class NativeProfileSheetConfig {
       'supportSubtitle': supportSubtitle,
       'menuItems': menuItems.map((item) => item.toMap()).toList(),
       'supportItems': supportItems.map((item) => item.toMap()).toList(),
+      if (sections.isNotEmpty)
+        'sections': sections.map((section) => section.toMap()).toList(),
       'detailSheets': detailSheets.map((sheet) => sheet.toMap()).toList(),
+    };
+  }
+}
+
+class NativeSheetSectionConfig {
+  const NativeSheetSectionConfig({
+    required this.items,
+    this.title,
+    this.footer,
+  });
+
+  final String? title;
+  final String? footer;
+  final List<NativeSheetItemConfig> items;
+
+  Map<String, Object?> toMap() {
+    return {
+      'title': title,
+      'footer': footer,
+      'items': items.map((item) => item.toMap()).toList(),
     };
   }
 }

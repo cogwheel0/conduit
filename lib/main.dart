@@ -262,6 +262,20 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
       case NativeSheetRoutes.accountSettings:
         await _hydrateNativeAccountSettingsDetail(l10n);
         return;
+      case NativeSheetRoutes.appearance:
+      case NativeSheetRoutes.chats:
+      case NativeSheetRoutes.dataConnection:
+        await _hydrateNativeSignalStyleSettingsDetails(ctx, l10n);
+        return;
+      case NativeSheetRoutes.aiMemory:
+        await _hydrateNativeAiMemoryDetail(l10n);
+        return;
+      case NativeSheetRoutes.helpAbout:
+        await _hydrateNativeAboutDetail(
+          l10n,
+          detailId: NativeSheetRoutes.helpAbout,
+        );
+        return;
       case NativeSheetRoutes.about:
         await _hydrateNativeAboutDetail(l10n);
         return;
@@ -295,7 +309,10 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
     await _hydrateNativeModelPromptDetail(detailId, l10n);
   }
 
-  Future<void> _hydrateNativeAboutDetail(AppLocalizations l10n) async {
+  Future<void> _hydrateNativeAboutDetail(
+    AppLocalizations l10n, {
+    String detailId = NativeSheetRoutes.about,
+  }) async {
     try {
       final packageInfoFuture = ref.read(packageInfoProvider.future);
       final aboutFuture = ref.read(serverAboutInfoProvider.future);
@@ -316,7 +333,7 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
 
       await _applyNativeDetail(
         NativeSheetDetailConfig(
-          id: NativeSheetRoutes.about,
+          id: detailId,
           title: l10n.aboutApp,
           subtitle: l10n.aboutAppSubtitle,
           items: [
@@ -359,7 +376,7 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
         stackTrace: stackTrace,
       );
       await _patchNativeDetailError(
-        NativeSheetRoutes.about,
+        detailId,
         l10n.unableToLoadOpenWebuiSettings,
       );
     }
@@ -377,14 +394,8 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
         NativeSheetDetailConfig(
           id: NativeSheetRoutes.accountSettings,
           title: l10n.accountSettingsTitle,
-          subtitle: l10n.accountSettingsSubtitle,
+          subtitle: l10n.passwordChangesLabel,
           items: [
-            NativeSheetItemConfig(
-              id: 'profile-details',
-              title: l10n.profileDetails,
-              subtitle: l10n.accountSettingsSubtitle,
-              sfSymbol: 'person.crop.circle',
-            ),
             if (passwordChangeEnabled)
               NativeSheetItemConfig(
                 id: 'password',
@@ -515,6 +526,343 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
       );
       await _patchNativeDetailError(
         NativeSheetRoutes.personalization,
+        l10n.unableToLoadOpenWebuiSettings,
+      );
+    }
+  }
+
+  Future<void> _hydrateNativeAiMemoryDetail(AppLocalizations l10n) async {
+    try {
+      final settingsFuture = ref.read(personalizationSettingsProvider.future);
+      final modelsFuture = ref.read(modelsProvider.future);
+      final settings = await settingsFuture;
+      final models = await modelsFuture;
+      if (!mounted) return;
+
+      await _applyNativeDetail(
+        NativeSheetDetailConfig(
+          id: NativeSheetRoutes.aiMemory,
+          title: nativeAiMemoryTitle(l10n),
+          subtitle: l10n.personalizationSubtitle,
+          items: [
+            NativeSheetItemConfig(
+              id: 'system-prompt',
+              title: l10n.yourSystemPrompt,
+              subtitle: nativeSheetPreviewText(l10n, settings.systemPrompt),
+              sfSymbol: 'text.bubble',
+            ),
+            NativeSheetItemConfig(
+              id: 'personalization-memory',
+              title: l10n.memoryTitle,
+              subtitle: settings.memoryEnabled
+                  ? l10n.memoryEnabledDescription
+                  : l10n.memoryDisabledDescription,
+              sfSymbol: 'bookmark',
+            ),
+            NativeSheetItemConfig(
+              id: 'advanced-prompt-overrides',
+              title: l10n.advancedPromptOverrides,
+              subtitle: models.isEmpty
+                  ? l10n.noAccessibleModelsFound
+                  : l10n.accessibleModelsCount(models.length),
+              sfSymbol: 'cube.box.fill',
+            ),
+          ],
+        ),
+        detailSheets: [
+          buildNativeLoadingDetail(
+            l10n: l10n,
+            id: 'system-prompt',
+            title: l10n.yourSystemPrompt,
+            subtitle: l10n.yourSystemPromptDescription,
+          ),
+          buildNativeLoadingDetail(
+            l10n: l10n,
+            id: 'personalization-memory',
+            title: l10n.memoryTitle,
+            subtitle: settings.memoryEnabled
+                ? l10n.memoryEnabledDescription
+                : l10n.memoryDisabledDescription,
+          ),
+          buildNativeLoadingDetail(
+            l10n: l10n,
+            id: 'advanced-prompt-overrides',
+            title: l10n.advancedPromptOverrides,
+            subtitle: l10n.advancedPromptOverridesDescription,
+          ),
+        ],
+      );
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'native-ai-memory-hydration-failed',
+        scope: 'native-sheet',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      await _patchNativeDetailError(
+        NativeSheetRoutes.aiMemory,
+        l10n.unableToLoadOpenWebuiSettings,
+      );
+    }
+  }
+
+  Future<void> _hydrateNativeSignalStyleSettingsDetails(
+    BuildContext context,
+    AppLocalizations l10n,
+  ) async {
+    try {
+      final platformBrightness = MediaQuery.platformBrightnessOf(context);
+      final modelsFuture = ref.read(modelsProvider.future);
+      final toolsFuture = ref.read(toolsListProvider.future);
+      final models = await modelsFuture;
+      final tools = await toolsFuture;
+      if (!mounted) return;
+
+      final appSettings = ref.read(appSettingsProvider);
+      final themeMode = ref.read(appThemeModeProvider);
+      final appLocale = ref.read(appLocaleProvider);
+      final activePalette = ref.read(appThemePaletteProvider);
+      final transportAvail = ref.read(socketTransportOptionsProvider);
+      final selectedModel = ref.read(selectedModelProvider);
+      final socketService = ref.read(socketServiceProvider);
+
+      final themeDescription = switch (themeMode) {
+        ThemeMode.system => l10n.followingSystem(
+          platformBrightness == Brightness.dark
+              ? l10n.themeDark
+              : l10n.themeLight,
+        ),
+        ThemeMode.dark => l10n.currentlyUsingDarkTheme,
+        ThemeMode.light => l10n.currentlyUsingLightTheme,
+      };
+      final currentLanguageTag = appLocale?.toLanguageTag() ?? 'system';
+      final languageLabel = nativeLanguageLabel(l10n, currentLanguageTag);
+      var effectiveTransport = appSettings.socketTransportMode;
+      if (!transportAvail.allowPolling && effectiveTransport == 'polling') {
+        effectiveTransport = 'ws';
+      } else if (!transportAvail.allowWebsocketOnly &&
+          effectiveTransport == 'ws') {
+        effectiveTransport = 'polling';
+      }
+      final transportLabel = effectiveTransport == 'polling'
+          ? l10n.transportModePolling
+          : l10n.transportModeWs;
+      final filters = selectedModel?.filters ?? const [];
+      final allowedQuickIds = <String>{
+        'web',
+        'image',
+        ...tools.map((tool) => tool.id),
+        ...filters.map((filter) => 'filter:${filter.id}'),
+      };
+      final selectedQuickPills = appSettings.quickPills
+          .where((id) => allowedQuickIds.contains(id))
+          .toList();
+      final quickActionsTitle = nativeQuickActionsTitle(l10n);
+      final quickPillsSubtitle = l10n.quickActionsSelectedCount(
+        selectedQuickPills.length,
+      );
+      final defaultModelSubtitle =
+          resolveNativeSheetModelName(models, appSettings.defaultModel) ??
+          l10n.autoSelect;
+      final advancedPromptSubtitle = models.isEmpty
+          ? l10n.noAccessibleModelsFound
+          : l10n.accessibleModelsCount(models.length);
+
+      await _applyNativeDetail(
+        NativeSheetDetailConfig(
+          id: NativeSheetRoutes.appearance,
+          title: nativeAppearanceTitle(l10n),
+          subtitle: themeDescription,
+          items: [
+            NativeSheetItemConfig(
+              id: 'theme-light',
+              title: l10n.darkMode,
+              subtitle: themeDescription,
+              sfSymbol: 'moon.stars',
+              kind: NativeSheetItemKind.segment,
+              value: themeMode.name,
+              options: [
+                NativeSheetOptionConfig(id: 'system', label: l10n.system),
+                NativeSheetOptionConfig(id: 'light', label: l10n.themeLight),
+                NativeSheetOptionConfig(id: 'dark', label: l10n.themeDark),
+              ],
+            ),
+            NativeSheetItemConfig(
+              id: 'theme-palette',
+              title: l10n.themePalette,
+              subtitle: activePalette.label(l10n),
+              sfSymbol: 'paintpalette',
+              kind: NativeSheetItemKind.dropdown,
+              value: activePalette.id,
+              options: [
+                for (final theme in TweakcnThemes.all)
+                  NativeSheetOptionConfig(
+                    id: theme.id,
+                    label: theme.label(l10n),
+                  ),
+              ],
+            ),
+            NativeSheetItemConfig(
+              id: 'language',
+              title: l10n.appLanguage,
+              subtitle: languageLabel,
+              sfSymbol: 'globe',
+              kind: NativeSheetItemKind.dropdown,
+              value: currentLanguageTag,
+              options: nativeLanguageDropdownOptions(l10n),
+            ),
+          ],
+        ),
+      );
+
+      await _applyNativeDetail(
+        NativeSheetDetailConfig(
+          id: NativeSheetRoutes.chats,
+          title: nativeChatsTitle(l10n),
+          subtitle: defaultModelSubtitle,
+          items: [
+            NativeSheetItemConfig(
+              id: 'default-model',
+              title: l10n.defaultModel,
+              subtitle: defaultModelSubtitle,
+              sfSymbol: 'wand.and.stars',
+            ),
+            NativeSheetItemConfig(
+              id: 'quick-pills',
+              title: quickActionsTitle,
+              subtitle: quickPillsSubtitle,
+              sfSymbol: 'bolt.fill',
+            ),
+            NativeSheetItemConfig(
+              id: 'send-on-enter',
+              title: l10n.sendOnEnter,
+              subtitle: l10n.sendOnEnterDescription,
+              sfSymbol: 'paperplane',
+              kind: NativeSheetItemKind.toggle,
+              value: appSettings.sendOnEnter,
+            ),
+            NativeSheetItemConfig(
+              id: 'temporary-chat-default',
+              title: l10n.temporaryChatByDefault,
+              subtitle: l10n.temporaryChatByDefaultDescription,
+              sfSymbol: 'clock.arrow.circlepath',
+              kind: NativeSheetItemKind.toggle,
+              value: appSettings.temporaryChatByDefault,
+            ),
+            NativeSheetItemConfig(
+              id: 'advanced-prompt-overrides',
+              title: l10n.advancedPromptOverrides,
+              subtitle: advancedPromptSubtitle,
+              sfSymbol: 'cube.box.fill',
+            ),
+          ],
+        ),
+        detailSheets: [
+          buildNativeLoadingDetail(
+            l10n: l10n,
+            id: 'default-model',
+            title: l10n.defaultModel,
+            subtitle: l10n.autoSelectDescription,
+          ),
+          buildNativeLoadingDetail(
+            l10n: l10n,
+            id: 'quick-pills',
+            title: quickActionsTitle,
+            subtitle: quickPillsSubtitle,
+          ),
+          buildNativeLoadingDetail(
+            l10n: l10n,
+            id: 'advanced-prompt-overrides',
+            title: l10n.advancedPromptOverrides,
+            subtitle: l10n.advancedPromptOverridesDescription,
+          ),
+        ],
+      );
+
+      await _applyNativeDetail(
+        NativeSheetDetailConfig(
+          id: NativeSheetRoutes.dataConnection,
+          title: nativeDataConnectionTitle(l10n),
+          subtitle: transportLabel,
+          items: [
+            if (transportAvail.allowPolling &&
+                transportAvail.allowWebsocketOnly)
+              NativeSheetItemConfig(
+                id: 'transport-mode',
+                title: l10n.transportMode,
+                subtitle: transportLabel,
+                sfSymbol: 'network',
+                kind: NativeSheetItemKind.segment,
+                value: effectiveTransport == 'ws' ? 'ws' : 'polling',
+                options: [
+                  NativeSheetOptionConfig(
+                    id: 'polling',
+                    label: l10n.transportModePolling,
+                  ),
+                  NativeSheetOptionConfig(
+                    id: 'ws',
+                    label: l10n.transportModeWs,
+                  ),
+                ],
+              )
+            else
+              NativeSheetItemConfig(
+                id: 'transport-fixed',
+                title: l10n.transportMode,
+                subtitle: transportLabel,
+                sfSymbol: 'network',
+                kind: NativeSheetItemKind.info,
+              ),
+            NativeSheetItemConfig(
+              id: 'disable-haptics-streaming',
+              title: l10n.disableHapticsWhileStreaming,
+              subtitle: l10n.disableHapticsWhileStreamingDescription,
+              sfSymbol: 'waveform.path',
+              kind: NativeSheetItemKind.toggle,
+              value: appSettings.disableHapticsWhileStreaming,
+            ),
+            if (socketService != null)
+              NativeSheetItemConfig(
+                id: 'socket-health',
+                title: l10n.connectionHealth,
+                subtitle: nativeSocketHealthSummary(
+                  l10n,
+                  socketService.currentHealth,
+                ),
+                sfSymbol: 'waveform.path.ecg',
+              ),
+          ],
+        ),
+        detailSheets: [
+          if (socketService != null)
+            NativeSheetDetailConfig(
+              id: 'socket-health',
+              title: l10n.connectionHealth,
+              subtitle: nativeSocketHealthSummary(
+                l10n,
+                socketService.currentHealth,
+              ),
+              items: nativeSocketHealthItems(l10n, socketService.currentHealth),
+            ),
+        ],
+      );
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'native-signal-style-settings-hydration-failed',
+        scope: 'native-sheet',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      await _patchNativeDetailError(
+        NativeSheetRoutes.appearance,
+        l10n.unableToLoadOpenWebuiSettings,
+      );
+      await _patchNativeDetailError(
+        NativeSheetRoutes.chats,
+        l10n.unableToLoadOpenWebuiSettings,
+      );
+      await _patchNativeDetailError(
+        NativeSheetRoutes.dataConnection,
         l10n.unableToLoadOpenWebuiSettings,
       );
     }

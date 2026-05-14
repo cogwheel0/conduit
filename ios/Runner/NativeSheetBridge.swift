@@ -435,6 +435,26 @@ private struct NativeSheetDetail {
     }
 }
 
+private struct NativeSheetSection {
+    let title: String?
+    let footer: String?
+    let items: [NativeSheetItem]
+
+    init(title: String?, footer: String?, items: [NativeSheetItem]) {
+        self.title = title
+        self.footer = footer
+        self.items = items
+    }
+
+    init?(_ payload: [String: Any]) {
+        items = (payload["items"] as? [[String: Any]] ?? [])
+            .compactMap(NativeSheetItem.init)
+        guard !items.isEmpty else { return nil }
+        title = payload["title"] as? String
+        footer = payload["footer"] as? String
+    }
+}
+
 private struct NativeSheetConfiguration {
     let profile: NativeSheetProfile
     let profileMenuTitle: String
@@ -444,6 +464,7 @@ private struct NativeSheetConfiguration {
     let supportSubtitle: String?
     let menuItems: [NativeSheetItem]
     let supportItems: [NativeSheetItem]
+    let sections: [NativeSheetSection]
     let details: [String: NativeSheetDetail]
 
     init?(_ arguments: Any?) {
@@ -482,6 +503,8 @@ private struct NativeSheetConfiguration {
             .compactMap(NativeSheetItem.init)
         supportItems = (payload["supportItems"] as? [[String: Any]] ?? [])
             .compactMap(NativeSheetItem.init)
+        sections = (payload["sections"] as? [[String: Any]] ?? [])
+            .compactMap(NativeSheetSection.init)
 
         let detailPayloads = payload["detailSheets"] as? [[String: Any]] ?? []
         var detailsById: [String: NativeSheetDetail] = [:]
@@ -1094,12 +1117,11 @@ final class NativeSheetBridge {
         }
 
         if item.id == "sign-out" {
-            dismissActive()
-            channel?.invokeMethod("onLogoutRequested", arguments: nil)
+            presentDestructiveConfirm(for: item)
             return
         }
 
-        if item.id == "profile-details" {
+        if item.id == "profile-details" || item.id.hasPrefix("profile-edit:") {
             presentEditProfileOverlay()
             return
         }
@@ -1130,6 +1152,11 @@ final class NativeSheetBridge {
         guard let presenter = activeNavigationController?.visibleViewController else {
             switch activeSheetMode {
             case .profileMenu:
+                if item.id == "sign-out" {
+                    dismissActive()
+                    channel?.invokeMethod("onLogoutRequested", arguments: nil)
+                    return
+                }
                 channel?.invokeMethod(
                     "onControlChanged",
                     arguments: ["id": item.id, "value": true]
@@ -1154,6 +1181,11 @@ final class NativeSheetBridge {
             guard let self else { return }
             switch self.activeSheetMode {
             case .profileMenu:
+                if item.id == "sign-out" {
+                    self.dismissActive()
+                    self.channel?.invokeMethod("onLogoutRequested", arguments: nil)
+                    return
+                }
                 self.channel?.invokeMethod(
                     "onControlChanged",
                     arguments: ["id": item.id, "value": true]
@@ -1847,33 +1879,35 @@ private final class NativeSheetNavigationController: UINavigationController {
 }
 
 private final class NativeProfileMenuTableViewController: UITableViewController {
-    private enum Section: Int, CaseIterable {
-        case menu
-        case destructive
-        case support
-    }
-
     private let configuration: NativeSheetConfiguration
     private let onSelect: (NativeSheetItem) -> Void
     private let onEditProfile: () -> Void
     private let onClose: () -> Void
 
-    private var menuItems: [NativeSheetItem] {
-        configuration.menuItems.filter { !$0.destructive }
-    }
+    private var tableSections: [NativeSheetSection] {
+        if !configuration.sections.isEmpty {
+            return configuration.sections
+        }
 
-    private var destructiveItems: [NativeSheetItem] {
-        configuration.menuItems.filter(\.destructive)
-    }
+        var sections: [NativeSheetSection] = []
+        let menuItems = configuration.menuItems.filter { !$0.destructive }
+        if !menuItems.isEmpty {
+            sections.append(NativeSheetSection(title: nil, footer: nil, items: menuItems))
+        }
 
-    private var visibleSections: [Section] {
-        var sections: [Section] = [.menu]
+        let destructiveItems = configuration.menuItems.filter(\.destructive)
         if !destructiveItems.isEmpty {
-            sections.append(.destructive)
+            sections.append(NativeSheetSection(title: nil, footer: nil, items: destructiveItems))
         }
+
         if !configuration.supportItems.isEmpty {
-            sections.append(.support)
+            sections.append(NativeSheetSection(
+                title: configuration.supportTitle,
+                footer: configuration.supportSubtitle,
+                items: configuration.supportItems
+            ))
         }
+
         return sections
     }
 
@@ -1901,8 +1935,9 @@ private final class NativeProfileMenuTableViewController: UITableViewController 
         navigationItem.rightBarButtonItem = closeButton()
         navigationController?.navigationBar.prefersLargeTitles = false
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "cell")
+        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "profileCell")
         NativeSheetSettingsStyle.apply(to: tableView)
-        tableView.tableHeaderView = profileHeader()
+        tableView.tableHeaderView = configuration.sections.isEmpty ? profileHeader() : nil
     }
 
     override func viewDidLayoutSubviews() {
@@ -1911,34 +1946,25 @@ private final class NativeProfileMenuTableViewController: UITableViewController 
     }
 
     override func numberOfSections(in tableView: UITableView) -> Int {
-        visibleSections.count
+        tableSections.count
     }
 
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        switch visibleSections[section] {
-        case .menu:
-            return menuItems.count
-        case .destructive:
-            return destructiveItems.count
-        case .support:
-            return configuration.supportItems.count
-        }
+        tableSections[section].items.count
     }
 
     override func tableView(
         _ tableView: UITableView,
         titleForHeaderInSection section: Int
     ) -> String? {
-        guard visibleSections[section] == .support else { return nil }
-        return configuration.supportTitle
+        tableSections[section].title
     }
 
     override func tableView(
         _ tableView: UITableView,
         titleForFooterInSection section: Int
     ) -> String? {
-        guard visibleSections[section] == .support else { return nil }
-        return configuration.supportSubtitle
+        tableSections[section].footer
     }
 
     override func tableView(
@@ -1961,8 +1987,14 @@ private final class NativeProfileMenuTableViewController: UITableViewController 
         _ tableView: UITableView,
         cellForRowAt indexPath: IndexPath
     ) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(withIdentifier: "cell", for: indexPath)
         let item = item(at: indexPath)
+        if item.id == "profile" && !configuration.sections.isEmpty {
+            let cell = tableView.dequeueReusableCell(withIdentifier: "profileCell", for: indexPath)
+            configureProfileSummaryCell(cell)
+            return cell
+        }
+
+        let cell = tableView.dequeueReusableCell(withIdentifier: "cell", for: indexPath)
         configureNavigationCell(
             cell,
             item: item,
@@ -1977,18 +2009,53 @@ private final class NativeProfileMenuTableViewController: UITableViewController 
     }
 
     private func item(at indexPath: IndexPath) -> NativeSheetItem {
-        switch visibleSections[indexPath.section] {
-        case .support:
-            return configuration.supportItems[indexPath.row]
-        case .destructive:
-            return destructiveItems[indexPath.row]
-        default:
-            return menuItems[indexPath.row]
-        }
+        tableSections[indexPath.section].items[indexPath.row]
     }
 
     private func shouldShowDisclosure(for item: NativeSheetItem) -> Bool {
         item.url != nil || configuration.details[item.id] != nil
+    }
+
+    private func configureProfileSummaryCell(_ cell: UITableViewCell) {
+        cell.accessoryType = .disclosureIndicator
+        cell.selectionStyle = .default
+        NativeSheetSettingsStyle.applyCellStyle(cell)
+
+        let avatar = NativeAvatarView(profile: configuration.profile, diameter: 56)
+
+        let titleLabel = UILabel()
+        titleLabel.text = configuration.profile.displayName
+        titleLabel.font = .preferredFont(forTextStyle: .body)
+        titleLabel.textColor = .label
+        titleLabel.adjustsFontForContentSizeCategory = true
+        titleLabel.numberOfLines = 1
+
+        let subtitleLabel = UILabel()
+        subtitleLabel.text = configuration.profile.email
+        subtitleLabel.font = .preferredFont(forTextStyle: .footnote)
+        subtitleLabel.textColor = .secondaryLabel
+        subtitleLabel.adjustsFontForContentSizeCategory = true
+        subtitleLabel.numberOfLines = 1
+
+        let textStack = UIStackView(arrangedSubviews: [titleLabel, subtitleLabel])
+        textStack.axis = .vertical
+        textStack.spacing = 2
+
+        let row = UIStackView(arrangedSubviews: [avatar, textStack])
+        row.axis = .horizontal
+        row.alignment = .center
+        row.spacing = NativeSheetSettingsStyle.iconSpacing
+        row.translatesAutoresizingMaskIntoConstraints = false
+
+        cell.contentView.subviews.forEach { $0.removeFromSuperview() }
+        cell.contentView.addSubview(row)
+
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: cell.contentView.layoutMarginsGuide.leadingAnchor),
+            row.trailingAnchor.constraint(equalTo: cell.contentView.layoutMarginsGuide.trailingAnchor),
+            row.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: 11),
+            row.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -11),
+        ])
     }
 
     private func profileHeader() -> UIView {
@@ -2258,9 +2325,6 @@ private final class NativeSheetDropdownTableViewCell: UITableViewCell {
     private func setSelectedTitle(_ title: String) {
         var configuration = UIButton.Configuration.gray()
         configuration.title = title
-        configuration.image = UIImage(systemName: "chevron.up.chevron.down")
-        configuration.imagePlacement = .trailing
-        configuration.imagePadding = 6
         configuration.titleLineBreakMode = .byTruncatingTail
         configuration.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10)
         configuration.baseForegroundColor = .label

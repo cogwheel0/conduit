@@ -137,9 +137,20 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
     final accountProfile = ref.read(accountProfileProvider).asData?.value;
     final appSettings = ref.read(appSettingsProvider);
     final nativeAudio = _nativeAudioSheetParts(l10n, appSettings);
+    final settingsTitle = nativeSettingsTitle(l10n);
+    final profileTitle = nativeProfileTitle(l10n);
+    final appearanceTitle = nativeAppearanceTitle(l10n);
+    final chatsTitle = nativeChatsTitle(l10n);
+    final aiMemoryTitle = nativeAiMemoryTitle(l10n);
+    final dataConnectionTitle = nativeDataConnectionTitle(l10n);
+    final profileSummary = [
+      displayName,
+      if (accountProfile?.bio?.trim().isNotEmpty == true)
+        accountProfile!.bio!.trim(),
+    ].join(' · ');
 
     return NativeProfileSheetConfig(
-      profileMenuTitle: l10n.you,
+      profileMenuTitle: settingsTitle,
       profile: NativeProfileSheetUser(
         displayName: displayName,
         email: email,
@@ -179,94 +190,163 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
         removeAvatarLabel: l10n.removeAvatar,
         currentAvatarLabel: l10n.currentAvatar,
       ),
-      supportTitle: l10n.supportConduit,
-      supportSubtitle: l10n.supportConduitSubtitle,
-      menuItems: [
-        NativeSheetItemConfig(
-          id: NativeSheetRoutes.accountSettings,
-          title: l10n.accountSettingsTitle,
-          subtitle: l10n.accountSettingsSubtitle,
-          sfSymbol: 'person.crop.circle',
+      menuItems: const [],
+      sections: [
+        NativeSheetSectionConfig(
+          items: [
+            NativeSheetItemConfig(
+              id: NativeSheetRoutes.profile,
+              title: displayName,
+              subtitle: email,
+              sfSymbol: 'person.crop.circle',
+            ),
+          ],
         ),
-        NativeSheetItemConfig(
-          id: NativeSheetRoutes.personalization,
-          title: l10n.personalization,
-          subtitle: l10n.personalizationSubtitle,
-          sfSymbol: 'person.crop.circle.badge.checkmark',
+        NativeSheetSectionConfig(
+          items: [
+            NativeSheetItemConfig(
+              id: NativeSheetRoutes.appearance,
+              title: appearanceTitle,
+              sfSymbol: 'paintpalette',
+            ),
+            NativeSheetItemConfig(
+              id: NativeSheetRoutes.chats,
+              title: chatsTitle,
+              sfSymbol: 'bubble.left.and.bubble.right',
+            ),
+            NativeSheetItemConfig(
+              id: NativeSheetRoutes.voice,
+              title: l10n.voice,
+              sfSymbol: 'waveform',
+            ),
+            NativeSheetItemConfig(
+              id: NativeSheetRoutes.aiMemory,
+              title: aiMemoryTitle,
+              sfSymbol: 'wand.and.stars',
+            ),
+            NativeSheetItemConfig(
+              id: NativeSheetRoutes.dataConnection,
+              title: dataConnectionTitle,
+              sfSymbol: 'network',
+            ),
+          ],
         ),
-        NativeSheetItemConfig(
-          id: NativeSheetRoutes.audioSettings,
-          title: l10n.audioSettingsTitle,
-          subtitle: null,
-          sfSymbol: 'waveform',
+        NativeSheetSectionConfig(
+          title: l10n.supportConduit,
+          footer: l10n.supportConduitSubtitle,
+          items: [
+            NativeSheetItemConfig(
+              id: 'buy-me-a-coffee',
+              title: l10n.buyMeACoffeeTitle,
+              subtitle: 'buymeacoffee.com/cogwheel0',
+              sfSymbol: 'gift',
+              url: 'https://www.buymeacoffee.com/cogwheel0',
+            ),
+            NativeSheetItemConfig(
+              id: 'github-sponsors',
+              title: l10n.githubSponsorsTitle,
+              subtitle: 'github.com/sponsors/cogwheel0',
+              sfSymbol: 'heart',
+              url: 'https://github.com/sponsors/cogwheel0',
+            ),
+          ],
         ),
-        NativeSheetItemConfig(
-          id: NativeSheetRoutes.appCustomization,
-          title: l10n.appAndChat,
-          subtitle: l10n.chatSettings,
-          sfSymbol: 'slider.horizontal.3',
+        NativeSheetSectionConfig(
+          items: [
+            NativeSheetItemConfig(
+              id: NativeSheetRoutes.helpAbout,
+              title: l10n.aboutApp,
+              sfSymbol: 'info.circle',
+            ),
+          ],
         ),
-        NativeSheetItemConfig(
-          id: NativeSheetRoutes.about,
-          title: l10n.aboutApp,
-          subtitle: null,
-          sfSymbol: 'info.circle',
-        ),
-        NativeSheetItemConfig(
-          id: 'sign-out',
-          title: l10n.signOut,
-          subtitle: null,
-          sfSymbol: 'rectangle.portrait.and.arrow.right',
-          destructive: true,
-        ),
-      ],
-      supportItems: [
-        NativeSheetItemConfig(
-          id: 'buy-me-a-coffee',
-          title: l10n.buyMeACoffeeTitle,
-          subtitle: 'buymeacoffee.com/cogwheel0',
-          sfSymbol: 'gift',
-          url: 'https://www.buymeacoffee.com/cogwheel0',
-        ),
-        NativeSheetItemConfig(
-          id: 'github-sponsors',
-          title: l10n.githubSponsorsTitle,
-          subtitle: 'github.com/sponsors/cogwheel0',
-          sfSymbol: 'heart',
-          url: 'https://github.com/sponsors/cogwheel0',
+        NativeSheetSectionConfig(
+          items: [
+            NativeSheetItemConfig(
+              id: 'sign-out',
+              title: l10n.signOut,
+              subtitle: l10n.endYourSession,
+              sfSymbol: 'rectangle.portrait.and.arrow.right',
+              destructive: true,
+            ),
+          ],
         ),
       ],
       detailSheets: [
-        buildNativeLoadingDetail(
-          l10n: l10n,
-          id: NativeSheetRoutes.accountSettings,
-          title: l10n.accountSettingsTitle,
+        NativeSheetDetailConfig(
+          id: NativeSheetRoutes.profile,
+          title: profileTitle,
           subtitle: l10n.accountSettingsSubtitle,
+          items: [
+            NativeSheetItemConfig(
+              id: 'profile-edit:name',
+              title: l10n.name,
+              subtitle: profileSummary,
+              sfSymbol: 'person.text.rectangle',
+            ),
+            NativeSheetItemConfig(
+              id: 'profile-edit:about',
+              title: l10n.bioLabel,
+              subtitle: accountProfile?.bio?.trim().isNotEmpty == true
+                  ? accountProfile!.bio!.trim()
+                  : l10n.notSet,
+              sfSymbol: 'text.bubble',
+            ),
+            NativeSheetItemConfig(
+              id: 'profile-edit:details',
+              title: l10n.profileDetails,
+              subtitle: l10n.genderLabel,
+              sfSymbol: 'person.crop.circle',
+            ),
+            NativeSheetItemConfig(
+              id: 'password',
+              title: l10n.changePasswordTitle,
+              subtitle: l10n.passwordChangesLabel,
+              sfSymbol: 'lock',
+            ),
+          ],
+        ),
+        buildNativePasswordDetail(
+          l10n,
+          passwordChangeEnabled: true,
+          subtitle: l10n.passwordFieldsRequired,
         ),
         buildNativeLoadingDetail(
           l10n: l10n,
-          id: NativeSheetRoutes.personalization,
-          title: l10n.personalization,
-          subtitle: l10n.personalizationSubtitle,
+          id: NativeSheetRoutes.appearance,
+          title: appearanceTitle,
+          subtitle: l10n.loadingShort,
         ),
         NativeSheetDetailConfig(
-          id: NativeSheetRoutes.audioSettings,
-          title: l10n.audioSettingsTitle,
+          id: NativeSheetRoutes.voice,
+          title: l10n.voice,
           subtitle: l10n.audioSettingsSubtitle,
           items: nativeAudio.mainItems,
         ),
         nativeAudio.voicePickerDetail,
         buildNativeLoadingDetail(
           l10n: l10n,
-          id: NativeSheetRoutes.appCustomization,
-          title: l10n.appAndChat,
-          subtitle: l10n.appAndChatSubtitle,
+          id: NativeSheetRoutes.chats,
+          title: chatsTitle,
+          subtitle: l10n.loadingShort,
         ),
         buildNativeLoadingDetail(
           l10n: l10n,
-          id: NativeSheetRoutes.about,
+          id: NativeSheetRoutes.aiMemory,
+          title: aiMemoryTitle,
+          subtitle: l10n.loadingShort,
+        ),
+        buildNativeLoadingDetail(
+          l10n: l10n,
+          id: NativeSheetRoutes.dataConnection,
+          title: dataConnectionTitle,
+          subtitle: l10n.loadingShort,
+        ),
+        buildNativeLoadingDetail(
+          l10n: l10n,
+          id: NativeSheetRoutes.helpAbout,
           title: l10n.aboutApp,
-          subtitle: l10n.aboutAppSubtitle,
+          subtitle: l10n.loadingShort,
         ),
       ],
     );
