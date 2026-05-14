@@ -9,6 +9,7 @@ class FolderIconOption {
     required this.alias,
     required this.emoji,
     required this.semanticLabel,
+    required this.sfSymbol,
   });
 
   /// OpenWebUI-compatible shortcode alias saved on the folder model.
@@ -19,34 +20,85 @@ class FolderIconOption {
 
   /// Accessibility label for assistive technologies.
   final String semanticLabel;
+
+  /// SF Symbol used by native iOS pickers for this option.
+  final String sfSymbol;
 }
 
 /// Common folder icon aliases that map cleanly to OpenWebUI shortcodes.
 const List<FolderIconOption> folderIconOptions = <FolderIconOption>[
-  FolderIconOption(alias: 'file_folder', emoji: '📁', semanticLabel: 'Folder'),
+  FolderIconOption(
+    alias: 'file_folder',
+    emoji: '📁',
+    semanticLabel: 'Folder',
+    sfSymbol: 'folder',
+  ),
   FolderIconOption(
     alias: 'open_file_folder',
     emoji: '📂',
     semanticLabel: 'Open folder',
+    sfSymbol: 'folder.fill',
   ),
-  FolderIconOption(alias: 'briefcase', emoji: '💼', semanticLabel: 'Briefcase'),
-  FolderIconOption(alias: 'books', emoji: '📚', semanticLabel: 'Books'),
-  FolderIconOption(alias: 'memo', emoji: '📝', semanticLabel: 'Memo'),
+  FolderIconOption(
+    alias: 'briefcase',
+    emoji: '💼',
+    semanticLabel: 'Briefcase',
+    sfSymbol: 'briefcase',
+  ),
+  FolderIconOption(
+    alias: 'books',
+    emoji: '📚',
+    semanticLabel: 'Books',
+    sfSymbol: 'books.vertical',
+  ),
+  FolderIconOption(
+    alias: 'memo',
+    emoji: '📝',
+    semanticLabel: 'Memo',
+    sfSymbol: 'note.text',
+  ),
   FolderIconOption(
     alias: 'card_index_dividers',
     emoji: '🗂️',
     semanticLabel: 'Dividers',
+    sfSymbol: 'rectangle.stack',
   ),
   FolderIconOption(
     alias: 'hammer_and_wrench',
     emoji: '🛠️',
     semanticLabel: 'Tools',
+    sfSymbol: 'wrench.and.screwdriver',
   ),
-  FolderIconOption(alias: 'toolbox', emoji: '🧰', semanticLabel: 'Toolbox'),
-  FolderIconOption(alias: 'sparkles', emoji: '✨', semanticLabel: 'Sparkles'),
-  FolderIconOption(alias: 'brain', emoji: '🧠', semanticLabel: 'Brain'),
-  FolderIconOption(alias: 'rocket', emoji: '🚀', semanticLabel: 'Rocket'),
-  FolderIconOption(alias: 'dart', emoji: '🎯', semanticLabel: 'Target'),
+  FolderIconOption(
+    alias: 'toolbox',
+    emoji: '🧰',
+    semanticLabel: 'Toolbox',
+    sfSymbol: 'cube.box',
+  ),
+  FolderIconOption(
+    alias: 'sparkles',
+    emoji: '✨',
+    semanticLabel: 'Sparkles',
+    sfSymbol: 'sparkles',
+  ),
+  FolderIconOption(
+    alias: 'brain',
+    emoji: '🧠',
+    semanticLabel: 'Brain',
+    sfSymbol: 'brain.head.profile',
+  ),
+  FolderIconOption(
+    alias: 'rocket',
+    emoji: '🚀',
+    semanticLabel: 'Rocket',
+    sfSymbol: 'paperplane',
+  ),
+  FolderIconOption(
+    alias: 'dart',
+    emoji: '🎯',
+    semanticLabel: 'Target',
+    sfSymbol: 'target',
+  ),
 ];
 
 /// Trims a stored icon alias and treats empty strings as unset.

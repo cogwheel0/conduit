@@ -119,11 +119,13 @@ class _FolderPageState extends ConsumerState<FolderPage> {
   ) {
     final tintColor = context.conduitTheme.textPrimary;
     final hasOverflowMenu = folder != null;
+    const leadingGap = Spacing.sm;
     final leading = _buildFolderToolbarLeading(
       context: context,
       l10n: l10n,
       hasOverflowMenu: hasOverflowMenu,
       tintColor: tintColor,
+      leadingGap: leadingGap,
     );
     final actions = _buildFolderToolbarActionWidgets(context, folder);
     final leadingWidth = resolveConduitAdaptiveLeadingPillWidth(
@@ -150,7 +152,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
         elevation: Elevation.none,
         scrolledUnderElevation: Elevation.none,
         leadingWidth:
-            TouchTarget.minimum + Spacing.xs + leadingWidth + Spacing.md,
+            TouchTarget.minimum + leadingGap + leadingWidth + Spacing.md,
         leading: leading,
         actions: actions,
       ),
@@ -162,6 +164,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
     required AppLocalizations l10n,
     required bool hasOverflowMenu,
     required Color tintColor,
+    required double leadingGap,
   }) {
     final maxPillWidth = resolveConduitAdaptiveLeadingPillWidth(
       context,
@@ -181,7 +184,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
           onPressed: _toggleDrawer,
           iconColor: tintColor,
         ),
-        const SizedBox(width: Spacing.xs),
+        SizedBox(width: leadingGap),
         ConduitAdaptiveAppBarModelSelector(
           key: const ValueKey<String>('folder-page-model-selector'),
           label: label,
@@ -887,7 +890,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
                     NativeSheetOptionConfig(
                       id: option.alias,
                       label: option.semanticLabel,
-                      sfSymbol: 'folder',
+                      sfSymbol: option.sfSymbol,
                     ),
                 ],
               ),

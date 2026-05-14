@@ -2536,6 +2536,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   textInputAction: TextInputAction.newline,
                   autofillHints: const <String>[],
                   showCursor: true,
+                  cursorColor: Theme.of(context).textSelectionTheme.cursorColor,
                   scrollPadding: const EdgeInsets.only(bottom: 80),
                   keyboardAppearance: brightness,
                   style: baseChatStyle.copyWith(
