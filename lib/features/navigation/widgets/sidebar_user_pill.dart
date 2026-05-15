@@ -282,7 +282,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
               items: [
                 NativeSheetItemConfig(
                   id: 'profile-photo',
-                  title: 'Edit Photo',
+                  title: l10n.editPhoto,
                   sfSymbol: 'person.crop.circle',
                 ),
               ],

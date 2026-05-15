@@ -1,3 +1,4 @@
+import 'package:conduit/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:markdown/markdown.dart' as md;
 
@@ -708,31 +709,32 @@ class BlockRenderer {
   }
 
   _AlertConfig _alertConfig(String type) {
+    final l10n = AppLocalizations.of(context)!;
     return switch (type) {
-      'tip' => const _AlertConfig(
+      'tip' => _AlertConfig(
         color: Colors.green,
         icon: Icons.lightbulb_outline,
-        label: 'Tip',
+        label: l10n.alertTip,
       ),
-      'important' => const _AlertConfig(
+      'important' => _AlertConfig(
         color: Colors.purple,
         icon: Icons.priority_high,
-        label: 'Important',
+        label: l10n.alertImportant,
       ),
-      'warning' => const _AlertConfig(
+      'warning' => _AlertConfig(
         color: Colors.amber,
         icon: Icons.warning_amber,
-        label: 'Warning',
+        label: l10n.alertWarning,
       ),
-      'caution' => const _AlertConfig(
+      'caution' => _AlertConfig(
         color: Colors.red,
         icon: Icons.error_outline,
-        label: 'Caution',
+        label: l10n.alertCaution,
       ),
-      _ => const _AlertConfig(
+      _ => _AlertConfig(
         color: Colors.blue,
         icon: Icons.info_outline,
-        label: 'Note',
+        label: l10n.alertNote,
       ),
     };
   }

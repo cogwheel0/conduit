@@ -738,7 +738,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Paste a URL to ingest its content into the chat.',
+                      l10n.attachWebpageDescription,
                       style: Theme.of(innerContext).textTheme.bodySmall,
                     ),
                     const SizedBox(height: 12),
@@ -749,7 +749,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                             hint: 'https://example.com/article',
                             error: errorText,
                           )
-                          .copyWith(labelText: 'Webpage URL'),
+                          .copyWith(labelText: l10n.webpageUrlLabel),
                       onChanged: (value) {
                         url = value;
                         if (errorText != null) setError(null);
@@ -779,7 +779,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                           if (parsed == null ||
                               !(parsed.isScheme('http') ||
                                   parsed.isScheme('https'))) {
-                            setError('Enter a valid http(s) URL.');
+                            setError(l10n.invalidHttpUrl);
                             return;
                           }
                           setState(() {
@@ -804,8 +804,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                             if (content.isEmpty) {
                               setError(
                                 isYoutube
-                                    ? 'Could not fetch YouTube transcript.'
-                                    : 'The page had no readable content.',
+                                    ? l10n.youtubeTranscriptFetchFailed
+                                    : l10n.webpageNoReadableContent,
                               );
                               return;
                             }
@@ -841,7 +841,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                             }
                             Navigator.of(dialogContext).pop();
                           } catch (_) {
-                            setError('Failed to attach content.');
+                            setError(l10n.failedToAttachContent);
                           } finally {
                             if (mounted) {
                               setState(() => submitting = false);
@@ -854,7 +854,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                           height: 16,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Text('Attach'),
+                      : Text(l10n.attach),
                 ),
               ],
             );
@@ -2117,7 +2117,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                       ? Center(
                           key: const ValueKey('scroll_to_bottom_visible'),
                           child: AdaptiveTooltip(
-                            message: 'Scroll to bottom',
+                            message: l10n.scrollToBottom,
                             child: _buildScrollToBottomButton(context),
                           ),
                         )

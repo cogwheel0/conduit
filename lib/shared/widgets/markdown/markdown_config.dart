@@ -640,6 +640,7 @@ class _DeferredInlinePreviewCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
     return DecoratedBox(
       decoration: BoxDecoration(
         color: theme.cardBackground,
@@ -652,7 +653,7 @@ class _DeferredInlinePreviewCard extends StatelessWidget {
           children: [
             Expanded(
               child: Text(
-                'Preview deferred for large content.',
+                l10n.previewDeferredLargeContent,
                 style: AppTypography.bodySmallStyle.copyWith(
                   color: theme.textSecondary,
                 ),
@@ -664,7 +665,7 @@ class _DeferredInlinePreviewCard extends StatelessWidget {
                 code: code,
                 language: language,
               ),
-              child: const Text('Open preview'),
+              child: Text(l10n.openPreview),
             ),
           ],
         ),
@@ -911,7 +912,7 @@ class _CodeBlockHeaderState extends State<CodeBlockHeader> {
           if (widget.onPreview != null) ...[
             _CodeBlockActionButton(
               icon: Icons.visibility_outlined,
-              label: 'Preview',
+              label: AppLocalizations.of(context)!.preview,
               color: iconColor,
               onTap: widget.onPreview!,
             ),

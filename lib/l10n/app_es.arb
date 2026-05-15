@@ -317,11 +317,11 @@
   "sendOnEnterDescription": "Enter envía (teclado virtual). Cmd/Ctrl+Enter también disponible",
   "disableHapticsWhileStreaming": "Desactivar la vibración durante el streaming",
   "disableHapticsWhileStreamingDescription": "Silencia la vibración de las respuestas en tiempo real sin afectar al resto de la app",
-  "androidAssistantTitle": "Android digital assistant",
-  "androidAssistantDescription": "Choose what happens when you trigger the Android digital assistant.",
-  "androidAssistantOverlayOption": "Show quick overlay (default)",
-  "androidAssistantNewChatOption": "Open Conduit with a new chat",
-  "androidAssistantVoiceCallOption": "Start a voice call",
+  "androidAssistantTitle": "Asistente digital de Android",
+  "androidAssistantDescription": "Elige qué ocurre cuando activas el asistente digital de Android.",
+  "androidAssistantOverlayOption": "Mostrar superposición rápida (predeterminado)",
+  "androidAssistantNewChatOption": "Abrir Conduit con un chat nuevo",
+  "androidAssistantVoiceCallOption": "Iniciar una llamada de voz",
   "sttSettings": "Voz a texto",
   "sttEngineLabel": "Motor de reconocimiento",
   "sttEngineDevice": "En el dispositivo",
@@ -769,7 +769,8 @@
   "@deleteNoteMessage": {
     "placeholders": {
       "title": {
-        "type": "String"
+        "type": "String",
+        "example": "My Note"
       }
     }
   },
@@ -802,7 +803,8 @@
   "@wordCount": {
     "placeholders": {
       "count": {
-        "type": "int"
+        "type": "int",
+        "example": "150"
       }
     }
   },
@@ -810,7 +812,8 @@
   "@charCount": {
     "placeholders": {
       "count": {
-        "type": "int"
+        "type": "int",
+        "example": "500"
       }
     }
   },
@@ -820,7 +823,8 @@
   "@promptVariableNumberMin": {
     "placeholders": {
       "min": {
-        "type": "double"
+        "type": "double",
+        "example": "0"
       }
     }
   },
@@ -828,7 +832,8 @@
   "@promptVariableNumberMax": {
     "placeholders": {
       "max": {
-        "type": "double"
+        "type": "double",
+        "example": "100"
       }
     }
   },
@@ -857,7 +862,8 @@
   "@usageTokensPerSecond": {
     "placeholders": {
       "speed": {
-        "type": "String"
+        "type": "String",
+        "example": "45.2"
       }
     }
   },
@@ -865,7 +871,8 @@
   "@usageTokenCount": {
     "placeholders": {
       "count": {
-        "type": "int"
+        "type": "int",
+        "example": "128"
       }
     }
   },
@@ -873,7 +880,8 @@
   "@usageSecondsFormat": {
     "placeholders": {
       "seconds": {
-        "type": "String"
+        "type": "String",
+        "example": "2.34"
       }
     }
   },
@@ -1136,5 +1144,502 @@
   "timeJustNow": "ahora mismo",
   "timeSecondsAgo": "hace {count}s",
   "timeMinutesAgo": "hace {count}m",
-  "timeHoursAgo": "hace {count}h"
+  "timeHoursAgo": "hace {count}h",
+  "attach": "Adjuntar",
+  "@attach": {
+    "description": "Button label to attach content to the current chat or folder chat."
+  },
+  "attachWebpageDescription": "Pega una URL para incorporar su contenido al chat.",
+  "@attachWebpageDescription": {
+    "description": "Description shown in the web page attachment dialog."
+  },
+  "webpageUrlLabel": "URL de la página web",
+  "@webpageUrlLabel": {
+    "description": "Label for the URL field in the web page attachment dialog."
+  },
+  "invalidHttpUrl": "Introduce una URL http(s) válida.",
+  "@invalidHttpUrl": {
+    "description": "Validation message when a URL is missing or not HTTP/HTTPS."
+  },
+  "youtubeTranscriptFetchFailed": "No se pudo obtener la transcripción de YouTube.",
+  "@youtubeTranscriptFetchFailed": {
+    "description": "Error shown when a YouTube transcript cannot be fetched."
+  },
+  "webpageNoReadableContent": "La página no tenía contenido legible.",
+  "@webpageNoReadableContent": {
+    "description": "Error shown when a fetched webpage has no readable text content."
+  },
+  "failedToAttachContent": "No se pudo adjuntar el contenido.",
+  "@failedToAttachContent": {
+    "description": "Generic error shown when attaching web content fails."
+  },
+  "scrollToBottom": "Desplazarse al final",
+  "@scrollToBottom": {
+    "description": "Tooltip for the button that scrolls a chat to the newest message."
+  },
+  "editFolder": "Editar carpeta",
+  "@editFolder": {
+    "description": "Title and menu label for editing a folder."
+  },
+  "editFolderDescription": "Actualiza el nombre y el icono de la carpeta en el servidor.",
+  "@editFolderDescription": {
+    "description": "Description shown in the folder edit sheet."
+  },
+  "icon": "Icono",
+  "@icon": {
+    "description": "Label for selecting an icon."
+  },
+  "folderIconDescription": "Elige el icono de la carpeta.",
+  "@folderIconDescription": {
+    "description": "Subtitle for the folder icon picker."
+  },
+  "defaultLabel": "Predeterminado",
+  "@defaultLabel": {
+    "description": "Generic label for the default option."
+  },
+  "systemPrompt": "Prompt del sistema",
+  "@systemPrompt": {
+    "description": "Singular label for a system prompt field or menu item."
+  },
+  "move": "Mover",
+  "@move": {
+    "description": "Context action to move an item."
+  },
+  "moveToFolder": "Mover a carpeta",
+  "@moveToFolder": {
+    "description": "Title for choosing a destination folder for a chat."
+  },
+  "moveFolder": "Mover carpeta",
+  "@moveFolder": {
+    "description": "Title for choosing a destination parent for a folder."
+  },
+  "noFolder": "Sin carpeta",
+  "@noFolder": {
+    "description": "Option to remove a chat from any folder."
+  },
+  "topLevel": "Nivel superior",
+  "@topLevel": {
+    "description": "Option to move a folder to the top level."
+  },
+  "failedToMoveFolder": "No se pudo mover la carpeta",
+  "@failedToMoveFolder": {
+    "description": "Error shown when moving a folder fails."
+  },
+  "failedToRenameFolder": "No se pudo cambiar el nombre de la carpeta",
+  "@failedToRenameFolder": {
+    "description": "Error shown when renaming a folder fails."
+  },
+  "browseKnowledgeBase": "Explorar base de conocimientos",
+  "@browseKnowledgeBase": {
+    "description": "Title for opening the knowledge base picker."
+  },
+  "knowledgePickerHint": "Pulsa Enter para elegir un documento",
+  "@knowledgePickerHint": {
+    "description": "Hint shown for keyboard selection in the knowledge base picker."
+  },
+  "execution": "Ejecución",
+  "@execution": {
+    "description": "Fallback label for an unnamed code execution."
+  },
+  "codeExecutionTitle": "Ejecución de código",
+  "@codeExecutionTitle": {
+    "description": "Fallback title for a code execution details sheet."
+  },
+  "codeExecutionFailed": "{label} falló",
+  "@codeExecutionFailed": {
+    "description": "Title shown when a named code execution fails.",
+    "placeholders": {
+      "label": {
+        "type": "String",
+        "example": "Execution"
+      }
+    }
+  },
+  "codeExecutionRunning": "{label}…",
+  "@codeExecutionRunning": {
+    "description": "Title shown while a named code execution is still running.",
+    "placeholders": {
+      "label": {
+        "type": "String",
+        "example": "Execution"
+      }
+    }
+  },
+  "language": "Lenguaje",
+  "@language": {
+    "description": "Label for a programming language field."
+  },
+  "code": "Código",
+  "@code": {
+    "description": "Label for source code content."
+  },
+  "output": "Salida",
+  "@output": {
+    "description": "Label for execution output."
+  },
+  "download": "Descargar",
+  "@download": {
+    "description": "Fallback label for a downloadable file."
+  },
+  "languageWithValue": "Lenguaje: {language}",
+  "@languageWithValue": {
+    "description": "Label and value for a programming language.",
+    "placeholders": {
+      "language": {
+        "type": "String",
+        "example": "Python"
+      }
+    }
+  },
+  "previewDeferredLargeContent": "Vista previa pospuesta para contenido grande.",
+  "@previewDeferredLargeContent": {
+    "description": "Message shown when an inline preview is delayed because content is large."
+  },
+  "openPreview": "Abrir vista previa",
+  "@openPreview": {
+    "description": "Button to open a deferred preview."
+  },
+  "copiedToClipboard": "Copiado al portapapeles",
+  "@copiedToClipboard": {
+    "description": "Snackbar message after copying content to the clipboard."
+  },
+  "preview": "Vista previa",
+  "@preview": {
+    "description": "Button label for opening a preview."
+  },
+  "alertTip": "Consejo",
+  "@alertTip": {
+    "description": "Fallback label for a tip markdown alert."
+  },
+  "alertImportant": "Importante",
+  "@alertImportant": {
+    "description": "Fallback label for an important markdown alert."
+  },
+  "alertWarning": "Advertencia",
+  "@alertWarning": {
+    "description": "Fallback label for a warning markdown alert."
+  },
+  "alertCaution": "Precaución",
+  "@alertCaution": {
+    "description": "Fallback label for a caution markdown alert."
+  },
+  "alertNote": "Nota",
+  "@alertNote": {
+    "description": "Fallback label for a note markdown alert."
+  },
+  "folderIconFolder": "Carpeta",
+  "@folderIconFolder": {
+    "description": "Accessibility label for the folder icon option."
+  },
+  "folderIconOpenFolder": "Carpeta abierta",
+  "@folderIconOpenFolder": {
+    "description": "Accessibility label for the open folder icon option."
+  },
+  "folderIconBriefcase": "Maletín",
+  "@folderIconBriefcase": {
+    "description": "Accessibility label for the briefcase folder icon option."
+  },
+  "folderIconBooks": "Libros",
+  "@folderIconBooks": {
+    "description": "Accessibility label for the books folder icon option."
+  },
+  "folderIconMemo": "Nota",
+  "@folderIconMemo": {
+    "description": "Accessibility label for the memo folder icon option."
+  },
+  "folderIconDividers": "Separadores",
+  "@folderIconDividers": {
+    "description": "Accessibility label for the dividers folder icon option."
+  },
+  "folderIconTools": "Herramientas",
+  "@folderIconTools": {
+    "description": "Accessibility label for the tools folder icon option."
+  },
+  "folderIconToolbox": "Caja de herramientas",
+  "@folderIconToolbox": {
+    "description": "Accessibility label for the toolbox folder icon option."
+  },
+  "folderIconSparkles": "Destellos",
+  "@folderIconSparkles": {
+    "description": "Accessibility label for the sparkles folder icon option."
+  },
+  "folderIconBrain": "Cerebro",
+  "@folderIconBrain": {
+    "description": "Accessibility label for the brain folder icon option."
+  },
+  "folderIconRocket": "Cohete",
+  "@folderIconRocket": {
+    "description": "Accessibility label for the rocket folder icon option."
+  },
+  "folderIconTarget": "Objetivo",
+  "@folderIconTarget": {
+    "description": "Accessibility label for the target folder icon option."
+  },
+  "folderIconGeneric": "Icono de carpeta",
+  "@folderIconGeneric": {
+    "description": "Generic accessibility label for a custom folder icon."
+  },
+  "thread": "Hilo",
+  "@thread": {
+    "description": "Title and context action for a message thread."
+  },
+  "threadWithCount": "Hilo ({count})",
+  "@threadWithCount": {
+    "description": "Thread action label with reply count.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "channelMembersTitle": "Miembros ({count})",
+  "@channelMembersTitle": {
+    "description": "Title for the channel members sheet.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "5"
+      }
+    }
+  },
+  "channelInputPlaceholder": "Escribe aquí...",
+  "@channelInputPlaceholder": {
+    "description": "Placeholder for the channel message composer."
+  },
+  "channelUnknownMember": "Desconocido",
+  "@channelUnknownMember": {
+    "description": "Fallback name for a channel member with no display name."
+  },
+  "replyInputPlaceholder": "Responder...",
+  "@replyInputPlaceholder": {
+    "description": "Placeholder for the thread reply composer."
+  },
+  "editPhoto": "Editar foto",
+  "@editPhoto": {
+    "description": "Action to edit the profile photo."
+  },
+  "replyingToUser": "Respondiendo a {name}",
+  "@replyingToUser": {
+    "description": "Label shown above the channel composer when replying to a user.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Alex"
+      }
+    }
+  },
+  "voiceCallWithModel": "Llamada de voz con {modelName}",
+  "@voiceCallWithModel": {
+    "description": "Notification title for an ongoing voice call with a model.",
+    "placeholders": {
+      "modelName": {
+        "type": "String",
+        "example": "GPT-4"
+      }
+    }
+  },
+  "notificationPermissionTitle": "Permiso de notificaciones",
+  "@notificationPermissionTitle": {
+    "description": "Title for the system notification permission prompt."
+  },
+  "callNotificationPermissionRationale": "Las alertas de llamada necesitan permiso de notificaciones.",
+  "@callNotificationPermissionRationale": {
+    "description": "Rationale shown when requesting notification permission for call alerts."
+  },
+  "callNotificationPermissionPost": "Permite las notificaciones para mostrar llamadas entrantes.",
+  "@callNotificationPermissionPost": {
+    "description": "Instruction shown when requesting notification permission for incoming calls."
+  },
+  "acceptCall": "Aceptar",
+  "@acceptCall": {
+    "description": "Call action to accept an incoming call."
+  },
+  "declineCall": "Rechazar",
+  "@declineCall": {
+    "description": "Call action to decline an incoming call."
+  },
+  "missedCall": "Llamada perdida",
+  "@missedCall": {
+    "description": "Notification subtitle for a missed call."
+  },
+  "callBack": "Devolver llamada",
+  "@callBack": {
+    "description": "Notification action to call back after a missed call."
+  },
+  "calling": "Llamando...",
+  "@calling": {
+    "description": "Notification subtitle while starting a call."
+  },
+  "hangUp": "Colgar",
+  "@hangUp": {
+    "description": "Notification action to hang up a call."
+  },
+  "incomingCallChannelName": "Llamada entrante",
+  "@incomingCallChannelName": {
+    "description": "Android notification channel name for incoming calls."
+  },
+  "missedCallChannelName": "Llamada perdida",
+  "@missedCallChannelName": {
+    "description": "Android notification channel name for missed calls."
+  },
+  "mute": "Silenciar",
+  "@mute": {
+    "description": "Notification action to mute a call."
+  },
+  "unmute": "Activar sonido",
+  "@unmute": {
+    "description": "Notification action to unmute a call."
+  },
+  "voiceCallMuted": "Silenciado",
+  "@voiceCallMuted": {
+    "description": "Status label when a voice call is muted."
+  },
+  "voiceCallChannelDescription": "Notificaciones de llamadas de voz en curso",
+  "@voiceCallChannelDescription": {
+    "description": "Android notification channel description for ongoing voice calls."
+  },
+  "@greetingTitle": {
+    "description": "Greeting shown on the empty chat page.",
+    "placeholders": {
+      "username": {
+        "type": "String",
+        "example": "Alex"
+      }
+    }
+  },
+  "@continueWithProvider": {
+    "description": "Button text for OAuth provider sign-in.",
+    "placeholders": {
+      "provider": {
+        "type": "String",
+        "example": "Google"
+      }
+    }
+  },
+  "@channelMembers": {
+    "description": "Member count display in channel header",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@audioUploadError": {
+    "description": "Error message when audio upload fails",
+    "placeholders": {
+      "error": {
+        "type": "String",
+        "description": "The error message"
+      }
+    }
+  },
+  "@accessibleModelsCount": {
+    "description": "Subtitle showing how many accessible models are listed.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "4"
+      }
+    }
+  },
+  "@accessibleFoldersCount": {
+    "description": "Subtitle showing how many accessible folders are listed.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "@modelSystemPromptTitle": {
+    "description": "Title for a model system prompt editor.",
+    "placeholders": {
+      "modelName": {
+        "type": "String",
+        "example": "GPT-4"
+      }
+    }
+  },
+  "@folderSystemPromptTitle": {
+    "description": "Title for a folder system prompt editor.",
+    "placeholders": {
+      "folderName": {
+        "type": "String",
+        "example": "Work"
+      }
+    }
+  },
+  "@savedMemoriesCount": {
+    "description": "Shows how many memories are saved.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@memoryUpdatedAt": {
+    "description": "Shows when a memory was last updated.",
+    "placeholders": {
+      "formattedTime": {}
+    }
+  },
+  "@socketLastHeartbeat": {
+    "description": "Shows when the socket last received a heartbeat.",
+    "placeholders": {
+      "time": {
+        "type": "String",
+        "example": "just now"
+      }
+    }
+  },
+  "@timeSecondsAgo": {
+    "description": "Compact relative time label for seconds ago.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "12"
+      }
+    }
+  },
+  "@timeMinutesAgo": {
+    "description": "Compact relative time label for minutes ago.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "5"
+      }
+    }
+  },
+  "@timeHoursAgo": {
+    "description": "Compact relative time label for hours ago.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "rateLimitExceeded": "Demasiadas solicitudes. Espera antes de intentarlo de nuevo.",
+  "@rateLimitExceeded": {
+    "description": "Error shown when the server rejects a request due to rate limiting."
+  },
+  "rateLimitRetryAfter": "Espera {duration} antes de intentarlo de nuevo.",
+  "@rateLimitRetryAfter": {
+    "description": "Advice shown when a rate limit response includes a retry delay.",
+    "placeholders": {
+      "duration": {
+        "type": "String",
+        "example": "1m 30s"
+      }
+    }
+  },
+  "rateLimitRetrySoon": "Espera un momento antes de intentarlo de nuevo.",
+  "@rateLimitRetrySoon": {
+    "description": "Advice shown when a rate limit response does not include an exact retry delay."
+  },
+  "securityCertificateError": "Error del certificado de seguridad. No se puede verificar la identidad del servidor.",
+  "@securityCertificateError": {
+    "description": "Error shown when the server TLS certificate cannot be trusted or verified."
+  }
 }

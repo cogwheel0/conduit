@@ -1,5 +1,6 @@
 import 'dart:io' show Platform;
 
+import 'package:conduit/l10n/app_localizations.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
@@ -125,6 +126,27 @@ FolderIconOption? folderIconOptionForAlias(String? alias) {
   return null;
 }
 
+String localizedFolderIconLabel(
+  AppLocalizations l10n,
+  FolderIconOption option,
+) {
+  return switch (option.alias) {
+    'file_folder' => l10n.folderIconFolder,
+    'open_file_folder' => l10n.folderIconOpenFolder,
+    'briefcase' => l10n.folderIconBriefcase,
+    'books' => l10n.folderIconBooks,
+    'memo' => l10n.folderIconMemo,
+    'card_index_dividers' => l10n.folderIconDividers,
+    'hammer_and_wrench' => l10n.folderIconTools,
+    'toolbox' => l10n.folderIconToolbox,
+    'sparkles' => l10n.folderIconSparkles,
+    'brain' => l10n.folderIconBrain,
+    'rocket' => l10n.folderIconRocket,
+    'dart' => l10n.folderIconTarget,
+    _ => option.semanticLabel,
+  };
+}
+
 bool _looksLikeRenderedGlyph(String value) {
   final normalized = value.trim();
   if (normalized.isEmpty) {
@@ -152,6 +174,7 @@ class FolderIconGlyph extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final normalized = normalizeFolderIconAlias(iconAlias);
     final option = folderIconOptionForAlias(normalized);
 
@@ -159,7 +182,9 @@ class FolderIconGlyph extends StatelessWidget {
         (normalized != null && _looksLikeRenderedGlyph(normalized))) {
       final displayValue = option?.emoji ?? normalized!;
       return Semantics(
-        label: option?.semanticLabel ?? 'Folder icon',
+        label: option == null
+            ? l10n.folderIconGeneric
+            : localizedFolderIconLabel(l10n, option),
         child: Text(
           displayValue,
           style:

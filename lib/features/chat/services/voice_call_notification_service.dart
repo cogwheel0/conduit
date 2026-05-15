@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
+import '../../../core/utils/current_localizations.dart';
+
 /// Service to manage persistent notifications for voice calls
 class VoiceCallNotificationService {
   static final VoiceCallNotificationService _instance =
@@ -16,8 +18,6 @@ class VoiceCallNotificationService {
 
   // Notification IDs and channels
   static const String _channelId = 'voice_call_channel';
-  static const String _channelName = 'Voice Call';
-  static const String _channelDescription = 'Ongoing voice call notifications';
   static const int _notificationId = 2001;
 
   // Action IDs
@@ -61,10 +61,11 @@ class VoiceCallNotificationService {
   }
 
   Future<void> _createAndroidNotificationChannel() async {
-    const androidChannel = AndroidNotificationChannel(
+    final l10n = currentAppLocalizations();
+    final androidChannel = AndroidNotificationChannel(
       _channelId,
-      _channelName,
-      description: _channelDescription,
+      l10n.voiceCallTitle,
+      description: l10n.voiceCallChannelDescription,
       importance: Importance.high,
       playSound: false,
       enableVibration: false,
@@ -105,21 +106,22 @@ class VoiceCallNotificationService {
       await initialize();
     }
 
+    final l10n = currentAppLocalizations();
     final status = isSpeaking
-        ? 'Speaking...'
+        ? l10n.voiceCallSpeaking
         : isMuted
-        ? 'Muted'
+        ? l10n.voiceCallMuted
         : isPaused
-        ? 'Paused'
-        : 'Listening...';
-    final muteAction = isMuted ? 'Unmute' : 'Mute';
+        ? l10n.voiceCallPaused
+        : l10n.voiceStatusListening;
+    final muteAction = isMuted ? l10n.unmute : l10n.mute;
     final muteActionId = isMuted ? _actionUnmute : _actionMute;
 
     if (Platform.isAndroid) {
       final androidDetails = AndroidNotificationDetails(
         _channelId,
-        _channelName,
-        channelDescription: _channelDescription,
+        l10n.voiceCallTitle,
+        channelDescription: l10n.voiceCallChannelDescription,
         importance: Importance.high,
         priority: Priority.high,
         ongoing: true,
@@ -145,7 +147,7 @@ class VoiceCallNotificationService {
           ),
           AndroidNotificationAction(
             _actionEndCall,
-            'End Call',
+            l10n.voiceCallEnd,
             icon: DrawableResourceAndroidBitmap('@drawable/ic_call_end'),
             showsUserInterface: true,
             cancelNotification: true,
@@ -155,7 +157,7 @@ class VoiceCallNotificationService {
 
       await _notifications.show(
         id: _notificationId,
-        title: 'Voice Call with $modelName',
+        title: l10n.voiceCallWithModel(modelName),
         body: status,
         notificationDetails: NotificationDetails(android: androidDetails),
       );
@@ -171,7 +173,7 @@ class VoiceCallNotificationService {
 
       await _notifications.show(
         id: _notificationId,
-        title: 'Voice Call with $modelName',
+        title: l10n.voiceCallWithModel(modelName),
         body: status,
         notificationDetails: const NotificationDetails(iOS: iosDetails),
       );

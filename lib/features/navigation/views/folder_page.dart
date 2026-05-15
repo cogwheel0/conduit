@@ -717,7 +717,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Paste a URL to ingest its content into the chat.',
+                      l10n.attachWebpageDescription,
                       style: Theme.of(innerContext).textTheme.bodySmall,
                     ),
                     const SizedBox(height: 12),
@@ -728,7 +728,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
                             hint: 'https://example.com/article',
                             error: errorText,
                           )
-                          .copyWith(labelText: 'Webpage URL'),
+                          .copyWith(labelText: l10n.webpageUrlLabel),
                       onChanged: (value) {
                         url = value;
                         if (errorText != null) {
@@ -760,7 +760,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
                           if (parsed == null ||
                               !(parsed.isScheme('http') ||
                                   parsed.isScheme('https'))) {
-                            setError('Enter a valid http(s) URL.');
+                            setError(l10n.invalidHttpUrl);
                             return;
                           }
                           setState(() {
@@ -782,8 +782,8 @@ class _FolderPageState extends ConsumerState<FolderPage> {
                             if (content.isEmpty) {
                               setError(
                                 isYoutube
-                                    ? 'Could not fetch YouTube transcript.'
-                                    : 'The page had no readable content.',
+                                    ? l10n.youtubeTranscriptFetchFailed
+                                    : l10n.webpageNoReadableContent,
                               );
                               return;
                             }
@@ -817,7 +817,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
                             }
                             Navigator.of(dialogContext).pop();
                           } catch (_) {
-                            setError('Failed to attach content.');
+                            setError(l10n.failedToAttachContent);
                           } finally {
                             if (mounted) {
                               setState(() => submitting = false);
@@ -830,7 +830,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
                           height: 16,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Text('Attach'),
+                      : Text(l10n.attach),
                 ),
               ],
             );
@@ -861,8 +861,8 @@ class _FolderPageState extends ConsumerState<FolderPage> {
         final result = await NativeSheetBridge.instance.presentSheet(
           root: NativeSheetDetailConfig(
             id: 'folder-edit-sheet',
-            title: 'Edit Folder',
-            subtitle: 'Update the folder name and icon on the server.',
+            title: l10n.editFolder,
+            subtitle: l10n.editFolderDescription,
             confirmActionId: 'save-folder',
             items: [
               NativeSheetItemConfig(
@@ -875,21 +875,21 @@ class _FolderPageState extends ConsumerState<FolderPage> {
               ),
               NativeSheetItemConfig(
                 id: 'folder-icon',
-                title: 'Icon',
-                subtitle: 'Choose the folder icon.',
+                title: l10n.icon,
+                subtitle: l10n.folderIconDescription,
                 sfSymbol: 'folder.badge.gearshape',
                 kind: NativeSheetItemKind.searchablePicker,
                 value: currentIconAlias ?? '__default__',
                 options: [
-                  const NativeSheetOptionConfig(
+                  NativeSheetOptionConfig(
                     id: '__default__',
-                    label: 'Default',
+                    label: l10n.defaultLabel,
                     sfSymbol: 'folder',
                   ),
                   for (final option in folderIconOptions)
                     NativeSheetOptionConfig(
                       id: option.alias,
-                      label: option.semanticLabel,
+                      label: localizedFolderIconLabel(l10n, option),
                       sfSymbol: option.sfSymbol,
                     ),
                 ],
@@ -994,7 +994,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
             items: [
               NativeSheetItemConfig(
                 id: 'folder-system-prompt-value',
-                title: 'System Prompt',
+                title: l10n.systemPrompt,
                 subtitle: l10n.enterSystemPrompt,
                 sfSymbol: 'text.bubble',
                 kind: NativeSheetItemKind.multilineTextField,
@@ -1712,8 +1712,8 @@ class _FolderEditSheetState extends ConsumerState<_FolderEditSheet> {
       fontWeight: FontWeight.w700,
     );
     return _FolderSheetFrame(
-      title: 'Edit Folder',
-      description: 'Update the folder name and icon on the server.',
+      title: l10n.editFolder,
+      description: l10n.editFolderDescription,
       isBusy: _isSaving,
       onClose: () => Navigator.of(context).pop(),
       child: Column(
@@ -1764,7 +1764,7 @@ class _FolderEditSheetState extends ConsumerState<_FolderEditSheet> {
             ),
           ],
           const SizedBox(height: Spacing.lg),
-          Text('Icon', style: titleStyle.copyWith(fontSize: 16)),
+          Text(l10n.icon, style: titleStyle.copyWith(fontSize: 16)),
           const SizedBox(height: Spacing.sm),
           Wrap(
             spacing: Spacing.xs,
@@ -1780,7 +1780,7 @@ class _FolderEditSheetState extends ConsumerState<_FolderEditSheet> {
                       color: theme.textPrimary,
                     ),
                     const SizedBox(width: Spacing.xs),
-                    const Text('Default'),
+                    Text(l10n.defaultLabel),
                   ],
                 ),
                 selected: _selectedIconAlias == null,
@@ -1799,7 +1799,7 @@ class _FolderEditSheetState extends ConsumerState<_FolderEditSheet> {
                         color: theme.textPrimary,
                       ),
                       const SizedBox(width: Spacing.xs),
-                      Text(option.semanticLabel),
+                      Text(localizedFolderIconLabel(l10n, option)),
                     ],
                   ),
                   selected: _selectedIconAlias == option.alias,
@@ -1981,7 +1981,7 @@ class _FolderSystemPromptSheetState
             textInputAction: TextInputAction.newline,
             decoration: _buildFolderFieldDecoration(
               context: context,
-              label: 'System Prompt',
+              label: l10n.systemPrompt,
               hint: l10n.enterSystemPrompt,
             ),
           ),
@@ -2065,6 +2065,7 @@ class _FolderToolbarPopupButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return KeyedSubtree(
       key: const ValueKey<String>('folder-page-overflow-button'),
       child: AdaptivePopupMenuButton.icon<String>(
@@ -2075,7 +2076,7 @@ class _FolderToolbarPopupButton extends StatelessWidget {
         items: [
           AdaptivePopupMenuItem<String>(
             value: 'edit-folder',
-            label: 'Edit Folder',
+            label: l10n.editFolder,
             icon: _itemIcon(
               iosSymbol: 'pencil',
               materialIcon: Icons.edit_outlined,
@@ -2083,7 +2084,7 @@ class _FolderToolbarPopupButton extends StatelessWidget {
           ),
           AdaptivePopupMenuItem<String>(
             value: 'system-prompt',
-            label: 'System Prompt',
+            label: l10n.systemPrompt,
             icon: _itemIcon(
               iosSymbol: 'text.bubble',
               materialIcon: Icons.notes_outlined,

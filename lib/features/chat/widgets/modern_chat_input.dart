@@ -1663,13 +1663,14 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     Color overlayColor,
     Color borderColor,
   ) {
+    final l10n = AppLocalizations.of(context)!;
     return _buildSuggestionOverlayContainer(
       context,
       overlayColor: overlayColor,
       borderColor: borderColor,
       child: AdaptiveListTile(
-        title: const Text('Browse knowledge base'),
-        subtitle: const Text('Press Enter to pick a document'),
+        title: Text(l10n.browseKnowledgeBase),
+        subtitle: Text(l10n.knowledgePickerHint),
         leading: const Icon(Icons.folder_outlined),
         onTap: () => _openKnowledgePicker(),
       ),
@@ -2878,7 +2879,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     if (widget.onVoiceCall != null) {
       final bool enabledVoiceCall = widget.enabled;
       return AdaptiveTooltip(
-        message: 'Voice Call',
+        message: AppLocalizations.of(context)!.voiceCallTitle,
         child: _buildComposerIconButton(
           key: const ValueKey('primary-btn-voice-call'),
           onPressed: enabledVoiceCall

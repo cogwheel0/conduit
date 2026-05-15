@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'api_error.dart';
+import '../utils/current_localizations.dart';
 import '../utils/debug_logger.dart';
 
 /// Comprehensive error response parser
@@ -27,7 +28,7 @@ class ErrorParser {
         return _parseErrorList(responseData);
       } else {
         return ParsedErrorResponse(
-          message: 'Unexpected error format',
+          message: currentAppLocalizations().errorMessage,
           metadata: {'rawData': responseData.toString()},
         );
       }
@@ -37,7 +38,7 @@ class ErrorParser {
         scope: 'api/error-parser',
       );
       return ParsedErrorResponse(
-        message: 'Failed to parse error response',
+        message: currentAppLocalizations().errorMessage,
         metadata: {
           'parseError': e.toString(),
           'rawData': responseData.toString(),
@@ -141,7 +142,9 @@ class ErrorParser {
     }
 
     return ParsedErrorResponse(
-      message: errors.isNotEmpty ? errors.first : 'Multiple errors occurred',
+      message: errors.isNotEmpty
+          ? errors.first
+          : currentAppLocalizations().errorMessage,
       errors: errors,
       metadata: {'format': 'list', 'count': data.length},
     );

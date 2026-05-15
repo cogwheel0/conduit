@@ -7,6 +7,8 @@ import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:uuid/uuid.dart';
 
+import '../utils/current_localizations.dart';
+
 part 'callkit_service.g.dart';
 
 /// Thin wrapper around `flutter_callkit_incoming` for voice calls.
@@ -26,17 +28,17 @@ class CallKitService {
   /// Requests the notification/full-screen intent permissions needed on Android.
   Future<void> requestPermissions() async {
     if (!_shouldUseCallKit('request permissions')) return;
+    final l10n = currentAppLocalizations();
 
     await _safe(
-      () => FlutterCallkitIncoming.requestNotificationPermission(
-        <String, dynamic>{
-          'title': 'Notification permission',
-          'rationaleMessagePermission':
-              'Call alerts need notification permission.',
-          'postNotificationMessageRequired':
-              'Allow notifications to show incoming calls.',
-        },
-      ),
+      () => FlutterCallkitIncoming.requestNotificationPermission(<
+        String,
+        dynamic
+      >{
+        'title': l10n.notificationPermissionTitle,
+        'rationaleMessagePermission': l10n.callNotificationPermissionRationale,
+        'postNotificationMessageRequired': l10n.callNotificationPermissionPost,
+      }),
     );
     // Full-screen intent permission not needed for outgoing-only calls.
   }
@@ -170,6 +172,7 @@ class CallKitService {
     String? avatar,
     int durationMs = _defaultCallDurationMs,
   }) {
+    final l10n = currentAppLocalizations();
     return CallKitParams(
       id: id,
       nameCaller: callerName,
@@ -178,29 +181,29 @@ class CallKitService {
       handle: handle,
       type: 0, // 0 = audio call
       duration: durationMs,
-      textAccept: 'Accept',
-      textDecline: 'Decline',
-      missedCallNotification: const NotificationParams(
+      textAccept: l10n.acceptCall,
+      textDecline: l10n.declineCall,
+      missedCallNotification: NotificationParams(
         showNotification: true,
         isShowCallback: true,
-        subtitle: 'Missed call',
-        callbackText: 'Call back',
+        subtitle: l10n.missedCall,
+        callbackText: l10n.callBack,
       ),
-      callingNotification: const NotificationParams(
+      callingNotification: NotificationParams(
         showNotification: true,
         isShowCallback: true,
-        subtitle: 'Calling...',
-        callbackText: 'Hang up',
+        subtitle: l10n.calling,
+        callbackText: l10n.hangUp,
       ),
       extra: const <String, dynamic>{'transport': 'voice'},
-      android: const AndroidParams(
+      android: AndroidParams(
         isCustomNotification: true,
         isShowLogo: true,
         ringtonePath: 'system_ringtone_default',
         backgroundColor: '#0D1726',
         actionColor: '#4CAF50',
-        incomingCallNotificationChannelName: 'Incoming Call',
-        missedCallNotificationChannelName: 'Missed Call',
+        incomingCallNotificationChannelName: l10n.incomingCallChannelName,
+        missedCallNotificationChannelName: l10n.missedCallChannelName,
       ),
       ios: const IOSParams(
         iconName: '',

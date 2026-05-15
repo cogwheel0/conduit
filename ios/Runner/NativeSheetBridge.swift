@@ -2,6 +2,10 @@ import Flutter
 import PhotosUI
 import UIKit
 
+private func nativeLocalized(_ key: String, _ fallback: String) -> String {
+    NSLocalizedString(key, tableName: nil, bundle: .main, value: fallback, comment: "")
+}
+
 private struct NativeSheetProfile {
     let displayName: String
     let email: String
@@ -43,30 +47,30 @@ private struct NativeEditProfileSheetCopy {
 
     init(_ payload: [String: Any]?) {
         let p = payload ?? [:]
-        title = (p["title"] as? String) ?? "Edit profile"
-        saveLabel = (p["saveLabel"] as? String) ?? "Save profile"
-        cancelLabel = (p["cancelLabel"] as? String) ?? "Cancel"
-        okLabel = (p["okLabel"] as? String) ?? "OK"
+        title = (p["title"] as? String) ?? nativeLocalized("native.editProfile", "Edit profile")
+        saveLabel = (p["saveLabel"] as? String) ?? nativeLocalized("native.saveProfile", "Save profile")
+        cancelLabel = (p["cancelLabel"] as? String) ?? nativeLocalized("native.cancel", "Cancel")
+        okLabel = (p["okLabel"] as? String) ?? nativeLocalized("native.ok", "OK")
         footerText = (p["footerText"] as? String) ?? ""
-        nameLabel = (p["nameLabel"] as? String) ?? "Name"
+        nameLabel = (p["nameLabel"] as? String) ?? nativeLocalized("native.name", "Name")
         nameRequiredMessage = (p["nameRequiredMessage"] as? String) ?? ""
         customGenderRequiredMessage = (p["customGenderRequiredMessage"] as? String) ?? ""
-        bioLabel = (p["bioLabel"] as? String) ?? "Bio"
+        bioLabel = (p["bioLabel"] as? String) ?? nativeLocalized("native.bio", "Bio")
         bioHint = (p["bioHint"] as? String) ?? ""
-        genderLabel = (p["genderLabel"] as? String) ?? "Gender"
-        genderPreferNotToSay = (p["genderPreferNotToSay"] as? String) ?? "Prefer not to say"
-        genderMale = (p["genderMale"] as? String) ?? "Male"
-        genderFemale = (p["genderFemale"] as? String) ?? "Female"
-        genderCustom = (p["genderCustom"] as? String) ?? "Custom"
-        customGenderLabel = (p["customGenderLabel"] as? String) ?? "Custom gender"
+        genderLabel = (p["genderLabel"] as? String) ?? nativeLocalized("native.gender", "Gender")
+        genderPreferNotToSay = (p["genderPreferNotToSay"] as? String) ?? nativeLocalized("native.genderPreferNotToSay", "Prefer not to say")
+        genderMale = (p["genderMale"] as? String) ?? nativeLocalized("native.genderMale", "Male")
+        genderFemale = (p["genderFemale"] as? String) ?? nativeLocalized("native.genderFemale", "Female")
+        genderCustom = (p["genderCustom"] as? String) ?? nativeLocalized("native.genderCustom", "Custom")
+        customGenderLabel = (p["customGenderLabel"] as? String) ?? nativeLocalized("native.customGender", "Custom gender")
         customGenderHint = (p["customGenderHint"] as? String) ?? ""
-        birthDateLabel = (p["birthDateLabel"] as? String) ?? "Date of birth"
-        selectBirthDateLabel = (p["selectBirthDateLabel"] as? String) ?? "Select a date"
-        clearLabel = (p["clearLabel"] as? String) ?? "Clear"
-        uploadFromDeviceLabel = (p["uploadFromDeviceLabel"] as? String) ?? "Upload"
-        useInitialsLabel = (p["useInitialsLabel"] as? String) ?? "Initials"
-        removeAvatarLabel = (p["removeAvatarLabel"] as? String) ?? "Remove"
-        currentAvatarLabel = (p["currentAvatarLabel"] as? String) ?? "Avatar"
+        birthDateLabel = (p["birthDateLabel"] as? String) ?? nativeLocalized("native.dateOfBirth", "Date of birth")
+        selectBirthDateLabel = (p["selectBirthDateLabel"] as? String) ?? nativeLocalized("native.selectDate", "Select a date")
+        clearLabel = (p["clearLabel"] as? String) ?? nativeLocalized("native.clear", "Clear")
+        uploadFromDeviceLabel = (p["uploadFromDeviceLabel"] as? String) ?? nativeLocalized("native.upload", "Upload")
+        useInitialsLabel = (p["useInitialsLabel"] as? String) ?? nativeLocalized("native.initials", "Initials")
+        removeAvatarLabel = (p["removeAvatarLabel"] as? String) ?? nativeLocalized("native.remove", "Remove")
+        currentAvatarLabel = (p["currentAvatarLabel"] as? String) ?? nativeLocalized("native.avatar", "Avatar")
     }
 }
 
@@ -232,7 +236,7 @@ private struct NativeModelSelectorConfiguration {
             return nil
         }
 
-        title = (payload["title"] as? String) ?? "Choose Model"
+        title = (payload["title"] as? String) ?? nativeLocalized("native.chooseModel", "Choose Model")
         selectedModelId = payload["selectedModelId"] as? String
         models = (payload["models"] as? [[String: Any]] ?? [])
             .compactMap(NativeModelSelectorOption.init)
@@ -304,7 +308,7 @@ private struct NativeOptionsSelectorConfiguration {
             return nil
         }
 
-        title = (payload["title"] as? String) ?? "Select"
+        title = (payload["title"] as? String) ?? nativeLocalized("native.select", "Select")
         subtitle = payload["subtitle"] as? String
         selectedOptionId = payload["selectedOptionId"] as? String
         searchable = payload["searchable"] as? Bool ?? true
@@ -330,12 +334,12 @@ private struct NativeDatePickerConfiguration {
             return nil
         }
 
-        title = (payload["title"] as? String) ?? "Select Date"
+        title = (payload["title"] as? String) ?? nativeLocalized("native.selectDateTitle", "Select Date")
         self.initialDate = initialDate
         self.firstDate = firstDate
         self.lastDate = lastDate
-        doneLabel = (payload["doneLabel"] as? String) ?? "Done"
-        cancelLabel = (payload["cancelLabel"] as? String) ?? "Cancel"
+        doneLabel = (payload["doneLabel"] as? String) ?? nativeLocalized("native.done", "Done")
+        cancelLabel = (payload["cancelLabel"] as? String) ?? nativeLocalized("native.cancel", "Cancel")
     }
 }
 
@@ -485,8 +489,8 @@ private struct NativeSheetConfiguration {
             return nil
         }
 
-        let displayName = (profilePayload["displayName"] as? String) ?? "User"
-        let email = (profilePayload["email"] as? String) ?? "No email"
+        let displayName = (profilePayload["displayName"] as? String) ?? nativeLocalized("native.user", "User")
+        let email = (profilePayload["email"] as? String) ?? nativeLocalized("native.noEmail", "No email")
         let initials = (profilePayload["initials"] as? String) ?? "U"
         let bio = (profilePayload["bio"] as? String) ?? ""
         let gender = (profilePayload["gender"] as? String) ?? ""
@@ -505,7 +509,7 @@ private struct NativeSheetConfiguration {
             savedProfileImageUrl: savedUrl
         )
         editProfileLabel = (payload["editProfileLabel"] as? String)
-            ?? "Edit Profile"
+            ?? nativeLocalized("native.editProfile", "Edit Profile")
         profileMenuTitle = (payload["profileMenuTitle"] as? String)
             ?? editProfileLabel
         editProfileSheet = NativeEditProfileSheetCopy(payload["editProfileSheet"] as? [String: Any])
@@ -1248,7 +1252,7 @@ final class NativeSheetBridge {
             message: item.subtitle,
             preferredStyle: .alert
         )
-        let cancelTitle = configuration?.editProfileSheet.cancelLabel ?? "Cancel"
+        let cancelTitle = configuration?.editProfileSheet.cancelLabel ?? nativeLocalized("native.cancel", "Cancel")
         alert.addAction(UIAlertAction(title: cancelTitle, style: .cancel))
         alert.addAction(UIAlertAction(title: item.title, style: .destructive) { [weak self] _ in
             guard let self else { return }
@@ -1482,7 +1486,7 @@ private final class NativeProfilePhotoEditorViewController: UIViewController, PH
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemGroupedBackground
-        navigationItem.title = "Edit Photo"
+        navigationItem.title = nativeLocalized("native.editPhoto", "Edit Photo")
         navigationItem.leftBarButtonItem = iconBarButton(
             systemName: "xmark",
             action: UIAction { [weak self] _ in self?.cancelTapped() }
@@ -1509,10 +1513,10 @@ private final class NativeProfilePhotoEditorViewController: UIViewController, PH
         clearButton.addAction(UIAction { [weak self] _ in self?.removeAvatarTapped() }, for: .touchUpInside)
         clearButton.accessibilityLabel = copy.removeAvatarLabel
 
-        let photoButton = makeActionButton(title: "Photo", symbol: "photo.on.rectangle") { [weak self] in
+        let photoButton = makeActionButton(title: nativeLocalized("native.photo", "Photo"), symbol: "photo.on.rectangle") { [weak self] in
             self?.presentPhotoPicker()
         }
-        let initialsButton = makeActionButton(title: "Initials", symbol: "textformat.abc") { [weak self] in
+        let initialsButton = makeActionButton(title: nativeLocalized("native.initials", "Initials"), symbol: "textformat.abc") { [weak self] in
             self?.useInitialsTapped()
         }
 
@@ -2001,7 +2005,7 @@ private func iconBarButton(
 private extension UIViewController {
     func presentNativeValidationAlert(message: String) {
         let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        alert.addAction(UIAlertAction(title: nativeLocalized("native.ok", "OK"), style: .default))
         present(alert, animated: true)
     }
 }
@@ -2474,10 +2478,10 @@ private final class NativeSheetDropdownTableViewCell: UITableViewCell {
         selectedId: String?,
         options: [NativeSheetOption]
     ) -> String {
-        guard let selectedId else { return options.first?.label ?? "Select" }
+        guard let selectedId else { return options.first?.label ?? nativeLocalized("native.select", "Select") }
         return options.first { $0.id == selectedId }?.label
             ?? options.first?.label
-            ?? "Select"
+            ?? nativeLocalized("native.select", "Select")
     }
 }
 

@@ -299,7 +299,7 @@ List<ConduitContextMenuAction> buildConversationActionsWithFolders({
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.folder,
         materialIcon: Icons.drive_file_move_outline,
-        label: 'Move',
+        label: l10n.move,
         onBeforeClose: () => ConduitHaptics.selectionClick(),
         onSelected: moveConversation,
       ),
@@ -388,6 +388,7 @@ Future<_ConversationMoveTarget?> _showConversationMoveSheet(
   required List<Folder> folders,
   required String? currentFolderId,
 }) async {
+  final l10n = AppLocalizations.of(context)!;
   final treeEntries = folderTreeEntriesForTargets(
     folders: folders,
     omitFolderId: currentFolderId,
@@ -398,12 +399,12 @@ Future<_ConversationMoveTarget?> _showConversationMoveSheet(
     try {
       final selectedId = await NativeSheetBridge.instance
           .presentOptionsSelector(
-            title: 'Move to folder',
+            title: l10n.moveToFolder,
             options: [
               if (currentFolderId != null)
-                const NativeSheetOptionConfig(
+                NativeSheetOptionConfig(
                   id: noFolderId,
-                  label: 'No folder',
+                  label: l10n.noFolder,
                   sfSymbol: 'folder.badge.minus',
                 ),
               for (final entry in treeEntries)
@@ -448,7 +449,7 @@ Future<_ConversationMoveTarget?> _showConversationMoveSheet(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            'Move to folder',
+            l10n.moveToFolder,
             style: AppTypography.headlineSmallStyle.copyWith(
               color: theme.textPrimary,
               fontWeight: FontWeight.w700,
@@ -467,7 +468,7 @@ Future<_ConversationMoveTarget?> _showConversationMoveSheet(
                     icon: PlatformInfo.isIOS
                         ? CupertinoIcons.folder_badge_minus
                         : Icons.folder_off_outlined,
-                    label: 'No folder',
+                    label: l10n.noFolder,
                     onTap: () => Navigator.of(
                       sheetContext,
                     ).pop(const _ConversationMoveTarget(folderId: null)),

@@ -3,6 +3,8 @@ import 'dart:developer' as developer;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:conduit/l10n/app_localizations.dart';
+
 import '../../../core/models/channel_message.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/api_service.dart';
@@ -88,6 +90,7 @@ class _ThreadPanelState extends ConsumerState<ThreadPanel> {
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
     final api = ref.read(apiServiceProvider);
     final threadAsync = ref.watch(
       threadMessagesProvider(widget.channelId, widget.parentMessage.id),
@@ -135,7 +138,7 @@ class _ThreadPanelState extends ConsumerState<ThreadPanel> {
               ),
               child: ModernChatInput(
                 onSendMessage: _sendReply,
-                placeholder: 'Reply...',
+                placeholder: l10n.replyInputPlaceholder,
                 overflowButtonBuilder: widget.overflowButtonBuilder,
               ),
             ),
@@ -160,7 +163,7 @@ class _ThreadHeader extends StatelessWidget {
       child: Row(
         children: [
           Text(
-            'Thread',
+            AppLocalizations.of(context)!.thread,
             style: AppTypography.titleMediumStyle.copyWith(
               color: theme.textPrimary,
               fontWeight: FontWeight.w600,

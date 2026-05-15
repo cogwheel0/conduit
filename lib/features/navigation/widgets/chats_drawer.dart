@@ -1194,7 +1194,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         ConduitContextMenuAction(
           cupertinoIcon: CupertinoIcons.folder,
           materialIcon: Icons.drive_file_move_outline,
-          label: 'Move',
+          label: l10n.move,
           onBeforeClose: () => ConduitHaptics.selectionClick(),
           onSelected: () async {
             await _moveFolder(folder, folders);
@@ -1257,6 +1257,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
   }
 
   Future<void> _moveFolder(Folder folder, List<Folder> folders) async {
+    final l10n = AppLocalizations.of(context)!;
     final target = await _showFolderMoveSheet(folder, folders);
     if (!mounted || target == null) return;
 
@@ -1293,7 +1294,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         error: e,
         stackTrace: stackTrace,
       );
-      await _showDrawerError('Failed to move folder');
+      await _showDrawerError(l10n.failedToMoveFolder);
     }
   }
 
@@ -1301,6 +1302,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     Folder folder,
     List<Folder> folders,
   ) async {
+    final l10n = AppLocalizations.of(context)!;
     final currentParentId = _normalizeParentId(folder.parentId);
     final moveTargets = _folderMoveTargetEntries(folder, folders);
 
@@ -1309,12 +1311,12 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       try {
         final selectedId = await NativeSheetBridge.instance
             .presentOptionsSelector(
-              title: 'Move folder',
+              title: l10n.moveFolder,
               options: [
                 if (currentParentId != null)
-                  const NativeSheetOptionConfig(
+                  NativeSheetOptionConfig(
                     id: topLevelId,
-                    label: 'Top level',
+                    label: l10n.topLevel,
                     sfSymbol: 'folder.badge.minus',
                   ),
                 for (final entry in moveTargets)
@@ -1359,7 +1361,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              'Move folder',
+              l10n.moveFolder,
               style: AppTypography.headlineSmallStyle.copyWith(
                 color: theme.textPrimary,
                 fontWeight: FontWeight.w700,
@@ -1378,7 +1380,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
                       icon: Platform.isIOS
                           ? CupertinoIcons.folder_badge_minus
                           : Icons.folder_off_outlined,
-                      label: 'Top level',
+                      label: l10n.topLevel,
                       onTap: () => Navigator.of(
                         sheetContext,
                       ).pop(const _FolderMoveTarget(parentId: null)),
@@ -1411,13 +1413,14 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
   }
 
   Future<void> _renameFolder(BuildContext context, Folder folder) async {
+    final l10n = AppLocalizations.of(context)!;
     final newName = await ThemedDialogs.promptTextInput(
       context,
-      title: AppLocalizations.of(context)!.rename,
-      hintText: AppLocalizations.of(context)!.folderName,
+      title: l10n.rename,
+      hintText: l10n.folderName,
       initialValue: folder.name,
-      confirmText: AppLocalizations.of(context)!.save,
-      cancelText: AppLocalizations.of(context)!.cancel,
+      confirmText: l10n.save,
+      cancelText: l10n.cancel,
     );
 
     if (newName == null) return;
@@ -1444,11 +1447,14 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         error: e,
         stackTrace: stackTrace,
       );
-      await _showDrawerError('Failed to rename folder');
+      await _showDrawerError(l10n.failedToRenameFolder);
     }
   }
 
-  Future<void> _confirmAndDeleteFolder(BuildContext context, Folder folder) async {
+  Future<void> _confirmAndDeleteFolder(
+    BuildContext context,
+    Folder folder,
+  ) async {
     final l10n = AppLocalizations.of(context)!;
     final confirmed = await ThemedDialogs.confirm(
       context,

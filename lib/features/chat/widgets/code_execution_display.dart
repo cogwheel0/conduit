@@ -1,6 +1,7 @@
 import 'dart:io' show Platform;
 
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:conduit/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
@@ -22,6 +23,7 @@ class CodeExecutionListView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     if (executions.isEmpty) {
       return const SizedBox.shrink();
     }
@@ -36,12 +38,12 @@ class CodeExecutionListView extends StatelessWidget {
             final hasOutput = execution.result?.output != null;
             final label = execution.name?.isNotEmpty == true
                 ? execution.name!
-                : 'Execution';
+                : l10n.execution;
             final title = hasError
-                ? '$label failed'
+                ? l10n.codeExecutionFailed(label)
                 : hasOutput
                 ? label
-                : '$label…';
+                : l10n.codeExecutionRunning(label);
 
             return Padding(
               padding: const EdgeInsets.only(bottom: Spacing.xs),
@@ -64,6 +66,7 @@ class CodeExecutionListView extends StatelessWidget {
     BuildContext context,
     ChatCodeExecution execution,
   ) async {
+    final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
     if (Platform.isIOS) {
       try {
@@ -71,12 +74,12 @@ class CodeExecutionListView extends StatelessWidget {
         await NativeSheetBridge.instance.presentSheet(
           root: NativeSheetDetailConfig(
             id: 'code-execution-details',
-            title: execution.name ?? 'Code execution',
+            title: execution.name ?? l10n.codeExecutionTitle,
             items: [
               if (execution.language != null)
                 NativeSheetItemConfig(
                   id: 'code-language',
-                  title: 'Language',
+                  title: l10n.language,
                   subtitle: execution.language,
                   sfSymbol: 'chevron.left.forwardslash.chevron.right',
                   kind: NativeSheetItemKind.info,
@@ -84,7 +87,7 @@ class CodeExecutionListView extends StatelessWidget {
               if (execution.code != null && execution.code!.isNotEmpty)
                 NativeSheetItemConfig(
                   id: 'code-source',
-                  title: 'Code',
+                  title: l10n.code,
                   sfSymbol: 'doc.plaintext',
                   kind: NativeSheetItemKind.readOnlyText,
                   value: execution.code!,
@@ -92,7 +95,7 @@ class CodeExecutionListView extends StatelessWidget {
               if (result?.error != null)
                 NativeSheetItemConfig(
                   id: 'code-error',
-                  title: 'Error',
+                  title: l10n.error,
                   sfSymbol: 'exclamationmark.triangle',
                   kind: NativeSheetItemKind.readOnlyText,
                   value: result!.error!,
@@ -101,7 +104,7 @@ class CodeExecutionListView extends StatelessWidget {
               if (result?.output != null)
                 NativeSheetItemConfig(
                   id: 'code-output',
-                  title: 'Output',
+                  title: l10n.output,
                   sfSymbol: 'terminal',
                   kind: NativeSheetItemKind.readOnlyText,
                   value: result!.output!,
@@ -113,7 +116,7 @@ class CodeExecutionListView extends StatelessWidget {
                     title:
                         result.files[index].name ??
                         result.files[index].url ??
-                        'Download',
+                        l10n.download,
                     sfSymbol: 'doc',
                     url: result.files[index].url,
                   ),
@@ -155,7 +158,7 @@ class CodeExecutionListView extends StatelessWidget {
                     children: [
                       Expanded(
                         child: Text(
-                          execution.name ?? 'Code execution',
+                          execution.name ?? l10n.codeExecutionTitle,
                           style: AppTypography.bodyLargeStyle.copyWith(
                             fontWeight: FontWeight.w600,
                             color: theme.textPrimary,
@@ -171,7 +174,7 @@ class CodeExecutionListView extends StatelessWidget {
                   const SizedBox(height: Spacing.sm),
                   if (execution.language != null)
                     Text(
-                      'Language: ${execution.language}',
+                      l10n.languageWithValue(execution.language!),
                       style: AppTypography.bodyMediumStyle.copyWith(
                         color: theme.textSecondary,
                       ),
@@ -179,7 +182,7 @@ class CodeExecutionListView extends StatelessWidget {
                   const SizedBox(height: Spacing.sm),
                   if (execution.code != null && execution.code!.isNotEmpty) ...[
                     Text(
-                      'Code',
+                      l10n.code,
                       style: AppTypography.labelStyle.copyWith(
                         fontWeight: FontWeight.w600,
                         color: theme.textPrimary,
@@ -201,7 +204,7 @@ class CodeExecutionListView extends StatelessWidget {
                   ],
                   if (result?.error != null) ...[
                     Text(
-                      'Error',
+                      l10n.error,
                       style: AppTypography.labelStyle.copyWith(
                         fontWeight: FontWeight.w600,
                         color: theme.error,
@@ -213,7 +216,7 @@ class CodeExecutionListView extends StatelessWidget {
                   ],
                   if (result?.output != null) ...[
                     Text(
-                      'Output',
+                      l10n.output,
                       style: AppTypography.labelStyle.copyWith(
                         fontWeight: FontWeight.w600,
                         color: theme.textPrimary,
@@ -225,7 +228,7 @@ class CodeExecutionListView extends StatelessWidget {
                   ],
                   if (result?.files.isNotEmpty == true) ...[
                     Text(
-                      'Files',
+                      l10n.files,
                       style: AppTypography.labelStyle.copyWith(
                         fontWeight: FontWeight.w600,
                         color: theme.textPrimary,
@@ -233,7 +236,7 @@ class CodeExecutionListView extends StatelessWidget {
                     ),
                     const SizedBox(height: Spacing.xs),
                     ...result!.files.map((file) {
-                      final name = file.name ?? file.url ?? 'Download';
+                      final name = file.name ?? file.url ?? l10n.download;
                       return AdaptiveListTile(
                         padding: EdgeInsets.zero,
                         leading: const Icon(Icons.insert_drive_file_outlined),

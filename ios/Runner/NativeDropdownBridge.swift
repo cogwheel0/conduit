@@ -1,6 +1,10 @@
 import Flutter
 import UIKit
 
+private func dropdownLocalized(_ key: String, _ fallback: String) -> String {
+    NSLocalizedString(key, tableName: nil, bundle: .main, value: fallback, comment: "")
+}
+
 private struct NativeDropdownOption {
     let id: String
     let label: String
@@ -48,7 +52,7 @@ private struct NativeDropdownConfiguration {
 
         title = payload["title"] as? String
         message = payload["message"] as? String
-        cancelLabel = (payload["cancelLabel"] as? String) ?? "Cancel"
+        cancelLabel = (payload["cancelLabel"] as? String) ?? dropdownLocalized("native.cancel", "Cancel")
 
         if let rect = payload["sourceRect"] as? [String: Any],
            let x = rect["x"] as? NSNumber,
@@ -100,7 +104,7 @@ final class NativeDropdownBridge {
             else {
                 result(FlutterError(
                     code: "INVALID_ARGS",
-                    message: "Missing dropdown options",
+                    message: dropdownLocalized("native.missingDropdownOptions", "Missing dropdown options"),
                     details: nil
                 ))
                 return
@@ -119,7 +123,7 @@ final class NativeDropdownBridge {
         guard let presenter = topViewController() else {
             result(FlutterError(
                 code: "PRESENTATION_FAILED",
-                message: "Unable to present native dropdown",
+                message: dropdownLocalized("native.unablePresentDropdown", "Unable to present native dropdown"),
                 details: nil
             ))
             return

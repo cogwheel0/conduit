@@ -4,6 +4,11 @@ import Flutter
 import AppIntents
 import UIKit
 import WebKit
+
+private func appLocalized(_ key: String, _ fallback: String) -> String {
+    NSLocalizedString(key, tableName: nil, bundle: .main, value: fallback, comment: "")
+}
+
 /// Manages AVAudioSession for voice calls in the background.
 ///
 /// IMPORTANT: This manager is ONLY used for server-side STT (speech-to-text).
@@ -585,7 +590,7 @@ struct AskConduitIntent: AppIntent {
         -> some IntentResult & ReturnsValue<String> & OpensIntent
     {
         guard let channel = AppIntentMethodChannel.shared else {
-            throw AppIntentError.executionFailed("App not ready")
+            throw AppIntentError.executionFailed(appLocalized("appIntent.appNotReady", "App not ready"))
         }
 
         let parameters: [String: Any] = prompt?.isEmpty == false
@@ -597,12 +602,12 @@ struct AskConduitIntent: AppIntent {
         )
 
         if let success = result["success"] as? Bool, success {
-            let value = result["value"] as? String ?? "Opening chat"
+            let value = result["value"] as? String ?? appLocalized("appIntent.openingChat", "Opening chat")
             return .result(value: value)
         }
 
         let message = result["error"] as? String
-            ?? "Unable to open Conduit chat"
+            ?? appLocalized("appIntent.unableOpenChat", "Unable to open Conduit chat")
         throw AppIntentError.executionFailed(message)
     }
 }
@@ -620,7 +625,7 @@ struct StartVoiceCallIntent: AppIntent {
         -> some IntentResult & ReturnsValue<String> & OpensIntent
     {
         guard let channel = AppIntentMethodChannel.shared else {
-            throw AppIntentError.executionFailed("App not ready")
+            throw AppIntentError.executionFailed(appLocalized("appIntent.appNotReady", "App not ready"))
         }
 
         let result = await channel.invokeIntent(
@@ -629,12 +634,12 @@ struct StartVoiceCallIntent: AppIntent {
         )
 
         if let success = result["success"] as? Bool, success {
-            let value = result["value"] as? String ?? "Starting voice call"
+            let value = result["value"] as? String ?? appLocalized("appIntent.startingVoiceCall", "Starting voice call")
             return .result(value: value)
         }
 
         let message = result["error"] as? String
-            ?? "Unable to start voice call"
+            ?? appLocalized("appIntent.unableStartVoiceCall", "Unable to start voice call")
         throw AppIntentError.executionFailed(message)
     }
 }
@@ -658,7 +663,7 @@ struct ConduitSendTextIntent: AppIntent {
         -> some IntentResult & ReturnsValue<String> & OpensIntent
     {
         guard let channel = AppIntentMethodChannel.shared else {
-            throw AppIntentError.executionFailed("App not ready")
+            throw AppIntentError.executionFailed(appLocalized("appIntent.appNotReady", "App not ready"))
         }
 
         let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -668,11 +673,11 @@ struct ConduitSendTextIntent: AppIntent {
         )
 
         if let success = result["success"] as? Bool, success {
-            let value = result["value"] as? String ?? "Sent to Conduit"
+            let value = result["value"] as? String ?? appLocalized("appIntent.sentToConduit", "Sent to Conduit")
             return .result(value: value)
         }
 
-        let message = result["error"] as? String ?? "Unable to send text"
+        let message = result["error"] as? String ?? appLocalized("appIntent.unableSendText", "Unable to send text")
         throw AppIntentError.executionFailed(message)
     }
 }
@@ -696,7 +701,7 @@ struct ConduitSendUrlIntent: AppIntent {
         -> some IntentResult & ReturnsValue<String> & OpensIntent
     {
         guard let channel = AppIntentMethodChannel.shared else {
-            throw AppIntentError.executionFailed("App not ready")
+            throw AppIntentError.executionFailed(appLocalized("appIntent.appNotReady", "App not ready"))
         }
 
         let result = await channel.invokeIntent(
@@ -705,11 +710,11 @@ struct ConduitSendUrlIntent: AppIntent {
         )
 
         if let success = result["success"] as? Bool, success {
-            let value = result["value"] as? String ?? "Sent link to Conduit"
+            let value = result["value"] as? String ?? appLocalized("appIntent.sentLinkToConduit", "Sent link to Conduit")
             return .result(value: value)
         }
 
-        let message = result["error"] as? String ?? "Unable to send link"
+        let message = result["error"] as? String ?? appLocalized("appIntent.unableSendLink", "Unable to send link")
         throw AppIntentError.executionFailed(message)
     }
 }
@@ -733,12 +738,12 @@ struct ConduitSendImageIntent: AppIntent {
         -> some IntentResult & ReturnsValue<String> & OpensIntent
     {
         guard let channel = AppIntentMethodChannel.shared else {
-            throw AppIntentError.executionFailed("App not ready")
+            throw AppIntentError.executionFailed(appLocalized("appIntent.appNotReady", "App not ready"))
         }
 
         if let type = image.type, !type.conforms(to: .image) {
             throw AppIntentError.executionFailed(
-                "Only image files are supported."
+                appLocalized("appIntent.onlyImagesSupported", "Only image files are supported.")
             )
         }
 
@@ -755,11 +760,11 @@ struct ConduitSendImageIntent: AppIntent {
         )
 
         if let success = result["success"] as? Bool, success {
-            let value = result["value"] as? String ?? "Sent image to Conduit"
+            let value = result["value"] as? String ?? appLocalized("appIntent.sentImageToConduit", "Sent image to Conduit")
             return .result(value: value)
         }
 
-        let message = result["error"] as? String ?? "Unable to send image"
+        let message = result["error"] as? String ?? appLocalized("appIntent.unableSendImage", "Unable to send image")
         throw AppIntentError.executionFailed(message)
     }
 }

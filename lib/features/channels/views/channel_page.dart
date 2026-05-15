@@ -435,7 +435,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   // ---------------------------------------------------------------------------
 
   List<ConduitContextMenuAction> _buildMessageActions(ChannelMessage message) {
-    final l10n = AppLocalizations.of(context);
+    final l10n = AppLocalizations.of(context)!;
     final currentUserId = ref.read(currentUserProvider).value?.id;
     final isOwn = message.userId == currentUserId;
 
@@ -443,22 +443,22 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.smiley,
         materialIcon: Icons.emoji_emotions_outlined,
-        label: l10n?.channelMessageReact ?? 'React',
+        label: l10n.channelMessageReact,
         onSelected: () async => _showEmojiPicker(message),
       ),
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.reply,
         materialIcon: Icons.reply_outlined,
-        label: l10n?.channelMessageReply ?? 'Reply',
+        label: l10n.channelMessageReply,
         onSelected: () async => _setReplyTo(message),
       ),
       if (message.parentId == null)
         ConduitContextMenuAction(
           cupertinoIcon: CupertinoIcons.bubble_left_bubble_right,
           materialIcon: Icons.forum_outlined,
-          label:
-              'Thread'
-              '${message.replyCount > 0 ? " (${message.replyCount})" : ""}',
+          label: message.replyCount > 0
+              ? l10n.threadWithCount(message.replyCount)
+              : l10n.thread,
           onSelected: () async => _openThread(message),
         ),
       ConduitContextMenuAction(
@@ -466,20 +466,20 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
             ? CupertinoIcons.pin_slash
             : CupertinoIcons.pin,
         materialIcon: Icons.push_pin_outlined,
-        label: message.isPinned ? 'Unpin' : 'Pin',
+        label: message.isPinned ? l10n.unpin : l10n.pin,
         onSelected: () async => _togglePin(message),
       ),
       if (isOwn)
         ConduitContextMenuAction(
           cupertinoIcon: CupertinoIcons.pencil,
           materialIcon: Icons.edit_outlined,
-          label: l10n?.channelMessageEdit ?? 'Edit',
+          label: l10n.channelMessageEdit,
           onSelected: () async => _startEditingMessage(message),
         ),
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.delete,
         materialIcon: Icons.delete_outline,
-        label: l10n?.channelMessageDelete ?? 'Delete',
+        label: l10n.channelMessageDelete,
         destructive: true,
         onSelected: () async => _deleteMessage(message),
       ),
@@ -490,7 +490,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     if (Platform.isIOS) {
       try {
         final emoji = await NativeSheetBridge.instance.presentOptionsSelector(
-          title: 'React',
+          title: AppLocalizations.of(context)!.channelMessageReact,
           options: [
             for (final emoji in _reactionEmojis)
               NativeSheetOptionConfig(
@@ -798,7 +798,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   }
 
   Widget _buildScaffold(BuildContext context, ConduitThemeExtension theme) {
-    final l10n = AppLocalizations.of(context);
+    final l10n = AppLocalizations.of(context)!;
     final channel = ref.watch(activeChannelProvider);
     final messagesAsync = ref.watch(channelMessagesProvider(widget.channelId));
 
@@ -876,8 +876,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
                             const SizedBox(width: Spacing.sm),
                             Expanded(
                               child: Text(
-                                'Replying to '
-                                '${_replyToMessage!.userName}',
+                                l10n.replyingToUser(_replyToMessage!.userName),
                                 style: AppTypography.bodySmallStyle.copyWith(
                                   color: theme.textSecondary,
                                 ),
@@ -900,7 +899,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
                     RepaintBoundary(
                       child: ModernChatInput(
                         onSendMessage: _sendMessage,
-                        placeholder: 'Type here...',
+                        placeholder: l10n.channelInputPlaceholder,
                         overflowButtonBuilder: _buildAttachmentButton,
                       ),
                     ),
@@ -1034,6 +1033,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     final api = ref.read(apiServiceProvider);
     if (api == null) return;
     final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
 
     try {
       final result = await api.getChannelMembers(widget.channelId);
@@ -1046,12 +1046,12 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
           await NativeSheetBridge.instance.presentSheet(
             root: NativeSheetDetailConfig(
               id: 'channel-members',
-              title: 'Members ($total)',
+              title: l10n.channelMembersTitle(total),
               items: [
                 for (final user in users.cast<Map<String, dynamic>>())
                   NativeSheetItemConfig(
                     id: 'member-${user['id'] ?? user['name'] ?? users.indexOf(user)}',
-                    title: user['name'] as String? ?? 'Unknown',
+                    title: user['name'] as String? ?? l10n.channelUnknownMember,
                     subtitle: user['role'] as String?,
                     sfSymbol: 'person.circle',
                     kind: NativeSheetItemKind.info,
@@ -1084,7 +1084,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
               Padding(
                 padding: const EdgeInsets.all(Spacing.md),
                 child: Text(
-                  'Members ($total)',
+                  l10n.channelMembersTitle(total),
                   style: AppTypography.titleMediumStyle.copyWith(
                     color: theme.textPrimary,
                     fontWeight: FontWeight.w600,
@@ -1098,7 +1098,8 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
                   itemCount: users.length,
                   itemBuilder: (ctx, index) {
                     final u = users[index] as Map<String, dynamic>;
-                    final name = u['name'] as String? ?? 'Unknown';
+                    final name =
+                        u['name'] as String? ?? l10n.channelUnknownMember;
                     final role = u['role'] as String? ?? '';
                     return ListTile(
                       leading: CircleAvatar(
@@ -1337,7 +1338,7 @@ class _MessageBubble extends StatelessWidget {
                         ),
                       ),
                       child: Text(
-                        'Reply',
+                        AppLocalizations.of(context)!.channelMessageReply,
                         style: AppTypography.bodySmallStyle.copyWith(
                           color: theme.textSecondary,
                           fontStyle: FontStyle.italic,
@@ -1357,7 +1358,7 @@ class _MessageBubble extends StatelessWidget {
                           ),
                           const SizedBox(width: 4),
                           Text(
-                            'Pinned',
+                            AppLocalizations.of(context)!.pinned,
                             style: AppTypography.bodySmallStyle.copyWith(
                               color: theme.textPrimary.withValues(alpha: 0.6),
                               height: 1.3,
