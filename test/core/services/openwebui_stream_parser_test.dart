@@ -64,6 +64,99 @@ void main() {
       },
     );
 
+    test('parses typed top-level error envelopes as errors', () async {
+      final updates = await parseOpenWebUIStream(
+        Stream<List<int>>.fromIterable([
+          utf8.encode(
+            'data: ${jsonEncode({
+              'type': 'error',
+              'error': {'message': 'boom'},
+            })}\n\n',
+          ),
+        ]),
+      ).toList();
+
+      check(updates).has((it) => it.length, 'length').equals(1);
+      check(updates[0])
+          .isA<OpenWebUIErrorUpdate>()
+          .has((u) => u.error['message'], 'message')
+          .equals('boom');
+    });
+
+    test('parses OpenWebUI event emitter frames', () async {
+      final citation = {
+        'type': 'citation',
+        'data': {
+          'document': [''],
+          'metadata': [
+            {'source': 'https://example.com'},
+          ],
+          'source': {'name': 'Example Title'},
+        },
+      };
+      final status = {
+        'type': 'status',
+        'data': {'description': 'Searching', 'done': false},
+      };
+
+      final updates = await parseOpenWebUIStream(
+        Stream<List<int>>.fromIterable([
+          utf8.encode('data: ${jsonEncode({'event': citation})}\n\n'),
+          utf8.encode('data: ${jsonEncode(status)}\n\n'),
+        ]),
+      ).toList();
+
+      check(updates).has((it) => it.length, 'length').equals(2);
+      check(updates[0])
+          .isA<OpenWebUIEventUpdate>()
+          .has((u) => u.type, 'type')
+          .equals('citation');
+      check(updates[0])
+          .isA<OpenWebUIEventUpdate>()
+          .has((u) {
+            final data = u.data as Map<String, dynamic>;
+            final source = data['source'] as Map<String, dynamic>;
+            return source['name'];
+          }, 'source.name')
+          .equals('Example Title');
+      check(
+        updates[1],
+      ).isA<OpenWebUIEventUpdate>().has((u) => u.type, 'type').equals('status');
+    });
+
+    test('preserves direct top-level event payloads', () async {
+      final updates = await parseOpenWebUIStream(
+        Stream<List<int>>.fromIterable([
+          utf8.encode(
+            'data: ${jsonEncode({'type': 'status', 'description': 'Searching', 'done': false})}\n\n',
+          ),
+          utf8.encode(
+            'data: ${jsonEncode({
+              'type': 'citation',
+              'source': {'name': 'Example Title'},
+            })}\n\n',
+          ),
+        ]),
+      ).toList();
+
+      check(updates).has((it) => it.length, 'length').equals(2);
+      check(updates[0])
+          .isA<OpenWebUIEventUpdate>()
+          .has(
+            (u) => (u.data as Map<String, dynamic>)['description'],
+            'description',
+          )
+          .equals('Searching');
+      check(updates[1])
+          .isA<OpenWebUIEventUpdate>()
+          .has((u) {
+            final data = u.data as Map<String, dynamic>;
+            final source = data['source'] as Map<String, dynamic>;
+            return source['name'];
+          }, 'source.name')
+          .equals('Example Title');
+    });
+
     test(
       'parses trailing final frame without an extra chunk boundary',
       () async {

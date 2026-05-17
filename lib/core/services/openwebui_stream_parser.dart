@@ -52,6 +52,21 @@ final class OpenWebUISourcesUpdate extends OpenWebUIStreamUpdate {
   final List<dynamic> sources;
 }
 
+/// A custom OpenWebUI event-emitter payload.
+///
+/// Tools and filters can send payloads such as
+/// `{"type":"citation","data":{...}}` through `__event_emitter__`. Some
+/// streaming middleware forwards these under an `event` envelope.
+final class OpenWebUIEventUpdate extends OpenWebUIStreamUpdate {
+  const OpenWebUIEventUpdate({required this.type, this.data});
+
+  /// Event type, for example `status`, `citation`, or `source`.
+  final String type;
+
+  /// Raw event data payload.
+  final Object? data;
+}
+
 /// The selected model ID for arena/routing flows.
 final class OpenWebUISelectedModelUpdate extends OpenWebUIStreamUpdate {
   const OpenWebUISelectedModelUpdate(this.selectedModelId);
@@ -146,8 +161,23 @@ String _extractData(String frame) {
 Stream<OpenWebUIStreamUpdate> _parseFrameData(String data) async* {
   final parsed = jsonDecode(data) as Map<String, dynamic>;
 
+  final envelopedEvent = parsed['event'];
+  if (envelopedEvent is Map) {
+    final event = _eventUpdateFromMap(envelopedEvent);
+    if (event != null) {
+      yield event;
+      return;
+    }
+  }
+
   if (parsed['error'] != null) {
     yield OpenWebUIErrorUpdate(parsed['error'] as Map<String, dynamic>);
+    return;
+  }
+
+  final directEvent = _eventUpdateFromMap(parsed);
+  if (directEvent != null) {
+    yield directEvent;
     return;
   }
   if (parsed['sources'] != null) {
@@ -188,4 +218,21 @@ Stream<OpenWebUIStreamUpdate> _parseFrameData(String data) async* {
   if (content.isNotEmpty) {
     yield OpenWebUIContentDelta(content);
   }
+}
+
+OpenWebUIEventUpdate? _eventUpdateFromMap(Map<dynamic, dynamic> raw) {
+  final type = raw['type']?.toString();
+  if (type == null || type.isEmpty || type.startsWith('response.')) {
+    return null;
+  }
+
+  final data = raw.containsKey('data')
+      ? raw['data']
+      : raw.entries
+            .where((entry) => entry.key?.toString() != 'type')
+            .fold<Map<String, dynamic>>(<String, dynamic>{}, (map, entry) {
+              map[entry.key.toString()] = entry.value;
+              return map;
+            });
+  return OpenWebUIEventUpdate(type: type, data: data);
 }

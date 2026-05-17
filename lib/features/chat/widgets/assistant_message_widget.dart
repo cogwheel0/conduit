@@ -795,10 +795,11 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   }
 
   Widget _buildDocumentationMessage() {
-    final visibleStatusHistory = widget.message.statusHistory
-        .where((status) => status.hidden != true)
-        .toList(growable: false);
-    final hasStatusTimeline = visibleStatusHistory.isNotEmpty;
+    final displayStatusHistory = filterVisibleStatusUpdates(
+      widget.message.statusHistory,
+      isStreaming: widget.isStreaming,
+    );
+    final hasStatusTimeline = displayStatusHistory.isNotEmpty;
     final activeCodeExecutions = _resolveActiveCodeExecutions();
     final hasCodeExecutions = activeCodeExecutions.isNotEmpty;
     final activeFollowUps = _resolveActiveFollowUps();
@@ -848,7 +849,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
                 if (hasStatusTimeline) ...[
                   StreamingStatusWidget(
-                    updates: visibleStatusHistory,
+                    updates: displayStatusHistory,
                     isStreaming: widget.isStreaming,
                   ),
                   const SizedBox(height: Spacing.xs),

@@ -21,6 +21,7 @@ import 'package:flutter_test/flutter_test.dart';
 ApiService _buildFakeApi({
   /// Optional canned response for GET /api/v1/chats/:id (poll recovery).
   Map<String, dynamic>? pollResponse,
+  List<Map<String, dynamic>>? pollResponses,
 }) {
   final api = ApiService(
     serverConfig: const ServerConfig(
@@ -30,17 +31,22 @@ ApiService _buildFakeApi({
     ),
     workerManager: WorkerManager(),
   );
-  api.dio.httpClientAdapter = _StubAdapter(pollResponse: pollResponse);
+  api.dio.httpClientAdapter = _StubAdapter(
+    pollResponse: pollResponse,
+    pollResponses: pollResponses,
+  );
   api.dio.interceptors.clear();
   return api;
 }
 
 /// Adapter that optionally returns a canned poll response.
 class _StubAdapter implements HttpClientAdapter {
-  _StubAdapter({this.pollResponse});
+  _StubAdapter({this.pollResponse, this.pollResponses});
 
   final Map<String, dynamic>? pollResponse;
+  final List<Map<String, dynamic>>? pollResponses;
   final requests = <({String method, String path})>[];
+  var _getResponseIndex = 0;
 
   int requestCount({required String method, required String path}) {
     return requests
@@ -55,14 +61,29 @@ class _StubAdapter implements HttpClientAdapter {
     Future<void>? cancelOnError,
   ) async {
     requests.add((method: options.method, path: options.path));
-    if (pollResponse != null && options.method == 'GET') {
-      return ResponseBody(
-        Stream.value(utf8.encode(jsonEncode(pollResponse))),
-        200,
-        headers: {
-          'content-type': ['application/json'],
-        },
-      );
+    if (options.method == 'GET') {
+      if (pollResponses != null && pollResponses!.isNotEmpty) {
+        final responseIndex = _getResponseIndex < pollResponses!.length
+            ? _getResponseIndex
+            : pollResponses!.length - 1;
+        _getResponseIndex++;
+        return ResponseBody(
+          Stream.value(utf8.encode(jsonEncode(pollResponses![responseIndex]))),
+          200,
+          headers: {
+            'content-type': ['application/json'],
+          },
+        );
+      }
+      if (pollResponse != null) {
+        return ResponseBody(
+          Stream.value(utf8.encode(jsonEncode(pollResponse))),
+          200,
+          headers: {
+            'content-type': ['application/json'],
+          },
+        );
+      }
     }
     // Default: 200 OK, empty JSON
     return ResponseBody(
@@ -76,6 +97,55 @@ class _StubAdapter implements HttpClientAdapter {
 
   @override
   void close({bool force = false}) {}
+}
+
+Map<String, dynamic> _serverAssistantMessage({
+  String id = 'msg-1',
+  String content = '',
+  bool done = true,
+  Map<String, dynamic>? error,
+  List<String>? followUps,
+  List<Map<String, dynamic>>? statusHistory,
+  List<Map<String, dynamic>>? sources,
+}) {
+  return {
+    'id': id,
+    'role': 'assistant',
+    'content': content,
+    'timestamp': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+    'done': done,
+    'error': ?error,
+    'follow_ups': ?followUps,
+    'statusHistory': ?statusHistory,
+    'sources': ?sources,
+  };
+}
+
+Map<String, dynamic> _serverUserMessage({
+  required String id,
+  required String content,
+}) {
+  return {
+    'id': id,
+    'role': 'user',
+    'content': content,
+    'timestamp': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+  };
+}
+
+Map<String, dynamic> _serverConversationResponse({
+  required List<Map<String, dynamic>> messages,
+  String id = 'conv-1',
+  String title = 'Chat',
+}) {
+  final timestamp = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+  return {
+    'id': id,
+    'title': title,
+    'created_at': timestamp,
+    'updated_at': timestamp,
+    'chat': {'messages': messages},
+  };
 }
 
 /// A [WorkerManager] that runs tasks synchronously (no isolate).
@@ -365,6 +435,8 @@ void main() {
     // -----------------------------------------------------------------------
     test('httpStream appends deltas and finishes once on DONE', () async {
       final log = _CallbackLog();
+      final api = _buildFakeApi();
+      final adapter = api.dio.httpClientAdapter as _StubAdapter;
       final byteStream = Stream<List<int>>.fromIterable([
         _sseFrame({
           'choices': [
@@ -391,14 +463,83 @@ void main() {
           abort: () async {},
         ),
         log: log,
+        api: api,
       );
 
       // Allow stream processing
       await pumpMicrotasks();
       await pumpMicrotasks();
       await pumpMicrotasks();
+      await Future<void>.delayed(const Duration(milliseconds: 10));
 
       check(log.appendedChunks).deepEquals(['Hello', ' world']);
+      check(log.finishCount).equals(1);
+      check(
+        adapter.requestCount(method: 'POST', path: '/api/chat/completed'),
+      ).equals(1);
+    });
+
+    test('httpStream handles emitter delta and status events', () async {
+      final log = _CallbackLog();
+      final byteStream = Stream<List<int>>.fromIterable([
+        _sseFrame({
+          'event': {
+            'type': 'chat:message:delta',
+            'data': {'content': 'Hello'},
+          },
+        }),
+        _sseFrame({
+          'type': 'event:message:delta',
+          'data': {'content': ' world'},
+        }),
+        _sseFrame({
+          'type': 'message',
+          'data': {'content': '!'},
+        }),
+        _sseFrame({
+          'type': 'status',
+          'data': {
+            'action': 'knowledge_search',
+            'description': 'Searching',
+            'done': false,
+          },
+        }),
+        _sseFrame({
+          'type': 'event:status',
+          'data': {
+            'status': 'Generating image...',
+            'description': 'Generating image...',
+          },
+        }),
+        _sseDone(),
+      ]);
+
+      _attach(
+        session: ChatCompletionSession.httpStream(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          byteStream: byteStream,
+          abort: () async {},
+        ),
+        log: log,
+        activeConversationId: 'local:temp',
+      );
+
+      await pumpMicrotasks();
+      await pumpMicrotasks();
+      await pumpMicrotasks();
+
+      final lastMsg = log.messages.last;
+      check(log.appendedChunks).deepEquals(['Hello', ' world', '!']);
+      check(lastMsg.content).equals('Hello world!');
+      check(lastMsg.statusHistory.length).equals(2);
+      check(lastMsg.statusHistory.first.description).equals('Searching');
+      check(
+        lastMsg.statusHistory.last.description,
+      ).equals('Generating image...');
+      check(lastMsg.metadata).isNotNull();
+      check(lastMsg.metadata!['status']).equals('Generating image...');
+      check(log.messageByIdUpdates.length).equals(2);
       check(log.finishCount).equals(1);
     });
 
@@ -747,7 +888,19 @@ void main() {
         check(log.messages.last.isStreaming).isTrue();
 
         log.messages = [
-          ...log.messages,
+          ChatMessage(
+            id: 'msg-1',
+            role: 'assistant',
+            content: '',
+            timestamp: DateTime.now(),
+            isStreaming: true,
+          ),
+          ChatMessage(
+            id: 'user-2-local',
+            role: 'user',
+            content: 'New prompt',
+            timestamp: DateTime.now(),
+          ),
           ChatMessage(
             id: 'msg-2',
             role: 'assistant',
@@ -872,7 +1025,19 @@ void main() {
         await pumpMicrotasks();
 
         log.messages = [
-          ...log.messages,
+          ChatMessage(
+            id: 'msg-1',
+            role: 'assistant',
+            content: '',
+            timestamp: DateTime.now(),
+            isStreaming: true,
+          ),
+          ChatMessage(
+            id: 'user-2-local',
+            role: 'user',
+            content: 'New prompt',
+            timestamp: DateTime.now(),
+          ),
           ChatMessage(
             id: 'msg-2',
             role: 'assistant',
@@ -1186,6 +1351,654 @@ void main() {
       check(log.messageUpdaters.length).isGreaterOrEqual(1);
       check(log.finishCount).equals(1);
     });
+
+    test('httpStream applies typed top-level error envelope', () async {
+      final log = _CallbackLog();
+
+      final byteStream = Stream<List<int>>.fromIterable([
+        _sseFrame({
+          'type': 'error',
+          'error': {'message': 'typed rate limited'},
+        }),
+        _sseDone(),
+      ]);
+
+      _attach(
+        session: ChatCompletionSession.httpStream(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          byteStream: byteStream,
+          abort: () async {},
+        ),
+        log: log,
+        activeConversationId: 'local:temp',
+      );
+
+      await pumpMicrotasks();
+      await pumpMicrotasks();
+
+      final lastMsg = log.messages.last;
+      check(lastMsg.error).isNotNull();
+      check(lastMsg.error!.content).equals('typed rate limited');
+      check(log.finishCount).equals(1);
+    });
+
+    test(
+      'httpStream done recovery backfills delayed persisted error and snapshot state',
+      () async {
+        final log = _CallbackLog();
+        final incompleteResponse = _serverConversationResponse(
+          messages: [_serverAssistantMessage(content: '', followUps: const [])],
+        );
+        final persistedResponse = _serverConversationResponse(
+          messages: [
+            _serverAssistantMessage(
+              content: '',
+              error: const {'content': 'Persisted backend error'},
+              followUps: const ['Ask again'],
+              statusHistory: const [
+                {'description': 'Searching', 'done': true},
+              ],
+              sources: const [
+                {
+                  'source': {'name': 'doc', 'url': 'https://example.com/doc'},
+                  'document': ['snippet'],
+                },
+              ],
+            ),
+          ],
+        );
+        final api = _buildFakeApi(
+          pollResponses: [
+            incompleteResponse,
+            persistedResponse,
+            persistedResponse,
+          ],
+        );
+        final adapter = api.dio.httpClientAdapter as _StubAdapter;
+
+        _attach(
+          session: ChatCompletionSession.httpStream(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            conversationId: 'conv-1',
+            byteStream: Stream<List<int>>.fromIterable([_sseDone()]),
+            abort: () async {},
+          ),
+          log: log,
+          api: api,
+          activeConversationId: 'conv-1',
+        );
+
+        await pumpMicrotasks();
+        await Future<void>.delayed(const Duration(milliseconds: 2600));
+        for (var i = 0; i < 5; i++) {
+          await pumpMicrotasks();
+        }
+
+        final lastMsg = log.messages.last;
+        check(lastMsg.error).isNotNull();
+        check(lastMsg.error!.content).equals('Persisted backend error');
+        check(lastMsg.followUps).deepEquals(['Ask again']);
+        check(lastMsg.statusHistory).has((it) => it.length, 'length').equals(1);
+        check(lastMsg.statusHistory.single.description).equals('Searching');
+        check(lastMsg.sources).has((it) => it.length, 'length').equals(1);
+        check(lastMsg.sources.single.url).equals('https://example.com/doc');
+        check(log.finishCount).equals(1);
+        check(
+          adapter.requestCount(method: 'GET', path: '/api/v1/chats/conv-1'),
+        ).equals(3);
+      },
+    );
+
+    test(
+      'httpStream artifact-only done backfills delayed persisted text',
+      () async {
+        final log = _CallbackLog();
+        final incompleteResponse = _serverConversationResponse(
+          messages: [_serverAssistantMessage(content: '')],
+        );
+        final persistedResponse = _serverConversationResponse(
+          messages: [_serverAssistantMessage(content: 'Final answer')],
+        );
+        final api = _buildFakeApi(
+          pollResponses: [
+            incompleteResponse,
+            persistedResponse,
+            persistedResponse,
+          ],
+        );
+
+        _attach(
+          session: ChatCompletionSession.httpStream(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            conversationId: 'conv-1',
+            byteStream: Stream<List<int>>.fromIterable([
+              _sseFrame({
+                'output': [
+                  {
+                    'type': 'message',
+                    'id': 'out-1',
+                    'status': 'complete',
+                    'role': 'assistant',
+                    'content': [
+                      {'type': 'output_text', 'text': 'tool output'},
+                    ],
+                  },
+                ],
+              }),
+              _sseDone(),
+            ]),
+            abort: () async {},
+          ),
+          log: log,
+          api: api,
+          activeConversationId: 'conv-1',
+        );
+
+        await pumpMicrotasks();
+        await pumpMicrotasks();
+
+        check(log.finishCount).equals(1);
+        check(log.messages.last.content).equals('');
+
+        await Future<void>.delayed(const Duration(milliseconds: 2600));
+        for (var i = 0; i < 5; i++) {
+          await pumpMicrotasks();
+        }
+
+        check(log.messages.last.content).equals('Final answer');
+        check(log.finishCount).equals(1);
+      },
+    );
+
+    test(
+      'httpStream event completion done avoids premature-end recovery without [DONE]',
+      () async {
+        final log = _CallbackLog();
+        final api = _buildFakeApi(
+          pollResponse: _serverConversationResponse(
+            messages: [_serverAssistantMessage(content: 'Recovered answer')],
+          ),
+        );
+        final adapter = api.dio.httpClientAdapter as _StubAdapter;
+
+        _attach(
+          session: ChatCompletionSession.httpStream(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            conversationId: 'conv-1',
+            byteStream: Stream<List<int>>.fromIterable([
+              _sseFrame({
+                'type': 'chat:completion',
+                'data': {'done': true},
+              }),
+            ]),
+            abort: () async {},
+          ),
+          log: log,
+          api: api,
+          activeConversationId: 'conv-1',
+        );
+
+        await pumpMicrotasks();
+        await pumpMicrotasks();
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        await pumpMicrotasks();
+
+        check(
+          adapter.requestCount(method: 'GET', path: '/api/v1/chats/conv-1'),
+        ).equals(0);
+        check(log.finishCount).equals(0);
+        check(log.messages.last.content).equals('');
+
+        await Future<void>.delayed(const Duration(milliseconds: 2600));
+        for (var i = 0; i < 5; i++) {
+          await pumpMicrotasks();
+        }
+
+        check(log.messages.last.content).equals('Recovered answer');
+        check(log.finishCount).equals(1);
+      },
+    );
+
+    test(
+      'httpStream event completion done plus [DONE] only schedules completion side effects once',
+      () async {
+        final log = _CallbackLog();
+        final incompleteResponse = _serverConversationResponse(
+          messages: [_serverAssistantMessage(content: '')],
+        );
+        final persistedResponse = _serverConversationResponse(
+          messages: [_serverAssistantMessage(content: 'Final answer')],
+        );
+        final api = _buildFakeApi(
+          pollResponses: [
+            incompleteResponse,
+            persistedResponse,
+            persistedResponse,
+          ],
+        );
+        final adapter = api.dio.httpClientAdapter as _StubAdapter;
+
+        _attach(
+          session: ChatCompletionSession.httpStream(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            conversationId: 'conv-1',
+            byteStream: Stream<List<int>>.fromIterable([
+              _sseFrame({
+                'type': 'chat:completion',
+                'data': {'done': true},
+              }),
+              _sseDone(),
+            ]),
+            abort: () async {},
+          ),
+          log: log,
+          api: api,
+          activeConversationId: 'conv-1',
+        );
+
+        await pumpMicrotasks();
+        await pumpMicrotasks();
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        await pumpMicrotasks();
+
+        check(
+          adapter.requestCount(method: 'POST', path: '/api/chat/completed'),
+        ).equals(1);
+        check(log.finishCount).equals(0);
+        check(log.messages.last.content).equals('');
+
+        await Future<void>.delayed(const Duration(milliseconds: 2600));
+        for (var i = 0; i < 5; i++) {
+          await pumpMicrotasks();
+        }
+
+        check(
+          adapter.requestCount(method: 'POST', path: '/api/chat/completed'),
+        ).equals(1);
+        check(
+          adapter.requestCount(method: 'GET', path: '/api/v1/chats/conv-1'),
+        ).equals(3);
+        check(log.messages.last.content).equals('Final answer');
+        check(log.finishCount).equals(1);
+      },
+    );
+
+    test(
+      'httpStream latest blank assistant does not adopt prior persisted answer when server has not created the new assistant yet',
+      () async {
+        final log = _CallbackLog(
+          initialMessages: [
+            ChatMessage(
+              id: 'user-1',
+              role: 'user',
+              content: 'Old prompt',
+              timestamp: DateTime.now(),
+            ),
+            ChatMessage(
+              id: 'assistant-old',
+              role: 'assistant',
+              content: 'Old answer',
+              timestamp: DateTime.now(),
+            ),
+            ChatMessage(
+              id: 'user-2',
+              role: 'user',
+              content: 'New prompt',
+              timestamp: DateTime.now(),
+            ),
+            ChatMessage(
+              id: 'msg-2',
+              role: 'assistant',
+              content: '',
+              timestamp: DateTime.now(),
+              isStreaming: true,
+            ),
+          ],
+        );
+        final api = _buildFakeApi(
+          pollResponse: _serverConversationResponse(
+            messages: [
+              _serverUserMessage(id: 'server-user-1', content: 'Old prompt'),
+              _serverAssistantMessage(
+                id: 'server-assistant-old',
+                content: 'Old answer',
+                followUps: const ['Old follow-up'],
+                statusHistory: const [
+                  {'description': 'Old status'},
+                ],
+              ),
+              _serverUserMessage(id: 'server-user-2', content: 'New prompt'),
+            ],
+          ),
+        );
+
+        _attach(
+          session: ChatCompletionSession.httpStream(
+            messageId: 'msg-2',
+            sessionId: 'sess-2',
+            conversationId: 'conv-1',
+            byteStream: Stream<List<int>>.fromIterable([_sseDone()]),
+            abort: () async {},
+          ),
+          log: log,
+          api: api,
+          activeConversationId: 'conv-1',
+          assistantMessageId: 'msg-2',
+        );
+
+        await pumpMicrotasks();
+        await Future<void>.delayed(const Duration(milliseconds: 2600));
+        for (var i = 0; i < 5; i++) {
+          await pumpMicrotasks();
+        }
+
+        check(log.messages[1].content).equals('Old answer');
+        check(log.messages[3].id).equals('msg-2');
+        check(log.messages[3].content).equals('');
+        check(log.messages[3].followUps).isEmpty();
+        check(log.messages[3].statusHistory).isEmpty();
+        check(log.finishCount).equals(1);
+      },
+    );
+
+    test(
+      'httpStream artifact-only done recovers original assistant after new prompt starts with partial local history and re-keyed ids',
+      () async {
+        final log = _CallbackLog();
+        final incompleteResponse = _serverConversationResponse(
+          messages: [_serverAssistantMessage(id: 'server-msg-1', content: '')],
+        );
+        final persistedResponse = _serverConversationResponse(
+          messages: [
+            _serverAssistantMessage(
+              id: 'server-old-1',
+              content: 'Older persisted answer that should stay untouched',
+              followUps: const ['Older follow-up'],
+              statusHistory: const [
+                {'description': 'Older status'},
+              ],
+              sources: const [
+                {
+                  'source': {
+                    'name': 'Older doc',
+                    'url': 'https://example.com/older',
+                  },
+                  'document': ['Older snippet'],
+                },
+              ],
+            ),
+            _serverUserMessage(id: 'server-user-1', content: 'Old prompt'),
+            _serverAssistantMessage(
+              id: 'server-msg-1',
+              content: 'Recovered A',
+              followUps: const ['Recovered follow-up'],
+              statusHistory: const [
+                {'description': 'Recovered status'},
+              ],
+              sources: const [
+                {
+                  'source': {
+                    'name': 'Recovered doc',
+                    'url': 'https://example.com/recovered',
+                  },
+                  'document': ['Recovered snippet'],
+                },
+              ],
+            ),
+            _serverUserMessage(id: 'server-user-2', content: 'New prompt'),
+            _serverAssistantMessage(
+              id: 'server-msg-2',
+              content: 'Newer reply',
+              followUps: const ['Newer follow-up'],
+            ),
+          ],
+        );
+        final api = _buildFakeApi(
+          pollResponses: [
+            incompleteResponse,
+            persistedResponse,
+            persistedResponse,
+          ],
+        );
+
+        _attach(
+          session: ChatCompletionSession.httpStream(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            conversationId: 'conv-1',
+            byteStream: Stream<List<int>>.fromIterable([
+              _sseFrame({
+                'output': [
+                  {
+                    'type': 'message',
+                    'id': 'out-1',
+                    'status': 'complete',
+                    'role': 'assistant',
+                    'content': [
+                      {'type': 'output_text', 'text': 'tool output'},
+                    ],
+                  },
+                ],
+              }),
+              _sseDone(),
+            ]),
+            abort: () async {},
+          ),
+          log: log,
+          api: api,
+          activeConversationId: 'conv-1',
+        );
+
+        await pumpMicrotasks();
+        await pumpMicrotasks();
+
+        log.messages = [
+          ChatMessage(
+            id: 'msg-1',
+            role: 'assistant',
+            content: '',
+            timestamp: DateTime.now(),
+            isStreaming: true,
+          ),
+          ChatMessage(
+            id: 'user-2-local',
+            role: 'user',
+            content: 'New prompt',
+            timestamp: DateTime.now(),
+          ),
+          ChatMessage(
+            id: 'msg-2',
+            role: 'assistant',
+            content: '',
+            timestamp: DateTime.now(),
+            isStreaming: true,
+          ),
+        ];
+
+        await Future<void>.delayed(const Duration(milliseconds: 2600));
+        for (var i = 0; i < 5; i++) {
+          await pumpMicrotasks();
+        }
+
+        check(log.messages[0].id).equals('msg-1');
+        check(log.messages[0].content).equals('Recovered A');
+        check(log.messages[0].followUps).deepEquals(['Recovered follow-up']);
+        check(
+          log.messages[0].statusHistory,
+        ).has((it) => it.length, 'length').equals(1);
+        check(
+          log.messages[0].statusHistory.single.description,
+        ).equals('Recovered status');
+        check(
+          log.messages[0].sources,
+        ).has((it) => it.length, 'length').equals(1);
+        check(
+          log.messages[0].sources.single.url,
+        ).equals('https://example.com/recovered');
+        check(log.messages[1].role).equals('user');
+        check(log.messages[1].content).equals('New prompt');
+        check(log.messages[2].id).equals('msg-2');
+        check(log.messages[2].content).equals('');
+        check(log.messages[2].followUps).isEmpty();
+        check(log.messages[2].statusHistory).isEmpty();
+        check(log.messages[2].sources).isEmpty();
+        check(log.messages[2].isStreaming).isTrue();
+      },
+    );
+
+    test(
+      'httpStream snapshot refresh drops stale pending status rows after finish',
+      () async {
+        final log = _CallbackLog(
+          initialMessages: [
+            ChatMessage(
+              id: 'msg-1',
+              role: 'assistant',
+              content: 'Answer',
+              timestamp: DateTime.now(),
+              isStreaming: true,
+              statusHistory: const [
+                ChatStatusUpdate(description: 'Searching...', done: false),
+              ],
+            ),
+          ],
+        );
+        final api = _buildFakeApi(
+          pollResponse: _serverConversationResponse(
+            messages: [_serverAssistantMessage(content: 'Answer')],
+          ),
+        );
+
+        _attach(
+          session: ChatCompletionSession.httpStream(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            conversationId: 'conv-1',
+            byteStream: Stream<List<int>>.fromIterable([_sseDone()]),
+            abort: () async {},
+          ),
+          log: log,
+          api: api,
+          activeConversationId: 'conv-1',
+        );
+
+        await pumpMicrotasks();
+        await Future<void>.delayed(const Duration(milliseconds: 700));
+        for (var i = 0; i < 3; i++) {
+          await pumpMicrotasks();
+        }
+
+        check(log.finishCount).equals(1);
+        check(log.messages.last.statusHistory).isEmpty();
+      },
+    );
+
+    test(
+      'httpStream snapshot refresh keeps status rows with unspecified done after finish',
+      () async {
+        final log = _CallbackLog(
+          initialMessages: [
+            ChatMessage(
+              id: 'msg-1',
+              role: 'assistant',
+              content: 'Answer',
+              timestamp: DateTime.now(),
+              isStreaming: true,
+              statusHistory: const [
+                ChatStatusUpdate(description: 'Generating image...'),
+              ],
+            ),
+          ],
+        );
+        final api = _buildFakeApi(
+          pollResponse: _serverConversationResponse(
+            messages: [_serverAssistantMessage(content: 'Answer')],
+          ),
+        );
+
+        _attach(
+          session: ChatCompletionSession.httpStream(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            conversationId: 'conv-1',
+            byteStream: Stream<List<int>>.fromIterable([_sseDone()]),
+            abort: () async {},
+          ),
+          log: log,
+          api: api,
+          activeConversationId: 'conv-1',
+        );
+
+        await pumpMicrotasks();
+        await Future<void>.delayed(const Duration(milliseconds: 700));
+        for (var i = 0; i < 3; i++) {
+          await pumpMicrotasks();
+        }
+
+        check(log.finishCount).equals(1);
+        check(
+          log.messages.last.statusHistory,
+        ).has((it) => it.length, 'length').equals(1);
+        check(
+          log.messages.last.statusHistory.single.description,
+        ).equals('Generating image...');
+      },
+    );
+
+    test(
+      'httpStream snapshot refresh clears stale sources after finish',
+      () async {
+        final log = _CallbackLog(
+          initialMessages: [
+            ChatMessage(
+              id: 'msg-1',
+              role: 'assistant',
+              content: 'Answer',
+              timestamp: DateTime.now(),
+              isStreaming: true,
+              sources: const [
+                ChatSourceReference(
+                  title: 'Stale source',
+                  url: 'https://example.com/stale',
+                ),
+              ],
+            ),
+          ],
+        );
+        final api = _buildFakeApi(
+          pollResponse: _serverConversationResponse(
+            messages: [_serverAssistantMessage(content: 'Answer')],
+          ),
+        );
+
+        _attach(
+          session: ChatCompletionSession.httpStream(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            conversationId: 'conv-1',
+            byteStream: Stream<List<int>>.fromIterable([_sseDone()]),
+            abort: () async {},
+          ),
+          log: log,
+          api: api,
+          activeConversationId: 'conv-1',
+        );
+
+        await pumpMicrotasks();
+        await Future<void>.delayed(const Duration(milliseconds: 700));
+        for (var i = 0; i < 3; i++) {
+          await pumpMicrotasks();
+        }
+
+        check(log.finishCount).equals(1);
+        check(log.messages.last.sources).isEmpty();
+      },
+    );
 
     // -----------------------------------------------------------------------
     // 7. httpStream premature end recovers from newer server state
@@ -1569,6 +2382,9 @@ void main() {
       // Status should have been applied
       check(lastMsg.metadata).isNotNull();
       check(lastMsg.metadata!['status']).equals('Generating image...');
+      check(lastMsg.statusHistory.length).equals(1);
+      check(lastMsg.statusHistory.single.occurredAt).isNotNull();
+      check(log.messageByIdUpdates.length).equals(1);
       // Files should also be present
       check(lastMsg.files).isNotNull();
       check(lastMsg.files!.length).equals(1);

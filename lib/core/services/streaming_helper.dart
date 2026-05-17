@@ -282,6 +282,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   // Track if streaming has been finished to avoid duplicate cleanup
   bool hasFinished = false;
   bool hasCompletedStreamingUi = false;
+  bool completionDoneHandled = false;
+  bool delayedDoneRecoveryScheduled = false;
   bool isObsoleteStream = false;
   bool backgroundExecutionStopped = false;
   var currentStreamSessionId = sessionId;
@@ -320,6 +322,57 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       }
     }
     return null;
+  }
+
+  int? targetAssistantReverseOrdinal() {
+    final messages = getMessages();
+    var assistantOrdinal = 0;
+    for (final message in messages.reversed) {
+      if (message.role != 'assistant') {
+        continue;
+      }
+      if (message.id == assistantMessageId) {
+        return assistantOrdinal;
+      }
+      assistantOrdinal++;
+    }
+    return null;
+  }
+
+  ({ChatMessage? previous, ChatMessage? next}) targetAssistantNeighbors() {
+    final messages = getMessages();
+    final targetIndex = messages.indexWhere(
+      (message) =>
+          message.id == assistantMessageId && message.role == 'assistant',
+    );
+    if (targetIndex == -1) {
+      return (previous: null, next: null);
+    }
+
+    return (
+      previous: targetIndex > 0 ? messages[targetIndex - 1] : null,
+      next: targetIndex + 1 < messages.length
+          ? messages[targetIndex + 1]
+          : null,
+    );
+  }
+
+  void bindRecoveredRemoteMessageId(
+    String? candidateId, {
+    required String source,
+  }) {
+    if (candidateId == null ||
+        candidateId.isEmpty ||
+        candidateId == assistantMessageId ||
+        boundRemoteMessageId != null) {
+      return;
+    }
+    boundRemoteMessageId = candidateId;
+    DebugLogger.log(
+      'Binding $source server message $candidateId '
+      'to local assistant $assistantMessageId',
+      scope: 'streaming/helper',
+    );
   }
 
   List<String> currentServerMessageIds() {
@@ -645,6 +698,97 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     return '';
   }
 
+  String extractServerMessageContent(dynamic rawContent) {
+    if (rawContent is String) {
+      return rawContent;
+    }
+    if (rawContent is List) {
+      final textItem = rawContent.firstWhere(
+        (item) =>
+            item is Map &&
+            (item['type'] == 'text' || item['type'] == 'output_text'),
+        orElse: () => null,
+      );
+      if (textItem is Map) {
+        return textItem['text']?.toString() ?? '';
+      }
+    }
+    return '';
+  }
+
+  bool localMessageProvidesFallbackContext(ChatMessage? message) {
+    if (message == null) {
+      return false;
+    }
+    if (message.content.trim().isNotEmpty) {
+      return true;
+    }
+    final error = message.error?.content?.trim();
+    return error != null && error.isNotEmpty;
+  }
+
+  bool serverMessageMatchesLocalContext(
+    Map<String, dynamic>? serverMessage,
+    ChatMessage localMessage,
+  ) {
+    if (serverMessage == null ||
+        serverMessage['role']?.toString() != localMessage.role) {
+      return false;
+    }
+
+    final serverId = serverMessage['id']?.toString();
+    if (serverId != null &&
+        serverId.isNotEmpty &&
+        serverId == localMessage.id) {
+      return true;
+    }
+
+    final localContent = localMessage.content.trim();
+    final serverContent = extractServerMessageContent(
+      serverMessage['content'],
+    ).trim();
+    if (localContent.isNotEmpty && serverContent.isNotEmpty) {
+      return localContent == serverContent;
+    }
+
+    final localError = localMessage.error?.content?.trim();
+    final serverError = extractServerErrorContent(
+      serverMessage['error'],
+    )?.trim();
+    return localError != null &&
+        localError.isNotEmpty &&
+        serverError != null &&
+        serverError.isNotEmpty &&
+        localError == serverError;
+  }
+
+  bool conversationMessageMatchesLocalContext(
+    ChatMessage? serverMessage,
+    ChatMessage localMessage,
+  ) {
+    if (serverMessage == null || serverMessage.role != localMessage.role) {
+      return false;
+    }
+
+    if (serverMessage.id == localMessage.id) {
+      return true;
+    }
+
+    final localContent = localMessage.content.trim();
+    final serverContent = serverMessage.content.trim();
+    if (localContent.isNotEmpty && serverContent.isNotEmpty) {
+      return localContent == serverContent;
+    }
+
+    final localError = localMessage.error?.content?.trim();
+    final serverError = serverMessage.error?.content?.trim();
+    return localError != null &&
+        localError.isNotEmpty &&
+        serverError != null &&
+        serverError.isNotEmpty &&
+        localError == serverError;
+  }
+
   Map<String, dynamic>? findServerMessageInList(dynamic rawMessages) {
     if (rawMessages is! List) {
       return null;
@@ -655,6 +799,102 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       orElse: () => null,
     );
     return _asStringMap(serverMsg);
+  }
+
+  Map<String, dynamic>? findServerAssistantByReverseOrdinal(
+    dynamic rawMessages,
+  ) {
+    if (rawMessages is! List) {
+      return null;
+    }
+    final targetOrdinal = targetAssistantReverseOrdinal();
+    if (targetOrdinal == null) {
+      return null;
+    }
+
+    final neighbors = targetAssistantNeighbors();
+    final usePreviousContext = localMessageProvidesFallbackContext(
+      neighbors.previous,
+    );
+    final useNextContext = localMessageProvidesFallbackContext(neighbors.next);
+    if (!usePreviousContext && !useNextContext) {
+      return null;
+    }
+
+    var assistantOrdinal = 0;
+    for (var index = rawMessages.length - 1; index >= 0; index--) {
+      final message = _asStringMap(rawMessages[index]);
+      if (message == null || message['role']?.toString() != 'assistant') {
+        continue;
+      }
+      if (assistantOrdinal == targetOrdinal) {
+        final previous = index > 0
+            ? _asStringMap(rawMessages[index - 1])
+            : null;
+        final next = index + 1 < rawMessages.length
+            ? _asStringMap(rawMessages[index + 1])
+            : null;
+        final previousMatches =
+            !usePreviousContext ||
+            serverMessageMatchesLocalContext(previous, neighbors.previous!);
+        final nextMatches =
+            !useNextContext ||
+            serverMessageMatchesLocalContext(next, neighbors.next!);
+        if (previousMatches && nextMatches) {
+          return message;
+        }
+        return null;
+      }
+      assistantOrdinal++;
+    }
+
+    return null;
+  }
+
+  ChatMessage? findConversationAssistantByReverseOrdinal(
+    List<ChatMessage> messages,
+  ) {
+    final targetOrdinal = targetAssistantReverseOrdinal();
+    if (targetOrdinal == null) {
+      return null;
+    }
+
+    final neighbors = targetAssistantNeighbors();
+    final usePreviousContext = localMessageProvidesFallbackContext(
+      neighbors.previous,
+    );
+    final useNextContext = localMessageProvidesFallbackContext(neighbors.next);
+    if (!usePreviousContext && !useNextContext) {
+      return null;
+    }
+
+    var assistantOrdinal = 0;
+    for (var index = messages.length - 1; index >= 0; index--) {
+      final message = messages[index];
+      if (message.role != 'assistant') {
+        continue;
+      }
+      if (assistantOrdinal == targetOrdinal) {
+        final previous = index > 0 ? messages[index - 1] : null;
+        final next = index + 1 < messages.length ? messages[index + 1] : null;
+        final previousMatches =
+            !usePreviousContext ||
+            conversationMessageMatchesLocalContext(
+              previous,
+              neighbors.previous!,
+            );
+        final nextMatches =
+            !useNextContext ||
+            conversationMessageMatchesLocalContext(next, neighbors.next!);
+        if (previousMatches && nextMatches) {
+          return message;
+        }
+        return null;
+      }
+      assistantOrdinal++;
+    }
+
+    return null;
   }
 
   Future<_ServerMessageSnapshot?> pollServerForMessage({
@@ -690,22 +930,17 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       serverMsg ??=
           findServerMessageInList(chatObj?['messages']) ??
           findServerMessageInList(data?['messages']);
+      serverMsg ??=
+          findServerAssistantByReverseOrdinal(chatObj?['messages']) ??
+          findServerAssistantByReverseOrdinal(data?['messages']);
       if (serverMsg == null) return null;
+      bindRecoveredRemoteMessageId(
+        serverMsg['id']?.toString(),
+        source: 'poll recovery',
+      );
 
       // Extract content
-      final serverContent = serverMsg['content'];
-      String content = '';
-      if (serverContent is String) {
-        content = serverContent;
-      } else if (serverContent is List) {
-        final textItem = serverContent.firstWhere(
-          (i) => i is Map && i['type'] == 'text',
-          orElse: () => null,
-        );
-        if (textItem != null) {
-          content = textItem['text']?.toString() ?? '';
-        }
-      }
+      final content = extractServerMessageContent(serverMsg['content']);
 
       // Extract follow-ups (check both camelCase and snake_case keys)
       // Use _parseFollowUpsField for consistent parsing with socket handler
@@ -762,7 +997,14 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       return false;
     }
     final msgs = getMessages();
-    if (msgs.isEmpty || msgs.last.role != 'assistant') return false;
+    final targetIndex = msgs.indexWhere(
+      (message) =>
+          message.id == assistantMessageId && message.role == 'assistant',
+    );
+    if (targetIndex == -1) return false;
+    final target = msgs[targetIndex];
+    final isVisibleTarget =
+        targetIndex == msgs.length - 1 && msgs.last.role == 'assistant';
 
     var applied = false;
 
@@ -771,7 +1013,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         '$source: adopting server error',
         scope: 'streaming/helper',
       );
-      updateLastMessageWith(
+      updateMessageById(
+        assistantMessageId,
         (m) => m.copyWith(
           error: errorContent.isNotEmpty
               ? ChatMessageError(content: errorContent)
@@ -781,19 +1024,26 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       applied = true;
     }
 
-    if (content.isNotEmpty && content.length >= msgs.last.content.length) {
+    if (content.isNotEmpty && content.length >= target.content.length) {
       DebugLogger.log(
         '$source: adopting server content (${content.length} chars)',
         scope: 'streaming/helper',
       );
-      replaceVisibleAssistantContent(content);
+      if (isVisibleTarget) {
+        replaceVisibleAssistantContent(content);
+      } else {
+        updateMessageById(
+          assistantMessageId,
+          (m) => m.copyWith(content: content),
+        );
+      }
       applied = true;
 
       if (followUps.isNotEmpty) {
         setFollowUps(assistantMessageId, followUps);
       }
 
-      if (finishIfDone && isDone && msgs.last.isStreaming) {
+      if (finishIfDone && isDone && isVisibleTarget && target.isStreaming) {
         wrappedFinishStreaming();
       }
       return true;
@@ -804,7 +1054,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       applied = true;
     }
 
-    if (finishIfDone && isDone) {
+    if (finishIfDone && isDone && isVisibleTarget) {
       wrappedFinishStreaming();
       return true;
     }
@@ -813,8 +1063,13 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   }
 
   bool refreshingSnapshot = false;
+  bool queuedSnapshotRefresh = false;
   Future<void> refreshConversationSnapshot() async {
-    if (isObsoleteStream || refreshingSnapshot) return;
+    if (isObsoleteStream) return;
+    if (refreshingSnapshot) {
+      queuedSnapshotRefresh = true;
+      return;
+    }
     final chatId = activeConversationId;
     if (chatId == null || chatId.isEmpty || isTemporaryChat(chatId)) {
       return;
@@ -834,12 +1089,28 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         return;
       }
 
+      final targetMessageIds = currentServerMessageIds().toSet();
       ChatMessage? foundAssistant;
       for (final message in conversation.messages.reversed) {
-        if (message.role == 'assistant') {
+        if (message.role == 'assistant' &&
+            targetMessageIds.contains(message.id)) {
           foundAssistant = message;
           break;
         }
+      }
+
+      // Local buffers can omit older history, so the fallback still aligns by
+      // recent assistant slot, but only accepts the candidate when the
+      // surrounding persisted prompt context matches the local neighbors.
+      foundAssistant ??= findConversationAssistantByReverseOrdinal(
+        conversation.messages,
+      );
+
+      if (foundAssistant != null) {
+        bindRecoveredRemoteMessageId(
+          foundAssistant.id,
+          source: 'snapshot recovery',
+        );
       }
 
       final assistant = foundAssistant;
@@ -847,15 +1118,23 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         return;
       }
 
-      setFollowUps(assistant.id, assistant.followUps);
-      updateMessageById(assistant.id, (current) {
+      setFollowUps(assistantMessageId, assistant.followUps);
+      updateMessageById(assistantMessageId, (current) {
         // Preserve existing usage if server doesn't have it yet (issue #274)
         // Usage is captured from streaming but may not be persisted on server
         final effectiveUsage = assistant.usage ?? current.usage;
         return current.copyWith(
           followUps: List<String>.from(assistant.followUps),
-          statusHistory: assistant.statusHistory,
-          sources: assistant.sources,
+          statusHistory: assistant.statusHistory.isNotEmpty
+              ? assistant.statusHistory
+              : current.isStreaming
+              ? current.statusHistory
+              : current.statusHistory
+                    .where((status) => status.done != false)
+                    .toList(growable: false),
+          sources: assistant.sources.isNotEmpty || !current.isStreaming
+              ? assistant.sources
+              : current.sources,
           metadata: {...?current.metadata, ...?assistant.metadata},
           usage: effectiveUsage,
         );
@@ -864,6 +1143,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       // Best-effort refresh; ignore failures.
     } finally {
       refreshingSnapshot = false;
+      if (queuedSnapshotRefresh && !isObsoleteStream) {
+        queuedSnapshotRefresh = false;
+        unawaited(refreshConversationSnapshot());
+      }
     }
   }
 
@@ -1235,6 +1518,210 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     );
   }
 
+  List<ChatStatusUpdate> mergeStatusHistory(
+    List<ChatStatusUpdate> existing,
+    ChatStatusUpdate update,
+  ) {
+    final withTimestamp = update.occurredAt == null
+        ? update.copyWith(occurredAt: DateTime.now())
+        : update;
+    final history = [...existing];
+    if (history.isNotEmpty) {
+      final last = history.last;
+      final sameAction =
+          last.action != null && last.action == withTimestamp.action;
+      final sameDescription =
+          (withTimestamp.description?.isNotEmpty ?? false) &&
+          withTimestamp.description == last.description;
+      if (sameAction && sameDescription) {
+        history[history.length - 1] = withTimestamp;
+        return history;
+      }
+    }
+    history.add(withTimestamp);
+    return history;
+  }
+
+  void applyMergedStatusUpdate({
+    required String targetId,
+    required ChatStatusUpdate statusUpdate,
+    dynamic metadataStatus,
+    bool storeMetadataStatus = false,
+  }) {
+    updateMessageById(targetId, (current) {
+      final metadata = storeMetadataStatus
+          ? <String, dynamic>{...?current.metadata, 'status': metadataStatus}
+          : current.metadata;
+      return current.copyWith(
+        statusHistory: mergeStatusHistory(current.statusHistory, statusUpdate),
+        metadata: metadata,
+      );
+    });
+  }
+
+  bool scheduleDelayedDoneRecovery({required bool finishAfterRecovery}) {
+    final chatId = activeConversationId;
+    if (chatId == null || chatId.isEmpty || isTemporaryChat(chatId)) {
+      return false;
+    }
+    if (delayedDoneRecoveryScheduled) {
+      return true;
+    }
+    delayedDoneRecoveryScheduled = true;
+
+    Future.delayed(const Duration(seconds: 2), () async {
+      try {
+        if (isObsoleteStream) {
+          return;
+        }
+        final result = await pollServerForMessage();
+        if (!isObsoleteStream) {
+          if (result != null) {
+            applyServerContent(
+              result.content,
+              result.followUps,
+              finishIfDone: false,
+              isDone: result.isDone,
+              source: 'done recovery',
+              errorContent: result.errorContent,
+            );
+          }
+          await refreshConversationSnapshot();
+        }
+      } catch (e) {
+        DebugLogger.log(
+          'Server recovery failed: $e',
+          scope: 'streaming/helper',
+        );
+      } finally {
+        delayedDoneRecoveryScheduled = false;
+        if (finishAfterRecovery &&
+            !isObsoleteStream &&
+            currentAssistantTargetId() == assistantMessageId) {
+          wrappedFinishStreaming();
+        }
+      }
+    });
+
+    return true;
+  }
+
+  void handleCompletionDone({
+    String? doneTitle,
+    bool allowEmptyContentRecovery = false,
+  }) {
+    if (hasFinished || completionDoneHandled) {
+      return;
+    }
+    completionDoneHandled = true;
+
+    if (doneTitle != null && doneTitle.isNotEmpty) {
+      onChatTitleUpdated?.call(doneTitle);
+    }
+
+    try {
+      if (!isTemporaryChat(activeConversationId)) {
+        sendChatCompletedAndSync();
+        Future.delayed(
+          const Duration(milliseconds: 500),
+          refreshConversationSnapshot,
+        );
+      }
+    } catch (_) {
+      // Non-critical - continue if sync fails
+    }
+
+    finalizeStreamingReasoning();
+    flushStreamingBuffer();
+
+    final msgs = getMessages();
+    if (msgs.isNotEmpty && msgs.last.role == 'assistant') {
+      final last = msgs.last;
+      final lastContent = last.content.trim();
+      final hasNonTextArtifacts =
+          (last.files?.isNotEmpty ?? false) ||
+          (last.output?.isNotEmpty ?? false) ||
+          (last.embeds?.isNotEmpty ?? false) ||
+          last.codeExecutions.isNotEmpty ||
+          last.sources.isNotEmpty;
+      DebugLogger.log(
+        'Done signal received: content length=${lastContent.length}',
+        scope: 'streaming/helper',
+      );
+      if (allowEmptyContentRecovery &&
+          lastContent.isEmpty &&
+          last.error == null) {
+        // Non-text artifacts can arrive before the final persisted answer text.
+        // Only keep the UI open when the reply is otherwise blank; when files,
+        // citations, or structured output are already present, finish now and
+        // backfill any late text/error in the background.
+        final waitingForRecovery = !hasNonTextArtifacts;
+        if (scheduleDelayedDoneRecovery(
+          finishAfterRecovery: waitingForRecovery,
+        )) {
+          if (waitingForRecovery) {
+            return;
+          }
+        }
+      }
+    }
+
+    wrappedFinishStreaming();
+  }
+
+  bool handleHttpStreamEventFastPath({
+    required String type,
+    required Object? data,
+  }) {
+    final payload = _asStringMap(data);
+    switch (type) {
+      case 'chat:message:delta':
+      case 'message':
+      case 'event:message:delta':
+        final content = payload?['content']?.toString() ?? '';
+        if (content.isNotEmpty) {
+          appendVisibleAssistantChunk(content);
+        }
+        return true;
+
+      case 'chat:message':
+      case 'replace':
+        final content = payload?['content']?.toString() ?? '';
+        if (content.isNotEmpty) {
+          replaceVisibleAssistantContent(content);
+        }
+        return true;
+
+      case 'status':
+        if (payload == null) {
+          return false;
+        }
+        final statusUpdate = ChatStatusUpdate.fromJson(payload);
+        applyMergedStatusUpdate(
+          targetId: assistantMessageId,
+          statusUpdate: statusUpdate,
+          metadataStatus: statusUpdate.toJson(),
+          storeMetadataStatus: true,
+        );
+        return true;
+
+      case 'event:status':
+        if (payload == null) {
+          return false;
+        }
+        final statusText = payload['status']?.toString() ?? '';
+        final statusUpdate = ChatStatusUpdate.fromJson(payload);
+        applyMergedStatusUpdate(
+          targetId: assistantMessageId,
+          statusUpdate: statusUpdate,
+          metadataStatus: statusText,
+          storeMetadataStatus: statusText.isNotEmpty,
+        );
+        return true;
+    }
+    return false;
+  }
+
   void channelLineHandlerFactory(String channel) {
     void onChannelDone() {
       try {
@@ -1538,75 +2025,12 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             if (completionTargetId == null) {
               return;
             }
-            // The done payload may carry a title (OpenWebUI includes
-            // the auto-generated chat title in the final completion
-            // event). Surface it the same way as a chat:title event.
-            final doneTitle = payload['title'];
-            if (doneTitle is String && doneTitle.isNotEmpty) {
-              onChatTitleUpdated?.call(doneTitle);
-            }
-            try {
-              if (!isTemporaryChat(activeConversationId)) {
-                sendChatCompletedAndSync();
-              }
-            } catch (_) {
-              // Non-critical - continue if sync fails
-            }
-
-            // Delay snapshot refresh to allow backend to persist data
-            Future.delayed(
-              const Duration(milliseconds: 500),
-              refreshConversationSnapshot,
+            handleCompletionDone(
+              doneTitle: payload['title'] is String
+                  ? payload['title'] as String
+                  : null,
+              allowEmptyContentRecovery: true,
             );
-
-            finalizeStreamingReasoning();
-
-            // Flush buffer and check if we have content
-            flushStreamingBuffer();
-            final msgs = getMessages();
-            if (msgs.isNotEmpty && msgs.last.role == 'assistant') {
-              final lastContent = msgs.last.content.trim();
-              DebugLogger.log(
-                'Done signal received: content length=${lastContent.length}',
-                scope: 'streaming/helper',
-              );
-              if (lastContent.isEmpty) {
-                // No content from deltas or done event. Schedule a delayed
-                // server fetch as a last-resort recovery. The 2s delay gives
-                // the server time to persist the response.
-                final chatId = activeConversationId;
-                if (chatId != null &&
-                    chatId.isNotEmpty &&
-                    !isTemporaryChat(chatId)) {
-                  Future.delayed(const Duration(seconds: 2), () async {
-                    if (hasFinished || isObsoleteStream) {
-                      // Already finished via another path
-                      return;
-                    }
-                    try {
-                      final result = await pollServerForMessage();
-                      if (!isObsoleteStream &&
-                          result != null &&
-                          result.content.isNotEmpty) {
-                        replaceVisibleAssistantContent(result.content);
-                        if (result.followUps.isNotEmpty) {
-                          setFollowUps(assistantMessageId, result.followUps);
-                        }
-                      }
-                    } catch (e) {
-                      DebugLogger.log(
-                        'Server recovery failed: $e',
-                        scope: 'streaming/helper',
-                      );
-                    } finally {
-                      wrappedFinishStreaming();
-                    }
-                  });
-                  return;
-                }
-              }
-            }
-            wrappedFinishStreaming();
           }
         }
       } else if (type == 'status' && payload != null) {
@@ -1620,14 +2044,12 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         if (statusMap != null && targetId != null) {
           try {
             final statusUpdate = ChatStatusUpdate.fromJson(statusMap);
-            appendStatusUpdate(targetId, statusUpdate);
-            updateMessageById(targetId, (current) {
-              final metadata = {
-                ...?current.metadata,
-                'status': statusUpdate.toJson(),
-              };
-              return current.copyWith(metadata: metadata);
-            });
+            applyMergedStatusUpdate(
+              targetId: targetId,
+              statusUpdate: statusUpdate,
+              metadataStatus: statusUpdate.toJson(),
+              storeMetadataStatus: true,
+            );
           } catch (_) {}
         }
       } else if (type == 'chat:tasks:cancel') {
@@ -2071,15 +2493,13 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         if (map != null && targetId != null) {
           try {
             final status = map['status']?.toString() ?? '';
-            if (status.isNotEmpty) {
-              updateMessageById(targetId, (message) {
-                return message.copyWith(
-                  metadata: {...?message.metadata, 'status': status},
-                );
-              });
-            }
             final statusUpdate = ChatStatusUpdate.fromJson(map);
-            appendStatusUpdate(targetId, statusUpdate);
+            applyMergedStatusUpdate(
+              targetId: targetId,
+              statusUpdate: statusUpdate,
+              metadataStatus: status,
+              storeMetadataStatus: status.isNotEmpty,
+            );
           } catch (_) {}
         }
       } else if (type == 'event:tool' && payload != null) {
@@ -2218,6 +2638,19 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                   appendSourceReference(assistantMessageId, source);
                 }
 
+              case OpenWebUIEventUpdate(:final type, :final data):
+                final eventPayload = _asStringMap(data);
+                if (type == 'chat:completion' &&
+                    eventPayload?['done'] == true) {
+                  receivedDone = true;
+                }
+                if (!handleHttpStreamEventFastPath(type: type, data: data)) {
+                  chatHandler({
+                    'message_id': assistantMessageId,
+                    'data': {'type': type, 'data': data},
+                  }, null);
+                }
+
               case OpenWebUISelectedModelUpdate(:final selectedModelId):
                 updateLastMessageWith(
                   (m) => m.copyWith(
@@ -2239,9 +2672,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                 );
 
               case OpenWebUIStreamDone():
-                finalizeStreamingReasoning();
                 receivedDone = true;
-                wrappedFinishStreaming();
+                handleCompletionDone(allowEmptyContentRecovery: true);
             }
           } catch (e) {
             DebugLogger.error(

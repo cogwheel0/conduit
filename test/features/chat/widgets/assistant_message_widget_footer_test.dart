@@ -1,6 +1,7 @@
 import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/features/chat/providers/text_to_speech_provider.dart';
 import 'package:conduit/features/chat/widgets/assistant_message_widget.dart';
+import 'package:conduit/features/chat/widgets/streaming_status_widget.dart';
 import 'package:conduit/features/chat/widgets/sources/openwebui_sources.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
@@ -196,5 +197,54 @@ void main() {
 
     expect(find.text('Model B'), findsOneWidget);
     expect(find.text('Model A'), findsNothing);
+  });
+
+  testWidgets('pending-only finished statuses do not leave an empty gap', (
+    tester,
+  ) async {
+    final baseline = ChatMessage(
+      id: 'assistant-baseline',
+      role: 'assistant',
+      content: 'Visible response body',
+      timestamp: DateTime(2024, 1, 1),
+    );
+    final pendingOnly = baseline.copyWith(
+      id: 'assistant-pending',
+      statusHistory: const [
+        ChatStatusUpdate(description: 'Searching...', done: false),
+      ],
+    );
+
+    await tester.pumpWidget(_buildAssistantHarness(baseline));
+    await tester.pumpAndSettle();
+    final baselineDy = tester.getTopLeft(find.text('Visible response body')).dy;
+
+    await tester.pumpWidget(_buildAssistantHarness(pendingOnly));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(StreamingStatusWidget), findsNothing);
+    expect(find.text('Searching...'), findsNothing);
+    expect(
+      tester.getTopLeft(find.text('Visible response body')).dy,
+      closeTo(baselineDy, 0.001),
+    );
+  });
+
+  testWidgets('finished nullable-done statuses remain visible', (tester) async {
+    final message = ChatMessage(
+      id: 'assistant-nullable-status',
+      role: 'assistant',
+      content: 'Visible response body',
+      timestamp: DateTime(2024, 1, 1),
+      statusHistory: const [
+        ChatStatusUpdate(description: 'Generating image...'),
+      ],
+    );
+
+    await tester.pumpWidget(_buildAssistantHarness(message));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Generating image...'), findsOneWidget);
+    expect(find.byType(StreamingStatusWidget), findsOneWidget);
   });
 }

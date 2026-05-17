@@ -11,6 +11,19 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/themed_sheets.dart';
 import 'assistant_detail_header.dart';
 
+List<ChatStatusUpdate> filterVisibleStatusUpdates(
+  List<ChatStatusUpdate> updates, {
+  required bool isStreaming,
+}) {
+  final visible = updates
+      .where((u) => u.hidden != true)
+      .toList(growable: false);
+  if (isStreaming) {
+    return visible;
+  }
+  return visible.where((u) => u.done != false).toList(growable: false);
+}
+
 /// A minimal, unobtrusive streaming status widget inspired by OpenWebUI.
 /// Displays live status updates during AI response generation without
 /// drawing focus away from the actual response content.
@@ -31,15 +44,16 @@ class StreamingStatusWidget extends StatefulWidget {
 class _StreamingStatusWidgetState extends State<StreamingStatusWidget> {
   @override
   Widget build(BuildContext context) {
-    final visible = widget.updates
-        .where((u) => u.hidden != true)
-        .toList(growable: false);
-    if (visible.isEmpty) return const SizedBox.shrink();
+    final displayUpdates = filterVisibleStatusUpdates(
+      widget.updates,
+      isStreaming: widget.isStreaming,
+    );
+    if (displayUpdates.isEmpty) return const SizedBox.shrink();
 
-    final current = visible.last;
+    final current = displayUpdates.last;
     final isPending = current.done != true && widget.isStreaming;
     final hasDetails =
-        visible.length > 1 ||
+        displayUpdates.length > 1 ||
         _collectQueries(current).isNotEmpty ||
         _collectLinks(current).isNotEmpty;
 
@@ -47,7 +61,7 @@ class _StreamingStatusWidgetState extends State<StreamingStatusWidget> {
       onTap: hasDetails
           ? () => _showStatusBottomSheet(
               context,
-              updates: visible,
+              updates: displayUpdates,
               isStreaming: widget.isStreaming,
             )
           : null,

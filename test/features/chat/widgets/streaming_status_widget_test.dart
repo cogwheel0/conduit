@@ -8,12 +8,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  Widget buildHarness(List<ChatStatusUpdate> updates) {
+  Widget buildHarness(
+    List<ChatStatusUpdate> updates, {
+    bool isStreaming = true,
+  }) {
     return MaterialApp(
       theme: AppTheme.light(TweakcnThemes.t3Chat),
       home: Scaffold(
         body: Center(
-          child: StreamingStatusWidget(updates: updates, isStreaming: true),
+          child: StreamingStatusWidget(
+            updates: updates,
+            isStreaming: isStreaming,
+          ),
         ),
       ),
     );
@@ -94,4 +100,44 @@ void main() {
     expect(bottomSheetTitle.overflow, isNull);
     expect(bottomSheetTitle.maxLines, isNull);
   });
+
+  testWidgets('hides incomplete status rows once streaming has finished', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      buildHarness(const [
+        ChatStatusUpdate(description: 'Searching...', done: false),
+      ], isStreaming: false),
+    );
+
+    expect(find.text('Searching...'), findsNothing);
+    expect(find.byType(StreamingStatusWidget), findsOneWidget);
+  });
+
+  testWidgets('keeps completed status rows visible after streaming finishes', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      buildHarness(const [
+        ChatStatusUpdate(description: 'Search complete', done: true),
+        ChatStatusUpdate(description: 'Searching...', done: false),
+      ], isStreaming: false),
+    );
+
+    expect(find.text('Search complete'), findsOneWidget);
+    expect(find.text('Searching...'), findsNothing);
+  });
+
+  testWidgets(
+    'keeps status rows with unspecified done visible after streaming finishes',
+    (tester) async {
+      await tester.pumpWidget(
+        buildHarness(const [
+          ChatStatusUpdate(description: 'Generating image...'),
+        ], isStreaming: false),
+      );
+
+      expect(find.text('Generating image...'), findsOneWidget);
+    },
+  );
 }
