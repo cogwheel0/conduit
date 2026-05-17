@@ -1,4 +1,4 @@
-import 'dart:io' show HttpOverrides, SecurityContext, HttpClient;
+import 'dart:io' show HttpClient, WebSocket;
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
 import '../models/server_config.dart';
@@ -18,10 +18,15 @@ io.Socket createSocketWithOptionalBadCertOverride(
     return io.io(base, builder.build());
   }
 
-  return HttpOverrides.runWithHttpOverrides<io.Socket>(
-    () => io.io(base, builder.build()),
-    _ScopedServerTlsOverrides(serverConfig),
-  );
+  final adapter = _ServerTlsHttpClientAdapter(serverConfig);
+  builder
+    ..enableForceNew()
+    ..setHttpClientAdapter(adapter)
+    ..setTransportOptions({
+      'polling': {'httpClientAdapter': adapter},
+      'websocket': {'httpClientAdapter': adapter},
+    });
+  return io.io(base, builder.build());
 }
 
 Uri? _tryParseUri(String url) {
@@ -32,16 +37,14 @@ Uri? _tryParseUri(String url) {
   return null;
 }
 
-class _ScopedServerTlsOverrides extends HttpOverrides {
-  _ScopedServerTlsOverrides(this.serverConfig);
+class _ServerTlsHttpClientAdapter implements io.HttpClientAdapter {
+  _ServerTlsHttpClientAdapter(ServerConfig serverConfig)
+    : _httpClient = ServerTlsHttpClientFactory.createHttpClient(serverConfig);
 
-  final ServerConfig serverConfig;
+  final HttpClient _httpClient;
 
   @override
-  HttpClient createHttpClient(SecurityContext? context) {
-    return ServerTlsHttpClientFactory.createHttpClient(
-      serverConfig,
-      fallbackContext: context,
-    );
+  Future<WebSocket> connect(String uri, {Map<String, dynamic>? headers}) {
+    return WebSocket.connect(uri, headers: headers, customClient: _httpClient);
   }
 }
