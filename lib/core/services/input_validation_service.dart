@@ -7,7 +7,7 @@ import '../../shared/theme/conduit_input_styles.dart';
 class InputValidationService {
   // Email regex pattern
   static final RegExp _emailRegex = RegExp(
-    r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
+    r'^[a-zA-Z0-9._%+-]+@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,}|localhost)$',
   );
 
   // Strong password regex (min 8 chars, 1 upper, 1 lower, 1 number, 1 special)
