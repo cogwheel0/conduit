@@ -2056,6 +2056,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 ),
               ),
               Positioned(
+                left: 0,
+                right: 0,
+                top: 0,
+                child: ConduitChromeGradientFade.top(
+                  contentHeight:
+                      MediaQuery.viewPaddingOf(context).top + kTextTabBarHeight,
+                ),
+              ),
+              Positioned(
                 bottom: (_inputHeight > 0)
                     ? _inputHeight
                     : (Spacing.xxl + Spacing.xxxl),
@@ -2232,14 +2241,16 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     );
     final showNewChatAction = activeConversation != null || hasMessages;
     final tintColor = context.conduitTheme.textPrimary;
-    const leadingGap = Spacing.sm;
+    const leadingGap = kConduitAdaptiveToolbarLeadingGap;
     final maxModelWidth = resolveConduitAdaptiveLeadingPillWidth(
       context,
       trailingActionCount: showNewChatAction ? 2 : 1,
-      maxWidth: 220,
+      maxWidth: kConduitAdaptiveToolbarMaxPillWidth,
     );
-    final leadingWidth =
-        TouchTarget.minimum + leadingGap + maxModelWidth + Spacing.md;
+    final leadingWidth = resolveConduitAdaptiveToolbarLeadingWidth(
+      pillWidth: maxModelWidth,
+      leadingGap: leadingGap,
+    );
 
     return buildConduitAdaptiveToolbarAppBar(
       tintColor: tintColor,
@@ -2270,8 +2281,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required double leadingGap,
     required double maxModelWidth,
   }) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
+    return buildConduitAdaptiveToolbarLeadingRow(
       children: [
         ConduitAdaptiveAppBarIconButton(
           key: const ValueKey('chat-sidebar-toggle'),

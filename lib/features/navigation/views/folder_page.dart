@@ -120,19 +120,23 @@ class _FolderPageState extends ConsumerState<FolderPage> {
   ) {
     final tintColor = context.conduitTheme.textPrimary;
     final hasOverflowMenu = folder != null;
-    const leadingGap = Spacing.sm;
+    const leadingGap = kConduitAdaptiveToolbarLeadingGap;
+    final maxModelWidth = resolveConduitAdaptiveLeadingPillWidth(
+      context,
+      trailingActionCount: hasOverflowMenu ? 3 : 2,
+      maxWidth: kConduitAdaptiveToolbarMaxPillWidth,
+    );
     final leading = _buildFolderToolbarLeading(
       context: context,
       l10n: l10n,
-      hasOverflowMenu: hasOverflowMenu,
       tintColor: tintColor,
       leadingGap: leadingGap,
+      maxModelWidth: maxModelWidth,
     );
     final actions = _buildFolderToolbarActionWidgets(context, folder);
-    final leadingWidth = resolveConduitAdaptiveLeadingPillWidth(
-      context,
-      trailingActionCount: hasOverflowMenu ? 3 : 2,
-      maxWidth: 200,
+    final leadingWidth = resolveConduitAdaptiveToolbarLeadingWidth(
+      pillWidth: maxModelWidth,
+      leadingGap: leadingGap,
     );
 
     return AdaptiveAppBar(
@@ -150,10 +154,13 @@ class _FolderPageState extends ConsumerState<FolderPage> {
         automaticallyImplyLeading: false,
         backgroundColor: Colors.transparent,
         surfaceTintColor: Colors.transparent,
+        shadowColor: Colors.transparent,
         elevation: Elevation.none,
         scrolledUnderElevation: Elevation.none,
-        leadingWidth:
-            TouchTarget.minimum + leadingGap + leadingWidth + Spacing.md,
+        toolbarHeight: kTextTabBarHeight,
+        centerTitle: false,
+        titleSpacing: Spacing.sm,
+        leadingWidth: leadingWidth,
         leading: leading,
         actions: actions,
       ),
@@ -163,21 +170,15 @@ class _FolderPageState extends ConsumerState<FolderPage> {
   Widget _buildFolderToolbarLeading({
     required BuildContext context,
     required AppLocalizations l10n,
-    required bool hasOverflowMenu,
     required Color tintColor,
     required double leadingGap,
+    required double maxModelWidth,
   }) {
-    final maxPillWidth = resolveConduitAdaptiveLeadingPillWidth(
-      context,
-      trailingActionCount: hasOverflowMenu ? 3 : 2,
-      maxWidth: 200,
-    );
     final label = _formatModelDisplayName(
       ref.watch(selectedModelProvider)?.name ?? l10n.chooseModel,
     );
 
-    return Row(
-      mainAxisSize: MainAxisSize.min,
+    return buildConduitAdaptiveToolbarLeadingRow(
       children: [
         ConduitAdaptiveAppBarIconButton(
           key: const ValueKey<String>('folder-page-drawer-button'),
@@ -189,7 +190,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
         ConduitAdaptiveAppBarModelSelector(
           key: const ValueKey<String>('folder-page-model-selector'),
           label: label,
-          maxWidth: maxPillWidth,
+          maxWidth: maxModelWidth,
           onPressed: _showModelSelector,
         ),
       ],
@@ -201,7 +202,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
     Folder? folder,
   ) {
     final isTemporary = ref.watch(temporaryChatEnabledProvider);
-    final actions = <Widget>[
+    final actions = buildConduitAdaptiveToolbarActionWidgets([
       ConduitAdaptiveAppBarIconButton(
         key: const ValueKey<String>('folder-page-temp-button'),
         icon: isTemporary
@@ -214,26 +215,18 @@ class _FolderPageState extends ConsumerState<FolderPage> {
           ref.read(temporaryChatEnabledProvider.notifier).set(!current);
         },
       ),
-      const SizedBox(width: Spacing.sm),
       ConduitAdaptiveAppBarIconButton(
         key: const ValueKey<String>('folder-page-new-chat-button'),
         icon: Platform.isIOS ? CupertinoIcons.create : Icons.add_comment,
         iconColor: context.conduitTheme.textPrimary,
         onPressed: _handleNewChat,
       ),
-    ];
-
-    if (folder != null) {
-      actions
-        ..add(const SizedBox(width: Spacing.sm))
-        ..add(
-          _FolderToolbarPopupButton(
-            tintColor: context.conduitTheme.textPrimary,
-            onSelected: (action) =>
-                _handleFolderToolbarSelection(folder, action),
-          ),
-        );
-    }
+      if (folder != null)
+        _FolderToolbarPopupButton(
+          tintColor: context.conduitTheme.textPrimary,
+          onSelected: (action) => _handleFolderToolbarSelection(folder, action),
+        ),
+    ]);
 
     return actions;
   }
@@ -2069,16 +2062,13 @@ class _FolderToolbarPopupButton extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     return KeyedSubtree(
       key: const ValueKey<String>('folder-page-overflow-button'),
-      child: AdaptivePopupMenuButton.icon<String>(
-        icon: _buttonIcon(),
-        tint: tintColor,
-        size: TouchTarget.minimum,
-        buttonStyle: PopupButtonStyle.glass,
+      child: ConduitAdaptiveToolbarOverflowButton<String>(
+        tintColor: tintColor,
         items: [
           AdaptivePopupMenuItem<String>(
             value: 'edit-folder',
             label: l10n.editFolder,
-            icon: _itemIcon(
+            icon: conduitAdaptivePopupMenuIcon(
               iosSymbol: 'pencil',
               materialIcon: Icons.edit_outlined,
             ),
@@ -2086,33 +2076,15 @@ class _FolderToolbarPopupButton extends StatelessWidget {
           AdaptivePopupMenuItem<String>(
             value: 'system-prompt',
             label: l10n.systemPrompt,
-            icon: _itemIcon(
+            icon: conduitAdaptivePopupMenuIcon(
               iosSymbol: 'text.bubble',
               materialIcon: Icons.notes_outlined,
             ),
           ),
         ],
-        onSelected: (_, entry) {
-          final value = entry.value;
-          if (value == null) {
-            return;
-          }
-
-          onSelected(value);
-        },
+        onSelected: onSelected,
       ),
     );
-  }
-
-  dynamic _buttonIcon() {
-    return Platform.isIOS ? 'ellipsis' : Icons.more_vert_rounded;
-  }
-
-  dynamic _itemIcon({
-    required String iosSymbol,
-    required IconData materialIcon,
-  }) {
-    return Platform.isIOS ? iosSymbol : materialIcon;
   }
 }
 

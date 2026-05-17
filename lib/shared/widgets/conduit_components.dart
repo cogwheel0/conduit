@@ -220,14 +220,66 @@ class FloatingAppBarBackButton extends StatelessWidget {
     final conduitTheme = context.conduitTheme;
     final isIOS = Theme.of(context).platform == TargetPlatform.iOS;
 
-    return GestureDetector(
+    return FloatingAppBarButton(
       onTap: onTap ?? () => Navigator.of(context).maybePop(),
-      child: FloatingAppBarPill(
-        isCircular: true,
-        child: Icon(
-          icon ?? (isIOS ? Icons.arrow_back_ios_new : Icons.arrow_back),
-          color: conduitTheme.textPrimary,
-          size: IconSize.appBar,
+      isCircular: true,
+      child: Icon(
+        icon ?? (isIOS ? Icons.arrow_back_ios_new : Icons.arrow_back),
+        color: conduitTheme.textPrimary,
+        size: IconSize.appBar,
+      ),
+    );
+  }
+}
+
+/// Focusable/tappable wrapper for floating app bar pills.
+class FloatingAppBarButton extends StatelessWidget {
+  final Widget child;
+  final VoidCallback? onTap;
+  final bool isCircular;
+  final String? semanticLabel;
+
+  const FloatingAppBarButton({
+    super.key,
+    required this.child,
+    this.onTap,
+    this.isCircular = false,
+    this.semanticLabel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final pill = FloatingAppBarPill(isCircular: isCircular, child: child);
+    if (onTap == null) {
+      return pill;
+    }
+
+    return Semantics(
+      button: true,
+      enabled: true,
+      label: semanticLabel,
+      child: Shortcuts(
+        shortcuts: const <ShortcutActivator, Intent>{
+          SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
+          SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
+        },
+        child: Actions(
+          actions: <Type, Action<Intent>>{
+            ActivateIntent: CallbackAction<ActivateIntent>(
+              onInvoke: (_) {
+                onTap!();
+                return null;
+              },
+            ),
+          },
+          child: FocusableActionDetector(
+            mouseCursor: SystemMouseCursors.click,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: onTap,
+              child: pill,
+            ),
+          ),
         ),
       ),
     );
@@ -239,27 +291,28 @@ class FloatingAppBarIconButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback? onTap;
   final Color? iconColor;
+  final String? semanticLabel;
 
   const FloatingAppBarIconButton({
     super.key,
     required this.icon,
     this.onTap,
     this.iconColor,
+    this.semanticLabel,
   });
 
   @override
   Widget build(BuildContext context) {
     final conduitTheme = context.conduitTheme;
 
-    return GestureDetector(
+    return FloatingAppBarButton(
       onTap: onTap,
-      child: FloatingAppBarPill(
-        isCircular: true,
-        child: Icon(
-          icon,
-          color: iconColor ?? conduitTheme.textPrimary,
-          size: IconSize.appBar,
-        ),
+      isCircular: true,
+      semanticLabel: semanticLabel,
+      child: Icon(
+        icon,
+        color: iconColor ?? conduitTheme.textPrimary,
+        size: IconSize.appBar,
       ),
     );
   }

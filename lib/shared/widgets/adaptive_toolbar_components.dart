@@ -5,8 +5,12 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../theme/theme_extensions.dart';
+import 'conduit_components.dart';
 import 'conduit_loading.dart';
 import 'middle_ellipsis_text.dart';
+
+const double kConduitAdaptiveToolbarLeadingGap = Spacing.sm;
+const double kConduitAdaptiveToolbarMaxPillWidth = 220;
 
 /// Builds the shared adaptive toolbar shell used by chat-style pages.
 AdaptiveAppBar buildConduitAdaptiveToolbarAppBar({
@@ -17,11 +21,10 @@ AdaptiveAppBar buildConduitAdaptiveToolbarAppBar({
 }) {
   final leading = buildLeading();
   final actions = buildActions();
-  final materialActions = actions
-      .map(
-        (action) => _buildMaterialToolbarAction(action, defaultTint: tintColor),
-      )
-      .toList(growable: false);
+  final materialActions = _buildMaterialToolbarActions(
+    actions,
+    defaultTint: tintColor,
+  );
 
   return AdaptiveAppBar(
     useNativeToolbar: Platform.isIOS || leadingWidth == null,
@@ -47,12 +50,26 @@ PreferredSizeWidget _buildMaterialToolbarAppBar({
     automaticallyImplyLeading: false,
     backgroundColor: Colors.transparent,
     surfaceTintColor: Colors.transparent,
+    shadowColor: Colors.transparent,
     elevation: Elevation.none,
     scrolledUnderElevation: Elevation.none,
+    toolbarHeight: kTextTabBarHeight,
+    centerTitle: false,
+    titleSpacing: Spacing.sm,
     leadingWidth: leadingWidth,
     leading: leading,
     actions: actions,
   );
+}
+
+List<Widget> _buildMaterialToolbarActions(
+  List<AdaptiveAppBarAction> actions, {
+  required Color defaultTint,
+}) {
+  return buildConduitAdaptiveToolbarActionWidgets([
+    for (final action in actions)
+      _buildMaterialToolbarAction(action, defaultTint: defaultTint),
+  ]);
 }
 
 Widget _buildMaterialToolbarAction(
@@ -75,10 +92,54 @@ Widget _buildMaterialToolbarAction(
   );
 }
 
-AdaptiveButtonStyle _conduitToolbarButtonStyle() {
-  return Platform.isAndroid
-      ? AdaptiveButtonStyle.plain
-      : AdaptiveButtonStyle.glass;
+Widget buildConduitAdaptiveToolbarLeadingRow({required List<Widget> children}) {
+  if (Platform.isIOS) {
+    return Row(mainAxisSize: MainAxisSize.min, children: children);
+  }
+
+  return Padding(
+    padding: const EdgeInsets.only(left: Spacing.inputPadding),
+    child: Row(mainAxisSize: MainAxisSize.min, children: children),
+  );
+}
+
+List<Widget> buildConduitAdaptiveToolbarActionWidgets(List<Widget> actions) {
+  final widgets = <Widget>[];
+  for (var i = 0; i < actions.length; i++) {
+    if (i > 0) {
+      widgets.add(const SizedBox(width: Spacing.sm));
+    }
+    widgets.add(
+      i == actions.length - 1
+          ? Platform.isIOS
+                ? actions[i]
+                : Padding(
+                    padding: const EdgeInsets.only(right: Spacing.inputPadding),
+                    child: actions[i],
+                  )
+          : actions[i],
+    );
+  }
+
+  return widgets;
+}
+
+TextStyle conduitAdaptiveToolbarPillTextStyle(BuildContext context) {
+  return AppTypography.standard.copyWith(
+    color: context.conduitTheme.textPrimary,
+    fontWeight: FontWeight.w600,
+  );
+}
+
+double resolveConduitAdaptiveToolbarLeadingWidth({
+  required double pillWidth,
+  double leadingGap = kConduitAdaptiveToolbarLeadingGap,
+}) {
+  return Spacing.inputPadding +
+      TouchTarget.minimum +
+      leadingGap +
+      pillWidth +
+      Spacing.md;
 }
 
 /// Resolves a stable pill width inside a constrained toolbar slot.
@@ -114,6 +175,7 @@ double resolveConduitAdaptiveLeadingPillWidth(
   BuildContext context, {
   required int trailingActionCount,
   required double maxWidth,
+  double leadingGap = kConduitAdaptiveToolbarLeadingGap,
   double trailingActionSpacing = Spacing.sm,
 }) {
   final trailingSpacing = trailingActionCount > 1
@@ -127,7 +189,7 @@ double resolveConduitAdaptiveLeadingPillWidth(
   final availableWidth =
       MediaQuery.sizeOf(context).width -
       TouchTarget.minimum -
-      Spacing.xs -
+      leadingGap -
       trailingWidth -
       (Spacing.inputPadding * 2);
 
@@ -166,6 +228,13 @@ double resolveConduitAdaptiveTextPillWidth({
   return measuredWidth.clamp(safeMinWidth, safeMaxWidth).toDouble();
 }
 
+Object conduitAdaptivePopupMenuIcon({
+  required String iosSymbol,
+  required IconData materialIcon,
+}) {
+  return Platform.isIOS ? iosSymbol : materialIcon;
+}
+
 /// Adaptive floating app-bar icon button for route-level toolbar actions.
 class ConduitAdaptiveAppBarIconButton extends StatelessWidget {
   /// Creates an adaptive toolbar icon button.
@@ -189,10 +258,17 @@ class ConduitAdaptiveAppBarIconButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final effectiveIconColor = iconColor ?? context.conduitTheme.textPrimary;
 
+    if (Platform.isAndroid) {
+      return FloatingAppBarIconButton(
+        icon: icon,
+        onTap: onPressed,
+        iconColor: effectiveIconColor,
+      );
+    }
+
     return AdaptiveButton.child(
       onPressed: onPressed,
-      style: _conduitToolbarButtonStyle(),
-      color: Platform.isAndroid ? effectiveIconColor : null,
+      style: AdaptiveButtonStyle.glass,
       size: AdaptiveButtonSize.large,
       padding: EdgeInsets.zero,
       minSize: const Size(TouchTarget.minimum, TouchTarget.minimum),
@@ -235,11 +311,7 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final effectiveTextStyle =
-        textStyle ??
-        AppTypography.standard.copyWith(
-          color: context.conduitTheme.textPrimary,
-          fontWeight: FontWeight.w600,
-        );
+        textStyle ?? conduitAdaptiveToolbarPillTextStyle(context);
     final safeMaxWidth = maxWidth.clamp(0.0, double.infinity).toDouble();
     if (safeMaxWidth == 0) {
       return const SizedBox.shrink();
@@ -297,15 +369,69 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
       ),
     );
 
+    if (Platform.isAndroid) {
+      return FloatingAppBarButton(
+        onTap: isLoading ? null : onPressed,
+        semanticLabel: label,
+        child: child,
+      );
+    }
+
     return AdaptiveButton.child(
       onPressed: isLoading ? () {} : onPressed,
-      style: _conduitToolbarButtonStyle(),
-      color: Platform.isAndroid ? context.conduitTheme.textPrimary : null,
+      style: AdaptiveButtonStyle.glass,
       size: AdaptiveButtonSize.large,
       padding: EdgeInsets.zero,
       minSize: Size(targetWidth, 44),
       useSmoothRectangleBorder: false,
       child: child,
+    );
+  }
+}
+
+class ConduitAdaptiveToolbarOverflowButton<T> extends StatelessWidget {
+  const ConduitAdaptiveToolbarOverflowButton({
+    super.key,
+    required this.tintColor,
+    required this.items,
+    required this.onSelected,
+    this.iosIcon = 'ellipsis',
+    this.materialIcon = Icons.more_vert_rounded,
+  });
+
+  final Color tintColor;
+  final List<AdaptivePopupMenuEntry> items;
+  final ValueChanged<T> onSelected;
+  final String iosIcon;
+  final IconData materialIcon;
+
+  void _handleSelected(int index, AdaptivePopupMenuItem<T> entry) {
+    final value = entry.value;
+    if (value != null) {
+      onSelected(value);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (Platform.isAndroid) {
+      return AdaptivePopupMenuButton.widget<T>(
+        items: items,
+        onSelected: _handleSelected,
+        child: FloatingAppBarIconButton(
+          icon: materialIcon,
+          iconColor: tintColor,
+        ),
+      );
+    }
+
+    return AdaptivePopupMenuButton.icon<T>(
+      icon: Platform.isIOS ? iosIcon : materialIcon,
+      tint: tintColor,
+      size: TouchTarget.minimum,
+      buttonStyle: PopupButtonStyle.glass,
+      items: items,
+      onSelected: _handleSelected,
     );
   }
 }

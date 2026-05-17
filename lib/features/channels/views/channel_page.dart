@@ -654,48 +654,52 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
 
   Widget _buildChannelTitlePill(
     BuildContext context,
-    ConduitThemeExtension theme,
     Channel? channel, {
     required double maxWidth,
   }) {
     final label = channel?.name ?? '';
-    final textStyle = AppTypography.bodyMediumStyle.copyWith(
-      color: theme.textPrimary,
-      fontWeight: FontWeight.w500,
-    );
+    final textStyle = conduitAdaptiveToolbarPillTextStyle(context);
+    final leadingIcon = channel?.isPrivate == true
+        ? Icons.lock_outlined
+        : Icons.tag;
     final targetWidth = resolveConduitAdaptiveTextPillWidth(
       context: context,
       label: label,
       textStyle: textStyle,
       maxWidth: maxWidth,
-      horizontalPadding: Spacing.md * 2 + 6,
-      leadingWidth: IconSize.appBar,
+      minWidth: 96,
+      horizontalPadding: 10 + Spacing.xs,
+      leadingWidth: IconSize.appBar + Spacing.xs,
     );
 
     return SizedBox(
       width: targetWidth,
       child: FloatingAppBarPill(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: Spacing.md,
-            vertical: Spacing.sm,
-          ),
-          child: Row(
-            children: [
-              Icon(
-                channel?.isPrivate == true ? Icons.lock_outlined : Icons.tag,
-                size: IconSize.appBar,
-                color: theme.textPrimary,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 44),
+          child: Padding(
+            padding: const EdgeInsets.only(left: 10, right: Spacing.xs),
+            child: Center(
+              widthFactor: 1,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    leadingIcon,
+                    size: IconSize.appBar,
+                    color: textStyle.color,
+                  ),
+                  const SizedBox(width: Spacing.xs),
+                  Flexible(
+                    child: Text(
+                      label,
+                      style: textStyle,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  label,
-                  style: textStyle,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -708,28 +712,19 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     Channel? channel,
     AppLocalizations? l10n,
   ) {
-    final actions = <Widget>[
+    return buildConduitAdaptiveToolbarActionWidgets([
       if (channel?.userCount != null)
         ConduitAdaptiveAppBarIconButton(
           icon: Icons.people_outline,
           iconColor: theme.textPrimary,
           onPressed: _showMemberList,
         ),
-    ];
-
-    if (actions.isNotEmpty) {
-      actions.add(const SizedBox(width: Spacing.sm));
-    }
-
-    actions.add(
       _ChannelToolbarPopupButton(
         l10n: l10n,
         tintColor: theme.textPrimary,
         onSelected: (action) => _handleChannelToolbarSelection(action, channel),
       ),
-    );
-
-    return actions;
+    ]);
   }
 
   void _toggleDrawer() {
@@ -745,21 +740,20 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     final maxTitleWidth = resolveConduitAdaptiveLeadingPillWidth(
       context,
       trailingActionCount: channel?.userCount != null ? 2 : 1,
-      maxWidth: 260,
+      maxWidth: kConduitAdaptiveToolbarMaxPillWidth,
     );
     final tintColor = theme.textPrimary;
-    final leading = Row(
-      mainAxisSize: MainAxisSize.min,
+    const leadingGap = kConduitAdaptiveToolbarLeadingGap;
+    final leading = buildConduitAdaptiveToolbarLeadingRow(
       children: [
         ConduitAdaptiveAppBarIconButton(
           icon: Platform.isIOS ? CupertinoIcons.line_horizontal_3 : Icons.menu,
           onPressed: _toggleDrawer,
           iconColor: tintColor,
         ),
-        const SizedBox(width: Spacing.xs),
+        const SizedBox(width: leadingGap),
         _buildChannelTitlePill(
           context,
-          theme,
           channel,
           maxWidth: maxTitleWidth,
         ),
@@ -787,10 +781,16 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         automaticallyImplyLeading: false,
         backgroundColor: Colors.transparent,
         surfaceTintColor: Colors.transparent,
+        shadowColor: Colors.transparent,
         elevation: Elevation.none,
         scrolledUnderElevation: Elevation.none,
-        leadingWidth:
-            TouchTarget.minimum + Spacing.xs + maxTitleWidth + Spacing.md,
+        toolbarHeight: kTextTabBarHeight,
+        centerTitle: false,
+        titleSpacing: Spacing.sm,
+        leadingWidth: resolveConduitAdaptiveToolbarLeadingWidth(
+          pillWidth: maxTitleWidth,
+          leadingGap: leadingGap,
+        ),
         leading: leading,
         actions: actions,
       ),
@@ -1171,16 +1171,14 @@ class _ChannelToolbarPopupButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AdaptivePopupMenuButton.icon<String>(
-      icon: _buttonIcon(),
-      tint: tintColor,
-      size: TouchTarget.minimum,
-      buttonStyle: PopupButtonStyle.glass,
+    return ConduitAdaptiveToolbarOverflowButton<String>(
+      tintColor: tintColor,
+      materialIcon: Icons.more_vert,
       items: [
         AdaptivePopupMenuItem<String>(
           value: 'edit',
           label: l10n?.channelEdit ?? 'Edit Channel',
-          icon: _itemIcon(
+          icon: conduitAdaptivePopupMenuIcon(
             iosSymbol: 'pencil',
             materialIcon: Icons.edit_outlined,
           ),
@@ -1188,7 +1186,7 @@ class _ChannelToolbarPopupButton extends StatelessWidget {
         AdaptivePopupMenuItem<String>(
           value: 'leave',
           label: l10n?.channelLeave ?? 'Leave Channel',
-          icon: _itemIcon(
+          icon: conduitAdaptivePopupMenuIcon(
             iosSymbol: 'rectangle.portrait.and.arrow.right',
             materialIcon: Icons.logout_outlined,
           ),
@@ -1196,32 +1194,14 @@ class _ChannelToolbarPopupButton extends StatelessWidget {
         AdaptivePopupMenuItem<String>(
           value: 'delete',
           label: l10n?.channelDelete ?? 'Delete Channel',
-          icon: _itemIcon(
+          icon: conduitAdaptivePopupMenuIcon(
             iosSymbol: 'trash',
             materialIcon: Icons.delete_outline,
           ),
         ),
       ],
-      onSelected: (_, entry) {
-        final value = entry.value;
-        if (value == null) {
-          return;
-        }
-
-        onSelected(value);
-      },
+      onSelected: onSelected,
     );
-  }
-
-  dynamic _buttonIcon() {
-    return Platform.isIOS ? 'ellipsis' : Icons.more_vert;
-  }
-
-  dynamic _itemIcon({
-    required String iosSymbol,
-    required IconData materialIcon,
-  }) {
-    return Platform.isIOS ? iosSymbol : materialIcon;
   }
 }
 
