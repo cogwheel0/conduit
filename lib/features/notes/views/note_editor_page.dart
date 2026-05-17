@@ -20,7 +20,6 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/chrome_gradient_fade.dart';
-import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
@@ -913,143 +912,137 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     final trailingWidth = _isSaving
         ? Spacing.sm + IconSize.sm
         : (_hasChanges ? Spacing.sm + 8 : 0.0);
+    const horizontalInset = 10.0;
     final targetWidth = resolveConduitAdaptiveTextPillWidth(
       context: context,
       label: titleLabel,
       textStyle: titleTextStyle,
       maxWidth: maxWidth,
       minWidth: 96,
-      horizontalPadding: 10 + Spacing.xs,
+      horizontalPadding: horizontalInset * 2,
       trailingWidth: trailingWidth,
     );
 
-    return SizedBox(
+    return buildConduitAdaptiveToolbarPillSurface(
       width: targetWidth,
-      child: _buildAppBarPill(
-        context,
-        ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 44),
-          child: Padding(
-            padding: const EdgeInsets.only(left: 10, right: Spacing.xs),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Flexible(
-                  child: _isGeneratingTitle
-                      ? Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            SizedBox(
-                              width: IconSize.sm,
-                              height: IconSize.sm,
-                              child: CircularProgressIndicator(
-                                strokeWidth: BorderWidth.medium,
-                                valueColor: AlwaysStoppedAnimation(
-                                  conduitTheme.loadingIndicator,
-                                ),
+      onPressed: _isGeneratingTitle
+          ? null
+          : () => _titleFocusNode.requestFocus(),
+      semanticLabel: titleLabel,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 44),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: horizontalInset),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: _isGeneratingTitle
+                    ? Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(
+                            width: IconSize.sm,
+                            height: IconSize.sm,
+                            child: CircularProgressIndicator(
+                              strokeWidth: BorderWidth.medium,
+                              valueColor: AlwaysStoppedAnimation(
+                                conduitTheme.loadingIndicator,
                               ),
                             ),
-                            const SizedBox(width: Spacing.sm),
-                            Text(
-                              l10n.generatingTitle,
-                              style: titleTextStyle.copyWith(
-                                color: conduitTheme.textSecondary,
-                              ),
+                          ),
+                          const SizedBox(width: Spacing.sm),
+                          Text(
+                            l10n.generatingTitle,
+                            style: titleTextStyle.copyWith(
+                              color: conduitTheme.textSecondary,
                             ),
-                          ],
-                        )
-                      : Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            Opacity(
-                              opacity: _titleFocusNode.hasFocus ? 1.0 : 0.0,
-                              child: IntrinsicWidth(
-                                child: AdaptiveTextField(
-                                  controller: _titleController,
-                                  focusNode: _titleFocusNode,
-                                  enabled: !_isGeneratingTitle,
-                                  style: titleTextStyle,
-                                  placeholder: l10n.untitled,
-                                  textAlign: TextAlign.center,
-                                  textCapitalization:
-                                      TextCapitalization.sentences,
-                                  textInputAction: TextInputAction.done,
-                                  onSubmitted: (_) =>
-                                      _contentFocusNode.requestFocus(),
-                                  padding: EdgeInsets.zero,
-                                  cupertinoDecoration: const BoxDecoration(),
-                                  decoration: context.conduitInputStyles
-                                      .borderless(hint: l10n.untitled)
-                                      .copyWith(
-                                        hintStyle: titleTextStyle.copyWith(
-                                          color: conduitTheme.textSecondary
-                                              .withValues(alpha: 0.6),
-                                        ),
-                                        contentPadding: EdgeInsets.zero,
-                                        isDense: true,
+                          ),
+                        ],
+                      )
+                    : Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          Opacity(
+                            opacity: _titleFocusNode.hasFocus ? 1.0 : 0.0,
+                            child: IntrinsicWidth(
+                              child: AdaptiveTextField(
+                                controller: _titleController,
+                                focusNode: _titleFocusNode,
+                                enabled: !_isGeneratingTitle,
+                                style: titleTextStyle,
+                                placeholder: l10n.untitled,
+                                textAlign: TextAlign.center,
+                                textCapitalization:
+                                    TextCapitalization.sentences,
+                                textInputAction: TextInputAction.done,
+                                onSubmitted: (_) =>
+                                    _contentFocusNode.requestFocus(),
+                                padding: EdgeInsets.zero,
+                                cupertinoDecoration: const BoxDecoration(),
+                                decoration: context.conduitInputStyles
+                                    .borderless(hint: l10n.untitled)
+                                    .copyWith(
+                                      hintStyle: titleTextStyle.copyWith(
+                                        color: conduitTheme.textSecondary
+                                            .withValues(alpha: 0.6),
                                       ),
+                                      contentPadding: EdgeInsets.zero,
+                                      isDense: true,
+                                    ),
+                              ),
+                            ),
+                          ),
+                          if (!_titleFocusNode.hasFocus)
+                            GestureDetector(
+                              onTap: () => _titleFocusNode.requestFocus(),
+                              child: MiddleEllipsisText(
+                                _titleController.text.isEmpty
+                                    ? l10n.untitled
+                                    : _titleController.text,
+                                style: titleTextStyle.copyWith(
+                                  color: _titleController.text.isEmpty
+                                      ? conduitTheme.textSecondary.withValues(
+                                          alpha: 0.6,
+                                        )
+                                      : conduitTheme.textPrimary,
                                 ),
                               ),
                             ),
-                            if (!_titleFocusNode.hasFocus)
-                              GestureDetector(
-                                onTap: () => _titleFocusNode.requestFocus(),
-                                child: MiddleEllipsisText(
-                                  _titleController.text.isEmpty
-                                      ? l10n.untitled
-                                      : _titleController.text,
-                                  style: titleTextStyle.copyWith(
-                                    color: _titleController.text.isEmpty
-                                        ? conduitTheme.textSecondary.withValues(
-                                            alpha: 0.6,
-                                          )
-                                        : conduitTheme.textPrimary,
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
+                        ],
+                      ),
+              ),
+              if (_hasChanges && !_isSaving)
+                Padding(
+                  padding: const EdgeInsets.only(left: Spacing.sm),
+                  child: Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: conduitTheme.warning,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
                 ),
-                if (_hasChanges && !_isSaving)
-                  Padding(
-                    padding: const EdgeInsets.only(left: Spacing.sm),
-                    child: Container(
-                      width: 8,
-                      height: 8,
-                      decoration: BoxDecoration(
-                        color: conduitTheme.warning,
-                        shape: BoxShape.circle,
+              if (_isSaving)
+                Padding(
+                  padding: const EdgeInsets.only(left: Spacing.sm),
+                  child: SizedBox(
+                    width: IconSize.sm,
+                    height: IconSize.sm,
+                    child: CircularProgressIndicator(
+                      strokeWidth: BorderWidth.medium,
+                      valueColor: AlwaysStoppedAnimation(
+                        conduitTheme.loadingIndicator,
                       ),
                     ),
                   ),
-                if (_isSaving)
-                  Padding(
-                    padding: const EdgeInsets.only(left: Spacing.sm),
-                    child: SizedBox(
-                      width: IconSize.sm,
-                      height: IconSize.sm,
-                      child: CircularProgressIndicator(
-                        strokeWidth: BorderWidth.medium,
-                        valueColor: AlwaysStoppedAnimation(
-                          conduitTheme.loadingIndicator,
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
+                ),
+            ],
           ),
         ),
       ),
     );
-  }
-
-  Widget _buildAppBarPill(
-    BuildContext context,
-    Widget child, {
-    bool isCircular = false,
-  }) {
-    return FloatingAppBarPill(isCircular: isCircular, child: child);
   }
 
   Widget _buildFloatingMetadataBar(BuildContext context) {

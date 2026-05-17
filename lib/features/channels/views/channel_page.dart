@@ -22,7 +22,6 @@ import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/widgets/chrome_gradient_fade.dart';
-import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/model_avatar.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
@@ -672,33 +671,31 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       leadingWidth: IconSize.appBar + Spacing.xs,
     );
 
-    return SizedBox(
+    return buildConduitAdaptiveToolbarPillSurface(
       width: targetWidth,
-      child: FloatingAppBarPill(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 44),
-          child: Padding(
-            padding: const EdgeInsets.only(left: 10, right: Spacing.xs),
-            child: Center(
-              widthFactor: 1,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    leadingIcon,
-                    size: IconSize.appBar,
-                    color: textStyle.color,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 44),
+        child: Padding(
+          padding: const EdgeInsets.only(left: 10, right: Spacing.xs),
+          child: Center(
+            widthFactor: 1,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  leadingIcon,
+                  size: IconSize.appBar,
+                  color: textStyle.color,
+                ),
+                const SizedBox(width: Spacing.xs),
+                Flexible(
+                  child: Text(
+                    label,
+                    style: textStyle,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(width: Spacing.xs),
-                  Flexible(
-                    child: Text(
-                      label,
-                      style: textStyle,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ),
@@ -752,11 +749,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
           iconColor: tintColor,
         ),
         const SizedBox(width: leadingGap),
-        _buildChannelTitlePill(
-          context,
-          channel,
-          maxWidth: maxTitleWidth,
-        ),
+        _buildChannelTitlePill(context, channel, maxWidth: maxTitleWidth),
       ],
     );
     final actions = _buildChannelToolbarActionWidgets(

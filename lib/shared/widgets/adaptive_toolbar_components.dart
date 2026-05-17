@@ -131,6 +131,40 @@ TextStyle conduitAdaptiveToolbarPillTextStyle(BuildContext context) {
   );
 }
 
+Widget buildConduitAdaptiveToolbarPillSurface({
+  required double width,
+  required Widget child,
+  VoidCallback? onPressed,
+  String? semanticLabel,
+}) {
+  final sizedChild = SizedBox(width: width, child: child);
+
+  if (Platform.isAndroid) {
+    if (onPressed == null) {
+      return SizedBox(
+        width: width,
+        child: FloatingAppBarPill(child: child),
+      );
+    }
+
+    return FloatingAppBarButton(
+      onTap: onPressed,
+      semanticLabel: semanticLabel,
+      child: sizedChild,
+    );
+  }
+
+  return AdaptiveButton.child(
+    onPressed: onPressed ?? () {},
+    style: AdaptiveButtonStyle.glass,
+    size: AdaptiveButtonSize.large,
+    padding: EdgeInsets.zero,
+    minSize: Size(width, 44),
+    useSmoothRectangleBorder: false,
+    child: sizedChild,
+  );
+}
+
 double resolveConduitAdaptiveToolbarLeadingWidth({
   required double pillWidth,
   double leadingGap = kConduitAdaptiveToolbarLeadingGap,
