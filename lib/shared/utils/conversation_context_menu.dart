@@ -19,6 +19,7 @@ import 'package:conduit/features/navigation/widgets/folder_tree_guides.dart';
 /// Defines an action for use in Conduit context menus.
 class ConduitContextMenuAction {
   final IconData cupertinoIcon;
+  final String? sfSymbol;
   final IconData materialIcon;
   final String label;
   final Future<void> Function() onSelected;
@@ -27,6 +28,7 @@ class ConduitContextMenuAction {
 
   const ConduitContextMenuAction({
     required this.cupertinoIcon,
+    this.sfSymbol,
     required this.materialIcon,
     required this.label,
     required this.onSelected,
@@ -265,6 +267,7 @@ List<ConduitContextMenuAction> buildConversationActionsWithFolders({
       cupertinoIcon: isPinned
           ? CupertinoIcons.pin_slash
           : CupertinoIcons.pin_fill,
+      sfSymbol: isPinned ? 'pin.slash' : 'pin.fill',
       materialIcon: isPinned ? Icons.push_pin_outlined : Icons.push_pin_rounded,
       label: isPinned ? l10n.unpin : l10n.pin,
       onBeforeClose: () => ConduitHaptics.lightImpact(),
@@ -274,6 +277,7 @@ List<ConduitContextMenuAction> buildConversationActionsWithFolders({
       cupertinoIcon: isArchived
           ? CupertinoIcons.archivebox_fill
           : CupertinoIcons.archivebox,
+      sfSymbol: isArchived ? 'archivebox.fill' : 'archivebox',
       materialIcon: isArchived
           ? Icons.unarchive_rounded
           : Icons.archive_rounded,
@@ -283,6 +287,7 @@ List<ConduitContextMenuAction> buildConversationActionsWithFolders({
     ),
     ConduitContextMenuAction(
       cupertinoIcon: CupertinoIcons.share,
+      sfSymbol: 'square.and.arrow.up',
       materialIcon: Icons.ios_share_rounded,
       label: l10n.shareChat,
       onBeforeClose: () => ConduitHaptics.selectionClick(),
@@ -290,6 +295,7 @@ List<ConduitContextMenuAction> buildConversationActionsWithFolders({
     ),
     ConduitContextMenuAction(
       cupertinoIcon: CupertinoIcons.pencil,
+      sfSymbol: 'pencil',
       materialIcon: Icons.edit_rounded,
       label: l10n.rename,
       onBeforeClose: () => ConduitHaptics.selectionClick(),
@@ -298,6 +304,7 @@ List<ConduitContextMenuAction> buildConversationActionsWithFolders({
     if (canMove)
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.folder,
+        sfSymbol: 'folder',
         materialIcon: Icons.drive_file_move_outline,
         label: l10n.move,
         onBeforeClose: () => ConduitHaptics.selectionClick(),
@@ -305,6 +312,7 @@ List<ConduitContextMenuAction> buildConversationActionsWithFolders({
       ),
     ConduitContextMenuAction(
       cupertinoIcon: CupertinoIcons.delete,
+      sfSymbol: 'trash',
       materialIcon: Icons.delete_rounded,
       label: l10n.delete,
       destructive: true,

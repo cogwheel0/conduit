@@ -37,7 +37,6 @@ import '../widgets/assistant_message_widget.dart' as assistant;
 import '../widgets/file_attachment_widget.dart';
 import '../widgets/context_attachment_widget.dart';
 import '../widgets/server_file_picker_sheet.dart';
-import '../widgets/chat_share_sheet.dart';
 import '../services/file_attachment_service.dart';
 import '../services/chat_transport_dispatch.dart';
 import '../services/historical_message_regeneration.dart';
@@ -45,6 +44,7 @@ import '../voice_call/presentation/voice_call_launcher.dart';
 import '../../../shared/services/tasks/task_queue.dart';
 import '../../tools/providers/tools_providers.dart';
 import '../../../core/models/chat_message.dart';
+import '../../../core/models/conversation.dart';
 import '../../../core/models/folder.dart';
 import '../../../core/models/model.dart';
 import '../providers/context_attachments_provider.dart';
@@ -54,6 +54,7 @@ import '../../../shared/widgets/themed_sheets.dart';
 import '../../../shared/widgets/measure_size.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/chrome_gradient_fade.dart';
+import '../../../shared/utils/conversation_context_menu.dart';
 
 class ChatPage extends ConsumerStatefulWidget {
   const ChatPage({super.key});
@@ -2242,35 +2243,56 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final showNewChatAction = activeConversation != null || hasMessages;
     final tintColor = context.conduitTheme.textPrimary;
     const leadingGap = kConduitAdaptiveToolbarLeadingGap;
+    final trailingActionCount = (showNewChatAction ? 1 : 0) + 1;
     final maxModelWidth = resolveConduitAdaptiveLeadingPillWidth(
       context,
-      trailingActionCount: showNewChatAction ? 2 : 1,
+      trailingActionCount: trailingActionCount,
       maxWidth: kConduitAdaptiveToolbarMaxPillWidth,
+    );
+    final leading = _buildNativeToolbarLeading(
+      context: context,
+      isLoadingConversation: isLoadingConversation,
+      modelLabel: modelLabel,
+      leadingGap: leadingGap,
+      maxModelWidth: maxModelWidth,
+    );
+    final actions = _buildAdaptiveToolbarActionWidgets(
+      context: context,
+      activeConversation: activeConversation,
+      isTemporary: isTemporary,
+      hasMessages: hasMessages,
+      showNewChatAction: showNewChatAction,
     );
     final leadingWidth = resolveConduitAdaptiveToolbarLeadingWidth(
       pillWidth: maxModelWidth,
       leadingGap: leadingGap,
     );
 
-    return buildConduitAdaptiveToolbarAppBar(
+    return AdaptiveAppBar(
+      useNativeToolbar: false,
       tintColor: tintColor,
-      leadingWidth: leadingWidth,
-      buildLeading: () => _buildNativeToolbarLeading(
-        context: context,
-        isLoadingConversation: isLoadingConversation,
-        modelLabel: modelLabel,
-        leadingGap: leadingGap,
-        maxModelWidth: maxModelWidth,
+      cupertinoNavigationBar: CupertinoNavigationBar(
+        automaticallyImplyLeading: false,
+        border: null,
+        backgroundColor: Colors.transparent,
+        enableBackgroundFilterBlur: false,
+        leading: leading,
+        trailing: Row(mainAxisSize: MainAxisSize.min, children: actions),
       ),
-      buildActions: () {
-        return _buildAdaptiveToolbarActions(
-          context: context,
-          activeConversation: activeConversation,
-          isTemporary: isTemporary,
-          hasMessages: hasMessages,
-          showNewChatAction: showNewChatAction,
-        );
-      },
+      appBar: AppBar(
+        automaticallyImplyLeading: false,
+        backgroundColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
+        shadowColor: Colors.transparent,
+        elevation: Elevation.none,
+        scrolledUnderElevation: Elevation.none,
+        toolbarHeight: kTextTabBarHeight,
+        centerTitle: false,
+        titleSpacing: Spacing.sm,
+        leadingWidth: leadingWidth,
+        leading: leading,
+        actions: actions,
+      ),
     );
   }
 
@@ -2300,81 +2322,146 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     );
   }
 
-  List<AdaptiveAppBarAction> _buildAdaptiveToolbarActions({
+  List<Widget> _buildAdaptiveToolbarActionWidgets({
     required BuildContext context,
-    required dynamic activeConversation,
+    required Conversation? activeConversation,
     required bool isTemporary,
     required bool hasMessages,
     required bool showNewChatAction,
   }) {
-    final actions = <AdaptiveAppBarAction>[];
+    final actions = <Widget>[];
     final defaultTint = context.conduitTheme.textPrimary;
-    final showToggle =
-        activeConversation == null || isTemporaryChat(activeConversation.id);
 
-    if (showToggle) {
-      if (isTemporary && hasMessages && activeConversation != null) {
-        actions.add(
-          AdaptiveAppBarAction(
-            iosSymbol: 'square.and.arrow.down',
-            icon: Platform.isIOS
-                ? CupertinoIcons.arrow_down_doc
-                : Icons.save_alt,
-            tintColor: defaultTint,
-            onPressed: _saveTemporaryChat,
-          ),
-        );
-      } else {
-        actions.add(
-          AdaptiveAppBarAction(
-            iosSymbol: isTemporary ? 'eye.slash' : 'eye',
-            icon: isTemporary
-                ? (Platform.isIOS
-                      ? CupertinoIcons.eye_slash
-                      : Icons.visibility_off)
-                : (Platform.isIOS
-                      ? CupertinoIcons.eye
-                      : Icons.visibility_outlined),
-            tintColor: isTemporary ? Colors.blue : defaultTint,
-            onPressed: () {
-              ConduitHaptics.selectionClick();
-              final current = ref.read(temporaryChatEnabledProvider);
-              ref.read(temporaryChatEnabledProvider.notifier).set(!current);
-            },
-          ),
-        );
-      }
-    }
-
-    if (activeConversation != null && !isTemporaryChat(activeConversation.id)) {
-      actions.add(
-        AdaptiveAppBarAction(
-          iosSymbol: 'square.and.arrow.up',
-          icon: Platform.isIOS ? CupertinoIcons.share : Icons.ios_share_rounded,
-          tintColor: defaultTint,
-          onPressed: () {
-            ConduitHaptics.selectionClick();
-            showChatShareSheet(
-              context: context,
-              conversation: activeConversation,
-            );
-          },
-        ),
-      );
+    final temporaryAction = _buildTemporaryChatToolbarAction(
+      activeConversation: activeConversation,
+      isTemporary: isTemporary,
+      hasMessages: hasMessages,
+      tintColor: defaultTint,
+    );
+    if (temporaryAction != null) {
+      actions.add(temporaryAction);
     }
 
     if (showNewChatAction) {
       actions.add(
-        AdaptiveAppBarAction(
-          iosSymbol: 'square.and.pencil',
+        ConduitAdaptiveAppBarIconButton(
           icon: Platform.isIOS ? CupertinoIcons.create : Icons.add_comment,
-          tintColor: defaultTint,
+          iconColor: defaultTint,
           onPressed: _handleNewChat,
         ),
       );
     }
 
-    return actions;
+    final overflowButton = _buildChatToolbarOverflowButton(
+      context: context,
+      activeConversation: activeConversation,
+      tintColor: defaultTint,
+    );
+    if (overflowButton != null) {
+      actions.add(overflowButton);
+    }
+
+    return buildConduitAdaptiveToolbarActionWidgets(actions);
+  }
+
+  Widget? _buildTemporaryChatToolbarAction({
+    required Conversation? activeConversation,
+    required bool isTemporary,
+    required bool hasMessages,
+    required Color tintColor,
+  }) {
+    final showTemporaryAction =
+        activeConversation == null || isTemporaryChat(activeConversation.id);
+    if (!showTemporaryAction) {
+      return null;
+    }
+
+    if (isTemporary && hasMessages && activeConversation != null) {
+      return ConduitAdaptiveAppBarIconButton(
+        icon: Platform.isIOS ? CupertinoIcons.arrow_down_doc : Icons.save_alt,
+        iconColor: tintColor,
+        onPressed: _saveTemporaryChat,
+      );
+    }
+
+    return ConduitAdaptiveAppBarIconButton(
+      icon: isTemporary
+          ? (Platform.isIOS ? CupertinoIcons.eye_slash : Icons.visibility_off)
+          : (Platform.isIOS ? CupertinoIcons.eye : Icons.visibility_outlined),
+      iconColor: isTemporary ? Colors.blue : tintColor,
+      onPressed: () {
+        ConduitHaptics.selectionClick();
+        final current = ref.read(temporaryChatEnabledProvider);
+        ref.read(temporaryChatEnabledProvider.notifier).set(!current);
+      },
+    );
+  }
+
+  Widget? _buildChatToolbarOverflowButton({
+    required BuildContext context,
+    required Conversation? activeConversation,
+    required Color tintColor,
+  }) {
+    final items = <AdaptivePopupMenuEntry>[];
+    final callbacks = <Future<void> Function()>[];
+
+    void addItem({
+      required String label,
+      required Object icon,
+      required Future<void> Function() onSelected,
+    }) {
+      final index = callbacks.length;
+      callbacks.add(onSelected);
+      items.add(
+        AdaptivePopupMenuItem<int>(value: index, label: label, icon: icon),
+      );
+    }
+
+    final conversationActions =
+        activeConversation != null && !isTemporaryChat(activeConversation.id)
+        ? buildConversationActions(
+            context: context,
+            ref: ref,
+            conversation: activeConversation,
+          )
+        : const <ConduitContextMenuAction>[];
+    for (final action in conversationActions) {
+      addItem(
+        label: action.label,
+        icon: _chatToolbarConversationActionIcon(action),
+        onSelected: () async {
+          action.onBeforeClose?.call();
+          await action.onSelected();
+        },
+      );
+    }
+
+    if (items.isEmpty) {
+      return null;
+    }
+
+    return ConduitAdaptiveToolbarOverflowButton<int>(
+      tintColor: tintColor,
+      materialIcon: Icons.more_vert,
+      items: items,
+      onSelected: (index) {
+        if (index < 0 || index >= callbacks.length) {
+          return;
+        }
+        unawaited(callbacks[index]());
+      },
+    );
+  }
+
+  Object _chatToolbarConversationActionIcon(ConduitContextMenuAction action) {
+    final sfSymbol = action.sfSymbol;
+    if (sfSymbol != null) {
+      return conduitAdaptivePopupMenuIcon(
+        iosSymbol: sfSymbol,
+        materialIcon: action.materialIcon,
+      );
+    }
+    return Platform.isIOS ? action.cupertinoIcon : action.materialIcon;
   }
 
   // Removed legacy save-before-leave hook; server manages chat state via background pipeline.
