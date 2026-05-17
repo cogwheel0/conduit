@@ -3168,34 +3168,16 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   void _showExpandTextModal() async {
     if (Platform.isIOS) {
       final l10n = AppLocalizations.of(context)!;
-      final okLabel = MaterialLocalizations.of(context).okButtonLabel;
       setState(() => _expandModalOpen = true);
       try {
-        final result = await NativeSheetBridge.instance.presentSheet(
-          root: NativeSheetDetailConfig(
-            id: 'expanded-text-editor',
-            title: widget.placeholder ?? l10n.sendMessage,
-            items: [
-              NativeSheetItemConfig(
-                id: 'expanded-text-value',
-                title: widget.placeholder ?? l10n.sendMessage,
-                sfSymbol: 'text.alignleft',
-                kind: NativeSheetItemKind.multilineTextField,
-                value: _controller.text,
-                placeholder: widget.placeholder,
-              ),
-              NativeSheetItemConfig(
-                id: 'apply-expanded-text',
-                title: okLabel,
-                sfSymbol: 'checkmark.circle',
-              ),
-              NativeSheetItemConfig(
-                id: 'send-expanded-text',
-                title: l10n.sendMessage,
-                sfSymbol: 'arrow.up.circle',
-              ),
-            ],
-          ),
+        final result = await NativeSheetBridge.instance.presentTextEditor(
+          title: widget.placeholder ?? l10n.sendMessage,
+          value: _controller.text,
+          placeholder: widget.placeholder ?? l10n.messageHintText,
+          sendLabel: l10n.send,
+          valueId: 'expanded-text-value',
+          sendActionId: 'send-expanded-text',
+          closeActionId: 'close-expanded-text',
           rethrowErrors: true,
         );
         final updatedText = result?.values['expanded-text-value'] as String?;
@@ -3248,6 +3230,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       useSafeArea: true,
       builder: (modalContext) => ExpandedTextEditorSheet(
         controller: modalController,
+        onClose: () {
+          FocusScope.of(modalContext).unfocus();
+          Navigator.of(modalContext).pop(false);
+        },
         onSend: () {
           FocusScope.of(modalContext).unfocus();
           Navigator.of(modalContext).pop(true);

@@ -18,10 +18,12 @@ class ExpandedTextEditorSheet extends StatefulWidget {
     super.key,
     required this.controller,
     required this.onSend,
+    required this.onClose,
   });
 
   final TextEditingController controller;
   final VoidCallback onSend;
+  final VoidCallback onClose;
 
   @override
   State<ExpandedTextEditorSheet> createState() =>
@@ -82,6 +84,21 @@ class _ExpandedTextEditorSheetState extends State<ExpandedTextEditorSheet> {
       borderRadius: BorderRadius.circular(buttonSize),
       useSmoothRectangleBorder: false,
       child: sendIcon,
+    );
+
+    final closeButton = AdaptiveButton.child(
+      onPressed: widget.onClose,
+      style: AdaptiveButtonStyle.glass,
+      size: AdaptiveButtonSize.medium,
+      minSize: const Size(buttonSize, buttonSize),
+      padding: EdgeInsets.zero,
+      borderRadius: BorderRadius.circular(buttonSize),
+      useSmoothRectangleBorder: false,
+      child: Icon(
+        Platform.isIOS ? CupertinoIcons.xmark : Icons.close,
+        size: IconSize.small + 1,
+        color: theme.textPrimary,
+      ),
     );
 
     // useSafeArea: true on the presenter already constrains the sheet to the
@@ -145,8 +162,8 @@ class _ExpandedTextEditorSheetState extends State<ExpandedTextEditorSheet> {
                   : Spacing.md + viewPadding.bottom,
             ),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [sendButton],
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [closeButton, sendButton],
             ),
           ),
         ],

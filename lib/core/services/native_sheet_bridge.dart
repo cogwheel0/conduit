@@ -189,6 +189,40 @@ class NativeSheetBridge {
     }
   }
 
+  Future<NativeSheetActionResult?> presentTextEditor({
+    required String title,
+    required String value,
+    String? placeholder,
+    String? sendLabel,
+    String valueId = 'text',
+    String sendActionId = 'send',
+    String closeActionId = 'close',
+    bool rethrowErrors = false,
+  }) async {
+    if (!Platform.isIOS) return null;
+    try {
+      final raw = await _nativeSheetChannel
+          .invokeMethod<Object>('presentTextEditor', {
+            'title': title,
+            'value': value,
+            'placeholder': placeholder,
+            'sendLabel': sendLabel,
+            'valueId': valueId,
+            'sendActionId': sendActionId,
+            'closeActionId': closeActionId,
+          });
+      return NativeSheetActionResult.tryParse(raw);
+    } on PlatformException catch (error, stackTrace) {
+      _logNativeSheetBridgeError('presentTextEditor', error, stackTrace);
+      if (rethrowErrors) rethrow;
+      return null;
+    } catch (error, stackTrace) {
+      _logNativeSheetBridgeError('presentTextEditor', error, stackTrace);
+      if (rethrowErrors) rethrow;
+      return null;
+    }
+  }
+
   Future<NativeSheetActionResult?> presentSheet({
     required NativeSheetDetailConfig root,
     List<NativeSheetDetailConfig> detailSheets = const [],

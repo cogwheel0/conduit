@@ -343,6 +343,30 @@ private struct NativeDatePickerConfiguration {
     }
 }
 
+private struct NativeTextEditorConfiguration {
+    let title: String
+    let initialValue: String
+    let placeholder: String?
+    let sendLabel: String
+    let valueId: String
+    let sendActionId: String
+    let closeActionId: String
+
+    init?(_ arguments: Any?) {
+        guard let payload = arguments as? [String: Any] else {
+            return nil
+        }
+
+        title = (payload["title"] as? String) ?? nativeLocalized("native.message", "Message")
+        initialValue = (payload["value"] as? String) ?? ""
+        placeholder = payload["placeholder"] as? String
+        sendLabel = (payload["sendLabel"] as? String) ?? nativeLocalized("native.send", "Send")
+        valueId = (payload["valueId"] as? String) ?? "text"
+        sendActionId = (payload["sendActionId"] as? String) ?? "send"
+        closeActionId = (payload["closeActionId"] as? String) ?? "close"
+    }
+}
+
 private struct NativeResultSheetConfiguration {
     let root: NativeSheetDetail
     let details: [String: NativeSheetDetail]
@@ -579,8 +603,10 @@ final class NativeSheetBridge {
     private var activeSheetMode: ActiveSheetMode = .profileMenu
     private var pendingModelSelectorResult: FlutterResult?
     private var pendingOptionsSelectorResult: FlutterResult?
+    private var pendingTextEditorResult: FlutterResult?
     private var pendingResultSheetResult: FlutterResult?
     private var resultSheetValues: [String: Any] = [:]
+    private weak var activeTextEditorController: NativeTextEditorViewController?
 
     private init() {}
 
@@ -655,6 +681,18 @@ final class NativeSheetBridge {
                 return
             }
             presentDatePicker(configuration, result: result)
+
+        case "presentTextEditor":
+            guard let configuration = NativeTextEditorConfiguration(call.arguments)
+            else {
+                result(FlutterError(
+                    code: "INVALID_ARGS",
+                    message: "Missing native text editor configuration",
+                    details: nil
+                ))
+                return
+            }
+            presentTextEditor(configuration, result: result)
 
         case "presentResultSheet":
             guard let configuration = NativeResultSheetConfiguration(call.arguments)
@@ -1008,12 +1046,19 @@ final class NativeSheetBridge {
                     self?.pendingOptionsSelectorResult = nil
                     pending(nil)
                 }
+                if let pending = self?.pendingTextEditorResult {
+                    self?.pendingTextEditorResult = nil
+                    pending(self?.activeTextEditorController?.resultPayload(
+                        actionId: self?.activeTextEditorController?.closeActionId ?? "close"
+                    ))
+                }
                 if let pending = self?.pendingResultSheetResult {
                     self?.pendingResultSheetResult = nil
                     pending(nil)
                 }
                 self?.activeController = nil
                 self?.presentationDelegate = nil
+                self?.activeTextEditorController = nil
                 self?.activeDetailTableController = nil
                 self?.detailPayloads = [:]
                 self?.resultSheetValues = [:]
@@ -1160,6 +1205,81 @@ final class NativeSheetBridge {
         }
     }
 
+    private func presentTextEditor(
+        _ configuration: NativeTextEditorConfiguration,
+        result: @escaping FlutterResult
+    ) {
+        if pendingTextEditorResult != nil {
+            result(FlutterError(
+                code: "ALREADY_PRESENTING",
+                message: "A native text editor sheet is already open",
+                details: nil
+            ))
+            return
+        }
+
+        activeSheetMode = .resultSheet
+        pendingTextEditorResult = result
+        let controller = NativeTextEditorViewController(
+            configuration: configuration,
+            onClose: { [weak self] in
+                self?.resolvePendingTextEditorAfterDismiss(
+                    actionId: configuration.closeActionId
+                )
+            },
+            onSend: { [weak self] in
+                self?.resolvePendingTextEditorAfterDismiss(
+                    actionId: configuration.sendActionId
+                )
+            }
+        )
+        activeTextEditorController = controller
+        let navigation = NativeSheetNavigationController(rootViewController: controller)
+        if present(navigation, initialDetent: .large) {
+            navigation.sheetPresentationController?.detents = [.large()]
+            controller.focusEditor()
+            return
+        }
+
+        pendingTextEditorResult = nil
+        activeTextEditorController = nil
+        activeSheetMode = .profileMenu
+        result(FlutterError(
+            code: "PRESENTATION_FAILED",
+            message: "Unable to present native text editor",
+            details: nil
+        ))
+    }
+
+    private func resolvePendingTextEditorAfterDismiss(actionId: String) {
+        guard let pending = pendingTextEditorResult else {
+            dismissActive()
+            return
+        }
+
+        pendingTextEditorResult = nil
+        flushActiveSheetEditing()
+        let payload = activeTextEditorController?.resultPayload(actionId: actionId)
+        let controller = activeController
+        let completion = { [weak self] in
+            pending(payload)
+            self?.activeController = nil
+            self?.presentationDelegate = nil
+            self?.activeTextEditorController = nil
+            self?.activeDetailTableController = nil
+            self?.detailPayloads = [:]
+            self?.resultSheetValues = [:]
+            self?.activeSheetMode = .profileMenu
+        }
+
+        guard let controller else {
+            completion()
+            return
+        }
+
+        controller.dismiss(animated: true, completion: completion)
+    }
+
     private func applySheetStyle(
         to controller: UIViewController,
         initialDetent: UISheetPresentationController.Detent.Identifier? = nil
@@ -1298,10 +1418,17 @@ final class NativeSheetBridge {
             pendingOptionsSelectorResult = nil
             pending(nil)
         }
+        if let pending = pendingTextEditorResult {
+            pendingTextEditorResult = nil
+            pending(activeTextEditorController?.resultPayload(
+                actionId: activeTextEditorController?.closeActionId ?? "close"
+            ))
+        }
         if let pending = pendingResultSheetResult {
             pendingResultSheetResult = nil
             pending(nil)
         }
+        activeTextEditorController = nil
         activeSheetMode = .profileMenu
     }
 
@@ -3793,6 +3920,116 @@ private final class NativeModelAvatarView: UIView {
             self.initialsLabel.isHidden = true
             self.symbolView.isHidden = true
         }
+    }
+}
+
+private final class NativeTextEditorViewController: UIViewController, UITextViewDelegate {
+    private let configuration: NativeTextEditorConfiguration
+    private let onClose: () -> Void
+    private let onSend: () -> Void
+    private let textView = UITextView()
+    private let placeholderLabel = UILabel()
+
+    var closeActionId: String { configuration.closeActionId }
+
+    init(
+        configuration: NativeTextEditorConfiguration,
+        onClose: @escaping () -> Void,
+        onSend: @escaping () -> Void
+    ) {
+        self.configuration = configuration
+        self.onClose = onClose
+        self.onSend = onSend
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        title = configuration.title
+        view.backgroundColor = .systemBackground
+        navigationItem.leftBarButtonItem = iconBarButton(
+            systemName: "xmark",
+            action: UIAction { [weak self] _ in self?.closeTapped() }
+        )
+        let sendButton = UIBarButtonItem(
+            title: configuration.sendLabel,
+            primaryAction: UIAction { [weak self] _ in self?.sendTapped() }
+        )
+        sendButton.style = .done
+        navigationItem.rightBarButtonItem = sendButton
+
+        textView.translatesAutoresizingMaskIntoConstraints = false
+        textView.backgroundColor = .clear
+        textView.font = .preferredFont(forTextStyle: .body)
+        textView.adjustsFontForContentSizeCategory = true
+        textView.textColor = .label
+        textView.tintColor = .tintColor
+        textView.text = configuration.initialValue
+        textView.delegate = self
+        textView.keyboardDismissMode = .interactive
+        textView.alwaysBounceVertical = true
+        textView.textContainerInset = UIEdgeInsets(top: 16, left: 0, bottom: 16, right: 0)
+        textView.textContainer.lineFragmentPadding = 0
+
+        placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
+        placeholderLabel.text = configuration.placeholder
+        placeholderLabel.font = textView.font
+        placeholderLabel.textColor = .placeholderText
+        placeholderLabel.numberOfLines = 0
+        placeholderLabel.adjustsFontForContentSizeCategory = true
+
+        view.addSubview(textView)
+        textView.addSubview(placeholderLabel)
+        NSLayoutConstraint.activate([
+            textView.leadingAnchor.constraint(equalTo: view.layoutMarginsGuide.leadingAnchor),
+            textView.trailingAnchor.constraint(equalTo: view.layoutMarginsGuide.trailingAnchor),
+            textView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            textView.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
+
+            placeholderLabel.leadingAnchor.constraint(equalTo: textView.leadingAnchor),
+            placeholderLabel.trailingAnchor.constraint(equalTo: textView.trailingAnchor),
+            placeholderLabel.topAnchor.constraint(equalTo: textView.topAnchor, constant: textView.textContainerInset.top),
+        ])
+
+        refreshActions()
+    }
+
+    func focusEditor() {
+        DispatchQueue.main.async { [weak self] in
+            self?.textView.becomeFirstResponder()
+        }
+    }
+
+    func resultPayload(actionId: String) -> [String: Any] {
+        [
+            "actionId": actionId,
+            "values": [configuration.valueId: textView.text ?? ""],
+        ]
+    }
+
+    func textViewDidChange(_ textView: UITextView) {
+        refreshActions()
+    }
+
+    private func refreshActions() {
+        placeholderLabel.isHidden = !textView.text.isEmpty
+        navigationItem.rightBarButtonItem?.isEnabled =
+            !textView.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func closeTapped() {
+        onClose()
+    }
+
+    private func sendTapped() {
+        guard !textView.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return
+        }
+        onSend()
     }
 }
 
