@@ -77,6 +77,33 @@ void _expectForcedWarmup(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('startup queue requests a frame for ready delayed work', () async {
+    void Function(Duration)? postFrameCallback;
+    var ensureVisualUpdateCalls = 0;
+    var runCalls = 0;
+
+    debugScheduleReadyStartupQueueTaskForTesting(
+      onEnsureVisualUpdate: () {
+        ensureVisualUpdateCalls += 1;
+      },
+      onAddPostFrameCallback: (callback) {
+        postFrameCallback = callback;
+      },
+      run: () {
+        runCalls += 1;
+      },
+    );
+
+    expect(ensureVisualUpdateCalls, 1);
+    expect(postFrameCallback, isNotNull);
+    expect(runCalls, 0);
+
+    postFrameCallback!(Duration.zero);
+    await _flushMicrotasks(2);
+
+    expect(runCalls, 1);
+  });
+
   test(
     'forced warmup refreshes populated conversations while warming folders',
     () async {

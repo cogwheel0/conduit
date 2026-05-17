@@ -614,6 +614,9 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
               child: WebContentEmbed(
                 source: data.embeds[index],
                 argsText: data.argumentsText,
+                previewTitle: 'Embedded Output',
+                previewDescription:
+                    'Load the embedded output preview on demand.',
               ),
             ),
           ],

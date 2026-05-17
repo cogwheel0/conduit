@@ -1,3 +1,5 @@
+import 'dart:collection';
+
 import 'package:flutter/material.dart';
 import 'package:markdown/markdown.dart' as md;
 
@@ -8,6 +10,17 @@ import 'inline_renderer.dart';
 import 'latex_preprocessor.dart';
 import 'markdown_style.dart';
 import 'mention_inline_syntax.dart';
+
+final _parsedMarkdownCache = _ParsedMarkdownCache();
+
+@visibleForTesting
+void debugResetParsedMarkdownCache() => _parsedMarkdownCache.clear();
+
+@visibleForTesting
+int debugParsedMarkdownCacheSize() => _parsedMarkdownCache.length;
+
+@visibleForTesting
+List<String> debugParsedMarkdownCacheKeys() => _parsedMarkdownCache.keys;
 
 /// A widget that renders markdown content using the
 /// Conduit custom rendering pipeline.
@@ -71,11 +84,9 @@ class ConduitMarkdownWidget extends StatefulWidget {
 }
 
 class _ConduitMarkdownWidgetState extends State<ConduitMarkdownWidget> {
-  LatexPreprocessor _latexPreprocessor = LatexPreprocessor();
   InlineRenderer? _inlineRenderer;
-  List<md.Node> _nodes = [];
+  _ParsedMarkdownDocument? _parsedDocument;
   String _cachedData = '';
-  List<ChatSourceReference>? _cachedSources;
 
   @override
   void dispose() {
@@ -87,26 +98,13 @@ class _ConduitMarkdownWidgetState extends State<ConduitMarkdownWidget> {
   /// result. Only re-parses when [data] differs from the
   /// previously cached value.
   void _ensureParsed(String data) {
-    if (data == _cachedData &&
-        identical(widget.sources, _cachedSources) &&
-        _nodes.isNotEmpty) {
+    if (data == _cachedData && _parsedDocument != null) {
       return;
     }
 
-    _inlineRenderer?.disposeRecognizers();
     _cachedData = data;
-    _cachedSources = widget.sources;
-
-    _latexPreprocessor = LatexPreprocessor();
-    final preprocessed = _latexPreprocessor.extract(data);
-
-    final document = md.Document(
-      extensionSet: md.ExtensionSet.gitHubWeb,
-      blockSyntaxes: const [DetailsBlockSyntax()],
-      inlineSyntaxes: [MentionInlineSyntax()],
-      encodeHtml: false,
-    );
-    _nodes = document.parse(preprocessed);
+    _parsedDocument =
+        _parsedMarkdownCache.read(data) ?? _parsedMarkdownCache.write(data);
   }
 
   @override
@@ -114,11 +112,15 @@ class _ConduitMarkdownWidgetState extends State<ConduitMarkdownWidget> {
     final style = ConduitMarkdownStyle.fromTheme(context);
 
     _ensureParsed(widget.data);
+    final parsedDocument = _parsedDocument;
+    if (parsedDocument == null) {
+      return const SizedBox.shrink();
+    }
 
     _inlineRenderer?.disposeRecognizers();
     _inlineRenderer = InlineRenderer(
       style,
-      _latexPreprocessor,
+      parsedDocument.latexPreprocessor,
       widget.onLinkTap,
       widget.sources,
       widget.onSourceTap,
@@ -128,12 +130,72 @@ class _ConduitMarkdownWidgetState extends State<ConduitMarkdownWidget> {
       context,
       style,
       _inlineRenderer!,
-      _latexPreprocessor,
+      parsedDocument.latexPreprocessor,
       widget.onLinkTap,
       widget.imageBuilder,
       widget.stateScopeId,
     );
 
-    return blockRenderer.renderBlocks(_nodes);
+    return blockRenderer.renderBlocks(parsedDocument.nodes);
   }
+}
+
+class _ParsedMarkdownDocument {
+  _ParsedMarkdownDocument({
+    required this.nodes,
+    required this.latexPreprocessor,
+  });
+
+  final List<md.Node> nodes;
+  final LatexPreprocessor latexPreprocessor;
+
+  factory _ParsedMarkdownDocument.parse(String data) {
+    final latexPreprocessor = LatexPreprocessor();
+    final preprocessed = latexPreprocessor.extract(data);
+
+    final document = md.Document(
+      extensionSet: md.ExtensionSet.gitHubWeb,
+      blockSyntaxes: const [DetailsBlockSyntax()],
+      inlineSyntaxes: [MentionInlineSyntax()],
+      encodeHtml: false,
+    );
+    return _ParsedMarkdownDocument(
+      nodes: document.parse(preprocessed),
+      latexPreprocessor: latexPreprocessor,
+    );
+  }
+}
+
+class _ParsedMarkdownCache {
+  static const int _maxEntries = 32;
+
+  final LinkedHashMap<String, _ParsedMarkdownDocument> _entries =
+      LinkedHashMap<String, _ParsedMarkdownDocument>();
+
+  _ParsedMarkdownDocument? read(String data) {
+    final cached = _entries.remove(data);
+    if (cached == null) {
+      return null;
+    }
+    _entries[data] = cached;
+    return cached;
+  }
+
+  _ParsedMarkdownDocument write(String data) {
+    final parsed = _ParsedMarkdownDocument.parse(data);
+    _entries.remove(data);
+    _entries[data] = parsed;
+    while (_entries.length > _maxEntries) {
+      _entries.remove(_entries.keys.first);
+    }
+    return parsed;
+  }
+
+  void clear() {
+    _entries.clear();
+  }
+
+  int get length => _entries.length;
+
+  List<String> get keys => List<String>.unmodifiable(_entries.keys);
 }

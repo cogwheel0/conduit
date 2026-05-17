@@ -16,8 +16,10 @@ import '../models/conversation.dart';
 import '../services/background_streaming_handler.dart';
 import '../services/socket_service.dart';
 import '../services/connectivity_service.dart';
+import '../services/share_receiver_service.dart';
 import '../utils/debug_logger.dart';
 import '../models/server_config.dart';
+import '../../shared/widgets/markdown/renderer/latex_rendering_server.dart';
 
 part 'app_startup_providers.g.dart';
 
@@ -125,6 +127,133 @@ class _QueuedLatestRunner {
       }
     });
   }
+}
+
+class _QueuedStartupTask {
+  const _QueuedStartupTask({
+    required this.label,
+    required this.readyAt,
+    required this.run,
+  });
+
+  final String label;
+  final DateTime readyAt;
+  final FutureOr<void> Function() run;
+}
+
+typedef _PostFrameScheduler = void Function(FrameCallback callback);
+
+class _FrameBudgetedStartupQueue {
+  _FrameBudgetedStartupQueue({
+    _PostFrameScheduler? addPostFrameCallback,
+    VoidCallback? ensureVisualUpdate,
+  }) : _addPostFrameCallback =
+           addPostFrameCallback ??
+           SchedulerBinding.instance.addPostFrameCallback,
+       _ensureVisualUpdate =
+           ensureVisualUpdate ?? SchedulerBinding.instance.ensureVisualUpdate;
+
+  bool _disposed = false;
+  bool _frameScheduled = false;
+  bool _running = false;
+  Timer? _waitTimer;
+  final List<_QueuedStartupTask> _tasks = <_QueuedStartupTask>[];
+  final _PostFrameScheduler _addPostFrameCallback;
+  final VoidCallback _ensureVisualUpdate;
+
+  void schedule({
+    required String label,
+    required Duration delay,
+    required FutureOr<void> Function() run,
+    required void Function(Object error, StackTrace stackTrace) onError,
+  }) {
+    if (_disposed) {
+      return;
+    }
+
+    _tasks.add(
+      _QueuedStartupTask(
+        label: label,
+        readyAt: DateTime.now().add(delay),
+        run: run,
+      ),
+    );
+    _tasks.sort((a, b) => a.readyAt.compareTo(b.readyAt));
+    _pump(onError);
+  }
+
+  void dispose() {
+    _disposed = true;
+    _waitTimer?.cancel();
+    _tasks.clear();
+  }
+
+  void _pump(void Function(Object error, StackTrace stackTrace) onError) {
+    if (_disposed || _running || _frameScheduled || _tasks.isEmpty) {
+      return;
+    }
+
+    final now = DateTime.now();
+    final nextReadyAt = _tasks.first.readyAt;
+    if (nextReadyAt.isAfter(now)) {
+      _waitTimer?.cancel();
+      _waitTimer = Timer(nextReadyAt.difference(now), () => _pump(onError));
+      return;
+    }
+
+    _frameScheduled = true;
+    _addPostFrameCallback((_) {
+      _frameScheduled = false;
+      if (_disposed || _running || _tasks.isEmpty) {
+        return;
+      }
+
+      final readyIndex = _tasks.indexWhere(
+        (task) => !task.readyAt.isAfter(DateTime.now()),
+      );
+      if (readyIndex == -1) {
+        _pump(onError);
+        return;
+      }
+
+      final task = _tasks.removeAt(readyIndex);
+      _running = true;
+      Future<void>.microtask(() async {
+        try {
+          await task.run();
+        } catch (error, stackTrace) {
+          onError(error, stackTrace);
+          DebugLogger.warning(
+            'startup-queue-task-failed',
+            scope: 'startup',
+            data: {'task': task.label, 'error': error.toString()},
+          );
+        } finally {
+          _running = false;
+          _pump(onError);
+        }
+      });
+    });
+    _ensureVisualUpdate();
+  }
+}
+
+@visibleForTesting
+void debugScheduleReadyStartupQueueTaskForTesting({
+  required VoidCallback onEnsureVisualUpdate,
+  required void Function(FrameCallback callback) onAddPostFrameCallback,
+  required FutureOr<void> Function() run,
+}) {
+  final queue = _FrameBudgetedStartupQueue(
+    addPostFrameCallback: onAddPostFrameCallback,
+    ensureVisualUpdate: onEnsureVisualUpdate,
+  );
+  queue.schedule(
+    label: 'debug-startup-task',
+    delay: Duration.zero,
+    run: run,
+    onError: (error, stackTrace) {},
+  );
 }
 
 Future<bool> _warmFoldersIfNeeded(Ref ref) async {
@@ -410,6 +539,7 @@ class AppStartupFlow extends _$AppStartupFlow {
   ProviderSubscription<void>? _defaultModelAutoSelectionSubscription;
   Timer? _defaultModelPreloadTimer;
   final _postAuthStartupRunner = _QueuedLatestRunner();
+  final _startupTaskQueue = _FrameBudgetedStartupQueue();
 
   bool _hasAuthenticatedSession() =>
       ref.mounted &&
@@ -438,6 +568,7 @@ class AppStartupFlow extends _$AppStartupFlow {
     _defaultModelAutoSelectionSubscription?.close();
     _defaultModelAutoSelectionSubscription = null;
     _cancelDefaultModelPreload();
+    _startupTaskQueue.dispose();
   }
 
   void _clearQueuedAuthenticatedStartupWork() {
@@ -492,46 +623,50 @@ class AppStartupFlow extends _$AppStartupFlow {
     });
   }
 
-  void _scheduleAfterDelay(Duration delay, VoidCallback action) {
-    Future<void>.delayed(delay, () {
-      if (!ref.mounted) {
-        return;
-      }
-      action();
-    });
+  void _scheduleAfterDelay(
+    Duration delay,
+    FutureOr<void> Function() action, {
+    required String label,
+  }) {
+    _startupTaskQueue.schedule(
+      label: label,
+      delay: delay,
+      run: () async {
+        if (!ref.mounted) {
+          return;
+        }
+        await action();
+      },
+      onError: _logStartupFlowFailure,
+    );
   }
 
   void _scheduleDeferredKeepAlive<T>(
     Duration delay,
-    ProviderListenable<T> provider,
-  ) {
-    _scheduleAfterDelay(delay, () => _keepAlive(provider));
+    ProviderListenable<T> provider, {
+    required String label,
+  }) {
+    _scheduleAfterDelay(delay, () => _keepAlive(provider), label: label);
   }
 
   void _scheduleInitialConversationWarmup() {
-    Future.microtask(() {
+    if (!ref.read(isOnlineProvider)) {
+      return;
+    }
+
+    final jitter = Duration(
+      milliseconds: 150 + (DateTime.now().millisecond % 200),
+    );
+    _scheduleAfterDelay(jitter, () {
       if (!ref.read(isOnlineProvider)) {
         return;
       }
-
-      final jitter = Duration(
-        milliseconds: 150 + (DateTime.now().millisecond % 200),
-      );
-      WidgetsBinding.instance.addPostFrameCallback((_) async {
-        if (!ref.mounted) {
-          return;
-        }
-        await Future.delayed(jitter);
-        if (!ref.mounted) {
-          return;
-        }
-        _scheduleConversationWarmup(ref);
-      });
-    });
+      _scheduleConversationWarmup(ref);
+    }, label: 'conversation-warmup');
   }
 
   void _scheduleSystemUiPolish() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    _scheduleAfterDelay(Duration.zero, () {
       try {
         final context = NavigationService.context;
         final view = context != null ? View.maybeOf(context) : null;
@@ -551,32 +686,69 @@ class AppStartupFlow extends _$AppStartupFlow {
           ),
         );
       } catch (_) {}
-    });
+    }, label: 'system-ui-polish');
   }
 
-  void _keepStartupProvidersAlive() {
-    _keepAlive(authApiIntegrationProvider);
-    _keepAlive(apiTokenUpdaterProvider);
-    _keepAlive(silentLoginCoordinatorProvider);
-    _keepAlive(appIntentCoordinatorProvider);
-    _keepAlive(homeWidgetCoordinatorProvider);
+  void _scheduleStartupProviderKeepAlives() {
+    _scheduleDeferredKeepAlive(
+      Duration.zero,
+      authApiIntegrationProvider,
+      label: 'auth-api-integration',
+    );
+    _scheduleDeferredKeepAlive(
+      const Duration(milliseconds: 16),
+      apiTokenUpdaterProvider,
+      label: 'api-token-updater',
+    );
+    _scheduleDeferredKeepAlive(
+      const Duration(milliseconds: 32),
+      silentLoginCoordinatorProvider,
+      label: 'silent-login',
+    );
+    _scheduleDeferredKeepAlive(
+      const Duration(milliseconds: 48),
+      appIntentCoordinatorProvider,
+      label: 'app-intents',
+    );
+    _scheduleDeferredKeepAlive(
+      const Duration(milliseconds: 64),
+      homeWidgetCoordinatorProvider,
+      label: 'home-widget',
+    );
+    _scheduleAfterDelay(
+      const Duration(milliseconds: 80),
+      () => ref.read(shareReceiverInitializerProvider),
+      label: 'share-receiver',
+    );
+    _scheduleAfterDelay(
+      const Duration(milliseconds: 180),
+      LatexRenderingServer.prewarm,
+      label: 'latex-prewarm',
+    );
   }
 
   void _scheduleStartupTasks() {
-    _scheduleAfterDelay(const Duration(milliseconds: 120), () {
-      ref.read(backgroundModelLoadProvider);
-    });
+    _scheduleStartupProviderKeepAlives();
+    _scheduleAfterDelay(
+      const Duration(milliseconds: 120),
+      () => ref.read(backgroundModelLoadProvider),
+      label: 'background-model-load',
+    );
     _scheduleDeferredKeepAlive(
       const Duration(milliseconds: 48),
       foregroundRefreshProvider,
+      label: 'foreground-refresh',
     );
     _scheduleDeferredKeepAlive(
       const Duration(milliseconds: 96),
       socketPersistenceProvider,
+      label: 'socket-persistence',
     );
-    _scheduleAfterDelay(const Duration(milliseconds: 64), () {
-      _initializeBackgroundStreaming(ref);
-    });
+    _scheduleAfterDelay(
+      const Duration(milliseconds: 64),
+      () => _initializeBackgroundStreaming(ref),
+      label: 'background-streaming',
+    );
     _scheduleInitialConversationWarmup();
     _scheduleSystemUiPolish();
   }
@@ -770,7 +942,6 @@ class AppStartupFlow extends _$AppStartupFlow {
 
   void _activate({Duration apiWaitTimeout = const Duration(seconds: 1)}) {
     ref.onDispose(_disposeStartupResources);
-    _keepStartupProvidersAlive();
     _scheduleStartupTasks();
 
     // If the session is already authenticated before startup flow attaches,

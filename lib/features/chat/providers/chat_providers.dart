@@ -16,6 +16,7 @@ import '../../../core/providers/app_providers.dart';
 import '../../../core/services/settings_service.dart';
 import '../../../core/services/socket_service.dart';
 import '../../../core/services/streaming_response_controller.dart';
+import '../../../core/services/performance_profiler.dart';
 import '../../../core/services/worker_manager.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../core/utils/message_tree_utils.dart' as message_tree;
@@ -154,6 +155,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   bool _queuedPassiveConversationRefresh = false;
   String? _passiveConversationId;
   String? _activeStreamingTransportMessageId;
+  String? _streamingProfileTaskKey;
+  String? _streamingProfileMessageId;
+  DateTime? _streamingProfileStartedAt;
+  int _streamingProfileChunkCount = 0;
+  int _streamingProfileBytes = 0;
 
   bool _initialized = false;
 
@@ -190,6 +196,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
         if (next != null) {
           state = next.messages;
+          _syncStreamingProfileWithState();
 
           // Update selected model if conversation has a different model
           _updateModelForConversation(next);
@@ -199,6 +206,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           }
         } else {
           state = [];
+          _finishStreamingProfile(reason: 'conversation_cleared');
           _stopRemoteTaskMonitor();
         }
       });
@@ -263,6 +271,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       _dropStreamingTransportState(source: 'server adoption from $source');
     }
     state = serverMessages;
+    _syncStreamingProfileWithState();
 
     if (needsCleanup) {
       _cancelMessageStream();
@@ -489,6 +498,106 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
   }
 
+  void _beginStreamingProfile(ChatMessage message) {
+    if (message.role != 'assistant' || !message.isStreaming) {
+      return;
+    }
+    if (_streamingProfileMessageId == message.id &&
+        _streamingProfileTaskKey != null) {
+      return;
+    }
+
+    _finishStreamingProfile(reason: 'replaced');
+    _streamingProfileMessageId = message.id;
+    _streamingProfileStartedAt = DateTime.now();
+    _streamingProfileChunkCount = 0;
+    _streamingProfileBytes = message.content.length;
+    _streamingProfileTaskKey = PerformanceProfiler.instance.startTask(
+      'chat_stream',
+      scope: 'chat',
+      key: 'chat-stream:${message.id}',
+      data: {
+        'messageId': message.id,
+        'conversationId': ref.read(activeConversationProvider)?.id ?? 'none',
+        'initialLength': message.content.length,
+      },
+    );
+  }
+
+  void _recordStreamingChunk(String content) {
+    if (content.isEmpty || state.isEmpty) {
+      return;
+    }
+    final lastMessage = state.last;
+    if (lastMessage.role != 'assistant' || !lastMessage.isStreaming) {
+      return;
+    }
+
+    _beginStreamingProfile(lastMessage);
+    _streamingProfileChunkCount += 1;
+    _streamingProfileBytes += content.length;
+    if (_streamingProfileChunkCount == 1 ||
+        _streamingProfileChunkCount % 25 == 0) {
+      PerformanceProfiler.instance.instant(
+        'chat_stream_chunk',
+        scope: 'chat',
+        data: {
+          'messageId': lastMessage.id,
+          'chunkCount': _streamingProfileChunkCount,
+          'chunkBytes': content.length,
+          'bufferBytes': _streamingProfileBytes,
+        },
+      );
+    }
+  }
+
+  void _syncStreamingProfileWithState() {
+    final lastMessage = state.lastOrNull;
+    if (lastMessage == null ||
+        lastMessage.role != 'assistant' ||
+        !lastMessage.isStreaming) {
+      _finishStreamingProfile(reason: 'state_sync');
+      return;
+    }
+
+    _beginStreamingProfile(lastMessage);
+    _streamingProfileBytes = lastMessage.content.length;
+  }
+
+  void _finishStreamingProfile({required String reason, ChatMessage? message}) {
+    final taskKey = _streamingProfileTaskKey;
+    final messageId = _streamingProfileMessageId;
+    if (taskKey == null || messageId == null) {
+      _streamingProfileTaskKey = null;
+      _streamingProfileMessageId = null;
+      _streamingProfileStartedAt = null;
+      _streamingProfileChunkCount = 0;
+      _streamingProfileBytes = 0;
+      return;
+    }
+
+    final elapsed = _streamingProfileStartedAt == null
+        ? null
+        : DateTime.now().difference(_streamingProfileStartedAt!);
+    final finalMessage = message ?? state.lastOrNull;
+    PerformanceProfiler.instance.finishTask(
+      taskKey,
+      data: {
+        'messageId': messageId,
+        'reason': reason,
+        'chunkCount': _streamingProfileChunkCount,
+        'bufferBytes': _streamingProfileBytes,
+        'elapsedMs': elapsed?.inMilliseconds ?? 0,
+        'finalLength': finalMessage?.content.length ?? 0,
+      },
+    );
+    _streamingProfileTaskKey = null;
+    _streamingProfileMessageId = null;
+    _streamingProfileStartedAt = null;
+    _streamingProfileChunkCount = 0;
+    _streamingProfileBytes = 0;
+  }
+
   void _cancelMessageStream({bool clearStreamingContent = true}) {
     final controller = _messageStream;
     _messageStream = null;
@@ -506,6 +615,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       _clearStreamingContent();
     }
     _stopRemoteTaskMonitor();
+    _finishStreamingProfile(reason: 'cancelled');
   }
 
   /// Checks if streaming cleanup is needed when adopting server messages.
@@ -877,6 +987,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   void addMessage(ChatMessage message) {
     state = [...state, message];
     if (message.role == 'assistant' && message.isStreaming) {
+      _beginStreamingProfile(message);
       _touchStreamingActivity();
     }
   }
@@ -884,15 +995,18 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   void removeLastMessage() {
     if (state.isNotEmpty) {
       state = state.sublist(0, state.length - 1);
+      _syncStreamingProfileWithState();
     }
   }
 
   void clearMessages() {
     state = [];
+    _finishStreamingProfile(reason: 'cleared');
   }
 
   void setMessages(List<ChatMessage> messages) {
     state = messages;
+    _syncStreamingProfileWithState();
   }
 
   void updateLastMessage(String content) {
@@ -905,6 +1019,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       ...state.sublist(0, state.length - 1),
       lastMessage.copyWith(content: _stripStreamingPlaceholders(content)),
     ];
+    _syncStreamingProfileWithState();
     _touchStreamingActivity();
   }
 
@@ -918,7 +1033,13 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     final updated = updater(lastMessage);
     state = [...state.sublist(0, state.length - 1), updated];
     if (updated.isStreaming) {
+      _syncStreamingProfileWithState();
       _touchStreamingActivity();
+    } else {
+      _finishStreamingProfile(
+        reason: 'updated_non_streaming',
+        message: updated,
+      );
     }
   }
 
@@ -961,6 +1082,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     );
 
     state = [...state.sublist(0, state.length - 1), updated];
+    _beginStreamingProfile(updated);
     _touchStreamingActivity();
   }
 
@@ -1044,6 +1166,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     // Initialize buffer with existing content on first chunk
     _streamingBuffer ??= StringBuffer(lastMessage.content);
     _streamingBuffer!.write(content);
+    _recordStreamingChunk(content);
 
     _scheduleStreamingContentUpdate();
 
@@ -1095,6 +1218,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       ...state.sublist(0, state.length - 1),
       lastMessage.copyWith(content: accumulated),
     ];
+    _syncStreamingProfileWithState();
   }
 
   /// Flushes any pending streaming buffer content into the
@@ -1125,6 +1249,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       (_) => _syncStreamingBufferToState(),
     );
     _touchStreamingActivity();
+    _syncStreamingProfileWithState();
   }
 
   void replaceLastMessageContent(String content) {
@@ -1144,6 +1269,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       ...state.sublist(0, state.length - 1),
       lastMessage.copyWith(content: sanitized),
     ];
+    _syncStreamingProfileWithState();
     _touchStreamingActivity();
   }
 
@@ -1205,9 +1331,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
           ref
               .read(conversationsProvider.notifier)
-              .upsertConversation(
-                updatedSummary.copyWith(messages: const []),
-              );
+              .upsertConversation(updatedSummary.copyWith(messages: const []));
         } catch (_) {}
       }
     }
@@ -1232,6 +1356,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _clearStreamingContent();
 
     if (state.isEmpty) {
+      _finishStreamingProfile(reason: 'empty_state');
       if (releaseTransport) {
         _messageStream = null;
         _activeStreamingTransportMessageId = null;
@@ -1243,6 +1368,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
     final lastMessage = state.last;
     if (lastMessage.role != 'assistant' || !lastMessage.isStreaming) {
+      _finishStreamingProfile(reason: 'not_streaming', message: lastMessage);
       if (releaseTransport) {
         _messageStream = null;
         _activeStreamingTransportMessageId = null;
@@ -1256,6 +1382,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       ...state.sublist(0, state.length - 1),
       _buildCompletedAssistantMessage(lastMessage),
     ];
+    _finishStreamingProfile(
+      reason: releaseTransport ? 'completed' : 'ui_completed',
+      message: state.lastOrNull,
+    );
 
     if (releaseTransport) {
       _messageStream = null;

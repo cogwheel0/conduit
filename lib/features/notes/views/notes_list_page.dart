@@ -15,6 +15,7 @@ import '../../../core/providers/app_providers.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../core/widgets/error_boundary.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/utils/platform_scroll_physics.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/conduit_loading.dart';
@@ -273,7 +274,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
       onRefresh: _refreshNotes,
       child: CustomScrollView(
         controller: _scrollController,
-        physics: const AlwaysScrollableScrollPhysics(),
+        physics: platformAlwaysScrollablePhysics(context),
         slivers: paddedSlivers,
       ),
     );

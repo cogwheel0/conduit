@@ -400,16 +400,18 @@ void main() {
         );
         addTearDown(container.dispose);
 
-        container.read(activeConversationProvider.notifier).set(
-          Conversation(
-            id: 'chat-1',
-            title: 'Folder Chat',
-            createdAt: timestamp,
-            updatedAt: timestamp,
-            folderId: 'folder-1',
-            messages: [user, assistant],
-          ),
-        );
+        container
+            .read(activeConversationProvider.notifier)
+            .set(
+              Conversation(
+                id: 'chat-1',
+                title: 'Folder Chat',
+                createdAt: timestamp,
+                updatedAt: timestamp,
+                folderId: 'folder-1',
+                messages: [user, assistant],
+              ),
+            );
 
         container.read(chatMessagesProvider.notifier).finishStreaming();
         await pumpMicrotasks();

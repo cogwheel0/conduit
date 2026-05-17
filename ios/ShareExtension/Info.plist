@@ -5,7 +5,7 @@
     <key>CFBundleDisplayName</key>
     <string>Ask Conduit</string>
     <key>AppGroupId</key>
-    <string>group.app.cogwheel.conduit</string>
+    <string>$(APP_GROUP_ID)</string>
 
     <key>CFBundleVersion</key>
     <string>$(FLUTTER_BUILD_NUMBER)</string>

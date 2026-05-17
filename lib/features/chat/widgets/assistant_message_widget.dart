@@ -449,14 +449,14 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     if (trimmedContent.isNotEmpty) {
       final markdownWidget = _buildEnhancedMarkdownContent(_displayedContent);
       children.add(
-        widget.isStreaming
-            ? RepaintBoundary(
-                child: _StreamingFadeOverlay(
+        RepaintBoundary(
+          child: widget.isStreaming
+              ? _StreamingFadeOverlay(
                   animation: _chunkFadeController,
                   child: markdownWidget,
-                ),
-              )
-            : markdownWidget,
+                )
+              : markdownWidget,
+        ),
       );
     }
 
@@ -1004,11 +1004,13 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       imageBuilderOverride: (uri, title, alt) {
         // Route markdown images through the enhanced image widget so they
         // get caching, auth headers, fullscreen viewer, and sharing.
-        return EnhancedImageAttachment(
-          attachmentId: uri.toString(),
-          isMarkdownFormat: true,
-          constraints: const BoxConstraints(maxWidth: 500, maxHeight: 400),
-          disableAnimation: widget.isStreaming,
+        return RepaintBoundary(
+          child: EnhancedImageAttachment(
+            attachmentId: uri.toString(),
+            isMarkdownFormat: true,
+            constraints: const BoxConstraints(maxWidth: 500, maxHeight: 400),
+            disableAnimation: widget.isStreaming,
+          ),
         );
       },
     );
@@ -1156,7 +1158,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           }
           return KeyedSubtree(
             key: ValueKey('message-embed-$index-$source'),
-            child: WebContentEmbed(source: source),
+            child: RepaintBoundary(child: WebContentEmbed(source: source)),
           );
         })
         .whereType<Widget>()
@@ -1233,17 +1235,19 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
                   final imageUrl = getFileUrl(imageFiles[0]);
                   if (imageUrl == null) return const SizedBox.shrink();
 
-                  return EnhancedImageAttachment(
-                    attachmentId:
-                        imageUrl, // Pass URL directly as it handles URLs
-                    isMarkdownFormat: true,
-                    constraints: const BoxConstraints(
-                      maxWidth: 500,
-                      maxHeight: 400,
+                  return RepaintBoundary(
+                    child: EnhancedImageAttachment(
+                      attachmentId:
+                          imageUrl, // Pass URL directly as it handles URLs
+                      isMarkdownFormat: true,
+                      constraints: const BoxConstraints(
+                        maxWidth: 500,
+                        maxHeight: 400,
+                      ),
+                      disableAnimation:
+                          false, // Keep animations enabled to prevent black display
+                      httpHeaders: _headersForFile(imageFiles[0]),
                     ),
-                    disableAnimation:
-                        false, // Keep animations enabled to prevent black display
-                    httpHeaders: _headersForFile(imageFiles[0]),
                   );
                 },
               ),
@@ -1258,17 +1262,19 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
                 final imageUrl = getFileUrl(file);
                 if (imageUrl == null) return const SizedBox.shrink();
 
-                return EnhancedImageAttachment(
-                  key: ValueKey('gen_attachment_$imageUrl'),
-                  attachmentId: imageUrl, // Pass URL directly
-                  isMarkdownFormat: true,
-                  constraints: BoxConstraints(
-                    maxWidth: imageCount == 2 ? 245 : 160,
-                    maxHeight: imageCount == 2 ? 245 : 160,
+                return RepaintBoundary(
+                  child: EnhancedImageAttachment(
+                    key: ValueKey('gen_attachment_$imageUrl'),
+                    attachmentId: imageUrl, // Pass URL directly
+                    isMarkdownFormat: true,
+                    constraints: BoxConstraints(
+                      maxWidth: imageCount == 2 ? 245 : 160,
+                      maxHeight: imageCount == 2 ? 245 : 160,
+                    ),
+                    disableAnimation:
+                        false, // Keep animations enabled to prevent black display
+                    httpHeaders: _headersForFile(file),
                   ),
-                  disableAnimation:
-                      false, // Keep animations enabled to prevent black display
-                  httpHeaders: _headersForFile(file),
                 );
               }).toList(),
             ),

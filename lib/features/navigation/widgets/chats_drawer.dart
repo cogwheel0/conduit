@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/utils/platform_scroll_physics.dart';
 import '../../chat/providers/chat_providers.dart' as chat;
 import '../../../core/utils/debug_logger.dart';
 import '../../../core/services/navigation_service.dart';
@@ -187,7 +188,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     final scroll = CustomScrollView(
       key: const PageStorageKey<String>('chats_drawer_scroll'),
       controller: _listController,
-      physics: const AlwaysScrollableScrollPhysics(),
+      physics: platformAlwaysScrollablePhysics(context),
       slivers: paddedSlivers,
     );
 

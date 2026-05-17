@@ -4,6 +4,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import '../../../core/widgets/error_boundary.dart';
 import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/utils/platform_scroll_physics.dart';
 import 'package:flutter/services.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter/cupertino.dart';
@@ -18,6 +19,8 @@ import 'dart:async';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/network/image_header_utils.dart';
 import '../../../core/services/native_sheet_bridge.dart';
+import '../../../core/services/performance_profiler.dart';
+import '../../../core/services/api_service.dart';
 import '../../../core/services/settings_service.dart';
 import '../../auth/providers/unified_auth_providers.dart';
 import '../providers/chat_providers.dart';
@@ -76,13 +79,17 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   bool _pendingScrollRestore = false;
   double _restoreScrollOffset = 0;
   bool _isUserInteractingWithScroll = false;
+  String? _activeScrollProfileTaskKey;
   // Pin-to-top: scroll user message to top of viewport when sending
   bool _wantsPinToTop = false;
   GlobalKey _pinnedUserMessageKey = GlobalKey();
   String? _pinnedUserMessageId;
   String? _pinnedStreamingId; // tracks which streaming msg triggered pin
-  final Map<String, double> _estimatedMessageExtents = {};
-  double? _estimatedMessageExtentWidth;
+  _ChatListStableLayoutMetadata? _stableLayoutMetadata;
+  List<ChatMessage>? _stableLayoutMetadataMessages;
+  List<Model>? _stableLayoutMetadataModels;
+  ApiService? _stableLayoutMetadataApiService;
+  double? _stableLayoutMetadataWidth;
   String? _cachedGreetingName;
   bool _greetingReady = false;
   ProviderSubscription<String?>? _screenContextSub;
@@ -90,52 +97,59 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   ProviderSubscription<String?>? _conversationIdSub;
 
   String _formatModelDisplayName(String name) {
-    return name.trim();
+    return _formatChatModelDisplayName(name);
   }
 
-  ({String? displayName, Model? matchedModel}) _resolveModelPresentation({
-    required String? rawModel,
+  double _chatListCrossAxisExtent() {
+    final viewportWidth = MediaQuery.of(context).size.width;
+    return (viewportWidth - (Spacing.inputPadding * 2)).clamp(280.0, 960.0);
+  }
+
+  void _invalidateChatListStableLayoutMetadata() {
+    _stableLayoutMetadata = null;
+    _stableLayoutMetadataMessages = null;
+    _stableLayoutMetadataModels = null;
+    _stableLayoutMetadataApiService = null;
+    _stableLayoutMetadataWidth = null;
+  }
+
+  _ChatListStableLayoutMetadata _resolveChatListStableLayoutMetadata({
+    required List<ChatMessage> messages,
     required List<Model>? models,
-    Map<String, Model>? modelLookup,
+    required ApiService? apiService,
   }) {
-    final trimmedModel = rawModel?.trim();
-    if (trimmedModel == null || trimmedModel.isEmpty) {
-      return (displayName: null, matchedModel: null);
+    final crossAxisExtent = _chatListCrossAxisExtent();
+    final cached = _stableLayoutMetadata;
+    if (cached != null &&
+        identical(_stableLayoutMetadataMessages, messages) &&
+        identical(_stableLayoutMetadataModels, models) &&
+        identical(_stableLayoutMetadataApiService, apiService) &&
+        _stableLayoutMetadataWidth == crossAxisExtent) {
+      return cached;
     }
 
-    final matched = modelLookup?[trimmedModel];
-    if (matched != null) {
-      return (
-        displayName: _formatModelDisplayName(matched.name),
-        matchedModel: matched,
-      );
-    }
-
-    if (models != null && modelLookup == null) {
-      for (final model in models) {
-        if (model.id == trimmedModel || model.name == trimmedModel) {
-          return (
-            displayName: _formatModelDisplayName(model.name),
-            matchedModel: model,
-          );
-        }
-      }
-    }
-
-    return (
-      displayName: _formatModelDisplayName(trimmedModel),
-      matchedModel: null,
+    final metadata = _buildChatListStableLayoutMetadata(
+      messages: messages,
+      models: models,
+      apiService: apiService,
+      crossAxisExtent: crossAxisExtent,
     );
+    _stableLayoutMetadata = metadata;
+    _stableLayoutMetadataMessages = messages;
+    _stableLayoutMetadataModels = models;
+    _stableLayoutMetadataApiService = apiService;
+    _stableLayoutMetadataWidth = crossAxisExtent;
+    return metadata;
   }
 
-  Map<String, Model>? _buildModelLookup(List<Model>? models) {
-    if (models == null || models.isEmpty) return null;
-    final lookup = <String, Model>{};
-    for (final model in models) {
-      lookup[model.id] = model;
-      lookup[model.name] = model;
+  int? _findMessageIndexForKey(
+    Key key,
+    _ChatListStableLayoutMetadata metadata,
+  ) {
+    if (key is! ValueKey<String>) {
+      return null;
     }
-    return lookup;
+    return metadata.indexByMessageKey[key.value];
   }
 
   bool validateFileSize(int fileSize, int maxSizeMB) {
@@ -172,8 +186,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _wantsPinToTop = false;
     _pinnedUserMessageId = null;
     _pinnedStreamingId = null;
-    _estimatedMessageExtents.clear();
-    _estimatedMessageExtentWidth = null;
+    _invalidateChatListStableLayoutMetadata();
     _endPinToTopInFlight = false;
 
     // Reset temporary chat state based on user preference
@@ -338,10 +351,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         ref.read(screenContextProvider.notifier).setContext(null);
-        final currentModel = ref.read(selectedModelProvider);
         _handleMessageSend(
           'Here is the content of my screen:\n\n$next\n\nCan you summarize this?',
-          currentModel,
         );
       });
     });
@@ -385,6 +396,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _screenContextSub?.close();
     _reviewerModeSub?.close();
     _conversationIdSub?.close();
+    _endScrollProfile(reason: 'disposed');
     _scrollController.dispose();
     _scrollDebounceTimer?.cancel();
     super.dispose();
@@ -403,10 +415,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _isDeactivated = false;
   }
 
-  void _handleMessageSend(String text, dynamic selectedModel) async {
+  void _handleMessageSend(String text) async {
     if (ref.read(isLoadingConversationProvider)) {
       return;
     }
+
+    dynamic selectedModel = ref.read(selectedModelProvider);
 
     // Resolve model on-demand if none selected yet
     if (selectedModel == null) {
@@ -1000,12 +1014,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if (_wantsPinToTop) {
       _endPinToTop(instant: true, preserveStreamingId: true);
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _scrollToBottom(smooth: false);
+        if (mounted) _scrollToBottom(smooth: true);
       });
       return;
     }
 
-    _scrollToBottom(smooth: false);
+    _scrollToBottom(smooth: true);
   }
 
   void _scheduleKeyboardScrollToBottom() {
@@ -1034,6 +1048,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       maxScroll = (maxScroll - phantomHeight).clamp(0.0, maxScroll);
     }
 
+    PerformanceProfiler.instance.instant(
+      'chat_auto_scroll',
+      scope: 'chat',
+      data: {'smooth': smooth, 'targetOffset': maxScroll.toStringAsFixed(1)},
+    );
+
     if (smooth) {
       _scrollController.animateTo(
         maxScroll,
@@ -1044,6 +1064,38 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       _scrollController.jumpTo(maxScroll);
       _updateScrollToBottomVisibility();
     }
+  }
+
+  void _beginScrollProfile(String interaction) {
+    if (_activeScrollProfileTaskKey != null) {
+      return;
+    }
+    _activeScrollProfileTaskKey = PerformanceProfiler.instance.startTask(
+      'chat_scroll',
+      scope: 'chat',
+      key: 'chat-scroll:${identityHashCode(this)}',
+      data: {
+        'interaction': interaction,
+        'conversationId': _lastConversationId ?? 'none',
+      },
+    );
+  }
+
+  void _endScrollProfile({required String reason}) {
+    final taskKey = _activeScrollProfileTaskKey;
+    if (taskKey == null) {
+      return;
+    }
+    _activeScrollProfileTaskKey = null;
+    PerformanceProfiler.instance.finishTask(
+      taskKey,
+      data: {
+        'reason': reason,
+        'offset': _scrollController.hasClients
+            ? _scrollController.offset.toStringAsFixed(1)
+            : 'detached',
+      },
+    );
   }
 
   void _handleConversationChanged(String? conversationId) {
@@ -1065,8 +1117,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       _wantsPinToTop = false;
       _pinnedUserMessageId = null;
       _pinnedStreamingId = null;
-      _estimatedMessageExtents.clear();
-      _estimatedMessageExtentWidth = null;
+      _invalidateChatListStableLayoutMetadata();
       _endPinToTopInFlight = false;
     }
     if (conversationId == null) {
@@ -1129,7 +1180,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           MediaQuery.of(context).padding.top + kTextTabBarHeight + Spacing.md;
       final ctx = _pinnedUserMessageKey.currentContext;
       if (ctx == null) {
-        _jumpNearMessageIndex(messages, targetIndex, topPadding);
+        _jumpNearMessageIndex(messages, targetIndex);
         if (attempt < 3) {
           _scrollToUserMessage(attempt: attempt + 1);
         }
@@ -1165,36 +1216,23 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     );
   }
 
-  void _jumpNearMessageIndex(
-    List<ChatMessage> messages,
-    int targetIndex,
-    double topPadding,
-  ) {
+  void _jumpNearMessageIndex(List<ChatMessage> messages, int targetIndex) {
     if (!_scrollController.hasClients || targetIndex <= 0) {
       return;
     }
 
-    final viewportWidth = MediaQuery.of(context).size.width;
-    final crossAxisExtent = (viewportWidth - (Spacing.inputPadding * 2)).clamp(
-      280.0,
-      960.0,
+    final modelsAsync = ref.read(modelsProvider);
+    final models = modelsAsync.hasValue ? modelsAsync.value : null;
+    final metadata = _resolveChatListStableLayoutMetadata(
+      messages: messages,
+      models: models,
+      apiService: ref.read(apiServiceProvider),
     );
-    if (_estimatedMessageExtentWidth != crossAxisExtent) {
-      _estimatedMessageExtents.clear();
-      _estimatedMessageExtentWidth = crossAxisExtent;
-    }
-
-    var estimatedOffset = topPadding;
-    for (var index = 0; index < targetIndex; index++) {
-      final message = messages[index];
-      estimatedOffset += _estimatedMessageExtents.putIfAbsent(
-        message.id,
-        () => _estimateChatMessageExtent(message, crossAxisExtent),
-      );
-    }
 
     final maxScroll = _scrollController.position.maxScrollExtent;
-    final targetOffset = (estimatedOffset - topPadding).clamp(0.0, maxScroll);
+    final targetOffset = metadata
+        .estimatedOffsetBefore(targetIndex)
+        .clamp(0.0, maxScroll);
     _scrollController.jumpTo(targetOffset);
   }
 
@@ -1309,12 +1347,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     );
   }
 
-  Widget _buildMessagesList(ThemeData theme) {
+  Widget _buildMessagesList(ThemeData theme, WidgetRef watchRef) {
     // Use select to watch only the messages list to reduce rebuilds
-    final messages = ref.watch(
+    final messages = watchRef.watch(
       chatMessagesProvider.select((messages) => messages),
     );
-    final isLoadingConversation = ref.watch(isLoadingConversationProvider);
+    final isLoadingConversation = watchRef.watch(isLoadingConversationProvider);
 
     // Use AnimatedSwitcher for smooth transition between loading and loaded states
     return AnimatedSwitcher(
@@ -1329,7 +1367,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       },
       child: isLoadingConversation && messages.isEmpty
           ? _buildLoadingMessagesList()
-          : _buildActualMessagesList(messages),
+          : _buildActualMessagesList(messages, watchRef),
     );
   }
 
@@ -1345,7 +1383,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       key: const ValueKey('loading_messages'),
       controller: null,
       keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-      physics: const AlwaysScrollableScrollPhysics(),
+      physics: platformAlwaysScrollablePhysics(context),
       cacheExtent: 300,
       slivers: [
         SliverPadding(
@@ -1431,46 +1469,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     );
   }
 
-  /// Walks the message list once (O(n)) to pre-compute, for each index,
-  /// whether the next user or assistant bubble appears below it.
-  ///
-  /// System messages are skipped, matching the original per-item scan
-  /// behavior.
-  List<({bool hasUserBelow, bool hasAssistantBelow})> _computeBubbleAdjacency(
+  Widget _buildActualMessagesList(
     List<ChatMessage> messages,
+    WidgetRef watchRef,
   ) {
-    final result = List.filled(messages.length, (
-      hasUserBelow: false,
-      hasAssistantBelow: false,
-    ));
-
-    // Track the role of the nearest user/assistant message seen
-    // so far while walking backwards.
-    String? nextRelevantRole;
-
-    for (var i = messages.length - 1; i >= 0; i--) {
-      // Record what's below *this* index before updating.
-      result[i] = (
-        hasUserBelow: nextRelevantRole == 'user',
-        hasAssistantBelow: nextRelevantRole == 'assistant',
-      );
-
-      // Update the tracked role if this message is user or assistant.
-      final role = messages[i].role;
-      if (role == 'user' || role == 'assistant') {
-        nextRelevantRole = role;
-      }
-    }
-
-    return result;
-  }
-
-  Widget _buildActualMessagesList(List<ChatMessage> messages) {
     if (messages.isEmpty) {
       return _buildEmptyState(Theme.of(context));
     }
 
-    final apiService = ref.watch(apiServiceProvider);
+    final apiService = watchRef.watch(apiServiceProvider);
 
     if (_pendingScrollRestore) {
       _pendingScrollRestore = false;
@@ -1495,11 +1502,18 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         MediaQuery.of(context).padding.top + kTextTabBarHeight + Spacing.md;
     final bottomPadding = Spacing.lg + _inputHeight;
 
-    // Check if any message is currently streaming
-    final isStreaming = messages.any((msg) => msg.isStreaming);
+    // Watch models once here instead of per-message in the item builder.
+    final modelsAsync = watchRef.watch(modelsProvider);
+    final models = modelsAsync.hasValue ? modelsAsync.value : null;
+    final layoutMetadata = _resolveChatListStableLayoutMetadata(
+      messages: messages,
+      models: models,
+      apiService: apiService,
+    );
+    final hasStreamingMessage = layoutMetadata.hasStreamingMessage;
 
     // Pin-to-top: detect new streaming response and scroll user message to top
-    if (isStreaming && messages.length >= 2) {
+    if (hasStreamingMessage && messages.length >= 2) {
       final lastMsg = messages.last;
       final parentUserId = lastMsg.role == 'assistant' && lastMsg.isStreaming
           ? _resolveStreamingParentUserId(messages)
@@ -1518,23 +1532,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     // message, manual scroll-to-bottom, or conversation switch.
     //
     // Clear the pinned ID so the next message can activate pin-to-top.
-    if (!isStreaming && _pinnedStreamingId != null) {
+    if (!hasStreamingMessage && _pinnedStreamingId != null) {
       _pinnedStreamingId = null;
       _pinnedUserMessageId = null;
     }
 
     final pinnedUserMessageIndex =
         _wantsPinToTop && _pinnedUserMessageId != null
-        ? messages.indexWhere((message) => message.id == _pinnedUserMessageId)
+        ? layoutMetadata.indexByMessageId[_pinnedUserMessageId!] ?? -1
         : -1;
-
-    // Pre-compute bubble adjacency in O(n) instead of O(n^2) per-item scan
-    final bubbleAdjacency = _computeBubbleAdjacency(messages);
-
-    // Watch models once here instead of per-message in the item builder
-    final modelsAsync = ref.watch(modelsProvider);
-    final models = modelsAsync.hasValue ? modelsAsync.value : null;
-    final modelLookup = _buildModelLookup(models);
 
     return NotificationListener<ScrollNotification>(
       onNotification: (notification) {
@@ -1553,6 +1559,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
         // User scrolling dismisses pin-to-top once the user takes control.
         if (isTouchDragStart || isTouchDragUpdate || isUserDirectionalScroll) {
+          if (!_isUserInteractingWithScroll) {
+            _beginScrollProfile('user_drag');
+          }
           _isUserInteractingWithScroll = true;
           // Dismiss native platform keyboard on drag (mirrors
           // keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag
@@ -1565,6 +1574,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           }
         }
         if (notification is ScrollEndNotification || isUserScrollIdle) {
+          _endScrollProfile(reason: 'idle');
           _isUserInteractingWithScroll = false;
         }
         return false; // Allow notification to continue bubbling
@@ -1573,7 +1583,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         key: const ValueKey('actual_messages'),
         controller: _scrollController,
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-        physics: const AlwaysScrollableScrollPhysics(),
+        physics: platformAlwaysScrollablePhysics(context),
         cacheExtent: 600,
         slivers: [
           SliverPadding(
@@ -1584,97 +1594,54 @@ class _ChatPageState extends ConsumerState<ChatPage> {
               bottomPadding,
             ),
             sliver: SliverList(
-              delegate: SliverChildBuilderDelegate((context, index) {
-                final message = messages[index];
-                final isUser = message.role == 'user';
-                final isStreaming = message.isStreaming;
+              delegate: SliverChildBuilderDelegate(
+                (context, index) {
+                  final message = messages[index];
+                  final rowMetadata = layoutMetadata.rows[index];
+                  final isUser = message.role == 'user';
+                  final isStreaming = message.isStreaming;
 
-                // Resolve a friendly model display name for message headers
-                final modelPresentation = _resolveModelPresentation(
-                  rawModel: message.model,
-                  models: models,
-                  modelLookup: modelLookup,
-                );
-                final displayModelName = modelPresentation.displayName;
-                final matchedModel = modelPresentation.matchedModel;
+                  if (rowMetadata.isArchivedVariant) {
+                    return const SizedBox.shrink();
+                  }
 
-                final modelIconUrl = resolveModelIconUrlForModel(
-                  apiService,
-                  matchedModel,
-                );
-                final versionModelNames = <String?>[];
-                final versionModelIconUrls = <String?>[];
-                for (final version in message.versions) {
-                  final versionPresentation = _resolveModelPresentation(
-                    rawModel: version.model,
-                    models: models,
-                    modelLookup: modelLookup,
-                  );
-                  versionModelNames.add(versionPresentation.displayName);
-                  versionModelIconUrls.add(
-                    resolveModelIconUrlForModel(
-                      apiService,
-                      versionPresentation.matchedModel,
-                    ),
-                  );
-                }
+                  if (isUser) {
+                    final isPinTarget = index == pinnedUserMessageIndex;
+                    return KeyedSubtree(
+                      key: isPinTarget
+                          ? _pinnedUserMessageKey
+                          : ValueKey<String>('message-${message.id}'),
+                      child: UserMessageBubble(
+                        message: message,
+                        isUser: true,
+                        isStreaming: isStreaming,
+                        modelName: rowMetadata.displayModelName,
+                        onCopy: () => _copyMessage(message.content),
+                        onDelete: () => _deleteMessage(message),
+                        onRegenerate: () => _regenerateMessage(message.id),
+                      ),
+                    );
+                  }
 
-                final adjacency = bubbleAdjacency[index];
-                final hasUserBubbleBelow = adjacency.hasUserBelow;
-                final hasAssistantBubbleBelow = adjacency.hasAssistantBelow;
-                final replacesArchivedAssistant =
-                    !isUser &&
-                    index > 0 &&
-                    messages[index - 1].role == 'assistant' &&
-                    (messages[index - 1].metadata?['archivedVariant'] == true);
-
-                // Hide archived assistant variants in the linear view
-                final isArchivedVariant =
-                    !isUser && (message.metadata?['archivedVariant'] == true);
-                if (isArchivedVariant) {
-                  return const SizedBox.shrink();
-                }
-
-                final showFollowUps =
-                    !isUser && !hasUserBubbleBelow && !hasAssistantBubbleBelow;
-
-                Widget messageWidget;
-
-                if (isUser) {
-                  final isPinTarget = index == pinnedUserMessageIndex;
-                  messageWidget = KeyedSubtree(
-                    key: isPinTarget
-                        ? _pinnedUserMessageKey
-                        : ValueKey('user-${message.id}-$index'),
-                    child: UserMessageBubble(
-                      message: message,
-                      isUser: isUser,
-                      isStreaming: isStreaming,
-                      modelName: displayModelName,
-                      onCopy: () => _copyMessage(message.content),
-                      onDelete: () => _deleteMessage(message),
-                      onRegenerate: () => _regenerateMessage(message.id),
-                    ),
-                  );
-                } else {
-                  messageWidget = assistant.AssistantMessageWidget(
-                    key: ValueKey('assistant-${message.id}-$index'),
+                  return assistant.AssistantMessageWidget(
+                    key: ValueKey<String>('message-${message.id}'),
                     message: message,
                     isStreaming: isStreaming,
-                    showFollowUps: showFollowUps,
-                    animateOnMount: !replacesArchivedAssistant,
-                    modelName: displayModelName,
-                    modelIconUrl: modelIconUrl,
-                    versionModelNames: versionModelNames,
-                    versionModelIconUrls: versionModelIconUrls,
+                    showFollowUps: rowMetadata.showFollowUps,
+                    animateOnMount: !rowMetadata.replacesArchivedAssistant,
+                    modelName: rowMetadata.displayModelName,
+                    modelIconUrl: rowMetadata.modelIconUrl,
+                    versionModelNames: rowMetadata.versionModelNames,
+                    versionModelIconUrls: rowMetadata.versionModelIconUrls,
                     onCopy: () => _copyMessage(message.content),
                     onRegenerate: () => _regenerateMessage(message.id),
                     onDelete: () => _deleteMessage(message),
                   );
-                }
-
-                return messageWidget;
-              }, childCount: messages.length),
+                },
+                childCount: messages.length,
+                findChildIndexCallback: (key) =>
+                    _findMessageIndexForKey(key, layoutMetadata),
+              ),
             ),
           ),
           // Extra bottom space when pin-to-top is active so the user
@@ -1977,20 +1944,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context)!;
-    // Use select to watch only the selected model to reduce rebuilds
     final selectedModel = ref.watch(
       selectedModelProvider.select((model) => model),
     );
-    // Watch loading state for app bar skeleton
     final isLoadingConversation = ref.watch(isLoadingConversationProvider);
     final formattedModelName = selectedModel != null
         ? _formatModelDisplayName(selectedModel.name)
         : null;
     final modelLabel = formattedModelName ?? l10n.chooseModel;
     final overlayStyle = theme.appBarTheme.systemOverlayStyle;
-    final hasMessages = ref.watch(
-      chatMessagesProvider.select((messages) => messages.isNotEmpty),
-    );
 
     // Keyboard visibility - use viewInsetsOf for more efficient partial subscription
     final keyboardVisible = MediaQuery.viewInsetsOf(context).bottom > 0;
@@ -2066,6 +2028,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         extendBodyBehindAppBar: true,
         appBar: _buildAdaptiveChatAppBar(
           context: context,
+          ref: ref,
           isLoadingConversation: isLoadingConversation,
           modelLabel: modelLabel,
         ),
@@ -2082,7 +2045,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   child: GestureDetector(
                     behavior: HitTestBehavior.opaque,
                     onTap: _dismissComposerFocus,
-                    child: RepaintBoundary(child: _buildMessagesList(theme)),
+                    child: Consumer(
+                      builder: (context, listRef, _) {
+                        return RepaintBoundary(
+                          child: _buildMessagesList(theme, listRef),
+                        );
+                      },
+                    ),
                   ),
                 ),
               ),
@@ -2109,21 +2078,29 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                       ),
                     );
                   },
-                  child:
-                      (_showScrollToBottom &&
-                          !keyboardVisible &&
-                          canScroll &&
-                          hasMessages)
-                      ? Center(
-                          key: const ValueKey('scroll_to_bottom_visible'),
-                          child: AdaptiveTooltip(
-                            message: l10n.scrollToBottom,
-                            child: _buildScrollToBottomButton(context),
-                          ),
-                        )
-                      : const SizedBox.shrink(
-                          key: ValueKey('scroll_to_bottom_hidden'),
+                  child: Consumer(
+                    builder: (context, scrollButtonRef, _) {
+                      final hasMessages = scrollButtonRef.watch(
+                        chatMessagesProvider.select(
+                          (messages) => messages.isNotEmpty,
                         ),
+                      );
+                      return (_showScrollToBottom &&
+                              !keyboardVisible &&
+                              canScroll &&
+                              hasMessages)
+                          ? Center(
+                              key: const ValueKey('scroll_to_bottom_visible'),
+                              child: AdaptiveTooltip(
+                                message: l10n.scrollToBottom,
+                                child: _buildScrollToBottomButton(context),
+                              ),
+                            )
+                          : const SizedBox.shrink(
+                              key: ValueKey('scroll_to_bottom_hidden'),
+                            );
+                    },
+                  ),
                 ),
               ),
               Positioned(
@@ -2156,19 +2133,26 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                         const SizedBox(height: Spacing.xl),
                         const FileAttachmentWidget(),
                         const ContextAttachmentWidget(),
-                        ModernChatInput(
-                          onSendMessage: (text) =>
-                              _handleMessageSend(text, selectedModel),
-                          enabled: !isLoadingConversation,
-                          onVoiceInput: null,
-                          onVoiceCall: _handleVoiceCall,
-                          onFileAttachment: _handleFileAttachment,
-                          onServerFileAttachment: _handleServerFileAttachment,
-                          onImageAttachment: _handleImageAttachment,
-                          onCameraCapture: () =>
-                              _handleImageAttachment(fromCamera: true),
-                          onWebAttachment: _promptAttachWebpage,
-                          onPastedAttachments: _handlePastedAttachments,
+                        Consumer(
+                          builder: (context, composerRef, _) {
+                            final isLoadingConversation = composerRef.watch(
+                              isLoadingConversationProvider,
+                            );
+                            return ModernChatInput(
+                              onSendMessage: _handleMessageSend,
+                              enabled: !isLoadingConversation,
+                              onVoiceInput: null,
+                              onVoiceCall: _handleVoiceCall,
+                              onFileAttachment: _handleFileAttachment,
+                              onServerFileAttachment:
+                                  _handleServerFileAttachment,
+                              onImageAttachment: _handleImageAttachment,
+                              onCameraCapture: () =>
+                                  _handleImageAttachment(fromCamera: true),
+                              onWebAttachment: _promptAttachWebpage,
+                              onPastedAttachments: _handlePastedAttachments,
+                            );
+                          },
                         ),
                       ],
                     ),
@@ -2237,6 +2221,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   AdaptiveAppBar _buildAdaptiveChatAppBar({
     required BuildContext context,
+    required WidgetRef ref,
     required bool isLoadingConversation,
     required String modelLabel,
   }) {
@@ -2459,6 +2444,241 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     );
     await restoreFocusIfNeeded();
   }
+}
+
+String _formatChatModelDisplayName(String name) {
+  return name.trim();
+}
+
+({String? displayName, Model? matchedModel}) _resolveChatModelPresentation({
+  required String? rawModel,
+  required List<Model>? models,
+  Map<String, Model>? modelLookup,
+}) {
+  final trimmedModel = rawModel?.trim();
+  if (trimmedModel == null || trimmedModel.isEmpty) {
+    return (displayName: null, matchedModel: null);
+  }
+
+  final matched = modelLookup?[trimmedModel];
+  if (matched != null) {
+    return (
+      displayName: _formatChatModelDisplayName(matched.name),
+      matchedModel: matched,
+    );
+  }
+
+  if (models != null && modelLookup == null) {
+    for (final model in models) {
+      if (model.id == trimmedModel || model.name == trimmedModel) {
+        return (
+          displayName: _formatChatModelDisplayName(model.name),
+          matchedModel: model,
+        );
+      }
+    }
+  }
+
+  return (
+    displayName: _formatChatModelDisplayName(trimmedModel),
+    matchedModel: null,
+  );
+}
+
+Map<String, Model>? _buildChatModelLookup(List<Model>? models) {
+  if (models == null || models.isEmpty) return null;
+  final lookup = <String, Model>{};
+  for (final model in models) {
+    lookup[model.id] = model;
+    lookup[model.name] = model;
+  }
+  return lookup;
+}
+
+List<({bool hasUserBelow, bool hasAssistantBelow})> _buildChatBubbleAdjacency(
+  List<ChatMessage> messages,
+) {
+  final result = List.filled(messages.length, (
+    hasUserBelow: false,
+    hasAssistantBelow: false,
+  ));
+
+  String? nextRelevantRole;
+  for (var i = messages.length - 1; i >= 0; i--) {
+    result[i] = (
+      hasUserBelow: nextRelevantRole == 'user',
+      hasAssistantBelow: nextRelevantRole == 'assistant',
+    );
+
+    final role = messages[i].role;
+    if (role == 'user' || role == 'assistant') {
+      nextRelevantRole = role;
+    }
+  }
+
+  return result;
+}
+
+@immutable
+class _ChatRowLayoutMetadata {
+  const _ChatRowLayoutMetadata({
+    required this.displayModelName,
+    required this.modelIconUrl,
+    required this.versionModelNames,
+    required this.versionModelIconUrls,
+    required this.isArchivedVariant,
+    required this.replacesArchivedAssistant,
+    required this.showFollowUps,
+    required this.estimatedExtent,
+    required this.leadingOffset,
+  });
+
+  final String? displayModelName;
+  final String? modelIconUrl;
+  final List<String?> versionModelNames;
+  final List<String?> versionModelIconUrls;
+  final bool isArchivedVariant;
+  final bool replacesArchivedAssistant;
+  final bool showFollowUps;
+  final double estimatedExtent;
+  final double leadingOffset;
+}
+
+@immutable
+class _ChatListStableLayoutMetadata {
+  const _ChatListStableLayoutMetadata({
+    required this.rows,
+    required this.indexByMessageId,
+    required this.indexByMessageKey,
+    required this.hasStreamingMessage,
+  });
+
+  final List<_ChatRowLayoutMetadata> rows;
+  final Map<String, int> indexByMessageId;
+  final Map<String, int> indexByMessageKey;
+  final bool hasStreamingMessage;
+
+  double estimatedOffsetBefore(int targetIndex) {
+    if (targetIndex <= 0 || targetIndex >= rows.length) {
+      return 0;
+    }
+    return rows[targetIndex].leadingOffset;
+  }
+}
+
+_ChatListStableLayoutMetadata _buildChatListStableLayoutMetadata({
+  required List<ChatMessage> messages,
+  required List<Model>? models,
+  required ApiService? apiService,
+  required double crossAxisExtent,
+}) {
+  final modelLookup = _buildChatModelLookup(models);
+  final bubbleAdjacency = _buildChatBubbleAdjacency(messages);
+  final rows = <_ChatRowLayoutMetadata>[];
+  final indexByMessageId = <String, int>{};
+  final indexByMessageKey = <String, int>{};
+  var leadingOffset = 0.0;
+  var hasStreamingMessage = false;
+
+  for (var index = 0; index < messages.length; index++) {
+    final message = messages[index];
+    final isUser = message.role == 'user';
+    hasStreamingMessage = hasStreamingMessage || message.isStreaming;
+    indexByMessageId[message.id] = index;
+    indexByMessageKey['message-${message.id}'] = index;
+
+    final modelPresentation = _resolveChatModelPresentation(
+      rawModel: message.model,
+      models: models,
+      modelLookup: modelLookup,
+    );
+    final versionModelNames = <String?>[];
+    final versionModelIconUrls = <String?>[];
+    for (final version in message.versions) {
+      final versionPresentation = _resolveChatModelPresentation(
+        rawModel: version.model,
+        models: models,
+        modelLookup: modelLookup,
+      );
+      versionModelNames.add(versionPresentation.displayName);
+      versionModelIconUrls.add(
+        resolveModelIconUrlForModel(
+          apiService,
+          versionPresentation.matchedModel,
+        ),
+      );
+    }
+
+    final adjacency = bubbleAdjacency[index];
+    final isArchivedVariant =
+        !isUser && (message.metadata?['archivedVariant'] == true);
+    final showFollowUps =
+        !isUser && !adjacency.hasUserBelow && !adjacency.hasAssistantBelow;
+    final estimatedExtent = _estimateChatMessageExtent(
+      message,
+      crossAxisExtent,
+    );
+
+    rows.add(
+      _ChatRowLayoutMetadata(
+        displayModelName: modelPresentation.displayName,
+        modelIconUrl: resolveModelIconUrlForModel(
+          apiService,
+          modelPresentation.matchedModel,
+        ),
+        versionModelNames: List<String?>.unmodifiable(versionModelNames),
+        versionModelIconUrls: List<String?>.unmodifiable(versionModelIconUrls),
+        isArchivedVariant: isArchivedVariant,
+        replacesArchivedAssistant:
+            !isUser &&
+            index > 0 &&
+            messages[index - 1].role == 'assistant' &&
+            (messages[index - 1].metadata?['archivedVariant'] == true),
+        showFollowUps: showFollowUps,
+        estimatedExtent: estimatedExtent,
+        leadingOffset: leadingOffset,
+      ),
+    );
+    leadingOffset += estimatedExtent;
+  }
+
+  return _ChatListStableLayoutMetadata(
+    rows: List<_ChatRowLayoutMetadata>.unmodifiable(rows),
+    indexByMessageId: Map<String, int>.unmodifiable(indexByMessageId),
+    indexByMessageKey: Map<String, int>.unmodifiable(indexByMessageKey),
+    hasStreamingMessage: hasStreamingMessage,
+  );
+}
+
+@visibleForTesting
+List<
+  ({
+    double leadingOffset,
+    double estimatedExtent,
+    bool isArchivedVariant,
+    bool showFollowUps,
+  })
+>
+debugBuildChatListLayoutSummaryForTesting(
+  List<ChatMessage> messages, {
+  double crossAxisExtent = 400,
+}) {
+  final metadata = _buildChatListStableLayoutMetadata(
+    messages: messages,
+    models: null,
+    apiService: null,
+    crossAxisExtent: crossAxisExtent,
+  );
+  return metadata.rows
+      .map(
+        (row) => (
+          leadingOffset: row.leadingOffset,
+          estimatedExtent: row.estimatedExtent,
+          isArchivedVariant: row.isArchivedVariant,
+          showFollowUps: row.showFollowUps,
+        ),
+      )
+      .toList(growable: false);
 }
 
 double _estimateChatMessageExtent(

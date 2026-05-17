@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -7,6 +9,7 @@ import '../auth/auth_state_manager.dart';
 import '../providers/app_providers.dart';
 import '../services/connectivity_service.dart';
 import '../services/navigation_service.dart';
+import '../services/performance_profiler.dart';
 import '../utils/debug_logger.dart';
 import '../../features/auth/providers/unified_auth_providers.dart';
 import '../../features/chat/providers/chat_providers.dart';
@@ -220,7 +223,10 @@ final goRouterProvider = Provider<GoRouter>((ref) {
     GoRoute(
       path: Routes.splash,
       name: RouteNames.splash,
-      builder: (context, state) => const SplashLauncherPage(),
+      pageBuilder: (context, state) => _buildNoTransitionPage(
+        state: state,
+        child: const SplashLauncherPage(),
+      ),
     ),
     // ShellRoute keeps the drawer/sidebar mounted across page navigations
     // so it doesn't reload on tablets when switching between chat, channels,
@@ -231,33 +237,46 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         GoRoute(
           path: Routes.chat,
           name: RouteNames.chat,
-          builder: (context, state) => const ChatPage(),
+          pageBuilder: (context, state) =>
+              _buildNoTransitionPage(state: state, child: const ChatPage()),
         ),
         GoRoute(
           path: Routes.folder,
           name: RouteNames.folder,
-          builder: (context, state) {
+          pageBuilder: (context, state) {
             final folderId = state.pathParameters['id']!;
-            return FolderPage(key: ValueKey(folderId), folderId: folderId);
+            return _buildNoTransitionPage(
+              state: state,
+              child: FolderPage(key: ValueKey(folderId), folderId: folderId),
+            );
           },
         ),
         GoRoute(
           path: Routes.noteEditor,
           name: RouteNames.noteEditor,
-          builder: (context, state) {
+          pageBuilder: (context, state) {
             final noteId = state.pathParameters['id'];
             if (noteId == null || noteId.isEmpty) {
-              return const NotesListPage();
+              return _buildNoTransitionPage(
+                state: state,
+                child: const NotesListPage(),
+              );
             }
-            return NoteEditorPage(key: ValueKey(noteId), noteId: noteId);
+            return _buildNoTransitionPage(
+              state: state,
+              child: NoteEditorPage(key: ValueKey(noteId), noteId: noteId),
+            );
           },
         ),
         GoRoute(
           path: Routes.channel,
           name: RouteNames.channel,
-          builder: (context, state) {
+          pageBuilder: (context, state) {
             final channelId = state.pathParameters['id']!;
-            return ChannelPage(channelId: channelId);
+            return _buildNoTransitionPage(
+              state: state,
+              child: ChannelPage(channelId: channelId),
+            );
           },
         ),
       ],
@@ -265,91 +284,116 @@ final goRouterProvider = Provider<GoRouter>((ref) {
     GoRoute(
       path: Routes.login,
       name: RouteNames.login,
-      builder: (context, state) => const ConnectAndSignInPage(),
+      pageBuilder: (context, state) =>
+          _buildPlatformPage(state: state, child: const ConnectAndSignInPage()),
     ),
     GoRoute(
       path: Routes.serverConnection,
       name: RouteNames.serverConnection,
-      builder: (context, state) => const ServerConnectionPage(),
+      pageBuilder: (context, state) =>
+          _buildPlatformPage(state: state, child: const ServerConnectionPage()),
     ),
     GoRoute(
       path: Routes.connectionIssue,
       name: RouteNames.connectionIssue,
-      builder: (context, state) => const ConnectionIssuePage(),
+      pageBuilder: (context, state) =>
+          _buildPlatformPage(state: state, child: const ConnectionIssuePage()),
     ),
     GoRoute(
       path: Routes.authentication,
       name: RouteNames.authentication,
-      builder: (context, state) {
+      pageBuilder: (context, state) {
         final extra = state.extra;
         // Support both AuthFlowConfig (new) and ServerConfig (legacy)
         if (extra is AuthFlowConfig) {
-          return AuthenticationPage(
-            serverConfig: extra.serverConfig,
-            backendConfig: extra.backendConfig,
+          return _buildPlatformPage(
+            state: state,
+            child: AuthenticationPage(
+              serverConfig: extra.serverConfig,
+              backendConfig: extra.backendConfig,
+            ),
           );
         }
-        return AuthenticationPage(
-          serverConfig: extra is ServerConfig ? extra : null,
+        return _buildPlatformPage(
+          state: state,
+          child: AuthenticationPage(
+            serverConfig: extra is ServerConfig ? extra : null,
+          ),
         );
       },
     ),
     GoRoute(
       path: Routes.ssoAuth,
       name: RouteNames.ssoAuth,
-      builder: (context, state) {
+      pageBuilder: (context, state) {
         final config = state.extra;
-        return SsoAuthPage(
-          serverConfig: config is ServerConfig ? config : null,
+        return _buildPlatformPage(
+          state: state,
+          child: SsoAuthPage(
+            serverConfig: config is ServerConfig ? config : null,
+          ),
         );
       },
     ),
     GoRoute(
       path: Routes.proxyAuth,
       name: RouteNames.proxyAuth,
-      builder: (context, state) {
+      pageBuilder: (context, state) {
         final config = state.extra;
         if (config is! ProxyAuthConfig) {
           // Fallback - should not happen in normal flow
-          return const ServerConnectionPage();
+          return _buildPlatformPage(
+            state: state,
+            child: const ServerConnectionPage(),
+          );
         }
-        return ProxyAuthPage(config: config);
+        return _buildPlatformPage(
+          state: state,
+          child: ProxyAuthPage(config: config),
+        );
       },
     ),
     GoRoute(
       path: Routes.profile,
       name: RouteNames.profile,
-      builder: (context, state) => const ProfilePage(),
+      pageBuilder: (context, state) =>
+          _buildPlatformPage(state: state, child: const ProfilePage()),
     ),
     GoRoute(
       path: Routes.personalization,
       name: RouteNames.personalization,
-      builder: (context, state) => const PersonalizationPage(),
+      pageBuilder: (context, state) =>
+          _buildPlatformPage(state: state, child: const PersonalizationPage()),
     ),
     GoRoute(
       path: Routes.audioSettings,
       name: RouteNames.audioSettings,
-      builder: (context, state) => const AudioSettingsPage(),
+      pageBuilder: (context, state) =>
+          _buildPlatformPage(state: state, child: const AudioSettingsPage()),
     ),
     GoRoute(
       path: Routes.accountSettings,
       name: RouteNames.accountSettings,
-      builder: (context, state) => const AccountSettingsPage(),
+      pageBuilder: (context, state) =>
+          _buildPlatformPage(state: state, child: const AccountSettingsPage()),
     ),
     GoRoute(
       path: Routes.appCustomization,
       name: RouteNames.appCustomization,
-      builder: (context, state) => const AppCustomizationPage(),
+      pageBuilder: (context, state) =>
+          _buildPlatformPage(state: state, child: const AppCustomizationPage()),
     ),
     GoRoute(
       path: Routes.about,
       name: RouteNames.about,
-      builder: (context, state) => const AboutPage(),
+      pageBuilder: (context, state) =>
+          _buildPlatformPage(state: state, child: const AboutPage()),
     ),
     GoRoute(
       path: Routes.notes,
       name: RouteNames.notes,
-      builder: (context, state) => const NotesListPage(),
+      pageBuilder: (context, state) =>
+          _buildNoTransitionPage(state: state, child: const NotesListPage()),
     ),
   ];
 
@@ -379,15 +423,70 @@ class NavigationLoggingObserver extends NavigatorObserver {
   @override
   void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
     super.didPush(route, previousRoute);
+    final current = route.settings.name ?? route.settings.toString();
     final previous = previousRoute?.settings.name ?? previousRoute?.settings;
-    DebugLogger.navigation(
-      'Pushed: ${route.settings.name ?? route.settings} (from ${previous ?? 'root'})',
+    DebugLogger.navigation('Pushed: $current (from ${previous ?? 'root'})');
+    PerformanceProfiler.instance.instant(
+      'route_push',
+      scope: 'navigation',
+      data: {'route': current, 'previous': previous?.toString() ?? 'root'},
     );
   }
 
   @override
   void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
     super.didPop(route, previousRoute);
-    DebugLogger.navigation('Popped: ${route.settings.name ?? route.settings}');
+    final current = route.settings.name ?? route.settings.toString();
+    final previous = previousRoute?.settings.name ?? previousRoute?.settings;
+    DebugLogger.navigation('Popped: $current');
+    PerformanceProfiler.instance.instant(
+      'route_pop',
+      scope: 'navigation',
+      data: {'route': current, 'revealed': previous?.toString() ?? 'root'},
+    );
+  }
+
+  @override
+  void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute}) {
+    super.didReplace(newRoute: newRoute, oldRoute: oldRoute);
+    final current = newRoute?.settings.name ?? newRoute?.settings.toString();
+    final previous = oldRoute?.settings.name ?? oldRoute?.settings.toString();
+    PerformanceProfiler.instance.instant(
+      'route_replace',
+      scope: 'navigation',
+      data: {'route': current ?? 'unknown', 'previous': previous ?? 'unknown'},
+    );
+  }
+}
+
+Page<void> _buildNoTransitionPage({
+  required GoRouterState state,
+  required Widget child,
+}) {
+  return NoTransitionPage<void>(
+    key: state.pageKey,
+    name: state.name,
+    child: child,
+  );
+}
+
+Page<void> _buildPlatformPage({
+  required GoRouterState state,
+  required Widget child,
+}) {
+  switch (defaultTargetPlatform) {
+    case TargetPlatform.iOS:
+    case TargetPlatform.macOS:
+      return CupertinoPage<void>(
+        key: state.pageKey,
+        name: state.name,
+        child: child,
+      );
+    default:
+      return MaterialPage<void>(
+        key: state.pageKey,
+        name: state.name,
+        child: child,
+      );
   }
 }

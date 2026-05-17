@@ -22,6 +22,7 @@ import '../../../core/widgets/error_boundary.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/utils/platform_scroll_physics.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/services/tasks/task_queue.dart';
@@ -1363,7 +1364,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       onRefresh: _refreshFolderContents,
       child: CustomScrollView(
         key: ValueKey<String>('folder-page-${widget.folderId}'),
-        physics: const AlwaysScrollableScrollPhysics(),
+        physics: platformAlwaysScrollablePhysics(context),
         slivers: slivers,
       ),
     );

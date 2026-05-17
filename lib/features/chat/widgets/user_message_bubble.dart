@@ -218,16 +218,18 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
               borderRadius: BorderRadius.circular(
                 AppBorderRadius.messageBubble,
               ),
-              child: EnhancedImageAttachment(
-                attachmentId: imageUrl,
-                isUserMessage: true,
-                isMarkdownFormat: false,
-                constraints: const BoxConstraints(
-                  maxWidth: 280,
-                  maxHeight: 350,
+              child: RepaintBoundary(
+                child: EnhancedImageAttachment(
+                  attachmentId: imageUrl,
+                  isUserMessage: true,
+                  isMarkdownFormat: false,
+                  constraints: const BoxConstraints(
+                    maxWidth: 280,
+                    maxHeight: 350,
+                  ),
+                  disableAnimation: widget.isStreaming,
+                  httpHeaders: _headersForFile(file),
                 ),
-                disableAnimation: widget.isStreaming,
-                httpHeaders: _headersForFile(file),
               ),
             ),
           ),
@@ -261,17 +263,19 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
                       borderRadius: BorderRadius.circular(
                         AppBorderRadius.messageBubble,
                       ),
-                      child: EnhancedImageAttachment(
-                        key: ValueKey('user_file_attachment_$imageUrl'),
-                        attachmentId: imageUrl,
-                        isUserMessage: true,
-                        isMarkdownFormat: false,
-                        constraints: const BoxConstraints(
-                          maxWidth: 135,
-                          maxHeight: 180,
+                      child: RepaintBoundary(
+                        child: EnhancedImageAttachment(
+                          key: ValueKey('user_file_attachment_$imageUrl'),
+                          attachmentId: imageUrl,
+                          isUserMessage: true,
+                          isMarkdownFormat: false,
+                          constraints: const BoxConstraints(
+                            maxWidth: 135,
+                            maxHeight: 180,
+                          ),
+                          disableAnimation: widget.isStreaming,
+                          httpHeaders: _headersForFile(file),
                         ),
-                        disableAnimation: widget.isStreaming,
-                        httpHeaders: _headersForFile(file),
                       ),
                     ),
                   ),
@@ -304,17 +308,19 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
                     ),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(AppBorderRadius.md),
-                      child: EnhancedImageAttachment(
-                        key: ValueKey('user_file_grid_attachment_$imageUrl'),
-                        attachmentId: imageUrl,
-                        isUserMessage: true,
-                        isMarkdownFormat: false,
-                        constraints: BoxConstraints(
-                          maxWidth: imageCount == 3 ? 135 : 90,
-                          maxHeight: imageCount == 3 ? 135 : 90,
+                      child: RepaintBoundary(
+                        child: EnhancedImageAttachment(
+                          key: ValueKey('user_file_grid_attachment_$imageUrl'),
+                          attachmentId: imageUrl,
+                          isUserMessage: true,
+                          isMarkdownFormat: false,
+                          constraints: BoxConstraints(
+                            maxWidth: imageCount == 3 ? 135 : 90,
+                            maxHeight: imageCount == 3 ? 135 : 90,
+                          ),
+                          disableAnimation: widget.isStreaming,
+                          httpHeaders: _headersForFile(file),
                         ),
-                        disableAnimation: widget.isStreaming,
-                        httpHeaders: _headersForFile(file),
                       ),
                     ),
                   );

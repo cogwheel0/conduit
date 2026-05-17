@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../services/performance_profiler.dart';
 import '../utils/debug_logger.dart';
 
 part 'worker_manager.g.dart';
@@ -104,11 +105,38 @@ class WorkerManager {
   }
 
   Future<void> _runJob(_EnqueuedJob job) async {
+    final taskKey = PerformanceProfiler.instance.startTask(
+      job.debugLabel ?? 'worker_job',
+      scope: 'worker',
+      key: 'worker:${job.id}',
+      data: {
+        'id': job.id,
+        'queueMs': DateTime.now().difference(job.queuedAt).inMilliseconds,
+        if (job.debugLabel != null) 'label': job.debugLabel,
+      },
+    );
     try {
       final result = await job.run();
       job.onComplete(result);
+      PerformanceProfiler.instance.finishTask(
+        taskKey,
+        data: {
+          'id': job.id,
+          'status': 'ok',
+          if (job.debugLabel != null) 'label': job.debugLabel,
+        },
+      );
     } catch (error, stackTrace) {
       job.onError(error, stackTrace);
+      PerformanceProfiler.instance.finishTask(
+        taskKey,
+        data: {
+          'id': job.id,
+          'status': 'error',
+          'error': error.toString(),
+          if (job.debugLabel != null) 'label': job.debugLabel,
+        },
+      );
 
       DebugLogger.error(
         'failed',

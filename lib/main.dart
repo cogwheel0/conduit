@@ -4,7 +4,6 @@ import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter_driver/driver_extension.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/widgets/error_boundary.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -16,23 +15,21 @@ import 'core/persistence/persistence_providers.dart';
 import 'core/router/app_router.dart';
 import 'core/services/native_sheet_bridge.dart';
 import 'core/services/navigation_service.dart';
+import 'core/services/performance_profiler.dart';
 import 'core/services/settings_service.dart';
 import 'features/auth/providers/unified_auth_providers.dart';
 import 'features/chat/providers/text_to_speech_provider.dart';
 import 'features/chat/providers/chat_providers.dart' show restoreDefaultModel;
 import 'features/tools/providers/tools_providers.dart';
-import 'core/auth/auth_state_manager.dart';
 import 'core/utils/debug_logger.dart';
 import 'core/utils/native_sheet_utils.dart';
 import 'core/utils/system_ui_style.dart';
 import 'core/models/tool.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
-import 'core/services/share_receiver_service.dart';
 import 'core/services/quick_actions_service.dart';
 import 'core/providers/app_startup_providers.dart';
 import 'shared/theme/tweakcn_themes.dart';
-import 'shared/widgets/markdown/renderer/latex_rendering_server.dart';
 
 const bool _enableFlutterDriverExtension = bool.fromEnvironment(
   'ENABLE_FLUTTER_DRIVER_EXTENSION',
@@ -74,6 +71,7 @@ void main() {
   runZonedGuarded(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
+      PerformanceProfiler.instance.attachFrameTimings();
 
       // Global error handlers
       FlutterError.onError = (FlutterErrorDetails details) {
@@ -159,7 +157,6 @@ void main() {
         _startupTimeline?.instant('first_frame_rendered');
         _startupTimeline?.finish();
         _startupTimeline = null;
-        LatexRenderingServer.prewarm();
       });
 
       runApp(
@@ -1791,30 +1788,7 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
 
   void _initializeAppState() {
     DebugLogger.auth('init', scope: 'app');
-
-    void queueInit(void Function() action, {Duration delay = Duration.zero}) {
-      Future<void>.delayed(delay, () {
-        if (!mounted) return;
-        action();
-      });
-    }
-
-    queueInit(() => ref.read(authStateManagerProvider));
-    queueInit(
-      () => ref.read(authApiIntegrationProvider),
-      delay: const Duration(milliseconds: 16),
-    );
-    // Note: defaultModelAutoSelectionProvider is now initialized in
-    // AppStartupFlow after authentication to avoid loading tools too early
-    queueInit(
-      () => ref.read(shareReceiverInitializerProvider),
-      delay: const Duration(milliseconds: 24),
-    );
-
-    SchedulerBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      ref.read(appStartupFlowProvider.notifier).start();
-    });
+    ref.read(appStartupFlowProvider.notifier).start();
   }
 
   @override
