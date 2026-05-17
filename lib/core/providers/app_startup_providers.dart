@@ -293,10 +293,9 @@ void _scheduleConversationWarmup(
       DebugLogger.warning('Background chats warmup failed: $error');
       _resetConversationWarmup(ref);
     } finally {
-      if (!ref.mounted || !warmupController.takeQueuedForcedRefresh()) {
-        return;
+      if (ref.mounted && warmupController.takeQueuedForcedRefresh()) {
+        _scheduleForcedConversationWarmup(ref);
       }
-      _scheduleForcedConversationWarmup(ref);
     }
   });
 }

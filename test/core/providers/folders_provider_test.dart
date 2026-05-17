@@ -614,7 +614,7 @@ ProviderContainer _container({
   return ProviderContainer(
     overrides: [
       isAuthenticatedProvider2.overrideWithValue(true),
-      if (authTokenOverride != null) authTokenOverride,
+      ?authTokenOverride,
       apiOverride ?? apiServiceProvider.overrideWithValue(api!),
       optimizedStorageServiceProvider.overrideWithValue(storage),
     ],

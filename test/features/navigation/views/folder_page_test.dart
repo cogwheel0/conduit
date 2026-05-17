@@ -355,13 +355,17 @@ void main() {
     await tester.pumpWidget(_buildHarnessFromContainer(container));
     await tester.pumpAndSettle();
 
-    final menuFinder = find.ancestor(
-      of: find.byKey(const ValueKey<String>('folder-chat-folder-chat-1')),
-      matching: find.byType(ConduitContextMenu),
+    expect(
+      find.byKey(const ValueKey<String>('folder-chat-folder-chat-1')),
+      findsOneWidget,
     );
 
-    expect(menuFinder, findsOneWidget);
-    final menu = tester.widget<ConduitContextMenu>(menuFinder);
+    final menu = tester
+        .widgetList<ConduitContextMenu>(find.byType(ConduitContextMenu))
+        .singleWhere((menu) {
+          final labels = menu.actions.map((action) => action.label);
+          return labels.contains('Pin') && labels.contains('Rename');
+        });
     expect(menu.actions.map((action) => action.label), contains('Pin'));
     expect(menu.actions.map((action) => action.label), contains('Rename'));
 
@@ -408,6 +412,7 @@ ProviderContainer _createContainer({
       appSettingsProvider.overrideWithValue(settings),
       apiServiceProvider.overrideWithValue(api),
       isAuthenticatedProvider2.overrideWithValue(isAuthenticated),
+      if (isAuthenticated) authTokenProvider3.overrideWithValue('test-token'),
       reviewerModeProvider.overrideWithValue(reviewerMode),
       if (taskQueueNotifier != null)
         taskQueueProvider.overrideWith(() => taskQueueNotifier),

@@ -17,10 +17,11 @@ import 'package:conduit/features/navigation/providers/sidebar_providers.dart';
 import 'package:conduit/features/navigation/widgets/chats_drawer.dart';
 import 'package:conduit/features/navigation/widgets/drawer_section_notifiers.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
+import 'package:conduit/features/navigation/widgets/sidebar_user_pill.dart';
 import 'package:conduit/features/notes/widgets/notes_list_tab.dart';
 import 'package:conduit/features/notes/providers/notes_providers.dart';
 import 'package:conduit/l10n/app_localizations.dart';
-import 'package:conduit/shared/theme/theme_extensions.dart';
+import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -264,7 +265,7 @@ void main() {
     expect(channelStateWithNotesAgain, same(initialChannelState));
   });
 
-  testWidgets('shared user pill stays visible across sidebar tabs', (
+  testWidgets('profile app bar leading stays visible across sidebar tabs', (
     tester,
   ) async {
     final controllers = _SidebarHarnessControllers();
@@ -280,29 +281,20 @@ void main() {
       _buildSidebarHarness(controllers: controllers, currentUser: user),
     );
 
-    expect(
-      find.byKey(const ValueKey<String>('sidebar-user-pill')),
-      findsOneWidget,
-    );
+    expect(find.byType(SidebarProfileAppBarLeading), findsOneWidget);
 
     await tester.tap(_sidebarBottomNavTabLabel('Notes'));
     await tester.pumpAndSettle();
 
-    expect(
-      find.byKey(const ValueKey<String>('sidebar-user-pill')),
-      findsOneWidget,
-    );
+    expect(find.byType(SidebarProfileAppBarLeading), findsOneWidget);
 
     await tester.tap(_sidebarBottomNavTabLabel('Channels'));
     await tester.pumpAndSettle();
 
-    expect(
-      find.byKey(const ValueKey<String>('sidebar-user-pill')),
-      findsOneWidget,
-    );
+    expect(find.byType(SidebarProfileAppBarLeading), findsOneWidget);
   });
 
-  testWidgets('sidebar brand title uses the compact Material scale', (
+  testWidgets('sidebar material app bar uses the compact toolbar height', (
     tester,
   ) async {
     final controllers = _SidebarHarnessControllers();
@@ -318,12 +310,9 @@ void main() {
       _buildSidebarHarness(controllers: controllers, currentUser: user),
     );
 
-    final brandTitle = tester.widget<Text>(find.text('Conduit'));
+    final appBar = tester.widget<AppBar>(find.byType(AppBar));
 
-    expect(
-      brandTitle.style?.fontSize,
-      AppTypography.headlineMediumStyle.fontSize,
-    );
+    expect(appBar.toolbarHeight, kTextTabBarHeight);
   });
 
   testWidgets('closing expanded search clears the active filter', (
@@ -361,19 +350,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final closeLabel = MaterialLocalizations.of(
-      tester.element(find.byType(NavigationBar)),
-    ).closeButtonLabel;
-
     expect(find.text('Alpha Chat'), findsOneWidget);
     expect(find.text('Beta Chat'), findsOneWidget);
 
-    await tester.tap(
-      find.descendant(
-        of: find.byKey(const ValueKey<String>('sidebar-user-pill')),
-        matching: find.byIcon(Icons.search),
-      ),
-    );
+    ProviderScope.containerOf(
+      tester.element(find.byType(SidebarPage)),
+    ).read(sidebarHeaderSearchExpandedProvider.notifier).setExpanded(true);
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextField), 'zzz');
@@ -383,7 +365,7 @@ void main() {
     expect(find.text('Alpha Chat'), findsNothing);
     expect(find.text('Beta Chat'), findsNothing);
 
-    await tester.tap(find.byTooltip(closeLabel));
+    await tester.tap(find.byType(ConduitAdaptiveAppBarIconButton));
     await tester.pumpAndSettle();
 
     expect(find.text('Alpha Chat'), findsOneWidget);

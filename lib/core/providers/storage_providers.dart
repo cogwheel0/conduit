@@ -10,6 +10,9 @@ import '../services/worker_manager.dart';
 final secureStorageProvider = Provider<FlutterSecureStorage>((ref) {
   return const FlutterSecureStorage(
     aOptions: AndroidOptions(
+      // Keep legacy Android storage readable until a storageNamespace migration
+      // can move both encrypted data and wrapped keys.
+      // ignore: deprecated_member_use
       sharedPreferencesName: 'conduit_secure_prefs',
       preferencesKeyPrefix: 'conduit_',
       // Avoid auto-wipe on transient errors; handled at call sites instead.

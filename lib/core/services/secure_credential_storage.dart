@@ -24,6 +24,9 @@ class SecureCredentialStorage {
   /// Get Android-specific secure storage options
   AndroidOptions _getAndroidOptions() {
     return const AndroidOptions(
+      // Keep legacy Android storage readable until a storageNamespace migration
+      // can move both encrypted data and wrapped keys.
+      // ignore: deprecated_member_use
       sharedPreferencesName: 'conduit_secure_prefs',
       preferencesKeyPrefix: 'conduit_',
       // Avoid auto-wipe on transient errors; handle gracefully in code

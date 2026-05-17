@@ -308,14 +308,14 @@ void main() {
       const error = ApiError.network(message: 'Connection failed');
       final msg = handler.getUserMessage(error);
       check(msg).isNotEmpty();
-      check(msg).contains('internet connection');
+      check(msg).contains('check your connection');
     });
 
     test('returns non-empty string for timeout error', () {
       const error = ApiError.timeout(message: 'Timed out');
       final msg = handler.getUserMessage(error);
       check(msg).isNotEmpty();
-      check(msg).contains('slow connection');
+      check(msg).contains('request timed out');
     });
 
     test('returns non-empty string for authentication error', () {
@@ -329,14 +329,14 @@ void main() {
       const error = ApiError.authorization(message: 'Forbidden');
       final msg = handler.getUserMessage(error);
       check(msg).isNotEmpty();
-      check(msg).contains('support');
+      check(msg).contains('permission');
     });
 
     test('returns non-empty string for validation error', () {
       const error = ApiError.validation(message: 'Invalid data');
       final msg = handler.getUserMessage(error);
       check(msg).isNotEmpty();
-      check(msg).contains('correct');
+      check(msg).contains('input');
     });
 
     test('returns non-empty string for rateLimit error', () {
@@ -363,7 +363,7 @@ void main() {
       );
       final msg = handler.getUserMessage(error);
       check(msg).isNotEmpty();
-      check(msg).contains('servers');
+      check(msg).contains('Server is having problems');
     });
 
     test('returns base message for unknown error type', () {

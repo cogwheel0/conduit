@@ -15,7 +15,7 @@ dependencies:
     sdk: flutter
   
   # State Management
-  flutter_riverpod: ^3.0.3
+  flutter_riverpod: ^3.1.0
   
   # Navigation
   go_router: ^17.0.0
@@ -59,7 +59,7 @@ dependencies:
   path: ^1.9.0
   uuid: ^4.5.0
   crypto: ^3.0.3
-  package_info_plus: ^9.0.0
+  package_info_plus: ^9.0.1
   url_launcher: ^6.3.0
   intl: ^0.20.2
 
@@ -70,7 +70,7 @@ dependencies:
   wakelock_plus: ^1.4.0
   share_plus: ^12.0.0
   share_handler: ^0.0.19
-  riverpod_annotation: ^3.0.3
+  riverpod_annotation: ^4.0.0
   flutter_local_notifications: ^21.0.0
   connectivity_plus: ^7.0.0
   flutter_cache_manager: ^3.4.1
@@ -94,15 +94,11 @@ dev_dependencies:
   freezed: ^3.2.0
   json_serializable: ^6.11.1
   flutter_native_splash: ^2.4.6
-  riverpod_generator: ^3.0.3
-  riverpod_lint: 3.0.3
+  riverpod_generator: ^4.0.0+1
+  riverpod_lint: ^3.1.0
   custom_lint: 0.8.1
   mocktail: ^1.0.4
   checks: ^0.3.1
-
-dependency_overrides:
-  riverpod_lint: 3.0.3
-  custom_lint_builder: 0.8.1
 
 flutter:
   uses-material-design: true
