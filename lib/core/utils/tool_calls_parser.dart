@@ -9,6 +9,7 @@ class ToolCallEntry {
   final bool done;
   final dynamic arguments; // decoded JSON when possible, else String
   final dynamic result; // decoded JSON when possible, else String
+  final String resultText; // raw unescaped result text from attribute/body
   final List<dynamic>? files; // decoded JSON array when present
 
   const ToolCallEntry({
@@ -17,6 +18,7 @@ class ToolCallEntry {
     required this.done,
     this.arguments,
     this.result,
+    this.resultText = '',
     this.files,
   });
 }
@@ -36,6 +38,11 @@ class ToolCallsContent {
 
 /// Utility to parse `<details type="tool_calls">` blocks from content.
 class ToolCallsParser {
+  static final RegExp _summaryBlockPattern = RegExp(
+    r'^\s*<summary>[\s\S]*?</summary>\s*',
+    caseSensitive: false,
+  );
+
   static String _unescapeHtml(String s) {
     return s
         .replaceAll('&quot;', '"')
@@ -124,11 +131,26 @@ class ToolCallsParser {
           }
         }
 
+        String extractBodyResultSource() {
+          if (depth != 0) {
+            return '';
+          }
+          final closeStart = content.lastIndexOf('</details>', i - 1);
+          if (closeStart <= openEnd) {
+            return '';
+          }
+          final innerContent = content.substring(openEnd + 1, closeStart);
+          return innerContent.replaceFirst(_summaryBlockPattern, '').trim();
+        }
+
         final id = (attrs['id'] ?? '');
         final name = (attrs['name'] ?? 'tool');
         final done = (attrs['done'] == 'true');
+        final resultSource = (attrs['result']?.isNotEmpty ?? false)
+            ? attrs['result']
+            : extractBodyResultSource();
         final args = decodeAttribute(attrs['arguments']);
-        final result = decodeAttribute(attrs['result']);
+        final result = decodeAttribute(resultSource);
         final files = decodeAttribute(attrs['files']);
 
         segs.add(
@@ -139,6 +161,9 @@ class ToolCallsParser {
               done: done,
               arguments: args,
               result: result,
+              resultText: resultSource == null || resultSource.isEmpty
+                  ? ''
+                  : _unescapeHtml(resultSource),
               files: (files is List) ? files : null,
             ),
           ),
@@ -252,8 +277,8 @@ class ToolCallsParser {
   /// the web client's `processDetails` behavior:
   /// - Remove &lt;details type="reasoning"&gt; and &lt;details type="code_interpreter"&gt; blocks
   /// - Replace &lt;details type="tool_calls" ...&gt;...&lt;/details&gt; blocks with the
-  ///   JSON-serialized `result` attribute (as a quoted string) when available;
-  ///   otherwise replace with an empty string.
+  ///   unescaped `result` attribute text when present, otherwise the unescaped
+  ///   body text after the summary, otherwise an empty string.
   static String sanitizeForApi(String content) {
     if (content.isEmpty) return content;
 
@@ -270,20 +295,17 @@ class ToolCallsParser {
     for (final seg in segs) {
       if (seg.isToolCall && seg.entry != null) {
         final entry = seg.entry!;
-        dynamic res = entry.result;
         String out;
-        if (res == null) {
+        if (entry.resultText.isNotEmpty) {
+          out = entry.resultText;
+        } else if (entry.result == null) {
           out = '';
         } else {
           try {
-            out = json.encode(res);
+            out = json.encode(entry.result);
           } catch (_) {
-            out = res.toString();
+            out = entry.result.toString();
           }
-        }
-        // Match web behavior: wrap in quotes so it's clearly a string payload
-        if (out.isNotEmpty && !(out.startsWith('"') && out.endsWith('"'))) {
-          out = '"$out"';
         }
         buf.write(out);
       } else {

@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -12,10 +10,6 @@ import 'renderer/block_renderer.dart';
 import 'renderer/conduit_markdown_widget.dart';
 
 const int _streamingSnapshotWorkerThreshold = 768;
-const int _streamingSnapshotLookback = 640;
-const int _streamingSnapshotMinTailLength = 220;
-final RegExp _streamingFenceRegex = RegExp(r'^\s*```', multiLine: true);
-final RegExp _streamingCollapsedNewlines = RegExp(r'\n{3,}');
 
 Map<String, Object> _computeStreamingMarkdownSnapshot(String content) {
   return _buildMarkdownSnapshot(content, streaming: true).toMap();
@@ -34,147 +28,59 @@ _MarkdownRenderSnapshot _buildMarkdownSnapshot(
   required bool streaming,
 }) {
   final normalized = ConduitMarkdownPreprocessor.normalize(content);
-  if (!streaming || normalized.trim().isEmpty) {
-    return _MarkdownRenderSnapshot.full(normalized);
-  }
-
-  if (!_shouldUseCheapStreamingPath(normalized)) {
-    return _MarkdownRenderSnapshot.full(normalized);
-  }
-
-  final splitIndex = _findStreamingSplitIndex(normalized);
-  if (splitIndex <= 0 || splitIndex >= normalized.length) {
-    return _MarkdownRenderSnapshot.full(normalized);
-  }
-
-  var stableContent = normalized.substring(0, splitIndex).trimRight();
-  if (_streamingFenceRegex.allMatches(stableContent).length.isOdd) {
-    final lastFenceIndex = stableContent.lastIndexOf('```');
-    if (lastFenceIndex >= 0) {
-      stableContent = stableContent.substring(0, lastFenceIndex).trimRight();
-    }
-  }
-
-  final trailingContent = normalized.substring(stableContent.length).trimLeft();
-  if (stableContent.isEmpty || trailingContent.isEmpty) {
-    return _MarkdownRenderSnapshot.full(normalized);
-  }
-
-  return _MarkdownRenderSnapshot(
-    normalizedContent: normalized,
-    stableContent: stableContent,
-    trailingContent: trailingContent,
-    useCheapTail: true,
-  );
+  final prepared = streaming
+      ? _stripTrailingIncompleteToolCallDetails(normalized)
+      : normalized;
+  return _MarkdownRenderSnapshot.full(prepared);
 }
 
-bool _shouldUseCheapStreamingPath(String normalized) {
-  if (normalized.length >= 1400) {
-    return true;
+String _stripTrailingIncompleteToolCallDetails(String input) {
+  if (input.isEmpty || !input.contains('<details')) {
+    return input;
   }
 
-  return normalized.contains('```') ||
-      normalized.contains('| ---') ||
-      normalized.contains('\n|') ||
-      normalized.contains('<details') ||
-      normalized.contains('```mermaid') ||
-      normalized.contains('```chart');
-}
-
-int _findStreamingSplitIndex(String normalized) {
-  if (normalized.length <= _streamingSnapshotMinTailLength * 2) {
-    return -1;
+  final matches = RegExp(
+    r'<details\b[^>]*type="tool_calls"[^>]*>',
+    caseSensitive: false,
+  ).allMatches(input).toList(growable: false);
+  if (matches.isEmpty) {
+    return input;
   }
 
-  final minStableLength = math.min(
-    normalized.length - _streamingSnapshotMinTailLength,
-    400,
-  );
-  final latestAllowedStart =
-      normalized.length - _streamingSnapshotMinTailLength;
-  final searchStart = math.max(
-    0,
-    latestAllowedStart - _streamingSnapshotLookback,
-  );
-
-  const separators = <String>['\n\n', '\n', '. ', '! ', '? '];
-  for (final separator in separators) {
-    final index = normalized.lastIndexOf(separator, latestAllowedStart);
-    if (index >= searchStart && index >= minStableLength) {
-      return index + separator.length;
-    }
+  final lastOpen = matches.last;
+  final trailing = input.substring(lastOpen.start).toLowerCase();
+  if (trailing.contains('</details>')) {
+    return input;
   }
 
-  return latestAllowedStart;
-}
-
-String _prepareStreamingTail(String trailingContent) {
-  final collapsed = trailingContent
-      .replaceAll(_streamingCollapsedNewlines, '\n\n')
-      .trimLeft();
-  return ConduitMarkdownPreprocessor.softenInlineCode(
-    ConduitMarkdownPreprocessor.removeAllDetails(collapsed),
-  ).trimRight();
+  return input.substring(0, lastOpen.start).trimRight();
 }
 
 class _MarkdownRenderSnapshot {
-  const _MarkdownRenderSnapshot({
-    required this.normalizedContent,
-    required this.stableContent,
-    required this.trailingContent,
-    required this.useCheapTail,
-  });
+  const _MarkdownRenderSnapshot({required this.normalizedContent});
 
-  const _MarkdownRenderSnapshot.empty()
-    : normalizedContent = '',
-      stableContent = '',
-      trailingContent = '',
-      useCheapTail = false;
+  const _MarkdownRenderSnapshot.empty() : normalizedContent = '';
 
-  const _MarkdownRenderSnapshot.full(this.normalizedContent)
-    : stableContent = normalizedContent,
-      trailingContent = '',
-      useCheapTail = false;
+  const _MarkdownRenderSnapshot.full(this.normalizedContent);
 
   final String normalizedContent;
-  final String stableContent;
-  final String trailingContent;
-  final bool useCheapTail;
 
-  Map<String, Object> toMap() {
-    return {
-      'normalizedContent': normalizedContent,
-      'stableContent': stableContent,
-      'trailingContent': trailingContent,
-      'useCheapTail': useCheapTail,
-    };
-  }
+  Map<String, Object> toMap() => {'normalizedContent': normalizedContent};
 
   factory _MarkdownRenderSnapshot.fromMap(Map<String, Object?> map) {
     return _MarkdownRenderSnapshot(
       normalizedContent: (map['normalizedContent'] ?? '') as String,
-      stableContent: (map['stableContent'] ?? '') as String,
-      trailingContent: (map['trailingContent'] ?? '') as String,
-      useCheapTail: (map['useCheapTail'] ?? false) as bool,
     );
   }
 
   @override
   bool operator ==(Object other) {
     return other is _MarkdownRenderSnapshot &&
-        other.normalizedContent == normalizedContent &&
-        other.stableContent == stableContent &&
-        other.trailingContent == trailingContent &&
-        other.useCheapTail == useCheapTail;
+        other.normalizedContent == normalizedContent;
   }
 
   @override
-  int get hashCode => Object.hash(
-    normalizedContent,
-    stableContent,
-    trailingContent,
-    useCheapTail,
-  );
+  int get hashCode => normalizedContent.hashCode;
 }
 
 class StreamingMarkdownWidget extends ConsumerStatefulWidget {
@@ -381,9 +287,7 @@ class _StreamingMarkdownWidgetState
       return const SizedBox.shrink();
     }
 
-    final result = snapshot.useCheapTail
-        ? _buildStreamingMarkdownResult(snapshot)
-        : _buildMarkdownWithCitations(snapshot.normalizedContent);
+    final result = _buildMarkdownWithCitations(snapshot.normalizedContent);
 
     // Only wrap in SelectionArea when not streaming to
     // avoid concurrent modification errors in Flutter's
@@ -407,66 +311,6 @@ class _StreamingMarkdownWidgetState
       sources: widget.sources,
       onSourceTap: widget.onSourceTap,
       stateScopeId: widget.stateScopeId,
-    );
-  }
-
-  Widget _buildStreamingMarkdownResult(_MarkdownRenderSnapshot snapshot) {
-    final children = <Widget>[];
-    if (snapshot.stableContent.trim().isNotEmpty) {
-      children.add(_buildMarkdownWithCitations(snapshot.stableContent));
-    }
-
-    final trailingContent = _prepareStreamingTail(snapshot.trailingContent);
-    if (trailingContent.trim().isNotEmpty) {
-      if (children.isNotEmpty) {
-        children.add(const SizedBox(height: 8));
-      }
-      children.add(_StreamingMarkdownTail(content: trailingContent));
-    }
-
-    if (children.isEmpty) {
-      return _buildMarkdownWithCitations(snapshot.normalizedContent);
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: children,
-    );
-  }
-}
-
-class _StreamingMarkdownTail extends StatelessWidget {
-  const _StreamingMarkdownTail({required this.content});
-
-  final String content;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final trimmed = content.trimLeft();
-    final isFenceBlock = trimmed.startsWith('```');
-    if (isFenceBlock) {
-      final codeBody = trimmed.replaceFirst(RegExp(r'^```[^\n]*\n?'), '');
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Text(
-          codeBody,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            fontFamily: 'monospace',
-            height: 1.45,
-          ),
-        ),
-      );
-    }
-
-    return Text(
-      content,
-      style: theme.textTheme.bodyLarge?.copyWith(height: 1.45),
     );
   }
 }

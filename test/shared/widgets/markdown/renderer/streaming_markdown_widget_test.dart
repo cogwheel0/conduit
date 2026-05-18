@@ -90,8 +90,10 @@ void main() {
     bool isStreaming = false,
     String? stateScopeId,
     List<ChatSourceReference> sources = const <ChatSourceReference>[],
+    Locale? locale,
   }) {
     return MaterialApp(
+      locale: locale,
       theme: AppTheme.light(TweakcnThemes.t3Chat),
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
@@ -284,6 +286,167 @@ After
       expect(find.text('done'), findsOneWidget);
     },
   );
+
+  testWidgets(
+    'uses tool call body content as structured output without leaking raw text',
+    (tester) async {
+      const content = '''
+Before
+
+<details type="tool_calls" done="true" name="search" arguments="{&quot;q&quot;:&quot;cats&quot;}">
+<summary>Tool Executed</summary>
+&quot;done&quot;
+</details>
+
+After
+''';
+
+      await tester.pumpWidget(buildHarness(content));
+
+      expect(find.text('View Result from search'), findsOneWidget);
+      expect(find.text('done'), findsNothing);
+      expect(find.text('After'), findsOneWidget);
+
+      await tester.tap(find.text('View Result from search'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Input'), findsOneWidget);
+      expect(find.text('Output'), findsOneWidget);
+      expect(find.text('cats'), findsOneWidget);
+      expect(find.text('done'), findsOneWidget);
+    },
+  );
+
+  testWidgets('collapses consecutive tool calls into a grouped summary', (
+    tester,
+  ) async {
+    const content = '''
+<details type="tool_calls" done="true" name="search" result="&quot;one&quot;">
+<summary>Tool Executed</summary>
+</details>
+<details type="tool_calls" done="true" name="browser" result="&quot;two&quot;">
+<summary>Tool Executed</summary>
+</details>
+''';
+
+    await tester.pumpWidget(buildHarness(content));
+
+    expect(find.text('Explored search, browser'), findsOneWidget);
+    expect(find.text('View Result from search'), findsNothing);
+    expect(find.text('View Result from browser'), findsNothing);
+
+    await tester.tap(find.text('Explored search, browser'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('View Result from search'), findsOneWidget);
+    expect(find.text('View Result from browser'), findsOneWidget);
+  });
+
+  testWidgets('localizes grouped tool call titles', (tester) async {
+    const content = '''
+<details type="tool_calls" done="true" name="search" result="&quot;one&quot;">
+<summary>Tool Executed</summary>
+</details>
+<details type="tool_calls" done="true" name="browser" result="&quot;two&quot;">
+<summary>Tool Executed</summary>
+</details>
+''';
+
+    await tester.pumpWidget(
+      buildHarness(content, locale: const Locale('es')),
+    );
+
+    expect(find.text('Explorado search, browser'), findsOneWidget);
+  });
+
+  testWidgets(
+    'keeps grouped tool calls expanded when new tool calls stream in after remount',
+    (tester) async {
+      final bucket = PageStorageBucket();
+      var content = '''
+<details type="tool_calls" done="true" name="search" result="&quot;one&quot;">
+<summary>Tool Executed</summary>
+</details>
+<details type="tool_calls" done="true" name="browser" result="&quot;two&quot;">
+<summary>Tool Executed</summary>
+</details>
+''';
+      var revision = 0;
+      late void Function(VoidCallback fn) rebuild;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: StatefulBuilder(
+              builder: (context, setState) {
+                rebuild = setState;
+                return PageStorage(
+                  bucket: bucket,
+                  child: KeyedSubtree(
+                    key: ValueKey(revision),
+                    child: SingleChildScrollView(
+                      child: StreamingMarkdownWidget(
+                        content: content,
+                        isStreaming: true,
+                        stateScopeId: 'message-1',
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Explored search, browser'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('View Result from search'), findsOneWidget);
+      expect(find.text('View Result from browser'), findsOneWidget);
+
+      rebuild(() {
+        revision += 1;
+        content = '''
+<details type="tool_calls" done="true" name="search" result="&quot;one&quot;">
+<summary>Tool Executed</summary>
+</details>
+<details type="tool_calls" done="true" name="browser" result="&quot;two&quot;">
+<summary>Tool Executed</summary>
+</details>
+<details type="tool_calls" done="true" name="files" result="&quot;three&quot;">
+<summary>Tool Executed</summary>
+</details>
+''';
+      });
+      await tester.pumpAndSettle();
+
+      expect(find.text('View Result from search'), findsOneWidget);
+      expect(find.text('View Result from browser'), findsOneWidget);
+      expect(find.text('View Result from files'), findsOneWidget);
+    },
+  );
+
+  testWidgets('does not leak incomplete tool call details while streaming', (
+    tester,
+  ) async {
+    final content = [
+      List<String>.filled(80, 'Stable sentence.').join(' '),
+      '<details type="tool_calls" done="true" name="run_command" arguments="&quot;{&quot;command&quot;:&quot;python&quot;}&quot;">',
+      '<summary>Tool Executed</summary>',
+      '&quot;{',
+      '&quot;status&quot;:&quot;running&quot;,',
+    ].join('\n\n');
+
+    await tester.pumpWidget(buildHarness(content, isStreaming: true));
+
+    expect(find.textContaining('<details'), findsNothing);
+    expect(find.textContaining('type="tool_calls"'), findsNothing);
+    expect(find.textContaining('Stable sentence.'), findsWidgets);
+  });
 
   testWidgets(
     'assistant streaming haptics fire for content arrival and completion',

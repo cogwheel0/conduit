@@ -1327,6 +1327,28 @@
   "@alertNote": {
     "description": "Fallback label for a note markdown alert."
   },
+  "markdownDetailsGroupPendingTitle": "正在探索 {summary}",
+  "@markdownDetailsGroupPendingTitle": {
+    "description": "Title shown for a pending grouped tool-call details block.",
+    "placeholders": {
+      "summary": {
+        "type": "String"
+      }
+    }
+  },
+  "markdownDetailsGroupCompleteTitle": "已探索 {summary}",
+  "@markdownDetailsGroupCompleteTitle": {
+    "description": "Title shown for a completed grouped tool-call details block.",
+    "placeholders": {
+      "summary": {
+        "type": "String"
+      }
+    }
+  },
+  "markdownDetailsGroupUnnamedTool": "工具",
+  "@markdownDetailsGroupUnnamedTool": {
+    "description": "Fallback label used when a grouped tool call has no tool name."
+  },
   "folderIconFolder": "資料夾",
   "@folderIconFolder": {
     "description": "Accessibility label for the folder icon option."

@@ -34,6 +34,8 @@ void main() {
       check(entry.name).equals('search');
       check(entry.id).equals('abc123');
       check(entry.done).isTrue();
+      check(entry.result).equals('result');
+      check(entry.resultText).equals('result');
 
       // Text after
       check(s[2].isToolCall).isFalse();
@@ -155,21 +157,32 @@ void main() {
           '</details>'
           ' suffix';
       final sanitized = ToolCallsParser.sanitizeForApi(content);
-      // Result "42" is a string, json.encode gives "42" which
-      // already starts/ends with quotes so no extra wrapping
+      // OpenWebUI preserves the already-quoted raw result text.
       check(sanitized).contains('"42"');
       check(sanitized).contains('prefix');
       check(sanitized).contains('suffix');
     });
 
-    test('wraps non-quoted result in quotes', () {
+    test('preserves non-quoted result text', () {
       const content =
           '<details type="tool_calls" name="calc" id="c1" '
           'done="true" result="42">'
           '</details>';
       final sanitized = ToolCallsParser.sanitizeForApi(content);
-      // 42 is a number, json.encode gives 42, then wrapped in quotes
-      check(sanitized).contains('"42"');
+      check(sanitized).equals('42');
     });
+
+    test(
+      'falls back to tool call body content when result attribute is absent',
+      () {
+        const content =
+            '<details type="tool_calls" name="calc" id="c1" done="true">'
+            '<summary>Tool Executed</summary>'
+            'done'
+            '</details>';
+        final sanitized = ToolCallsParser.sanitizeForApi(content);
+        check(sanitized).equals('done');
+      },
+    );
   });
 }

@@ -132,7 +132,7 @@ void main() {
     );
   });
 
-  test('streaming markdown snapshot splits stable and trailing content', () {
+  test('streaming markdown snapshot keeps full normalized content', () {
     final content = [
       'Intro paragraph.',
       List<String>.filled(80, 'Stable sentence.').join(' '),
@@ -145,29 +145,23 @@ void main() {
       streaming: true,
     );
 
-    expect(snapshot['useCheapTail'], isTrue);
-    expect((snapshot['stableContent'] as String).trim(), isNotEmpty);
-    expect((snapshot['trailingContent'] as String).trim(), isNotEmpty);
     expect(snapshot['normalizedContent'], contains('Stable sentence.'));
+    expect(snapshot['normalizedContent'], contains('```dart'));
   });
 
-  test(
-    'streaming markdown snapshot falls back to full render when a fence starts at index zero',
-    () {
-      final content = [
-        '```dart',
-        ...List<String>.filled(160, 'print("chunk");'),
-      ].join('\n');
+  test('streaming markdown snapshot preserves fence-first content', () {
+    final content = [
+      '```dart',
+      ...List<String>.filled(160, 'print("chunk");'),
+    ].join('\n');
 
-      final snapshot = buildStreamingMarkdownSnapshotForTesting(
-        content,
-        streaming: true,
-      );
+    final snapshot = buildStreamingMarkdownSnapshotForTesting(
+      content,
+      streaming: true,
+    );
 
-      expect(snapshot['useCheapTail'], isFalse);
-      expect(snapshot['normalizedContent'], startsWith('```dart'));
-    },
-  );
+    expect(snapshot['normalizedContent'], startsWith('```dart'));
+  });
 
   testWidgets('rapid streaming updates coalesce worker snapshot jobs', (
     tester,
