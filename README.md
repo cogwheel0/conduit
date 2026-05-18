@@ -77,14 +77,15 @@
   <a href="#build-from-source">Build from Source</a> |
   <a href="#architecture">Architecture</a>
 </p>
-
+<br>
 <p align="center">
   <img
-    src="docs/screenshots/conduit-demo.gif"
+    src="https://github.com/user-attachments/assets/8531f859-a2c4-4e61-877e-9885d1413f4e"
     alt="Conduit demo"
     width="360"
   />
 </p>
+<br>
 
 ## Why Conduit
 
