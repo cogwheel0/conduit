@@ -91,27 +91,41 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
 
     _singleServerDefaultPanelSubscription = ref.listenManual(
       terminalAvailableServersProvider,
-      (previous, next) {
-        if (!next.hasValue) {
-          return;
-        }
-        final list = next.requireValue;
-        if (list.length == 1) {
-          ref
-              .read(terminalSidebarPanelProvider.notifier)
-              .setPanel(TerminalSidebarPanel.files);
-        }
-        _singleServerDefaultPanelSubscription?.close();
-        _singleServerDefaultPanelSubscription = null;
-      },
-      fireImmediately: true,
+      (previous, next) => _handleSingleServerDefaultPanel(next),
     );
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) {
         return;
       }
+      _handleSingleServerDefaultPanel(
+        ref.read(terminalAvailableServersProvider),
+      );
       unawaited(_syncTerminalState(force: true));
+    });
+  }
+
+  void _handleSingleServerDefaultPanel(
+    AsyncValue<List<TerminalServerInfo>> next,
+  ) {
+    if (!next.hasValue) {
+      return;
+    }
+
+    final shouldShowFiles = next.requireValue.length == 1;
+    _singleServerDefaultPanelSubscription?.close();
+    _singleServerDefaultPanelSubscription = null;
+    if (!shouldShowFiles) {
+      return;
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      ref
+          .read(terminalSidebarPanelProvider.notifier)
+          .setPanel(TerminalSidebarPanel.files);
     });
   }
 

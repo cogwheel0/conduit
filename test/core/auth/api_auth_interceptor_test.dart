@@ -71,6 +71,32 @@ void main() {
       expect(authFailureCount, 1);
     });
 
+    test(
+      'suppressed auth validation error does not notify auth failure',
+      () async {
+        var authFailureCount = 0;
+        final interceptor = ApiAuthInterceptor(
+          authToken: 'token',
+          onAuthTokenInvalid: () {
+            authFailureCount++;
+          },
+        );
+        final handler = _TestErrorInterceptorHandler();
+
+        interceptor.onError(
+          _dioError(
+            401,
+            '/api/v1/auths/',
+            extra: const {'suppressAuthFailureNotification': true},
+          ),
+          handler,
+        );
+        await handler.done;
+
+        expect(authFailureCount, 0);
+      },
+    );
+
     test('403 on audio config endpoint does not notify auth failure', () async {
       var authFailureCount = 0;
       final interceptor = ApiAuthInterceptor(
@@ -105,8 +131,12 @@ void main() {
   });
 }
 
-DioException _dioError(int statusCode, String path) {
-  final request = RequestOptions(path: path);
+DioException _dioError(
+  int statusCode,
+  String path, {
+  Map<String, dynamic>? extra,
+}) {
+  final request = RequestOptions(path: path, extra: extra);
   return DioException(
     requestOptions: request,
     response: Response<dynamic>(

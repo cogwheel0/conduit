@@ -706,8 +706,15 @@ class ApiService {
   }
 
   // User info
-  Future<User> getCurrentUser() async {
-    final response = await _dio.get('/api/v1/auths/');
+  Future<User> getCurrentUser({
+    bool suppressAuthFailureNotification = false,
+  }) async {
+    final response = await _dio.get(
+      '/api/v1/auths/',
+      options: suppressAuthFailureNotification
+          ? Options(extra: const {'suppressAuthFailureNotification': true})
+          : null,
+    );
     DebugLogger.log('user-info', scope: 'api/user');
     return User.fromJson(response.data);
   }

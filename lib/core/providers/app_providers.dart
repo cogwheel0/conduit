@@ -1407,8 +1407,6 @@ class Conversations extends _$Conversations {
       _resetPaginationState(allLoaded: true);
       _resetInitialLoadTracking();
       _clearConversationScopeState();
-      _updateCacheTimestamp(null);
-      _persistConversationsAsync(const <Conversation>[]);
       return const [];
     }
 

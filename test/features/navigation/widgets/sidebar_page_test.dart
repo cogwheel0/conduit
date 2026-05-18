@@ -20,6 +20,8 @@ import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_user_pill.dart';
 import 'package:conduit/features/notes/widgets/notes_list_tab.dart';
 import 'package:conduit/features/notes/providers/notes_providers.dart';
+import 'package:conduit/features/terminal/models/terminal_models.dart';
+import 'package:conduit/features/terminal/providers/terminal_providers.dart';
 import 'package:conduit/features/terminal/widgets/terminal_tab.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
@@ -199,6 +201,63 @@ void main() {
     expect(_sidebarBottomNavTabLabel('Terminal'), findsOneWidget);
     expect(_sidebarBottomNavTabLabel('Notes'), findsOneWidget);
     expect(_sidebarBottomNavTabLabel('Channels'), findsOneWidget);
+  });
+
+  testWidgets('hides terminal tab when no terminal servers are available', (
+    tester,
+  ) async {
+    final controllers = _SidebarHarnessControllers();
+    await tester.pumpWidget(
+      _buildSidebarHarness(
+        controllers: controllers,
+        terminalServers: const <TerminalServerInfo>[],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(_sidebarBottomNavTabLabel('Terminal'), findsNothing);
+    expect(find.byType(TerminalTab), findsNothing);
+  });
+
+  testWidgets('keeps terminal tab visible when terminal discovery fails', (
+    tester,
+  ) async {
+    final controllers = _SidebarHarnessControllers();
+    await tester.pumpWidget(
+      _buildSidebarHarness(
+        controllers: controllers,
+        terminalServersError: Exception('terminal discovery failed'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(_sidebarBottomNavTabLabel('Terminal'), findsOneWidget);
+    expect(find.byType(TerminalTab), findsOneWidget);
+  });
+
+  testWidgets('channel helpers align when terminal tab is hidden', (
+    tester,
+  ) async {
+    final controllers = _SidebarHarnessControllers(initialIndex: 2);
+    await tester.pumpWidget(
+      _buildSidebarHarness(
+        controllers: controllers,
+        terminalServers: const <TerminalServerInfo>[],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(_sidebarBottomNavTabLabel('Terminal'), findsNothing);
+    expect(_sidebarBottomNavTabLabel('Channels'), findsOneWidget);
+    expect(find.byIcon(Icons.add), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.search));
+    await tester.pump();
+
+    final context = tester.element(find.byType(SidebarPage));
+    final l10n = AppLocalizations.of(context)!;
+    expect(find.text(l10n.searchChannels), findsOneWidget);
+    expect(find.text(l10n.searchFiles), findsNothing);
   });
 
   testWidgets('adaptive bottom bar tapping switches active tab', (
@@ -639,8 +698,11 @@ Widget _buildSidebarHarness({
   User? currentUser,
   List<Conversation> conversations = const [],
   List<Folder> folders = const [],
+  List<TerminalServerInfo>? terminalServers,
+  Object? terminalServersError,
   AppSettings settings = const AppSettings(),
 }) {
+  final availableTerminalServers = terminalServers ?? _defaultTerminalServers();
   final router = GoRouter(
     initialLocation: '/chat',
     routes: [
@@ -708,6 +770,14 @@ Widget _buildSidebarHarness({
       sidebarActiveTabProvider.overrideWith(
         () => controllers.activeTabNotifier,
       ),
+      // ignore: scoped_providers_should_specify_dependencies
+      terminalAvailableServersProvider.overrideWith((ref) async {
+        final error = terminalServersError;
+        if (error != null) {
+          throw error;
+        }
+        return availableTerminalServers;
+      }),
     ],
     child: MaterialApp.router(
       localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -715,6 +785,27 @@ Widget _buildSidebarHarness({
       routerConfig: router,
     ),
   );
+}
+
+List<TerminalServerInfo> _defaultTerminalServers() {
+  return <TerminalServerInfo>[
+    TerminalServerInfo(
+      kind: TerminalServerKind.system,
+      selectionId: 'test-terminal',
+      systemServerId: 'test-terminal',
+      baseUrl: Uri.parse('https://example.com/api/v1/terminals/test-terminal'),
+      name: 'Test Terminal',
+    ),
+    TerminalServerInfo(
+      kind: TerminalServerKind.system,
+      selectionId: 'test-terminal-2',
+      systemServerId: 'test-terminal-2',
+      baseUrl: Uri.parse(
+        'https://example.com/api/v1/terminals/test-terminal-2',
+      ),
+      name: 'Test Terminal 2',
+    ),
+  ];
 }
 
 class _SidebarHarnessControllers {

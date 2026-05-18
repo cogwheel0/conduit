@@ -116,7 +116,10 @@ class ApiAuthInterceptor extends Interceptor {
     final statusCode = err.response?.statusCode;
     final path = err.requestOptions.path;
 
-    if (statusCode case final code? when code == 401 || code == 403) {
+    final suppressAuthFailureNotification =
+        err.requestOptions.extra['suppressAuthFailureNotification'] == true;
+    if (statusCode case final code?
+        when !suppressAuthFailureNotification && (code == 401 || code == 403)) {
       _handleAuthorizationError(path: path, statusCode: code);
     }
 

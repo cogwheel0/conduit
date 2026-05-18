@@ -660,13 +660,8 @@ class OptimizedStorageService {
   // ---------------------------------------------------------------------------
   // Batch operations
   // ---------------------------------------------------------------------------
-  /// Clear authentication-related data (tokens, credentials, user data).
-  /// Server configurations (URL, custom headers, self-signed cert settings)
-  /// are preserved to allow quick re-login.
-  Future<void> clearAuthData() async {
-    await Future.wait([
-      deleteAuthToken(),
-      deleteSavedCredentials(),
+  Future<void> _clearUserScopedCacheEntries() {
+    return Future.wait([
       _cachesBox.delete(_localUserKey),
       _cachesBox.delete(_localUserAvatarKey),
       _cachesBox.delete(_localBackendConfigKey),
@@ -676,6 +671,29 @@ class OptimizedStorageService {
       _cachesBox.delete(_localModelsKey),
       _cachesBox.delete(_localConversationsKey),
       _cachesBox.delete(_localFoldersKey),
+    ]);
+  }
+
+  /// Clear user-scoped cached data while preserving token and saved credentials.
+  ///
+  /// Used when an existing token is invalidated but saved credentials may still
+  /// be used for a silent re-login.
+  Future<void> clearUserScopedAuthData() async {
+    await _clearUserScopedCacheEntries();
+    DebugLogger.log(
+      'User-scoped auth data cleared',
+      scope: 'storage/optimized',
+    );
+  }
+
+  /// Clear authentication-related data (tokens, credentials, user data).
+  /// Server configurations (URL, custom headers, self-signed cert settings)
+  /// are preserved to allow quick re-login.
+  Future<void> clearAuthData() async {
+    await Future.wait([
+      deleteAuthToken(),
+      deleteSavedCredentials(),
+      _clearUserScopedCacheEntries(),
       // Note: Server configs are NOT cleared - they persist across logouts
       // so users can quickly re-login without re-entering server details
     ]);

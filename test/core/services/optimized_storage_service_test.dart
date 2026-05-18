@@ -320,6 +320,29 @@ void main() {
     },
   );
 
+  test(
+    'user-scoped auth cleanup preserves token and saved credentials',
+    () async {
+      await saveServerConfigs(['server-a']);
+      await storage.setActiveServerId('server-a');
+      await storage.saveAuthToken('token-a');
+      await storage.saveCredentials(
+        serverId: 'server-a',
+        username: 'user@example.com',
+        password: 'password',
+      );
+      await storage.saveLocalConversations([
+        Conversation.fromJson(_conversationJson('cached-chat')),
+      ]);
+
+      await storage.clearUserScopedAuthData();
+
+      expect(await storage.getAuthToken(), 'token-a');
+      expect(await storage.getSavedCredentials(), isNotNull);
+      expect(await storage.getLocalConversations(), isEmpty);
+    },
+  );
+
   test('sync transport cache ignores stale active server ids', () async {
     await saveServerConfigs(['server-a']);
     await storage.setActiveServerId('removed-server');

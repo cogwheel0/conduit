@@ -20,8 +20,90 @@ import '../services/share_receiver_service.dart';
 import '../utils/debug_logger.dart';
 import '../models/server_config.dart';
 import '../../shared/widgets/markdown/renderer/latex_rendering_server.dart';
+import '../../features/tools/providers/tools_providers.dart';
 
 part 'app_startup_providers.g.dart';
+
+/// Clears keepAlive user-scoped providers after auth leaves the authenticated
+/// state. This lives outside [AuthStateManager] because many of these providers
+/// depend on auth state, and invalidating them from inside the auth notifier
+/// trips Riverpod's circular dependency guard.
+final userScopedProviderCleanupProvider = Provider<void>((ref) {
+  ref.listen<String?>(authTokenProvider3, (previous, next) {
+    if (previous != null && next == null) {
+      _cleanupUserScopedProvidersAfterSignOut(ref);
+    }
+  });
+
+  ref.listen<AuthNavigationState>(authNavigationStateProvider, (
+    previous,
+    next,
+  ) {
+    if (previous != AuthNavigationState.authenticated ||
+        next == AuthNavigationState.authenticated) {
+      return;
+    }
+
+    _cleanupUserScopedProvidersAfterSignOut(ref);
+  });
+});
+
+Future<void> _cleanupUserScopedProvidersAfterSignOut(Ref ref) async {
+  const attempts = 40;
+  for (var attempt = 0; attempt < attempts; attempt++) {
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    if (!ref.mounted) {
+      return;
+    }
+    if (ref.read(authNavigationStateProvider) ==
+        AuthNavigationState.authenticated) {
+      return;
+    }
+    if (ref.read(authTokenProvider3) == null &&
+        !ref.read(isAuthLoadingProvider2)) {
+      break;
+    }
+    if (attempt == attempts - 1) {
+      return;
+    }
+  }
+
+  if (!ref.mounted) {
+    return;
+  }
+  try {
+    ref.invalidate(conversationsProvider);
+    ref.invalidate(activeConversationProvider);
+    ref.invalidate(foldersProvider);
+    ref.invalidate(modelsProvider);
+    ref.invalidate(selectedModelProvider);
+    ref.invalidate(currentUserProvider);
+    ref.invalidate(userSettingsProvider);
+    ref.invalidate(rawUserSettingsProvider);
+    ref.invalidate(personalizationSettingsProvider);
+    ref.invalidate(userMemoriesProvider);
+    ref.invalidate(accountProfileProvider);
+    ref.invalidate(serverAboutInfoProvider);
+    ref.invalidate(userPermissionsProvider);
+    ref.invalidate(toolsListProvider);
+    ref.invalidate(selectedToolIdsProvider);
+    ref.invalidate(selectedTerminalIdProvider);
+    ref.invalidate(selectedFilterIdsProvider);
+    ref.invalidate(knowledgeBasesProvider);
+    ref.invalidate(availableVoicesProvider);
+    ref.invalidate(imageModelsProvider);
+    ref.invalidate(defaultModelProvider);
+    ref.invalidate(backendConfigProvider);
+    ref.invalidate(socketServiceManagerProvider);
+  } catch (error, stackTrace) {
+    DebugLogger.error(
+      'user-scoped-provider-cleanup-failed',
+      scope: 'startup',
+      error: error,
+      stackTrace: stackTrace,
+    );
+  }
+}
 
 enum _ConversationWarmupStatus { idle, warming, complete }
 

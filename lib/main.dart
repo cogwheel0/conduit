@@ -197,6 +197,7 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
   @override
   void initState() {
     super.initState();
+    ref.read(userScopedProviderCleanupProvider);
     ref.read(quickActionsCoordinatorProvider);
     _nativeSheetSubscription = NativeSheetBridge.instance.events.listen(
       _handleNativeSheetEvent,

@@ -205,10 +205,9 @@ class _SidebarMaterialBottomNavigationBar extends StatelessWidget {
 /// in [ResponsiveDrawerLayout]. Tab selection is persisted via
 /// [sidebarActiveTabProvider].
 ///
-/// Notes and Channels tabs are each independently optional. When the
-/// server disables a feature (via [notesFeatureEnabledProvider] or
-/// [channelsFeatureEnabledProvider]), the corresponding tab is hidden and the
-/// persisted index is clamped to the visible tab range.
+/// Notes, Terminal, and Channels tabs are each independently optional. When a
+/// feature or its backing terminal servers are unavailable, the corresponding
+/// tab is hidden and the persisted index is clamped to the visible tab range.
 class SidebarPage extends ConsumerStatefulWidget {
   const SidebarPage({super.key});
 
@@ -416,6 +415,12 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
     final localizations = AppLocalizations.of(context)!;
     final notesEnabled = ref.watch(notesFeatureEnabledProvider);
     final channelsEnabled = ref.watch(channelsFeatureEnabledProvider);
+    final terminalServers = ref.watch(terminalAvailableServersProvider);
+    final showTerminalTab = terminalServers.maybeWhen(
+      data: (servers) => servers.isNotEmpty,
+      error: (_, _) => true,
+      orElse: () => true,
+    );
     final tabDefinitions = <_SidebarTabDefinition>[
       _SidebarTabDefinition(
         id: _SidebarTabId.chats,
@@ -428,11 +433,12 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
           label: localizations.sidebarNotesTab,
           body: const NotesListTab(),
         ),
-      _SidebarTabDefinition(
-        id: _SidebarTabId.terminal,
-        label: localizations.sidebarTerminalTab,
-        body: const TerminalTab(),
-      ),
+      if (showTerminalTab)
+        _SidebarTabDefinition(
+          id: _SidebarTabId.terminal,
+          label: localizations.sidebarTerminalTab,
+          body: const TerminalTab(),
+        ),
       if (channelsEnabled)
         _SidebarTabDefinition(
           id: _SidebarTabId.channels,

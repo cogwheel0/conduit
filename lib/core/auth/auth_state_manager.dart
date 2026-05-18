@@ -1,11 +1,12 @@
 import 'dart:async';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 // Types are used through app_providers.dart
 import '../providers/app_providers.dart';
-import '../../features/tools/providers/tools_providers.dart';
 import '../models/user.dart';
+import '../services/api_service.dart';
 import '../services/optimized_storage_service.dart';
 import 'token_validator.dart';
 import 'auth_cache_manager.dart';
@@ -294,51 +295,48 @@ class AuthStateManager extends _$AuthStateManager {
             return;
           }
 
-          _update(
-            (current) => current.copyWith(
-              status: AuthStatus.authenticated,
-              token: token,
-              isLoading: false,
-              clearError: true,
-            ),
-            cache: true,
-          );
-
           try {
-            final cachedUser = await storage.getLocalUser();
-            if (cachedUser != null) {
-              // Restore cached avatar as well
-              final cachedAvatar = await storage.getLocalUserAvatar();
-              final userWithAvatar =
-                  cachedAvatar != null &&
-                      cachedAvatar.isNotEmpty &&
-                      cachedUser.profileImage != cachedAvatar
-                  ? cachedUser.copyWith(profileImage: cachedAvatar)
-                  : cachedUser;
-              _update(
-                (current) => current.copyWith(user: userWithAvatar),
-                cache: true,
-              );
-              DebugLogger.auth('Restored user from cache');
+            _updateApiServiceToken(token);
+            final user = await ref
+                .read(apiServiceProvider)
+                ?.getCurrentUser(suppressAuthFailureNotification: true);
+            if (user == null) {
+              throw StateError('API service unavailable during token restore');
             }
-          } catch (_) {}
 
-          // Update API service with token and kick off dependent background work
-          _updateApiServiceToken(token);
-          _preloadDefaultModel();
-          _loadUserData();
+            _update(
+              (current) => current.copyWith(
+                status: AuthStatus.authenticated,
+                token: token,
+                user: user,
+                isLoading: false,
+                clearError: true,
+              ),
+              cache: true,
+            );
 
-          // Background server validation; if it fails, invalidate token gracefully
-          final validToken = token; // Capture non-null token for closure
-          Future.microtask(() async {
-            try {
-              final ok = await _validateToken(validToken);
-              DebugLogger.auth('Deferred token validation result: $ok');
-              if (!ok) {
-                await onTokenInvalidated();
-              }
-            } catch (_) {}
-          });
+            _preloadDefaultModel();
+          } catch (error) {
+            if (_isConfirmedAuthFailure(error)) {
+              DebugLogger.auth('Stored token rejected during initialization');
+              await onTokenInvalidated();
+            } else {
+              DebugLogger.warning(
+                'stored-token-validation-deferred',
+                scope: 'auth/state',
+                data: {'error': error.toString()},
+              );
+              _update(
+                (current) => current.copyWith(
+                  status: AuthStatus.error,
+                  token: token,
+                  error: 'Unable to validate session. Please retry shortly.',
+                  isLoading: false,
+                  clearUser: true,
+                ),
+              );
+            }
+          }
         } else {
           // Token format invalid; clear and require login
           DebugLogger.auth('Token format invalid, deleting token');
@@ -441,7 +439,7 @@ class AuthStateManager extends _$AuthStateManager {
 
       // Validate by attempting to fetch user info
       try {
-        await api.getCurrentUser(); // Just validate, don't store user data yet
+        final user = await _validateIssuedToken(api, tokenStr);
 
         // Save token to storage
         final storage = ref.read(optimizedStorageServiceProvider);
@@ -461,11 +459,12 @@ class AuthStateManager extends _$AuthStateManager {
           }
         }
 
-        // Update state (without user data initially)
+        // Update state with the validated user data.
         _update(
           (current) => current.copyWith(
             status: AuthStatus.authenticated,
             token: tokenStr,
+            user: user,
             isLoading: false,
             clearError: true,
           ),
@@ -475,9 +474,6 @@ class AuthStateManager extends _$AuthStateManager {
         // Update API service with token and kick off dependent background work
         _updateApiServiceToken(tokenStr);
         _preloadDefaultModel();
-
-        // Load user data in background (consistent with credentials method)
-        _loadUserData();
 
         DebugLogger.auth('JWT token login successful');
         return true;
@@ -492,6 +488,7 @@ class AuthStateManager extends _$AuthStateManager {
         error: e,
         stackTrace: stack,
       );
+      _updateApiServiceToken(null);
       _update(
         (current) => current.copyWith(
           status: AuthStatus.error,
@@ -540,6 +537,10 @@ class AuthStateManager extends _$AuthStateManager {
         throw Exception('Invalid authentication token format');
       }
 
+      // Validate the issued token before publishing authenticated state. Some
+      // servers can return a token that is then rejected by /api/v1/auths/.
+      final user = await _validateIssuedToken(api, tokenStr);
+
       // Save token to storage
       final storage = ref.read(optimizedStorageServiceProvider);
       await storage.saveAuthToken(tokenStr);
@@ -561,6 +562,7 @@ class AuthStateManager extends _$AuthStateManager {
         (current) => current.copyWith(
           status: AuthStatus.authenticated,
           token: tokenStr,
+          user: user,
           isLoading: false,
           clearError: true,
         ),
@@ -569,9 +571,6 @@ class AuthStateManager extends _$AuthStateManager {
 
       _updateApiServiceToken(tokenStr);
       _preloadDefaultModel();
-
-      // Load user data in background
-      _loadUserData();
 
       DebugLogger.auth('Login successful');
       return true;
@@ -582,6 +581,7 @@ class AuthStateManager extends _$AuthStateManager {
         error: e,
         stackTrace: stack,
       );
+      _updateApiServiceToken(null);
       _update(
         (current) => current.copyWith(
           status: AuthStatus.error,
@@ -636,6 +636,10 @@ class AuthStateManager extends _$AuthStateManager {
         throw Exception('Invalid authentication token format');
       }
 
+      // Validate the issued token before publishing authenticated state. Some
+      // servers can return a token that is then rejected by /api/v1/auths/.
+      final user = await _validateIssuedToken(api, tokenStr);
+
       // Save token to storage
       final storage = ref.read(optimizedStorageServiceProvider);
       await storage.saveAuthToken(tokenStr);
@@ -669,6 +673,7 @@ class AuthStateManager extends _$AuthStateManager {
         (current) => current.copyWith(
           status: AuthStatus.authenticated,
           token: tokenStr,
+          user: user,
           isLoading: false,
           clearError: true,
         ),
@@ -677,9 +682,6 @@ class AuthStateManager extends _$AuthStateManager {
 
       _updateApiServiceToken(tokenStr);
       _preloadDefaultModel();
-
-      // Load user data in background
-      _loadUserData();
 
       DebugLogger.auth('LDAP login successful');
       return true;
@@ -700,6 +702,7 @@ class AuthStateManager extends _$AuthStateManager {
           ),
         );
       }
+      _updateApiServiceToken(null);
       rethrow;
     }
   }
@@ -714,6 +717,52 @@ class AuthStateManager extends _$AuthStateManager {
       if (api != null) return;
       await Future.delayed(const Duration(milliseconds: 50));
     }
+  }
+
+  Future<User> _validateIssuedToken(ApiService api, String token) async {
+    _updateApiServiceToken(token);
+    try {
+      return await api.getCurrentUser(suppressAuthFailureNotification: true);
+    } catch (error, stackTrace) {
+      _updateApiServiceToken(null);
+      Error.throwWithStackTrace(
+        Exception(_loginValidationMessage(error)),
+        stackTrace,
+      );
+    }
+  }
+
+  bool _isConfirmedAuthFailure(Object error) {
+    if (error is DioException) {
+      final statusCode = error.response?.statusCode;
+      return statusCode == 401 || statusCode == 403;
+    }
+
+    final text = error.toString();
+    return text.contains('401') ||
+        text.contains('403') ||
+        text.contains('Unauthorized') ||
+        text.contains('Forbidden');
+  }
+
+  String _loginValidationMessage(Object error) {
+    if (error is DioException) {
+      final statusCode = error.response?.statusCode;
+      if (statusCode == 401 || statusCode == 403) {
+        return '$statusCode Unauthorized: sign-in token rejected by server';
+      }
+
+      final detail = error.response?.data;
+      if (detail is Map && detail['detail'] != null) {
+        return 'Sign-in validation failed: ${detail['detail']}';
+      }
+    }
+
+    final text = error.toString();
+    if (text.contains('401') || text.contains('Unauthorized')) {
+      return '401 Unauthorized: sign-in token rejected by server';
+    }
+    return 'Unable to validate sign-in session';
   }
 
   /// Wait for the API to be reachable (network readiness gate).
@@ -1029,6 +1078,7 @@ class AuthStateManager extends _$AuthStateManager {
     final storage = ref.read(optimizedStorageServiceProvider);
     try {
       await storage.deleteAuthToken();
+      await storage.clearUserScopedAuthData();
       DebugLogger.auth('Cleared invalidated token from secure storage');
     } catch (e, stack) {
       DebugLogger.error(
@@ -1111,32 +1161,6 @@ class AuthStateManager extends _$AuthStateManager {
 
       // Clear auth cache manager
       _cacheManager.clearAuthCache();
-
-      // Invalidate all keepAlive providers that hold user-specific data.
-      // Without this, stale data remains in memory after sign out.
-      ref.invalidate(conversationsProvider);
-      ref.invalidate(activeConversationProvider);
-      ref.invalidate(foldersProvider);
-      ref.invalidate(modelsProvider);
-      ref.invalidate(selectedModelProvider);
-      ref.invalidate(currentUserProvider);
-      ref.invalidate(userSettingsProvider);
-      ref.invalidate(rawUserSettingsProvider);
-      ref.invalidate(personalizationSettingsProvider);
-      ref.invalidate(userMemoriesProvider);
-      ref.invalidate(accountProfileProvider);
-      ref.invalidate(serverAboutInfoProvider);
-      ref.invalidate(userPermissionsProvider);
-      ref.invalidate(toolsListProvider);
-      ref.invalidate(selectedToolIdsProvider);
-      ref.invalidate(selectedTerminalIdProvider);
-      ref.invalidate(selectedFilterIdsProvider);
-      ref.invalidate(knowledgeBasesProvider);
-      ref.invalidate(availableVoicesProvider);
-      ref.invalidate(imageModelsProvider);
-      ref.invalidate(defaultModelProvider);
-      ref.invalidate(backendConfigProvider);
-      ref.invalidate(socketServiceManagerProvider);
 
       // Update state
       _update(
@@ -1319,7 +1343,9 @@ class AuthStateManager extends _$AuthStateManager {
           // Update API with token for validation
           api.updateAuthToken(token);
           // Try to fetch user data as validation
-          validationUser = await api.getCurrentUser();
+          validationUser = await api.getCurrentUser(
+            suppressAuthFailureNotification: true,
+          );
           return validationUser!;
         },
       );

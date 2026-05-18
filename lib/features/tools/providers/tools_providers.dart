@@ -5,6 +5,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:conduit/core/models/tool.dart';
 import 'package:conduit/core/providers/storage_providers.dart';
 import 'package:conduit/core/services/tools_service.dart';
+import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 
 part 'tools_providers.g.dart';
 
@@ -12,6 +13,11 @@ part 'tools_providers.g.dart';
 class ToolsList extends _$ToolsList {
   @override
   Future<List<Tool>> build() async {
+    final isAuthenticated = ref.watch(isAuthenticatedProvider2);
+    if (!isAuthenticated) {
+      return const <Tool>[];
+    }
+
     final storage = ref.watch(optimizedStorageServiceProvider);
     final toolsService = ref.watch(toolsServiceProvider);
     final cached = await storage.getLocalTools();
@@ -29,6 +35,11 @@ class ToolsList extends _$ToolsList {
   }
 
   Future<void> refresh() async {
+    if (!ref.read(isAuthenticatedProvider2)) {
+      state = const AsyncData<List<Tool>>(<Tool>[]);
+      return;
+    }
+
     final toolsService = ref.read(toolsServiceProvider);
     if (toolsService == null) {
       return;

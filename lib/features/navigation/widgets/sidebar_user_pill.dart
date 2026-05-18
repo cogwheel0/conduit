@@ -21,6 +21,7 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../../auth/providers/unified_auth_providers.dart';
+import '../../terminal/providers/terminal_providers.dart';
 import '../providers/sidebar_providers.dart';
 
 /// Resolves the best available current user for sidebar UI.
@@ -37,6 +38,13 @@ dynamic resolveSidebarUser(WidgetRef ref) {
 String sidebarSearchHintForActiveTab(WidgetRef ref, AppLocalizations l10n) {
   final tabIndex = ref.watch(sidebarActiveTabProvider);
   final notesOn = ref.watch(notesFeatureEnabledProvider);
+  final terminalOn = ref
+      .watch(terminalAvailableServersProvider)
+      .maybeWhen(
+        data: (servers) => servers.isNotEmpty,
+        error: (_, _) => true,
+        orElse: () => true,
+      );
   final channelsOn = ref.watch(channelsFeatureEnabledProvider);
 
   var i = 0;
@@ -46,8 +54,10 @@ String sidebarSearchHintForActiveTab(WidgetRef ref, AppLocalizations l10n) {
     if (tabIndex == i) return l10n.searchNotes;
     i++;
   }
-  if (tabIndex == i) return l10n.searchFiles;
-  i++;
+  if (terminalOn) {
+    if (tabIndex == i) return l10n.searchFiles;
+    i++;
+  }
   if (channelsOn) {
     if (tabIndex == i) return l10n.searchChannels;
   }

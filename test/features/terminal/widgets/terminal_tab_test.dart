@@ -33,6 +33,44 @@ void main() {
       );
     });
 
+    testWidgets(
+      'defers default panel update when terminal servers are cached',
+      (tester) async {
+        final fakeService = _FakeTerminalService(
+          servers: <TerminalServerInfo>[
+            TerminalServerInfo(
+              kind: TerminalServerKind.direct,
+              selectionId: 'https://terminal.example',
+              baseUrl: Uri.parse('https://terminal.example'),
+              name: 'Workspace',
+            ),
+          ],
+          entries: const <TerminalFileEntry>[],
+          ports: const <TerminalListeningPort>[],
+        );
+        final container = ProviderContainer(
+          overrides: [
+            terminalServiceProvider.overrideWithValue(fakeService),
+            terminalAutoConnectProvider.overrideWithValue(false),
+          ],
+        );
+        addTearDown(container.dispose);
+        await container.read(terminalAvailableServersProvider.future);
+
+        await tester.pumpWidget(_buildHarnessWithContainer(container));
+        await tester.pump();
+
+        expect(tester.takeException(), isNull);
+
+        await tester.pumpAndSettle();
+
+        expect(
+          container.read(terminalSidebarPanelProvider),
+          TerminalSidebarPanel.files,
+        );
+      },
+    );
+
     testWidgets('loads files and filters them with the shared search field', (
       tester,
     ) async {
@@ -284,6 +322,17 @@ Widget _buildHarness(_FakeTerminalService service) {
       terminalServiceProvider.overrideWithValue(service),
       terminalAutoConnectProvider.overrideWithValue(false),
     ],
+    child: MaterialApp(
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      home: const Scaffold(body: TerminalTab()),
+    ),
+  );
+}
+
+Widget _buildHarnessWithContainer(ProviderContainer container) {
+  return UncontrolledProviderScope(
+    container: container,
     child: MaterialApp(
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,

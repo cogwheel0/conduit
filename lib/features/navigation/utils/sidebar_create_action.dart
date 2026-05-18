@@ -13,6 +13,7 @@ import '../../channels/providers/channel_providers.dart';
 import '../../channels/widgets/channel_form_dialog.dart';
 import '../../chat/providers/chat_providers.dart' as chat;
 import '../../notes/providers/notes_providers.dart';
+import '../../terminal/providers/terminal_providers.dart';
 import '../providers/sidebar_providers.dart';
 
 enum _SidebarCreateActionKind { chat, note, channel }
@@ -28,6 +29,7 @@ SidebarCreateActionSpec? sidebarCreateActionForActiveTab(WidgetRef ref) {
   final kind = _resolveSidebarCreateActionKind(
     tabIndex: ref.watch(sidebarActiveTabProvider),
     notesOn: ref.watch(notesFeatureEnabledProvider),
+    terminalOn: _watchTerminalTabVisible(ref),
     channelsOn: ref.watch(channelsFeatureEnabledProvider),
   );
   if (kind == null) {
@@ -53,6 +55,7 @@ Future<void> runSidebarCreateAction(BuildContext context, WidgetRef ref) async {
   final kind = _resolveSidebarCreateActionKind(
     tabIndex: ref.read(sidebarActiveTabProvider),
     notesOn: ref.read(notesFeatureEnabledProvider),
+    terminalOn: _readTerminalTabVisible(ref),
     channelsOn: ref.read(channelsFeatureEnabledProvider),
   );
   switch (kind) {
@@ -73,6 +76,7 @@ Future<void> runSidebarCreateAction(BuildContext context, WidgetRef ref) async {
 _SidebarCreateActionKind? _resolveSidebarCreateActionKind({
   required int tabIndex,
   required bool notesOn,
+  required bool terminalOn,
   required bool channelsOn,
 }) {
   var currentIndex = 0;
@@ -88,16 +92,38 @@ _SidebarCreateActionKind? _resolveSidebarCreateActionKind({
     currentIndex++;
   }
 
-  if (tabIndex == currentIndex) {
-    return null;
+  if (terminalOn) {
+    if (tabIndex == currentIndex) {
+      return null;
+    }
+    currentIndex++;
   }
-  currentIndex++;
 
   if (channelsOn && tabIndex == currentIndex) {
     return _SidebarCreateActionKind.channel;
   }
 
   return _SidebarCreateActionKind.chat;
+}
+
+bool _watchTerminalTabVisible(WidgetRef ref) {
+  return ref
+      .watch(terminalAvailableServersProvider)
+      .maybeWhen(
+        data: (servers) => servers.isNotEmpty,
+        error: (_, _) => true,
+        orElse: () => true,
+      );
+}
+
+bool _readTerminalTabVisible(WidgetRef ref) {
+  return ref
+      .read(terminalAvailableServersProvider)
+      .maybeWhen(
+        data: (servers) => servers.isNotEmpty,
+        error: (_, _) => true,
+        orElse: () => true,
+      );
 }
 
 Future<void> _startNewChat(BuildContext context, WidgetRef ref) async {
