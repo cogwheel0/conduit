@@ -427,6 +427,8 @@ private struct NativeSheetDetail {
     let sections: [NativeSheetSection]
     let confirmActionId: String?
     let confirmActionLabel: String?
+    /// When set (0...1], sheet uses a single custom detent at this fraction of `maximumDetentValue`.
+    let maxHeightFraction: CGFloat?
 
     init(
         id: String,
@@ -435,7 +437,8 @@ private struct NativeSheetDetail {
         items: [NativeSheetItem],
         sections: [NativeSheetSection] = [],
         confirmActionId: String? = nil,
-        confirmActionLabel: String? = nil
+        confirmActionLabel: String? = nil,
+        maxHeightFraction: CGFloat? = nil
     ) {
         self.id = id
         self.title = title
@@ -444,6 +447,7 @@ private struct NativeSheetDetail {
         self.sections = sections
         self.confirmActionId = confirmActionId
         self.confirmActionLabel = confirmActionLabel
+        self.maxHeightFraction = maxHeightFraction
     }
 
     init?(_ payload: [String: Any]) {
@@ -465,6 +469,23 @@ private struct NativeSheetDetail {
             .compactMap(NativeSheetItem.init)
         sections = (payload["sections"] as? [[String: Any]] ?? [])
             .compactMap(NativeSheetSection.init)
+        maxHeightFraction = NativeSheetDetail.parseMaxHeightFraction(payload["maxHeightFraction"])
+    }
+
+    private static func parseMaxHeightFraction(_ value: Any?) -> CGFloat? {
+        let raw: CGFloat?
+        switch value {
+        case let n as NSNumber:
+            raw = CGFloat(truncating: n)
+        case let d as Double:
+            raw = CGFloat(d)
+        case let i as Int:
+            raw = CGFloat(i)
+        default:
+            raw = nil
+        }
+        guard let raw, raw > 0, raw <= 1 else { return nil }
+        return raw
     }
 
     var allItems: [NativeSheetItem] {
@@ -735,7 +756,8 @@ final class NativeSheetBridge {
                 items: items,
                 sections: existing.sections,
                 confirmActionId: existing.confirmActionId,
-                confirmActionLabel: existing.confirmActionLabel
+                confirmActionLabel: existing.confirmActionLabel,
+                maxHeightFraction: existing.maxHeightFraction
             )
             detailPayloads[detailId] = patched
             if activeDetailTableController?.detailId == detailId {
@@ -780,7 +802,11 @@ final class NativeSheetBridge {
         let navigation = NativeSheetNavigationController(
             rootViewController: makeDetailController(detail: configuration.root)
         )
-        if !present(navigation, initialDetent: .large) {
+        if !present(
+            navigation,
+            initialDetent: .large,
+            maxHeightFraction: configuration.root.maxHeightFraction
+        ) {
             let pending = pendingResultSheetResult
             pendingResultSheetResult = nil
             resultSheetValues = [:]
@@ -1029,7 +1055,8 @@ final class NativeSheetBridge {
 
     private func present(
         _ controller: UIViewController,
-        initialDetent: UISheetPresentationController.Detent.Identifier? = nil
+        initialDetent: UISheetPresentationController.Detent.Identifier? = nil,
+        maxHeightFraction: CGFloat? = nil
     ) -> Bool {
         guard let presenter = topViewController() else { return false }
         activeController = controller
@@ -1072,7 +1099,11 @@ final class NativeSheetBridge {
 
         controller.modalPresentationStyle = .pageSheet
         controller.presentationController?.delegate = presentationDelegate
-        applySheetStyle(to: controller, initialDetent: initialDetent)
+        applySheetStyle(
+            to: controller,
+            initialDetent: initialDetent,
+            maxHeightFraction: maxHeightFraction
+        )
         presenter.present(controller, animated: true)
         return true
     }
@@ -1282,15 +1313,26 @@ final class NativeSheetBridge {
 
     private func applySheetStyle(
         to controller: UIViewController,
-        initialDetent: UISheetPresentationController.Detent.Identifier? = nil
+        initialDetent: UISheetPresentationController.Detent.Identifier? = nil,
+        maxHeightFraction: CGFloat? = nil
     ) {
         guard let sheet = controller.sheetPresentationController else { return }
-        sheet.detents = [.medium(), .large()]
-        if let initialDetent = initialDetent {
-            sheet.selectedDetentIdentifier = initialDetent
+        if let fraction = maxHeightFraction, fraction > 0, fraction <= 1 {
+            let cappedId = UISheetPresentationController.Detent.Identifier("conduit.sheetMaxHeightFraction")
+            let cappedDetent = UISheetPresentationController.Detent.custom(identifier: cappedId) { context in
+                max(context.maximumDetentValue * fraction, 1)
+            }
+            sheet.detents = [cappedDetent]
+            sheet.selectedDetentIdentifier = cappedId
+            sheet.prefersScrollingExpandsWhenScrolledToEdge = false
+        } else {
+            sheet.detents = [.medium(), .large()]
+            if let initialDetent = initialDetent {
+                sheet.selectedDetentIdentifier = initialDetent
+            }
+            sheet.prefersScrollingExpandsWhenScrolledToEdge = true
         }
         sheet.prefersGrabberVisible = true
-        sheet.prefersScrollingExpandsWhenScrolledToEdge = true
         sheet.prefersEdgeAttachedInCompactHeight = true
         sheet.widthFollowsPreferredContentSizeWhenEdgeAttached = true
     }

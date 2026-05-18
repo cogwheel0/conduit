@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
@@ -15,6 +16,10 @@ import '../providers/sidebar_providers.dart';
 import '../utils/sidebar_create_action.dart';
 import '../../channels/widgets/channel_list_tab.dart';
 import '../../notes/widgets/notes_list_tab.dart';
+import '../../terminal/models/terminal_models.dart';
+import '../../terminal/providers/terminal_providers.dart';
+import '../../terminal/widgets/terminal_sidebar_controls_sheet.dart';
+import '../../terminal/widgets/terminal_tab.dart';
 import 'chats_drawer.dart';
 import 'sidebar_user_pill.dart';
 
@@ -26,7 +31,7 @@ const double _kSidebarSearchFieldReserve = 96;
 const double _kSidebarNativeLeadingVerticalOffset = 3;
 const double _kSidebarNativeBottomBarContentHeight = 50;
 
-enum _SidebarTabId { chats, notes, channels }
+enum _SidebarTabId { chats, terminal, notes, channels }
 
 class _SidebarTabDefinition {
   const _SidebarTabDefinition({
@@ -104,6 +109,8 @@ IconData _materialTabIcon(_SidebarTabId id, {bool selected = false}) {
       return selected ? Icons.chat_bubble : Icons.chat_bubble_outline;
     case _SidebarTabId.notes:
       return selected ? Icons.note : Icons.note_outlined;
+    case _SidebarTabId.terminal:
+      return selected ? Icons.terminal : Icons.terminal_rounded;
     case _SidebarTabId.channels:
       return Icons.tag;
   }
@@ -115,6 +122,8 @@ String _sfSymbolTabIcon(_SidebarTabId id, {bool selected = false}) {
       return selected ? 'bubble.left.fill' : 'bubble.left';
     case _SidebarTabId.notes:
       return selected ? 'doc.text.fill' : 'doc.text';
+    case _SidebarTabId.terminal:
+      return 'terminal';
     case _SidebarTabId.channels:
       return 'number';
   }
@@ -189,7 +198,8 @@ class _SidebarMaterialBottomNavigationBar extends StatelessWidget {
   }
 }
 
-/// Full-page tabbed sidebar with Chats, Notes, and Channels tabs.
+/// Full-page tabbed sidebar with Chats, Notes (optional), Terminal, and
+/// Channels (optional) tabs.
 ///
 /// Replaces the single-purpose [ChatsDrawer] as the drawer content
 /// in [ResponsiveDrawerLayout]. Tab selection is persisted via
@@ -290,6 +300,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
     required BuildContext context,
     required AppLocalizations localizations,
     required bool isSearchExpanded,
+    required bool showTerminalPanelPicker,
   }) {
     final defaultTint = context.conduitTheme.textPrimary;
     if (isSearchExpanded) {
@@ -303,7 +314,20 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
       ];
     }
 
-    final createAction = sidebarCreateActionForActiveTab(ref, localizations);
+    final panelPicker = showTerminalPanelPicker
+        ? <AdaptiveAppBarAction>[
+            AdaptiveAppBarAction(
+              iosSymbol: 'chevron.down.circle',
+              icon: Icons.arrow_drop_down_circle_outlined,
+              tintColor: defaultTint,
+              onPressed: () {
+                unawaited(showTerminalSidebarControlsSheet(context));
+              },
+            ),
+          ]
+        : const <AdaptiveAppBarAction>[];
+
+    final createAction = sidebarCreateActionForActiveTab(ref);
     return [
       AdaptiveAppBarAction(
         iosSymbol: 'magnifyingglass',
@@ -311,12 +335,14 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
         tintColor: defaultTint,
         onPressed: _openSidebarSearch,
       ),
-      AdaptiveAppBarAction(
-        iosSymbol: createAction.sfSymbol,
-        icon: createAction.icon,
-        tintColor: defaultTint,
-        onPressed: () => runSidebarCreateAction(context, ref),
-      ),
+      ...panelPicker,
+      if (createAction != null)
+        AdaptiveAppBarAction(
+          iosSymbol: createAction.sfSymbol,
+          icon: createAction.icon,
+          tintColor: defaultTint,
+          onPressed: () => runSidebarCreateAction(context, ref),
+        ),
     ];
   }
 
@@ -402,6 +428,11 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
           label: localizations.sidebarNotesTab,
           body: const NotesListTab(),
         ),
+      _SidebarTabDefinition(
+        id: _SidebarTabId.terminal,
+        label: localizations.sidebarTerminalTab,
+        body: const TerminalTab(),
+      ),
       if (channelsEnabled)
         _SidebarTabDefinition(
           id: _SidebarTabId.channels,
@@ -419,13 +450,34 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
     final conduitTheme = context.conduitTheme;
     final isSearchExpanded = ref.watch(sidebarHeaderSearchExpandedProvider);
     final useNativeIos26Chrome = PlatformInfo.isIOS26OrHigher();
+    final isTerminalTabActive =
+        tabDefinitions[activeIndex].id == _SidebarTabId.terminal;
+    final showTerminalPanelInAppBar = isTerminalTabActive && !isSearchExpanded;
     final appBarActions = _sidebarAppBarActions(
       context: context,
       localizations: localizations,
       isSearchExpanded: isSearchExpanded,
+      showTerminalPanelPicker: showTerminalPanelInAppBar,
     );
-    void onTap(int index) =>
-        ref.read(sidebarActiveTabProvider.notifier).set(index);
+
+    void onTap(int index) {
+      ref.read(sidebarActiveTabProvider.notifier).set(index);
+      if (tabDefinitions[index].id != _SidebarTabId.terminal) {
+        ref
+            .read(terminalSidebarPanelProvider.notifier)
+            .setPanel(TerminalSidebarPanel.console);
+      } else {
+        final servers = ref
+            .read(terminalAvailableServersProvider)
+            .asData
+            ?.value;
+        if (servers != null && servers.length == 1) {
+          ref
+              .read(terminalSidebarPanelProvider.notifier)
+              .setPanel(TerminalSidebarPanel.files);
+        }
+      }
+    }
 
     final sidebarBody = _SidebarTabStack(
       tabDefinitions: tabDefinitions,

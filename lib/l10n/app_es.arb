@@ -932,9 +932,113 @@
   "chatSaved": "Chat guardado en el historial",
   "chatSaveFailed": "No se pudo guardar el chat",
   "sidebarChatsTab": "Chats",
+  "sidebarTerminalTab": "Terminal",
+  "@sidebarTerminalTab": {
+    "description": "Label for the Terminal tab in the sidebar"
+  },
   "sidebarNotesTab": "Notas",
   "sidebarChannelsTab": "Canales",
   "closeSidebar": "Cerrar barra lateral",
+  "terminalSelectServer": "Selecciona un servidor de terminal",
+  "@terminalSelectServer": {
+    "description": "Prompt shown when the user needs to choose a terminal server."
+  },
+  "terminalNoServersConfigured": "No hay servidores de terminal disponibles.",
+  "@terminalNoServersConfigured": {
+    "description": "Empty state shown when there are no terminal servers configured."
+  },
+  "terminalConnectAction": "Conectar",
+  "@terminalConnectAction": {
+    "description": "Button label used to connect to a terminal session."
+  },
+  "terminalDisconnectAction": "Desconectar",
+  "@terminalDisconnectAction": {
+    "description": "Button label used to disconnect from a terminal session."
+  },
+  "terminalConnectedStatus": "Conectado",
+  "@terminalConnectedStatus": {
+    "description": "Status label shown when the terminal is connected."
+  },
+  "terminalDisconnectedStatus": "Desconectado",
+  "@terminalDisconnectedStatus": {
+    "description": "Status label shown when the terminal is disconnected."
+  },
+  "terminalConnectingStatus": "Conectando...",
+  "@terminalConnectingStatus": {
+    "description": "Status label shown while the terminal connection is being established."
+  },
+  "terminalUploadAction": "Subir",
+  "@terminalUploadAction": {
+    "description": "Action label for uploading a file into the terminal workspace."
+  },
+  "terminalOpenInBrowserAction": "Abrir en el navegador",
+  "@terminalOpenInBrowserAction": {
+    "description": "Action label for opening a forwarded port in the browser."
+  },
+  "terminalHomeAction": "Directorio principal",
+  "@terminalHomeAction": {
+    "description": "Tooltip for navigating back to the terminal home directory."
+  },
+  "terminalCurrentPathLabel": "Ruta actual",
+  "@terminalCurrentPathLabel": {
+    "description": "Label displayed above the current terminal working directory."
+  },
+  "terminalPortsSectionLabel": "Puertos en escucha",
+  "@terminalPortsSectionLabel": {
+    "description": "Section title for ports discovered in the terminal environment."
+  },
+  "terminalNoFiles": "No hay archivos en este directorio.",
+  "@terminalNoFiles": {
+    "description": "Empty state shown when the current terminal directory has no files."
+  },
+  "terminalNoPorts": "No se detectaron puertos en escucha.",
+  "@terminalNoPorts": {
+    "description": "Empty state shown when the terminal server reports no listening ports."
+  },
+  "terminalPreviewUnavailable": "Vista previa no disponible. Usa Descargar en su lugar.",
+  "@terminalPreviewUnavailable": {
+    "description": "Message shown when a terminal file cannot be previewed inline."
+  },
+  "terminalFeatureDisabled": "Este servidor de terminal no expone una shell interactiva.",
+  "@terminalFeatureDisabled": {
+    "description": "Message shown when the selected terminal server disables interactive terminal sessions."
+  },
+  "terminalFolderNameHint": "Nombre de carpeta",
+  "@terminalFolderNameHint": {
+    "description": "Hint text used when creating a new folder in the terminal workspace."
+  },
+  "terminalFailedToLoadFiles": "No se pudieron cargar los archivos del terminal.",
+  "@terminalFailedToLoadFiles": {
+    "description": "Error message shown when the terminal file list cannot be loaded."
+  },
+  "terminalFailedToLoadPorts": "No se pudieron cargar los puertos en escucha.",
+  "@terminalFailedToLoadPorts": {
+    "description": "Error message shown when terminal port discovery fails."
+  },
+  "terminalFailedToConnect": "No se pudo conectar al terminal.",
+  "@terminalFailedToConnect": {
+    "description": "Error message shown when the terminal websocket session cannot be opened."
+  },
+  "terminalDownloadFailed": "No se pudo descargar el archivo seleccionado.",
+  "@terminalDownloadFailed": {
+    "description": "Error message shown when downloading a terminal file fails."
+  },
+  "terminalUploadFailed": "No se pudo subir el archivo seleccionado.",
+  "@terminalUploadFailed": {
+    "description": "Error message shown when uploading a terminal file fails."
+  },
+  "terminalRenameFailed": "No se pudo cambiar el nombre del elemento seleccionado.",
+  "@terminalRenameFailed": {
+    "description": "Error message shown when renaming a file or folder in the terminal workspace fails."
+  },
+  "terminalDeleteFailed": "No se pudo eliminar el elemento seleccionado.",
+  "@terminalDeleteFailed": {
+    "description": "Error message shown when deleting a file or folder in the terminal workspace fails."
+  },
+  "terminalFolderCreateFailed": "No se pudo crear la carpeta.",
+  "@terminalFolderCreateFailed": {
+    "description": "Error message shown when creating a new terminal folder fails."
+  },
   "channelCreateTitle": "Crear canal",
   "channelName": "Nombre del canal",
   "channelDescription": "Descripción",
@@ -1663,5 +1767,13 @@
   "securityCertificateError": "Error del certificado de seguridad. No se puede verificar la identidad del servidor.",
   "@securityCertificateError": {
     "description": "Error shown when the server TLS certificate cannot be trusted or verified."
+  },
+  "noToolsAvailable": "No hay herramientas disponibles",
+  "@noToolsAvailable": {
+    "description": "Empty state shown when no tools are available in the composer overflow menu."
+  },
+  "failedToLoadTools": "No se pudieron cargar las herramientas",
+  "@failedToLoadTools": {
+    "description": "Error shown when the composer overflow menu cannot load tools."
   }
 }

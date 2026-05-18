@@ -20,6 +20,7 @@ import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_user_pill.dart';
 import 'package:conduit/features/notes/widgets/notes_list_tab.dart';
 import 'package:conduit/features/notes/providers/notes_providers.dart';
+import 'package:conduit/features/terminal/widgets/terminal_tab.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:flutter/cupertino.dart';
@@ -46,31 +47,31 @@ void main() {
       final chatsLayer = tester.widget<Opacity>(
         _layerOpacityFinder(_SidebarTabLayer.chats),
       );
-      final channelsLayer = tester.widget<Opacity>(
-        _layerOpacityFinder(_SidebarTabLayer.channels),
+      final terminalLayer = tester.widget<Opacity>(
+        _layerOpacityFinder(_SidebarTabLayer.terminal),
       );
 
       expect(chatsLayer.opacity, 1);
-      expect(channelsLayer.opacity, 0);
+      expect(terminalLayer.opacity, 0);
     },
   );
 
   testWidgets(
-    'tapping notes syncs provider state and activates the notes layer',
+    'tapping terminal syncs provider state and activates the terminal layer',
     (tester) async {
       final controllers = _SidebarHarnessControllers();
 
       await tester.pumpWidget(_buildSidebarHarness(controllers: controllers));
 
-      await tester.tap(_sidebarBottomNavTabLabel('Notes'));
+      await tester.tap(_sidebarBottomNavTabLabel('Terminal'));
       await tester.pump();
 
-      final notesLayer = tester.widget<Opacity>(
-        _layerOpacityFinder(_SidebarTabLayer.notes),
+      final terminalLayer = tester.widget<Opacity>(
+        _layerOpacityFinder(_SidebarTabLayer.terminal),
       );
 
-      expect(notesLayer.opacity, 1);
-      expect(controllers.activeTabNotifier.currentValue, 1);
+      expect(terminalLayer.opacity, 1);
+      expect(controllers.activeTabNotifier.currentValue, 2);
     },
   );
 
@@ -98,7 +99,7 @@ void main() {
     (tester) async {
       final controllers = _SidebarHarnessControllers(
         notesEnabled: false,
-        initialIndex: 2,
+        initialIndex: 3,
       );
 
       await tester.pumpWidget(_buildSidebarHarness(controllers: controllers));
@@ -109,14 +110,14 @@ void main() {
 
       expect(channelsLayer.opacity, 1);
       expect(_sidebarBottomNavTabLabel('Notes'), findsNothing);
-      expect(controllers.activeTabNotifier.currentValue, 1);
+      expect(controllers.activeTabNotifier.currentValue, 2);
     },
   );
 
   testWidgets('disabling notes re-clamps controller and provider to channels', (
     tester,
   ) async {
-    final controllers = _SidebarHarnessControllers(initialIndex: 2);
+    final controllers = _SidebarHarnessControllers(initialIndex: 3);
 
     await tester.pumpWidget(_buildSidebarHarness(controllers: controllers));
 
@@ -128,7 +129,7 @@ void main() {
     );
 
     expect(channelsLayer.opacity, 1);
-    expect(controllers.activeTabNotifier.currentValue, 1);
+    expect(controllers.activeTabNotifier.currentValue, 2);
     expect(_sidebarBottomNavTabLabel('Notes'), findsNothing);
   });
 
@@ -150,7 +151,7 @@ void main() {
     final inactiveFocus = tester.widget<ExcludeFocus>(
       find
           .descendant(
-            of: _layerRootFinder(_SidebarTabLayer.channels),
+            of: _layerRootFinder(_SidebarTabLayer.terminal),
             matching: find.byType(ExcludeFocus),
           )
           .first,
@@ -166,7 +167,7 @@ void main() {
     final inactiveSemantics = tester.widget<ExcludeSemantics>(
       find
           .descendant(
-            of: _layerRootFinder(_SidebarTabLayer.channels),
+            of: _layerRootFinder(_SidebarTabLayer.terminal),
             matching: find.byType(ExcludeSemantics),
           )
           .first,
@@ -195,6 +196,7 @@ void main() {
       NavigationDestinationLabelBehavior.alwaysShow,
     );
     expect(_sidebarBottomNavTabLabel('Chats'), findsOneWidget);
+    expect(_sidebarBottomNavTabLabel('Terminal'), findsOneWidget);
     expect(_sidebarBottomNavTabLabel('Notes'), findsOneWidget);
     expect(_sidebarBottomNavTabLabel('Channels'), findsOneWidget);
   });
@@ -243,7 +245,7 @@ void main() {
   });
 
   testWidgets('channel layer state survives notes toggle', (tester) async {
-    final controllers = _SidebarHarnessControllers();
+    final controllers = _SidebarHarnessControllers(initialIndex: 3);
 
     await tester.pumpWidget(_buildSidebarHarness(controllers: controllers));
 
@@ -280,6 +282,11 @@ void main() {
     await tester.pumpWidget(
       _buildSidebarHarness(controllers: controllers, currentUser: user),
     );
+
+    expect(find.byType(SidebarProfileAppBarLeading), findsOneWidget);
+
+    await tester.tap(_sidebarBottomNavTabLabel('Terminal'));
+    await tester.pumpAndSettle();
 
     expect(find.byType(SidebarProfileAppBarLeading), findsOneWidget);
 
@@ -606,7 +613,7 @@ void main() {
   });
 }
 
-enum _SidebarTabLayer { chats, notes, channels }
+enum _SidebarTabLayer { chats, terminal, notes, channels }
 
 Finder _layerRootFinder(_SidebarTabLayer layer) =>
     find.byKey(ValueKey<String>('sidebar-tab-layer-${layer.name}'));
@@ -614,6 +621,7 @@ Finder _layerRootFinder(_SidebarTabLayer layer) =>
 Finder _layerOpacityFinder(_SidebarTabLayer layer) {
   final childType = switch (layer) {
     _SidebarTabLayer.chats => ChatsDrawer,
+    _SidebarTabLayer.terminal => TerminalTab,
     _SidebarTabLayer.notes => NotesListTab,
     _SidebarTabLayer.channels => ChannelListTab,
   };
@@ -742,7 +750,7 @@ class _TestSidebarActiveTab extends SidebarActiveTab {
 
   @override
   void set(int index) {
-    state = index.clamp(0, 2);
+    state = index.clamp(0, 3);
   }
 
   // ignore: avoid_public_notifier_properties

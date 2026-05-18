@@ -13,6 +13,7 @@ import '../../../shared/widgets/model_avatar.dart';
 import '../../../core/models/toggle_filter.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../tools/providers/tools_providers.dart';
+import '../../terminal/providers/terminal_providers.dart';
 import '../providers/chat_providers.dart';
 import 'composer_overflow_items.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -216,6 +217,9 @@ class _ComposerOverflowSheetState extends ConsumerState<ComposerOverflowSheet> {
 
     final selectedToolIds = ref.watch(selectedToolIdsProvider);
     final selectedTerminalId = ref.watch(selectedTerminalIdProvider);
+    final availableTerminalServersAsync = ref.watch(
+      terminalAvailableServersProvider,
+    );
     final toolsAsync = ref.watch(toolsListProvider);
     final toolsSection = toolsAsync.when(
       data: (tools) {
@@ -223,7 +227,7 @@ class _ComposerOverflowSheetState extends ConsumerState<ComposerOverflowSheet> {
           availableTools: tools,
           selectedToolIds: selectedToolIds,
         );
-        if (toolItems.isEmpty) return _buildInfoCard('No tools available');
+        if (toolItems.isEmpty) return _buildInfoCard(l10n.noToolsAvailable);
         final tiles = toolItems.map((item) {
           return _buildOverflowItemTile(
             item: item,
@@ -245,7 +249,7 @@ class _ComposerOverflowSheetState extends ConsumerState<ComposerOverflowSheet> {
           child: CircularProgressIndicator(strokeWidth: BorderWidth.thin),
         ),
       ),
-      error: (_, _) => _buildInfoCard('Failed to load tools'),
+      error: (_, _) => _buildInfoCard(l10n.failedToLoadTools),
     );
     final integrationsSection = FutureBuilder<Map<String, dynamic>?>(
       future: _userSettingsFuture,
@@ -287,39 +291,29 @@ class _ComposerOverflowSheetState extends ConsumerState<ComposerOverflowSheet> {
           );
         }
 
-        final terminalServers = _extractConfiguredServers(
-          settings,
-          'terminalServers',
+        final terminalTiles = availableTerminalServersAsync.maybeWhen(
+          data: (servers) {
+            return servers
+                .map((server) {
+                  final isSelected = selectedTerminalId == server.selectionId;
+                  return _buildToggleTile(
+                    icon: Platform.isIOS
+                        ? CupertinoIcons.chevron_left_slash_chevron_right
+                        : Icons.terminal_rounded,
+                    title: server.displayName,
+                    subtitle: server.subtitle,
+                    value: isSelected,
+                    onChanged: (_) async {
+                      await ref
+                          .read(terminalSelectionControllerProvider)
+                          .toggle(server);
+                    },
+                  );
+                })
+                .toList(growable: false);
+          },
+          orElse: () => const <Widget>[],
         );
-        final terminalTiles = <Widget>[];
-        for (var index = 0; index < terminalServers.length; index++) {
-          final server = terminalServers[index];
-          if (!_isServerEnabled(server)) {
-            continue;
-          }
-
-          final terminalValue = _terminalSelectionValue(server);
-          if (terminalValue == null) {
-            continue;
-          }
-
-          final isSelected = selectedTerminalId == terminalValue;
-          terminalTiles.add(
-            _buildToggleTile(
-              icon: Platform.isIOS
-                  ? CupertinoIcons.chevron_left_slash_chevron_right
-                  : Icons.terminal_rounded,
-              title: _serverTitle(server, fallbackPrefix: l10n.terminal),
-              subtitle: _serverSubtitle(server),
-              value: isSelected,
-              onChanged: (_) {
-                ref
-                    .read(selectedTerminalIdProvider.notifier)
-                    .set(isSelected ? null : terminalValue);
-              },
-            ),
-          );
-        }
 
         if (directToolTiles.isEmpty && terminalTiles.isEmpty) {
           return const SizedBox.shrink();
@@ -517,24 +511,6 @@ class _ComposerOverflowSheetState extends ConsumerState<ComposerOverflowSheet> {
         ? serverId
         : index.toString();
     return 'direct_server:$suffix';
-  }
-
-  String? _terminalSelectionValue(dynamic server) {
-    if (server is! Map) {
-      return null;
-    }
-
-    final id = server['id']?.toString().trim();
-    if (id != null && id.isNotEmpty) {
-      return id;
-    }
-
-    final url = server['url']?.toString().trim();
-    if (url != null && url.isNotEmpty) {
-      return url;
-    }
-
-    return null;
   }
 
   String _serverTitle(dynamic server, {required String fallbackPrefix}) {

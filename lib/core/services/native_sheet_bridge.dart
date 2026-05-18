@@ -546,6 +546,10 @@ class NativeSheetDetailConfig {
     this.subtitle,
     this.confirmActionId,
     this.confirmActionLabel,
+    /// When set (0–1), iOS uses a single sheet detent at this fraction of the
+    /// maximum sheet height (matches capped Material bottom sheets). Ignored
+    /// on non-iOS.
+    this.maxHeightFraction,
   });
 
   final String id;
@@ -555,6 +559,9 @@ class NativeSheetDetailConfig {
   final List<NativeSheetSectionConfig> sections;
   final String? confirmActionId;
   final String? confirmActionLabel;
+
+  /// Portion of the largest allowable sheet height (typically ~full screen).
+  final double? maxHeightFraction;
 
   Map<String, Object?> toMap() {
     return {
@@ -566,6 +573,7 @@ class NativeSheetDetailConfig {
         'sections': sections.map((section) => section.toMap()).toList(),
       if (confirmActionId != null) 'confirmActionId': confirmActionId,
       if (confirmActionLabel != null) 'confirmActionLabel': confirmActionLabel,
+      if (maxHeightFraction != null) 'maxHeightFraction': maxHeightFraction,
     };
   }
 }

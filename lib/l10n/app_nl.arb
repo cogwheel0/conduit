@@ -932,9 +932,113 @@
   "chatSaved": "Chat opgeslagen in geschiedenis",
   "chatSaveFailed": "Chat opslaan mislukt",
   "sidebarChatsTab": "Chats",
+  "sidebarTerminalTab": "Terminal",
+  "@sidebarTerminalTab": {
+    "description": "Label for the Terminal tab in the sidebar"
+  },
   "sidebarNotesTab": "Notities",
   "sidebarChannelsTab": "Kanalen",
   "closeSidebar": "Zijbalk sluiten",
+  "terminalSelectServer": "Selecteer een terminalserver",
+  "@terminalSelectServer": {
+    "description": "Prompt shown when the user needs to choose a terminal server."
+  },
+  "terminalNoServersConfigured": "Geen terminalservers beschikbaar.",
+  "@terminalNoServersConfigured": {
+    "description": "Empty state shown when there are no terminal servers configured."
+  },
+  "terminalConnectAction": "Verbinden",
+  "@terminalConnectAction": {
+    "description": "Button label used to connect to a terminal session."
+  },
+  "terminalDisconnectAction": "Verbinding verbreken",
+  "@terminalDisconnectAction": {
+    "description": "Button label used to disconnect from a terminal session."
+  },
+  "terminalConnectedStatus": "Verbonden",
+  "@terminalConnectedStatus": {
+    "description": "Status label shown when the terminal is connected."
+  },
+  "terminalDisconnectedStatus": "Verbinding verbroken",
+  "@terminalDisconnectedStatus": {
+    "description": "Status label shown when the terminal is disconnected."
+  },
+  "terminalConnectingStatus": "Verbinden...",
+  "@terminalConnectingStatus": {
+    "description": "Status label shown while the terminal connection is being established."
+  },
+  "terminalUploadAction": "Uploaden",
+  "@terminalUploadAction": {
+    "description": "Action label for uploading a file into the terminal workspace."
+  },
+  "terminalOpenInBrowserAction": "Openen in browser",
+  "@terminalOpenInBrowserAction": {
+    "description": "Action label for opening a forwarded port in the browser."
+  },
+  "terminalHomeAction": "Thuismap",
+  "@terminalHomeAction": {
+    "description": "Tooltip for navigating back to the terminal home directory."
+  },
+  "terminalCurrentPathLabel": "Huidig pad",
+  "@terminalCurrentPathLabel": {
+    "description": "Label displayed above the current terminal working directory."
+  },
+  "terminalPortsSectionLabel": "Luisterende poorten",
+  "@terminalPortsSectionLabel": {
+    "description": "Section title for ports discovered in the terminal environment."
+  },
+  "terminalNoFiles": "Geen bestanden in deze map.",
+  "@terminalNoFiles": {
+    "description": "Empty state shown when the current terminal directory has no files."
+  },
+  "terminalNoPorts": "Geen luisterende poorten gedetecteerd.",
+  "@terminalNoPorts": {
+    "description": "Empty state shown when the terminal server reports no listening ports."
+  },
+  "terminalPreviewUnavailable": "Voorvertoning niet beschikbaar. Gebruik Downloaden.",
+  "@terminalPreviewUnavailable": {
+    "description": "Message shown when a terminal file cannot be previewed inline."
+  },
+  "terminalFeatureDisabled": "Deze terminalserver biedt geen interactieve shell.",
+  "@terminalFeatureDisabled": {
+    "description": "Message shown when the selected terminal server disables interactive terminal sessions."
+  },
+  "terminalFolderNameHint": "Mapnaam",
+  "@terminalFolderNameHint": {
+    "description": "Hint text used when creating a new folder in the terminal workspace."
+  },
+  "terminalFailedToLoadFiles": "Kan terminalbestanden niet laden.",
+  "@terminalFailedToLoadFiles": {
+    "description": "Error message shown when the terminal file list cannot be loaded."
+  },
+  "terminalFailedToLoadPorts": "Kan luisterende poorten niet laden.",
+  "@terminalFailedToLoadPorts": {
+    "description": "Error message shown when terminal port discovery fails."
+  },
+  "terminalFailedToConnect": "Kan geen verbinding maken met de terminal.",
+  "@terminalFailedToConnect": {
+    "description": "Error message shown when the terminal websocket session cannot be opened."
+  },
+  "terminalDownloadFailed": "Kan het geselecteerde bestand niet downloaden.",
+  "@terminalDownloadFailed": {
+    "description": "Error message shown when downloading a terminal file fails."
+  },
+  "terminalUploadFailed": "Kan het geselecteerde bestand niet uploaden.",
+  "@terminalUploadFailed": {
+    "description": "Error message shown when uploading a terminal file fails."
+  },
+  "terminalRenameFailed": "Kan het geselecteerde item niet hernoemen.",
+  "@terminalRenameFailed": {
+    "description": "Error message shown when renaming a file or folder in the terminal workspace fails."
+  },
+  "terminalDeleteFailed": "Kan het geselecteerde item niet verwijderen.",
+  "@terminalDeleteFailed": {
+    "description": "Error message shown when deleting a file or folder in the terminal workspace fails."
+  },
+  "terminalFolderCreateFailed": "Kan de map niet aanmaken.",
+  "@terminalFolderCreateFailed": {
+    "description": "Error message shown when creating a new terminal folder fails."
+  },
   "channelCreateTitle": "Kanaal aanmaken",
   "channelName": "Kanaalnaam",
   "channelDescription": "Beschrijving",
@@ -1663,5 +1767,13 @@
   "securityCertificateError": "Beveiligingscertificaatfout. Kan de serveridentiteit niet verifiëren.",
   "@securityCertificateError": {
     "description": "Error shown when the server TLS certificate cannot be trusted or verified."
+  },
+  "noToolsAvailable": "Geen tools beschikbaar",
+  "@noToolsAvailable": {
+    "description": "Empty state shown when no tools are available in the composer overflow menu."
+  },
+  "failedToLoadTools": "Kan tools niet laden",
+  "@failedToLoadTools": {
+    "description": "Error shown when the composer overflow menu cannot load tools."
   }
 }

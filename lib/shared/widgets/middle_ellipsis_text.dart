@@ -1,5 +1,7 @@
 import 'package:flutter/widgets.dart';
 
+import '../utils/utf16_sanitizer.dart';
+
 /// A single-line text widget that truncates the middle of long strings
 /// with an ellipsis (e.g., "prefix…suffix") so both ends remain visible.
 ///
@@ -26,7 +28,7 @@ class MiddleEllipsisText extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // Sanitize text to remove any unpaired surrogates that could cause crashes.
-    final String safeText = _sanitizeUtf16(text);
+    final String safeText = sanitizeUtf16(text);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -152,45 +154,6 @@ class MiddleEllipsisText extends StatelessWidget {
         );
       },
     );
-  }
-
-  /// Removes unpaired UTF-16 surrogates that would cause "not well-formed
-  /// UTF-16" errors during text layout.
-  ///
-  /// A valid UTF-16 string requires:
-  /// - High surrogates (0xD800-0xDBFF) must be followed by low surrogates
-  /// - Low surrogates (0xDC00-0xDFFF) must be preceded by high surrogates
-  static String _sanitizeUtf16(String input) {
-    if (input.isEmpty) return input;
-
-    final buffer = StringBuffer();
-    for (int i = 0; i < input.length; i++) {
-      final int codeUnit = input.codeUnitAt(i);
-
-      // Check if this is a high surrogate (0xD800-0xDBFF)
-      if (codeUnit >= 0xD800 && codeUnit <= 0xDBFF) {
-        // Check if next character is a valid low surrogate
-        if (i + 1 < input.length) {
-          final int nextCodeUnit = input.codeUnitAt(i + 1);
-          if (nextCodeUnit >= 0xDC00 && nextCodeUnit <= 0xDFFF) {
-            // Valid surrogate pair - include both
-            buffer.writeCharCode(codeUnit);
-            buffer.writeCharCode(nextCodeUnit);
-            i++; // Skip the low surrogate in next iteration
-            continue;
-          }
-        }
-        // Unpaired high surrogate - replace with replacement character
-        buffer.writeCharCode(0xFFFD);
-      } else if (codeUnit >= 0xDC00 && codeUnit <= 0xDFFF) {
-        // Unpaired low surrogate - replace with replacement character
-        buffer.writeCharCode(0xFFFD);
-      } else {
-        // Regular character - include as-is
-        buffer.writeCharCode(codeUnit);
-      }
-    }
-    return buffer.toString();
   }
 }
 

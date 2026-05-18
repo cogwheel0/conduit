@@ -33,7 +33,7 @@ dynamic resolveSidebarUser(WidgetRef ref) {
   );
 }
 
-/// Localized search hint for the active sidebar tab (Chats / Notes / Channels).
+/// Localized search hint for the active sidebar tab.
 String sidebarSearchHintForActiveTab(WidgetRef ref, AppLocalizations l10n) {
   final tabIndex = ref.watch(sidebarActiveTabProvider);
   final notesOn = ref.watch(notesFeatureEnabledProvider);
@@ -46,6 +46,8 @@ String sidebarSearchHintForActiveTab(WidgetRef ref, AppLocalizations l10n) {
     if (tabIndex == i) return l10n.searchNotes;
     i++;
   }
+  if (tabIndex == i) return l10n.searchFiles;
+  i++;
   if (channelsOn) {
     if (tabIndex == i) return l10n.searchChannels;
   }

@@ -394,6 +394,14 @@
   "@tools": {
     "description": "Header for a tools/actions section."
   },
+  "noToolsAvailable": "No tools available",
+  "@noToolsAvailable": {
+    "description": "Empty state shown when no tools are available in the composer overflow menu."
+  },
+  "failedToLoadTools": "Failed to load tools",
+  "@failedToLoadTools": {
+    "description": "Error shown when the composer overflow menu cannot load tools."
+  },
   "toolServer": "Tool Server",
   "@toolServer": {
     "description": "Singular label for a direct tool server integration."

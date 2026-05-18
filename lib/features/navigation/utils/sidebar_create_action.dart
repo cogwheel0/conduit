@@ -24,15 +24,15 @@ class SidebarCreateActionSpec {
   final String sfSymbol;
 }
 
-SidebarCreateActionSpec sidebarCreateActionForActiveTab(
-  WidgetRef ref,
-  AppLocalizations l10n,
-) {
+SidebarCreateActionSpec? sidebarCreateActionForActiveTab(WidgetRef ref) {
   final kind = _resolveSidebarCreateActionKind(
     tabIndex: ref.watch(sidebarActiveTabProvider),
     notesOn: ref.watch(notesFeatureEnabledProvider),
     channelsOn: ref.watch(channelsFeatureEnabledProvider),
   );
+  if (kind == null) {
+    return null;
+  }
   return switch (kind) {
     _SidebarCreateActionKind.chat => SidebarCreateActionSpec(
       icon: UiUtils.newChatIcon,
@@ -56,16 +56,21 @@ Future<void> runSidebarCreateAction(BuildContext context, WidgetRef ref) async {
     channelsOn: ref.read(channelsFeatureEnabledProvider),
   );
   switch (kind) {
+    case null:
+      return;
     case _SidebarCreateActionKind.chat:
       await _startNewChat(context, ref);
+      break;
     case _SidebarCreateActionKind.note:
       await _createNote(context, ref);
+      break;
     case _SidebarCreateActionKind.channel:
       await _createChannel(context, ref);
+      break;
   }
 }
 
-_SidebarCreateActionKind _resolveSidebarCreateActionKind({
+_SidebarCreateActionKind? _resolveSidebarCreateActionKind({
   required int tabIndex,
   required bool notesOn,
   required bool channelsOn,
@@ -82,6 +87,11 @@ _SidebarCreateActionKind _resolveSidebarCreateActionKind({
     }
     currentIndex++;
   }
+
+  if (tabIndex == currentIndex) {
+    return null;
+  }
+  currentIndex++;
 
   if (channelsOn && tabIndex == currentIndex) {
     return _SidebarCreateActionKind.channel;
