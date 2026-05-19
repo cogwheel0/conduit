@@ -177,11 +177,8 @@ class _StreamingStatusWidgetState extends State<StreamingStatusWidget> {
                           ),
                         ),
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.close, size: 20),
+                      SheetCloseButton(
                         onPressed: () => Navigator.of(ctx).pop(),
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
                         color: theme.textSecondary,
                       ),
                     ],

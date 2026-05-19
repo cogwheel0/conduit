@@ -22,6 +22,8 @@ class WebContentEmbed extends StatefulWidget {
     this.argsText = '',
     this.deferUntilExpanded = true,
     this.initiallyExpanded = false,
+    this.showChrome = true,
+    this.fillAvailableHeight = false,
     this.previewTitle,
     this.previewDescription,
     @visibleForTesting this.debugTreatAsSupported,
@@ -33,6 +35,8 @@ class WebContentEmbed extends StatefulWidget {
   final String argsText;
   final bool deferUntilExpanded;
   final bool initiallyExpanded;
+  final bool showChrome;
+  final bool fillAvailableHeight;
   final String? previewTitle;
   final String? previewDescription;
   @visibleForTesting
@@ -288,9 +292,9 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
           measuredHeight <= 0) {
         return;
       }
-      final clampedHeight = measuredHeight
-          .clamp(_embedMinHeight, _embedMaxHeight)
-          .toDouble();
+      final clampedHeight = widget.fillAvailableHeight
+          ? _height
+          : measuredHeight.clamp(_embedMinHeight, _embedMaxHeight).toDouble();
       setState(() {
         _height = clampedHeight;
         _isLoading = false;
@@ -336,7 +340,43 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
 
     if (_controller == null) {
       _scheduleControllerInitialization(context);
+      if (!widget.showChrome) {
+        return const Center(child: CircularProgressIndicator());
+      }
       return const _EmbedLoadingCard();
+    }
+
+    final webView = Stack(
+      children: [
+        Positioned.fill(
+          child: WebViewWidget(
+            controller: _controller!,
+            gestureRecognizers: _gestureRecognizers,
+          ),
+        ),
+        if (_isLoading)
+          const Positioned.fill(
+            child: ColoredBox(
+              color: Colors.transparent,
+              child: Center(child: CircularProgressIndicator()),
+            ),
+          ),
+      ],
+    );
+
+    final sizedWebView = widget.fillAvailableHeight
+        ? LayoutBuilder(
+            builder: (context, constraints) {
+              if (constraints.hasBoundedHeight) {
+                return SizedBox.expand(child: webView);
+              }
+              return SizedBox(height: _height, child: webView);
+            },
+          )
+        : SizedBox(height: _height, child: webView);
+
+    if (!widget.showChrome) {
+      return sizedWebView;
     }
 
     return DecoratedBox(
@@ -348,26 +388,7 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(AppBorderRadius.md),
-        child: SizedBox(
-          height: _height,
-          child: Stack(
-            children: [
-              Positioned.fill(
-                child: WebViewWidget(
-                  controller: _controller!,
-                  gestureRecognizers: _gestureRecognizers,
-                ),
-              ),
-              if (_isLoading)
-                const Positioned.fill(
-                  child: ColoredBox(
-                    color: Colors.transparent,
-                    child: Center(child: CircularProgressIndicator()),
-                  ),
-                ),
-            ],
-          ),
-        ),
+        child: sizedWebView,
       ),
     );
   }

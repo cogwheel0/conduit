@@ -6,6 +6,7 @@ import 'dart:io' show Platform;
 
 import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/widgets/themed_sheets.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 
 /// Full-screen bottom sheet editor shown when the chat input grows large.
@@ -86,19 +87,11 @@ class _ExpandedTextEditorSheetState extends State<ExpandedTextEditorSheet> {
       child: sendIcon,
     );
 
-    final closeButton = AdaptiveButton.child(
+    final closeButton = SheetCloseButton(
       onPressed: widget.onClose,
-      style: AdaptiveButtonStyle.glass,
-      size: AdaptiveButtonSize.medium,
-      minSize: const Size(buttonSize, buttonSize),
-      padding: EdgeInsets.zero,
-      borderRadius: BorderRadius.circular(buttonSize),
-      useSmoothRectangleBorder: false,
-      child: Icon(
-        Platform.isIOS ? CupertinoIcons.xmark : Icons.close,
-        size: IconSize.small + 1,
-        color: theme.textPrimary,
-      ),
+      color: theme.textPrimary,
+      iconSize: IconSize.small + 1,
+      buttonSize: buttonSize,
     );
 
     // useSafeArea: true on the presenter already constrains the sheet to the

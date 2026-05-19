@@ -332,14 +332,10 @@ class _ChatShareSheetState extends ConsumerState<ChatShareSheet> {
                     ),
                   ),
                 ),
-                IconButton(
+                SheetCloseButton(
                   tooltip: l10n.closeButtonSemantic,
                   onPressed: () => Navigator.of(context).maybePop(),
-                  icon: Icon(
-                    CupertinoIcons.xmark,
-                    color: theme.iconSecondary,
-                    size: IconSize.md,
-                  ),
+                  color: theme.iconSecondary,
                 ),
               ],
             ),

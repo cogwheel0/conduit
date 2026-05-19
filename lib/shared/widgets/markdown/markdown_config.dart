@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show Platform;
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
@@ -15,7 +14,6 @@ import 'package:webview_flutter_plus/webview_flutter_plus.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
 
-import '../../../core/services/native_sheet_bridge.dart';
 import '../web_content_embed.dart';
 import '../webview_content_height.dart';
 import '../themed_sheets.dart';
@@ -180,87 +178,66 @@ class ConduitMarkdown {
     final theme = context.conduitTheme;
     final title = _previewTitleForLanguage(language);
 
-    if (Platform.isIOS) {
-      try {
-        await NativeSheetBridge.instance.presentSheet(
-          root: NativeSheetDetailConfig(
-            id: 'code-preview',
-            title: title,
-            items: [
-              NativeSheetItemConfig(
-                id: 'code-preview-source',
-                title: title,
-                sfSymbol: 'doc.richtext',
-                kind: NativeSheetItemKind.readOnlyText,
-                value: code,
-              ),
-            ],
-          ),
-          rethrowErrors: true,
-        );
-        return;
-      } catch (_) {
-        if (!context.mounted) {
-          return;
-        }
-      }
-    }
-
     if (!context.mounted) {
       return;
     }
 
-    return ThemedSheets.showSurface<void>(
+    return ThemedSheets.showCustom<void>(
       context: context,
       isScrollControlled: true,
-      showHandle: false,
-      padding: EdgeInsets.zero,
+      useSafeArea: true,
       builder: (sheetContext) {
         final markdownStyle = ConduitMarkdownStyle.fromTheme(sheetContext);
-        return SafeArea(
-          child: FractionallySizedBox(
-            heightFactor: 0.9,
+        return SizedBox(
+          height: MediaQuery.sizeOf(sheetContext).height,
+          child: ColoredBox(
+            color: theme.surfaceBackground,
             child: Column(
               children: [
-                Padding(
-                  padding: const EdgeInsets.only(top: Spacing.sm),
-                  child: Container(
-                    width: 36,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: theme.dividerColor.withValues(alpha: 0.4),
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    Spacing.lg,
-                    Spacing.sm,
-                    Spacing.lg,
-                    Spacing.sm,
-                  ),
-                  child: Row(
+                SafeArea(
+                  bottom: false,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(
-                        Icons.visibility_outlined,
-                        size: 18,
-                        color: theme.textSecondary,
-                      ),
-                      const SizedBox(width: Spacing.sm),
-                      Expanded(
-                        child: Text(
-                          title,
-                          overflow: TextOverflow.ellipsis,
-                          style: markdownStyle.sheetTitle,
+                      Padding(
+                        padding: const EdgeInsets.only(top: Spacing.sm),
+                        child: Container(
+                          width: 36,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: theme.dividerColor.withValues(alpha: 0.4),
+                            borderRadius: BorderRadius.circular(2),
+                          ),
                         ),
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.close, size: 20),
-                        onPressed: () => Navigator.of(sheetContext).pop(),
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                        color: theme.textSecondary,
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(
+                          Spacing.lg,
+                          Spacing.sm,
+                          Spacing.lg,
+                          Spacing.sm,
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.visibility_outlined,
+                              size: 18,
+                              color: theme.textSecondary,
+                            ),
+                            const SizedBox(width: Spacing.sm),
+                            Expanded(
+                              child: Text(
+                                title,
+                                overflow: TextOverflow.ellipsis,
+                                style: markdownStyle.sheetTitle,
+                              ),
+                            ),
+                            SheetCloseButton(
+                              onPressed: () => Navigator.of(sheetContext).pop(),
+                              color: theme.textSecondary,
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
@@ -270,16 +247,13 @@ class ConduitMarkdown {
                   color: theme.dividerColor.withValues(alpha: 0.3),
                 ),
                 Expanded(
-                  child: ListView(
-                    padding: const EdgeInsets.all(Spacing.lg),
-                    children: [
-                      WebContentEmbed(
-                        source: code,
-                        deferUntilExpanded: false,
-                        initiallyExpanded: true,
-                        previewTitle: title,
-                      ),
-                    ],
+                  child: WebContentEmbed(
+                    source: code,
+                    deferUntilExpanded: false,
+                    initiallyExpanded: true,
+                    showChrome: false,
+                    fillAvailableHeight: true,
+                    previewTitle: title,
                   ),
                 ),
               ],

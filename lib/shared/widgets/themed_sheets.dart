@@ -1,3 +1,7 @@
+import 'dart:io' show Platform;
+
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../theme/theme_extensions.dart';
@@ -84,6 +88,64 @@ class ThemedSheets {
 
         return sheet;
       },
+    );
+  }
+}
+
+class SheetCloseButton extends StatelessWidget {
+  const SheetCloseButton({
+    super.key,
+    required this.onPressed,
+    this.color,
+    this.tooltip,
+    this.iconSize = IconSize.md,
+    this.buttonSize = 36,
+  });
+
+  final VoidCallback? onPressed;
+  final Color? color;
+  final String? tooltip;
+  final double iconSize;
+  final double buttonSize;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.conduitTheme;
+    final iconColor = color ?? theme.textSecondary;
+    final icon = Icon(
+      Platform.isIOS ? CupertinoIcons.xmark : Icons.close,
+      size: iconSize,
+      color: iconColor,
+    );
+
+    if (Platform.isIOS) {
+      final button = AdaptiveButton.child(
+        onPressed: onPressed,
+        enabled: onPressed != null,
+        style: AdaptiveButtonStyle.glass,
+        size: AdaptiveButtonSize.medium,
+        minSize: Size(buttonSize, buttonSize),
+        padding: EdgeInsets.zero,
+        borderRadius: BorderRadius.circular(buttonSize),
+        useSmoothRectangleBorder: false,
+        child: icon,
+      );
+      if (tooltip == null) {
+        return button;
+      }
+      return Tooltip(message: tooltip!, child: button);
+    }
+
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: onPressed,
+      icon: icon,
+      padding: EdgeInsets.zero,
+      constraints: BoxConstraints.tightFor(
+        width: buttonSize,
+        height: buttonSize,
+      ),
+      color: iconColor,
     );
   }
 }

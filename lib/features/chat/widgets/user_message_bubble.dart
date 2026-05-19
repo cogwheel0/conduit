@@ -675,7 +675,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
 
     return Container(
       width: double.infinity,
-      margin: const EdgeInsets.only(bottom: Spacing.md, left: Spacing.xxl),
+      margin: const EdgeInsets.only(bottom: Spacing.lg, left: Spacing.xxl),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [

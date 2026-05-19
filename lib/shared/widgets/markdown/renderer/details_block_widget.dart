@@ -269,11 +269,8 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
                               style: markdownStyle.sheetTitle,
                             ),
                           ),
-                          IconButton(
-                            icon: const Icon(Icons.close, size: 20),
+                          SheetCloseButton(
                             onPressed: () => Navigator.of(sheetContext).pop(),
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(),
                             color: liveTheme.textSecondary,
                           ),
                         ],

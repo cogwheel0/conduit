@@ -1548,12 +1548,9 @@ class _FolderSheetFrame extends StatelessWidget {
                 Row(
                   children: [
                     Expanded(child: Text(title, style: titleStyle)),
-                    IconButton(
+                    SheetCloseButton(
                       onPressed: isBusy ? null : onClose,
-                      icon: Icon(
-                        Platform.isIOS ? CupertinoIcons.xmark : Icons.close,
-                        color: theme.iconPrimary,
-                      ),
+                      color: theme.iconPrimary,
                     ),
                   ],
                 ),

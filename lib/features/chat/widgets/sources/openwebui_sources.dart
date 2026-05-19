@@ -208,8 +208,7 @@ class OpenWebUISourcesWidget extends StatelessWidget {
                             ),
                           ),
                         ),
-                        IconButton(
-                          icon: const Icon(Icons.close, size: 20),
+                        SheetCloseButton(
                           onPressed: () => Navigator.of(sheetContext).pop(),
                           color: liveTheme.textSecondary,
                         ),

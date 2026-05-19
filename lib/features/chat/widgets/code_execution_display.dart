@@ -165,9 +165,9 @@ class CodeExecutionListView extends StatelessWidget {
                           ),
                         ),
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.close),
+                      SheetCloseButton(
                         onPressed: () => Navigator.of(ctx).pop(),
+                        color: theme.textSecondary,
                       ),
                     ],
                   ),
