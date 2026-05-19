@@ -1,11 +1,10 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/models/chat_message.dart';
 import '../compiled_markdown_document.dart';
 import '../markdown_compile_service.dart';
+import '../markdown_document_controller.dart';
 import 'block_renderer.dart';
 import 'inline_renderer.dart';
 import 'latex_preprocessor.dart';
@@ -88,6 +87,9 @@ class ConduitMarkdownWidget extends ConsumerStatefulWidget {
   final String? stateScopeId;
 
   /// Controls how expensive preview-backed blocks should behave.
+  ///
+  /// `smart` keeps unusually large or repeated heavy previews lazy while still
+  /// eagerly rendering smaller diagrams.
   final MarkdownHeavyBlockPolicy heavyBlockPolicy;
 
   @visibleForTesting
@@ -99,9 +101,9 @@ class ConduitMarkdownWidget extends ConsumerStatefulWidget {
 }
 
 class _ConduitMarkdownWidgetState extends ConsumerState<ConduitMarkdownWidget> {
+  late final MarkdownDocumentController _documentController;
   CompiledMarkdownDocument? _compiledDocument;
   String _preparedData = '';
-  int _compileRequestId = 0;
 
   bool get _isWidgetTest =>
       widget.debugTreatAsWidgetTest ??
@@ -110,6 +112,11 @@ class _ConduitMarkdownWidgetState extends ConsumerState<ConduitMarkdownWidget> {
   @override
   void initState() {
     super.initState();
+    _documentController = MarkdownDocumentController(
+      readCompiler: () => ref.read(markdownCompileServiceProvider),
+      isWidgetTest: () => _isWidgetTest,
+      onStateChanged: _applyCompiledDocumentState,
+    );
     _primeDocument();
   }
 
@@ -147,6 +154,12 @@ class _ConduitMarkdownWidgetState extends ConsumerState<ConduitMarkdownWidget> {
     );
   }
 
+  @override
+  void dispose() {
+    _documentController.dispose();
+    super.dispose();
+  }
+
   void _primeDocument() {
     final directDocument = widget.compiledDocument;
     if (directDocument != null) {
@@ -154,11 +167,10 @@ class _ConduitMarkdownWidgetState extends ConsumerState<ConduitMarkdownWidget> {
       final changed =
           nextPrepared != _preparedData || _compiledDocument != directDocument;
       _preparedData = nextPrepared;
-      _compileRequestId += 1;
       if (!changed) {
         return;
       }
-      _setCompiledDocument(directDocument);
+      _documentController.applyDirectDocument(directDocument);
       return;
     }
 
@@ -166,52 +178,14 @@ class _ConduitMarkdownWidgetState extends ConsumerState<ConduitMarkdownWidget> {
     final prepared = widget.dataIsPrepared
         ? raw
         : prepareMarkdownContent(raw, streaming: false);
-    final preparedChanged = prepared != _preparedData;
     _preparedData = prepared;
-
-    if (prepared.trim().isEmpty) {
-      _compileRequestId += 1;
-      _setCompiledDocument(const CompiledMarkdownDocument.empty());
-      return;
-    }
-
-    final compiler = ref.read(markdownCompileServiceProvider);
-    final cached = compiler.peekPrepared(prepared);
-    if (cached != null) {
-      _compileRequestId += 1;
-      _setCompiledDocument(cached);
-      return;
-    }
-
-    if (compiler.shouldCompileSynchronously(
-      prepared,
-      widgetTest: _isWidgetTest,
-    )) {
-      final syncDocument = compiler.compilePreparedSynchronously(prepared);
-      _compileRequestId += 1;
-      _setCompiledDocument(syncDocument);
-      return;
-    }
-
-    final requestId = ++_compileRequestId;
-    if (preparedChanged) {
-      _setCompiledDocument(null);
-    }
-    unawaited(_loadPreparedDocument(prepared, requestId));
+    _documentController.resolvePrepared(prepared, clearDocumentWhenAsync: true);
   }
 
-  Future<void> _loadPreparedDocument(String prepared, int requestId) async {
-    final compiler = ref.read(markdownCompileServiceProvider);
-    final document = await compiler.compilePrepared(prepared);
-    if (!mounted ||
-        requestId != _compileRequestId ||
-        prepared != _preparedData) {
-      return;
-    }
-    _setCompiledDocument(document);
-  }
-
-  void _setCompiledDocument(CompiledMarkdownDocument? document) {
+  void _applyCompiledDocumentState(
+    String compiledPreparedContent,
+    CompiledMarkdownDocument? document,
+  ) {
     if (!mounted) {
       _compiledDocument = document;
       return;
@@ -293,6 +267,7 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView> {
       widget.stateScopeId,
       null,
       widget.heavyBlockPolicy,
+      widget.document.heavyBlockCount,
     );
 
     return switch (widget.document.renderTier) {

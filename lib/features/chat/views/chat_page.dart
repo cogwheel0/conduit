@@ -57,6 +57,69 @@ import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/chrome_gradient_fade.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 
+enum _PendingChatScrollActionKind { none, restore, initialBottom }
+
+class _PendingChatScrollAction {
+  const _PendingChatScrollAction._(this.kind, {this.restoreOffset = 0});
+
+  const _PendingChatScrollAction.none()
+    : this._(_PendingChatScrollActionKind.none);
+
+  const _PendingChatScrollAction.restore(double restoreOffset)
+    : this._(
+        _PendingChatScrollActionKind.restore,
+        restoreOffset: restoreOffset,
+      );
+
+  const _PendingChatScrollAction.initialBottom()
+    : this._(_PendingChatScrollActionKind.initialBottom);
+
+  final _PendingChatScrollActionKind kind;
+  final double restoreOffset;
+
+  bool get isNone => kind == _PendingChatScrollActionKind.none;
+}
+
+class _PinToTopState {
+  const _PinToTopState._({
+    required this.isActive,
+    this.userMessageId,
+    this.streamingMessageId,
+  });
+
+  const _PinToTopState.inactive() : this._(isActive: false);
+
+  const _PinToTopState.active({
+    required String userMessageId,
+    required String streamingMessageId,
+  }) : this._(
+         isActive: true,
+         userMessageId: userMessageId,
+         streamingMessageId: streamingMessageId,
+       );
+
+  final bool isActive;
+  final String? userMessageId;
+  final String? streamingMessageId;
+
+  _PinToTopState dismiss({bool preserveStreamingId = false}) {
+    if (!preserveStreamingId) {
+      return const _PinToTopState.inactive();
+    }
+    return _PinToTopState._(
+      isActive: false,
+      userMessageId: userMessageId,
+      streamingMessageId: streamingMessageId,
+    );
+  }
+
+  _PinToTopState clearTracking() => _PinToTopState._(
+    isActive: isActive,
+    userMessageId: null,
+    streamingMessageId: null,
+  );
+}
+
 class ChatPage extends ConsumerStatefulWidget {
   const ChatPage({super.key});
 
@@ -81,16 +144,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   Timer? _markdownPrewarmTimer;
   int _markdownPrewarmGeneration = 0;
   String? _lastMarkdownPrewarmSignature;
-  bool _pendingScrollRestore = false;
-  bool _pendingInitialScrollToBottom = false;
-  double _restoreScrollOffset = 0;
+  _PendingChatScrollAction _pendingScrollAction =
+      const _PendingChatScrollAction.none();
   bool _isUserInteractingWithScroll = false;
   String? _activeScrollProfileTaskKey;
   // Pin-to-top: scroll user message to top of viewport when sending
-  bool _wantsPinToTop = false;
+  _PinToTopState _pinToTopState = const _PinToTopState.inactive();
   GlobalKey _pinnedUserMessageKey = GlobalKey();
-  String? _pinnedUserMessageId;
-  String? _pinnedStreamingId; // tracks which streaming msg triggered pin
   _ChatListStableLayoutMetadata? _stableLayoutMetadata;
   List<ChatMessage>? _stableLayoutMetadataMessages;
   List<Model>? _stableLayoutMetadataModels;
@@ -101,6 +161,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   ProviderSubscription<String?>? _screenContextSub;
   ProviderSubscription<bool>? _reviewerModeSub;
   ProviderSubscription<String?>? _conversationIdSub;
+
+  bool get _wantsPinToTop => _pinToTopState.isActive;
+  String? get _pinnedUserMessageId => _pinToTopState.userMessageId;
+  String? get _pinnedStreamingId => _pinToTopState.streamingMessageId;
 
   String _formatModelDisplayName(String name) {
     return _formatChatModelDisplayName(name);
@@ -187,11 +251,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       _scrollController.jumpTo(0);
     }
 
-    _pendingScrollRestore = false;
-    _restoreScrollOffset = 0;
-    _wantsPinToTop = false;
-    _pinnedUserMessageId = null;
-    _pinnedStreamingId = null;
+    _pendingScrollAction = const _PendingChatScrollAction.none();
+    _pinToTopState = const _PinToTopState.inactive();
     _invalidateChatListStableLayoutMetadata();
     _endPinToTopInFlight = false;
 
@@ -1138,22 +1199,18 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _markdownPrewarmGeneration++;
     _lastMarkdownPrewarmSignature = null;
     if (!preserveStreamingPin) {
-      _wantsPinToTop = false;
-      _pinnedUserMessageId = null;
-      _pinnedStreamingId = null;
+      _pinToTopState = const _PinToTopState.inactive();
       _invalidateChatListStableLayoutMetadata();
       _endPinToTopInFlight = false;
     }
     if (conversationId == null) {
-      _pendingScrollRestore = false;
-      _pendingInitialScrollToBottom = false;
+      _pendingScrollAction = const _PendingChatScrollAction.none();
     } else if (_savedScrollOffsets.containsKey(conversationId)) {
-      _pendingScrollRestore = true;
-      _pendingInitialScrollToBottom = false;
-      _restoreScrollOffset = _savedScrollOffsets[conversationId]!;
+      _pendingScrollAction = _PendingChatScrollAction.restore(
+        _savedScrollOffsets[conversationId]!,
+      );
     } else {
-      _pendingScrollRestore = false;
-      _pendingInitialScrollToBottom = true;
+      _pendingScrollAction = const _PendingChatScrollAction.initialBottom();
     }
   }
 
@@ -1294,11 +1351,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       return;
     }
     setState(() {
-      _wantsPinToTop = false;
-      if (!preserveStreamingId) {
-        _pinnedStreamingId = null;
-        _pinnedUserMessageId = null;
-      }
+      _pinToTopState = _pinToTopState.dismiss(
+        preserveStreamingId: preserveStreamingId,
+      );
     });
   }
 
@@ -1315,11 +1370,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
     if (!_scrollController.hasClients) {
       setState(() {
-        _wantsPinToTop = false;
-        if (!preserveStreamingId) {
-          _pinnedStreamingId = null;
-          _pinnedUserMessageId = null;
-        }
+        _pinToTopState = _pinToTopState.dismiss(
+          preserveStreamingId: preserveStreamingId,
+        );
       });
       return;
     }
@@ -1340,11 +1393,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         _scrollController.jumpTo(targetOffset);
       }
       setState(() {
-        _wantsPinToTop = false;
-        if (!preserveStreamingId) {
-          _pinnedStreamingId = null;
-          _pinnedUserMessageId = null;
-        }
+        _pinToTopState = _pinToTopState.dismiss(
+          preserveStreamingId: preserveStreamingId,
+        );
       });
     } else {
       // Animate to valid position, then remove padding
@@ -1359,11 +1410,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             _endPinToTopInFlight = false;
             if (mounted) {
               setState(() {
-                _wantsPinToTop = false;
-                if (!preserveStreamingId) {
-                  _pinnedStreamingId = null;
-                  _pinnedUserMessageId = null;
-                }
+                _pinToTopState = _pinToTopState.dismiss(
+                  preserveStreamingId: preserveStreamingId,
+                );
               });
             }
           });
@@ -1530,13 +1579,19 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
     final apiService = watchRef.watch(apiServiceProvider);
 
-    if (_pendingScrollRestore) {
-      _pendingScrollRestore = false;
-      _scheduleScrollRestore(_restoreScrollOffset);
-    }
-    if (_pendingInitialScrollToBottom) {
-      _pendingInitialScrollToBottom = false;
-      _scheduleInitialScrollToBottom();
+    final pendingScrollAction = _pendingScrollAction;
+    if (!pendingScrollAction.isNone) {
+      _pendingScrollAction = const _PendingChatScrollAction.none();
+      switch (pendingScrollAction.kind) {
+        case _PendingChatScrollActionKind.restore:
+          _scheduleScrollRestore(pendingScrollAction.restoreOffset);
+          break;
+        case _PendingChatScrollActionKind.initialBottom:
+          _scheduleInitialScrollToBottom();
+          break;
+        case _PendingChatScrollActionKind.none:
+          break;
+      }
     }
 
     // Add top padding for floating app bar, bottom padding for floating input.
@@ -1563,9 +1618,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           : null;
       if (parentUserId != null && _pinnedStreamingId != lastMsg.id) {
         // New streaming response detected
-        _pinnedStreamingId = lastMsg.id;
-        _pinnedUserMessageId = parentUserId;
-        _wantsPinToTop = true;
+        _pinToTopState = _PinToTopState.active(
+          userMessageId: parentUserId,
+          streamingMessageId: lastMsg.id,
+        );
         _pinnedUserMessageKey = GlobalKey();
         _scrollToUserMessage();
       }
@@ -1576,8 +1632,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     //
     // Clear the pinned ID so the next message can activate pin-to-top.
     if (!hasStreamingMessage && _pinnedStreamingId != null) {
-      _pinnedStreamingId = null;
-      _pinnedUserMessageId = null;
+      _pinToTopState = _pinToTopState.clearTracking();
     }
 
     final pinnedUserMessageIndex =
@@ -2899,6 +2954,25 @@ List<int> debugSelectMarkdownPrewarmCandidateIndicesForTesting(
     viewportTop: viewportTop,
     viewportHeight: viewportHeight,
     maxCount: maxCount,
+  );
+}
+
+@visibleForTesting
+({bool isActive, String? userMessageId, String? streamingMessageId})
+debugClearPinToTopTrackingForTesting({
+  required bool isActive,
+  String? userMessageId,
+  String? streamingMessageId,
+}) {
+  final state = _PinToTopState._(
+    isActive: isActive,
+    userMessageId: userMessageId,
+    streamingMessageId: streamingMessageId,
+  ).clearTracking();
+  return (
+    isActive: state.isActive,
+    userMessageId: state.userMessageId,
+    streamingMessageId: state.streamingMessageId,
   );
 }
 

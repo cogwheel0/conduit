@@ -1,11 +1,7 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
-import 'package:html_unescape/html_unescape.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
 
-import '../../../../core/utils/embed_utils.dart';
 import '../../../../core/utils/reasoning_parser.dart';
 import '../../assistant_detail_header.dart';
 import '../../themed_sheets.dart';
@@ -15,24 +11,16 @@ import '../compiled_markdown_document.dart';
 import '../markdown_config.dart';
 import 'markdown_style.dart';
 
-final _detailsWidgetUnescape = HtmlUnescape();
-
 /// Upstream-style collapsible renderer for markdown `<details>` blocks.
 class MarkdownDetailsBlock extends StatefulWidget {
   const MarkdownDetailsBlock({
     super.key,
-    required this.summaryText,
-    required this.attributes,
-    required this.hasBody,
-    this.detailsData,
+    required this.detailsData,
     this.bodyBuilder,
     this.inlineExpansionStateId,
   });
 
-  final String summaryText;
-  final Map<String, String> attributes;
-  final bool hasBody;
-  final CompiledMarkdownDetailsData? detailsData;
+  final CompiledMarkdownDetailsData detailsData;
   final WidgetBuilder? bodyBuilder;
   final String? inlineExpansionStateId;
 
@@ -48,55 +36,39 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
   var _isInlineExpanded = false;
   String? _restoredInlineExpansionStateId;
 
-  CompiledMarkdownDetailsData? get _detailsData => widget.detailsData;
+  CompiledMarkdownDetailsData get _detailsData => widget.detailsData;
 
   bool get _isToolCall =>
-      _detailsData?.kind == CompiledMarkdownDetailsKind.toolCall ||
-      widget.attributes['type'] == 'tool_calls';
+      _detailsData.kind == CompiledMarkdownDetailsKind.toolCall;
 
   bool get _isReasoning =>
-      _detailsData?.kind == CompiledMarkdownDetailsKind.reasoning ||
-      _detailsData?.kind == CompiledMarkdownDetailsKind.codeInterpreter ||
-      widget.attributes['type'] == 'reasoning' ||
-      widget.attributes['type'] == 'code_interpreter';
+      _detailsData.kind == CompiledMarkdownDetailsKind.reasoning ||
+      _detailsData.kind == CompiledMarkdownDetailsKind.codeInterpreter;
 
   bool get _isCodeInterpreter =>
-      _detailsData?.kind == CompiledMarkdownDetailsKind.codeInterpreter ||
-      widget.attributes['type'] == 'code_interpreter';
+      _detailsData.kind == CompiledMarkdownDetailsKind.codeInterpreter;
 
-  bool get _isPending {
-    final compiled = _detailsData;
-    if (compiled != null) {
-      return compiled.isPending;
-    }
-    final done = widget.attributes['done'];
-    return done != null && done != 'true';
-  }
+  bool get _isPending => _detailsData.isPending;
 
-  bool get _supportsInlineExpansion =>
-      _detailsData?.supportsInlineExpansion ?? _isReasoning;
+  bool get _supportsInlineExpansion => _detailsData.supportsInlineExpansion;
 
   bool get _usesInlineExpansion => _supportsInlineExpansion && _isPending;
 
-  bool get _canExpand {
-    final compiled = _detailsData;
-    if (compiled != null) {
-      return compiled.canExpand;
-    }
-    if (!_isToolCall) {
-      return widget.hasBody;
-    }
+  bool get _canExpand => _detailsData.canExpand;
 
-    if (_toolCallData.hasEmbeds) {
-      return false;
+  CompiledMarkdownToolCallData get _toolCallData {
+    final data = _detailsData.toolCallData;
+    if (data != null) {
+      return data;
     }
-
-    return _toolCallData.hasExpandableContent || widget.hasBody;
+    return CompiledMarkdownToolCallData(
+      argumentsText: '',
+      resultText: '',
+      argumentEntries: const <CompiledMarkdownToolCallArgumentEntry>[],
+      embedSources: const <String>[],
+      imageUrls: const <String>[],
+    );
   }
-
-  CompiledMarkdownToolCallData get _toolCallData =>
-      _detailsData?.toolCallData ??
-      _compileLegacyToolCallData(widget.attributes);
 
   @override
   void didChangeDependencies() {
@@ -335,7 +307,7 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
       return _buildToolCallBody(context, _toolCallData);
     }
     final builder = widget.bodyBuilder;
-    if (builder == null || !widget.hasBody) {
+    if (builder == null || !_detailsData.hasBody) {
       return null;
     }
     return builder(context);
@@ -382,9 +354,8 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
 
   String _headerTitle(BuildContext context) {
     if (_isToolCall) {
-      final name =
-          _detailsData?.name.trim() ?? widget.attributes['name']?.trim();
-      final safeName = (name == null || name.isEmpty) ? 'tool' : name;
+      final name = _detailsData.name.trim();
+      final safeName = name.isEmpty ? 'tool' : name;
       if (_toolCallData.hasEmbeds) {
         return safeName;
       }
@@ -395,15 +366,14 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
       return _reasoningHeaderText(context);
     }
 
-    final summary = widget.summaryText.trim();
+    final summary = _detailsData.summaryText.trim();
     return summary.isEmpty ? 'Details' : summary;
   }
 
   String _modalTitle(BuildContext context) {
     if (_isToolCall) {
-      final name =
-          _detailsData?.name.trim() ?? widget.attributes['name']?.trim();
-      final safeName = (name == null || name.isEmpty) ? 'tool' : name;
+      final name = _detailsData.name.trim();
+      final safeName = name.isEmpty ? 'tool' : name;
       return _isPending ? 'Running $safeName…' : 'Used $safeName';
     }
 
@@ -412,13 +382,10 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
 
   String _reasoningHeaderText(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final summary = (_detailsData?.summaryText ?? widget.summaryText).trim();
+    final summary = _detailsData.summaryText.trim();
     final summaryLower = summary.toLowerCase();
-    final isDone =
-        _detailsData?.isDone ?? (widget.attributes['done'] == 'true');
-    final duration =
-        _detailsData?.durationSeconds ??
-        (int.tryParse(widget.attributes['duration'] ?? '0') ?? 0);
+    final isDone = _detailsData.isDone;
+    final duration = _detailsData.durationSeconds;
 
     final isThinkingSummary =
         summaryLower == 'thinking…' ||
@@ -454,7 +421,7 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
     CompiledMarkdownToolCallData data,
   ) {
     final builder = widget.bodyBuilder;
-    final hasExtraBody = builder != null && widget.hasBody;
+    final hasExtraBody = builder != null && _detailsData.hasBody;
     if (!data.hasExpandableContent && !hasExtraBody) {
       return null;
     }
@@ -646,155 +613,5 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
         ],
       ),
     ];
-  }
-
-  static Uri? _tryImageUri(Object? value) {
-    if (value is String) {
-      if (!value.startsWith('data:image/') &&
-          !value.startsWith('http://') &&
-          !value.startsWith('https://')) {
-        return null;
-      }
-      return Uri.tryParse(value);
-    }
-
-    if (value is Map) {
-      final type = value['type']?.toString();
-      final contentType = value['content_type']?.toString() ?? '';
-      final url = value['url']?.toString();
-      final isImage = type == 'image' || contentType.startsWith('image/');
-      if (!isImage || url == null || url.isEmpty) {
-        return null;
-      }
-      return Uri.tryParse(url);
-    }
-
-    return null;
-  }
-
-  static String _stringifyValue(Object? value) {
-    if (value == null) {
-      return '';
-    }
-    if (value is String) {
-      return value;
-    }
-    try {
-      return const JsonEncoder.withIndent('  ').convert(value);
-    } catch (_) {
-      return value.toString();
-    }
-  }
-
-  static String _formatJsonString(String raw) {
-    final parsed = _parseJsonString(raw);
-    if (parsed is String) {
-      return parsed;
-    }
-    try {
-      return const JsonEncoder.withIndent('  ').convert(parsed);
-    } catch (_) {
-      return raw;
-    }
-  }
-
-  static Object? _parseJsonString(String input) {
-    if (input.isEmpty) {
-      return '';
-    }
-    try {
-      final decoded = json.decode(input);
-      if (decoded is String && decoded != input) {
-        return _parseJsonString(decoded);
-      }
-      return decoded;
-    } catch (_) {
-      return input;
-    }
-  }
-}
-
-CompiledMarkdownToolCallData _compileLegacyToolCallData(
-  Map<String, String> attributes,
-) {
-  final argumentsText = _decodeToolCallAttribute(attributes['arguments']);
-  final resultText = _decodeToolCallAttribute(attributes['result']);
-  final parsedArguments = _parseJsonString(argumentsText);
-  final parsedResult = _parseJsonString(resultText);
-  final rawFiles = _parseJsonString(
-    _decodeToolCallAttribute(attributes['files']),
-  );
-  final rawEmbeds = _parseJsonString(
-    _decodeToolCallAttribute(attributes['embeds']),
-  );
-
-  final argumentEntries = parsedArguments is Map
-      ? parsedArguments.entries
-            .map(
-              (entry) => CompiledMarkdownToolCallArgumentEntry(
-                label: entry.key.toString(),
-                value: _MarkdownDetailsBlockState._stringifyValue(entry.value),
-              ),
-            )
-            .toList(growable: false)
-      : const <CompiledMarkdownToolCallArgumentEntry>[];
-
-  final argumentsCode = argumentsText.isEmpty || parsedArguments is Map
-      ? ''
-      : _MarkdownDetailsBlockState._formatJsonString(argumentsText);
-
-  final resultCode = parsedResult is Map || parsedResult is List
-      ? const JsonEncoder.withIndent('  ').convert(parsedResult)
-      : '';
-  final resultDisplayText = resultText.isEmpty || resultCode.isNotEmpty
-      ? ''
-      : _MarkdownDetailsBlockState._stringifyValue(parsedResult);
-
-  final embeds = normalizeEmbedList(rawEmbeds)
-      .map(extractEmbedSource)
-      .whereType<String>()
-      .where((value) => value.isNotEmpty)
-      .toList(growable: false);
-
-  final imageUrls = rawFiles is List
-      ? rawFiles
-            .cast<Object?>()
-            .map(_MarkdownDetailsBlockState._tryImageUri)
-            .whereType<Uri>()
-            .map((uri) => uri.toString())
-            .toList(growable: false)
-      : const <String>[];
-
-  return CompiledMarkdownToolCallData(
-    argumentsText: argumentsText,
-    resultText: resultText,
-    argumentEntries: argumentEntries,
-    argumentsCode: argumentsCode,
-    resultCode: resultCode,
-    resultDisplayText: resultDisplayText,
-    embedSources: embeds,
-    imageUrls: imageUrls,
-  );
-}
-
-String _decodeToolCallAttribute(String? input) {
-  if (input == null || input.isEmpty) {
-    return '';
-  }
-  return _detailsWidgetUnescape.convert(input);
-}
-
-Object? _parseJsonString(String input) {
-  if (input.isEmpty) {
-    return '';
-  }
-  try {
-    final decoded = json.decode(input);
-    if (decoded is String && decoded != input) {
-      return _parseJsonString(decoded);
-    }
-    return decoded;
-  } catch (_) {
-    return input;
   }
 }

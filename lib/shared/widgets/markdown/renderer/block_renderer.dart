@@ -13,7 +13,21 @@ import 'markdown_style.dart';
 /// Signature for a builder that creates image widgets.
 typedef ImageBuilder = Widget Function(String src, String? alt, String? title);
 
-enum MarkdownHeavyBlockPolicy { eager, defer }
+enum MarkdownHeavyBlockPolicy {
+  /// Hydrate heavy previews immediately.
+  eager,
+
+  /// Defer unusually expensive previews until the user opens them.
+  smart,
+
+  /// Avoid hydrating heavy previews and render lightweight code fallback only.
+  defer,
+}
+
+const int _smartHeavyBlockSourceLengthThreshold = 1024;
+const int _smartHeavyBlockDocumentCountThreshold = 2;
+
+enum _HeavyBlockRenderStrategy { eagerPreview, deferredPreview, codeFallback }
 
 /// Renders markdown AST block-level nodes as Flutter
 /// widgets.
@@ -41,6 +55,7 @@ class BlockRenderer {
     this.stateScopeId,
     this.nodePathPrefix,
     this.heavyBlockPolicy = MarkdownHeavyBlockPolicy.eager,
+    this.documentHeavyBlockCount = 0,
   ]);
 
   /// The active build context.
@@ -69,6 +84,9 @@ class BlockRenderer {
 
   /// Controls how expensive block previews should behave.
   final MarkdownHeavyBlockPolicy heavyBlockPolicy;
+
+  /// Number of heavy blocks in the current compiled document.
+  final int documentHeavyBlockCount;
 
   /// Renders a list of block [nodes] as a [Column].
   Widget renderBlocks(List<CompiledMarkdownNode> nodes) =>
@@ -331,9 +349,6 @@ class BlockRenderer {
     final blockKind = element.blockKind;
     final previewable = blockKind == CompiledMarkdownBlockKind.previewableCode;
     final inlinePreview = previewable && element.inlinePreview;
-    final shouldDeferHeavyPreview =
-        heavyBlockPolicy == MarkdownHeavyBlockPolicy.defer &&
-        element.isHeavyBlock;
 
     final conduitTheme = context.conduitTheme;
     final codeBlock = Padding(
@@ -353,22 +368,25 @@ class BlockRenderer {
       ),
     );
 
-    if (shouldDeferHeavyPreview) {
-      return _renderDeferredHeavyCodeBlock(codeBlock);
-    }
-
-    if (blockKind == CompiledMarkdownBlockKind.mermaid) {
-      return Padding(
-        padding: EdgeInsets.symmetric(vertical: style.codeBlockSpacing),
-        child: ConduitMarkdown.buildMermaidBlock(context, code),
-      );
-    }
-
-    if (blockKind == CompiledMarkdownBlockKind.chartJs) {
-      return Padding(
-        padding: EdgeInsets.symmetric(vertical: style.codeBlockSpacing),
-        child: ConduitMarkdown.buildChartJsBlock(context, code),
-      );
+    if (element.isHeavyBlock) {
+      final heavyPreview = _buildHeavyPreview(blockKind, code);
+      return switch (_resolveHeavyBlockRenderStrategy(element)) {
+        _HeavyBlockRenderStrategy.eagerPreview => heavyPreview,
+        _HeavyBlockRenderStrategy.deferredPreview =>
+          _DeferredHeavyMarkdownBlock(
+            previewIdentity: (element.nodeId, blockKind, code),
+            codeBlock: codeBlock,
+            preview: heavyPreview,
+            previewDeferredLabel: AppLocalizations.of(
+              context,
+            )!.previewDeferredLargeContent,
+            openPreviewLabel: AppLocalizations.of(context)!.openPreview,
+            actionTextStyle: style.detailAction,
+          ),
+        _HeavyBlockRenderStrategy.codeFallback => _renderDeferredHeavyCodeBlock(
+          codeBlock,
+        ),
+      };
     }
 
     if (!inlinePreview) {
@@ -386,6 +404,41 @@ class BlockRenderer {
         codeBlock,
       ],
     );
+  }
+
+  Widget _buildHeavyPreview(CompiledMarkdownBlockKind blockKind, String code) {
+    return switch (blockKind) {
+      CompiledMarkdownBlockKind.mermaid => Padding(
+        padding: EdgeInsets.symmetric(vertical: style.codeBlockSpacing),
+        child: ConduitMarkdown.buildMermaidBlock(context, code),
+      ),
+      CompiledMarkdownBlockKind.chartJs => Padding(
+        padding: EdgeInsets.symmetric(vertical: style.codeBlockSpacing),
+        child: ConduitMarkdown.buildChartJsBlock(context, code),
+      ),
+      _ => const SizedBox.shrink(),
+    };
+  }
+
+  _HeavyBlockRenderStrategy _resolveHeavyBlockRenderStrategy(
+    CompiledMarkdownElement element,
+  ) {
+    return switch (heavyBlockPolicy) {
+      MarkdownHeavyBlockPolicy.eager => _HeavyBlockRenderStrategy.eagerPreview,
+      MarkdownHeavyBlockPolicy.defer => _HeavyBlockRenderStrategy.codeFallback,
+      MarkdownHeavyBlockPolicy.smart =>
+        _shouldDeferHeavyPreview(element)
+            ? _HeavyBlockRenderStrategy.deferredPreview
+            : _HeavyBlockRenderStrategy.eagerPreview,
+    };
+  }
+
+  bool _shouldDeferHeavyPreview(CompiledMarkdownElement element) {
+    if (!element.isHeavyBlock) {
+      return false;
+    }
+    return element.blockSourceLength >= _smartHeavyBlockSourceLengthThreshold ||
+        documentHeavyBlockCount >= _smartHeavyBlockDocumentCountThreshold;
   }
 
   Widget _renderDeferredHeavyCodeBlock(Widget codeBlock) {
@@ -437,6 +490,7 @@ class BlockRenderer {
       stateScopeId,
       nodePath,
       heavyBlockPolicy,
+      documentHeavyBlockCount,
     );
 
     return Padding(
@@ -551,6 +605,7 @@ class BlockRenderer {
         stateScopeId,
         nodePath,
         heavyBlockPolicy,
+        documentHeavyBlockCount,
       );
       final blockContent = inner.renderBlocks(blockNodes);
 
@@ -825,6 +880,7 @@ class BlockRenderer {
       stateScopeId,
       nodePath,
       heavyBlockPolicy,
+      documentHeavyBlockCount,
     );
 
     return Padding(
@@ -976,6 +1032,7 @@ class BlockRenderer {
       stateScopeId,
       nodePath,
       heavyBlockPolicy,
+      documentHeavyBlockCount,
     );
     return inner.renderBlocks(children);
   }
@@ -989,9 +1046,6 @@ class BlockRenderer {
     );
     return MarkdownDetailsBlock(
       key: _detailsKeyFromStateId(inlineExpansionStateId),
-      summaryText: block.summaryText,
-      attributes: const <String, String>{},
-      hasBody: block.hasBody,
       detailsData: block.detailsData,
       inlineExpansionStateId: inlineExpansionStateId,
       bodyBuilder: block.hasBody
@@ -1006,6 +1060,7 @@ class BlockRenderer {
                 stateScopeId,
                 block.blockId,
                 heavyBlockPolicy,
+                documentHeavyBlockCount,
               );
               return inner.renderBlocks(block.bodyNodes);
             }
@@ -1048,7 +1103,11 @@ class BlockRenderer {
     CompiledMarkdownElement element, {
     required String fallbackBlockId,
   }) {
-    final detailsData = element.detailsData ?? _fallbackDetailsData(element);
+    assert(
+      element.detailsData != null,
+      'Expected details elements to carry compiled details metadata.',
+    );
+    final detailsData = element.detailsData!;
     final children = element.children;
     final bodyNodes = children
         .skip(detailsData.bodyStartIndex)
@@ -1058,59 +1117,6 @@ class BlockRenderer {
       detailsData: detailsData,
       bodyNodes: bodyNodes,
     );
-  }
-
-  CompiledMarkdownDetailsData _fallbackDetailsData(
-    CompiledMarkdownElement element,
-  ) {
-    final children = element.children;
-    final bodyStartIndex = _detailsBodyStartIndex(children);
-    final bodyNodes = children.skip(bodyStartIndex).toList(growable: false);
-    final attributes = element.attributes;
-    final type = attributes['type']?.trim() ?? '';
-    final name = attributes['name']?.trim() ?? '';
-    final done = attributes['done'];
-    final isDone = done == 'true';
-    final isPending = done != null && done != 'true';
-    final durationSeconds = int.tryParse(attributes['duration'] ?? '0') ?? 0;
-    return CompiledMarkdownDetailsData(
-      summaryText: _detailsSummaryText(children).trim(),
-      bodyStartIndex: bodyStartIndex,
-      hasBody: bodyNodes.any(_hasVisualContent),
-      kind: switch (type) {
-        'tool_calls' => CompiledMarkdownDetailsKind.toolCall,
-        'reasoning' => CompiledMarkdownDetailsKind.reasoning,
-        'code_interpreter' => CompiledMarkdownDetailsKind.codeInterpreter,
-        _ => CompiledMarkdownDetailsKind.generic,
-      },
-      type: type,
-      name: name,
-      isDone: isDone,
-      isPending: isPending,
-      durationSeconds: durationSeconds,
-    );
-  }
-
-  int _detailsBodyStartIndex(List<CompiledMarkdownNode> children) {
-    if (children.isEmpty) {
-      return 0;
-    }
-    final firstChild = children.first;
-    if (firstChild is CompiledMarkdownElement && firstChild.tag == 'summary') {
-      return 1;
-    }
-    return 0;
-  }
-
-  String _detailsSummaryText(List<CompiledMarkdownNode> children) {
-    if (children.isEmpty) {
-      return '';
-    }
-    final firstChild = children.first;
-    if (firstChild is CompiledMarkdownElement && firstChild.tag == 'summary') {
-      return firstChild.textContent;
-    }
-    return '';
   }
 
   Key? _detailsKeyFromStateId(String? stateId) {
@@ -1142,31 +1148,6 @@ class BlockRenderer {
       'detail-group',
       stableId,
     ].join('|');
-  }
-
-  bool _hasVisualContent(CompiledMarkdownNode node) {
-    if (node is CompiledMarkdownText) {
-      return node.text.trim().isNotEmpty;
-    }
-    if (node is! CompiledMarkdownElement) {
-      return false;
-    }
-
-    if (const {'img', 'hr'}.contains(node.tag)) {
-      return true;
-    }
-
-    final children = node.children;
-    if (children.isEmpty) {
-      return node.textContent.trim().isNotEmpty;
-    }
-
-    for (final child in children) {
-      if (_hasVisualContent(child)) {
-        return true;
-      }
-    }
-    return false;
   }
 
   // -- Block image --
@@ -1213,4 +1194,70 @@ class _AlertConfig {
   final Color color;
   final IconData icon;
   final String label;
+}
+
+class _DeferredHeavyMarkdownBlock extends StatefulWidget {
+  const _DeferredHeavyMarkdownBlock({
+    required this.previewIdentity,
+    required this.codeBlock,
+    required this.preview,
+    required this.previewDeferredLabel,
+    required this.openPreviewLabel,
+    required this.actionTextStyle,
+  });
+
+  final Object previewIdentity;
+  final Widget codeBlock;
+  final Widget preview;
+  final String previewDeferredLabel;
+  final String openPreviewLabel;
+  final TextStyle actionTextStyle;
+
+  @override
+  State<_DeferredHeavyMarkdownBlock> createState() =>
+      _DeferredHeavyMarkdownBlockState();
+}
+
+class _DeferredHeavyMarkdownBlockState
+    extends State<_DeferredHeavyMarkdownBlock> {
+  var _isPreviewVisible = false;
+
+  @override
+  void didUpdateWidget(covariant _DeferredHeavyMarkdownBlock oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.previewIdentity != widget.previewIdentity) {
+      _isPreviewVisible = false;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isPreviewVisible) {
+      return widget.preview;
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: Spacing.sm),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  widget.previewDeferredLabel,
+                  style: widget.actionTextStyle,
+                ),
+              ),
+              TextButton(
+                onPressed: () => setState(() => _isPreviewVisible = true),
+                child: Text(widget.openPreviewLabel),
+              ),
+            ],
+          ),
+        ),
+        widget.codeBlock,
+      ],
+    );
+  }
 }

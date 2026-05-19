@@ -187,6 +187,106 @@ graph TD
   );
 
   testWidgets(
+    'keeps small heavy mermaid previews eager after streaming completes',
+    (tester) async {
+      const content = '''
+```mermaid
+graph TD
+  A-->B
+```
+''';
+
+      await tester.pumpWidget(buildHarness(content));
+
+      expect(find.byType(MermaidDiagram), findsOneWidget);
+      expect(find.text('Preview deferred for large content.'), findsNothing);
+      expect(find.text('Open preview'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'defers oversized heavy mermaid previews until explicitly opened',
+    (tester) async {
+      final lines = List<String>.generate(
+        160,
+        (index) => '  N$index-->N${index + 1}',
+      );
+      final content = ['```mermaid', 'graph TD', ...lines, '```'].join('\n');
+
+      await tester.pumpWidget(buildHarness(content));
+
+      expect(find.text('Preview deferred for large content.'), findsOneWidget);
+      expect(find.text('Open preview'), findsOneWidget);
+      expect(find.byType(MermaidDiagram), findsNothing);
+
+      await tester.tap(find.text('Open preview'));
+      await tester.pump();
+
+      expect(find.byType(MermaidDiagram), findsOneWidget);
+    },
+  );
+
+  testWidgets('defers multiple heavy previews until explicitly opened', (
+    tester,
+  ) async {
+    const content = '''
+```mermaid
+graph TD
+  A-->B
+```
+
+```mermaid
+graph TD
+  C-->D
+```
+''';
+
+    await tester.pumpWidget(buildHarness(content));
+
+    expect(find.text('Preview deferred for large content.'), findsNWidgets(2));
+    expect(find.text('Open preview'), findsNWidgets(2));
+    expect(find.byType(MermaidDiagram), findsNothing);
+  });
+
+  testWidgets(
+    'deferred heavy preview state resets when the block content changes',
+    (tester) async {
+      final firstLines = List<String>.generate(
+        160,
+        (index) => '  A$index-->A${index + 1}',
+      );
+      final secondLines = List<String>.generate(
+        160,
+        (index) => '  B$index-->B${index + 1}',
+      );
+      final firstContent = [
+        '```mermaid',
+        'graph TD',
+        ...firstLines,
+        '```',
+      ].join('\n');
+      final secondContent = [
+        '```mermaid',
+        'graph LR',
+        ...secondLines,
+        '```',
+      ].join('\n');
+
+      await tester.pumpWidget(buildHarness(firstContent));
+
+      expect(find.text('Open preview'), findsOneWidget);
+      await tester.tap(find.text('Open preview'));
+      await tester.pump();
+      expect(find.byType(MermaidDiagram), findsOneWidget);
+
+      await tester.pumpWidget(buildHarness(secondContent));
+
+      expect(find.text('Open preview'), findsOneWidget);
+      expect(find.byType(MermaidDiagram), findsNothing);
+    },
+  );
+
+  testWidgets(
     'renders loose list item paragraphs inline like the web renderer',
     (tester) async {
       const content = '- First paragraph.\n\n  Second paragraph.';

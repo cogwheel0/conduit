@@ -415,6 +415,7 @@ class CompiledMarkdownElement extends CompiledMarkdownNode {
     required this.tag,
     this.blockKind = CompiledMarkdownBlockKind.none,
     this.language = '',
+    this.blockSourceLength = 0,
     this.inlinePreview = false,
     this.detailsData,
     required Map<String, String> attributes,
@@ -427,6 +428,7 @@ class CompiledMarkdownElement extends CompiledMarkdownNode {
   final String tag;
   final CompiledMarkdownBlockKind blockKind;
   final String language;
+  final int blockSourceLength;
   final bool inlinePreview;
   final CompiledMarkdownDetailsData? detailsData;
   final Map<String, String> attributes;
@@ -442,6 +444,7 @@ class CompiledMarkdownElement extends CompiledMarkdownNode {
       tag.length +
       blockKind.name.length +
       language.length +
+      blockSourceLength +
       (detailsData?.weight ?? 0) +
       attributes.entries.fold<int>(
         0,
@@ -459,6 +462,7 @@ class CompiledMarkdownElement extends CompiledMarkdownNode {
     'tag': tag,
     'blockKind': blockKind.name,
     'language': language,
+    'blockSourceLength': blockSourceLength,
     'inlinePreview': inlinePreview,
     'detailsData': detailsData?.toMap(),
     'attributes': attributes,
@@ -485,6 +489,7 @@ class CompiledMarkdownElement extends CompiledMarkdownNode {
       tag: (map['tag'] ?? '') as String,
       blockKind: _blockKindFromName((map['blockKind'] ?? '') as String),
       language: (map['language'] ?? '') as String,
+      blockSourceLength: (map['blockSourceLength'] ?? 0) as int,
       inlinePreview: (map['inlinePreview'] ?? false) as bool,
       detailsData: detailsDataMap == null
           ? null
@@ -503,6 +508,7 @@ class CompiledMarkdownElement extends CompiledMarkdownNode {
         other.tag == tag &&
         other.blockKind == blockKind &&
         other.language == language &&
+        other.blockSourceLength == blockSourceLength &&
         other.inlinePreview == inlinePreview &&
         other.detailsData == detailsData &&
         mapEquals(other.attributes, attributes) &&
@@ -515,6 +521,7 @@ class CompiledMarkdownElement extends CompiledMarkdownNode {
     tag,
     blockKind,
     language,
+    blockSourceLength,
     inlinePreview,
     detailsData,
     Object.hashAllUnordered(attributes.entries),

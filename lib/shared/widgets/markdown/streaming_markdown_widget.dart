@@ -7,6 +7,7 @@ import '../../../core/services/worker_manager.dart';
 import 'compiled_markdown_document.dart';
 import 'markdown_config.dart';
 import 'markdown_compile_service.dart';
+import 'markdown_document_controller.dart';
 import 'renderer/block_renderer.dart';
 import 'renderer/conduit_markdown_widget.dart';
 
@@ -105,25 +106,32 @@ class _StreamingMarkdownWidgetState
     extends ConsumerState<StreamingMarkdownWidget> {
   static const _streamingRenderInterval = Duration(milliseconds: 120);
 
+  late final MarkdownDocumentController _documentController;
   _MarkdownRenderSnapshot _snapshot = const _MarkdownRenderSnapshot.empty();
-  CompiledMarkdownDocument? _compiledDocument;
-  String _compiledPreparedContent = '';
   Timer? _renderTimer;
   bool _snapshotInFlight = false;
-  bool _documentInFlight = false;
   String? _queuedContent;
-  String? _queuedPreparedContent;
   int _snapshotGeneration = 0;
-  int _documentGeneration = 0;
+
+  CompiledMarkdownDocument? get _compiledDocument =>
+      _documentController.compiledDocument;
+
+  String get _compiledPreparedContent =>
+      _documentController.compiledPreparedContent;
 
   @override
   void initState() {
     super.initState();
+    _documentController = MarkdownDocumentController(
+      readCompiler: () => ref.read(markdownCompileServiceProvider),
+      isWidgetTest: () => _isWidgetTest,
+      onStateChanged: _applyCompiledDocumentState,
+    );
     _snapshot = _buildMarkdownSnapshot(
       widget.content,
       streaming: widget.isStreaming,
     );
-    _primeCompiledDocument(_snapshot);
+    _resolveCompiledDocument(_snapshot);
   }
 
   @override
@@ -169,8 +177,7 @@ class _StreamingMarkdownWidgetState
   @override
   void dispose() {
     _renderTimer?.cancel();
-    _queuedPreparedContent = null;
-    _documentGeneration += 1;
+    _documentController.dispose();
     super.dispose();
   }
 
@@ -195,7 +202,7 @@ class _StreamingMarkdownWidgetState
     _renderTimer = null;
     _queuedContent = null;
     _snapshotGeneration += 1;
-    _invalidatePendingAsyncDocument();
+    _documentController.invalidatePending();
   }
 
   void _queueLatestStreamingContent(String content) {
@@ -313,140 +320,22 @@ class _StreamingMarkdownWidgetState
       stateScopeId: widget.stateScopeId,
       heavyBlockPolicy: widget.isStreaming
           ? MarkdownHeavyBlockPolicy.defer
-          : MarkdownHeavyBlockPolicy.eager,
+          : MarkdownHeavyBlockPolicy.smart,
     );
   }
 
-  void _primeCompiledDocument(_MarkdownRenderSnapshot snapshot) {
-    if (snapshot.normalizedContent.trim().isEmpty) {
-      _compiledPreparedContent = '';
-      _compiledDocument = const CompiledMarkdownDocument.empty();
-      return;
-    }
-
-    final compiler = ref.read(markdownCompileServiceProvider);
-    final cached = compiler.peekPrepared(snapshot.normalizedContent);
-    if (cached != null) {
-      _compiledPreparedContent = snapshot.normalizedContent;
-      _compiledDocument = cached;
-      return;
-    }
-
-    if (compiler.shouldCompileSynchronously(
-      snapshot.normalizedContent,
-      widgetTest: _isWidgetTest,
-    )) {
-      final syncDocument = compiler.compilePreparedSynchronously(
-        snapshot.normalizedContent,
-      );
-      _compiledPreparedContent = snapshot.normalizedContent;
-      _compiledDocument = syncDocument;
-      return;
-    }
-
-    _compiledPreparedContent = '';
-    _compiledDocument = null;
-    unawaited(_refreshCompiledDocument(snapshot.normalizedContent));
-  }
-
-  void _invalidatePendingAsyncDocument() {
-    _queuedPreparedContent = null;
-    _documentGeneration += 1;
-  }
-
-  void _queueLatestPreparedContent(String preparedContent) {
-    if (_queuedPreparedContent == preparedContent) {
-      return;
-    }
-    _queuedPreparedContent = preparedContent;
-    _documentGeneration += 1;
-  }
-
   void _resolveCompiledDocument(_MarkdownRenderSnapshot snapshot) {
-    final preparedContent = snapshot.normalizedContent;
-    if (preparedContent.trim().isEmpty) {
-      _invalidatePendingAsyncDocument();
-      _applyCompiledDocument('', const CompiledMarkdownDocument.empty());
-      return;
-    }
-
-    final compiler = ref.read(markdownCompileServiceProvider);
-    final cached = compiler.peekPrepared(preparedContent);
-    if (cached != null) {
-      _invalidatePendingAsyncDocument();
-      _applyCompiledDocument(preparedContent, cached);
-      return;
-    }
-
-    if (compiler.shouldCompileSynchronously(
-      preparedContent,
-      widgetTest: _isWidgetTest,
-    )) {
-      _invalidatePendingAsyncDocument();
-      final syncDocument = compiler.compilePreparedSynchronously(
-        preparedContent,
-      );
-      _applyCompiledDocument(preparedContent, syncDocument);
-      return;
-    }
-
-    if (_documentInFlight) {
-      _queueLatestPreparedContent(preparedContent);
-      return;
-    }
-
-    unawaited(_refreshCompiledDocument(preparedContent));
+    _documentController.resolvePrepared(snapshot.normalizedContent);
   }
 
-  Future<void> _refreshCompiledDocument(String preparedContent) async {
-    if (_documentInFlight) {
-      _queueLatestPreparedContent(preparedContent);
-      return;
-    }
-
-    _documentInFlight = true;
-    final generation = ++_documentGeneration;
-    try {
-      final compiler = ref.read(markdownCompileServiceProvider);
-      final document = await compiler.compilePrepared(preparedContent);
-      if (!mounted ||
-          generation != _documentGeneration ||
-          _snapshot.normalizedContent != preparedContent) {
-        return;
-      }
-      _applyCompiledDocument(preparedContent, document);
-    } finally {
-      _documentInFlight = false;
-      final queuedPreparedContent = _queuedPreparedContent;
-      _queuedPreparedContent = null;
-      if (queuedPreparedContent != null &&
-          (queuedPreparedContent != preparedContent ||
-              generation != _documentGeneration) &&
-          mounted) {
-        unawaited(_refreshCompiledDocument(queuedPreparedContent));
-      }
-    }
-  }
-
-  void _applyCompiledDocument(
-    String preparedContent,
-    CompiledMarkdownDocument document,
+  void _applyCompiledDocumentState(
+    String compiledPreparedContent,
+    CompiledMarkdownDocument? document,
   ) {
-    final changed =
-        _compiledPreparedContent != preparedContent ||
-        _compiledDocument != document;
-    if (!changed) {
-      return;
-    }
     if (!mounted) {
-      _compiledPreparedContent = preparedContent;
-      _compiledDocument = document;
       return;
     }
-    setState(() {
-      _compiledPreparedContent = preparedContent;
-      _compiledDocument = document;
-    });
+    setState(() {});
   }
 }
 

@@ -554,6 +554,7 @@ CompiledMarkdownNode _compileNodeFromMarkdownNode(
       tag: node.tag,
       blockKind: codeMetadata.blockKind,
       language: codeMetadata.language,
+      blockSourceLength: codeMetadata.sourceLength,
       inlinePreview: codeMetadata.inlinePreview,
       detailsData: node.tag == 'details'
           ? _buildCompiledDetailsData(
@@ -837,12 +838,11 @@ CompiledMarkdownDetailsBlock? _tryBuildCompiledDetailsBlock(
 CompiledMarkdownDetailsBlock _buildCompiledDetailsBlock(
   CompiledMarkdownElement element,
 ) {
-  final detailsData =
-      element.detailsData ??
-      _buildCompiledDetailsData(
-        attributes: element.attributes,
-        children: element.children,
-      );
+  assert(
+    element.detailsData != null,
+    'Expected details elements to carry compiled details metadata.',
+  );
+  final detailsData = element.detailsData!;
   final bodyNodes = element.children
       .skip(detailsData.bodyStartIndex)
       .toList(growable: false);
@@ -1065,12 +1065,18 @@ bool _compiledNodeHasVisualContent(CompiledMarkdownNode node) {
   return false;
 }
 
-({CompiledMarkdownBlockKind blockKind, String language, bool inlinePreview})
+({
+  CompiledMarkdownBlockKind blockKind,
+  String language,
+  int sourceLength,
+  bool inlinePreview,
+})
 _extractCodeBlockMetadata(md.Element element) {
   if (element.tag != 'pre') {
     return (
       blockKind: CompiledMarkdownBlockKind.none,
       language: '',
+      sourceLength: 0,
       inlinePreview: false,
     );
   }
@@ -1082,6 +1088,7 @@ _extractCodeBlockMetadata(md.Element element) {
     return (
       blockKind: CompiledMarkdownBlockKind.mermaid,
       language: language,
+      sourceLength: code.length,
       inlinePreview: false,
     );
   }
@@ -1089,6 +1096,7 @@ _extractCodeBlockMetadata(md.Element element) {
     return (
       blockKind: CompiledMarkdownBlockKind.chartJs,
       language: language,
+      sourceLength: code.length,
       inlinePreview: false,
     );
   }
@@ -1099,6 +1107,7 @@ _extractCodeBlockMetadata(md.Element element) {
         ? CompiledMarkdownBlockKind.previewableCode
         : CompiledMarkdownBlockKind.code,
     language: language,
+    sourceLength: code.length,
     inlinePreview: previewable && _shouldInlinePreviewCodeBlock(language, code),
   );
 }

@@ -124,4 +124,16 @@ void main() {
 
     expect(indices, <int>[3, 2]);
   });
+
+  test('clearing pin-to-top tracking preserves the active phantom sliver', () {
+    final cleared = debugClearPinToTopTrackingForTesting(
+      isActive: true,
+      userMessageId: 'user-1',
+      streamingMessageId: 'assistant-1',
+    );
+
+    expect(cleared.isActive, isTrue);
+    expect(cleared.userMessageId, isNull);
+    expect(cleared.streamingMessageId, isNull);
+  });
 }

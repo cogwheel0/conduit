@@ -115,10 +115,61 @@ class _ImmediateMarkdownCompileService extends MarkdownCompileService {
   }) => true;
 }
 
+class _SequencedBlockingMarkdownCompileService extends MarkdownCompileService {
+  _SequencedBlockingMarkdownCompileService()
+    : super(workerManager: WorkerManager());
+
+  final Queue<Completer<void>> _releases = Queue<Completer<void>>();
+
+  void releaseNext() {
+    if (_releases.isEmpty) {
+      return;
+    }
+    final next = _releases.removeFirst();
+    if (!next.isCompleted) {
+      next.complete();
+    }
+  }
+
+  @override
+  Future<CompiledMarkdownDocument> compilePrepared(
+    String preparedContent, {
+    bool allowSynchronous = false,
+    bool widgetTest = false,
+  }) async {
+    final release = Completer<void>();
+    _releases.add(release);
+    await release.future;
+    return compilePreparedSynchronously(preparedContent);
+  }
+
+  @override
+  bool shouldCompileSynchronously(
+    String preparedContent, {
+    bool widgetTest = false,
+  }) => false;
+}
+
 Widget _buildMarkdownHarness(String data) {
   return ProviderScope(
     child: MaterialApp(
       home: Scaffold(body: ConduitMarkdownWidget(data: data)),
+    ),
+  );
+}
+
+Widget _buildAsyncMarkdownHarness({
+  required String data,
+  required MarkdownCompileService compileService,
+}) {
+  return ProviderScope(
+    overrides: [
+      markdownCompileServiceProvider.overrideWithValue(compileService),
+    ],
+    child: MaterialApp(
+      home: Scaffold(
+        body: ConduitMarkdownWidget(data: data, debugTreatAsWidgetTest: false),
+      ),
     ),
   );
 }
@@ -175,6 +226,55 @@ void main() {
       containsAll(<String>['Message 0', 'Message 32']),
     );
   });
+
+  testWidgets(
+    'conduit markdown async compile flow discards stale prepared content',
+    (tester) async {
+      final compileService = _SequencedBlockingMarkdownCompileService();
+      addTearDown(compileService.dispose);
+
+      await tester.pumpWidget(
+        _buildAsyncMarkdownHarness(
+          data: 'First async response',
+          compileService: compileService,
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        find.textContaining('First async response', findRichText: true),
+        findsNothing,
+      );
+
+      await tester.pumpWidget(
+        _buildAsyncMarkdownHarness(
+          data: 'Second async response',
+          compileService: compileService,
+        ),
+      );
+      await tester.pump();
+
+      compileService.releaseNext();
+      await tester.pump();
+
+      expect(
+        find.textContaining('First async response', findRichText: true),
+        findsNothing,
+      );
+
+      compileService.releaseNext();
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('First async response', findRichText: true),
+        findsNothing,
+      );
+      expect(
+        find.textContaining('Second async response', findRichText: true),
+        findsOneWidget,
+      );
+    },
+  );
 
   test('streaming markdown snapshot keeps full normalized content', () {
     final content = [
