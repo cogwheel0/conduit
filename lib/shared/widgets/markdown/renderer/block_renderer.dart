@@ -1,8 +1,8 @@
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
-import 'package:markdown/markdown.dart' as md;
 
 import '../../../theme/theme_extensions.dart';
+import '../compiled_markdown_document.dart';
 import '../markdown_config.dart';
 import 'details_block_widget.dart';
 import 'details_group_widget.dart';
@@ -10,10 +10,10 @@ import 'inline_renderer.dart';
 import 'latex_preprocessor.dart';
 import 'markdown_style.dart';
 
-const Set<String> _groupableDetailTypes = {'tool_calls'};
-
 /// Signature for a builder that creates image widgets.
 typedef ImageBuilder = Widget Function(String src, String? alt, String? title);
+
+enum MarkdownHeavyBlockPolicy { eager, defer }
 
 /// Renders markdown AST block-level nodes as Flutter
 /// widgets.
@@ -40,6 +40,7 @@ class BlockRenderer {
     this.imageBuilder,
     this.stateScopeId,
     this.nodePathPrefix,
+    this.heavyBlockPolicy = MarkdownHeavyBlockPolicy.eager,
   ]);
 
   /// The active build context.
@@ -66,44 +67,21 @@ class BlockRenderer {
   /// Optional AST path prefix used to keep sibling block identities unique.
   final String? nodePathPrefix;
 
+  /// Controls how expensive block previews should behave.
+  final MarkdownHeavyBlockPolicy heavyBlockPolicy;
+
   /// Renders a list of block [nodes] as a [Column].
-  Widget renderBlocks(List<md.Node> nodes) {
+  Widget renderBlocks(List<CompiledMarkdownNode> nodes) =>
+      renderCompiledBlocks(_compiledBlocksFromNodes(nodes));
+
+  /// Renders a list of precompiled root blocks as a [Column].
+  Widget renderCompiledBlocks(List<CompiledMarkdownBlock> blocks) {
     final widgets = <Widget>[];
-    var index = 0;
-    while (index < nodes.length) {
-      final descriptor = _groupableDetailsDescriptor(
-        nodes[index],
-        nodePath: _nodePathFor(index),
-      );
-      if (descriptor != null) {
-        final descriptors = <_DetailsRenderDescriptor>[descriptor];
-        var lookahead = index + 1;
-        while (lookahead < nodes.length) {
-          final nextDescriptor = _groupableDetailsDescriptor(
-            nodes[lookahead],
-            nodePath: _nodePathFor(lookahead),
-          );
-          if (nextDescriptor == null) {
-            break;
-          }
-          descriptors.add(nextDescriptor);
-          lookahead++;
-        }
-
-        if (descriptors.length > 1) {
-          widgets.add(_renderDetailsGroup(descriptors));
-          index = lookahead;
-          continue;
-        }
-
-        widgets.add(_renderDetailsDescriptor(descriptor));
-        index++;
-        continue;
+    for (final block in blocks) {
+      final widget = _renderCompiledBlock(block);
+      if (widget != null) {
+        widgets.add(widget);
       }
-
-      final widget = renderBlock(nodes[index], nodePath: _nodePathFor(index));
-      if (widget != null) widgets.add(widget);
-      index++;
     }
     if (widgets.isNotEmpty) {
       widgets[widgets.length - 1] = _withoutBottomPadding(widgets.last);
@@ -128,15 +106,78 @@ class BlockRenderer {
     );
   }
 
-  /// Dispatches a single block [node] to its renderer.
-  ///
-  /// Returns `null` if the node produces no visual output.
-  Widget? renderBlock(md.Node node, {required String nodePath}) {
-    if (node is md.Text) {
-      return _renderTextNode(node);
+  Widget? _renderCompiledBlock(CompiledMarkdownBlock block) {
+    if (block is CompiledMarkdownNodeBlock) {
+      return _renderCompiledNodeBlock(block);
     }
-    if (node is! md.Element) return null;
-    return _renderElement(node, nodePath: nodePath);
+    if (block is CompiledMarkdownDetailsBlock) {
+      return _renderCompiledDetailsBlock(block);
+    }
+    if (block is CompiledMarkdownDetailsGroup) {
+      return _renderCompiledDetailsGroup(block);
+    }
+    return null;
+  }
+
+  List<CompiledMarkdownBlock> _compiledBlocksFromNodes(
+    List<CompiledMarkdownNode> nodes,
+  ) {
+    final blocks = <CompiledMarkdownBlock>[];
+    var index = 0;
+    while (index < nodes.length) {
+      final node = nodes[index];
+      final nodePath = _nodePathFor(index);
+      final detailsBlock = _compiledDetailsBlockFromNode(
+        node,
+        fallbackBlockId: nodePath,
+      );
+      if (detailsBlock == null) {
+        blocks.add(
+          CompiledMarkdownNodeBlock.fromNode(
+            blockId: node.nodeId.isEmpty ? nodePath : node.nodeId,
+            node: node,
+          ),
+        );
+        index += 1;
+        continue;
+      }
+
+      final shouldGroup = detailsBlock.type == 'tool_calls';
+      if (!shouldGroup) {
+        blocks.add(detailsBlock);
+        index += 1;
+        continue;
+      }
+
+      final groupedItems = <CompiledMarkdownDetailsBlock>[detailsBlock];
+      var lookahead = index + 1;
+      while (lookahead < nodes.length) {
+        final nextDetailsBlock = _compiledDetailsBlockFromNode(
+          nodes[lookahead],
+          fallbackBlockId: _nodePathFor(lookahead),
+        );
+        if (nextDetailsBlock == null ||
+            nextDetailsBlock.type != detailsBlock.type) {
+          break;
+        }
+        groupedItems.add(nextDetailsBlock);
+        lookahead += 1;
+      }
+
+      if (groupedItems.length == 1) {
+        blocks.add(detailsBlock);
+      } else {
+        blocks.add(
+          CompiledMarkdownDetailsGroup(
+            blockId:
+                'group:${groupedItems.first.blockId}:${groupedItems.first.type}',
+            items: groupedItems,
+          ),
+        );
+      }
+      index = lookahead;
+    }
+    return List<CompiledMarkdownBlock>.unmodifiable(blocks);
   }
 
   String _nodePathFor(int index) {
@@ -150,39 +191,82 @@ class BlockRenderer {
   String _childNodePath(String parentNodePath, int childIndex) =>
       '$parentNodePath.$childIndex';
 
-  Widget? _renderTextNode(md.Text node) {
+  Widget? _renderTextNode(CompiledMarkdownText node) {
     final text = node.text.trim();
     if (text.isEmpty) return null;
     return Text.rich(inlineRenderer.render([node]));
   }
 
-  Widget? _renderElement(md.Element element, {required String nodePath}) {
-    return switch (element.tag) {
-      'p' => _renderParagraph(element),
-      'h1' => _renderHeading(element, 1),
-      'h2' => _renderHeading(element, 2),
-      'h3' => _renderHeading(element, 3),
-      'h4' => _renderHeading(element, 4),
-      'h5' => _renderHeading(element, 5),
-      'h6' => _renderHeading(element, 6),
-      'pre' => _renderCodeBlock(element),
-      'blockquote' => _renderBlockquote(element, nodePath: nodePath),
-      'ul' => _renderUnorderedList(element, nodePath: nodePath),
-      'ol' => _renderOrderedList(element, nodePath: nodePath),
-      'li' => _renderListItem(element, '', nodePath: nodePath),
-      'table' => _renderTable(element),
-      'hr' => _renderHorizontalRule(),
-      'div' => _renderDiv(element, nodePath: nodePath),
-      'section' => _renderSection(element, nodePath: nodePath),
-      'details' => _renderDetails(element, nodePath: nodePath),
-      'img' => _renderBlockImage(element),
-      _ => _renderFallback(element),
+  Widget? _renderCompiledNodeBlock(CompiledMarkdownNodeBlock block) {
+    final nodePath = block.node.nodeId.isEmpty
+        ? block.blockId
+        : block.node.nodeId;
+    final node = block.node;
+    return switch (block.kind) {
+      CompiledMarkdownNodeBlockKind.text =>
+        node is CompiledMarkdownText ? _renderTextNode(node) : null,
+      CompiledMarkdownNodeBlockKind.paragraph =>
+        node is CompiledMarkdownElement ? _renderParagraph(node) : null,
+      CompiledMarkdownNodeBlockKind.heading1 =>
+        node is CompiledMarkdownElement ? _renderHeading(node, 1) : null,
+      CompiledMarkdownNodeBlockKind.heading2 =>
+        node is CompiledMarkdownElement ? _renderHeading(node, 2) : null,
+      CompiledMarkdownNodeBlockKind.heading3 =>
+        node is CompiledMarkdownElement ? _renderHeading(node, 3) : null,
+      CompiledMarkdownNodeBlockKind.heading4 =>
+        node is CompiledMarkdownElement ? _renderHeading(node, 4) : null,
+      CompiledMarkdownNodeBlockKind.heading5 =>
+        node is CompiledMarkdownElement ? _renderHeading(node, 5) : null,
+      CompiledMarkdownNodeBlockKind.heading6 =>
+        node is CompiledMarkdownElement ? _renderHeading(node, 6) : null,
+      CompiledMarkdownNodeBlockKind.codeBlock =>
+        node is CompiledMarkdownElement ? _renderCodeBlock(node) : null,
+      CompiledMarkdownNodeBlockKind.blockquote =>
+        node is CompiledMarkdownElement
+            ? _renderBlockquote(node, nodePath: nodePath)
+            : null,
+      CompiledMarkdownNodeBlockKind.unorderedList =>
+        node is CompiledMarkdownElement
+            ? _renderUnorderedList(node, nodePath: nodePath)
+            : null,
+      CompiledMarkdownNodeBlockKind.orderedList =>
+        node is CompiledMarkdownElement
+            ? _renderOrderedList(node, nodePath: nodePath)
+            : null,
+      CompiledMarkdownNodeBlockKind.listItem =>
+        node is CompiledMarkdownElement
+            ? _renderListItem(node, '', nodePath: nodePath)
+            : null,
+      CompiledMarkdownNodeBlockKind.table =>
+        node is CompiledMarkdownElement ? _renderTable(node) : null,
+      CompiledMarkdownNodeBlockKind.horizontalRule => _renderHorizontalRule(),
+      CompiledMarkdownNodeBlockKind.div =>
+        node is CompiledMarkdownElement
+            ? _renderDiv(node, nodePath: nodePath)
+            : null,
+      CompiledMarkdownNodeBlockKind.section =>
+        node is CompiledMarkdownElement
+            ? _renderSection(node, nodePath: nodePath)
+            : null,
+      CompiledMarkdownNodeBlockKind.details =>
+        node is CompiledMarkdownElement
+            ? _renderCompiledDetailsBlock(
+                _compiledDetailsBlockFromElement(
+                  node,
+                  fallbackBlockId: nodePath,
+                ),
+              )
+            : null,
+      CompiledMarkdownNodeBlockKind.image =>
+        node is CompiledMarkdownElement ? _renderBlockImage(node) : null,
+      CompiledMarkdownNodeBlockKind.fallback =>
+        node is CompiledMarkdownElement ? _renderFallback(node) : null,
     };
   }
 
   // -- Paragraph --
 
-  Widget _renderParagraph(md.Element element) {
+  Widget _renderParagraph(CompiledMarkdownElement element) {
     final singleImage = _extractSingleImage(element);
     if (singleImage != null) {
       return Padding(
@@ -192,7 +276,7 @@ class BlockRenderer {
     }
 
     final children = element.children;
-    if (children == null || children.isEmpty) {
+    if (children.isEmpty) {
       return const SizedBox.shrink();
     }
 
@@ -204,13 +288,15 @@ class BlockRenderer {
 
   /// Returns the single `img` child if the paragraph
   /// contains exactly one child that is an `img` element.
-  md.Element? _extractSingleImage(md.Element paragraph) {
+  CompiledMarkdownElement? _extractSingleImage(
+    CompiledMarkdownElement paragraph,
+  ) {
     final children = paragraph.children;
-    if (children == null || children.length != 1) {
+    if (children.length != 1) {
       return null;
     }
     final child = children.first;
-    if (child is md.Element && child.tag == 'img') {
+    if (child is CompiledMarkdownElement && child.tag == 'img') {
       return child;
     }
     return null;
@@ -218,9 +304,9 @@ class BlockRenderer {
 
   // -- Heading --
 
-  Widget _renderHeading(md.Element element, int level) {
+  Widget _renderHeading(CompiledMarkdownElement element, int level) {
     final children = element.children;
-    final span = (children != null && children.isNotEmpty)
+    final span = children.isNotEmpty
         ? inlineRenderer.render(
             children,
             parentStyle: style.headingStyle(level),
@@ -238,31 +324,18 @@ class BlockRenderer {
 
   // -- Code block --
 
-  Widget _renderCodeBlock(md.Element element) {
+  Widget _renderCodeBlock(CompiledMarkdownElement element) {
     final codeElement = _extractCodeChild(element);
-    final language = _extractLanguage(codeElement) ?? '';
+    final language = element.language;
     final code = (codeElement ?? element).textContent;
-
-    if (language == 'mermaid') {
-      return Padding(
-        padding: EdgeInsets.symmetric(vertical: style.codeBlockSpacing),
-        child: ConduitMarkdown.buildMermaidBlock(context, code),
-      );
-    }
-
-    if (language == 'html' && ConduitMarkdown.containsChartJs(code)) {
-      return Padding(
-        padding: EdgeInsets.symmetric(vertical: style.codeBlockSpacing),
-        child: ConduitMarkdown.buildChartJsBlock(context, code),
-      );
-    }
+    final blockKind = element.blockKind;
+    final previewable = blockKind == CompiledMarkdownBlockKind.previewableCode;
+    final inlinePreview = previewable && element.inlinePreview;
+    final shouldDeferHeavyPreview =
+        heavyBlockPolicy == MarkdownHeavyBlockPolicy.defer &&
+        element.isHeavyBlock;
 
     final conduitTheme = context.conduitTheme;
-    final previewable = ConduitMarkdown.isPreviewableCodeBlock(language, code);
-    final inlinePreview =
-        previewable &&
-        ConduitMarkdown.shouldInlinePreviewCodeBlock(language, code);
-
     final codeBlock = Padding(
       padding: EdgeInsets.symmetric(vertical: style.codeBlockSpacing),
       child: ConduitMarkdown.buildCodeBlock(
@@ -279,6 +352,24 @@ class BlockRenderer {
             : null,
       ),
     );
+
+    if (shouldDeferHeavyPreview) {
+      return _renderDeferredHeavyCodeBlock(codeBlock);
+    }
+
+    if (blockKind == CompiledMarkdownBlockKind.mermaid) {
+      return Padding(
+        padding: EdgeInsets.symmetric(vertical: style.codeBlockSpacing),
+        child: ConduitMarkdown.buildMermaidBlock(context, code),
+      );
+    }
+
+    if (blockKind == CompiledMarkdownBlockKind.chartJs) {
+      return Padding(
+        padding: EdgeInsets.symmetric(vertical: style.codeBlockSpacing),
+        child: ConduitMarkdown.buildChartJsBlock(context, code),
+      );
+    }
 
     if (!inlinePreview) {
       return codeBlock;
@@ -297,32 +388,42 @@ class BlockRenderer {
     );
   }
 
+  Widget _renderDeferredHeavyCodeBlock(Widget codeBlock) {
+    final l10n = AppLocalizations.of(context)!;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: EdgeInsets.only(top: style.codeBlockSpacing),
+          child: Text(
+            l10n.previewDeferredLargeContent,
+            style: style.detailAction,
+          ),
+        ),
+        codeBlock,
+      ],
+    );
+  }
+
   /// Extracts the `<code>` child from a `<pre>` element.
-  md.Element? _extractCodeChild(md.Element pre) {
+  CompiledMarkdownElement? _extractCodeChild(CompiledMarkdownElement pre) {
     final children = pre.children;
-    if (children == null) return null;
     for (final child in children) {
-      if (child is md.Element && child.tag == 'code') {
+      if (child is CompiledMarkdownElement && child.tag == 'code') {
         return child;
       }
     }
     return null;
   }
 
-  /// Extracts the language from a code element's
-  /// `class="language-xxx"` attribute.
-  String? _extractLanguage(md.Element? code) {
-    if (code == null) return null;
-    final cls = code.attributes['class'] ?? '';
-    if (!cls.startsWith('language-')) return null;
-    return cls.substring('language-'.length);
-  }
-
   // -- Blockquote --
 
-  Widget _renderBlockquote(md.Element element, {required String nodePath}) {
+  Widget _renderBlockquote(
+    CompiledMarkdownElement element, {
+    required String nodePath,
+  }) {
     final children = element.children;
-    if (children == null || children.isEmpty) {
+    if (children.isEmpty) {
       return const SizedBox.shrink();
     }
 
@@ -335,6 +436,7 @@ class BlockRenderer {
       imageBuilder,
       stateScopeId,
       nodePath,
+      heavyBlockPolicy,
     );
 
     return Padding(
@@ -356,12 +458,15 @@ class BlockRenderer {
 
   // -- Unordered list --
 
-  Widget _renderUnorderedList(md.Element element, {required String nodePath}) {
-    final children = element.children ?? [];
+  Widget _renderUnorderedList(
+    CompiledMarkdownElement element, {
+    required String nodePath,
+  }) {
+    final children = element.children;
     final items = <Widget>[];
     for (var index = 0; index < children.length; index++) {
       final child = children[index];
-      if (child is md.Element && child.tag == 'li') {
+      if (child is CompiledMarkdownElement && child.tag == 'li') {
         items.add(
           _renderListItem(
             child,
@@ -382,16 +487,19 @@ class BlockRenderer {
 
   // -- Ordered list --
 
-  Widget _renderOrderedList(md.Element element, {required String nodePath}) {
+  Widget _renderOrderedList(
+    CompiledMarkdownElement element, {
+    required String nodePath,
+  }) {
     final startAttr = element.attributes['start'];
     final start = startAttr != null ? (int.tryParse(startAttr) ?? 1) : 1;
 
-    final children = element.children ?? [];
+    final children = element.children;
     final items = <Widget>[];
     var index = start;
     for (var childIndex = 0; childIndex < children.length; childIndex++) {
       final child = children[childIndex];
-      if (child is md.Element && child.tag == 'li') {
+      if (child is CompiledMarkdownElement && child.tag == 'li') {
         items.add(
           _renderListItem(
             child,
@@ -414,15 +522,15 @@ class BlockRenderer {
   // -- List item --
 
   Widget _renderListItem(
-    md.Element element,
+    CompiledMarkdownElement element,
     String marker, {
     required String nodePath,
   }) {
     final children = element.children;
-    final inlineNodes = <md.Node>[];
-    final blockNodes = <md.Node>[];
+    final inlineNodes = <CompiledMarkdownNode>[];
+    final blockNodes = <CompiledMarkdownNode>[];
 
-    for (final child in children ?? const <md.Node>[]) {
+    for (final child in children) {
       if (_appendInlineListChild(child, inlineNodes)) {
         continue;
       }
@@ -442,6 +550,7 @@ class BlockRenderer {
         imageBuilder,
         stateScopeId,
         nodePath,
+        heavyBlockPolicy,
       );
       final blockContent = inner.renderBlocks(blockNodes);
 
@@ -476,14 +585,17 @@ class BlockRenderer {
     );
   }
 
-  bool _appendInlineListChild(md.Node child, List<md.Node> inlineNodes) {
-    if (child is md.Text) {
+  bool _appendInlineListChild(
+    CompiledMarkdownNode child,
+    List<CompiledMarkdownNode> inlineNodes,
+  ) {
+    if (child is CompiledMarkdownText) {
       _appendInlineChunkSeparator(inlineNodes);
       inlineNodes.add(child);
       return true;
     }
 
-    if (child is! md.Element) {
+    if (child is! CompiledMarkdownElement) {
       return false;
     }
 
@@ -491,7 +603,6 @@ class BlockRenderer {
       final singleImage = _extractSingleImage(child);
       final paragraphChildren = child.children;
       if (singleImage != null ||
-          paragraphChildren == null ||
           paragraphChildren.isEmpty ||
           _containsBlockElements(paragraphChildren)) {
         return false;
@@ -511,25 +622,25 @@ class BlockRenderer {
     return true;
   }
 
-  void _appendInlineChunkSeparator(List<md.Node> inlineNodes) {
+  void _appendInlineChunkSeparator(List<CompiledMarkdownNode> inlineNodes) {
     if (inlineNodes.isEmpty) {
       return;
     }
 
     final lastNode = inlineNodes.last;
-    if (lastNode is md.Text && RegExp(r'\s$').hasMatch(lastNode.text)) {
+    if (lastNode is CompiledMarkdownText &&
+        RegExp(r'\s$').hasMatch(lastNode.text)) {
       return;
     }
 
-    inlineNodes.add(md.Text(' '));
+    inlineNodes.add(CompiledMarkdownText(' '));
   }
 
   /// Returns `true` if [nodes] contain block-level
   /// elements like paragraphs, lists, or headings.
-  bool _containsBlockElements(List<md.Node>? nodes) {
-    if (nodes == null) return false;
+  bool _containsBlockElements(List<CompiledMarkdownNode> nodes) {
     for (final node in nodes) {
-      if (node is md.Element && _isBlockElementTag(node.tag)) {
+      if (node is CompiledMarkdownElement && _isBlockElementTag(node.tag)) {
         return true;
       }
     }
@@ -560,12 +671,12 @@ class BlockRenderer {
 
   // -- Table --
 
-  Widget _renderTable(md.Element element) {
+  Widget _renderTable(CompiledMarkdownElement element) {
     final columns = <DataColumn>[];
     final rows = <DataRow>[];
 
-    for (final section in element.children ?? <md.Node>[]) {
-      if (section is! md.Element) continue;
+    for (final section in element.children) {
+      if (section is! CompiledMarkdownElement) continue;
       if (section.tag == 'thead') {
         _parseTableHead(section, columns);
       } else if (section.tag == 'tbody') {
@@ -592,16 +703,19 @@ class BlockRenderer {
     );
   }
 
-  void _parseTableHead(md.Element thead, List<DataColumn> columns) {
-    for (final row in thead.children ?? <md.Node>[]) {
-      if (row is! md.Element || row.tag != 'tr') continue;
-      for (final cell in row.children ?? <md.Node>[]) {
-        if (cell is! md.Element) continue;
+  void _parseTableHead(
+    CompiledMarkdownElement thead,
+    List<DataColumn> columns,
+  ) {
+    for (final row in thead.children) {
+      if (row is! CompiledMarkdownElement || row.tag != 'tr') continue;
+      for (final cell in row.children) {
+        if (cell is! CompiledMarkdownElement) continue;
         if (cell.tag != 'th' && cell.tag != 'td') continue;
         final children = cell.children;
         columns.add(
           DataColumn(
-            label: (children != null && children.isNotEmpty)
+            label: children.isNotEmpty
                 ? Text.rich(
                     inlineRenderer.render(
                       children,
@@ -615,17 +729,21 @@ class BlockRenderer {
     }
   }
 
-  void _parseTableBody(md.Element tbody, List<DataRow> rows, int columnCount) {
-    for (final row in tbody.children ?? <md.Node>[]) {
-      if (row is! md.Element || row.tag != 'tr') continue;
+  void _parseTableBody(
+    CompiledMarkdownElement tbody,
+    List<DataRow> rows,
+    int columnCount,
+  ) {
+    for (final row in tbody.children) {
+      if (row is! CompiledMarkdownElement || row.tag != 'tr') continue;
       final cells = <DataCell>[];
-      for (final cell in row.children ?? <md.Node>[]) {
-        if (cell is! md.Element) continue;
+      for (final cell in row.children) {
+        if (cell is! CompiledMarkdownElement) continue;
         if (cell.tag != 'td' && cell.tag != 'th') continue;
         final children = cell.children;
         cells.add(
           DataCell(
-            (children != null && children.isNotEmpty)
+            children.isNotEmpty
                 ? Text.rich(
                     inlineRenderer.render(
                       children,
@@ -658,7 +776,10 @@ class BlockRenderer {
 
   // -- Div (GitHub alerts) --
 
-  Widget? _renderDiv(md.Element element, {required String nodePath}) {
+  Widget? _renderDiv(
+    CompiledMarkdownElement element, {
+    required String nodePath,
+  }) {
     final cls = element.attributes['class'] ?? '';
     if (cls.contains('markdown-alert')) {
       return _renderAlert(element, cls, nodePath: nodePath);
@@ -667,21 +788,23 @@ class BlockRenderer {
   }
 
   Widget _renderAlert(
-    md.Element element,
+    CompiledMarkdownElement element,
     String cls, {
     required String nodePath,
   }) {
     final alertType = _parseAlertType(cls);
     final config = _alertConfig(alertType);
 
-    final children = element.children ?? [];
-    final contentNodes = <md.Node>[];
+    final children = element.children;
+    final contentNodes = <CompiledMarkdownNode>[];
     String? titleText;
 
     // The first child is typically a <p> containing
     // the alert title marker.
     for (final child in children) {
-      if (child is md.Element && child.tag == 'p' && titleText == null) {
+      if (child is CompiledMarkdownElement &&
+          child.tag == 'p' &&
+          titleText == null) {
         titleText = _extractAlertTitle(child, alertType);
         // Remaining paragraph content after the title
         // marker is part of the body.
@@ -701,6 +824,7 @@ class BlockRenderer {
       imageBuilder,
       stateScopeId,
       nodePath,
+      heavyBlockPolicy,
     );
 
     return Padding(
@@ -784,12 +908,12 @@ class BlockRenderer {
     '[!CAUTION]',
   ];
 
-  String? _extractAlertTitle(md.Element paragraph, String type) {
+  String? _extractAlertTitle(CompiledMarkdownElement paragraph, String type) {
     final children = paragraph.children;
-    if (children == null || children.isEmpty) return null;
+    if (children.isEmpty) return null;
 
     final firstChild = children.first;
-    final text = firstChild is md.Text
+    final text = firstChild is CompiledMarkdownText
         ? firstChild.text.trim()
         : paragraph.textContent.trim();
 
@@ -805,23 +929,29 @@ class BlockRenderer {
   /// [paragraph] and returns the remaining content as a
   /// new paragraph element, preserving inline formatting
   /// (bold, italic, links) in subsequent child nodes.
-  md.Element? _remainingAlertContent(md.Element paragraph) {
+  CompiledMarkdownElement? _remainingAlertContent(
+    CompiledMarkdownElement paragraph,
+  ) {
     final children = paragraph.children;
-    if (children == null || children.isEmpty) return null;
+    if (children.isEmpty) return null;
 
     final firstChild = children.first;
-    if (firstChild is! md.Text) return paragraph;
+    if (firstChild is! CompiledMarkdownText) return paragraph;
 
     final text = firstChild.text.trim();
     for (final marker in _alertMarkers) {
       if (text.startsWith(marker)) {
         final remaining = text.substring(marker.length).trim();
-        final newChildren = <md.Node>[
-          if (remaining.isNotEmpty) md.Text(remaining),
+        final newChildren = <CompiledMarkdownNode>[
+          if (remaining.isNotEmpty) CompiledMarkdownText(remaining),
           ...children.skip(1),
         ];
         if (newChildren.isEmpty) return null;
-        return md.Element('p', newChildren);
+        return CompiledMarkdownElement(
+          tag: 'p',
+          attributes: const <String, String>{},
+          children: newChildren,
+        );
       }
     }
     // No marker found; return the whole paragraph.
@@ -830,9 +960,12 @@ class BlockRenderer {
 
   // -- Section (footnotes) --
 
-  Widget? _renderSection(md.Element element, {required String nodePath}) {
+  Widget? _renderSection(
+    CompiledMarkdownElement element, {
+    required String nodePath,
+  }) {
     final children = element.children;
-    if (children == null || children.isEmpty) return null;
+    if (children.isEmpty) return null;
     final inner = BlockRenderer(
       context,
       style,
@@ -842,36 +975,26 @@ class BlockRenderer {
       imageBuilder,
       stateScopeId,
       nodePath,
+      heavyBlockPolicy,
     );
     return inner.renderBlocks(children);
   }
 
   // -- Details --
 
-  Widget _renderDetails(md.Element element, {required String nodePath}) {
-    final descriptor = _buildDetailsDescriptor(element, nodePath: nodePath);
-    return _renderDetailsDescriptor(descriptor);
-  }
-
-  Widget _renderDetailsDescriptor(_DetailsRenderDescriptor descriptor) {
-    final bodyNodes = descriptor.bodyNodes;
-    final hasBody = descriptor.hasBody;
-
+  Widget _renderCompiledDetailsBlock(CompiledMarkdownDetailsBlock block) {
+    final inlineExpansionStateId = _scopedDetailsInlineExpansionStateId(
+      block.blockId,
+      block.supportsInlineExpansion,
+    );
     return MarkdownDetailsBlock(
-      key: _detailsKey(
-        descriptor.element,
-        descriptor.summaryText,
-        nodePath: descriptor.nodePath,
-      ),
-      summaryText: descriptor.summaryText,
-      attributes: descriptor.attributes,
-      hasBody: hasBody,
-      inlineExpansionStateId: _detailsStateId(
-        descriptor.element,
-        descriptor.summaryText,
-        nodePath: descriptor.nodePath,
-      ),
-      bodyBuilder: hasBody
+      key: _detailsKeyFromStateId(inlineExpansionStateId),
+      summaryText: block.summaryText,
+      attributes: const <String, String>{},
+      hasBody: block.hasBody,
+      detailsData: block.detailsData,
+      inlineExpansionStateId: inlineExpansionStateId,
+      bodyBuilder: block.hasBody
           ? (context) {
               final inner = BlockRenderer(
                 context,
@@ -881,134 +1004,151 @@ class BlockRenderer {
                 onLinkTap,
                 imageBuilder,
                 stateScopeId,
-                descriptor.nodePath,
+                block.blockId,
+                heavyBlockPolicy,
               );
-              return inner.renderBlocks(bodyNodes);
+              return inner.renderBlocks(block.bodyNodes);
             }
           : null,
     );
   }
 
-  Widget _renderDetailsGroup(List<_DetailsRenderDescriptor> descriptors) {
+  Widget _renderCompiledDetailsGroup(CompiledMarkdownDetailsGroup group) {
+    final stateId = _scopedDetailsGroupStateId(group.blockId);
     return MarkdownDetailsGroup(
-      key: ValueKey<String>(_detailsGroupStateId(descriptors)),
-      stateId: _detailsGroupStateId(descriptors),
-      items: descriptors
+      key: ValueKey<String>(stateId),
+      stateId: stateId,
+      items: group.items
           .map(
-            (descriptor) => MarkdownDetailsGroupItem(
-              type: descriptor.type,
-              name: descriptor.name,
-              isDone: descriptor.isDone,
-              child: _renderDetailsDescriptor(descriptor),
+            (item) => MarkdownDetailsGroupItem(
+              type: item.type,
+              name: item.name,
+              isDone: item.isDone,
+              child: _renderCompiledDetailsBlock(item),
             ),
           )
           .toList(growable: false),
     );
   }
 
-  _DetailsRenderDescriptor? _groupableDetailsDescriptor(
-    md.Node node, {
-    required String nodePath,
+  CompiledMarkdownDetailsBlock? _compiledDetailsBlockFromNode(
+    CompiledMarkdownNode node, {
+    required String fallbackBlockId,
   }) {
-    if (node is! md.Element || node.tag != 'details') {
+    if (node is! CompiledMarkdownElement || node.tag != 'details') {
       return null;
     }
-    final descriptor = _buildDetailsDescriptor(node, nodePath: nodePath);
-    if (!_groupableDetailTypes.contains(descriptor.type)) {
-      return null;
-    }
-    return descriptor;
-  }
-
-  _DetailsRenderDescriptor _buildDetailsDescriptor(
-    md.Element element, {
-    required String nodePath,
-  }) {
-    final children = element.children ?? const <md.Node>[];
-    String summaryText = '';
-    var bodyStartIndex = 0;
-
-    if (children.isNotEmpty) {
-      final firstChild = children.first;
-      if (firstChild is md.Element && firstChild.tag == 'summary') {
-        summaryText = firstChild.textContent.trim();
-        bodyStartIndex = 1;
-      }
-    }
-
-    final bodyNodes = children.skip(bodyStartIndex).toList(growable: false);
-    final hasBody = bodyNodes.any(_hasVisualContent);
-    final attributes = Map<String, String>.from(element.attributes);
-
-    return _DetailsRenderDescriptor(
-      element: element,
-      nodePath: nodePath,
-      summaryText: summaryText,
-      attributes: attributes,
-      bodyNodes: bodyNodes,
-      hasBody: hasBody,
-      type: attributes['type']?.trim() ?? '',
-      name: attributes['name']?.trim() ?? '',
+    return _compiledDetailsBlockFromElement(
+      node,
+      fallbackBlockId: fallbackBlockId,
     );
   }
 
-  String _detailsGroupStateId(List<_DetailsRenderDescriptor> descriptors) {
-    return [
-      if (stateScopeId != null && stateScopeId!.isNotEmpty) stateScopeId!,
-      'detail-group',
-      descriptors.first.nodePath,
-      descriptors.first.type,
-    ].join('|');
+  CompiledMarkdownDetailsBlock _compiledDetailsBlockFromElement(
+    CompiledMarkdownElement element, {
+    required String fallbackBlockId,
+  }) {
+    final detailsData = element.detailsData ?? _fallbackDetailsData(element);
+    final children = element.children;
+    final bodyNodes = children
+        .skip(detailsData.bodyStartIndex)
+        .toList(growable: false);
+    return CompiledMarkdownDetailsBlock(
+      blockId: element.nodeId.isEmpty ? fallbackBlockId : element.nodeId,
+      detailsData: detailsData,
+      bodyNodes: bodyNodes,
+    );
   }
 
-  Key? _detailsKey(
-    md.Element element,
-    String summaryText, {
-    required String nodePath,
-  }) {
-    final stateId = _detailsStateId(element, summaryText, nodePath: nodePath);
+  CompiledMarkdownDetailsData _fallbackDetailsData(
+    CompiledMarkdownElement element,
+  ) {
+    final children = element.children;
+    final bodyStartIndex = _detailsBodyStartIndex(children);
+    final bodyNodes = children.skip(bodyStartIndex).toList(growable: false);
+    final attributes = element.attributes;
+    final type = attributes['type']?.trim() ?? '';
+    final name = attributes['name']?.trim() ?? '';
+    final done = attributes['done'];
+    final isDone = done == 'true';
+    final isPending = done != null && done != 'true';
+    final durationSeconds = int.tryParse(attributes['duration'] ?? '0') ?? 0;
+    return CompiledMarkdownDetailsData(
+      summaryText: _detailsSummaryText(children).trim(),
+      bodyStartIndex: bodyStartIndex,
+      hasBody: bodyNodes.any(_hasVisualContent),
+      kind: switch (type) {
+        'tool_calls' => CompiledMarkdownDetailsKind.toolCall,
+        'reasoning' => CompiledMarkdownDetailsKind.reasoning,
+        'code_interpreter' => CompiledMarkdownDetailsKind.codeInterpreter,
+        _ => CompiledMarkdownDetailsKind.generic,
+      },
+      type: type,
+      name: name,
+      isDone: isDone,
+      isPending: isPending,
+      durationSeconds: durationSeconds,
+    );
+  }
+
+  int _detailsBodyStartIndex(List<CompiledMarkdownNode> children) {
+    if (children.isEmpty) {
+      return 0;
+    }
+    final firstChild = children.first;
+    if (firstChild is CompiledMarkdownElement && firstChild.tag == 'summary') {
+      return 1;
+    }
+    return 0;
+  }
+
+  String _detailsSummaryText(List<CompiledMarkdownNode> children) {
+    if (children.isEmpty) {
+      return '';
+    }
+    final firstChild = children.first;
+    if (firstChild is CompiledMarkdownElement && firstChild.tag == 'summary') {
+      return firstChild.textContent;
+    }
+    return '';
+  }
+
+  Key? _detailsKeyFromStateId(String? stateId) {
     if (stateId == null || stateId.isEmpty) {
       return null;
     }
     return ValueKey<String>(stateId);
   }
 
-  String? _detailsStateId(
-    md.Element element,
-    String summaryText, {
-    required String nodePath,
-  }) {
-    final detailType = element.attributes['type']?.trim();
-    final usesInlineExpansion =
-        detailType == 'reasoning' || detailType == 'code_interpreter';
+  String? _scopedDetailsInlineExpansionStateId(
+    String stableId,
+    bool usesInlineExpansion,
+  ) {
     if (!usesInlineExpansion) {
       return null;
     }
-
-    final toolName = element.attributes['name']?.trim();
-    final normalizedSummary = summaryText.trim();
-
-    if ((stateScopeId == null || stateScopeId!.isEmpty) &&
-        (detailType == null || detailType.isEmpty) &&
-        normalizedSummary.isEmpty &&
-        (toolName == null || toolName.isEmpty)) {
+    if ((stateScopeId == null || stateScopeId!.isEmpty) && stableId.isEmpty) {
       return null;
     }
-
     return [
       if (stateScopeId != null && stateScopeId!.isNotEmpty) stateScopeId,
-      nodePath,
-      if (detailType != null && detailType.isNotEmpty) detailType,
-      if (toolName != null && toolName.isNotEmpty) toolName,
-      if (normalizedSummary.isNotEmpty) normalizedSummary,
+      stableId,
     ].join('|');
   }
 
-  bool _hasVisualContent(md.Node node) {
-    if (node is md.Text) {
+  String _scopedDetailsGroupStateId(String stableId) {
+    return [
+      if (stateScopeId != null && stateScopeId!.isNotEmpty) stateScopeId!,
+      'detail-group',
+      stableId,
+    ].join('|');
+  }
+
+  bool _hasVisualContent(CompiledMarkdownNode node) {
+    if (node is CompiledMarkdownText) {
       return node.text.trim().isNotEmpty;
     }
-    if (node is! md.Element) {
+    if (node is! CompiledMarkdownElement) {
       return false;
     }
 
@@ -1017,7 +1157,7 @@ class BlockRenderer {
     }
 
     final children = node.children;
-    if (children == null || children.isEmpty) {
+    if (children.isEmpty) {
       return node.textContent.trim().isNotEmpty;
     }
 
@@ -1031,7 +1171,7 @@ class BlockRenderer {
 
   // -- Block image --
 
-  Widget? _renderBlockImage(md.Element element) {
+  Widget? _renderBlockImage(CompiledMarkdownElement element) {
     final src = element.attributes['src'] ?? '';
     if (src.isEmpty) return null;
     final alt = element.attributes['alt'];
@@ -1051,39 +1191,15 @@ class BlockRenderer {
 
   // -- Fallback --
 
-  Widget? _renderFallback(md.Element element) {
+  Widget? _renderFallback(CompiledMarkdownElement element) {
     final children = element.children;
-    if (children != null && children.isNotEmpty) {
+    if (children.isNotEmpty) {
       return renderBlocks(children);
     }
     final text = element.textContent.trim();
     if (text.isEmpty) return null;
     return Text.rich(inlineRenderer.render([element]));
   }
-}
-
-class _DetailsRenderDescriptor {
-  const _DetailsRenderDescriptor({
-    required this.element,
-    required this.nodePath,
-    required this.summaryText,
-    required this.attributes,
-    required this.bodyNodes,
-    required this.hasBody,
-    required this.type,
-    required this.name,
-  });
-
-  final md.Element element;
-  final String nodePath;
-  final String summaryText;
-  final Map<String, String> attributes;
-  final List<md.Node> bodyNodes;
-  final bool hasBody;
-  final String type;
-  final String name;
-
-  bool get isDone => attributes['done'] == 'true';
 }
 
 /// Configuration for a GitHub-style alert.

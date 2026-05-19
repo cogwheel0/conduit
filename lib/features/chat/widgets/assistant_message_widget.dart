@@ -121,8 +121,6 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   bool get _shouldAnimateOnMount =>
       widget.animateOnMount && !_disableAnimations;
 
-  // Streaming fade-in animation state
-  late AnimationController _chunkFadeController;
   // press state handled by shared ChatActionButton
 
   Future<void> _handleFollowUpTap(String suggestion) async {
@@ -161,12 +159,6 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       vsync: this,
       value: shouldAnimateOnMount ? 0.0 : 1.0,
     );
-    _chunkFadeController = AnimationController(
-      duration: const Duration(milliseconds: 200),
-      vsync: this,
-      value: 1.0, // Start fully opaque for non-streaming messages
-    );
-
     _hasAnimated = !shouldAnimateOnMount;
     _displayedContent = _resolvedMessageContent();
     _scheduleTtsPlainTextBuild(_displayedContent);
@@ -210,7 +202,6 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       _hasTriggeredContentHaptic = false;
       _fadeController.value = _shouldAnimateOnMount ? 0.0 : 1.0;
       _slideController.value = _shouldAnimateOnMount ? 0.0 : 1.0;
-      _chunkFadeController.value = 1.0;
     }
 
     // Re-sync subscription when streaming state changes
@@ -223,7 +214,6 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         !widget.isStreaming &&
         oldWidget.message.id == widget.message.id) {
       _flushPendingStreamingDisplayContent();
-      _chunkFadeController.value = 1.0;
       _hasTriggeredContentHaptic = false;
       // Haptic: streaming finished
       _streamingHaptic(HapticType.medium);
@@ -448,16 +438,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final trimmedContent = _displayedContent.trim();
     if (trimmedContent.isNotEmpty) {
       final markdownWidget = _buildEnhancedMarkdownContent(_displayedContent);
-      children.add(
-        RepaintBoundary(
-          child: widget.isStreaming
-              ? _StreamingFadeOverlay(
-                  animation: _chunkFadeController,
-                  child: markdownWidget,
-                )
-              : markdownWidget,
-        ),
-      );
+      children.add(RepaintBoundary(child: markdownWidget));
     }
 
     if (children.isEmpty) return const SizedBox.shrink();
@@ -689,13 +670,6 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       _hasTriggeredContentHaptic = true;
       _tripleHaptic();
     }
-
-    // Respect reduced motion preference
-    if (_disableAnimations) {
-      _chunkFadeController.value = 1.0;
-    } else {
-      _chunkFadeController.forward(from: 0.0);
-    }
   }
 
   /// Fires a single haptic impulse if streaming haptics are enabled.
@@ -785,7 +759,6 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     _pendingTtsPlainTextSource = null;
     _fadeController.dispose();
     _slideController.dispose();
-    _chunkFadeController.dispose();
     super.dispose();
   }
 
@@ -1736,55 +1709,5 @@ Future<void> _launchUri(String url) async {
     await launchUrlString(url, mode: LaunchMode.externalApplication);
   } catch (err) {
     DebugLogger.log('Unable to open url $url: $err', scope: 'chat/assistant');
-  }
-}
-
-/// Overlays a vertical gradient [ShaderMask] on the child widget to
-/// fade in the trailing portion of newly-arrived streaming text.
-///
-/// Uses a fixed pixel height for the fade region so the effect
-/// remains visible regardless of total content length. The bottom
-/// [_fadeHeightPx] pixels animate from semi-transparent to fully
-/// opaque over the [animation] duration.
-class _StreamingFadeOverlay extends AnimatedWidget {
-  const _StreamingFadeOverlay({
-    required Animation<double> animation,
-    required this.child,
-  }) : super(listenable: animation);
-
-  final Widget child;
-
-  /// Fixed height in logical pixels for the fade region.
-  /// Covers roughly 2-3 lines of text.
-  static const double _fadeHeightPx = 36.0;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = (listenable as Animation<double>).value;
-
-    // Once fully animated, skip the ShaderMask entirely.
-    if (t >= 1.0) return child;
-
-    return ShaderMask(
-      blendMode: BlendMode.dstIn,
-      shaderCallback: (bounds) {
-        // Compute fade start as a fraction of total height.
-        // For short content (< _fadeHeightPx), fade the entire widget.
-        final fadeStartFrac = bounds.height > _fadeHeightPx
-            ? (bounds.height - _fadeHeightPx) / bounds.height
-            : 0.0;
-
-        return LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          stops: [fadeStartFrac, 1.0],
-          colors: [
-            const Color(0xFFFFFFFF),
-            Color.fromRGBO(255, 255, 255, t.clamp(0.3, 1.0)),
-          ],
-        ).createShader(bounds);
-      },
-      child: child,
-    );
   }
 }

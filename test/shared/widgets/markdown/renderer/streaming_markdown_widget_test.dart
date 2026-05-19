@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/core/services/settings_service.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
@@ -6,7 +9,9 @@ import 'package:conduit/features/chat/providers/text_to_speech_provider.dart';
 import 'package:conduit/features/chat/widgets/assistant_message_widget.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
+import 'package:conduit/shared/widgets/markdown/compiled_markdown_document.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_config.dart';
+import 'package:conduit/shared/widgets/markdown/markdown_compile_service.dart';
 import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -32,6 +37,34 @@ Iterable<_RecordedPlatformCall> _mediumImpactCalls(
 class _TestTextToSpeechController extends TextToSpeechController {
   @override
   TextToSpeechState build() => const TextToSpeechState();
+}
+
+class _DelayedMarkdownCompileService extends MarkdownCompileService {
+  _DelayedMarkdownCompileService() : super(workerManager: WorkerManager());
+
+  final Completer<void> _release = Completer<void>();
+
+  void release() {
+    if (!_release.isCompleted) {
+      _release.complete();
+    }
+  }
+
+  @override
+  Future<CompiledMarkdownDocument> compilePrepared(
+    String preparedContent, {
+    bool allowSynchronous = false,
+    bool widgetTest = false,
+  }) async {
+    await _release.future;
+    return compilePreparedSynchronously(preparedContent);
+  }
+
+  @override
+  bool shouldCompileSynchronously(
+    String preparedContent, {
+    bool widgetTest = false,
+  }) => false;
 }
 
 void main() {
@@ -92,18 +125,20 @@ void main() {
     List<ChatSourceReference> sources = const <ChatSourceReference>[],
     Locale? locale,
   }) {
-    return MaterialApp(
-      locale: locale,
-      theme: AppTheme.light(TweakcnThemes.t3Chat),
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
-      supportedLocales: AppLocalizations.supportedLocales,
-      home: Scaffold(
-        body: SingleChildScrollView(
-          child: StreamingMarkdownWidget(
-            content: content,
-            isStreaming: isStreaming,
-            stateScopeId: stateScopeId,
-            sources: sources,
+    return ProviderScope(
+      child: MaterialApp(
+        locale: locale,
+        theme: AppTheme.light(TweakcnThemes.t3Chat),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: StreamingMarkdownWidget(
+              content: content,
+              isStreaming: isStreaming,
+              stateScopeId: stateScopeId,
+              sources: sources,
+            ),
           ),
         ),
       ),
@@ -132,6 +167,24 @@ void main() {
       ),
     );
   }
+
+  testWidgets(
+    'defers heavy mermaid previews while the message is still streaming',
+    (tester) async {
+      const content = '''
+```mermaid
+graph TD
+  A-->B
+```
+''';
+
+      await tester.pumpWidget(buildHarness(content, isStreaming: true));
+
+      expect(find.text('Preview deferred for large content.'), findsOneWidget);
+      expect(find.byType(MermaidDiagram), findsNothing);
+      expect(find.text('mermaid'), findsOneWidget);
+    },
+  );
 
   testWidgets(
     'renders loose list item paragraphs inline like the web renderer',
@@ -173,6 +226,17 @@ void main() {
     },
   );
 
+  testWidgets('citation-like text stays literal when sources are absent', (
+    tester,
+  ) async {
+    await tester.pumpWidget(buildHarness('Refs [1][2] and array[3].'));
+
+    expect(
+      find.text('Refs [1][2] and array[3].', findRichText: true),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('keeps paragraph spacing between blocks but trims the end', (
     tester,
   ) async {
@@ -203,14 +267,16 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(
-      MaterialApp(
-        theme: AppTheme.light(TweakcnThemes.t3Chat),
-        home: Scaffold(
-          body: StreamingMarkdownWidget(
-            content:
-                'Hi <@U:user-id|Tuna>, see [<@M:model-id|Model>](https://a.test).',
-            isStreaming: false,
-            onTapLink: (_, _) {},
+      ProviderScope(
+        child: MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          home: Scaffold(
+            body: StreamingMarkdownWidget(
+              content:
+                  'Hi <@U:user-id|Tuna>, see [<@M:model-id|Model>](https://a.test).',
+              isStreaming: false,
+              onTapLink: (_, _) {},
+            ),
           ),
         ),
       ),
@@ -352,9 +418,7 @@ After
 </details>
 ''';
 
-    await tester.pumpWidget(
-      buildHarness(content, locale: const Locale('es')),
-    );
+    await tester.pumpWidget(buildHarness(content, locale: const Locale('es')));
 
     expect(find.text('Explorado search, browser'), findsOneWidget);
   });
@@ -375,28 +439,30 @@ After
       late void Function(VoidCallback fn) rebuild;
 
       await tester.pumpWidget(
-        MaterialApp(
-          theme: AppTheme.light(TweakcnThemes.t3Chat),
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-          home: Scaffold(
-            body: StatefulBuilder(
-              builder: (context, setState) {
-                rebuild = setState;
-                return PageStorage(
-                  bucket: bucket,
-                  child: KeyedSubtree(
-                    key: ValueKey(revision),
-                    child: SingleChildScrollView(
-                      child: StreamingMarkdownWidget(
-                        content: content,
-                        isStreaming: true,
-                        stateScopeId: 'message-1',
+        ProviderScope(
+          child: MaterialApp(
+            theme: AppTheme.light(TweakcnThemes.t3Chat),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(
+              body: StatefulBuilder(
+                builder: (context, setState) {
+                  rebuild = setState;
+                  return PageStorage(
+                    bucket: bucket,
+                    child: KeyedSubtree(
+                      key: ValueKey(revision),
+                      child: SingleChildScrollView(
+                        child: StreamingMarkdownWidget(
+                          content: content,
+                          isStreaming: true,
+                          stateScopeId: 'message-1',
+                        ),
                       ),
                     ),
-                  ),
-                );
-              },
+                  );
+                },
+              ),
             ),
           ),
         ),
@@ -568,6 +634,99 @@ After
     },
   );
 
+  testWidgets(
+    'assistant streaming markdown does not add a shader fade on chunk updates',
+    (tester) async {
+      final container = ProviderContainer(
+        overrides: [
+          appSettingsProvider.overrideWithValue(
+            const AppSettings(disableHapticsWhileStreaming: true),
+          ),
+          textToSpeechControllerProvider.overrideWith(
+            _TestTextToSpeechController.new,
+          ),
+        ],
+      );
+
+      final message = ChatMessage(
+        id: 'streaming-message',
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime(2026),
+      );
+
+      try {
+        await tester.pumpWidget(
+          buildAssistantHarness(
+            container: container,
+            message: message,
+            isStreaming: true,
+          ),
+        );
+
+        container.read(streamingContentProvider.notifier).set('Hello');
+        await tester.pump();
+
+        expect(find.text('Hello', findRichText: true), findsOneWidget);
+        expect(find.byType(ShaderMask), findsNothing);
+
+        container.read(streamingContentProvider.notifier).set('Hello world');
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 120));
+
+        expect(find.text('Hello world', findRichText: true), findsOneWidget);
+        expect(find.byType(ShaderMask), findsNothing);
+      } finally {
+        container.dispose();
+      }
+    },
+  );
+
+  testWidgets(
+    'streaming markdown resolves the final document when streaming ends',
+    (tester) async {
+      final compiler = _DelayedMarkdownCompileService();
+      addTearDown(compiler.dispose);
+
+      Widget buildDelayedHarness(bool isStreaming) {
+        return ProviderScope(
+          overrides: [
+            markdownCompileServiceProvider.overrideWithValue(compiler),
+          ],
+          child: MaterialApp(
+            theme: AppTheme.light(TweakcnThemes.t3Chat),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: StreamingMarkdownWidget(
+                  content: 'Final response',
+                  isStreaming: isStreaming,
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+
+      await tester.pumpWidget(buildDelayedHarness(true));
+      await tester.pump();
+
+      expect(find.text('Final response', findRichText: true), findsNothing);
+
+      await tester.pumpWidget(buildDelayedHarness(false));
+      await tester.pump();
+
+      expect(find.text('Final response', findRichText: true), findsNothing);
+
+      compiler.release();
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('Final response', findRichText: true), findsOneWidget);
+    },
+  );
+
   testWidgets('renders tool call embeds inline like upstream', (tester) async {
     const content = '''
 <details type="tool_calls" done="true" name="browser" embeds="[&quot;https://example.com/embed&quot;]">
@@ -686,21 +845,23 @@ First step
       late void Function(VoidCallback fn) rebuild;
 
       await tester.pumpWidget(
-        MaterialApp(
-          theme: AppTheme.light(TweakcnThemes.t3Chat),
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-          home: Scaffold(
-            body: StatefulBuilder(
-              builder: (context, setState) {
-                rebuild = setState;
-                return SingleChildScrollView(
-                  child: StreamingMarkdownWidget(
-                    content: content,
-                    isStreaming: true,
-                  ),
-                );
-              },
+        ProviderScope(
+          child: MaterialApp(
+            theme: AppTheme.light(TweakcnThemes.t3Chat),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(
+              body: StatefulBuilder(
+                builder: (context, setState) {
+                  rebuild = setState;
+                  return SingleChildScrollView(
+                    child: StreamingMarkdownWidget(
+                      content: content,
+                      isStreaming: true,
+                    ),
+                  );
+                },
+              ),
             ),
           ),
         ),
@@ -764,28 +925,30 @@ First step
       late void Function(VoidCallback fn) rebuild;
 
       await tester.pumpWidget(
-        MaterialApp(
-          theme: AppTheme.light(TweakcnThemes.t3Chat),
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-          home: Scaffold(
-            body: StatefulBuilder(
-              builder: (context, setState) {
-                rebuild = setState;
-                return PageStorage(
-                  bucket: bucket,
-                  child: KeyedSubtree(
-                    key: ValueKey(revision),
-                    child: SingleChildScrollView(
-                      child: StreamingMarkdownWidget(
-                        content: content,
-                        isStreaming: true,
-                        stateScopeId: 'message-1',
+        ProviderScope(
+          child: MaterialApp(
+            theme: AppTheme.light(TweakcnThemes.t3Chat),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(
+              body: StatefulBuilder(
+                builder: (context, setState) {
+                  rebuild = setState;
+                  return PageStorage(
+                    bucket: bucket,
+                    child: KeyedSubtree(
+                      key: ValueKey(revision),
+                      child: SingleChildScrollView(
+                        child: StreamingMarkdownWidget(
+                          content: content,
+                          isStreaming: true,
+                          stateScopeId: 'message-1',
+                        ),
                       ),
                     ),
-                  ),
-                );
-              },
+                  );
+                },
+              ),
             ),
           ),
         ),
@@ -828,25 +991,27 @@ Shared reasoning
       late void Function(VoidCallback fn) rebuild;
 
       await tester.pumpWidget(
-        MaterialApp(
-          theme: AppTheme.light(TweakcnThemes.t3Chat),
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-          home: Scaffold(
-            body: StatefulBuilder(
-              builder: (context, setState) {
-                rebuild = setState;
-                return PageStorage(
-                  bucket: bucket,
-                  child: SingleChildScrollView(
-                    child: StreamingMarkdownWidget(
-                      content: content,
-                      isStreaming: true,
-                      stateScopeId: stateScopeId,
+        ProviderScope(
+          child: MaterialApp(
+            theme: AppTheme.light(TweakcnThemes.t3Chat),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(
+              body: StatefulBuilder(
+                builder: (context, setState) {
+                  rebuild = setState;
+                  return PageStorage(
+                    bucket: bucket,
+                    child: SingleChildScrollView(
+                      child: StreamingMarkdownWidget(
+                        content: content,
+                        isStreaming: true,
+                        stateScopeId: stateScopeId,
+                      ),
                     ),
-                  ),
-                );
-              },
+                  );
+                },
+              ),
             ),
           ),
         ),

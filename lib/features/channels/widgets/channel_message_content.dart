@@ -35,6 +35,7 @@ class ChannelMessageContent extends StatelessWidget {
 
     return ConduitMarkdownWidget(
       data: normalized,
+      dataIsPrepared: true,
       stateScopeId: stateScopeId,
       onLinkTap: onTapLink ?? (url, _) => _launchChannelLink(url),
     );

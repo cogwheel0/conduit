@@ -1,5 +1,4 @@
 import 'package:html_unescape/html_unescape.dart';
-import 'package:markdown/markdown.dart' as md;
 
 /// Content preprocessing, sanitization, and transformation for Markdown.
 ///
@@ -37,6 +36,12 @@ class ConduitMarkdownPreprocessor {
   );
   static final _fenceAtBolRegex = RegExp(r'^\s*```', multiLine: true);
   static final _linkWithTrailingSpaces = RegExp(r'\[[^\]]+\]\([^\)]+\)\s{2,}$');
+  static final _linkReferenceDefinition = RegExp(
+    r'^[ ]{0,3}\[[^\]\r\n]+\]:[ \t]*(?:<[^>\r\n]*>|[^\s\r\n]+)(?:[ \t]+(?:"[^"\r\n]*"|'
+    r"'[^'\r\n]*'|\([^)]+\)))?[ \t]*$",
+    multiLine: true,
+    caseSensitive: false,
+  );
   static final _multipleNewlines = RegExp(r'\n{3,}');
 
   /// Combined pattern for all reasoning/thinking blocks.
@@ -284,34 +289,15 @@ class ConduitMarkdownPreprocessor {
     return buffer.toString();
   }
 
-  /// Strips link reference definitions using the `markdown` package.
+  /// Strips Markdown link reference definitions outside code spans.
   static String _stripLinkReferenceDefinitions(String input) {
     if (!input.contains(']:')) return input;
 
-    final document = md.Document();
-    document.parseLines(input.split('\n'));
-
-    final refLabels = document.linkReferences.keys.toSet();
-    if (refLabels.isEmpty) return input;
-
-    final labelPatterns = refLabels
-        .map((label) => RegExp.escape(label))
-        .join('|');
-
-    final refDefRegex = RegExp(
-      r'^[ ]{0,3}\[(?:' +
-          labelPatterns +
-          r')\]:[ \t]*(?:<[^>]*>|[^\s]*)(?:[ \t]+(?:"[^"]*"|' +
-          r"'[^']*'" +
-          r'|\([^)]*\)))?[ \t]*$',
-      multiLine: true,
-      caseSensitive: false,
+    final stripped = _replaceOutsideCode(
+      input,
+      (segment) => segment.replaceAll(_linkReferenceDefinition, ''),
     );
-
-    return input
-        .replaceAll(refDefRegex, '')
-        .replaceAll(_multipleNewlines, '\n\n')
-        .trim();
+    return stripped.replaceAll(_multipleNewlines, '\n\n').trim();
   }
 
   static String _openWebUiCleanText(String input) {

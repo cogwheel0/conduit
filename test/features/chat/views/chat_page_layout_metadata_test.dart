@@ -64,4 +64,64 @@ void main() {
       expect(summary[2].showFollowUps, isTrue);
     },
   );
+
+  test(
+    'markdown prewarm candidates prioritize the visible viewport window',
+    () {
+      final messages = List<ChatMessage>.generate(8, (index) {
+        return ChatMessage(
+          id: 'assistant-$index',
+          role: 'assistant',
+          content: 'Short response $index',
+          timestamp: DateTime(2026),
+        );
+      });
+
+      final indices = debugSelectMarkdownPrewarmCandidateIndicesForTesting(
+        messages,
+        viewportTop: 0,
+        viewportHeight: 220,
+        maxCount: 3,
+      );
+
+      expect(indices, <int>[2, 1, 0]);
+    },
+  );
+
+  test('markdown prewarm falls back to the most recent assistant messages', () {
+    final messages = <ChatMessage>[
+      ChatMessage(
+        id: 'assistant-1',
+        role: 'assistant',
+        content: 'First assistant response',
+        timestamp: DateTime(2026),
+      ),
+      ChatMessage(
+        id: 'user-1',
+        role: 'user',
+        content: 'User question',
+        timestamp: DateTime(2026),
+      ),
+      ChatMessage(
+        id: 'assistant-2',
+        role: 'assistant',
+        content: 'Second assistant response',
+        timestamp: DateTime(2026),
+      ),
+      ChatMessage(
+        id: 'assistant-3',
+        role: 'assistant',
+        content: 'Third assistant response',
+        timestamp: DateTime(2026),
+      ),
+    ];
+
+    final indices = debugSelectMarkdownPrewarmCandidateIndicesForTesting(
+      messages,
+      viewportHeight: 0,
+      maxCount: 2,
+    );
+
+    expect(indices, <int>[3, 2]);
+  });
 }

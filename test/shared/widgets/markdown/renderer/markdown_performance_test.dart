@@ -2,11 +2,20 @@ import 'dart:async';
 import 'dart:collection';
 
 import 'package:conduit/core/services/worker_manager.dart';
+import 'package:conduit/shared/widgets/markdown/compiled_markdown_document.dart';
+import 'package:conduit/shared/widgets/markdown/markdown_compile_service.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/conduit_markdown_widget.dart';
 import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+String? _trackedScheduledContent(Object? message) {
+  if (message is String) {
+    return message;
+  }
+  return null;
+}
 
 class _RecordingWorkerManager extends WorkerManager {
   _RecordingWorkerManager();
@@ -18,7 +27,10 @@ class _RecordingWorkerManager extends WorkerManager {
     Q message, {
     String? debugLabel,
   }) async {
-    scheduledContents.add(message as String);
+    final tracked = _trackedScheduledContent(message);
+    if (tracked != null) {
+      scheduledContents.add(tracked);
+    }
     await Future<void>.delayed(const Duration(milliseconds: 1));
     return callback(message);
   }
@@ -42,7 +54,10 @@ class _BlockingWorkerManager extends WorkerManager {
     Q message, {
     String? debugLabel,
   }) async {
-    scheduledContents.add(message as String);
+    final tracked = _trackedScheduledContent(message);
+    if (tracked != null) {
+      scheduledContents.add(tracked);
+    }
     await _release.future;
     return callback(message);
   }
@@ -70,7 +85,10 @@ class _SequencedBlockingWorkerManager extends WorkerManager {
     Q message, {
     String? debugLabel,
   }) async {
-    scheduledContents.add(message as String);
+    final tracked = _trackedScheduledContent(message);
+    if (tracked != null) {
+      scheduledContents.add(tracked);
+    }
     final release = Completer<void>();
     _releases.add(release);
     await release.future;
@@ -78,9 +96,30 @@ class _SequencedBlockingWorkerManager extends WorkerManager {
   }
 }
 
+class _ImmediateMarkdownCompileService extends MarkdownCompileService {
+  _ImmediateMarkdownCompileService() : super(workerManager: WorkerManager());
+
+  @override
+  Future<CompiledMarkdownDocument> compilePrepared(
+    String preparedContent, {
+    bool allowSynchronous = false,
+    bool widgetTest = false,
+  }) async {
+    return compilePreparedSynchronously(preparedContent);
+  }
+
+  @override
+  bool shouldCompileSynchronously(
+    String preparedContent, {
+    bool widgetTest = false,
+  }) => true;
+}
+
 Widget _buildMarkdownHarness(String data) {
-  return MaterialApp(
-    home: Scaffold(body: ConduitMarkdownWidget(data: data)),
+  return ProviderScope(
+    child: MaterialApp(
+      home: Scaffold(body: ConduitMarkdownWidget(data: data)),
+    ),
   );
 }
 
@@ -90,7 +129,12 @@ Widget _buildStreamingHarness({
   bool isStreaming = true,
 }) {
   return ProviderScope(
-    overrides: [workerManagerProvider.overrideWithValue(workerManager)],
+    overrides: [
+      workerManagerProvider.overrideWithValue(workerManager),
+      markdownCompileServiceProvider.overrideWithValue(
+        _ImmediateMarkdownCompileService(),
+      ),
+    ],
     child: MaterialApp(
       home: Scaffold(
         body: SingleChildScrollView(

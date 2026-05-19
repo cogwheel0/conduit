@@ -11,6 +11,7 @@ import '../../assistant_detail_header.dart';
 import '../../themed_sheets.dart';
 import '../../web_content_embed.dart';
 import '../../../theme/theme_extensions.dart';
+import '../compiled_markdown_document.dart';
 import '../markdown_config.dart';
 import 'markdown_style.dart';
 
@@ -23,6 +24,7 @@ class MarkdownDetailsBlock extends StatefulWidget {
     required this.summaryText,
     required this.attributes,
     required this.hasBody,
+    this.detailsData,
     this.bodyBuilder,
     this.inlineExpansionStateId,
   });
@@ -30,6 +32,7 @@ class MarkdownDetailsBlock extends StatefulWidget {
   final String summaryText;
   final Map<String, String> attributes;
   final bool hasBody;
+  final CompiledMarkdownDetailsData? detailsData;
   final WidgetBuilder? bodyBuilder;
   final String? inlineExpansionStateId;
 
@@ -45,23 +48,41 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
   var _isInlineExpanded = false;
   String? _restoredInlineExpansionStateId;
 
-  bool get _isToolCall => widget.attributes['type'] == 'tool_calls';
+  CompiledMarkdownDetailsData? get _detailsData => widget.detailsData;
+
+  bool get _isToolCall =>
+      _detailsData?.kind == CompiledMarkdownDetailsKind.toolCall ||
+      widget.attributes['type'] == 'tool_calls';
 
   bool get _isReasoning =>
+      _detailsData?.kind == CompiledMarkdownDetailsKind.reasoning ||
+      _detailsData?.kind == CompiledMarkdownDetailsKind.codeInterpreter ||
       widget.attributes['type'] == 'reasoning' ||
       widget.attributes['type'] == 'code_interpreter';
 
   bool get _isCodeInterpreter =>
+      _detailsData?.kind == CompiledMarkdownDetailsKind.codeInterpreter ||
       widget.attributes['type'] == 'code_interpreter';
 
   bool get _isPending {
+    final compiled = _detailsData;
+    if (compiled != null) {
+      return compiled.isPending;
+    }
     final done = widget.attributes['done'];
     return done != null && done != 'true';
   }
 
-  bool get _usesInlineExpansion => _isReasoning && _isPending;
+  bool get _supportsInlineExpansion =>
+      _detailsData?.supportsInlineExpansion ?? _isReasoning;
+
+  bool get _usesInlineExpansion => _supportsInlineExpansion && _isPending;
 
   bool get _canExpand {
+    final compiled = _detailsData;
+    if (compiled != null) {
+      return compiled.canExpand;
+    }
     if (!_isToolCall) {
       return widget.hasBody;
     }
@@ -73,8 +94,9 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
     return _toolCallData.hasExpandableContent || widget.hasBody;
   }
 
-  _ToolCallViewData get _toolCallData =>
-      _ToolCallViewData.fromAttributes(widget.attributes);
+  CompiledMarkdownToolCallData get _toolCallData =>
+      _detailsData?.toolCallData ??
+      _compileLegacyToolCallData(widget.attributes);
 
   @override
   void didChangeDependencies() {
@@ -360,7 +382,8 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
 
   String _headerTitle(BuildContext context) {
     if (_isToolCall) {
-      final name = widget.attributes['name']?.trim();
+      final name =
+          _detailsData?.name.trim() ?? widget.attributes['name']?.trim();
       final safeName = (name == null || name.isEmpty) ? 'tool' : name;
       if (_toolCallData.hasEmbeds) {
         return safeName;
@@ -378,7 +401,8 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
 
   String _modalTitle(BuildContext context) {
     if (_isToolCall) {
-      final name = widget.attributes['name']?.trim();
+      final name =
+          _detailsData?.name.trim() ?? widget.attributes['name']?.trim();
       final safeName = (name == null || name.isEmpty) ? 'tool' : name;
       return _isPending ? 'Running $safeName…' : 'Used $safeName';
     }
@@ -388,10 +412,13 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
 
   String _reasoningHeaderText(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final summary = widget.summaryText.trim();
+    final summary = (_detailsData?.summaryText ?? widget.summaryText).trim();
     final summaryLower = summary.toLowerCase();
-    final isDone = widget.attributes['done'] == 'true';
-    final duration = int.tryParse(widget.attributes['duration'] ?? '0') ?? 0;
+    final isDone =
+        _detailsData?.isDone ?? (widget.attributes['done'] == 'true');
+    final duration =
+        _detailsData?.durationSeconds ??
+        (int.tryParse(widget.attributes['duration'] ?? '0') ?? 0);
 
     final isThinkingSummary =
         summaryLower == 'thinking…' ||
@@ -422,7 +449,10 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
     return l10n.thoughts;
   }
 
-  Widget? _buildToolCallBody(BuildContext context, _ToolCallViewData data) {
+  Widget? _buildToolCallBody(
+    BuildContext context,
+    CompiledMarkdownToolCallData data,
+  ) {
     final builder = widget.bodyBuilder;
     final hasExtraBody = builder != null && widget.hasBody;
     if (!data.hasExpandableContent && !hasExtraBody) {
@@ -437,14 +467,13 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
       builder: (context, setModalState) {
         final children = <Widget>[];
 
-        if (data.parsedArguments is Map<String, dynamic>) {
-          final arguments = data.parsedArguments as Map<String, dynamic>;
+        if (data.argumentEntries.isNotEmpty) {
           children.add(_buildSectionTitle('Input', markdownStyle));
           children.add(const SizedBox(height: 6));
           children.add(
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: arguments.entries
+              children: data.argumentEntries
                   .map((entry) {
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 4),
@@ -452,12 +481,12 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '${entry.key}: ',
+                            '${entry.label}: ',
                             style: markdownStyle.detailLabel,
                           ),
                           Expanded(
                             child: SelectableText(
-                              _stringifyValue(entry.value),
+                              entry.value,
                               style: markdownStyle.detailValue,
                             ),
                           ),
@@ -468,13 +497,13 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
                   .toList(growable: false),
             ),
           );
-        } else if (data.argumentsText.isNotEmpty) {
+        } else if (data.argumentsCode.isNotEmpty) {
           children.add(_buildSectionTitle('Input', markdownStyle));
           children.add(const SizedBox(height: 6));
           children.add(
             ConduitMarkdown.buildCodeBlock(
               context: context,
-              code: _formatJsonString(data.argumentsText),
+              code: data.argumentsCode,
               language: 'json',
               theme: theme,
             ),
@@ -488,18 +517,17 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
           children.add(_buildSectionTitle('Output', markdownStyle));
           children.add(const SizedBox(height: 6));
 
-          final parsedResult = data.parsedResult;
-          if (parsedResult is Map || parsedResult is List) {
+          if (data.resultCode.isNotEmpty) {
             children.add(
               ConduitMarkdown.buildCodeBlock(
                 context: context,
-                code: const JsonEncoder.withIndent('  ').convert(parsedResult),
+                code: data.resultCode,
                 language: 'json',
                 theme: theme,
               ),
             );
           } else {
-            final resultText = _stringifyValue(parsedResult);
+            final resultText = data.resultDisplayText;
             final isTruncated =
                 resultText.length > _resultPreviewLimit && !expandedResult;
             children.add(
@@ -558,19 +586,14 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
 
   List<Widget> _buildToolCallImages(BuildContext context) {
     final data = _toolCallData;
-    final files = data.files;
-    if (files.isEmpty) {
+    if (data.imageUrls.isEmpty) {
       return const [];
     }
 
-    final imageUris = <Uri>[];
-    for (final file in files) {
-      final uri = _tryImageUri(file);
-      if (uri != null) {
-        imageUris.add(uri);
-      }
-    }
-
+    final imageUris = data.imageUrls
+        .map(Uri.tryParse)
+        .whereType<Uri>()
+        .toList(growable: false);
     if (imageUris.isEmpty) {
       return const [];
     }
@@ -607,12 +630,12 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
       Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          for (var index = 0; index < data.embeds.length; index++) ...[
+          for (var index = 0; index < data.embedSources.length; index++) ...[
             if (index > 0) const SizedBox(height: Spacing.sm),
             KeyedSubtree(
               key: ValueKey('tool-call-embed-$index'),
               child: WebContentEmbed(
-                source: data.embeds[index],
+                source: data.embedSources[index],
                 argsText: data.argumentsText,
                 previewTitle: 'Embedded Output',
                 previewDescription:
@@ -691,61 +714,74 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
   }
 }
 
-class _ToolCallViewData {
-  const _ToolCallViewData({
-    required this.argumentsText,
-    required this.resultText,
-    required this.parsedArguments,
-    required this.parsedResult,
-    required this.files,
-    required this.embeds,
-  });
+CompiledMarkdownToolCallData _compileLegacyToolCallData(
+  Map<String, String> attributes,
+) {
+  final argumentsText = _decodeToolCallAttribute(attributes['arguments']);
+  final resultText = _decodeToolCallAttribute(attributes['result']);
+  final parsedArguments = _parseJsonString(argumentsText);
+  final parsedResult = _parseJsonString(resultText);
+  final rawFiles = _parseJsonString(
+    _decodeToolCallAttribute(attributes['files']),
+  );
+  final rawEmbeds = _parseJsonString(
+    _decodeToolCallAttribute(attributes['embeds']),
+  );
 
-  factory _ToolCallViewData.fromAttributes(Map<String, String> attributes) {
-    final argumentsText = _decode(attributes['arguments']);
-    final resultText = _decode(attributes['result']);
-    final parsedArguments = _parseJsonString(argumentsText);
-    final parsedResult = _parseJsonString(resultText);
-    final rawFiles = _parseJsonString(_decode(attributes['files']));
-    final rawEmbeds = _parseJsonString(_decode(attributes['embeds']));
+  final argumentEntries = parsedArguments is Map
+      ? parsedArguments.entries
+            .map(
+              (entry) => CompiledMarkdownToolCallArgumentEntry(
+                label: entry.key.toString(),
+                value: _MarkdownDetailsBlockState._stringifyValue(entry.value),
+              ),
+            )
+            .toList(growable: false)
+      : const <CompiledMarkdownToolCallArgumentEntry>[];
 
-    final files = rawFiles is List
-        ? rawFiles.cast<Object?>()
-        : const <Object?>[];
-    final embeds = normalizeEmbedList(rawEmbeds)
-        .map(extractEmbedSource)
-        .whereType<String>()
-        .where((value) => value.isNotEmpty)
-        .toList(growable: false);
+  final argumentsCode = argumentsText.isEmpty || parsedArguments is Map
+      ? ''
+      : _MarkdownDetailsBlockState._formatJsonString(argumentsText);
 
-    return _ToolCallViewData(
-      argumentsText: argumentsText,
-      resultText: resultText,
-      parsedArguments: parsedArguments,
-      parsedResult: parsedResult,
-      files: files,
-      embeds: embeds,
-    );
+  final resultCode = parsedResult is Map || parsedResult is List
+      ? const JsonEncoder.withIndent('  ').convert(parsedResult)
+      : '';
+  final resultDisplayText = resultText.isEmpty || resultCode.isNotEmpty
+      ? ''
+      : _MarkdownDetailsBlockState._stringifyValue(parsedResult);
+
+  final embeds = normalizeEmbedList(rawEmbeds)
+      .map(extractEmbedSource)
+      .whereType<String>()
+      .where((value) => value.isNotEmpty)
+      .toList(growable: false);
+
+  final imageUrls = rawFiles is List
+      ? rawFiles
+            .cast<Object?>()
+            .map(_MarkdownDetailsBlockState._tryImageUri)
+            .whereType<Uri>()
+            .map((uri) => uri.toString())
+            .toList(growable: false)
+      : const <String>[];
+
+  return CompiledMarkdownToolCallData(
+    argumentsText: argumentsText,
+    resultText: resultText,
+    argumentEntries: argumentEntries,
+    argumentsCode: argumentsCode,
+    resultCode: resultCode,
+    resultDisplayText: resultDisplayText,
+    embedSources: embeds,
+    imageUrls: imageUrls,
+  );
+}
+
+String _decodeToolCallAttribute(String? input) {
+  if (input == null || input.isEmpty) {
+    return '';
   }
-
-  final String argumentsText;
-  final String resultText;
-  final Object? parsedArguments;
-  final Object? parsedResult;
-  final List<Object?> files;
-  final List<String> embeds;
-
-  bool get hasEmbeds => embeds.isNotEmpty;
-
-  bool get hasExpandableContent =>
-      argumentsText.trim().isNotEmpty || resultText.trim().isNotEmpty;
-
-  static String _decode(String? input) {
-    if (input == null || input.isEmpty) {
-      return '';
-    }
-    return _detailsWidgetUnescape.convert(input);
-  }
+  return _detailsWidgetUnescape.convert(input);
 }
 
 Object? _parseJsonString(String input) {

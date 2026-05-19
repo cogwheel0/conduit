@@ -22,13 +22,22 @@ import 'latex_rendering_server.dart';
 class LatexPreprocessor {
   /// Creates a preprocessor instance for a single parse
   /// operation.
-  LatexPreprocessor();
+  LatexPreprocessor()
+    : _blockExpressions = <String, String>{},
+      _inlineExpressions = <String, String>{};
+
+  LatexPreprocessor.fromExpressions(
+    Map<String, String> blockExpressions,
+    Map<String, String> inlineExpressions,
+  ) : _blockExpressions = Map<String, String>.from(blockExpressions),
+      _inlineExpressions = Map<String, String>.from(inlineExpressions),
+      _counter = blockExpressions.length + inlineExpressions.length;
 
   /// Block-level LaTeX expressions (placeholder key to TeX).
-  final _blockExpressions = <String, String>{};
+  final Map<String, String> _blockExpressions;
 
   /// Inline LaTeX expressions (placeholder key to TeX).
-  final _inlineExpressions = <String, String>{};
+  final Map<String, String> _inlineExpressions;
 
   /// Monotonically increasing counter for unique keys.
   int _counter = 0;
@@ -75,6 +84,12 @@ class LatexPreprocessor {
   /// Whether any LaTeX was found during [extract].
   bool get hasLatex =>
       _blockExpressions.isNotEmpty || _inlineExpressions.isNotEmpty;
+
+  Map<String, String> get blockExpressions =>
+      Map<String, String>.unmodifiable(_blockExpressions);
+
+  Map<String, String> get inlineExpressions =>
+      Map<String, String>.unmodifiable(_inlineExpressions);
 
   /// Replaces LaTeX expressions with placeholder tokens.
   ///

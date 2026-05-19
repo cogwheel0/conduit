@@ -3,10 +3,10 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:markdown/markdown.dart' as md;
 
 import '../../../../core/models/chat_message.dart';
 import '../../../../core/utils/citation_parser.dart';
+import '../compiled_markdown_document.dart';
 import '../citation_badge.dart';
 import 'latex_preprocessor.dart';
 import 'markdown_style.dart';
@@ -73,7 +73,10 @@ class InlineRenderer {
   ///
   /// If [parentStyle] is provided it is used as the base
   /// style; otherwise [style.body] is used.
-  InlineSpan render(List<md.Node> nodes, {TextStyle? parentStyle}) {
+  InlineSpan render(
+    List<CompiledMarkdownNode> nodes, {
+    TextStyle? parentStyle,
+  }) {
     final base = parentStyle ?? style.body;
     final spans = <InlineSpan>[];
     for (final node in nodes) {
@@ -83,28 +86,47 @@ class InlineRenderer {
     return TextSpan(children: spans);
   }
 
-  List<InlineSpan> _renderNode(md.Node node, TextStyle currentStyle) {
-    if (node is md.Text) {
-      return _renderText(node.text, currentStyle);
+  List<InlineSpan> _renderNode(
+    CompiledMarkdownNode node,
+    TextStyle currentStyle,
+  ) {
+    if (node is CompiledMarkdownText) {
+      return _renderText(node, currentStyle);
     }
-    if (node is md.Element) {
+    if (node is CompiledMarkdownElement) {
       return _renderElement(node, currentStyle);
     }
     return [TextSpan(text: node.textContent)];
   }
 
-  List<InlineSpan> _renderText(String text, TextStyle currentStyle) {
-    if (!latexPreprocessor.containsPlaceholder(text)) {
-      return _renderTextWithCitations(text, currentStyle);
+  List<InlineSpan> _renderText(
+    CompiledMarkdownText node,
+    TextStyle currentStyle,
+  ) {
+    if (node.hasInlineSegments) {
+      return _renderInlineSegments(node.inlineSegments, currentStyle);
+    }
+    if (!node.containsLatexPlaceholders) {
+      return _renderTextWithCitations(
+        node.text,
+        currentStyle,
+        containsCitations: node.containsCitations,
+      );
     }
 
-    final segments = latexPreprocessor.splitOnPlaceholders(text);
+    final segments = latexPreprocessor.splitOnPlaceholders(node.text);
     final spans = <InlineSpan>[];
 
     for (final segment in segments) {
       if (!segment.isLatex) {
         if (segment.content.isNotEmpty) {
-          spans.addAll(_renderTextWithCitations(segment.content, currentStyle));
+          spans.addAll(
+            _renderTextWithCitations(
+              segment.content,
+              currentStyle,
+              containsCitations: node.containsCitations,
+            ),
+          );
         }
         continue;
       }
@@ -122,11 +144,53 @@ class InlineRenderer {
     return spans;
   }
 
-  List<InlineSpan> _renderTextWithCitations(
-    String text,
+  List<InlineSpan> _renderInlineSegments(
+    List<CompiledMarkdownInlineSegment> segments,
     TextStyle currentStyle,
   ) {
-    if (sources == null || sources!.isEmpty) {
+    final spans = <InlineSpan>[];
+    for (final segment in segments) {
+      if (segment is CompiledMarkdownTextSegment) {
+        if (segment.text.isNotEmpty) {
+          spans.add(TextSpan(text: segment.text, style: currentStyle));
+        }
+        continue;
+      }
+      if (segment is CompiledMarkdownCitationSegment) {
+        if (!_canRenderCitationBadge(segment.sourceIds)) {
+          spans.add(TextSpan(text: segment.rawText, style: currentStyle));
+          continue;
+        }
+        spans.add(
+          WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: _buildCitationBadge(segment.sourceIds),
+          ),
+        );
+        continue;
+      }
+      if (segment is CompiledMarkdownLatexSegment) {
+        spans.add(
+          WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: LatexPreprocessor.buildLatexWidget(
+              segment.tex,
+              textStyle: currentStyle,
+              isBlock: segment.isBlock,
+            ),
+          ),
+        );
+      }
+    }
+    return spans;
+  }
+
+  List<InlineSpan> _renderTextWithCitations(
+    String text,
+    TextStyle currentStyle, {
+    required bool containsCitations,
+  }) {
+    if (sources == null || sources!.isEmpty || !containsCitations) {
       return [TextSpan(text: text, style: currentStyle)];
     }
     return _renderCitations(text, currentStyle) ??
@@ -144,10 +208,15 @@ class InlineRenderer {
       if (segment.isText && segment.text != null) {
         spans.add(TextSpan(text: segment.text, style: currentStyle));
       } else if (segment.isCitation && segment.citation != null) {
+        final citation = segment.citation!;
+        if (!_canRenderCitationBadge(citation.sourceIds)) {
+          spans.add(TextSpan(text: citation.raw, style: currentStyle));
+          continue;
+        }
         spans.add(
           WidgetSpan(
             alignment: PlaceholderAlignment.middle,
-            child: _buildCitationBadge(segment.citation!.sourceIds),
+            child: _buildCitationBadge(citation.sourceIds),
           ),
         );
       }
@@ -164,7 +233,7 @@ class InlineRenderer {
 
     final indices = sourceIds
         .map((id) => id - 1)
-        .where((index) => index >= 0)
+        .where((index) => index >= 0 && index < sourceList.length)
         .toList(growable: false);
     if (indices.isEmpty) return const SizedBox.shrink();
 
@@ -184,7 +253,18 @@ class InlineRenderer {
     );
   }
 
-  List<InlineSpan> _renderElement(md.Element element, TextStyle currentStyle) {
+  bool _canRenderCitationBadge(List<int> sourceIds) {
+    final sourceList = sources;
+    if (sourceList == null || sourceList.isEmpty || sourceIds.isEmpty) {
+      return false;
+    }
+    return sourceIds.every((id) => id > 0 && id <= sourceList.length);
+  }
+
+  List<InlineSpan> _renderElement(
+    CompiledMarkdownElement element,
+    TextStyle currentStyle,
+  ) {
     return switch (element.tag) {
       'strong' => _renderStyled(
         element,
@@ -207,7 +287,10 @@ class InlineRenderer {
     };
   }
 
-  List<InlineSpan> _renderMention(md.Element element, TextStyle currentStyle) {
+  List<InlineSpan> _renderMention(
+    CompiledMarkdownElement element,
+    TextStyle currentStyle,
+  ) {
     return [
       TextSpan(
         text: element.textContent,
@@ -219,9 +302,12 @@ class InlineRenderer {
     ];
   }
 
-  List<InlineSpan> _renderStyled(md.Element element, TextStyle styledText) {
+  List<InlineSpan> _renderStyled(
+    CompiledMarkdownElement element,
+    TextStyle styledText,
+  ) {
     final children = element.children;
-    if (children == null || children.isEmpty) {
+    if (children.isEmpty) {
       return [TextSpan(text: element.textContent, style: styledText)];
     }
     final spans = <InlineSpan>[];
@@ -238,7 +324,10 @@ class InlineRenderer {
     );
   }
 
-  List<InlineSpan> _renderLink(md.Element element, TextStyle currentStyle) {
+  List<InlineSpan> _renderLink(
+    CompiledMarkdownElement element,
+    TextStyle currentStyle,
+  ) {
     final href = element.attributes['href'] ?? '';
     final title = element.attributes['title'] ?? '';
     final linkStyle = currentStyle.copyWith(
@@ -255,7 +344,7 @@ class InlineRenderer {
     }
 
     final children = element.children;
-    if (children == null || children.isEmpty) {
+    if (children.isEmpty) {
       return [
         TextSpan(
           text: element.textContent,
@@ -303,18 +392,33 @@ class InlineRenderer {
     return span;
   }
 
-  List<InlineSpan> _renderImage(md.Element element, TextStyle currentStyle) {
+  List<InlineSpan> _renderImage(
+    CompiledMarkdownElement element,
+    TextStyle currentStyle,
+  ) {
     final alt = element.attributes['alt'] ?? '';
     if (alt.isEmpty) return [];
     return [TextSpan(text: alt, style: currentStyle)];
   }
 
-  List<InlineSpan> _renderChildren(md.Element element, TextStyle currentStyle) {
+  List<InlineSpan> _renderChildren(
+    CompiledMarkdownElement element,
+    TextStyle currentStyle,
+  ) {
     final children = element.children;
-    if (children == null || children.isEmpty) {
+    if (children.isEmpty) {
       final text = element.textContent;
       if (text.isNotEmpty) {
-        return _renderText(text, currentStyle);
+        return _renderText(
+          CompiledMarkdownText(
+            text,
+            containsLatexPlaceholders: latexPreprocessor.containsPlaceholder(
+              text,
+            ),
+            containsCitations: CitationParser.hasCitations(text),
+          ),
+          currentStyle,
+        );
       }
       return [];
     }

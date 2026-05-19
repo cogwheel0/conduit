@@ -28,6 +28,7 @@ import '../../../core/utils/debug_logger.dart';
 import '../../../core/utils/message_tree_utils.dart' as message_tree;
 import '../../../core/utils/user_display_name.dart';
 import '../../../core/utils/model_icon_utils.dart';
+import '../../../shared/widgets/markdown/markdown_compile_service.dart';
 import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
 import '../../../core/utils/android_assistant_handler.dart';
 import '../widgets/model_selector_sheet.dart';
@@ -77,7 +78,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   bool _didStartupFocus = false; // one-time auto-focus on startup
   String? _lastConversationId;
   final Map<String, double> _savedScrollOffsets = {};
+  Timer? _markdownPrewarmTimer;
+  int _markdownPrewarmGeneration = 0;
+  String? _lastMarkdownPrewarmSignature;
   bool _pendingScrollRestore = false;
+  bool _pendingInitialScrollToBottom = false;
   double _restoreScrollOffset = 0;
   bool _isUserInteractingWithScroll = false;
   String? _activeScrollProfileTaskKey;
@@ -397,6 +402,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _screenContextSub?.close();
     _reviewerModeSub?.close();
     _conversationIdSub?.close();
+    _markdownPrewarmTimer?.cancel();
     _endScrollProfile(reason: 'disposed');
     _scrollController.dispose();
     _scrollDebounceTimer?.cancel();
@@ -960,6 +966,19 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         _showScrollToBottom = showButton;
       });
     }
+
+    final messages = ref.read(chatMessagesProvider);
+    if (messages.isEmpty) {
+      return;
+    }
+    final modelsAsync = ref.read(modelsProvider);
+    final models = modelsAsync.hasValue ? modelsAsync.value : null;
+    final layoutMetadata = _resolveChatListStableLayoutMetadata(
+      messages: messages,
+      models: models,
+      apiService: ref.read(apiServiceProvider),
+    );
+    _scheduleMarkdownPrewarm(messages, layoutMetadata: layoutMetadata);
   }
 
   bool _hasScrollableContentForBottomButton() {
@@ -1114,6 +1133,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         currentStreamingId != null && currentStreamingId == _pinnedStreamingId;
 
     _lastConversationId = conversationId;
+    _markdownPrewarmTimer?.cancel();
+    _markdownPrewarmTimer = null;
+    _markdownPrewarmGeneration++;
+    _lastMarkdownPrewarmSignature = null;
     if (!preserveStreamingPin) {
       _wantsPinToTop = false;
       _pinnedUserMessageId = null;
@@ -1123,23 +1146,50 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
     if (conversationId == null) {
       _pendingScrollRestore = false;
+      _pendingInitialScrollToBottom = false;
     } else if (_savedScrollOffsets.containsKey(conversationId)) {
       _pendingScrollRestore = true;
+      _pendingInitialScrollToBottom = false;
       _restoreScrollOffset = _savedScrollOffsets[conversationId]!;
     } else {
       _pendingScrollRestore = false;
-      _scheduleInitialScrollToBottom();
+      _pendingInitialScrollToBottom = true;
     }
   }
 
-  void _scheduleInitialScrollToBottom() {
+  void _scheduleAfterScrollAttachment(VoidCallback action, {int attempt = 0}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_scrollController.hasClients) return;
+      if (!mounted) return;
+      if (!_scrollController.hasClients) {
+        if (attempt < 2) {
+          _scheduleAfterScrollAttachment(action, attempt: attempt + 1);
+        }
+        return;
+      }
+      action();
+    });
+  }
+
+  void _scheduleInitialScrollToBottom() {
+    _scheduleAfterScrollAttachment(() {
       if (_hasActiveStreamingAssistant(ref.read(chatMessagesProvider))) {
         return;
       }
       _scrollToBottom(smooth: false);
       _updateScrollToBottomVisibility();
+    });
+  }
+
+  void _scheduleScrollRestore(double targetOffset) {
+    _scheduleAfterScrollAttachment(() {
+      final clampedTargetOffset = targetOffset
+          .clamp(0.0, _scrollController.position.maxScrollExtent)
+          .toDouble();
+      if ((_scrollController.offset - clampedTargetOffset).abs() < 1.0) {
+        return;
+      }
+
+      _scrollController.jumpTo(clampedTargetOffset);
     });
   }
 
@@ -1482,20 +1532,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
     if (_pendingScrollRestore) {
       _pendingScrollRestore = false;
-      final targetOffset = _restoreScrollOffset;
-      if (!_scrollController.hasClients) {
-        // Scroll controller not attached yet — retry once after frame
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted || !_scrollController.hasClients) return;
-          _scrollController.jumpTo(
-            targetOffset.clamp(0.0, _scrollController.position.maxScrollExtent),
-          );
-        });
-      } else {
-        _scrollController.jumpTo(
-          targetOffset.clamp(0.0, _scrollController.position.maxScrollExtent),
-        );
-      }
+      _scheduleScrollRestore(_restoreScrollOffset);
+    }
+    if (_pendingInitialScrollToBottom) {
+      _pendingInitialScrollToBottom = false;
+      _scheduleInitialScrollToBottom();
     }
 
     // Add top padding for floating app bar, bottom padding for floating input.
@@ -1511,6 +1552,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       models: models,
       apiService: apiService,
     );
+    _scheduleMarkdownPrewarm(messages, layoutMetadata: layoutMetadata);
     final hasStreamingMessage = layoutMetadata.hasStreamingMessage;
 
     // Pin-to-top: detect new streaming response and scroll user message to top
@@ -1654,6 +1696,65 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         ],
       ),
     );
+  }
+
+  void _scheduleMarkdownPrewarm(
+    List<ChatMessage> messages, {
+    required _ChatListStableLayoutMetadata layoutMetadata,
+  }) {
+    final candidateIndices = _selectMarkdownPrewarmCandidateIndices(
+      messages: messages,
+      layoutMetadata: layoutMetadata,
+      viewportTop: _scrollController.hasClients
+          ? _scrollController.offset
+          : null,
+      viewportHeight: _scrollController.hasClients
+          ? _scrollController.position.viewportDimension
+          : null,
+      maxCount: 6,
+    );
+    final preparedContents = <String>[];
+    final signatureParts = <String>[];
+
+    for (final index in candidateIndices) {
+      final message = messages[index];
+      final content = message.content.trim();
+      if (content.isEmpty || content.contains('data:image/')) {
+        continue;
+      }
+
+      preparedContents.add(
+        prepareMarkdownContent(content, streaming: message.isStreaming),
+      );
+      signatureParts.add(
+        '$index:${message.id}:${message.isStreaming}:${content.length}:${content.hashCode}',
+      );
+    }
+
+    if (preparedContents.isEmpty) {
+      _markdownPrewarmTimer?.cancel();
+      _markdownPrewarmTimer = null;
+      _lastMarkdownPrewarmSignature = null;
+      return;
+    }
+
+    final signature = signatureParts.join('|');
+    if (signature == _lastMarkdownPrewarmSignature) {
+      return;
+    }
+
+    _lastMarkdownPrewarmSignature = signature;
+    _markdownPrewarmGeneration += 1;
+    final generation = _markdownPrewarmGeneration;
+    _markdownPrewarmTimer?.cancel();
+    _markdownPrewarmTimer = Timer(const Duration(milliseconds: 220), () {
+      if (!mounted || generation != _markdownPrewarmGeneration) {
+        return;
+      }
+      ref
+          .read(markdownCompileServiceProvider)
+          .prewarmPrepared(preparedContents);
+    });
   }
 
   String? _resolveStreamingParentUserId(List<ChatMessage> messages) {
@@ -2776,6 +2877,117 @@ debugBuildChatListLayoutSummaryForTesting(
         ),
       )
       .toList(growable: false);
+}
+
+@visibleForTesting
+List<int> debugSelectMarkdownPrewarmCandidateIndicesForTesting(
+  List<ChatMessage> messages, {
+  double crossAxisExtent = 400,
+  double viewportTop = 0,
+  double viewportHeight = 700,
+  int maxCount = 6,
+}) {
+  final metadata = _buildChatListStableLayoutMetadata(
+    messages: messages,
+    models: null,
+    apiService: null,
+    crossAxisExtent: crossAxisExtent,
+  );
+  return _selectMarkdownPrewarmCandidateIndices(
+    messages: messages,
+    layoutMetadata: metadata,
+    viewportTop: viewportTop,
+    viewportHeight: viewportHeight,
+    maxCount: maxCount,
+  );
+}
+
+List<int> _selectMarkdownPrewarmCandidateIndices({
+  required List<ChatMessage> messages,
+  required _ChatListStableLayoutMetadata layoutMetadata,
+  required double? viewportTop,
+  required double? viewportHeight,
+  int maxCount = 6,
+}) {
+  if (messages.isEmpty || maxCount <= 0) {
+    return const <int>[];
+  }
+
+  final indices = <int>[];
+  final seen = <int>{};
+
+  void addIndex(int index) {
+    if (index < 0 ||
+        index >= messages.length ||
+        seen.contains(index) ||
+        layoutMetadata.rows[index].isArchivedVariant) {
+      return;
+    }
+    final message = messages[index];
+    if (message.role != 'assistant') {
+      return;
+    }
+    final content = message.content.trim();
+    if (content.isEmpty || content.contains('data:image/')) {
+      return;
+    }
+    seen.add(index);
+    indices.add(index);
+  }
+
+  if (viewportTop != null && viewportHeight != null && viewportHeight > 0) {
+    final startOffset = (viewportTop - (viewportHeight * 0.5)).clamp(
+      0.0,
+      double.infinity,
+    );
+    final endOffset = viewportTop + (viewportHeight * 1.75);
+    final startIndex = _rowIndexForEstimatedOffset(layoutMetadata, startOffset);
+    final endIndex = _rowIndexForEstimatedOffset(layoutMetadata, endOffset);
+    for (var index = endIndex; index >= startIndex; index -= 1) {
+      addIndex(index);
+      if (indices.length >= maxCount) {
+        return List<int>.unmodifiable(indices);
+      }
+    }
+  }
+
+  for (var index = messages.length - 1; index >= 0; index -= 1) {
+    addIndex(index);
+    if (indices.length >= maxCount) {
+      break;
+    }
+  }
+
+  return List<int>.unmodifiable(indices);
+}
+
+int _rowIndexForEstimatedOffset(
+  _ChatListStableLayoutMetadata layoutMetadata,
+  double targetOffset,
+) {
+  final rows = layoutMetadata.rows;
+  if (rows.isEmpty) {
+    return 0;
+  }
+
+  var low = 0;
+  var high = rows.length - 1;
+  var result = rows.length - 1;
+
+  while (low <= high) {
+    final mid = low + ((high - low) >> 1);
+    final row = rows[mid];
+    final rowStart = row.leadingOffset;
+    final rowEnd = rowStart + row.estimatedExtent;
+    if (targetOffset <= rowEnd) {
+      result = mid;
+      high = mid - 1;
+    } else {
+      low = mid + 1;
+    }
+  }
+
+  return result.clamp(0, rows.length - 1);
 }
 
 double _estimateChatMessageExtent(

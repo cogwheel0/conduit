@@ -4,8 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/chat_message.dart';
 import '../../../core/services/worker_manager.dart';
+import 'compiled_markdown_document.dart';
 import 'markdown_config.dart';
-import 'markdown_preprocessor.dart';
+import 'markdown_compile_service.dart';
 import 'renderer/block_renderer.dart';
 import 'renderer/conduit_markdown_widget.dart';
 
@@ -27,33 +28,9 @@ _MarkdownRenderSnapshot _buildMarkdownSnapshot(
   String content, {
   required bool streaming,
 }) {
-  final normalized = ConduitMarkdownPreprocessor.normalize(content);
-  final prepared = streaming
-      ? _stripTrailingIncompleteToolCallDetails(normalized)
-      : normalized;
-  return _MarkdownRenderSnapshot.full(prepared);
-}
-
-String _stripTrailingIncompleteToolCallDetails(String input) {
-  if (input.isEmpty || !input.contains('<details')) {
-    return input;
-  }
-
-  final matches = RegExp(
-    r'<details\b[^>]*type="tool_calls"[^>]*>',
-    caseSensitive: false,
-  ).allMatches(input).toList(growable: false);
-  if (matches.isEmpty) {
-    return input;
-  }
-
-  final lastOpen = matches.last;
-  final trailing = input.substring(lastOpen.start).toLowerCase();
-  if (trailing.contains('</details>')) {
-    return input;
-  }
-
-  return input.substring(0, lastOpen.start).trimRight();
+  return _MarkdownRenderSnapshot.full(
+    prepareMarkdownContent(content, streaming: streaming),
+  );
 }
 
 class _MarkdownRenderSnapshot {
@@ -129,10 +106,15 @@ class _StreamingMarkdownWidgetState
   static const _streamingRenderInterval = Duration(milliseconds: 120);
 
   _MarkdownRenderSnapshot _snapshot = const _MarkdownRenderSnapshot.empty();
+  CompiledMarkdownDocument? _compiledDocument;
+  String _compiledPreparedContent = '';
   Timer? _renderTimer;
   bool _snapshotInFlight = false;
+  bool _documentInFlight = false;
   String? _queuedContent;
+  String? _queuedPreparedContent;
   int _snapshotGeneration = 0;
+  int _documentGeneration = 0;
 
   @override
   void initState() {
@@ -141,6 +123,7 @@ class _StreamingMarkdownWidgetState
       widget.content,
       streaming: widget.isStreaming,
     );
+    _primeCompiledDocument(_snapshot);
   }
 
   @override
@@ -186,6 +169,8 @@ class _StreamingMarkdownWidgetState
   @override
   void dispose() {
     _renderTimer?.cancel();
+    _queuedPreparedContent = null;
+    _documentGeneration += 1;
     super.dispose();
   }
 
@@ -210,6 +195,7 @@ class _StreamingMarkdownWidgetState
     _renderTimer = null;
     _queuedContent = null;
     _snapshotGeneration += 1;
+    _invalidatePendingAsyncDocument();
   }
 
   void _queueLatestStreamingContent(String content) {
@@ -255,14 +241,21 @@ class _StreamingMarkdownWidgetState
   }
 
   void _applySnapshot(_MarkdownRenderSnapshot nextSnapshot) {
-    if (_snapshot == nextSnapshot) {
+    final changed = _snapshot != nextSnapshot;
+    if (!changed) {
+      if (_compiledDocument == null ||
+          _compiledPreparedContent != nextSnapshot.normalizedContent) {
+        _resolveCompiledDocument(nextSnapshot);
+      }
       return;
     }
     if (!mounted) {
       _snapshot = nextSnapshot;
+      _resolveCompiledDocument(nextSnapshot);
       return;
     }
     setState(() => _snapshot = nextSnapshot);
+    _resolveCompiledDocument(nextSnapshot);
   }
 
   /// Adapts the legacy [imageBuilderOverride] callback
@@ -280,14 +273,21 @@ class _StreamingMarkdownWidgetState
 
   @override
   Widget build(BuildContext context) {
-    final snapshot = widget.isStreaming
-        ? _snapshot
-        : _buildMarkdownSnapshot(widget.content, streaming: false);
+    final snapshot = _snapshot;
     if (snapshot.normalizedContent.trim().isEmpty) {
       return const SizedBox.shrink();
     }
 
-    final result = _buildMarkdownWithCitations(snapshot.normalizedContent);
+    final compiledDocument = _compiledDocument;
+    if (compiledDocument == null) {
+      return const SizedBox.shrink();
+    }
+    if (!widget.isStreaming &&
+        _compiledPreparedContent != snapshot.normalizedContent) {
+      return const SizedBox.shrink();
+    }
+
+    final result = _buildMarkdownWithCitations(compiledDocument);
 
     // Only wrap in SelectionArea when not streaming to
     // avoid concurrent modification errors in Flutter's
@@ -303,15 +303,150 @@ class _StreamingMarkdownWidgetState
   ///
   /// Citations like [1], [2] are rendered as clickable
   /// badges inline with the text.
-  Widget _buildMarkdownWithCitations(String data) {
+  Widget _buildMarkdownWithCitations(CompiledMarkdownDocument document) {
     return ConduitMarkdownWidget(
-      data: data,
+      compiledDocument: document,
       onLinkTap: widget.onTapLink,
       imageBuilder: _adaptImageBuilder(),
       sources: widget.sources,
       onSourceTap: widget.onSourceTap,
       stateScopeId: widget.stateScopeId,
+      heavyBlockPolicy: widget.isStreaming
+          ? MarkdownHeavyBlockPolicy.defer
+          : MarkdownHeavyBlockPolicy.eager,
     );
+  }
+
+  void _primeCompiledDocument(_MarkdownRenderSnapshot snapshot) {
+    if (snapshot.normalizedContent.trim().isEmpty) {
+      _compiledPreparedContent = '';
+      _compiledDocument = const CompiledMarkdownDocument.empty();
+      return;
+    }
+
+    final compiler = ref.read(markdownCompileServiceProvider);
+    final cached = compiler.peekPrepared(snapshot.normalizedContent);
+    if (cached != null) {
+      _compiledPreparedContent = snapshot.normalizedContent;
+      _compiledDocument = cached;
+      return;
+    }
+
+    if (compiler.shouldCompileSynchronously(
+      snapshot.normalizedContent,
+      widgetTest: _isWidgetTest,
+    )) {
+      final syncDocument = compiler.compilePreparedSynchronously(
+        snapshot.normalizedContent,
+      );
+      _compiledPreparedContent = snapshot.normalizedContent;
+      _compiledDocument = syncDocument;
+      return;
+    }
+
+    _compiledPreparedContent = '';
+    _compiledDocument = null;
+    unawaited(_refreshCompiledDocument(snapshot.normalizedContent));
+  }
+
+  void _invalidatePendingAsyncDocument() {
+    _queuedPreparedContent = null;
+    _documentGeneration += 1;
+  }
+
+  void _queueLatestPreparedContent(String preparedContent) {
+    if (_queuedPreparedContent == preparedContent) {
+      return;
+    }
+    _queuedPreparedContent = preparedContent;
+    _documentGeneration += 1;
+  }
+
+  void _resolveCompiledDocument(_MarkdownRenderSnapshot snapshot) {
+    final preparedContent = snapshot.normalizedContent;
+    if (preparedContent.trim().isEmpty) {
+      _invalidatePendingAsyncDocument();
+      _applyCompiledDocument('', const CompiledMarkdownDocument.empty());
+      return;
+    }
+
+    final compiler = ref.read(markdownCompileServiceProvider);
+    final cached = compiler.peekPrepared(preparedContent);
+    if (cached != null) {
+      _invalidatePendingAsyncDocument();
+      _applyCompiledDocument(preparedContent, cached);
+      return;
+    }
+
+    if (compiler.shouldCompileSynchronously(
+      preparedContent,
+      widgetTest: _isWidgetTest,
+    )) {
+      _invalidatePendingAsyncDocument();
+      final syncDocument = compiler.compilePreparedSynchronously(
+        preparedContent,
+      );
+      _applyCompiledDocument(preparedContent, syncDocument);
+      return;
+    }
+
+    if (_documentInFlight) {
+      _queueLatestPreparedContent(preparedContent);
+      return;
+    }
+
+    unawaited(_refreshCompiledDocument(preparedContent));
+  }
+
+  Future<void> _refreshCompiledDocument(String preparedContent) async {
+    if (_documentInFlight) {
+      _queueLatestPreparedContent(preparedContent);
+      return;
+    }
+
+    _documentInFlight = true;
+    final generation = ++_documentGeneration;
+    try {
+      final compiler = ref.read(markdownCompileServiceProvider);
+      final document = await compiler.compilePrepared(preparedContent);
+      if (!mounted ||
+          generation != _documentGeneration ||
+          _snapshot.normalizedContent != preparedContent) {
+        return;
+      }
+      _applyCompiledDocument(preparedContent, document);
+    } finally {
+      _documentInFlight = false;
+      final queuedPreparedContent = _queuedPreparedContent;
+      _queuedPreparedContent = null;
+      if (queuedPreparedContent != null &&
+          (queuedPreparedContent != preparedContent ||
+              generation != _documentGeneration) &&
+          mounted) {
+        unawaited(_refreshCompiledDocument(queuedPreparedContent));
+      }
+    }
+  }
+
+  void _applyCompiledDocument(
+    String preparedContent,
+    CompiledMarkdownDocument document,
+  ) {
+    final changed =
+        _compiledPreparedContent != preparedContent ||
+        _compiledDocument != document;
+    if (!changed) {
+      return;
+    }
+    if (!mounted) {
+      _compiledPreparedContent = preparedContent;
+      _compiledDocument = document;
+      return;
+    }
+    setState(() {
+      _compiledPreparedContent = preparedContent;
+      _compiledDocument = document;
+    });
   }
 }
 
