@@ -554,7 +554,6 @@ CompiledMarkdownNode _compileNodeFromMarkdownNode(
       tag: node.tag,
       blockKind: codeMetadata.blockKind,
       language: codeMetadata.language,
-      blockSourceLength: codeMetadata.sourceLength,
       inlinePreview: codeMetadata.inlinePreview,
       detailsData: node.tag == 'details'
           ? _buildCompiledDetailsData(
@@ -1065,18 +1064,12 @@ bool _compiledNodeHasVisualContent(CompiledMarkdownNode node) {
   return false;
 }
 
-({
-  CompiledMarkdownBlockKind blockKind,
-  String language,
-  int sourceLength,
-  bool inlinePreview,
-})
+({CompiledMarkdownBlockKind blockKind, String language, bool inlinePreview})
 _extractCodeBlockMetadata(md.Element element) {
   if (element.tag != 'pre') {
     return (
       blockKind: CompiledMarkdownBlockKind.none,
       language: '',
-      sourceLength: 0,
       inlinePreview: false,
     );
   }
@@ -1088,7 +1081,6 @@ _extractCodeBlockMetadata(md.Element element) {
     return (
       blockKind: CompiledMarkdownBlockKind.mermaid,
       language: language,
-      sourceLength: code.length,
       inlinePreview: false,
     );
   }
@@ -1096,7 +1088,6 @@ _extractCodeBlockMetadata(md.Element element) {
     return (
       blockKind: CompiledMarkdownBlockKind.chartJs,
       language: language,
-      sourceLength: code.length,
       inlinePreview: false,
     );
   }
@@ -1107,7 +1098,6 @@ _extractCodeBlockMetadata(md.Element element) {
         ? CompiledMarkdownBlockKind.previewableCode
         : CompiledMarkdownBlockKind.code,
     language: language,
-    sourceLength: code.length,
     inlinePreview: previewable && _shouldInlinePreviewCodeBlock(language, code),
   );
 }

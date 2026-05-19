@@ -67,6 +67,39 @@ class _DelayedMarkdownCompileService extends MarkdownCompileService {
   }) => false;
 }
 
+class _SelectiveDelayedMarkdownCompileService extends MarkdownCompileService {
+  _SelectiveDelayedMarkdownCompileService({
+    required this.delayedPreparedContent,
+  }) : super(workerManager: WorkerManager());
+
+  final String delayedPreparedContent;
+  final Completer<void> _release = Completer<void>();
+
+  void release() {
+    if (!_release.isCompleted) {
+      _release.complete();
+    }
+  }
+
+  @override
+  Future<CompiledMarkdownDocument> compilePrepared(
+    String preparedContent, {
+    bool allowSynchronous = false,
+    bool widgetTest = false,
+  }) async {
+    if (preparedContent == delayedPreparedContent) {
+      await _release.future;
+    }
+    return compilePreparedSynchronously(preparedContent);
+  }
+
+  @override
+  bool shouldCompileSynchronously(
+    String preparedContent, {
+    bool widgetTest = false,
+  }) => preparedContent != delayedPreparedContent;
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -124,6 +157,8 @@ void main() {
     String? stateScopeId,
     List<ChatSourceReference> sources = const <ChatSourceReference>[],
     Locale? locale,
+    VoidCallback? onCompiledViewMounted,
+    VoidCallback? onCompiledViewDisposed,
   }) {
     return ProviderScope(
       child: MaterialApp(
@@ -138,6 +173,8 @@ void main() {
               isStreaming: isStreaming,
               stateScopeId: stateScopeId,
               sources: sources,
+              debugOnCompiledViewMounted: onCompiledViewMounted,
+              debugOnCompiledViewDisposed: onCompiledViewDisposed,
             ),
           ),
         ),
@@ -182,7 +219,8 @@ graph TD
 
       expect(find.text('Preview deferred for large content.'), findsOneWidget);
       expect(find.byType(MermaidDiagram), findsNothing);
-      expect(find.text('mermaid'), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(find.text('mermaid'), findsNothing);
     },
   );
 
@@ -205,7 +243,7 @@ graph TD
   );
 
   testWidgets(
-    'defers oversized heavy mermaid previews until explicitly opened',
+    'automatically opens oversized heavy mermaid previews after streaming ends',
     (tester) async {
       final lines = List<String>.generate(
         160,
@@ -213,23 +251,59 @@ graph TD
       );
       final content = ['```mermaid', 'graph TD', ...lines, '```'].join('\n');
 
-      await tester.pumpWidget(buildHarness(content));
+      await tester.pumpWidget(buildHarness(content, isStreaming: true));
 
       expect(find.text('Preview deferred for large content.'), findsOneWidget);
-      expect(find.text('Open preview'), findsOneWidget);
+      expect(find.text('Open preview'), findsNothing);
       expect(find.byType(MermaidDiagram), findsNothing);
 
-      await tester.tap(find.text('Open preview'));
+      await tester.pumpWidget(buildHarness(content, isStreaming: false));
       await tester.pump();
 
       expect(find.byType(MermaidDiagram), findsOneWidget);
+      expect(find.text('Preview deferred for large content.'), findsNothing);
+      expect(find.text('Open preview'), findsNothing);
     },
   );
 
-  testWidgets('defers multiple heavy previews until explicitly opened', (
-    tester,
-  ) async {
-    const content = '''
+  testWidgets(
+    'streaming completion does not remount the compiled markdown subtree',
+    (tester) async {
+      var mountedCount = 0;
+      var disposedCount = 0;
+
+      await tester.pumpWidget(
+        buildHarness(
+          'Settled response',
+          isStreaming: true,
+          onCompiledViewMounted: () => mountedCount += 1,
+          onCompiledViewDisposed: () => disposedCount += 1,
+        ),
+      );
+      await tester.pump();
+
+      expect(mountedCount, 1);
+      expect(disposedCount, 0);
+
+      await tester.pumpWidget(
+        buildHarness(
+          'Settled response',
+          isStreaming: false,
+          onCompiledViewMounted: () => mountedCount += 1,
+          onCompiledViewDisposed: () => disposedCount += 1,
+        ),
+      );
+      await tester.pump();
+
+      expect(mountedCount, 1);
+      expect(disposedCount, 0);
+    },
+  );
+
+  testWidgets(
+    'automatically opens multiple heavy previews after streaming ends',
+    (tester) async {
+      const content = '''
 ```mermaid
 graph TD
   A-->B
@@ -241,48 +315,21 @@ graph TD
 ```
 ''';
 
-    await tester.pumpWidget(buildHarness(content));
+      await tester.pumpWidget(buildHarness(content, isStreaming: true));
 
-    expect(find.text('Preview deferred for large content.'), findsNWidgets(2));
-    expect(find.text('Open preview'), findsNWidgets(2));
-    expect(find.byType(MermaidDiagram), findsNothing);
-  });
-
-  testWidgets(
-    'deferred heavy preview state resets when the block content changes',
-    (tester) async {
-      final firstLines = List<String>.generate(
-        160,
-        (index) => '  A$index-->A${index + 1}',
+      expect(
+        find.text('Preview deferred for large content.'),
+        findsNWidgets(2),
       );
-      final secondLines = List<String>.generate(
-        160,
-        (index) => '  B$index-->B${index + 1}',
-      );
-      final firstContent = [
-        '```mermaid',
-        'graph TD',
-        ...firstLines,
-        '```',
-      ].join('\n');
-      final secondContent = [
-        '```mermaid',
-        'graph LR',
-        ...secondLines,
-        '```',
-      ].join('\n');
-
-      await tester.pumpWidget(buildHarness(firstContent));
-
-      expect(find.text('Open preview'), findsOneWidget);
-      await tester.tap(find.text('Open preview'));
-      await tester.pump();
-      expect(find.byType(MermaidDiagram), findsOneWidget);
-
-      await tester.pumpWidget(buildHarness(secondContent));
-
-      expect(find.text('Open preview'), findsOneWidget);
       expect(find.byType(MermaidDiagram), findsNothing);
+      expect(find.byType(CircularProgressIndicator), findsNWidgets(2));
+
+      await tester.pumpWidget(buildHarness(content, isStreaming: false));
+      await tester.pump();
+
+      expect(find.byType(MermaidDiagram), findsNWidgets(2));
+      expect(find.text('Preview deferred for large content.'), findsNothing);
+      expect(find.text('Open preview'), findsNothing);
     },
   );
 
@@ -827,6 +874,72 @@ After
     },
   );
 
+  testWidgets(
+    'keeps the last streaming render visible while the final long document compiles',
+    (tester) async {
+      final streamingContent = List<String>.generate(
+        40,
+        (index) => 'Line $index',
+      ).join('\n');
+      final finalContent = '$streamingContent\n\nFinal settling line';
+      final compiler = _SelectiveDelayedMarkdownCompileService(
+        delayedPreparedContent: prepareMarkdownContent(
+          finalContent,
+          streaming: false,
+        ),
+      );
+      addTearDown(compiler.dispose);
+
+      Widget buildSelectiveHarness(String content, bool isStreaming) {
+        return ProviderScope(
+          overrides: [
+            markdownCompileServiceProvider.overrideWithValue(compiler),
+          ],
+          child: MaterialApp(
+            theme: AppTheme.light(TweakcnThemes.t3Chat),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: StreamingMarkdownWidget(
+                  content: content,
+                  isStreaming: isStreaming,
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+
+      await tester.pumpWidget(buildSelectiveHarness(streamingContent, true));
+      await tester.pump();
+
+      expect(find.textContaining('Line 0', findRichText: true), findsOneWidget);
+      expect(
+        find.text('Final settling line', findRichText: true),
+        findsNothing,
+      );
+
+      await tester.pumpWidget(buildSelectiveHarness(finalContent, false));
+      await tester.pump();
+
+      expect(find.textContaining('Line 0', findRichText: true), findsOneWidget);
+      expect(
+        find.text('Final settling line', findRichText: true),
+        findsNothing,
+      );
+
+      compiler.release();
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        find.text('Final settling line', findRichText: true),
+        findsOneWidget,
+      );
+    },
+  );
+
   testWidgets('renders tool call embeds inline like upstream', (tester) async {
     const content = '''
 <details type="tool_calls" done="true" name="browser" embeds="[&quot;https://example.com/embed&quot;]">
@@ -892,6 +1005,34 @@ After
         find.text('Embedded content preview is unavailable in widget tests.'),
         findsOneWidget,
       );
+    },
+  );
+
+  testWidgets(
+    'renders oversized svg previews inline without the deferred open-preview card',
+    (tester) async {
+      final circles = List<String>.generate(
+        1800,
+        (index) => '<circle cx="${index % 100}" cy="${index % 100}" r="2" />',
+      ).join('\n');
+      final content =
+          '''
+```svg
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+$circles
+</svg>
+```
+''';
+
+      await tester.pumpWidget(buildHarness(content));
+
+      expect(find.text('SVG Preview'), findsOneWidget);
+      expect(
+        find.text('Embedded content preview is unavailable in widget tests.'),
+        findsOneWidget,
+      );
+      expect(find.text('Open preview'), findsNothing);
+      expect(find.text('Preview deferred for large content.'), findsNothing);
     },
   );
 

@@ -73,6 +73,8 @@ class StreamingMarkdownWidget extends ConsumerStatefulWidget {
     this.stateScopeId,
     this.debugTreatAsWidgetTest,
     this.debugRenderInterval,
+    this.debugOnCompiledViewMounted,
+    this.debugOnCompiledViewDisposed,
   });
 
   final String content;
@@ -97,6 +99,12 @@ class StreamingMarkdownWidget extends ConsumerStatefulWidget {
   @visibleForTesting
   final Duration? debugRenderInterval;
 
+  @visibleForTesting
+  final VoidCallback? debugOnCompiledViewMounted;
+
+  @visibleForTesting
+  final VoidCallback? debugOnCompiledViewDisposed;
+
   @override
   ConsumerState<StreamingMarkdownWidget> createState() =>
       _StreamingMarkdownWidgetState();
@@ -107,7 +115,9 @@ class _StreamingMarkdownWidgetState
   static const _streamingRenderInterval = Duration(milliseconds: 120);
 
   late final MarkdownDocumentController _documentController;
+  final GlobalKey _markdownContentKey = GlobalKey();
   _MarkdownRenderSnapshot _snapshot = const _MarkdownRenderSnapshot.empty();
+  bool _preserveStaleCompiledDocumentUntilFreshFinal = false;
   Timer? _renderTimer;
   bool _snapshotInFlight = false;
   String? _queuedContent;
@@ -137,6 +147,12 @@ class _StreamingMarkdownWidgetState
   @override
   void didUpdateWidget(covariant StreamingMarkdownWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.isStreaming && !widget.isStreaming) {
+      _preserveStaleCompiledDocumentUntilFreshFinal = true;
+    } else if (widget.isStreaming ||
+        widget.stateScopeId != oldWidget.stateScopeId) {
+      _preserveStaleCompiledDocumentUntilFreshFinal = false;
+    }
     if (!identical(widget.sources, oldWidget.sources) ||
         widget.onSourceTap != oldWidget.onSourceTap ||
         widget.onTapLink != oldWidget.onTapLink ||
@@ -289,12 +305,18 @@ class _StreamingMarkdownWidgetState
     if (compiledDocument == null) {
       return const SizedBox.shrink();
     }
+    final hasFreshCompiledDocument =
+        _compiledPreparedContent == snapshot.normalizedContent;
     if (!widget.isStreaming &&
-        _compiledPreparedContent != snapshot.normalizedContent) {
+        !hasFreshCompiledDocument &&
+        !_preserveStaleCompiledDocumentUntilFreshFinal) {
       return const SizedBox.shrink();
     }
 
-    final result = _buildMarkdownWithCitations(compiledDocument);
+    final result = KeyedSubtree(
+      key: _markdownContentKey,
+      child: _buildMarkdownWithCitations(compiledDocument),
+    );
 
     // Only wrap in SelectionArea when not streaming to
     // avoid concurrent modification errors in Flutter's
@@ -320,7 +342,9 @@ class _StreamingMarkdownWidgetState
       stateScopeId: widget.stateScopeId,
       heavyBlockPolicy: widget.isStreaming
           ? MarkdownHeavyBlockPolicy.defer
-          : MarkdownHeavyBlockPolicy.smart,
+          : MarkdownHeavyBlockPolicy.eager,
+      debugOnCompiledViewMounted: widget.debugOnCompiledViewMounted,
+      debugOnCompiledViewDisposed: widget.debugOnCompiledViewDisposed,
     );
   }
 
@@ -332,10 +356,19 @@ class _StreamingMarkdownWidgetState
     String compiledPreparedContent,
     CompiledMarkdownDocument? document,
   ) {
+    final hasFreshCompiledDocument =
+        compiledPreparedContent == _snapshot.normalizedContent;
     if (!mounted) {
+      if (hasFreshCompiledDocument) {
+        _preserveStaleCompiledDocumentUntilFreshFinal = false;
+      }
       return;
     }
-    setState(() {});
+    setState(() {
+      if (hasFreshCompiledDocument) {
+        _preserveStaleCompiledDocumentUntilFreshFinal = false;
+      }
+    });
   }
 }
 

@@ -55,6 +55,8 @@ class ConduitMarkdownWidget extends ConsumerStatefulWidget {
     this.stateScopeId,
     this.heavyBlockPolicy = MarkdownHeavyBlockPolicy.eager,
     this.debugTreatAsWidgetTest,
+    this.debugOnCompiledViewMounted,
+    this.debugOnCompiledViewDisposed,
     super.key,
   }) : assert(
          data != null || compiledDocument != null,
@@ -87,13 +89,16 @@ class ConduitMarkdownWidget extends ConsumerStatefulWidget {
   final String? stateScopeId;
 
   /// Controls how expensive preview-backed blocks should behave.
-  ///
-  /// `smart` keeps unusually large or repeated heavy previews lazy while still
-  /// eagerly rendering smaller diagrams.
   final MarkdownHeavyBlockPolicy heavyBlockPolicy;
 
   @visibleForTesting
   final bool? debugTreatAsWidgetTest;
+
+  @visibleForTesting
+  final VoidCallback? debugOnCompiledViewMounted;
+
+  @visibleForTesting
+  final VoidCallback? debugOnCompiledViewDisposed;
 
   @override
   ConsumerState<ConduitMarkdownWidget> createState() =>
@@ -151,6 +156,8 @@ class _ConduitMarkdownWidgetState extends ConsumerState<ConduitMarkdownWidget> {
       onSourceTap: widget.onSourceTap,
       stateScopeId: widget.stateScopeId,
       heavyBlockPolicy: widget.heavyBlockPolicy,
+      debugOnMounted: widget.debugOnCompiledViewMounted,
+      debugOnDisposed: widget.debugOnCompiledViewDisposed,
     );
   }
 
@@ -203,6 +210,8 @@ class _CompiledMarkdownView extends StatefulWidget {
     this.onSourceTap,
     this.stateScopeId,
     this.heavyBlockPolicy = MarkdownHeavyBlockPolicy.eager,
+    this.debugOnMounted,
+    this.debugOnDisposed,
   });
 
   final CompiledMarkdownDocument document;
@@ -212,6 +221,8 @@ class _CompiledMarkdownView extends StatefulWidget {
   final void Function(int sourceIndex)? onSourceTap;
   final String? stateScopeId;
   final MarkdownHeavyBlockPolicy heavyBlockPolicy;
+  final VoidCallback? debugOnMounted;
+  final VoidCallback? debugOnDisposed;
 
   @override
   State<_CompiledMarkdownView> createState() => _CompiledMarkdownViewState();
@@ -224,6 +235,7 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView> {
   @override
   void initState() {
     super.initState();
+    widget.debugOnMounted?.call();
     _hydrateDocument(widget.document);
   }
 
@@ -237,6 +249,7 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView> {
 
   @override
   void dispose() {
+    widget.debugOnDisposed?.call();
     _inlineRenderer?.disposeRecognizers();
     super.dispose();
   }
@@ -267,7 +280,6 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView> {
       widget.stateScopeId,
       null,
       widget.heavyBlockPolicy,
-      widget.document.heavyBlockCount,
     );
 
     return switch (widget.document.renderTier) {

@@ -30,7 +30,6 @@ typedef MarkdownLinkTapCallback = void Function(String url, String title);
 const _chartPreviewMinHeight = 320.0;
 const _mermaidPreviewMinHeight = 360.0;
 const _embeddedPreviewMaxHeight = 1200.0;
-const _inlineWebPreviewMaxSourceLength = 32000;
 
 class ConduitMarkdown {
   const ConduitMarkdown._();
@@ -162,14 +161,12 @@ class ConduitMarkdown {
             ),
           ),
           const SizedBox(height: Spacing.xs),
-          if (code.length <= _inlineWebPreviewMaxSourceLength)
-            WebContentEmbed(
-              source: code,
-              previewTitle: previewLabel,
-              previewDescription: 'Load the inline preview when needed.',
-            )
-          else
-            _DeferredInlinePreviewCard(code: code, language: language),
+          WebContentEmbed(
+            source: code,
+            deferUntilExpanded: false,
+            initiallyExpanded: true,
+            previewTitle: previewLabel,
+          ),
         ],
       ),
     );
@@ -636,52 +633,6 @@ class ConduitMarkdown {
   ) {
     return markdownStyle.detailAction.copyWith(
       color: conduitTheme.codeText.withValues(alpha: 0.7),
-    );
-  }
-}
-
-class _DeferredInlinePreviewCard extends StatelessWidget {
-  const _DeferredInlinePreviewCard({
-    required this.code,
-    required this.language,
-  });
-
-  final String code;
-  final String language;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-    final l10n = AppLocalizations.of(context)!;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: theme.cardBackground,
-        border: Border.all(color: theme.cardBorder, width: BorderWidth.thin),
-        borderRadius: BorderRadius.circular(AppBorderRadius.md),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(Spacing.sm),
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                l10n.previewDeferredLargeContent,
-                style: AppTypography.bodySmallStyle.copyWith(
-                  color: theme.textSecondary,
-                ),
-              ),
-            ),
-            TextButton(
-              onPressed: () => ConduitMarkdown.showCodePreviewSheet(
-                context,
-                code: code,
-                language: language,
-              ),
-              child: Text(l10n.openPreview),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

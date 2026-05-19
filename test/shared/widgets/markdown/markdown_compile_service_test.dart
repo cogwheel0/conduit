@@ -94,7 +94,6 @@ void main() {
       expect(codeBlock.blockKind, CompiledMarkdownBlockKind.mermaid);
       expect(codeBlock.isHeavyBlock, isTrue);
       expect(codeBlock.language, 'mermaid');
-      expect(codeBlock.blockSourceLength, codeBlock.textContent.length);
     });
 
     test(
