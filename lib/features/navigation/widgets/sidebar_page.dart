@@ -421,6 +421,19 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
       error: (_, _) => true,
       orElse: () => true,
     );
+    final visibleTabIds = <_SidebarTabId>[
+      _SidebarTabId.chats,
+      if (notesEnabled) _SidebarTabId.notes,
+      if (showTerminalTab) _SidebarTabId.terminal,
+      if (channelsEnabled) _SidebarTabId.channels,
+    ];
+    final persistedIndex = ref.watch(sidebarActiveTabProvider);
+    final activeIndex = _clampIndex(persistedIndex, visibleTabIds.length);
+    if (activeIndex != persistedIndex) {
+      _schedulePersistedIndexSync(activeIndex);
+    }
+    final isTerminalTabSelected =
+        visibleTabIds[activeIndex] == _SidebarTabId.terminal;
     final tabDefinitions = <_SidebarTabDefinition>[
       _SidebarTabDefinition(
         id: _SidebarTabId.chats,
@@ -437,7 +450,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
         _SidebarTabDefinition(
           id: _SidebarTabId.terminal,
           label: localizations.sidebarTerminalTab,
-          body: const TerminalTab(),
+          body: TerminalTab(isActive: isTerminalTabSelected),
         ),
       if (channelsEnabled)
         _SidebarTabDefinition(
@@ -446,11 +459,6 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
           body: const ChannelListTab(),
         ),
     ];
-    final persistedIndex = ref.watch(sidebarActiveTabProvider);
-    final activeIndex = _clampIndex(persistedIndex, tabDefinitions.length);
-    if (activeIndex != persistedIndex) {
-      _schedulePersistedIndexSync(activeIndex);
-    }
     final navigationItems = _sidebarNavigationItems(tabDefinitions);
 
     final conduitTheme = context.conduitTheme;

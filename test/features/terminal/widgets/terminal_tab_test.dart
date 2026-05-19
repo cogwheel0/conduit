@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
 
 void main() {
   group('TerminalTab', () {
@@ -70,6 +71,143 @@ void main() {
         );
       },
     );
+
+    testWidgets('waits to sync until the terminal tab becomes active', (
+      tester,
+    ) async {
+      final fakeService = _FakeTerminalService(
+        servers: <TerminalServerInfo>[
+          TerminalServerInfo(
+            kind: TerminalServerKind.direct,
+            selectionId: 'https://terminal.example',
+            baseUrl: Uri.parse('https://terminal.example'),
+            name: 'Workspace',
+          ),
+        ],
+        entries: const <TerminalFileEntry>[],
+        ports: const <TerminalListeningPort>[],
+      );
+      final isActive = ValueNotifier<bool>(false);
+      addTearDown(isActive.dispose);
+
+      await tester.pumpWidget(_buildHarnessWithActivity(fakeService, isActive));
+      await tester.pumpAndSettle();
+
+      expect(fakeService.cwdRequestCount, 0);
+      expect(fakeService.listFilesRequestCount, 0);
+      expect(fakeService.listeningPortsRequestCount, 0);
+
+      isActive.value = true;
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      expect(fakeService.cwdRequestCount, 1);
+      expect(fakeService.listFilesRequestCount, 1);
+      expect(fakeService.listeningPortsRequestCount, 1);
+    });
+
+    testWidgets('stale disconnects do not close a newer terminal session', (
+      tester,
+    ) async {
+      final staleDisconnectCancel = Completer<void>();
+      final resumedSyncGate = Completer<bool>();
+      final firstChannel = _TestWebSocketConnection(
+        cancelFuture: staleDisconnectCancel.future,
+      );
+      final secondChannel = _TestWebSocketConnection();
+      addTearDown(() async {
+        await firstChannel.dispose();
+        await secondChannel.dispose();
+      });
+
+      final fakeService = _FakeTerminalService(
+        servers: <TerminalServerInfo>[
+          TerminalServerInfo(
+            kind: TerminalServerKind.direct,
+            selectionId: 'https://terminal.example',
+            baseUrl: Uri.parse('https://terminal.example'),
+            name: 'Workspace',
+          ),
+        ],
+        entries: const <TerminalFileEntry>[],
+        ports: const <TerminalListeningPort>[],
+      );
+      final isActive = ValueNotifier<bool>(true);
+      addTearDown(isActive.dispose);
+
+      var channelConnectCount = 0;
+      final channels = <_TestWebSocketConnection>[firstChannel, secondChannel];
+
+      await tester.pumpWidget(
+        _buildHarnessWithActivity(
+          fakeService,
+          isActive,
+          channelConnector: (_) => channels[channelConnectCount++].channel,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(TerminalTab)),
+      );
+      container
+          .read(terminalSidebarPanelProvider.notifier)
+          .setPanel(TerminalSidebarPanel.console);
+      await tester.pump();
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(TerminalTab)),
+      )!;
+
+      await tester.tap(find.bySemanticsLabel(l10n.terminalConnectAction));
+      await tester.pump();
+      await tester.pump();
+
+      expect(channelConnectCount, 1);
+      expect(
+        container.read(terminalConnectionStateProvider).isConnected,
+        isTrue,
+      );
+
+      fakeService.terminalEnabledCompletersByRequest[fakeService
+                  .terminalEnabledRequestCount +
+              1] =
+          resumedSyncGate;
+
+      isActive.value = false;
+      await tester.pump();
+
+      isActive.value = true;
+      await tester.pump();
+
+      container.read(terminalActiveSessionProvider.notifier).clear();
+      container
+          .read(terminalConnectionStateProvider.notifier)
+          .set(const TerminalConnectionState.disconnected());
+      await tester.pump();
+
+      await tester.tap(find.bySemanticsLabel(l10n.terminalConnectAction));
+      await tester.pump();
+      await tester.pump();
+
+      expect(channelConnectCount, 2);
+      expect(
+        container.read(terminalConnectionStateProvider).isConnected,
+        isTrue,
+      );
+
+      staleDisconnectCancel.complete();
+      await tester.pump();
+
+      expect(firstChannel.closeCallCount, 1);
+      expect(secondChannel.closeCallCount, 0);
+      expect(
+        container.read(terminalConnectionStateProvider).isConnected,
+        isTrue,
+      );
+
+      resumedSyncGate.complete(true);
+      await tester.pumpAndSettle();
+    });
 
     testWidgets('loads files and filters them with the shared search field', (
       tester,
@@ -316,16 +454,49 @@ void main() {
   });
 }
 
-Widget _buildHarness(_FakeTerminalService service) {
+Widget _buildHarness(
+  _FakeTerminalService service, {
+  bool isActive = true,
+  bool autoConnect = false,
+  TerminalChannelConnector? channelConnector,
+}) {
   return ProviderScope(
     overrides: [
       terminalServiceProvider.overrideWithValue(service),
-      terminalAutoConnectProvider.overrideWithValue(false),
+      terminalAutoConnectProvider.overrideWithValue(autoConnect),
+      if (channelConnector != null)
+        terminalChannelConnectorProvider.overrideWithValue(channelConnector),
     ],
     child: MaterialApp(
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
-      home: const Scaffold(body: TerminalTab()),
+      home: Scaffold(body: TerminalTab(isActive: isActive)),
+    ),
+  );
+}
+
+Widget _buildHarnessWithActivity(
+  _FakeTerminalService service,
+  ValueNotifier<bool> isActive, {
+  bool autoConnect = false,
+  TerminalChannelConnector? channelConnector,
+}) {
+  return ProviderScope(
+    overrides: [
+      terminalServiceProvider.overrideWithValue(service),
+      terminalAutoConnectProvider.overrideWithValue(autoConnect),
+      if (channelConnector != null)
+        terminalChannelConnectorProvider.overrideWithValue(channelConnector),
+    ],
+    child: MaterialApp(
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      home: ValueListenableBuilder<bool>(
+        valueListenable: isActive,
+        builder: (context, value, _) {
+          return Scaffold(body: TerminalTab(isActive: value));
+        },
+      ),
     ),
   );
 }
@@ -351,14 +522,25 @@ class _FakeTerminalService extends TerminalService {
     this.entriesByServer = const <String, List<TerminalFileEntry>>{},
     this.listFileCompleters =
         const <String, Completer<List<TerminalFileEntry>>>{},
-  }) : super(_MockApiService());
+    Map<int, Completer<bool>> terminalEnabledCompletersByRequest =
+        const <int, Completer<bool>>{},
+  }) : terminalEnabledCompletersByRequest = Map<int, Completer<bool>>.from(
+         terminalEnabledCompletersByRequest,
+       ),
+       super(_MockApiService());
 
   final List<TerminalServerInfo> servers;
   final List<TerminalFileEntry> entries;
   final List<TerminalListeningPort> ports;
   final Map<String, List<TerminalFileEntry>> entriesByServer;
   final Map<String, Completer<List<TerminalFileEntry>>> listFileCompleters;
+  final Map<int, Completer<bool>> terminalEnabledCompletersByRequest;
   final List<String> readPaths = <String>[];
+  int cwdRequestCount = 0;
+  int listFilesRequestCount = 0;
+  int listeningPortsRequestCount = 0;
+  int terminalEnabledRequestCount = 0;
+  int createSessionRequestCount = 0;
 
   @override
   Future<List<TerminalServerInfo>> getAvailableServers() async => servers;
@@ -375,14 +557,37 @@ class _FakeTerminalService extends TerminalService {
     TerminalServerInfo server, {
     String? sessionScopeId,
   }) async {
+    terminalEnabledRequestCount++;
+    final completer =
+        terminalEnabledCompletersByRequest[terminalEnabledRequestCount];
+    if (completer != null) {
+      return completer.future;
+    }
     return true;
   }
+
+  @override
+  Future<TerminalSessionInfo> createSession(
+    TerminalServerInfo server, {
+    required String sessionScopeId,
+  }) async {
+    createSessionRequestCount++;
+    return TerminalSessionInfo(
+      serverSelectionId: server.selectionId,
+      sessionId: 'session-$createSessionRequestCount',
+      sessionScopeId: sessionScopeId,
+    );
+  }
+
+  @override
+  String? authTokenForServer(TerminalServerInfo server) => 'terminal-token';
 
   @override
   Future<String?> getCwd(
     TerminalServerInfo server, {
     required String sessionScopeId,
   }) async {
+    cwdRequestCount++;
     return '/workspace/';
   }
 
@@ -392,6 +597,7 @@ class _FakeTerminalService extends TerminalService {
     String directory, {
     required String sessionScopeId,
   }) async {
+    listFilesRequestCount++;
     final completer = listFileCompleters[server.selectionId];
     if (completer != null) {
       return completer.future;
@@ -404,6 +610,7 @@ class _FakeTerminalService extends TerminalService {
     TerminalServerInfo server, {
     required String sessionScopeId,
   }) async {
+    listeningPortsRequestCount++;
     return ports;
   }
 
@@ -419,5 +626,39 @@ class _FakeTerminalService extends TerminalService {
       contentType: 'text/plain',
       text: 'print("hello from terminal")',
     );
+  }
+}
+
+class _MockWebSocketChannel extends Mock implements WebSocketChannel {}
+
+class _MockWebSocketSink extends Mock implements WebSocketSink {}
+
+class _TestWebSocketConnection {
+  _TestWebSocketConnection({Future<void>? ready, Future<void>? cancelFuture})
+    : _ready = ready ?? Future<void>.value(),
+      _cancelFuture = cancelFuture ?? Future<void>.value() {
+    _controller = StreamController<dynamic>(onCancel: () => _cancelFuture);
+    when(() => channel.stream).thenAnswer((_) => _controller.stream);
+    when(() => channel.sink).thenReturn(sink);
+    when(() => channel.ready).thenAnswer((_) => _ready);
+    when(() => sink.add(any())).thenAnswer((_) {});
+    when(() => sink.close()).thenAnswer((_) async {
+      closeCallCount++;
+    });
+    when(() => sink.done).thenAnswer((_) => Future<void>.value());
+  }
+
+  final _MockWebSocketChannel channel = _MockWebSocketChannel();
+  final _MockWebSocketSink sink = _MockWebSocketSink();
+  final Future<void> _ready;
+  final Future<void> _cancelFuture;
+  late final StreamController<dynamic> _controller;
+
+  int closeCallCount = 0;
+
+  Future<void> dispose() async {
+    if (!_controller.isClosed) {
+      await _controller.close();
+    }
   }
 }

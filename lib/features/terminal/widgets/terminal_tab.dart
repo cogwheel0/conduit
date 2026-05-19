@@ -31,7 +31,9 @@ import '../providers/terminal_providers.dart';
 import '../services/terminal_service.dart';
 
 class TerminalTab extends ConsumerStatefulWidget {
-  const TerminalTab({super.key});
+  const TerminalTab({super.key, this.isActive = true});
+
+  final bool isActive;
 
   @override
   ConsumerState<TerminalTab> createState() => _TerminalTabState();
@@ -59,6 +61,7 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
   bool _terminalSupported = true;
   String? _syncKey;
   int _syncGeneration = 0;
+  int _connectionGeneration = 0;
 
   @override
   bool get wantKeepAlive => true;
@@ -75,18 +78,27 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
         if (previous == next) {
           return;
         }
-        unawaited(_reloadBrowserState());
+        if (widget.isActive) {
+          unawaited(_reloadBrowserState());
+        }
       },
     );
     _sessionScopeSubscription = ref.listenManual<String>(
       terminalSessionScopeIdProvider,
-      (previous, next) => unawaited(_syncTerminalState(force: true)),
+      (previous, next) {
+        if (widget.isActive) {
+          unawaited(_syncTerminalState(force: true));
+        }
+      },
     );
     _selectedServerSubscription = ref
         .listenManual<AsyncValue<TerminalServerInfo?>>(
           terminalSelectedServerProvider,
-          (_, next) =>
-              next.whenData((_) => unawaited(_syncTerminalState(force: true))),
+          (_, next) => next.whenData((_) {
+            if (widget.isActive) {
+              unawaited(_syncTerminalState(force: true));
+            }
+          }),
         );
 
     _singleServerDefaultPanelSubscription = ref.listenManual(
@@ -101,8 +113,33 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
       _handleSingleServerDefaultPanel(
         ref.read(terminalAvailableServersProvider),
       );
-      unawaited(_syncTerminalState(force: true));
+      if (widget.isActive) {
+        unawaited(_syncTerminalState(force: true));
+      }
     });
+  }
+
+  @override
+  void didUpdateWidget(covariant TerminalTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isActive == widget.isActive) {
+      return;
+    }
+
+    if (widget.isActive) {
+      unawaited(_syncTerminalState(force: true));
+      return;
+    }
+
+    _syncKey = null;
+    _syncGeneration++;
+    unawaited(_disconnect(showClosedBanner: false));
+    if (mounted) {
+      setState(() {
+        _loadingFiles = false;
+        _loadingPorts = false;
+      });
+    }
   }
 
   void _handleSingleServerDefaultPanel(
@@ -145,6 +182,10 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
   }
 
   Future<void> _reloadBrowserState() async {
+    if (!widget.isActive) {
+      return;
+    }
+
     final service = ref.read(terminalServiceProvider);
     final selectedServer = ref
         .read(terminalSelectedServerProvider)
@@ -168,7 +209,7 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
     TerminalServerInfo server,
     String sessionScopeId,
   ) {
-    if (!mounted) {
+    if (!mounted || !widget.isActive) {
       return false;
     }
     final currentServer = ref
@@ -191,6 +232,18 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
   Future<void> _syncTerminalState({required bool force}) async {
     final service = ref.read(terminalServiceProvider);
     if (service == null) {
+      return;
+    }
+
+    if (!widget.isActive) {
+      _syncKey = null;
+      await _disconnect(showClosedBanner: false);
+      if (mounted) {
+        setState(() {
+          _loadingFiles = false;
+          _loadingPorts = false;
+        });
+      }
       return;
     }
 
@@ -318,6 +371,7 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
       return;
     }
 
+    final connectionGeneration = ++_connectionGeneration;
     ref
         .read(terminalConnectionStateProvider.notifier)
         .set(const TerminalConnectionState.connecting());
@@ -327,7 +381,8 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
         server,
         sessionScopeId: sessionScopeId,
       );
-      if (!_isCurrentTerminalContext(server, sessionScopeId)) {
+      if (!_isCurrentTerminalContext(server, sessionScopeId) ||
+          connectionGeneration != _connectionGeneration) {
         return;
       }
       final channel = ref.read(terminalChannelConnectorProvider)(
@@ -335,7 +390,8 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
       );
       await channel.ready;
 
-      if (!_isCurrentTerminalContext(server, sessionScopeId)) {
+      if (!_isCurrentTerminalContext(server, sessionScopeId) ||
+          connectionGeneration != _connectionGeneration) {
         await channel.sink.close();
         return;
       }
@@ -343,8 +399,14 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
       _channel = channel;
       _channelSubscription = channel.stream.listen(
         _handleTerminalEvent,
-        onDone: () => _handleTerminalDisconnect(showClosedBanner: true),
-        onError: (_) => _handleTerminalDisconnect(showClosedBanner: false),
+        onDone: () => _handleTerminalDisconnect(
+          connectionGeneration: connectionGeneration,
+          showClosedBanner: true,
+        ),
+        onError: (_) => _handleTerminalDisconnect(
+          connectionGeneration: connectionGeneration,
+          showClosedBanner: false,
+        ),
       );
 
       ref.read(terminalActiveSessionProvider.notifier).set(session);
@@ -361,7 +423,8 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
         (_) => _sendPingEvent(),
       );
     } catch (_) {
-      if (!_isCurrentTerminalContext(server, sessionScopeId)) {
+      if (!_isCurrentTerminalContext(server, sessionScopeId) ||
+          connectionGeneration != _connectionGeneration) {
         return;
       }
       ref.read(terminalActiveSessionProvider.notifier).clear();
@@ -374,18 +437,37 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
     }
   }
 
-  Future<void> _disconnect({required bool showClosedBanner}) async {
+  Future<void> _disconnect({
+    required bool showClosedBanner,
+    int? expectedConnectionGeneration,
+  }) async {
+    if (expectedConnectionGeneration != null &&
+        expectedConnectionGeneration != _connectionGeneration) {
+      return;
+    }
+
     final disconnectedLabel = AppLocalizations.of(
       context,
     )!.terminalDisconnectedStatus;
-    _pingTimer?.cancel();
+    final pingTimer = _pingTimer;
+    final channelSubscription = _channelSubscription;
+    final channel = _channel;
+    final disconnectGeneration = ++_connectionGeneration;
+
     _pingTimer = null;
-    await _channelSubscription?.cancel();
     _channelSubscription = null;
-    try {
-      await _channel?.sink.close();
-    } catch (_) {}
     _channel = null;
+
+    pingTimer?.cancel();
+    try {
+      await channelSubscription?.cancel();
+    } catch (_) {}
+    try {
+      await channel?.sink.close();
+    } catch (_) {}
+    if (disconnectGeneration != _connectionGeneration) {
+      return;
+    }
 
     ref.read(terminalActiveSessionProvider.notifier).clear();
     ref
@@ -412,11 +494,19 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
     }
   }
 
-  void _handleTerminalDisconnect({required bool showClosedBanner}) {
+  void _handleTerminalDisconnect({
+    required int connectionGeneration,
+    required bool showClosedBanner,
+  }) {
     if (!mounted) {
       return;
     }
-    unawaited(_disconnect(showClosedBanner: showClosedBanner));
+    unawaited(
+      _disconnect(
+        showClosedBanner: showClosedBanner,
+        expectedConnectionGeneration: connectionGeneration,
+      ),
+    );
   }
 
   void _handleTerminalOutput(String data) {
