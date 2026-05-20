@@ -1,7 +1,7 @@
 import 'dart:io' show Platform;
 
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:cached_network_image_ce/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -485,7 +485,7 @@ class _SourceFavicon extends StatelessWidget {
           imageUrl: 'https://www.google.com/s2/favicons?sz=32&domain=$domain',
           width: size - 2,
           height: size - 2,
-          errorWidget: (context, url, error) => _fallback(theme),
+          errorBuilder: (context, error, stackTrace) => _fallback(theme),
         ),
       ),
     );

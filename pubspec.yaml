@@ -32,7 +32,6 @@ dependencies:
   shared_preferences: ^2.3.2
   
   # UI Components - Markdown Rendering
-  cached_network_image: ^3.3.1
   markdown: ^7.3.0
   webview_flutter_plus: ^0.4.20
   socket_io_client: ^3.1.2
@@ -87,6 +86,7 @@ dependencies:
   gaimon: ^1.4.2
   xterm: ^4.0.0
   web_socket_channel: ^3.0.3
+  cached_network_image_ce: ^4.6.4
   
 dev_dependencies:
   flutter_test:

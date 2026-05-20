@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:cached_network_image_ce/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -383,7 +383,8 @@ class ConduitMarkdown {
           ),
         ),
       ),
-      errorWidget: (context, url, error) => buildImageError(context, theme),
+      errorBuilder: (context, error, stackTrace) =>
+          buildImageError(context, theme),
       imageBuilder: (context, imageProvider) => Container(
         margin: const EdgeInsets.symmetric(vertical: Spacing.sm),
         decoration: BoxDecoration(

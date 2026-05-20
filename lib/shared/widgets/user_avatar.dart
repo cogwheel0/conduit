@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:cached_network_image_ce/cached_network_image.dart';
 import 'package:conduit/core/network/image_header_utils.dart';
 import 'package:conduit/core/network/self_signed_image_cache_manager.dart';
 import 'package:flutter/material.dart';
@@ -72,7 +72,8 @@ class AvatarImage extends ConsumerWidget {
         httpHeaders: headers,
         placeholder: (context, _) =>
             (placeholderBuilder ?? _defaultPlaceholder)(context, size),
-        errorWidget: (context, url, error) => fallbackBuilder(context, size),
+        errorBuilder: (context, error, stackTrace) =>
+            fallbackBuilder(context, size),
       ),
     );
   }

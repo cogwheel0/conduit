@@ -5,7 +5,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:cached_network_image_ce/cached_network_image.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:dio/dio.dart' as dio;
@@ -954,7 +954,7 @@ class _EnhancedImageAttachmentState
           borderRadius: BorderRadius.circular(AppBorderRadius.md),
         ),
       ),
-      errorWidget: (context, url, error) {
+      errorBuilder: (context, error, stackTrace) {
         _errorMessage = error.toString();
         return _buildErrorState();
       },
@@ -1196,7 +1196,7 @@ class FullScreenImageViewer extends ConsumerWidget {
               color: context.conduitTheme.buttonPrimary,
             ),
           ),
-          errorWidget: (context, url, error) => Center(
+          errorBuilder: (context, error, stackTrace) => Center(
             child: Icon(
               Icons.error_outline,
               color: context.conduitTheme.error,
