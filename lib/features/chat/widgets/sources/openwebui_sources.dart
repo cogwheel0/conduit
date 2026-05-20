@@ -65,7 +65,12 @@ class OpenWebUISourcesWidget extends StatelessWidget {
           label: _sourceCountLabel(sources.length),
           child: AdaptiveButton.child(
             onPressed: () => _showSourcesBottomSheet(context),
-            style: AdaptiveButtonStyle.glass,
+            style: Platform.isAndroid
+                ? AdaptiveButtonStyle.filled
+                : AdaptiveButtonStyle.glass,
+            color: Platform.isAndroid
+                ? theme.surfaceContainerHighest.withValues(alpha: 0.95)
+                : null,
             size: AdaptiveButtonSize.small,
             padding: EdgeInsets.zero,
             minSize: Size(targetWidth, 28),

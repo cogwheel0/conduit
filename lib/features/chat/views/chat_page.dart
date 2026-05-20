@@ -2223,7 +2223,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
               ),
               Positioned(
                 bottom: (_inputHeight > 0)
-                    ? _inputHeight
+                    ? math.max(0, _inputHeight - Spacing.xl + Spacing.md)
                     : (Spacing.xxl + Spacing.xxxl),
                 left: 0,
                 right: 0,
@@ -2275,9 +2275,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 bottom: 0,
                 child: ConduitChromeGradientFade.bottom(
                   contentHeight: math.max(
-                    _inputHeight,
-                    MediaQuery.viewPaddingOf(context).bottom + Spacing.xxxl,
+                    0,
+                    math.max(
+                      _inputHeight - Spacing.xl,
+                      MediaQuery.viewPaddingOf(context).bottom + Spacing.xxl,
+                    ),
                   ),
+                  fadeHeight: Spacing.md,
                 ),
               ),
               Positioned(
@@ -2330,7 +2334,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         ),
       ),
     );
-
     if (overlayStyle != null) {
       page = AnnotatedRegion<SystemUiOverlayStyle>(
         value: overlayStyle,

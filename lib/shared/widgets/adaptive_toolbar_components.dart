@@ -386,6 +386,10 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
                           style: effectiveTextStyle,
                           textAlign: TextAlign.center,
                           semanticsLabel: label,
+                          textHeightBehavior: const TextHeightBehavior(
+                            applyHeightToFirstAscent: false,
+                            applyHeightToLastDescent: false,
+                          ),
                         ),
                       ),
                       const SizedBox(width: Spacing.xs),

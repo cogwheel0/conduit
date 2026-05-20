@@ -1620,7 +1620,10 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
         child: AdaptiveButton.child(
           onPressed: onPressed,
           enabled: onPressed != null,
-          style: AdaptiveButtonStyle.glass,
+          style: Platform.isAndroid
+              ? AdaptiveButtonStyle.filled
+              : AdaptiveButtonStyle.glass,
+          color: Platform.isAndroid ? theme.surfaceContainerHighest : null,
           size: compact ? AdaptiveButtonSize.small : AdaptiveButtonSize.medium,
           minSize: Size(minSide, minSide),
           padding: compact

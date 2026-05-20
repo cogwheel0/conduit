@@ -13,6 +13,7 @@ class MiddleEllipsisText extends StatelessWidget {
   final TextAlign? textAlign;
   final String ellipsis;
   final String? semanticsLabel;
+  final TextHeightBehavior? textHeightBehavior;
 
   const MiddleEllipsisText(
     this.text, {
@@ -21,6 +22,7 @@ class MiddleEllipsisText extends StatelessWidget {
     this.textAlign,
     this.ellipsis = '…',
     this.semanticsLabel,
+    this.textHeightBehavior,
   });
 
   static final _cache = _MiddleEllipsisCache(256);
@@ -53,6 +55,7 @@ class MiddleEllipsisText extends StatelessWidget {
             overflow: TextOverflow.clip,
             textAlign: textAlign,
             semanticsLabel: semanticsLabel ?? safeText,
+            textHeightBehavior: textHeightBehavior,
           );
         }
 
@@ -73,6 +76,7 @@ class MiddleEllipsisText extends StatelessWidget {
             overflow: TextOverflow.clip,
             textAlign: textAlign,
             semanticsLabel: semanticsLabel,
+            textHeightBehavior: textHeightBehavior,
           );
         }
 
@@ -139,6 +143,7 @@ class MiddleEllipsisText extends StatelessWidget {
             overflow: TextOverflow.clip,
             textAlign: textAlign,
             semanticsLabel: semanticsLabel ?? safeText,
+            textHeightBehavior: textHeightBehavior,
           );
         }
 
@@ -151,6 +156,7 @@ class MiddleEllipsisText extends StatelessWidget {
           overflow: TextOverflow.clip,
           textAlign: textAlign,
           semanticsLabel: semanticsLabel ?? safeText,
+          textHeightBehavior: textHeightBehavior,
         );
       },
     );

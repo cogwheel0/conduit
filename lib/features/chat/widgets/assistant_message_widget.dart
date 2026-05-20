@@ -1432,17 +1432,19 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       return Wrap(
         spacing: Spacing.sm,
         runSpacing: Spacing.sm,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: leftAlignedWidgets,
       );
     }
 
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Expanded(
           child: Wrap(
             spacing: Spacing.sm,
             runSpacing: Spacing.sm,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: leftAlignedWidgets,
           ),
         ),
@@ -1639,7 +1641,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           }
         }
       },
-      buttonStyle: PopupButtonStyle.glass,
+      buttonStyle: PopupButtonStyle.plain,
       child: AdaptiveTooltip(
         message: l10n.more,
         waitDuration: const Duration(milliseconds: 600),
