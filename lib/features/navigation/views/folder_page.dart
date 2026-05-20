@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io' show Platform;
+import 'dart:math' as math;
 
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
@@ -1148,7 +1149,6 @@ class _FolderPageState extends ConsumerState<FolderPage> {
   }
 
   Widget _buildComposerOverlay(BuildContext context, Folder folder) {
-    final theme = Theme.of(context);
     final folderName = folder.name.trim();
     final placeholder = folderName.isEmpty ? null : 'Message $folderName';
 
@@ -1162,19 +1162,11 @@ class _FolderPageState extends ConsumerState<FolderPage> {
             _inputHeight = size.height;
           });
         },
-        child: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              stops: const [0.0, 0.4, 1.0],
-              colors: [
-                theme.scaffoldBackgroundColor.withValues(alpha: 0.0),
-                theme.scaffoldBackgroundColor.withValues(alpha: 0.85),
-                theme.scaffoldBackgroundColor,
-              ],
-            ),
-          ),
+        child: SafeArea(
+          top: false,
+          left: false,
+          right: false,
+          minimum: const EdgeInsets.only(bottom: Spacing.sm),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -1189,6 +1181,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
                   onSendMessage: _handleComposerSend,
                   enabled:
                       !_isLoadingConversation && !_isSendingComposerMessage,
+                  bottomPadding: 0,
                   onVoiceCall: _handleVoiceCall,
                   onFileAttachment: _handleFileAttachment,
                   onServerFileAttachment: _handleServerFileAttachment,
@@ -1381,6 +1374,21 @@ class _FolderPageState extends ConsumerState<FolderPage> {
             child: ConduitChromeGradientFade.top(
               contentHeight:
                   MediaQuery.viewPaddingOf(context).top + kTextTabBarHeight,
+            ),
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: ConduitChromeGradientFade.bottom(
+              contentHeight: math.max(
+                0,
+                math.max(
+                  _inputHeight - Spacing.xl,
+                  MediaQuery.viewPaddingOf(context).bottom + Spacing.xxl,
+                ),
+              ),
+              fadeHeight: Spacing.md,
             ),
           ),
           Positioned(

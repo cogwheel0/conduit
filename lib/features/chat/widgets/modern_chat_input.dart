@@ -55,6 +55,7 @@ import 'prompt_suggestion_overlay.dart';
 class ModernChatInput extends ConsumerStatefulWidget {
   final Function(String) onSendMessage;
   final bool enabled;
+  final double? bottomPadding;
 
   /// Optional placeholder text shown when the input is empty.
   /// Falls back to the localised default ("Ask anything...").
@@ -80,6 +81,7 @@ class ModernChatInput extends ConsumerStatefulWidget {
     super.key,
     required this.onSendMessage,
     this.enabled = true,
+    this.bottomPadding,
     this.placeholder,
     this.overflowButtonBuilder,
     this.onVoiceInput,
@@ -3095,6 +3097,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   }
 
   double _composerBottomPadding(BuildContext context) {
+    if (widget.bottomPadding case final bottomPadding?) {
+      return bottomPadding;
+    }
+
     if (!kIsWeb && Platform.isIOS) {
       return Spacing.md * 2;
     }

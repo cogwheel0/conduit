@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:developer' as developer;
 import 'dart:io' show Platform;
+import 'dart:math' as math;
 
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
@@ -22,6 +23,7 @@ import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/widgets/chrome_gradient_fade.dart';
+import '../../../shared/widgets/measure_size.dart';
 import '../../../shared/widgets/model_avatar.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
@@ -53,6 +55,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   static const _reactionEmojis = ['👍', '❤️', '😂', '🎉', '🤔', '👀'];
 
   final ScrollController _scrollController = ScrollController();
+  double _composerHeight = 0;
   bool _isSending = false;
   bool _isLoadingMore = false;
   String? _editingMessageId;
@@ -804,9 +807,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
           Row(
             children: [
               Expanded(
-                child: Column(
+                child: Stack(
                   children: [
-                    Expanded(
+                    Positioned.fill(
                       child: messagesAsync.when(
                         data: (messages) =>
                             _buildMessageList(messages, theme, l10n),
@@ -822,79 +825,27 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
                         ),
                       ),
                     ),
-                    const SizedBox(height: Spacing.sm),
-                    Consumer(
-                      builder: (context, ref, _) {
-                        final typingUsers = ref.watch(
-                          channelTypingUsersProvider,
-                        );
-                        if (typingUsers.isEmpty) {
-                          return const SizedBox.shrink();
-                        }
-                        final names = typingUsers.values.toList();
-                        final text = names.length == 1
-                            ? '${names.first} '
-                                  'is typing...'
-                            : '${names.join(", ")} '
-                                  'are typing...';
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: Spacing.md,
-                            vertical: Spacing.xxs,
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: ConduitChromeGradientFade.bottom(
+                        contentHeight: math.max(
+                          0,
+                          math.max(
+                            _composerHeight - Spacing.xl,
+                            MediaQuery.viewPaddingOf(context).bottom +
+                                Spacing.xxl,
                           ),
-                          child: Text(
-                            text,
-                            style: AppTypography.bodySmallStyle.copyWith(
-                              color: theme.textSecondary,
-                              fontStyle: FontStyle.italic,
-                            ),
-                          ),
-                        );
-                      },
+                        ),
+                        fadeHeight: Spacing.md,
+                      ),
                     ),
-                    if (_replyToMessage != null)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: Spacing.md,
-                          vertical: Spacing.sm,
-                        ),
-                        color: theme.surfaceContainer,
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.reply,
-                              size: 16,
-                              color: theme.textSecondary,
-                            ),
-                            const SizedBox(width: Spacing.sm),
-                            Expanded(
-                              child: Text(
-                                l10n.replyingToUser(_replyToMessage!.userName),
-                                style: AppTypography.bodySmallStyle.copyWith(
-                                  color: theme.textSecondary,
-                                ),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            IconButton(
-                              icon: Icon(
-                                Icons.close,
-                                size: 16,
-                                color: theme.textSecondary,
-                              ),
-                              onPressed: _clearReplyTo,
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(),
-                            ),
-                          ],
-                        ),
-                      ),
-                    RepaintBoundary(
-                      child: ModernChatInput(
-                        onSendMessage: _sendMessage,
-                        placeholder: l10n.channelInputPlaceholder,
-                        overflowButtonBuilder: _buildAttachmentButton,
-                      ),
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: _buildComposerOverlay(theme, l10n),
                     ),
                   ],
                 ),
@@ -954,7 +905,10 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     return ListView.builder(
       controller: _scrollController,
       reverse: true,
-      padding: const EdgeInsets.only(top: Spacing.md, bottom: Spacing.sm),
+      padding: EdgeInsets.only(
+        top: Spacing.md,
+        bottom: Spacing.sm + _composerHeight,
+      ),
       itemCount: messages.length + (_isLoadingMore ? 1 : 0),
       itemBuilder: (context, index) {
         if (_isLoadingMore && index == messages.length) {
@@ -1006,6 +960,98 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
               : null,
         );
       },
+    );
+  }
+
+  Widget _buildComposerOverlay(
+    ConduitThemeExtension theme,
+    AppLocalizations l10n,
+  ) {
+    return RepaintBoundary(
+      child: MeasureSize(
+        onChange: (size) {
+          if (!mounted) return;
+          setState(() => _composerHeight = size.height);
+        },
+        child: SafeArea(
+          top: false,
+          left: false,
+          right: false,
+          minimum: const EdgeInsets.only(bottom: Spacing.sm),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: Spacing.xl),
+              Consumer(
+                builder: (context, ref, _) {
+                  final typingUsers = ref.watch(channelTypingUsersProvider);
+                  if (typingUsers.isEmpty) {
+                    return const SizedBox.shrink();
+                  }
+                  final names = typingUsers.values.toList();
+                  final text = names.length == 1
+                      ? '${names.first} is typing...'
+                      : '${names.join(", ")} are typing...';
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: Spacing.md,
+                      vertical: Spacing.xxs,
+                    ),
+                    child: Text(
+                      text,
+                      style: AppTypography.bodySmallStyle.copyWith(
+                        color: theme.textSecondary,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                  );
+                },
+              ),
+              if (_replyToMessage != null)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: Spacing.md,
+                    vertical: Spacing.sm,
+                  ),
+                  color: theme.surfaceContainer,
+                  child: Row(
+                    children: [
+                      Icon(Icons.reply, size: 16, color: theme.textSecondary),
+                      const SizedBox(width: Spacing.sm),
+                      Expanded(
+                        child: Text(
+                          l10n.replyingToUser(_replyToMessage!.userName),
+                          style: AppTypography.bodySmallStyle.copyWith(
+                            color: theme.textSecondary,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      IconButton(
+                        icon: Icon(
+                          Icons.close,
+                          size: 16,
+                          color: theme.textSecondary,
+                        ),
+                        onPressed: _clearReplyTo,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                      ),
+                    ],
+                  ),
+                ),
+              RepaintBoundary(
+                child: ModernChatInput(
+                  onSendMessage: _sendMessage,
+                  placeholder: l10n.channelInputPlaceholder,
+                  overflowButtonBuilder: _buildAttachmentButton,
+                  bottomPadding: 0,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 

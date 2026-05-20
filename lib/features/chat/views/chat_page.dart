@@ -1055,15 +1055,17 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       return false;
     }
 
-    // The message sliver includes bottom padding equal to the floating composer
-    // height so the final message is not hidden behind the input. Do not show a
+    // The message list includes bottom padding equal to the overlaid composer
+    // height so the final message is not hidden behind it. Do not show a
     // scroll button when the only scrollable extent is that spacer or the
     // temporary pin-to-top phantom sliver.
     final bottomSpacer =
-        Spacing.lg + _inputHeight + _pinToTopPhantomScrollExtent();
+        _messageListBottomPadding() + _pinToTopPhantomScrollExtent();
     final contentScrollExtent = maxScroll - bottomSpacer;
     return contentScrollExtent > _scrollButtonShowThreshold;
   }
+
+  double _messageListBottomPadding() => Spacing.lg + _inputHeight;
 
   double _pinToTopPhantomScrollExtent() {
     if (!_wantsPinToTop) {
@@ -1475,10 +1477,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     // Use slivers to align with the actual messages view.
     // Do not attach the primary scroll controller here to avoid
     // AnimatedSwitcher attaching the same controller twice.
-    // Add top padding for floating app bar, bottom padding for floating input.
+    // Add top padding for the floating app bar and bottom padding for the
+    // overlaid composer section.
     final topPadding =
         MediaQuery.of(context).padding.top + kTextTabBarHeight + Spacing.md;
-    final bottomPadding = Spacing.lg + _inputHeight;
+    final bottomPadding = _messageListBottomPadding();
     return CustomScrollView(
       key: const ValueKey('loading_messages'),
       controller: null,
@@ -1574,10 +1577,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       }
     }
 
-    // Add top padding for floating app bar, bottom padding for floating input.
+    // Add top padding for the floating app bar and bottom padding for the
+    // overlaid composer section.
     final topPadding =
         MediaQuery.of(context).padding.top + kTextTabBarHeight + Spacing.md;
-    final bottomPadding = Spacing.lg + _inputHeight;
+    final bottomPadding = _messageListBottomPadding();
 
     // Watch models once here instead of per-message in the item builder.
     final modelsAsync = watchRef.watch(modelsProvider);
@@ -1961,10 +1965,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         ? folders.where((f) => f.id == pendingFolderId).firstOrNull
         : null;
 
-    // Add top padding for floating app bar, bottom padding for floating input.
+    // Add top padding for the floating app bar and bottom padding for the
+    // overlaid composer section.
     final topPadding =
         MediaQuery.of(context).padding.top + kTextTabBarHeight + Spacing.md;
-    final bottomPadding = _inputHeight;
+    final bottomPadding = _messageListBottomPadding();
     return LayoutBuilder(
       builder: (context, constraints) {
         final greetingDisplay = greetingText ?? '';
@@ -2074,6 +2079,55 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildComposerSection(BuildContext context) {
+    return RepaintBoundary(
+      child: MeasureSize(
+        onChange: (size) {
+          if (!mounted) return;
+          setState(() => _inputHeight = size.height);
+          if (MediaQuery.viewInsetsOf(context).bottom > 0) {
+            _scheduleKeyboardScrollToBottom();
+          }
+        },
+        child: SafeArea(
+          top: false,
+          left: false,
+          right: false,
+          minimum: const EdgeInsets.only(bottom: Spacing.sm),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: Spacing.xl),
+              const FileAttachmentWidget(),
+              const ContextAttachmentWidget(),
+              Consumer(
+                builder: (context, composerRef, _) {
+                  final isLoadingConversation = composerRef.watch(
+                    isLoadingConversationProvider,
+                  );
+                  return ModernChatInput(
+                    onSendMessage: _handleMessageSend,
+                    enabled: !isLoadingConversation,
+                    bottomPadding: 0,
+                    onVoiceInput: null,
+                    onVoiceCall: _handleVoiceCall,
+                    onFileAttachment: _handleFileAttachment,
+                    onServerFileAttachment: _handleServerFileAttachment,
+                    onImageAttachment: _handleImageAttachment,
+                    onCameraCapture: () =>
+                        _handleImageAttachment(fromCamera: true),
+                    onWebAttachment: _promptAttachWebpage,
+                    onPastedAttachments: _handlePastedAttachments,
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -2268,46 +2322,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 left: 0,
                 right: 0,
                 bottom: 0,
-                child: RepaintBoundary(
-                  child: MeasureSize(
-                    onChange: (size) {
-                      if (!mounted) return;
-                      setState(() => _inputHeight = size.height);
-                      if (MediaQuery.viewInsetsOf(context).bottom > 0) {
-                        _scheduleKeyboardScrollToBottom();
-                      }
-                    },
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const SizedBox(height: Spacing.xl),
-                        const FileAttachmentWidget(),
-                        const ContextAttachmentWidget(),
-                        Consumer(
-                          builder: (context, composerRef, _) {
-                            final isLoadingConversation = composerRef.watch(
-                              isLoadingConversationProvider,
-                            );
-                            return ModernChatInput(
-                              onSendMessage: _handleMessageSend,
-                              enabled: !isLoadingConversation,
-                              onVoiceInput: null,
-                              onVoiceCall: _handleVoiceCall,
-                              onFileAttachment: _handleFileAttachment,
-                              onServerFileAttachment:
-                                  _handleServerFileAttachment,
-                              onImageAttachment: _handleImageAttachment,
-                              onCameraCapture: () =>
-                                  _handleImageAttachment(fromCamera: true),
-                              onWebAttachment: _promptAttachWebpage,
-                              onPastedAttachments: _handlePastedAttachments,
-                            );
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+                child: _buildComposerSection(context),
               ),
             ],
           ),

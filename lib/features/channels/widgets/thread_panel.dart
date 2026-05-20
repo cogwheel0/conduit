@@ -12,6 +12,8 @@ import '../../../core/utils/model_icon_utils.dart';
 import '../../../core/utils/user_avatar_utils.dart'
     show resolveUserProfileImageUrl;
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/widgets/chrome_gradient_fade.dart';
+import '../../../shared/widgets/measure_size.dart';
 import '../../../shared/widgets/model_avatar.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../../chat/widgets/modern_chat_input.dart';
@@ -49,6 +51,7 @@ class ThreadPanel extends ConsumerStatefulWidget {
 }
 
 class _ThreadPanelState extends ConsumerState<ThreadPanel> {
+  double _composerHeight = 0;
   bool _isSending = false;
 
   Future<void> _sendReply(String text) async {
@@ -92,6 +95,7 @@ class _ThreadPanelState extends ConsumerState<ThreadPanel> {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final api = ref.read(apiServiceProvider);
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
     final threadAsync = ref.watch(
       threadMessagesProvider(widget.channelId, widget.parentMessage.id),
     );
@@ -112,35 +116,68 @@ class _ThreadPanelState extends ConsumerState<ThreadPanel> {
           ),
           const Divider(height: 1),
           Expanded(
-            child: threadAsync.when(
-              data: (messages) => _ThreadReplies(
-                messages: messages
-                    .where((m) => m.id != widget.parentMessage.id)
-                    .toList(),
-                api: api,
-                theme: theme,
-              ),
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => Center(
-                child: Text(
-                  e.toString(),
-                  style: AppTypography.bodyMediumStyle.copyWith(
-                    color: theme.error,
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: threadAsync.when(
+                    data: (messages) => _ThreadReplies(
+                      messages: messages
+                          .where((m) => m.id != widget.parentMessage.id)
+                          .toList(),
+                      api: api,
+                      theme: theme,
+                      bottomPadding: _composerHeight + bottomInset,
+                    ),
+                    loading: () =>
+                        const Center(child: CircularProgressIndicator()),
+                    error: (e, _) => Center(
+                      child: Text(
+                        e.toString(),
+                        style: AppTypography.bodyMediumStyle.copyWith(
+                          color: theme.error,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ),
-          ),
-          RepaintBoundary(
-            child: Padding(
-              padding: EdgeInsets.only(
-                bottom: MediaQuery.of(context).viewInsets.bottom,
-              ),
-              child: ModernChatInput(
-                onSendMessage: _sendReply,
-                placeholder: l10n.replyInputPlaceholder,
-                overflowButtonBuilder: widget.overflowButtonBuilder,
-              ),
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: bottomInset,
+                  child: ConduitChromeGradientFade.bottom(
+                    contentHeight: (_composerHeight - Spacing.xl).clamp(
+                      0.0,
+                      double.infinity,
+                    ),
+                    fadeHeight: Spacing.md,
+                  ),
+                ),
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: bottomInset,
+                  child: RepaintBoundary(
+                    child: MeasureSize(
+                      onChange: (size) {
+                        if (!mounted) return;
+                        setState(() => _composerHeight = size.height);
+                      },
+                      child: SafeArea(
+                        top: false,
+                        left: false,
+                        right: false,
+                        minimum: const EdgeInsets.only(bottom: Spacing.sm),
+                        child: ModernChatInput(
+                          onSendMessage: _sendReply,
+                          placeholder: l10n.replyInputPlaceholder,
+                          overflowButtonBuilder: widget.overflowButtonBuilder,
+                          bottomPadding: 0,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -246,11 +283,17 @@ class _ParentMessageTile extends StatelessWidget {
 
 /// Scrollable list of thread replies.
 class _ThreadReplies extends StatelessWidget {
-  const _ThreadReplies({required this.messages, this.api, required this.theme});
+  const _ThreadReplies({
+    required this.messages,
+    this.api,
+    required this.theme,
+    this.bottomPadding = 0,
+  });
 
   final List<ChannelMessage> messages;
   final ApiService? api;
   final ConduitThemeExtension theme;
+  final double bottomPadding;
 
   @override
   Widget build(BuildContext context) {
@@ -266,7 +309,12 @@ class _ThreadReplies extends StatelessWidget {
     }
     return ListView.builder(
       reverse: false,
-      padding: const EdgeInsets.symmetric(vertical: Spacing.sm),
+      padding: EdgeInsets.fromLTRB(
+        0,
+        Spacing.sm,
+        0,
+        Spacing.sm + bottomPadding,
+      ),
       itemCount: messages.length,
       itemBuilder: (context, index) {
         final message = messages[index];
