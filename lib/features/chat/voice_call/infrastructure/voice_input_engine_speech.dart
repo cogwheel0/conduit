@@ -41,7 +41,8 @@ class VoiceInputEngineSpeech implements VoiceInputEngine {
       _service.requestMicrophonePermission();
 
   @override
-  Future<Stream<String>> beginListening() => _service.beginListening();
+  Future<Stream<String>> beginListening() =>
+      _service.beginListening(iosAudioSessionManagedExternally: true);
 
   @override
   Future<void> stopListening() => _service.stopListening();

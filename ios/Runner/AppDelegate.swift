@@ -73,9 +73,9 @@ final class VoiceBackgroundAudioManager {
                     .playAndRecord,
                     mode: .voiceChat,
                     options: [
+                        // Keep the session on duplex-capable routes while the
+                        // server-side recorder is streaming PCM from the mic.
                         .allowBluetooth,
-                        .allowBluetoothA2DP,
-                        .mixWithOthers,
                         .defaultToSpeaker,
                     ]
                 )

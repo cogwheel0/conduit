@@ -47,6 +47,22 @@ class VoiceInputService {
   static const Duration _vadDisposeCooldown = Duration(milliseconds: 140);
   static const Duration _localRecognitionMaxDuration = Duration(minutes: 5);
   static const String _bundledVadAssetBasePath = 'assets/vad/';
+  static const List<IosAudioCategoryOption> _iosServerVadCategoryOptions = [
+    // A2DP is output-only on iOS and can break duplex mic capture when the
+    // recorder is trying to open a microphone stream.
+    IosAudioCategoryOption.defaultToSpeaker,
+    IosAudioCategoryOption.allowBluetooth,
+  ];
+  static const IosRecordConfig _iosStandaloneServerVadRecordConfig =
+      IosRecordConfig(categoryOptions: _iosServerVadCategoryOptions);
+  static const IosRecordConfig _iosManagedServerVadRecordConfig =
+      IosRecordConfig(
+        categoryOptions: _iosServerVadCategoryOptions,
+        // The voice-call path already coordinates AVAudioSession through
+        // audio_session and the native background manager.
+        // ignore: deprecated_member_use
+        manageAudioSession: false,
+      );
 
   VadHandler? _vadHandler;
   final SpeechToText _speech = SpeechToText();
@@ -514,13 +530,17 @@ class VoiceInputService {
     } catch (_) {}
   }
 
-  Future<Stream<String>> startListening() async {
+  Future<Stream<String>> startListening({
+    bool iosAudioSessionManagedExternally = false,
+  }) async {
     final inFlight = _startListeningInFlight;
     if (inFlight != null) {
       return inFlight;
     }
 
-    final startFuture = _startListeningInternal();
+    final startFuture = _startListeningInternal(
+      iosAudioSessionManagedExternally: iosAudioSessionManagedExternally,
+    );
     _startListeningInFlight = startFuture;
     try {
       return await startFuture;
@@ -531,7 +551,9 @@ class VoiceInputService {
     }
   }
 
-  Future<Stream<String>> _startListeningInternal() async {
+  Future<Stream<String>> _startListeningInternal({
+    required bool iosAudioSessionManagedExternally,
+  }) async {
     if (!_isInitialized) {
       throw Exception('Voice input not initialized');
     }
@@ -615,7 +637,9 @@ class VoiceInputService {
       });
       Future(() async {
         try {
-          await _startServerRecording();
+          await _startServerRecording(
+            iosAudioSessionManagedExternally: iosAudioSessionManagedExternally,
+          );
         } catch (error) {
           if (!_isListening) return;
           _textStreamController?.addError(error);
@@ -644,7 +668,9 @@ class VoiceInputService {
 
   /// Centralized entry point to begin voice recognition.
   /// Ensures initialization and microphone permission before starting.
-  Future<Stream<String>> beginListening() async {
+  Future<Stream<String>> beginListening({
+    bool iosAudioSessionManagedExternally = false,
+  }) async {
     await initialize();
     // For on-device STT we preflight the microphone permission so we can
     // fail fast with a clear error before starting any recognition.
@@ -659,7 +685,9 @@ class VoiceInputService {
         throw Exception('Microphone permission not granted');
       }
     }
-    return await startListening();
+    return await startListening(
+      iosAudioSessionManagedExternally: iosAudioSessionManagedExternally,
+    );
   }
 
   Future<void> stopListening() async {
@@ -742,7 +770,9 @@ class VoiceInputService {
     } catch (_) {}
   }
 
-  Future<void> _startServerRecording() async {
+  Future<void> _startServerRecording({
+    required bool iosAudioSessionManagedExternally,
+  }) async {
     // Make sure any previous recorder session is fully stopped before we
     // dispose/create handlers. This avoids Android VAD races where internal
     // frame callbacks outlive immediate dispose().
@@ -776,7 +806,7 @@ class VoiceInputService {
         positiveSpeechThreshold: _vadPositiveSpeechThreshold,
         negativeSpeechThreshold: _vadNegativeSpeechThreshold,
         submitUserSpeechOnPause: true,
-        recordConfig: const RecordConfig(
+        recordConfig: RecordConfig(
           encoder: AudioEncoder.pcm16bits,
           sampleRate: _vadSampleRate,
           numChannels: 1,
@@ -793,6 +823,9 @@ class VoiceInputService {
             manageBluetooth: true,
             useLegacy: false,
           ),
+          iosConfig: iosAudioSessionManagedExternally
+              ? _iosManagedServerVadRecordConfig
+              : _iosStandaloneServerVadRecordConfig,
         ),
       );
     } catch (error) {
