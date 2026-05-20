@@ -12,6 +12,7 @@ import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/markdown/compiled_markdown_document.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_config.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_compile_service.dart';
+import 'package:conduit/shared/widgets/markdown/markdown_loading_skeleton.dart';
 import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -830,10 +831,57 @@ After
   );
 
   testWidgets(
+    'shows a loading skeleton when a completed document mounts before async compile finishes',
+    (tester) async {
+      final compiler = _DelayedMarkdownCompileService();
+      addTearDown(compiler.dispose);
+      final skeletonFinder = find.byType(MarkdownLoadingSkeleton);
+
+      Widget buildDelayedHarness() {
+        return ProviderScope(
+          overrides: [
+            markdownCompileServiceProvider.overrideWithValue(compiler),
+          ],
+          child: MaterialApp(
+            theme: AppTheme.light(TweakcnThemes.t3Chat),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: const StreamingMarkdownWidget(
+                  content: 'Completed response',
+                  isStreaming: false,
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+
+      await tester.pumpWidget(buildDelayedHarness());
+      await tester.pump();
+
+      expect(skeletonFinder, findsOneWidget);
+      expect(find.text('Completed response', findRichText: true), findsNothing);
+
+      compiler.release();
+      await tester.pump();
+      await tester.pump();
+
+      expect(skeletonFinder, findsNothing);
+      expect(
+        find.text('Completed response', findRichText: true),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets(
     'streaming markdown resolves the final document when streaming ends',
     (tester) async {
       final compiler = _DelayedMarkdownCompileService();
       addTearDown(compiler.dispose);
+      final skeletonFinder = find.byType(MarkdownLoadingSkeleton);
 
       Widget buildDelayedHarness(bool isStreaming) {
         return ProviderScope(
@@ -860,16 +908,19 @@ After
       await tester.pump();
 
       expect(find.text('Final response', findRichText: true), findsNothing);
+      expect(skeletonFinder, findsNothing);
 
       await tester.pumpWidget(buildDelayedHarness(false));
       await tester.pump();
 
+      expect(skeletonFinder, findsOneWidget);
       expect(find.text('Final response', findRichText: true), findsNothing);
 
       compiler.release();
       await tester.pump();
       await tester.pump();
 
+      expect(skeletonFinder, findsNothing);
       expect(find.text('Final response', findRichText: true), findsOneWidget);
     },
   );
@@ -889,6 +940,7 @@ After
         ),
       );
       addTearDown(compiler.dispose);
+      final skeletonFinder = find.byType(MarkdownLoadingSkeleton);
 
       Widget buildSelectiveHarness(String content, bool isStreaming) {
         return ProviderScope(
@@ -923,6 +975,7 @@ After
       await tester.pumpWidget(buildSelectiveHarness(finalContent, false));
       await tester.pump();
 
+      expect(skeletonFinder, findsNothing);
       expect(find.textContaining('Line 0', findRichText: true), findsOneWidget);
       expect(
         find.text('Final settling line', findRichText: true),

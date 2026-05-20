@@ -10,7 +10,6 @@ import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'dart:io' show Platform;
 import 'dart:math' as math;
 
@@ -55,6 +54,7 @@ import '../../../shared/widgets/themed_sheets.dart';
 import '../../../shared/widgets/measure_size.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/chrome_gradient_fade.dart';
+import '../../../shared/widgets/markdown/markdown_loading_skeleton.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 
 enum _PendingChatScrollActionKind { none, restore, initialBottom }
@@ -1496,76 +1496,56 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           sliver: SliverList(
             delegate: SliverChildBuilderDelegate((context, index) {
               final isUser = index.isOdd;
-              return Align(
-                alignment: isUser
-                    ? Alignment.centerRight
-                    : Alignment.centerLeft,
-                child: Container(
-                  margin: const EdgeInsets.only(bottom: Spacing.md),
-                  constraints: BoxConstraints(
-                    maxWidth: MediaQuery.of(context).size.width * 0.82,
-                  ),
-                  padding: const EdgeInsets.all(Spacing.md),
-                  decoration: BoxDecoration(
-                    color: isUser
-                        ? context.conduitTheme.buttonPrimary.withValues(
-                            alpha: 0.15,
-                          )
-                        : context.conduitTheme.cardBackground,
-                    borderRadius: BorderRadius.circular(
-                      AppBorderRadius.messageBubble,
-                    ),
-                    border: Border.all(
-                      color: context.conduitTheme.cardBorder,
-                      width: BorderWidth.regular,
-                    ),
-                    boxShadow: ConduitShadows.messageBubble(context),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        height: 14,
-                        width: index % 3 == 0 ? 140 : 220,
-                        decoration: BoxDecoration(
-                          color: context.conduitTheme.shimmerBase,
-                          borderRadius: BorderRadius.circular(
-                            AppBorderRadius.xs,
-                          ),
-                        ),
-                      ).animate().shimmer(duration: AnimationDuration.slow),
-                      const SizedBox(height: Spacing.xs),
-                      Container(
-                        height: 14,
-                        width: double.infinity,
-                        decoration: BoxDecoration(
-                          color: context.conduitTheme.shimmerBase,
-                          borderRadius: BorderRadius.circular(
-                            AppBorderRadius.xs,
-                          ),
-                        ),
-                      ).animate().shimmer(duration: AnimationDuration.slow),
-                      if (index % 3 != 0) ...[
-                        const SizedBox(height: Spacing.xs),
-                        Container(
-                          height: 14,
-                          width: index % 2 == 0 ? 180 : 120,
-                          decoration: BoxDecoration(
-                            color: context.conduitTheme.shimmerBase,
-                            borderRadius: BorderRadius.circular(
-                              AppBorderRadius.xs,
-                            ),
-                          ),
-                        ).animate().shimmer(duration: AnimationDuration.slow),
-                      ],
-                    ],
-                  ),
-                ),
+              return _buildLoadingMessagePlaceholder(
+                index: index,
+                isUser: isUser,
               );
             }, childCount: 6),
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildLoadingMessagePlaceholder({
+    required int index,
+    required bool isUser,
+  }) {
+    final lineCount = isUser
+        ? (index % 3 == 0 ? 2 : 3)
+        : (index % 3 == 0 ? 3 : 4);
+    final widthFactors = isUser
+        ? const <double>[0.68, 0.9, 0.46, 0.78]
+        : const <double>[0.88, 0.95, 0.73, 0.58];
+    final visualWeight = isUser
+        ? 1200 + (index % 2) * 400
+        : 2400 + (index % 3) * 800;
+
+    return Align(
+      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: Spacing.md),
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.82,
+        ),
+        padding: const EdgeInsets.all(Spacing.md),
+        decoration: BoxDecoration(
+          color: isUser
+              ? context.conduitTheme.buttonPrimary.withValues(alpha: 0.15)
+              : context.conduitTheme.cardBackground,
+          borderRadius: BorderRadius.circular(AppBorderRadius.messageBubble),
+          border: Border.all(
+            color: context.conduitTheme.cardBorder,
+            width: BorderWidth.regular,
+          ),
+          boxShadow: ConduitShadows.messageBubble(context),
+        ),
+        child: MarkdownLoadingSkeleton(
+          contentLength: visualWeight,
+          lineCount: lineCount,
+          widthFactors: widthFactors,
+        ),
+      ),
     );
   }
 

@@ -5,13 +5,16 @@ import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/conduit_markdown_widget.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/markdown_style.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   Widget buildHarness(Widget child) {
-    return MaterialApp(
-      theme: AppTheme.light(TweakcnThemes.t3Chat),
-      home: Scaffold(body: child),
+    return ProviderScope(
+      child: MaterialApp(
+        theme: AppTheme.light(TweakcnThemes.t3Chat),
+        home: Scaffold(body: child),
+      ),
     );
   }
 

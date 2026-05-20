@@ -7,6 +7,7 @@ import 'compiled_markdown_document.dart';
 import 'markdown_config.dart';
 import 'markdown_compile_service.dart';
 import 'markdown_document_controller.dart';
+import 'markdown_loading_skeleton.dart';
 import 'renderer/block_renderer.dart';
 import 'renderer/conduit_markdown_widget.dart';
 
@@ -311,11 +312,21 @@ class _StreamingMarkdownWidgetState
     }
 
     final compiledDocument = _compiledDocument;
+    final hasFreshCompiledDocument =
+        compiledDocument != null &&
+        _compiledPreparedContent == snapshot.normalizedContent;
+    if (_shouldShowLoadingSkeleton(
+      snapshot: snapshot,
+      compiledDocument: compiledDocument,
+      hasFreshCompiledDocument: hasFreshCompiledDocument,
+    )) {
+      return MarkdownLoadingSkeleton(
+        contentLength: snapshot.normalizedContent.length,
+      );
+    }
     if (compiledDocument == null) {
       return const SizedBox.shrink();
     }
-    final hasFreshCompiledDocument =
-        _compiledPreparedContent == snapshot.normalizedContent;
     if (!widget.isStreaming &&
         !hasFreshCompiledDocument &&
         !_preserveStaleCompiledDocumentUntilFreshFinal) {
@@ -359,6 +370,24 @@ class _StreamingMarkdownWidgetState
 
   void _resolveCompiledDocument(_MarkdownRenderSnapshot snapshot) {
     _documentController.resolvePrepared(snapshot.normalizedContent);
+  }
+
+  bool _shouldShowLoadingSkeleton({
+    required _MarkdownRenderSnapshot snapshot,
+    required CompiledMarkdownDocument? compiledDocument,
+    required bool hasFreshCompiledDocument,
+  }) {
+    if (widget.isStreaming || snapshot.normalizedContent.trim().isEmpty) {
+      return false;
+    }
+    if (hasFreshCompiledDocument) {
+      return false;
+    }
+    if (_preserveStaleCompiledDocumentUntilFreshFinal &&
+        compiledDocument != null) {
+      return false;
+    }
+    return true;
   }
 
   void _applyCompiledDocumentState(

@@ -4,6 +4,7 @@ import 'dart:collection';
 import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/shared/widgets/markdown/compiled_markdown_document.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_compile_service.dart';
+import 'package:conduit/shared/widgets/markdown/markdown_loading_skeleton.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/conduit_markdown_widget.dart';
 import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
 import 'package:flutter/material.dart';
@@ -208,6 +209,43 @@ void main() {
       containsAll(<String>['Message 0', 'Message 32']),
     );
   });
+
+  testWidgets(
+    'conduit markdown shows a skeleton while async compile is pending',
+    (tester) async {
+      final compileService = _SequencedBlockingMarkdownCompileService();
+      addTearDown(compileService.dispose);
+
+      await tester.pumpWidget(
+        _buildAsyncMarkdownHarness(
+          data: 'Long completed channel message',
+          compileService: compileService,
+        ),
+      );
+      await tester.pump();
+
+      expect(find.byType(MarkdownLoadingSkeleton), findsOneWidget);
+      expect(
+        find.textContaining(
+          'Long completed channel message',
+          findRichText: true,
+        ),
+        findsNothing,
+      );
+
+      compileService.releaseNext();
+      await tester.pumpAndSettle();
+
+      expect(find.byType(MarkdownLoadingSkeleton), findsNothing);
+      expect(
+        find.textContaining(
+          'Long completed channel message',
+          findRichText: true,
+        ),
+        findsOneWidget,
+      );
+    },
+  );
 
   testWidgets(
     'conduit markdown async compile flow discards stale prepared content',

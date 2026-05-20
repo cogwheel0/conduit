@@ -5,6 +5,7 @@ import '../../../../core/models/chat_message.dart';
 import '../compiled_markdown_document.dart';
 import '../markdown_compile_service.dart';
 import '../markdown_document_controller.dart';
+import '../markdown_loading_skeleton.dart';
 import 'block_renderer.dart';
 import 'inline_renderer.dart';
 import 'latex_preprocessor.dart';
@@ -145,7 +146,7 @@ class _ConduitMarkdownWidgetState extends ConsumerState<ConduitMarkdownWidget> {
 
     final document = widget.compiledDocument ?? _compiledDocument;
     if (document == null) {
-      return const SizedBox.shrink();
+      return MarkdownLoadingSkeleton(contentLength: prepared.length);
     }
 
     return _CompiledMarkdownView(
