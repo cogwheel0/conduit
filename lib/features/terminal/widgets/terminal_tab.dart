@@ -557,6 +557,8 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
   }) async {
     final sessionScopeId = ref.read(terminalSessionScopeIdProvider);
     final normalizedPath = ensureTerminalDirectoryPath(path);
+    final failedToLoadFilesMessage =
+        AppLocalizations.of(context)!.terminalFailedToLoadFiles;
 
     if (mounted) {
       setState(() => _loadingFiles = true);
@@ -585,7 +587,7 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
       }
     } catch (_) {
       if (_isCurrentTerminalContext(server, sessionScopeId)) {
-        _showSnackBar(AppLocalizations.of(context)!.terminalFailedToLoadFiles);
+        _showSnackBar(failedToLoadFilesMessage);
       }
     } finally {
       if (_isCurrentTerminalContext(server, sessionScopeId)) {
@@ -599,6 +601,8 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
     TerminalServerInfo server,
   ) async {
     final sessionScopeId = ref.read(terminalSessionScopeIdProvider);
+    final failedToLoadPortsMessage =
+        AppLocalizations.of(context)!.terminalFailedToLoadPorts;
     if (mounted) {
       setState(() => _loadingPorts = true);
     }
@@ -613,7 +617,7 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
       ref.read(terminalListeningPortsProvider.notifier).set(ports);
     } catch (_) {
       if (_isCurrentTerminalContext(server, sessionScopeId)) {
-        _showSnackBar(AppLocalizations.of(context)!.terminalFailedToLoadPorts);
+        _showSnackBar(failedToLoadPortsMessage);
       }
     } finally {
       if (_isCurrentTerminalContext(server, sessionScopeId)) {
