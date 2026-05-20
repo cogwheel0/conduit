@@ -3,19 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/chat_message.dart';
-import '../../../core/services/worker_manager.dart';
 import 'compiled_markdown_document.dart';
 import 'markdown_config.dart';
 import 'markdown_compile_service.dart';
 import 'markdown_document_controller.dart';
 import 'renderer/block_renderer.dart';
 import 'renderer/conduit_markdown_widget.dart';
-
-const int _streamingSnapshotWorkerThreshold = 768;
-
-Map<String, Object> _computeStreamingMarkdownSnapshot(String content) {
-  return _buildMarkdownSnapshot(content, streaming: true).toMap();
-}
 
 @visibleForTesting
 Map<String, Object> buildStreamingMarkdownSnapshotForTesting(
@@ -44,12 +37,6 @@ class _MarkdownRenderSnapshot {
   final String normalizedContent;
 
   Map<String, Object> toMap() => {'normalizedContent': normalizedContent};
-
-  factory _MarkdownRenderSnapshot.fromMap(Map<String, Object?> map) {
-    return _MarkdownRenderSnapshot(
-      normalizedContent: (map['normalizedContent'] ?? '') as String,
-    );
-  }
 
   @override
   bool operator ==(Object other) {
@@ -113,6 +100,9 @@ class StreamingMarkdownWidget extends ConsumerStatefulWidget {
 class _StreamingMarkdownWidgetState
     extends ConsumerState<StreamingMarkdownWidget> {
   static const _streamingRenderInterval = Duration(milliseconds: 120);
+  static const _streamingRenderIntervalMedium = Duration(milliseconds: 180);
+  static const _streamingRenderIntervalLarge = Duration(milliseconds: 240);
+  static const _streamingRenderIntervalXLarge = Duration(milliseconds: 320);
 
   late final MarkdownDocumentController _documentController;
   final GlobalKey _markdownContentKey = GlobalKey();
@@ -171,8 +161,11 @@ class _StreamingMarkdownWidgetState
       return;
     }
 
-    if (_isWidgetTest ||
-        widget.content.length < _streamingSnapshotWorkerThreshold) {
+    final compiler = ref.read(markdownCompileServiceProvider);
+    if (compiler.shouldPrepareSynchronously(
+      widget.content,
+      widgetTest: _isWidgetTest,
+    )) {
       _invalidatePendingAsyncSnapshot();
       _applySnapshot(_buildMarkdownSnapshot(widget.content, streaming: true));
       return;
@@ -203,7 +196,8 @@ class _StreamingMarkdownWidgetState
     }
     final interval = immediate || _isWidgetTest
         ? Duration.zero
-        : widget.debugRenderInterval ?? _streamingRenderInterval;
+        : widget.debugRenderInterval ??
+              _streamingRefreshIntervalForContent(widget.content);
     _renderTimer = Timer(interval, () {
       _renderTimer = null;
       if (!mounted) {
@@ -219,6 +213,20 @@ class _StreamingMarkdownWidgetState
     _queuedContent = null;
     _snapshotGeneration += 1;
     _documentController.invalidatePending();
+  }
+
+  Duration _streamingRefreshIntervalForContent(String content) {
+    final length = content.length;
+    if (length >= 16000) {
+      return _streamingRenderIntervalXLarge;
+    }
+    if (length >= 8000) {
+      return _streamingRenderIntervalLarge;
+    }
+    if (length >= 4000) {
+      return _streamingRenderIntervalMedium;
+    }
+    return _streamingRenderInterval;
   }
 
   void _queueLatestStreamingContent(String content) {
@@ -238,16 +246,15 @@ class _StreamingMarkdownWidgetState
     _snapshotInFlight = true;
     final generation = ++_snapshotGeneration;
     try {
-      final worker = ref.read(workerManagerProvider);
-      final rawSnapshot = await worker.schedule<String, Map<String, Object>>(
-        _computeStreamingMarkdownSnapshot,
+      final compiler = ref.read(markdownCompileServiceProvider);
+      final preparedContent = await compiler.prepareContent(
         content,
-        debugLabel: 'markdown_stream_snapshot',
+        streaming: true,
       );
       if (!mounted || generation != _snapshotGeneration) {
         return;
       }
-      _applySnapshot(_MarkdownRenderSnapshot.fromMap(rawSnapshot));
+      _applySnapshot(_MarkdownRenderSnapshot.full(preparedContent));
     } catch (_) {
       if (!mounted || generation != _snapshotGeneration) {
         return;
@@ -257,7 +264,9 @@ class _StreamingMarkdownWidgetState
       _snapshotInFlight = false;
       final queuedContent = _queuedContent;
       _queuedContent = null;
-      if (queuedContent != null && queuedContent != content && mounted) {
+      if (queuedContent != null &&
+          (queuedContent != content || generation != _snapshotGeneration) &&
+          mounted) {
         _scheduleStreamingRefresh(immediate: true);
       }
     }

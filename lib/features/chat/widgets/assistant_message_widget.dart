@@ -91,6 +91,15 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
 class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     with TickerProviderStateMixin {
   static const _streamingDisplayUpdateInterval = Duration(milliseconds: 100);
+  static const _streamingDisplayUpdateIntervalMedium = Duration(
+    milliseconds: 140,
+  );
+  static const _streamingDisplayUpdateIntervalLarge = Duration(
+    milliseconds: 180,
+  );
+  static const _streamingDisplayUpdateIntervalXLarge = Duration(
+    milliseconds: 220,
+  );
 
   late AnimationController _fadeController;
   late AnimationController _slideController;
@@ -732,9 +741,23 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
     _pendingStreamingDisplayContent = content;
     _streamingDisplayTimer ??= Timer(
-      _streamingDisplayUpdateInterval,
+      _streamingDisplayIntervalForContent(content),
       _flushPendingStreamingDisplayContent,
     );
+  }
+
+  Duration _streamingDisplayIntervalForContent(String content) {
+    final length = content.length;
+    if (length >= 16000) {
+      return _streamingDisplayUpdateIntervalXLarge;
+    }
+    if (length >= 8000) {
+      return _streamingDisplayUpdateIntervalLarge;
+    }
+    if (length >= 4000) {
+      return _streamingDisplayUpdateIntervalMedium;
+    }
+    return _streamingDisplayUpdateInterval;
   }
 
   void _flushPendingStreamingDisplayContent() {

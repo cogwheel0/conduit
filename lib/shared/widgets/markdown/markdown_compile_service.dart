@@ -19,8 +19,16 @@ import 'renderer/latex_preprocessor.dart';
 import 'renderer/mention_inline_syntax.dart';
 
 const int markdownSynchronousCompileThreshold = 384;
+const int markdownSynchronousPrepareThreshold = 768;
 const Set<String> _groupableCompiledDetailTypes = {'tool_calls'};
 final _detailsAttributeUnescape = HtmlUnescape();
+
+enum MarkdownPrepareExecutionPath {
+  synchronous,
+  webSynchronous,
+  asyncBackend,
+  fallbackSync,
+}
 
 final _compiledMarkdownCache = _CompiledMarkdownCache();
 
@@ -78,14 +86,25 @@ CompiledMarkdownDocument compilePreparedMarkdownSync(String preparedContent) {
 }
 
 class MarkdownCompileService {
-  MarkdownCompileService({required WorkerManager workerManager})
-    : _workerManager = workerManager,
-      _backend = _MarkdownCompilerBackend();
+  MarkdownCompileService({
+    required WorkerManager workerManager,
+    @visibleForTesting this.debugOnPrepareExecution,
+    @visibleForTesting this.debugPrepareContentOverride,
+  }) : _workerManager = workerManager,
+       _backend = _MarkdownCompilerBackend(),
+       _prepareBackend = _MarkdownPrepareBackend();
 
   final WorkerManager _workerManager;
   final _MarkdownCompilerBackend _backend;
+  final _MarkdownPrepareBackend _prepareBackend;
   final Map<String, Future<CompiledMarkdownDocument>> _inFlight =
       <String, Future<CompiledMarkdownDocument>>{};
+  @visibleForTesting
+  final void Function(MarkdownPrepareExecutionPath path)?
+  debugOnPrepareExecution;
+  @visibleForTesting
+  final Future<String> Function(String content, bool streaming)?
+  debugPrepareContentOverride;
   bool _disposed = false;
 
   CompiledMarkdownDocument? peekPrepared(String preparedContent) =>
@@ -98,9 +117,72 @@ class MarkdownCompileService {
       widgetTest ||
       preparedContent.length <= markdownSynchronousCompileThreshold;
 
+  bool shouldPrepareSynchronously(String content, {bool widgetTest = false}) =>
+      widgetTest || content.length <= markdownSynchronousPrepareThreshold;
+
   CompiledMarkdownDocument compilePreparedSynchronously(
     String preparedContent,
   ) => compilePreparedMarkdownSync(preparedContent);
+
+  Future<String> prepareContent(
+    String content, {
+    required bool streaming,
+    bool allowSynchronous = false,
+    bool widgetTest = false,
+  }) async {
+    if (content.isEmpty) {
+      return '';
+    }
+
+    if (allowSynchronous &&
+        shouldPrepareSynchronously(content, widgetTest: widgetTest)) {
+      debugOnPrepareExecution?.call(MarkdownPrepareExecutionPath.synchronous);
+      return prepareMarkdownContent(content, streaming: streaming);
+    }
+
+    if (kIsWeb) {
+      debugOnPrepareExecution?.call(
+        MarkdownPrepareExecutionPath.webSynchronous,
+      );
+      return prepareMarkdownContent(content, streaming: streaming);
+    }
+
+    final taskKey = PerformanceProfiler.instance.startTask(
+      'markdown_prepare',
+      scope: 'markdown',
+      key: 'markdown_prepare:${content.hashCode}:${content.length}:$streaming',
+      data: {'length': content.length, 'streaming': streaming},
+    );
+
+    try {
+      final prepared =
+          await debugPrepareContentOverride?.call(content, streaming) ??
+          await _prepareBackend.prepareContent(content, streaming: streaming);
+      debugOnPrepareExecution?.call(MarkdownPrepareExecutionPath.asyncBackend);
+      PerformanceProfiler.instance.finishTask(
+        taskKey,
+        data: {
+          'status': 'ok',
+          'streaming': streaming,
+          'preparedLength': prepared.length,
+        },
+      );
+      return prepared;
+    } catch (error) {
+      final fallback = prepareMarkdownContent(content, streaming: streaming);
+      debugOnPrepareExecution?.call(MarkdownPrepareExecutionPath.fallbackSync);
+      PerformanceProfiler.instance.finishTask(
+        taskKey,
+        data: {
+          'status': 'fallback_sync',
+          'streaming': streaming,
+          'preparedLength': fallback.length,
+          'error': error.toString(),
+        },
+      );
+      return fallback;
+    }
+  }
 
   Future<CompiledMarkdownDocument> compilePrepared(
     String preparedContent, {
@@ -309,6 +391,7 @@ class MarkdownCompileService {
     _disposed = true;
     _inFlight.clear();
     _backend.dispose();
+    _prepareBackend.dispose();
   }
 
   Map<String, Future<CompiledMarkdownDocument>> _startBatchCompile(
@@ -1324,6 +1407,145 @@ class _MarkdownCompilerBackend {
   }
 }
 
+class _MarkdownPrepareBackend {
+  Isolate? _isolate;
+  ReceivePort? _receivePort;
+  SendPort? _sendPort;
+  Future<SendPort>? _startupFuture;
+  final Map<int, Completer<String>> _pendingPrepared =
+      <int, Completer<String>>{};
+  int _requestCounter = 0;
+  bool _disposed = false;
+
+  Future<String> prepareContent(
+    String content, {
+    required bool streaming,
+  }) async {
+    final sendPort = await _ensureStarted();
+    if (_disposed) {
+      throw StateError('Markdown prepare backend disposed');
+    }
+
+    final requestId = ++_requestCounter;
+    final completer = Completer<String>();
+    _pendingPrepared[requestId] = completer;
+    sendPort.send(<String, Object?>{
+      'id': requestId,
+      'content': content,
+      'streaming': streaming,
+    });
+    return completer.future;
+  }
+
+  Future<SendPort> _ensureStarted() {
+    final existing = _sendPort;
+    if (existing != null) {
+      return SynchronousFuture(existing);
+    }
+    final startup = _startupFuture;
+    if (startup != null) {
+      return startup;
+    }
+    final future = _spawnIsolate();
+    _startupFuture = future;
+    return future;
+  }
+
+  Future<SendPort> _spawnIsolate() async {
+    final receivePort = ReceivePort();
+    _receivePort = receivePort;
+    final completer = Completer<SendPort>();
+
+    receivePort.listen((dynamic message) {
+      if (message is SendPort) {
+        if (!completer.isCompleted) {
+          _sendPort = message;
+          completer.complete(message);
+        }
+        return;
+      }
+      _handleResponse(message);
+    });
+
+    try {
+      _isolate = await Isolate.spawn<SendPort>(
+        _markdownPrepareIsolateMain,
+        receivePort.sendPort,
+        debugName: 'markdown_prepare',
+      );
+      return await completer.future.timeout(const Duration(seconds: 5));
+    } catch (error) {
+      if (!completer.isCompleted) {
+        completer.completeError(error);
+      }
+      rethrow;
+    } finally {
+      _startupFuture = null;
+    }
+  }
+
+  void _handleResponse(dynamic message) {
+    if (message is! Map) {
+      return;
+    }
+    final typed = message.cast<Object?, Object?>();
+    final requestId = typed['id'];
+    if (requestId is! int) {
+      return;
+    }
+
+    final error = typed['error'];
+    if (error != null) {
+      final stackTrace = StackTrace.fromString(
+        (typed['stackTrace'] ?? '').toString(),
+      );
+      final completer = _pendingPrepared.remove(requestId);
+      if (completer != null && !completer.isCompleted) {
+        completer.completeError(Exception(error.toString()), stackTrace);
+      }
+      return;
+    }
+
+    final result = typed['result'];
+    if (result is String) {
+      final completer = _pendingPrepared.remove(requestId);
+      if (completer != null && !completer.isCompleted) {
+        completer.complete(result);
+      }
+      return;
+    }
+
+    final invalidResponseError = StateError(
+      'Invalid markdown prepare response: $message',
+    );
+    final completer = _pendingPrepared.remove(requestId);
+    if (completer != null && !completer.isCompleted) {
+      completer.completeError(invalidResponseError);
+    }
+  }
+
+  void dispose() {
+    _disposed = true;
+    final pendingPrepared = List<Completer<String>>.from(
+      _pendingPrepared.values,
+    );
+    _pendingPrepared.clear();
+    for (final completer in pendingPrepared) {
+      if (!completer.isCompleted) {
+        completer.completeError(
+          StateError('Markdown prepare backend disposed'),
+        );
+      }
+    }
+    _receivePort?.close();
+    _receivePort = null;
+    _sendPort = null;
+    _isolate?.kill(priority: Isolate.immediate);
+    _isolate = null;
+    _startupFuture = null;
+  }
+}
+
 @pragma('vm:entry-point')
 void _markdownCompilerIsolateMain(SendPort mainSendPort) {
   final receivePort = ReceivePort();
@@ -1355,6 +1577,35 @@ void _markdownCompilerIsolateMain(SendPort mainSendPort) {
 
       final preparedContent = (typed['preparedContent'] ?? '') as String;
       final result = _compilePreparedMarkdownDocument(preparedContent).toMap();
+      mainSendPort.send(<String, Object?>{'id': requestId, 'result': result});
+    } catch (error, stackTrace) {
+      mainSendPort.send(<String, Object?>{
+        'id': requestId,
+        'error': error.toString(),
+        'stackTrace': stackTrace.toString(),
+      });
+    }
+  });
+}
+
+@pragma('vm:entry-point')
+void _markdownPrepareIsolateMain(SendPort mainSendPort) {
+  final receivePort = ReceivePort();
+  mainSendPort.send(receivePort.sendPort);
+
+  receivePort.listen((dynamic message) {
+    if (message is! Map) {
+      return;
+    }
+    final typed = message.cast<Object?, Object?>();
+    final requestId = typed['id'];
+    if (requestId is! int) {
+      return;
+    }
+    try {
+      final content = (typed['content'] ?? '') as String;
+      final streaming = typed['streaming'] == true;
+      final result = prepareMarkdownContent(content, streaming: streaming);
       mainSendPort.send(<String, Object?>{'id': requestId, 'result': result});
     } catch (error, stackTrace) {
       mainSendPort.send(<String, Object?>{

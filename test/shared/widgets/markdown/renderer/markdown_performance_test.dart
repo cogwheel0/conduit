@@ -10,92 +10,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-String? _trackedScheduledContent(Object? message) {
-  if (message is String) {
-    return message;
-  }
-  return null;
-}
-
-class _RecordingWorkerManager extends WorkerManager {
-  _RecordingWorkerManager();
-  final List<String> scheduledContents = <String>[];
-
-  @override
-  Future<R> schedule<Q, R>(
-    WorkerTask<Q, R> callback,
-    Q message, {
-    String? debugLabel,
-  }) async {
-    final tracked = _trackedScheduledContent(message);
-    if (tracked != null) {
-      scheduledContents.add(tracked);
-    }
-    await Future<void>.delayed(const Duration(milliseconds: 1));
-    return callback(message);
-  }
-}
-
-class _BlockingWorkerManager extends WorkerManager {
-  _BlockingWorkerManager();
-
-  final List<String> scheduledContents = <String>[];
-  final Completer<void> _release = Completer<void>();
-
-  void release() {
-    if (!_release.isCompleted) {
-      _release.complete();
-    }
-  }
-
-  @override
-  Future<R> schedule<Q, R>(
-    WorkerTask<Q, R> callback,
-    Q message, {
-    String? debugLabel,
-  }) async {
-    final tracked = _trackedScheduledContent(message);
-    if (tracked != null) {
-      scheduledContents.add(tracked);
-    }
-    await _release.future;
-    return callback(message);
-  }
-}
-
-class _SequencedBlockingWorkerManager extends WorkerManager {
-  _SequencedBlockingWorkerManager();
-
-  final List<String> scheduledContents = <String>[];
-  final Queue<Completer<void>> _releases = Queue<Completer<void>>();
-
-  void releaseNext() {
-    if (_releases.isEmpty) {
-      return;
-    }
-    final next = _releases.removeFirst();
-    if (!next.isCompleted) {
-      next.complete();
-    }
-  }
-
-  @override
-  Future<R> schedule<Q, R>(
-    WorkerTask<Q, R> callback,
-    Q message, {
-    String? debugLabel,
-  }) async {
-    final tracked = _trackedScheduledContent(message);
-    if (tracked != null) {
-      scheduledContents.add(tracked);
-    }
-    final release = Completer<void>();
-    _releases.add(release);
-    await release.future;
-    return callback(message);
-  }
-}
-
 class _ImmediateMarkdownCompileService extends MarkdownCompileService {
   _ImmediateMarkdownCompileService() : super(workerManager: WorkerManager());
 
@@ -113,6 +27,77 @@ class _ImmediateMarkdownCompileService extends MarkdownCompileService {
     String preparedContent, {
     bool widgetTest = false,
   }) => true;
+}
+
+class _RecordingPrepareMarkdownCompileService
+    extends _ImmediateMarkdownCompileService {
+  final List<String> preparedContents = <String>[];
+
+  @override
+  Future<String> prepareContent(
+    String content, {
+    required bool streaming,
+    bool allowSynchronous = false,
+    bool widgetTest = false,
+  }) async {
+    preparedContents.add(content);
+    await Future<void>.delayed(const Duration(milliseconds: 1));
+    return prepareMarkdownContent(content, streaming: streaming);
+  }
+}
+
+class _BlockingPrepareMarkdownCompileService
+    extends _ImmediateMarkdownCompileService {
+  final List<String> preparedContents = <String>[];
+  final Completer<void> _release = Completer<void>();
+
+  void release() {
+    if (!_release.isCompleted) {
+      _release.complete();
+    }
+  }
+
+  @override
+  Future<String> prepareContent(
+    String content, {
+    required bool streaming,
+    bool allowSynchronous = false,
+    bool widgetTest = false,
+  }) async {
+    preparedContents.add(content);
+    await _release.future;
+    return prepareMarkdownContent(content, streaming: streaming);
+  }
+}
+
+class _SequencedBlockingPrepareMarkdownCompileService
+    extends _ImmediateMarkdownCompileService {
+  final List<String> preparedContents = <String>[];
+  final Queue<Completer<void>> _releases = Queue<Completer<void>>();
+
+  void releaseNext() {
+    if (_releases.isEmpty) {
+      return;
+    }
+    final next = _releases.removeFirst();
+    if (!next.isCompleted) {
+      next.complete();
+    }
+  }
+
+  @override
+  Future<String> prepareContent(
+    String content, {
+    required bool streaming,
+    bool allowSynchronous = false,
+    bool widgetTest = false,
+  }) async {
+    preparedContents.add(content);
+    final release = Completer<void>();
+    _releases.add(release);
+    await release.future;
+    return prepareMarkdownContent(content, streaming: streaming);
+  }
 }
 
 class _SequencedBlockingMarkdownCompileService extends MarkdownCompileService {
@@ -176,15 +161,12 @@ Widget _buildAsyncMarkdownHarness({
 
 Widget _buildStreamingHarness({
   required String content,
-  required WorkerManager workerManager,
+  required MarkdownCompileService compileService,
   bool isStreaming = true,
 }) {
   return ProviderScope(
     overrides: [
-      workerManagerProvider.overrideWithValue(workerManager),
-      markdownCompileServiceProvider.overrideWithValue(
-        _ImmediateMarkdownCompileService(),
-      ),
+      markdownCompileServiceProvider.overrideWithValue(compileService),
     ],
     child: MaterialApp(
       home: Scaffold(
@@ -307,39 +289,41 @@ void main() {
     expect(snapshot['normalizedContent'], startsWith('```dart'));
   });
 
-  testWidgets('rapid streaming updates coalesce worker snapshot jobs', (
+  testWidgets('rapid streaming updates coalesce prepare snapshot jobs', (
     tester,
   ) async {
-    final workerManager = _RecordingWorkerManager();
+    final compileService = _RecordingPrepareMarkdownCompileService();
+    addTearDown(compileService.dispose);
     final base = List<String>.filled(180, 'stream chunk').join(' ');
     final next = '$base next';
     final latest = '$base latest';
 
     await tester.pumpWidget(
-      _buildStreamingHarness(content: base, workerManager: workerManager),
+      _buildStreamingHarness(content: base, compileService: compileService),
     );
 
     await tester.pumpWidget(
-      _buildStreamingHarness(content: next, workerManager: workerManager),
+      _buildStreamingHarness(content: next, compileService: compileService),
     );
     await tester.pump(const Duration(milliseconds: 4));
 
     await tester.pumpWidget(
-      _buildStreamingHarness(content: latest, workerManager: workerManager),
+      _buildStreamingHarness(content: latest, compileService: compileService),
     );
     await tester.pump(const Duration(milliseconds: 4));
 
-    expect(workerManager.scheduledContents, isEmpty);
+    expect(compileService.preparedContents, isEmpty);
 
     await tester.pump(const Duration(milliseconds: 20));
 
-    expect(workerManager.scheduledContents, <String>[latest]);
+    expect(compileService.preparedContents, <String>[latest]);
   });
 
-  testWidgets('sync streaming updates invalidate stale worker snapshots', (
+  testWidgets('sync streaming updates invalidate stale prepare snapshots', (
     tester,
   ) async {
-    final workerManager = _BlockingWorkerManager();
+    final compileService = _BlockingPrepareMarkdownCompileService();
+    addTearDown(compileService.dispose);
     final baseContent = List<String>.filled(180, 'stream chunk').join(' ');
     final longContent = '$baseContent newer';
     const shortContent = 'short updated content';
@@ -347,24 +331,24 @@ void main() {
     await tester.pumpWidget(
       _buildStreamingHarness(
         content: baseContent,
-        workerManager: workerManager,
+        compileService: compileService,
       ),
     );
 
     await tester.pumpWidget(
       _buildStreamingHarness(
         content: longContent,
-        workerManager: workerManager,
+        compileService: compileService,
       ),
     );
     await tester.pump(const Duration(milliseconds: 20));
 
-    expect(workerManager.scheduledContents, <String>[longContent]);
+    expect(compileService.preparedContents, <String>[longContent]);
 
     await tester.pumpWidget(
       _buildStreamingHarness(
         content: shortContent,
-        workerManager: workerManager,
+        compileService: compileService,
       ),
     );
     await tester.pump();
@@ -374,7 +358,7 @@ void main() {
       findsOneWidget,
     );
 
-    workerManager.release();
+    compileService.release();
     await tester.pumpAndSettle();
 
     expect(
@@ -387,10 +371,11 @@ void main() {
     );
   });
 
-  testWidgets('queued streaming updates skip stale worker snapshots', (
+  testWidgets('queued streaming updates skip stale prepare snapshots', (
     tester,
   ) async {
-    final workerManager = _SequencedBlockingWorkerManager();
+    final compileService = _SequencedBlockingPrepareMarkdownCompileService();
+    addTearDown(compileService.dispose);
     final baseContent = List<String>.filled(180, 'stream chunk').join(' ');
     final firstContent = '$baseContent first-marker';
     final latestContent = '$baseContent latest-marker';
@@ -398,38 +383,38 @@ void main() {
     await tester.pumpWidget(
       _buildStreamingHarness(
         content: baseContent,
-        workerManager: workerManager,
+        compileService: compileService,
       ),
     );
 
     await tester.pumpWidget(
       _buildStreamingHarness(
         content: firstContent,
-        workerManager: workerManager,
+        compileService: compileService,
       ),
     );
     await tester.pump(const Duration(milliseconds: 20));
 
-    expect(workerManager.scheduledContents, <String>[firstContent]);
+    expect(compileService.preparedContents, <String>[firstContent]);
 
     await tester.pumpWidget(
       _buildStreamingHarness(
         content: latestContent,
-        workerManager: workerManager,
+        compileService: compileService,
       ),
     );
     await tester.pump();
 
-    workerManager.releaseNext();
+    compileService.releaseNext();
     await tester.pump();
     for (var index = 0; index < 5; index += 1) {
-      if (workerManager.scheduledContents.length >= 2) {
+      if (compileService.preparedContents.length >= 2) {
         break;
       }
       await tester.pump(const Duration(milliseconds: 10));
     }
 
-    expect(workerManager.scheduledContents, <String>[
+    expect(compileService.preparedContents, <String>[
       firstContent,
       latestContent,
     ]);
@@ -438,7 +423,7 @@ void main() {
       findsNothing,
     );
 
-    workerManager.releaseNext();
+    compileService.releaseNext();
     await tester.pumpAndSettle();
 
     expect(
@@ -446,4 +431,91 @@ void main() {
       findsNothing,
     );
   });
+
+  testWidgets(
+    'streaming A-B-A updates reschedule when the latest content matches the in-flight request',
+    (tester) async {
+      final compileService = _SequencedBlockingPrepareMarkdownCompileService();
+      addTearDown(compileService.dispose);
+      const seedContent = 'seed snapshot';
+      final baseContent = List<String>.filled(180, 'stream chunk').join(' ');
+      final aContent = '$baseContent alpha-marker';
+      final bContent = '$baseContent beta-marker';
+
+      await tester.pumpWidget(
+        _buildStreamingHarness(
+          content: seedContent,
+          compileService: compileService,
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        find.textContaining(seedContent, findRichText: true),
+        findsOneWidget,
+      );
+
+      await tester.pumpWidget(
+        _buildStreamingHarness(
+          content: aContent,
+          compileService: compileService,
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 20));
+
+      expect(compileService.preparedContents, <String>[aContent]);
+
+      await tester.pumpWidget(
+        _buildStreamingHarness(
+          content: bContent,
+          compileService: compileService,
+        ),
+      );
+      await tester.pump();
+
+      await tester.pumpWidget(
+        _buildStreamingHarness(
+          content: aContent,
+          compileService: compileService,
+        ),
+      );
+      await tester.pump();
+
+      compileService.releaseNext();
+      await tester.pump();
+
+      for (var index = 0; index < 5; index += 1) {
+        if (compileService.preparedContents.length >= 2) {
+          break;
+        }
+        await tester.pump(const Duration(milliseconds: 10));
+      }
+
+      expect(compileService.preparedContents, <String>[aContent, aContent]);
+      expect(
+        find.textContaining(seedContent, findRichText: true),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('alpha-marker', findRichText: true),
+        findsNothing,
+      );
+
+      compileService.releaseNext();
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining(seedContent, findRichText: true),
+        findsNothing,
+      );
+      expect(
+        find.textContaining('alpha-marker', findRichText: true),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('beta-marker', findRichText: true),
+        findsNothing,
+      );
+    },
+  );
 }
