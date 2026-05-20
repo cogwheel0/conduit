@@ -88,7 +88,7 @@ void main() {
     },
   );
 
-  test('markdown prewarm falls back to the most recent assistant messages', () {
+  test('markdown prewarm returns no candidates without viewport metrics', () {
     final messages = <ChatMessage>[
       ChatMessage(
         id: 'assistant-1',
@@ -122,7 +122,34 @@ void main() {
       maxCount: 2,
     );
 
-    expect(indices, <int>[3, 2]);
+    expect(indices, isEmpty);
+  });
+
+  test('markdown prewarm skips still-streaming assistant messages', () {
+    final messages = <ChatMessage>[
+      ChatMessage(
+        id: 'assistant-1',
+        role: 'assistant',
+        content: 'Completed assistant response',
+        timestamp: DateTime(2026),
+      ),
+      ChatMessage(
+        id: 'assistant-2',
+        role: 'assistant',
+        content: 'Streaming assistant response',
+        timestamp: DateTime(2026),
+        isStreaming: true,
+      ),
+    ];
+
+    final indices = debugSelectMarkdownPrewarmCandidateIndicesForTesting(
+      messages,
+      viewportTop: 0,
+      viewportHeight: 300,
+      maxCount: 2,
+    );
+
+    expect(indices, <int>[0]);
   });
 
   test('clearing pin-to-top tracking preserves the active phantom sliver', () {

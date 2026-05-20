@@ -102,17 +102,11 @@ class DetailsBlockSyntax extends md.BlockSyntax {
     } else if (detailType == 'code_interpreter') {
       decodedContent = _normalizeCodeInterpreterLineBreaks(decodedContent);
     }
-    final childNodes = decodedContent.isEmpty
-        ? const <md.Node>[]
-        : md.BlockParser(
-            decodedContent.split('\n').map(md.Line.new).toList(growable: false),
-            parser.document,
-          ).parseLines();
+    attributes['body_markdown'] = decodedContent;
 
     final detailsElement = md.Element('details', [
       if (summaryText != null && summaryText.isNotEmpty)
         md.Element('summary', [md.Text(summaryText)]),
-      ...childNodes,
     ]);
     detailsElement.attributes.addAll(attributes);
 

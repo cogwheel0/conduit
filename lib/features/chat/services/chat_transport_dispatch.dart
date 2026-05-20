@@ -319,6 +319,7 @@ Future<void> dispatchChatTransport({
     finishStreaming: () =>
         ref.read(chatMessagesProvider.notifier).finishStreaming(),
     getMessages: () => ref.read(chatMessagesProvider),
+    getVisibleStreamingContent: () => ref.read(streamingContentProvider),
     flushStreamingBuffer: () =>
         ref.read(chatMessagesProvider.notifier).syncStreamingBuffer(),
     onObsoleteStreamRetired: () {

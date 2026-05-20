@@ -1741,25 +1741,24 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           : null,
       maxCount: 6,
     );
-    final preparedContents = <String>[];
+    final filteredCandidateIndices = <int>[];
     final signatureParts = <String>[];
 
     for (final index in candidateIndices) {
       final message = messages[index];
       final content = message.content.trim();
-      if (content.isEmpty || content.contains('data:image/')) {
+      if (message.isStreaming ||
+          content.isEmpty ||
+          content.contains('data:image/')) {
         continue;
       }
-
-      preparedContents.add(
-        prepareMarkdownContent(content, streaming: message.isStreaming),
-      );
+      filteredCandidateIndices.add(index);
       signatureParts.add(
-        '$index:${message.id}:${message.isStreaming}:${content.length}:${content.hashCode}',
+        '$index:${message.id}:${_cheapMarkdownPrewarmContentSignature(content)}',
       );
     }
 
-    if (preparedContents.isEmpty) {
+    if (filteredCandidateIndices.isEmpty) {
       _markdownPrewarmTimer?.cancel();
       _markdownPrewarmTimer = null;
       _lastMarkdownPrewarmSignature = null;
@@ -1771,6 +1770,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       return;
     }
 
+    final preparedContents = filteredCandidateIndices
+        .map(
+          (index) => prepareMarkdownContent(
+            messages[index].content.trim(),
+            streaming: false,
+          ),
+        )
+        .toList(growable: false);
     _lastMarkdownPrewarmSignature = signature;
     _markdownPrewarmGeneration += 1;
     final generation = _markdownPrewarmGeneration;
@@ -2073,9 +2080,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   Widget _buildComposerSection(BuildContext context) {
     final hasAttachments =
-        ref.watch(
-          attachedFilesProvider.select((files) => files.isNotEmpty),
-        ) ||
+        ref.watch(attachedFilesProvider.select((files) => files.isNotEmpty)) ||
         ref.watch(
           contextAttachmentsProvider.select(
             (attachments) => attachments.isNotEmpty,
@@ -2999,6 +3004,9 @@ List<int> _selectMarkdownPrewarmCandidateIndices({
     if (message.role != 'assistant') {
       return;
     }
+    if (message.isStreaming) {
+      return;
+    }
     final content = message.content.trim();
     if (content.isEmpty || content.contains('data:image/')) {
       return;
@@ -3007,30 +3015,43 @@ List<int> _selectMarkdownPrewarmCandidateIndices({
     indices.add(index);
   }
 
-  if (viewportTop != null && viewportHeight != null && viewportHeight > 0) {
-    final startOffset = (viewportTop - (viewportHeight * 0.5)).clamp(
-      0.0,
-      double.infinity,
-    );
-    final endOffset = viewportTop + (viewportHeight * 1.75);
-    final startIndex = _rowIndexForEstimatedOffset(layoutMetadata, startOffset);
-    final endIndex = _rowIndexForEstimatedOffset(layoutMetadata, endOffset);
-    for (var index = endIndex; index >= startIndex; index -= 1) {
-      addIndex(index);
-      if (indices.length >= maxCount) {
-        return List<int>.unmodifiable(indices);
-      }
-    }
+  if (viewportTop == null || viewportHeight == null || viewportHeight <= 0) {
+    return const <int>[];
   }
 
-  for (var index = messages.length - 1; index >= 0; index -= 1) {
+  final startOffset = (viewportTop - (viewportHeight * 0.5)).clamp(
+    0.0,
+    double.infinity,
+  );
+  final endOffset = viewportTop + (viewportHeight * 1.75);
+  final startIndex = _rowIndexForEstimatedOffset(layoutMetadata, startOffset);
+  final endIndex = _rowIndexForEstimatedOffset(layoutMetadata, endOffset);
+  for (var index = endIndex; index >= startIndex; index -= 1) {
     addIndex(index);
     if (indices.length >= maxCount) {
-      break;
+      return List<int>.unmodifiable(indices);
     }
   }
 
   return List<int>.unmodifiable(indices);
+}
+
+String _cheapMarkdownPrewarmContentSignature(String content) {
+  if (content.isEmpty) {
+    return '0:0:0:0:0';
+  }
+  final lastIndex = content.length - 1;
+  final quarterIndex = content.length >> 2;
+  final midIndex = content.length >> 1;
+  final threeQuarterIndex = (content.length * 3) >> 2;
+  return [
+    content.length,
+    content.codeUnitAt(0),
+    content.codeUnitAt(quarterIndex),
+    content.codeUnitAt(midIndex),
+    content.codeUnitAt(threeQuarterIndex.clamp(0, lastIndex).toInt()),
+    content.codeUnitAt(lastIndex),
+  ].join(':');
 }
 
 int _rowIndexForEstimatedOffset(

@@ -63,6 +63,7 @@ class StreamingMarkdownWidget extends ConsumerStatefulWidget {
     this.debugRenderInterval,
     this.debugOnCompiledViewMounted,
     this.debugOnCompiledViewDisposed,
+    this.debugOnStreamingRefreshFrame,
   });
 
   final String content;
@@ -93,6 +94,9 @@ class StreamingMarkdownWidget extends ConsumerStatefulWidget {
   @visibleForTesting
   final VoidCallback? debugOnCompiledViewDisposed;
 
+  @visibleForTesting
+  final VoidCallback? debugOnStreamingRefreshFrame;
+
   @override
   ConsumerState<StreamingMarkdownWidget> createState() =>
       _StreamingMarkdownWidgetState();
@@ -100,18 +104,14 @@ class StreamingMarkdownWidget extends ConsumerStatefulWidget {
 
 class _StreamingMarkdownWidgetState
     extends ConsumerState<StreamingMarkdownWidget> {
-  static const _streamingRenderInterval = Duration(milliseconds: 120);
-  static const _streamingRenderIntervalMedium = Duration(milliseconds: 180);
-  static const _streamingRenderIntervalLarge = Duration(milliseconds: 240);
-  static const _streamingRenderIntervalXLarge = Duration(milliseconds: 320);
-
   late final MarkdownDocumentController _documentController;
   final GlobalKey _markdownContentKey = GlobalKey();
   _MarkdownRenderSnapshot _snapshot = const _MarkdownRenderSnapshot.empty();
   bool _preserveStaleCompiledDocumentUntilFreshFinal = false;
-  Timer? _renderTimer;
+  Timer? _debugStreamingDelayTimer;
   bool _snapshotInFlight = false;
-  String? _queuedContent;
+  bool _streamingRefreshFrameScheduled = false;
+  String? _pendingStreamingContent;
   int _snapshotGeneration = 0;
 
   CompiledMarkdownDocument? get _compiledDocument =>
@@ -172,11 +172,10 @@ class _StreamingMarkdownWidgetState
       return;
     }
 
+    _markPendingStreamingContent(widget.content);
     if (_snapshotInFlight) {
-      _queueLatestStreamingContent(widget.content);
       return;
     }
-
     _scheduleStreamingRefresh();
   }
 
@@ -186,66 +185,76 @@ class _StreamingMarkdownWidgetState
 
   @override
   void dispose() {
-    _renderTimer?.cancel();
+    _debugStreamingDelayTimer?.cancel();
     _documentController.dispose();
     super.dispose();
   }
 
-  void _scheduleStreamingRefresh({bool immediate = false}) {
-    if (_renderTimer != null) {
+  void _scheduleStreamingRefresh() {
+    if (_streamingRefreshFrameScheduled || _debugStreamingDelayTimer != null) {
       return;
     }
-    final interval = immediate || _isWidgetTest
-        ? Duration.zero
-        : widget.debugRenderInterval ??
-              _streamingRefreshIntervalForContent(widget.content);
-    _renderTimer = Timer(interval, () {
-      _renderTimer = null;
-      if (!mounted) {
-        return;
-      }
-      unawaited(_refreshStreamingSnapshot(widget.content));
-    });
+    final interval = _isWidgetTest ? Duration.zero : widget.debugRenderInterval;
+    if (interval != null && interval > Duration.zero) {
+      _debugStreamingDelayTimer = Timer(
+        interval,
+        _scheduleStreamingRefreshFrame,
+      );
+      return;
+    }
+    _scheduleStreamingRefreshFrame();
   }
 
   void _invalidatePendingAsyncSnapshot() {
-    _renderTimer?.cancel();
-    _renderTimer = null;
-    _queuedContent = null;
+    _debugStreamingDelayTimer?.cancel();
+    _debugStreamingDelayTimer = null;
+    _pendingStreamingContent = null;
     _snapshotGeneration += 1;
     _documentController.invalidatePending();
   }
 
-  Duration _streamingRefreshIntervalForContent(String content) {
-    final length = content.length;
-    if (length >= 16000) {
-      return _streamingRenderIntervalXLarge;
-    }
-    if (length >= 8000) {
-      return _streamingRenderIntervalLarge;
-    }
-    if (length >= 4000) {
-      return _streamingRenderIntervalMedium;
-    }
-    return _streamingRenderInterval;
-  }
-
-  void _queueLatestStreamingContent(String content) {
-    if (_queuedContent == content) {
+  void _markPendingStreamingContent(String content) {
+    if (_pendingStreamingContent == content) {
       return;
     }
-    _queuedContent = content;
+    _pendingStreamingContent = content;
     _snapshotGeneration += 1;
+  }
+
+  void _scheduleStreamingRefreshFrame() {
+    _debugStreamingDelayTimer?.cancel();
+    _debugStreamingDelayTimer = null;
+    if (_streamingRefreshFrameScheduled || _snapshotInFlight) {
+      return;
+    }
+    _streamingRefreshFrameScheduled = true;
+    WidgetsBinding.instance.scheduleFrame();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _streamingRefreshFrameScheduled = false;
+      if (!mounted) {
+        return;
+      }
+      final pendingContent = _pendingStreamingContent;
+      if (pendingContent == null) {
+        return;
+      }
+      if (_snapshotInFlight) {
+        return;
+      }
+      widget.debugOnStreamingRefreshFrame?.call();
+      _pendingStreamingContent = null;
+      unawaited(_refreshStreamingSnapshot(pendingContent));
+    });
   }
 
   Future<void> _refreshStreamingSnapshot(String content) async {
     if (_snapshotInFlight) {
-      _queueLatestStreamingContent(content);
+      _markPendingStreamingContent(content);
       return;
     }
 
     _snapshotInFlight = true;
-    final generation = ++_snapshotGeneration;
+    final generation = _snapshotGeneration;
     try {
       final compiler = ref.read(markdownCompileServiceProvider);
       final preparedContent = await compiler.prepareContent(
@@ -263,12 +272,11 @@ class _StreamingMarkdownWidgetState
       _applySnapshot(_buildMarkdownSnapshot(content, streaming: true));
     } finally {
       _snapshotInFlight = false;
-      final queuedContent = _queuedContent;
-      _queuedContent = null;
-      if (queuedContent != null &&
-          (queuedContent != content || generation != _snapshotGeneration) &&
+      if (_pendingStreamingContent != null &&
+          (generation != _snapshotGeneration ||
+              _pendingStreamingContent != content) &&
           mounted) {
-        _scheduleStreamingRefresh(immediate: true);
+        _scheduleStreamingRefresh();
       }
     }
   }

@@ -143,6 +143,7 @@ void main() {
       expect(detailsData, isNotNull);
       expect(detailsData!.kind, CompiledMarkdownDetailsKind.toolCall);
       expect(detailsData.name, 'search');
+      expect(detailsData.bodyMarkdown, isEmpty);
       expect(detailsData.toolCallData, isNotNull);
 
       final toolCallData = detailsData.toolCallData!;
@@ -157,6 +158,28 @@ void main() {
           document.blocks.first as CompiledMarkdownDetailsBlock;
       expect(detailsBlock.detailsData, detailsData);
       expect(detailsBlock.toolCallData, toolCallData);
+    });
+
+    test('stores details bodies as lazy markdown payloads', () {
+      final document = compilePreparedMarkdownSync(
+        [
+          '<details type="reasoning" done="false">',
+          '<summary>Thinking…</summary>',
+          'First step',
+          'Second step',
+          '</details>',
+        ].join('\n'),
+      );
+
+      final detailsElement = document.nodes.first as CompiledMarkdownElement;
+      final detailsData = detailsElement.detailsData;
+      expect(detailsData, isNotNull);
+      expect(detailsData!.summaryText, 'Thinking…');
+      expect(detailsData.bodyMarkdown, 'First step\n\nSecond step');
+
+      final detailsBlock =
+          document.blocks.first as CompiledMarkdownDetailsBlock;
+      expect(detailsBlock.bodyMarkdown, 'First step\n\nSecond step');
     });
   });
 

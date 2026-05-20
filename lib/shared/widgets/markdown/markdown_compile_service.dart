@@ -924,14 +924,9 @@ CompiledMarkdownDetailsBlock _buildCompiledDetailsBlock(
     element.detailsData != null,
     'Expected details elements to carry compiled details metadata.',
   );
-  final detailsData = element.detailsData!;
-  final bodyNodes = element.children
-      .skip(detailsData.bodyStartIndex)
-      .toList(growable: false);
   return CompiledMarkdownDetailsBlock(
     blockId: element.nodeId.isEmpty ? 'details' : element.nodeId,
-    detailsData: detailsData,
-    bodyNodes: bodyNodes,
+    detailsData: element.detailsData!,
   );
 }
 
@@ -950,7 +945,7 @@ CompiledMarkdownDetailsData _buildCompiledDetailsData({
     }
   }
 
-  final bodyNodes = children.skip(bodyStartIndex).toList(growable: false);
+  final bodyMarkdown = _decodeDetailAttribute(attributes['body_markdown']);
   final type = attributes['type']?.trim() ?? '';
   final name = attributes['name']?.trim() ?? '';
   final done = attributes['done'];
@@ -960,8 +955,9 @@ CompiledMarkdownDetailsData _buildCompiledDetailsData({
 
   return CompiledMarkdownDetailsData(
     summaryText: summaryText,
+    bodyMarkdown: bodyMarkdown,
     bodyStartIndex: bodyStartIndex,
-    hasBody: bodyNodes.any(_compiledNodeHasVisualContent),
+    hasBody: bodyMarkdown.trim().isNotEmpty,
     kind: _detailsKindForType(type),
     type: type,
     name: name,
@@ -1124,27 +1120,6 @@ Uri? _tryToolCallImageUri(Object? value) {
   }
 
   return null;
-}
-
-bool _compiledNodeHasVisualContent(CompiledMarkdownNode node) {
-  if (node is CompiledMarkdownText) {
-    return node.text.trim().isNotEmpty;
-  }
-  if (node is! CompiledMarkdownElement) {
-    return false;
-  }
-  if (const {'img', 'hr'}.contains(node.tag)) {
-    return true;
-  }
-  if (node.children.isEmpty) {
-    return node.textContent.trim().isNotEmpty;
-  }
-  for (final child in node.children) {
-    if (_compiledNodeHasVisualContent(child)) {
-      return true;
-    }
-  }
-  return false;
 }
 
 ({CompiledMarkdownBlockKind blockKind, String language, bool inlinePreview})

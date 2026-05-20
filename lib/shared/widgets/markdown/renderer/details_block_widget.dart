@@ -18,11 +18,13 @@ class MarkdownDetailsBlock extends StatefulWidget {
     required this.detailsData,
     this.bodyBuilder,
     this.inlineExpansionStateId,
+    this.deferHeavyContent = false,
   });
 
   final CompiledMarkdownDetailsData detailsData;
   final WidgetBuilder? bodyBuilder;
   final String? inlineExpansionStateId;
+  final bool deferHeavyContent;
 
   @override
   State<MarkdownDetailsBlock> createState() => _MarkdownDetailsBlockState();
@@ -55,6 +57,8 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
   bool get _usesInlineExpansion => _supportsInlineExpansion && _isPending;
 
   bool get _canExpand => _detailsData.canExpand;
+
+  bool get _deferHeavyContent => widget.deferHeavyContent;
 
   CompiledMarkdownToolCallData get _toolCallData {
     final data = _detailsData.toolCallData;
@@ -121,8 +125,6 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
             ),
           ),
           if (inlineBody != null) _buildInlineBody(context, inlineBody),
-          if (_isToolCall) ..._buildToolCallEmbeds(context),
-          if (_isToolCall) ..._buildToolCallImages(context),
         ],
       ),
     );
@@ -353,9 +355,6 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
     if (_isToolCall) {
       final name = _detailsData.name.trim();
       final safeName = name.isEmpty ? 'tool' : name;
-      if (_toolCallData.hasEmbeds) {
-        return safeName;
-      }
       return _isPending ? 'Executing $safeName…' : 'View Result from $safeName';
     }
 
@@ -419,7 +418,14 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
   ) {
     final builder = widget.bodyBuilder;
     final hasExtraBody = builder != null && _detailsData.hasBody;
-    if (!data.hasExpandableContent && !hasExtraBody) {
+    final isHeavyPreviewDeferred =
+        _deferHeavyContent && data.hasDeferredPreviewContent;
+    final hasDeferredPreviewContent =
+        !_deferHeavyContent && data.hasDeferredPreviewContent;
+    if (!data.hasExpandableContent &&
+        !hasExtraBody &&
+        !hasDeferredPreviewContent &&
+        !isHeavyPreviewDeferred) {
       return null;
     }
 
@@ -530,6 +536,36 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
             children.add(const SizedBox(height: Spacing.sm));
           }
           children.add(builder(context));
+        }
+
+        if (isHeavyPreviewDeferred) {
+          if (children.isNotEmpty) {
+            children.add(const SizedBox(height: Spacing.sm));
+          }
+          children.add(
+            Text(
+              'Preview will be available after streaming completes.',
+              style: markdownStyle.detailValue,
+            ),
+          );
+        }
+
+        if (!_deferHeavyContent) {
+          final embedWidgets = _buildToolCallEmbeds(context);
+          if (embedWidgets.isNotEmpty) {
+            if (children.isNotEmpty) {
+              children.add(const SizedBox(height: Spacing.sm));
+            }
+            children.addAll(embedWidgets);
+          }
+
+          final imageWidgets = _buildToolCallImages(context);
+          if (imageWidgets.isNotEmpty) {
+            if (children.isNotEmpty) {
+              children.add(const SizedBox(height: Spacing.sm));
+            }
+            children.addAll(imageWidgets);
+          }
         }
 
         if (children.isEmpty) {

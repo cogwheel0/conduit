@@ -164,6 +164,8 @@ Widget _buildStreamingHarness({
   required String content,
   required MarkdownCompileService compileService,
   bool isStreaming = true,
+  Duration? debugRenderInterval = const Duration(milliseconds: 10),
+  VoidCallback? onStreamingRefreshFrame,
 }) {
   return ProviderScope(
     overrides: [
@@ -176,7 +178,8 @@ Widget _buildStreamingHarness({
             content: content,
             isStreaming: isStreaming,
             debugTreatAsWidgetTest: false,
-            debugRenderInterval: const Duration(milliseconds: 10),
+            debugRenderInterval: debugRenderInterval,
+            debugOnStreamingRefreshFrame: onStreamingRefreshFrame,
           ),
         ),
       ),
@@ -353,6 +356,7 @@ void main() {
     expect(compileService.preparedContents, isEmpty);
 
     await tester.pump(const Duration(milliseconds: 20));
+    await tester.pump(const Duration(milliseconds: 1));
 
     expect(compileService.preparedContents, <String>[latest]);
   });
@@ -553,6 +557,87 @@ void main() {
       expect(
         find.textContaining('beta-marker', findRichText: true),
         findsNothing,
+      );
+    },
+  );
+
+  testWidgets(
+    'streaming markdown keeps one pending refresh pass while async prepare is in flight',
+    (tester) async {
+      final compileService = _SequencedBlockingPrepareMarkdownCompileService();
+      addTearDown(compileService.dispose);
+      const seedContent = 'seed snapshot';
+      final baseContent = List<String>.filled(180, 'stream chunk').join(' ');
+      final firstContent = '$baseContent first-marker';
+      final latestContent = '$baseContent latest-marker';
+      var refreshFrameCount = 0;
+
+      await tester.pumpWidget(
+        _buildStreamingHarness(
+          content: seedContent,
+          compileService: compileService,
+          debugRenderInterval: Duration.zero,
+          onStreamingRefreshFrame: () => refreshFrameCount += 1,
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        find.textContaining(seedContent, findRichText: true),
+        findsOneWidget,
+      );
+
+      await tester.pumpWidget(
+        _buildStreamingHarness(
+          content: firstContent,
+          compileService: compileService,
+          debugRenderInterval: Duration.zero,
+          onStreamingRefreshFrame: () => refreshFrameCount += 1,
+        ),
+      );
+      await tester.pump();
+
+      expect(compileService.preparedContents, <String>[firstContent]);
+      expect(refreshFrameCount, 1);
+
+      await tester.pumpWidget(
+        _buildStreamingHarness(
+          content: '$baseContent mid-marker',
+          compileService: compileService,
+          debugRenderInterval: Duration.zero,
+          onStreamingRefreshFrame: () => refreshFrameCount += 1,
+        ),
+      );
+      await tester.pump();
+      await tester.pumpWidget(
+        _buildStreamingHarness(
+          content: latestContent,
+          compileService: compileService,
+          debugRenderInterval: Duration.zero,
+          onStreamingRefreshFrame: () => refreshFrameCount += 1,
+        ),
+      );
+      await tester.pump();
+
+      expect(compileService.preparedContents, <String>[firstContent]);
+      expect(refreshFrameCount, 1);
+
+      compileService.releaseNext();
+      await tester.pump();
+      await tester.pump();
+
+      expect(compileService.preparedContents, <String>[
+        firstContent,
+        latestContent,
+      ]);
+      expect(refreshFrameCount, 2);
+
+      compileService.releaseNext();
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining(latestContent, findRichText: true),
+        findsOneWidget,
       );
     },
   );

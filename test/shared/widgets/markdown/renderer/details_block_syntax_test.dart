@@ -13,40 +13,18 @@ void main() {
     return nodes.single as md.Element;
   }
 
-  Iterable<md.Element> bodyElements(md.Element details) {
-    return (details.children ?? const <md.Node>[])
-        .whereType<md.Element>()
-        .where((child) => child.tag != 'summary');
-  }
-
-  bool containsTag(md.Node node, String tag) {
-    if (node is md.Element) {
-      if (node.tag == tag) {
-        return true;
-      }
-      return (node.children ?? const <md.Node>[]).any(
-        (child) => containsTag(child, tag),
-      );
-    }
-    return false;
-  }
-
   String flattenText(md.Node node) {
     if (node is md.Text) {
       return node.text;
     }
-    if (node is md.Element) {
-      final buffer = StringBuffer();
-      for (final child in node.children ?? const <md.Node>[]) {
-        if (child is md.Element && child.tag == 'br') {
-          buffer.write('\n');
-          continue;
-        }
-        buffer.write(flattenText(child));
-      }
-      return buffer.toString();
+    if (node is! md.Element) {
+      return '';
     }
-    return '';
+    final buffer = StringBuffer();
+    for (final child in node.children ?? const <md.Node>[]) {
+      buffer.write(flattenText(child));
+    }
+    return buffer.toString();
   }
 
   test('reasoning bodies keep paragraph-separated line normalization', () {
@@ -58,11 +36,7 @@ Second step
 </details>
 ''');
 
-    final body = bodyElements(details).toList(growable: false);
-
-    expect(body, hasLength(2));
-    expect(flattenText(body[0]), 'First step');
-    expect(flattenText(body[1]), 'Second step');
+    expect(details.attributes['body_markdown'], 'First step\n\nSecond step');
   });
 
   test('code_interpreter bodies preserve line boundaries with hard breaks', () {
@@ -74,11 +48,10 @@ stdout: line 2
 </details>
 ''');
 
-    final body = bodyElements(details).toList(growable: false);
-
-    expect(body, hasLength(1));
-    expect(containsTag(body.single, 'br'), isTrue);
-    expect(flattenText(body.single), 'stdout: line 1\nstdout: line 2');
+    expect(
+      details.attributes['body_markdown'],
+      'stdout: line 1  \nstdout: line 2',
+    );
   });
 
   test('preserves trailing content after a closing details tag', () {

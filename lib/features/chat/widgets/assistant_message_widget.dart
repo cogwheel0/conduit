@@ -90,17 +90,6 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
 
 class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     with TickerProviderStateMixin {
-  static const _streamingDisplayUpdateInterval = Duration(milliseconds: 100);
-  static const _streamingDisplayUpdateIntervalMedium = Duration(
-    milliseconds: 140,
-  );
-  static const _streamingDisplayUpdateIntervalLarge = Duration(
-    milliseconds: 180,
-  );
-  static const _streamingDisplayUpdateIntervalXLarge = Duration(
-    milliseconds: 220,
-  );
-
   late AnimationController _fadeController;
   late AnimationController _slideController;
   String _displayedContent = '';
@@ -124,8 +113,6 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   /// Guards the triple-haptic so it fires only once per streaming session.
   bool _hasTriggeredContentHaptic = false;
   ProviderSubscription<String?>? _streamingContentSub;
-  Timer? _streamingDisplayTimer;
-  String? _pendingStreamingDisplayContent;
 
   bool get _shouldAnimateOnMount =>
       widget.animateOnMount && !_disableAnimations;
@@ -222,7 +209,6 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     if (oldWidget.isStreaming &&
         !widget.isStreaming &&
         oldWidget.message.id == widget.message.id) {
-      _flushPendingStreamingDisplayContent();
       _hasTriggeredContentHaptic = false;
       // Haptic: streaming finished
       _streamingHaptic(HapticType.medium);
@@ -230,17 +216,12 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     }
 
     // Refresh rendered content when the active message changes.
-    if (messageChanged || oldWidget.message.content != widget.message.content) {
+    if (messageChanged || _didMessageContentChange(oldWidget)) {
       _refreshDisplayedContent();
     }
 
     // Update typing indicator gate when message properties that affect emptiness change
-    if (oldWidget.message.statusHistory != widget.message.statusHistory ||
-        oldWidget.message.files != widget.message.files ||
-        oldWidget.message.embeds != widget.message.embeds ||
-        oldWidget.message.attachmentIds != widget.message.attachmentIds ||
-        oldWidget.message.followUps != widget.message.followUps ||
-        oldWidget.message.codeExecutions != widget.message.codeExecutions) {
+    if (_didTypingIndicatorInputsChange(oldWidget)) {
       _updateTypingIndicatorGate();
     }
 
@@ -251,7 +232,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         oldWidget.versionModelNames != widget.versionModelNames ||
         oldWidget.versionModelIconUrls != widget.versionModelIconUrls ||
         oldWidget.message.model != widget.message.model ||
-        oldWidget.message.versions != widget.message.versions) {
+        _didVersionMetadataChange(oldWidget)) {
       _buildCachedAvatar();
     }
   }
@@ -722,60 +703,15 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       ) {
         if (next != null && next != _lastStreamingContent) {
           _lastStreamingContent = next;
-          _queueStreamingDisplayContent(next);
+          _refreshDisplayedContent(next);
         }
       }, fireImmediately: true);
     }
   }
 
-  void _queueStreamingDisplayContent(String content) {
-    if (content == _displayedContent ||
-        content == _pendingStreamingDisplayContent) {
-      return;
-    }
-
-    if (_displayedContent.isEmpty) {
-      _refreshDisplayedContent(content);
-      return;
-    }
-
-    _pendingStreamingDisplayContent = content;
-    _streamingDisplayTimer ??= Timer(
-      _streamingDisplayIntervalForContent(content),
-      _flushPendingStreamingDisplayContent,
-    );
-  }
-
-  Duration _streamingDisplayIntervalForContent(String content) {
-    final length = content.length;
-    if (length >= 16000) {
-      return _streamingDisplayUpdateIntervalXLarge;
-    }
-    if (length >= 8000) {
-      return _streamingDisplayUpdateIntervalLarge;
-    }
-    if (length >= 4000) {
-      return _streamingDisplayUpdateIntervalMedium;
-    }
-    return _streamingDisplayUpdateInterval;
-  }
-
-  void _flushPendingStreamingDisplayContent() {
-    _streamingDisplayTimer?.cancel();
-    _streamingDisplayTimer = null;
-
-    final pending = _pendingStreamingDisplayContent;
-    _pendingStreamingDisplayContent = null;
-    if (pending == null || pending == _displayedContent) {
-      return;
-    }
-    _refreshDisplayedContent(pending);
-  }
-
   @override
   void dispose() {
     _streamingContentSub?.close();
-    _streamingDisplayTimer?.cancel();
     _typingGateTimer?.cancel();
     _ttsPlainTextDebounce?.cancel();
     _pendingTtsPlainTextPayload = null;
@@ -783,6 +719,59 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     _fadeController.dispose();
     _slideController.dispose();
     super.dispose();
+  }
+
+  bool _didMessageContentChange(AssistantMessageWidget oldWidget) {
+    if (oldWidget.message.content != widget.message.content) {
+      return true;
+    }
+    return oldWidget.isStreaming != widget.isStreaming;
+  }
+
+  bool _didTypingIndicatorInputsChange(AssistantMessageWidget oldWidget) {
+    return _statusSignature(oldWidget.message.statusHistory) !=
+            _statusSignature(widget.message.statusHistory) ||
+        _collectionLength(oldWidget.message.files) !=
+            _collectionLength(widget.message.files) ||
+        _collectionLength(oldWidget.message.embeds) !=
+            _collectionLength(widget.message.embeds) ||
+        _collectionLength(oldWidget.message.attachmentIds) !=
+            _collectionLength(widget.message.attachmentIds) ||
+        _collectionLength(oldWidget.message.followUps) !=
+            _collectionLength(widget.message.followUps) ||
+        _collectionLength(oldWidget.message.codeExecutions) !=
+            _collectionLength(widget.message.codeExecutions) ||
+        oldWidget.isStreaming != widget.isStreaming;
+  }
+
+  int _statusSignature(List<ChatStatusUpdate> statuses) {
+    return Object.hashAll(
+      statuses.map(
+        (status) => Object.hash(
+          status.action,
+          status.description,
+          status.done,
+          status.hidden,
+        ),
+      ),
+    );
+  }
+
+  int _collectionLength(Iterable<dynamic>? values) => values?.length ?? 0;
+
+  bool _didVersionMetadataChange(AssistantMessageWidget oldWidget) {
+    final oldVersions = oldWidget.message.versions;
+    final newVersions = widget.message.versions;
+    if (oldVersions.length != newVersions.length) {
+      return true;
+    }
+    for (var index = 0; index < oldVersions.length; index += 1) {
+      if (oldVersions[index].id != newVersions[index].id ||
+          oldVersions[index].model != newVersions[index].model) {
+        return true;
+      }
+    }
+    return false;
   }
 
   @override
@@ -1334,16 +1323,36 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     const double dotSize = 8.0;
     const double dotSpacing = 6.0;
     const int numberOfDots = 3;
+    Widget buildDot() {
+      return Container(
+        width: dotSize,
+        height: dotSize,
+        decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle),
+      );
+    }
+
+    if (_disableAnimations) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: Spacing.sm),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(width: dotSize * 0.2),
+            for (int i = 0; i < numberOfDots; i++) ...[
+              buildDot(),
+              if (i < numberOfDots - 1) const SizedBox(width: dotSpacing),
+            ],
+            const SizedBox(width: dotSize * 0.2),
+          ],
+        ),
+      );
+    }
 
     // Create three dots with staggered animations
     final dots = List.generate(numberOfDots, (index) {
       final delay = Duration(milliseconds: 150 * index);
 
-      return Container(
-            width: dotSize,
-            height: dotSize,
-            decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle),
-          )
+      return buildDot()
           .animate(onPlay: (controller) => controller.repeat())
           .then(delay: delay)
           .fadeIn(

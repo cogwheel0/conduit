@@ -187,6 +187,7 @@ void main() {
     required ProviderContainer container,
     required ChatMessage message,
     required bool isStreaming,
+    bool disableAnimations = false,
   }) {
     return UncontrolledProviderScope(
       container: container,
@@ -195,11 +196,14 @@ void main() {
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         home: Scaffold(
-          body: AssistantMessageWidget(
-            message: message,
-            isStreaming: isStreaming,
-            showFollowUps: false,
-            onDelete: () {},
+          body: MediaQuery(
+            data: MediaQueryData(disableAnimations: disableAnimations),
+            child: AssistantMessageWidget(
+              message: message,
+              isStreaming: isStreaming,
+              showFollowUps: false,
+              onDelete: () {},
+            ),
           ),
         ),
       ),
@@ -831,6 +835,78 @@ After
   );
 
   testWidgets(
+    'assistant typing indicator updates when a same-length status row flips to done',
+    (tester) async {
+      final container = ProviderContainer(
+        overrides: [
+          appSettingsProvider.overrideWithValue(
+            const AppSettings(disableHapticsWhileStreaming: true),
+          ),
+          textToSpeechControllerProvider.overrideWith(
+            _TestTextToSpeechController.new,
+          ),
+        ],
+      );
+      final pendingMessage = ChatMessage(
+        id: 'streaming-status-message',
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime(2026),
+        statusHistory: const [
+          ChatStatusUpdate(
+            action: 'search',
+            description: 'Searching',
+            done: false,
+          ),
+        ],
+      );
+      final completedStatusMessage = pendingMessage.copyWith(
+        statusHistory: const [
+          ChatStatusUpdate(
+            action: 'search',
+            description: 'Searching',
+            done: true,
+          ),
+        ],
+      );
+
+      try {
+        await tester.pumpWidget(
+          buildAssistantHarness(
+            container: container,
+            message: pendingMessage,
+            isStreaming: true,
+            disableAnimations: true,
+          ),
+        );
+        await tester.pump();
+
+        expect(find.byKey(const ValueKey('typing')), findsNothing);
+
+        await tester.pumpWidget(
+          buildAssistantHarness(
+            container: container,
+            message: completedStatusMessage,
+            isStreaming: true,
+            disableAnimations: true,
+          ),
+        );
+        await tester.pump();
+
+        expect(find.byKey(const ValueKey('typing')), findsNothing);
+
+        await tester.pump(const Duration(milliseconds: 149));
+        expect(find.byKey(const ValueKey('typing')), findsNothing);
+
+        await tester.pump(const Duration(milliseconds: 1));
+        expect(find.byKey(const ValueKey('typing')), findsOneWidget);
+      } finally {
+        container.dispose();
+      }
+    },
+  );
+
+  testWidgets(
     'shows a loading skeleton when a completed document mounts before async compile finishes',
     (tester) async {
       final compiler = _DelayedMarkdownCompileService();
@@ -993,7 +1069,9 @@ After
     },
   );
 
-  testWidgets('renders tool call embeds inline like upstream', (tester) async {
+  testWidgets('defers tool call embeds until the details view opens', (
+    tester,
+  ) async {
     const content = '''
 <details type="tool_calls" done="true" name="browser" embeds="[&quot;https://example.com/embed&quot;]">
 <summary>Tool Executed</summary>
@@ -1002,11 +1080,15 @@ After
 
     await tester.pumpWidget(buildHarness(content));
 
-    expect(find.text('browser'), findsOneWidget);
-    expect(find.text('View Result from browser'), findsNothing);
-    expect(find.byKey(const ValueKey('tool-call-embed-0')), findsOneWidget);
+    expect(find.text('View Result from browser'), findsOneWidget);
+    expect(find.byKey(const ValueKey('tool-call-embed-0')), findsNothing);
     expect(find.text('Input'), findsNothing);
     expect(find.text('Output'), findsNothing);
+
+    await tester.tap(find.text('View Result from browser'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('tool-call-embed-0')), findsOneWidget);
   });
 
   testWidgets('does not surface raw html text for tool call embeds', (
@@ -1020,11 +1102,39 @@ After
 
     await tester.pumpWidget(buildHarness(content));
 
-    expect(find.byKey(const ValueKey('tool-call-embed-0')), findsOneWidget);
+    expect(find.byKey(const ValueKey('tool-call-embed-0')), findsNothing);
+    await tester.tap(find.text('View Result from browser'));
+    await tester.pumpAndSettle();
     expect(find.textContaining('<div>hello</div>'), findsNothing);
     expect(find.text('Input'), findsNothing);
     expect(find.text('Output'), findsNothing);
+    expect(find.byKey(const ValueKey('tool-call-embed-0')), findsOneWidget);
   });
+
+  testWidgets(
+    'keeps tool call embeds deferred while the message is streaming',
+    (tester) async {
+      const content = '''
+<details type="tool_calls" done="true" name="browser" embeds="[&quot;https://example.com/embed&quot;]">
+<summary>Tool Executed</summary>
+</details>
+''';
+
+      await tester.pumpWidget(buildHarness(content, isStreaming: true));
+
+      expect(find.text('View Result from browser'), findsOneWidget);
+      expect(find.byKey(const ValueKey('tool-call-embed-0')), findsNothing);
+
+      await tester.tap(find.text('View Result from browser'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Preview will be available after streaming completes.'),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('tool-call-embed-0')), findsNothing);
+    },
+  );
 
   testWidgets(
     'renders previewable html code blocks only in the preview sheet',

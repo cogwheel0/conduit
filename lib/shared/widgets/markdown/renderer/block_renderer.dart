@@ -5,6 +5,7 @@ import '../../conduit_loading.dart';
 import '../../../theme/theme_extensions.dart';
 import '../compiled_markdown_document.dart';
 import '../markdown_config.dart';
+import '../streaming_markdown_widget.dart';
 import 'details_block_widget.dart';
 import 'details_group_widget.dart';
 import 'inline_renderer.dart';
@@ -1014,24 +1015,28 @@ class BlockRenderer {
       block.blockId,
       block.supportsInlineExpansion,
     );
+    final nestedStateScopeId = _scopedDetailsBodyStateId(block.blockId);
     return MarkdownDetailsBlock(
       key: _detailsKeyFromStateId(inlineExpansionStateId),
       detailsData: block.detailsData,
+      deferHeavyContent: heavyBlockPolicy == MarkdownHeavyBlockPolicy.defer,
       inlineExpansionStateId: inlineExpansionStateId,
       bodyBuilder: block.hasBody
           ? (context) {
-              final inner = BlockRenderer(
-                context,
-                style,
-                inlineRenderer,
-                latexPreprocessor,
-                onLinkTap,
-                imageBuilder,
-                stateScopeId,
-                block.blockId,
-                heavyBlockPolicy,
+              return StreamingMarkdownWidget(
+                content: block.bodyMarkdown,
+                isStreaming:
+                    block.isPending ||
+                    heavyBlockPolicy == MarkdownHeavyBlockPolicy.defer,
+                stateScopeId: nestedStateScopeId,
+                onTapLink: onLinkTap,
+                sources: inlineRenderer.sources,
+                onSourceTap: inlineRenderer.onSourceTap,
+                imageBuilderOverride: imageBuilder == null
+                    ? null
+                    : (uri, title, alt) =>
+                          imageBuilder!(uri.toString(), alt, title),
               );
-              return inner.renderBlocks(block.bodyNodes);
             }
           : null,
     );
@@ -1076,15 +1081,9 @@ class BlockRenderer {
       element.detailsData != null,
       'Expected details elements to carry compiled details metadata.',
     );
-    final detailsData = element.detailsData!;
-    final children = element.children;
-    final bodyNodes = children
-        .skip(detailsData.bodyStartIndex)
-        .toList(growable: false);
     return CompiledMarkdownDetailsBlock(
       blockId: element.nodeId.isEmpty ? fallbackBlockId : element.nodeId,
-      detailsData: detailsData,
-      bodyNodes: bodyNodes,
+      detailsData: element.detailsData!,
     );
   }
 
@@ -1108,6 +1107,17 @@ class BlockRenderer {
     return [
       if (stateScopeId != null && stateScopeId!.isNotEmpty) stateScopeId,
       stableId,
+    ].join('|');
+  }
+
+  String? _scopedDetailsBodyStateId(String stableId) {
+    if ((stateScopeId == null || stateScopeId!.isEmpty) && stableId.isEmpty) {
+      return null;
+    }
+    return [
+      if (stateScopeId != null && stateScopeId!.isNotEmpty) stateScopeId,
+      stableId,
+      'body',
     ].join('|');
   }
 

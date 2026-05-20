@@ -585,6 +585,10 @@ class CompiledMarkdownToolCallData {
 
   bool get hasEmbeds => embedSources.isNotEmpty;
 
+  bool get hasImages => imageUrls.isNotEmpty;
+
+  bool get hasDeferredPreviewContent => hasEmbeds || hasImages;
+
   bool get hasExpandableContent =>
       argumentsText.trim().isNotEmpty || resultText.trim().isNotEmpty;
 
@@ -668,6 +672,7 @@ class CompiledMarkdownToolCallData {
 class CompiledMarkdownDetailsData {
   const CompiledMarkdownDetailsData({
     required this.summaryText,
+    required this.bodyMarkdown,
     required this.bodyStartIndex,
     required this.hasBody,
     required this.kind,
@@ -680,6 +685,7 @@ class CompiledMarkdownDetailsData {
   });
 
   final String summaryText;
+  final String bodyMarkdown;
   final int bodyStartIndex;
   final bool hasBody;
   final CompiledMarkdownDetailsKind kind;
@@ -704,14 +710,14 @@ class CompiledMarkdownDetailsData {
     if (data == null) {
       return hasBody;
     }
-    if (data.hasEmbeds) {
-      return false;
-    }
-    return data.hasExpandableContent || hasBody;
+    return data.hasExpandableContent ||
+        data.hasDeferredPreviewContent ||
+        hasBody;
   }
 
   int get weight =>
       summaryText.length +
+      bodyMarkdown.length +
       bodyStartIndex +
       kind.name.length +
       type.length +
@@ -721,6 +727,7 @@ class CompiledMarkdownDetailsData {
 
   Map<String, Object?> toMap() => <String, Object?>{
     'summaryText': summaryText,
+    'bodyMarkdown': bodyMarkdown,
     'bodyStartIndex': bodyStartIndex,
     'hasBody': hasBody,
     'kind': kind.name,
@@ -734,10 +741,13 @@ class CompiledMarkdownDetailsData {
 
   factory CompiledMarkdownDetailsData.fromMap(Map<String, Object?> map) {
     final toolCallDataMap = map['toolCallData'] as Map<Object?, Object?>?;
+    final bodyMarkdown = (map['bodyMarkdown'] ?? '') as String;
     return CompiledMarkdownDetailsData(
       summaryText: (map['summaryText'] ?? '') as String,
+      bodyMarkdown: bodyMarkdown,
       bodyStartIndex: (map['bodyStartIndex'] ?? 0) as int,
-      hasBody: (map['hasBody'] ?? false) as bool,
+      hasBody:
+          (map['hasBody'] ?? false) as bool || bodyMarkdown.trim().isNotEmpty,
       kind: _detailsKindFromName((map['kind'] ?? '') as String),
       type: (map['type'] ?? '') as String,
       name: (map['name'] ?? '') as String,
@@ -756,6 +766,7 @@ class CompiledMarkdownDetailsData {
   bool operator ==(Object other) {
     return other is CompiledMarkdownDetailsData &&
         other.summaryText == summaryText &&
+        other.bodyMarkdown == bodyMarkdown &&
         other.bodyStartIndex == bodyStartIndex &&
         other.hasBody == hasBody &&
         other.kind == kind &&
@@ -770,6 +781,7 @@ class CompiledMarkdownDetailsData {
   @override
   int get hashCode => Object.hash(
     summaryText,
+    bodyMarkdown,
     bodyStartIndex,
     hasBody,
     kind,
@@ -866,14 +878,13 @@ class CompiledMarkdownDetailsBlock extends CompiledMarkdownBlock {
   CompiledMarkdownDetailsBlock({
     required String blockId,
     required this.detailsData,
-    required List<CompiledMarkdownNode> bodyNodes,
-  }) : bodyNodes = List<CompiledMarkdownNode>.unmodifiable(bodyNodes),
-       super(blockId);
+  }) : super(blockId);
 
   final CompiledMarkdownDetailsData detailsData;
-  final List<CompiledMarkdownNode> bodyNodes;
 
   String get summaryText => detailsData.summaryText;
+
+  String get bodyMarkdown => detailsData.bodyMarkdown;
 
   String get type => detailsData.type;
 
@@ -892,27 +903,16 @@ class CompiledMarkdownDetailsBlock extends CompiledMarkdownBlock {
   CompiledMarkdownToolCallData? get toolCallData => detailsData.toolCallData;
 
   @override
-  int get weight =>
-      blockId.length +
-      detailsData.weight +
-      bodyNodes.fold<int>(0, (sum, node) => sum + node.weight);
+  int get weight => blockId.length + detailsData.weight;
 
   @override
   Map<String, Object?> toMap() => <String, Object?>{
     'kind': 'details',
     'blockId': blockId,
     'detailsData': detailsData.toMap(),
-    'bodyNodes': bodyNodes.map((node) => node.toMap()).toList(growable: false),
   };
 
   factory CompiledMarkdownDetailsBlock.fromMap(Map<String, Object?> map) {
-    final bodyNodes = (map['bodyNodes'] as List<dynamic>? ?? const <dynamic>[])
-        .cast<Map<Object?, Object?>>()
-        .map(
-          (entry) =>
-              CompiledMarkdownNode.fromMap(entry.cast<String, Object?>()),
-        )
-        .toList(growable: false);
     final detailsDataMap =
         (map['detailsData'] as Map<Object?, Object?>? ??
                 const <Object?, Object?>{})
@@ -920,7 +920,6 @@ class CompiledMarkdownDetailsBlock extends CompiledMarkdownBlock {
     return CompiledMarkdownDetailsBlock(
       blockId: (map['blockId'] ?? '') as String,
       detailsData: CompiledMarkdownDetailsData.fromMap(detailsDataMap),
-      bodyNodes: bodyNodes,
     );
   }
 
@@ -929,14 +928,12 @@ class CompiledMarkdownDetailsBlock extends CompiledMarkdownBlock {
     return other is CompiledMarkdownDetailsBlock &&
         other.blockId == blockId &&
         other.detailsData == detailsData &&
-        listEquals(other.bodyNodes, bodyNodes) &&
         other.type == type &&
         other.name == name;
   }
 
   @override
-  int get hashCode =>
-      Object.hash(blockId, detailsData, Object.hashAll(bodyNodes), type, name);
+  int get hashCode => Object.hash(blockId, detailsData, type, name);
 }
 
 @immutable

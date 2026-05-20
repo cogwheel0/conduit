@@ -308,6 +308,8 @@ ActiveChatStream _attach({
   String sessionId = 'sess-1',
   String? activeConversationId = 'conv-1',
   SocketService? socketService,
+  String? Function()? getVisibleStreamingContent,
+  void Function()? flushStreamingBuffer,
 }) {
   return attachUnifiedChunkedStreaming(
     session: session,
@@ -332,7 +334,8 @@ ActiveChatStream _attach({
     completeStreamingUi: log.completeStreamingUi,
     finishStreaming: log.finishStreaming,
     getMessages: log.getMessages,
-    flushStreamingBuffer: log.flushStreamingBuffer,
+    getVisibleStreamingContent: getVisibleStreamingContent ?? () => null,
+    flushStreamingBuffer: flushStreamingBuffer ?? log.flushStreamingBuffer,
   );
 }
 
@@ -598,6 +601,42 @@ void main() {
         check(log.finishCount).equals(1);
       },
     );
+
+    test('httpStream finalizes reasoning-only responses on done', () async {
+      final log = _CallbackLog();
+      final byteStream = Stream<List<int>>.fromIterable([
+        _sseFrame({
+          'choices': [
+            {
+              'delta': {'reasoning_content': 'Plan'},
+            },
+          ],
+        }),
+        _sseDone(),
+      ]);
+
+      _attach(
+        session: ChatCompletionSession.httpStream(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          byteStream: byteStream,
+          abort: () async {},
+        ),
+        log: log,
+      );
+
+      await pumpMicrotasks();
+      await pumpMicrotasks();
+      await pumpMicrotasks();
+
+      check(log.messages.last.content).equals(
+        '<details type="reasoning" done="true" duration="0">\n'
+        '<summary>Thought for 0 seconds</summary>\n'
+        '&gt; Plan\n'
+        '</details>\n',
+      );
+      check(log.finishCount).equals(1);
+    });
 
     test(
       'taskSocket normalizes reasoning deltas from chat completion events',
@@ -2151,6 +2190,63 @@ void main() {
       final lastContent = log.messages.last.content;
       check(lastContent.length).isGreaterThan('short'.length);
     });
+
+    test(
+      'httpStream recovery preserves longer visible streaming content than stale server snapshots',
+      () async {
+        final log = _CallbackLog(
+          initialMessages: fakeStreamingAssistantMessages(content: 'lagging'),
+        );
+        const visibleStreamingContent =
+            'I am the newer visible streaming content';
+
+        final byteStream = Stream<List<int>>.empty();
+        final api = _buildFakeApi(
+          pollResponse: {
+            'chat': {
+              'messages': [
+                {'id': 'msg-1', 'content': 'short stale', 'done': true},
+              ],
+            },
+          },
+        );
+
+        void flushVisibleStreamingBuffer() {
+          log.flushStreamingBuffer();
+          if (log.messages.isEmpty || log.messages.last.role != 'assistant') {
+            return;
+          }
+          final last = log.messages.last;
+          log.messages = [
+            ...log.messages.sublist(0, log.messages.length - 1),
+            last.copyWith(content: visibleStreamingContent),
+          ];
+        }
+
+        _attach(
+          session: ChatCompletionSession.httpStream(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            conversationId: 'conv-1',
+            byteStream: byteStream,
+            abort: () async {},
+          ),
+          log: log,
+          api: api,
+          activeConversationId: 'conv-1',
+          getVisibleStreamingContent: () => visibleStreamingContent,
+          flushStreamingBuffer: flushVisibleStreamingBuffer,
+        );
+
+        await pumpMicrotasks();
+        for (var i = 0; i < 10; i++) {
+          await pumpMicrotasks();
+        }
+
+        check(log.messages.last.content).equals(visibleStreamingContent);
+        check(log.replacedContents).isEmpty();
+      },
+    );
 
     // -----------------------------------------------------------------------
     // 10. Rename: ActiveChatStream replaces ActiveSocketStream

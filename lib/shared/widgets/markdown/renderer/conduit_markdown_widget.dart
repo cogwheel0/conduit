@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/services/performance_profiler.dart';
 import '../../../../core/models/chat_message.dart';
 import '../compiled_markdown_document.dart';
 import '../markdown_compile_service.dart';
@@ -257,39 +258,63 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView> {
 
   @override
   Widget build(BuildContext context) {
+    final taskKey = PerformanceProfiler.instance.startTask(
+      'markdown_build',
+      scope: 'markdown',
+      data: {
+        'length': widget.document.normalizedContent.length,
+        'tier': widget.document.renderTier,
+        'heavyBlocks': widget.document.heavyBlockCount,
+      },
+    );
     if (widget.document.isEmpty) {
+      PerformanceProfiler.instance.finishTask(
+        taskKey,
+        data: const {'status': 'empty'},
+      );
       return const SizedBox.shrink();
     }
 
-    final style = ConduitMarkdownStyle.fromTheme(context);
-    _inlineRenderer?.disposeRecognizers();
-    _inlineRenderer = InlineRenderer(
-      style,
-      _latexPreprocessor,
-      widget.onLinkTap,
-      widget.sources,
-      widget.onSourceTap,
-    );
+    try {
+      final style = ConduitMarkdownStyle.fromTheme(context);
+      _inlineRenderer?.disposeRecognizers();
+      _inlineRenderer = InlineRenderer(
+        style,
+        _latexPreprocessor,
+        widget.onLinkTap,
+        widget.sources,
+        widget.onSourceTap,
+      );
 
-    final blockRenderer = BlockRenderer(
-      context,
-      style,
-      _inlineRenderer!,
-      _latexPreprocessor,
-      widget.onLinkTap,
-      widget.imageBuilder,
-      widget.stateScopeId,
-      null,
-      widget.heavyBlockPolicy,
-    );
+      final blockRenderer = BlockRenderer(
+        context,
+        style,
+        _inlineRenderer!,
+        _latexPreprocessor,
+        widget.onLinkTap,
+        widget.imageBuilder,
+        widget.stateScopeId,
+        null,
+        widget.heavyBlockPolicy,
+      );
 
-    return switch (widget.document.renderTier) {
-      MarkdownRenderTier.plainText => _buildPlainText(style),
-      MarkdownRenderTier.richText => _buildRichText(style),
-      MarkdownRenderTier.blocks => blockRenderer.renderCompiledBlocks(
-        widget.document.blocks,
-      ),
-    };
+      return switch (widget.document.renderTier) {
+        MarkdownRenderTier.plainText => _buildPlainText(style),
+        MarkdownRenderTier.richText => _buildRichText(style),
+        MarkdownRenderTier.blocks => blockRenderer.renderCompiledBlocks(
+          widget.document.blocks,
+        ),
+      };
+    } finally {
+      PerformanceProfiler.instance.finishTask(
+        taskKey,
+        data: {
+          'tier': widget.document.renderTier,
+          'nodeCount': widget.document.nodes.length,
+          'blockCount': widget.document.blocks.length,
+        },
+      );
+    }
   }
 
   void _hydrateDocument(CompiledMarkdownDocument document) {

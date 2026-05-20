@@ -274,6 +274,7 @@ ActiveChatStream _attach({
     completeStreamingUi: log.completeStreamingUi,
     finishStreaming: log.finishStreaming,
     getMessages: log.getMessages,
+    getVisibleStreamingContent: () => null,
     flushStreamingBuffer: log.flushStreamingBuffer,
   );
 }

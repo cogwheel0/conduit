@@ -266,6 +266,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   required void Function() completeStreamingUi,
   required void Function() finishStreaming,
   required List<ChatMessage> Function() getMessages,
+  required String? Function() getVisibleStreamingContent,
   void Function()? onObsoleteStreamRetired,
 
   /// Flushes buffered streaming content into state so
@@ -502,19 +503,6 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     }
   }
 
-  // Wrap finishStreaming to always clear the cancel token and stop background execution
-  void wrappedFinishStreaming() {
-    if (hasFinished) return;
-    hasFinished = true;
-    hasCompletedStreamingUi = true;
-    api.clearStreamCancelToken(assistantMessageId);
-
-    // Stop background execution when streaming completes
-    stopBackgroundExecution();
-
-    finishStreaming();
-  }
-
   // Reference to image sync functions - initialized to no-op and reassigned
   // after the real implementation is defined. Must not be `late` to avoid
   // LateInitializationError if callbacks fire early.
@@ -522,6 +510,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   void Function() updateImagesFromCurrentContent = () {};
 
   var renderedStreamingContent = (() {
+    final visibleContent = getVisibleStreamingContent();
+    if (visibleContent != null) {
+      return visibleContent;
+    }
     final messages = getMessages();
     if (messages.isEmpty || messages.last.role != 'assistant') {
       return '';
@@ -539,6 +531,14 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   }
 
   void syncRenderedStreamingContentFromState() {
+    final visibleContent = getVisibleStreamingContent();
+    if (visibleContent != null &&
+        visibleContent.isNotEmpty &&
+        (renderedStreamingContent.isEmpty ||
+            visibleContent.length >= renderedStreamingContent.length)) {
+      renderedStreamingContent = visibleContent;
+      return;
+    }
     final messages = getMessages();
     if (messages.isEmpty || messages.last.role != 'assistant') {
       renderedStreamingContent = '';
@@ -584,6 +584,21 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     if (updateImages) {
       updateImagesFromCurrentContent();
     }
+  }
+
+  // Wrap finishStreaming to always clear the cancel token, stop background
+  // execution, and finalize any pending reasoning block before completion.
+  void wrappedFinishStreaming() {
+    if (hasFinished) return;
+    finalizeStreamingReasoning();
+    hasFinished = true;
+    hasCompletedStreamingUi = true;
+    api.clearStreamCancelToken(assistantMessageId);
+
+    // Stop background execution when streaming completes
+    stopBackgroundExecution();
+
+    finishStreaming();
   }
 
   void appendVisibleAssistantChunk(String chunk, {bool updateImages = true}) {
@@ -1005,6 +1020,25 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     final target = msgs[targetIndex];
     final isVisibleTarget =
         targetIndex == msgs.length - 1 && msgs.last.role == 'assistant';
+    var comparisonLength = target.content.length;
+    var visibleTargetIsStreaming = target.isStreaming;
+    if (isVisibleTarget) {
+      flushStreamingBuffer();
+      final refreshedMessages = getMessages();
+      final refreshedTargetIndex = refreshedMessages.indexWhere(
+        (message) =>
+            message.id == assistantMessageId && message.role == 'assistant',
+      );
+      if (refreshedTargetIndex != -1) {
+        final refreshedTarget = refreshedMessages[refreshedTargetIndex];
+        comparisonLength = refreshedTarget.content.length;
+        visibleTargetIsStreaming = refreshedTarget.isStreaming;
+      }
+      final visibleContent = getVisibleStreamingContent();
+      if (visibleContent != null && visibleContent.length > comparisonLength) {
+        comparisonLength = visibleContent.length;
+      }
+    }
 
     var applied = false;
 
@@ -1024,7 +1058,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       applied = true;
     }
 
-    if (content.isNotEmpty && content.length >= target.content.length) {
+    if (content.isNotEmpty && content.length >= comparisonLength) {
       DebugLogger.log(
         '$source: adopting server content (${content.length} chars)',
         scope: 'streaming/helper',
@@ -1043,10 +1077,23 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         setFollowUps(assistantMessageId, followUps);
       }
 
-      if (finishIfDone && isDone && isVisibleTarget && target.isStreaming) {
+      if (finishIfDone &&
+          isDone &&
+          isVisibleTarget &&
+          visibleTargetIsStreaming) {
         wrappedFinishStreaming();
       }
       return true;
+    }
+
+    if (content.isNotEmpty &&
+        isVisibleTarget &&
+        content.length < comparisonLength) {
+      DebugLogger.log(
+        '$source: keeping fresher visible content '
+        '(${comparisonLength} > ${content.length})',
+        scope: 'streaming/helper',
+      );
     }
 
     if (followUps.isNotEmpty) {
