@@ -13,6 +13,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/platform_page_route.dart';
+import '../../../shared/widgets/skeleton_loader.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
@@ -821,6 +822,68 @@ class _EnhancedImageAttachmentState
     return imageWidget;
   }
 
+  Widget _buildSkeletonPlaceholder({
+    BoxConstraints? constraints,
+    bool showProgressIndicator = false,
+    bool includeMarkdownMargin = false,
+  }) {
+    final theme = context.conduitTheme;
+    final borderRadius = BorderRadius.circular(AppBorderRadius.md);
+
+    return Container(
+      constraints: constraints,
+      margin: includeMarkdownMargin && widget.isMarkdownFormat
+          ? const EdgeInsets.symmetric(vertical: Spacing.sm)
+          : EdgeInsets.zero,
+      decoration: BoxDecoration(
+        color: theme.surfaceBackground.withValues(alpha: 0.28),
+        borderRadius: borderRadius,
+        border: Border.all(
+          color: theme.dividerColor.withValues(alpha: 0.2),
+          width: BorderWidth.thin,
+        ),
+      ),
+      child: ClipRRect(
+        borderRadius: borderRadius,
+        child: Stack(
+          fit: StackFit.expand,
+          alignment: Alignment.center,
+          children: [
+            SkeletonLoader(
+              borderRadius: borderRadius,
+              baseColor: theme.shimmerBase.withValues(
+                alpha: widget.isUserMessage ? 0.92 : 0.8,
+              ),
+              highlightColor: theme.shimmerHighlight.withValues(
+                alpha: widget.isUserMessage ? 1.0 : 0.9,
+              ),
+            ),
+            if (showProgressIndicator)
+              Center(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: theme.surfaceContainer.withValues(alpha: 0.75),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(Spacing.sm),
+                    child: SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        color: theme.buttonPrimary,
+                        strokeWidth: 2,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildLoadingState() {
     final constraints =
         widget.constraints ??
@@ -831,49 +894,12 @@ class _EnhancedImageAttachmentState
           minWidth: 200,
         );
 
-    return Container(
+    return KeyedSubtree(
       key: const ValueKey('loading'),
-      constraints: constraints,
-      margin: const EdgeInsets.only(bottom: Spacing.xs),
-      decoration: BoxDecoration(
-        color: context.conduitTheme.surfaceBackground.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(AppBorderRadius.md),
-        border: Border.all(
-          color: context.conduitTheme.dividerColor.withValues(alpha: 0.3),
-          width: BorderWidth.thin,
-        ),
-      ),
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          // Shimmer effect placeholder
-          Container(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(AppBorderRadius.md),
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      context.conduitTheme.shimmerBase,
-                      context.conduitTheme.shimmerHighlight,
-                      context.conduitTheme.shimmerBase,
-                    ],
-                  ),
-                ),
-              )
-              .animate(onPlay: (controller) => controller.repeat())
-              .shimmer(
-                duration: const Duration(milliseconds: 1500),
-                color: context.conduitTheme.shimmerHighlight.withValues(
-                  alpha: 0.3,
-                ),
-              ),
-          // Progress indicator overlay
-          CircularProgressIndicator(
-            color: context.conduitTheme.buttonPrimary,
-            strokeWidth: 2,
-          ),
-        ],
+      child: _buildSkeletonPlaceholder(
+        constraints: constraints,
+        showProgressIndicator: true,
+        includeMarkdownMargin: true,
       ),
     );
   }
@@ -947,13 +973,7 @@ class _EnhancedImageAttachmentState
       fadeOutDuration: widget.disableAnimation
           ? Duration.zero
           : const Duration(milliseconds: 200),
-      placeholder: (context, url) => Container(
-        constraints: widget.constraints,
-        decoration: BoxDecoration(
-          color: context.conduitTheme.shimmerBase,
-          borderRadius: BorderRadius.circular(AppBorderRadius.md),
-        ),
-      ),
+      placeholder: (context, url) => _buildSkeletonPlaceholder(),
       errorBuilder: (context, error, stackTrace) {
         _errorMessage = error.toString();
         return _buildErrorState();
@@ -973,19 +993,7 @@ class _EnhancedImageAttachmentState
       key: ValueKey('svg_${widget.attachmentId}'),
       fit: BoxFit.contain,
       headers: headers,
-      placeholderBuilder: (context) => Container(
-        constraints: widget.constraints,
-        decoration: BoxDecoration(
-          color: context.conduitTheme.shimmerBase,
-          borderRadius: BorderRadius.circular(AppBorderRadius.md),
-        ),
-        child: Center(
-          child: CircularProgressIndicator(
-            color: context.conduitTheme.buttonPrimary,
-            strokeWidth: 2,
-          ),
-        ),
-      ),
+      placeholderBuilder: (context) => _buildSkeletonPlaceholder(),
       errorBuilder: (context, error, stackTrace) {
         _errorMessage = AppLocalizations.of(
           context,
