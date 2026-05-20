@@ -1455,28 +1455,17 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       chatMessagesProvider.select((messages) => messages),
     );
     final isLoadingConversation = watchRef.watch(isLoadingConversationProvider);
-
-    // Use AnimatedSwitcher for smooth transition between loading and loaded states
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 400),
-      switchInCurve: Curves.easeInOut,
-      switchOutCurve: Curves.easeInOut,
-      layoutBuilder: (currentChild, previousChildren) {
-        return Stack(
-          alignment: Alignment.topCenter,
-          children: <Widget>[...previousChildren, ?currentChild],
-        );
-      },
-      child: isLoadingConversation && messages.isEmpty
-          ? _buildLoadingMessagesList()
-          : _buildActualMessagesList(messages, watchRef),
-    );
+    final showLoadingSkeleton = isLoadingConversation && messages.isEmpty;
+    if (showLoadingSkeleton) {
+      return _buildLoadingMessagesList();
+    }
+    return _buildActualMessagesList(messages, watchRef);
   }
 
   Widget _buildLoadingMessagesList() {
     // Use slivers to align with the actual messages view.
-    // Do not attach the primary scroll controller here to avoid
-    // AnimatedSwitcher attaching the same controller twice.
+    // Do not attach the primary scroll controller here; the actual message
+    // list owns it.
     // Add top padding for the floating app bar and bottom padding for the
     // overlaid composer section.
     final topPadding =
@@ -2083,6 +2072,16 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 
   Widget _buildComposerSection(BuildContext context) {
+    final hasAttachments =
+        ref.watch(
+          attachedFilesProvider.select((files) => files.isNotEmpty),
+        ) ||
+        ref.watch(
+          contextAttachmentsProvider.select(
+            (attachments) => attachments.isNotEmpty,
+          ),
+        );
+
     return RepaintBoundary(
       child: MeasureSize(
         onChange: (size) {
@@ -2103,6 +2102,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
               const SizedBox(height: Spacing.xl),
               const FileAttachmentWidget(),
               const ContextAttachmentWidget(),
+              if (hasAttachments) const SizedBox(height: Spacing.sm),
               Consumer(
                 builder: (context, composerRef, _) {
                   final isLoadingConversation = composerRef.watch(
