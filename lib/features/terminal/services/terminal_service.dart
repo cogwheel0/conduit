@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
 import '../../../core/services/api_service.dart';
+import '../../../core/utils/json_normalization.dart';
 import '../models/terminal_models.dart';
 
 String _trimTrailingSlashes(String value) {
@@ -126,10 +127,7 @@ Map<String, dynamic> _cloneSettings(Map<String, dynamic> settings) {
   if (settings.isEmpty) {
     return <String, dynamic>{};
   }
-
-  final encoded = jsonEncode(settings);
-  final decoded = jsonDecode(encoded);
-  return _coerceStringKeyedMap(decoded);
+  return normalizeJsonLikeMap(settings);
 }
 
 bool _isConfigEnabled(Map<String, dynamic> server) {

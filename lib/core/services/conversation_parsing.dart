@@ -1,7 +1,9 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:uuid/uuid.dart';
 
+import '../models/conversation.dart';
 import '../utils/embed_utils.dart';
 import '../utils/message_tree_utils.dart' as message_tree;
 import '../utils/openwebui_source_parser.dart';
@@ -973,39 +975,18 @@ String _escapeHtmlAttr(String value) {
       .replaceAll('>', '&gt;');
 }
 
-List<Map<String, dynamic>> parseConversationSummariesWorker(
+Conversation parseFullConversationModel(Object? payload) {
+  return Conversation.fromJson(
+    parseFullConversation(_coerceConversationMap(payload)),
+  );
+}
+
+List<Conversation> parseConversationSummaryModels(
   Map<String, dynamic> payload,
 ) {
-  final pinnedRaw = payload['pinned'];
-  final archivedRaw = payload['archived'];
-  final regularRaw = payload['regular'];
-
-  final pinned = <Map<String, dynamic>>[];
-  if (pinnedRaw is List) {
-    for (final entry in pinnedRaw) {
-      if (entry is Map) {
-        pinned.add(Map<String, dynamic>.from(entry));
-      }
-    }
-  }
-
-  final archived = <Map<String, dynamic>>[];
-  if (archivedRaw is List) {
-    for (final entry in archivedRaw) {
-      if (entry is Map) {
-        archived.add(Map<String, dynamic>.from(entry));
-      }
-    }
-  }
-
-  final regular = <Map<String, dynamic>>[];
-  if (regularRaw is List) {
-    for (final entry in regularRaw) {
-      if (entry is Map) {
-        regular.add(Map<String, dynamic>.from(entry));
-      }
-    }
-  }
+  final pinned = _coerceConversationCollection(payload['pinned']);
+  final archived = _coerceConversationCollection(payload['archived']);
+  final regular = _coerceConversationCollection(payload['regular']);
 
   final summaries = <Map<String, dynamic>>[];
   final pinnedIds = <String>{};
@@ -1034,18 +1015,49 @@ List<Map<String, dynamic>> parseConversationSummariesWorker(
     summaries.add(summary);
   }
 
-  return summaries;
+  return summaries.map(Conversation.fromJson).toList(growable: false);
+}
+
+List<Conversation> parseFolderSummaryModels(Map<String, dynamic> payload) {
+  final chats = _coerceConversationCollection(
+    payload['chats'] ?? payload['regular'],
+  );
+  return chats
+      .map(parseConversationSummary)
+      .map(Conversation.fromJson)
+      .toList(growable: false);
+}
+
+Conversation parseFullConversationModelWorker(Object? payload) {
+  final raw =
+      payload is Map<String, dynamic> && payload.containsKey('conversation')
+      ? payload['conversation']
+      : payload;
+  return parseFullConversationModel(raw);
+}
+
+List<Conversation> parseConversationSummaryModelsWorker(
+  Map<String, dynamic> payload,
+) {
+  return parseConversationSummaryModels(payload);
+}
+
+List<Conversation> parseFolderSummaryModelsWorker(
+  Map<String, dynamic> payload,
+) {
+  return parseFolderSummaryModels(payload);
+}
+
+List<Map<String, dynamic>> parseConversationSummariesWorker(
+  Map<String, dynamic> payload,
+) {
+  return parseConversationSummaryModels(
+    payload,
+  ).map((conversation) => conversation.toJson()).toList(growable: false);
 }
 
 Map<String, dynamic> parseFullConversationWorker(Map<String, dynamic> payload) {
-  final raw = payload['conversation'];
-  if (raw is Map<String, dynamic>) {
-    return parseFullConversation(raw);
-  }
-  if (raw is Map) {
-    return parseFullConversation(Map<String, dynamic>.from(raw));
-  }
-  return parseFullConversation(<String, dynamic>{});
+  return parseFullConversationModelWorker(payload).toJson();
 }
 
 /// Worker function for parsing folder conversation summaries in a background
@@ -1053,19 +1065,95 @@ Map<String, dynamic> parseFullConversationWorker(Map<String, dynamic> payload) {
 List<Map<String, dynamic>> parseFolderSummariesWorker(
   Map<String, dynamic> payload,
 ) {
-  final chatsRaw = payload['chats'];
-  if (chatsRaw is! List) {
-    return const [];
-  }
+  return parseFolderSummaryModels(
+    payload,
+  ).map((conversation) => conversation.toJson()).toList(growable: false);
+}
 
-  final summaries = <Map<String, dynamic>>[];
-  for (final entry in chatsRaw) {
-    if (entry is Map) {
-      final map = entry is Map<String, dynamic>
-          ? entry
-          : Map<String, dynamic>.from(entry);
-      summaries.add(parseConversationSummary(map));
+Map<String, dynamic> _coerceConversationMap(Object? raw) {
+  if (raw is Uint8List) {
+    return _decodeConversationMapBytes(raw);
+  }
+  if (raw is List<int>) {
+    return _decodeConversationMapBytes(Uint8List.fromList(raw));
+  }
+  if (raw is String && raw.isNotEmpty) {
+    try {
+      return _coerceConversationMap(jsonDecode(raw));
+    } catch (_) {
+      return <String, dynamic>{};
     }
   }
-  return summaries;
+  if (raw is Map<String, dynamic>) {
+    return raw;
+  }
+  if (raw is Map) {
+    return _coerceJsonMap(raw);
+  }
+  return <String, dynamic>{};
+}
+
+Map<String, dynamic> _decodeConversationMapBytes(Uint8List bytes) {
+  try {
+    final decoded = jsonDecode(utf8.decode(bytes));
+    if (decoded is Map) {
+      return _coerceJsonMap(decoded);
+    }
+  } catch (_) {}
+  return <String, dynamic>{};
+}
+
+List<Map<String, dynamic>> _coerceConversationCollection(dynamic raw) {
+  if (raw == null) {
+    return const [];
+  }
+  if (raw is Uint8List) {
+    return _decodeConversationCollectionBytes(raw);
+  }
+  if (raw is String && raw.isNotEmpty) {
+    try {
+      return _coerceConversationCollection(jsonDecode(raw));
+    } catch (_) {
+      return const [];
+    }
+  }
+  if (raw is List) {
+    if (raw.isEmpty) {
+      return const [];
+    }
+    if (raw.every((entry) => entry is int)) {
+      return _decodeConversationCollectionBytes(
+        Uint8List.fromList(raw.cast<int>()),
+      );
+    }
+    if (raw.every((entry) => entry is Uint8List || entry is List<int>)) {
+      final merged = <Map<String, dynamic>>[];
+      for (final page in raw) {
+        merged.addAll(_coerceConversationCollection(page));
+      }
+      return merged;
+    }
+    return raw.whereType<Map>().map(_coerceJsonMap).toList(growable: false);
+  }
+  if (raw is Map) {
+    final list =
+        raw['conversations'] ??
+        raw['items'] ??
+        raw['results'] ??
+        raw['messages'] ??
+        raw['chats'];
+    if (list is List) {
+      return _coerceConversationCollection(list);
+    }
+  }
+  return const [];
+}
+
+List<Map<String, dynamic>> _decodeConversationCollectionBytes(Uint8List bytes) {
+  try {
+    final decoded = jsonDecode(utf8.decode(bytes));
+    return _coerceConversationCollection(decoded);
+  } catch (_) {
+    return const [];
+  }
 }

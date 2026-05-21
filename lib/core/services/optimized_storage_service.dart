@@ -14,6 +14,7 @@ import '../models/socket_transport_availability.dart';
 import '../persistence/hive_boxes.dart';
 import '../persistence/persistence_keys.dart';
 import '../utils/debug_logger.dart';
+import '../utils/json_normalization.dart';
 import 'cache_manager.dart';
 import 'secure_credential_storage.dart';
 import 'worker_manager.dart';
@@ -761,7 +762,7 @@ class OptimizedStorageService {
     return (stored, null);
   }
 
-  Future<Map<String, Object?>> _wrapServerScoped(Object data) async {
+  Future<Map<String, Object?>> _wrapServerScoped(Object? data) async {
     return _wrapServerScopedForServerId(data, await getActiveServerId());
   }
 
@@ -785,7 +786,10 @@ class OptimizedStorageService {
     try {
       await _cachesBox.put(
         key,
-        _wrapServerScopedForServerId(payload, activeServerId),
+        _wrapServerScopedForServerId(
+          _normalizeLegacyCachePayload(payload),
+          activeServerId,
+        ),
       );
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -796,6 +800,35 @@ class OptimizedStorageService {
         data: {'key': key, 'serverId': _normalizeServerId(activeServerId)},
       );
     }
+  }
+
+  Object? _normalizeLegacyCachePayload(Object? payload) {
+    if (payload is String) {
+      try {
+        final decoded = jsonDecode(payload);
+        if (decoded is List) {
+          return decoded
+              .whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .toList(growable: false);
+        }
+        if (decoded is Map) {
+          return Map<String, dynamic>.from(decoded);
+        }
+      } catch (_) {
+        return payload;
+      }
+    }
+    if (payload is List) {
+      return payload
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList(growable: false);
+    }
+    if (payload is Map) {
+      return Map<String, dynamic>.from(payload);
+    }
+    return payload;
   }
 
   Object? _resolveServerScopedPayload(
@@ -876,15 +909,14 @@ class OptimizedStorageService {
     required Map<String, dynamic> Function(T item) toJson,
     required String encodeDebugLabel,
   }) async {
-    final jsonReady = items.map(toJson).toList(growable: false);
-    final serialized = await _workerManager
-        .schedule<Map<String, dynamic>, String>(_encodeJsonListWorker, {
-          'items': jsonReady,
-        }, debugLabel: encodeDebugLabel);
-    await _putServerScopedCacheValue(key, serialized);
+    final _ = encodeDebugLabel;
+    final normalizedItems = items
+        .map((item) => normalizeJsonLikeMap(toJson(item)))
+        .toList(growable: false);
+    await _putServerScopedCacheValue(key, normalizedItems);
   }
 
-  Future<void> _putServerScopedCacheValue(String key, Object value) async {
+  Future<void> _putServerScopedCacheValue(String key, Object? value) async {
     await _cachesBox.put(key, await _wrapServerScoped(value));
   }
 
@@ -893,7 +925,10 @@ class OptimizedStorageService {
     T value, {
     required Object? Function(T value) toJson,
   }) async {
-    await _putServerScopedCacheValue(key, jsonEncode(toJson(value)));
+    await _putServerScopedCacheValue(
+      key,
+      normalizeJsonLikeValue(toJson(value)),
+    );
   }
 
   Future<T?> _readServerScopedJsonObject<T>({
@@ -1135,16 +1170,4 @@ List<Map<String, dynamic>> _decodeStoredJsonListWorker(
   }
 
   return <Map<String, dynamic>>[];
-}
-
-String _encodeJsonListWorker(Map<String, dynamic> payload) {
-  final raw = payload['items'] ?? payload['conversations'];
-  if (raw is List) {
-    return jsonEncode(raw);
-  }
-  if (raw is String) {
-    // Already encoded.
-    return raw;
-  }
-  return jsonEncode([]);
 }

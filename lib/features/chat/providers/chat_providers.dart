@@ -20,6 +20,7 @@ import '../../../core/services/streaming_response_controller.dart';
 import '../../../core/services/performance_profiler.dart';
 import '../../../core/services/worker_manager.dart';
 import '../../../core/utils/debug_logger.dart';
+import '../../../core/utils/json_normalization.dart';
 import '../../../core/utils/message_tree_utils.dart' as message_tree;
 import '../../../core/utils/tool_calls_parser.dart';
 import '../models/chat_context_attachment.dart';
@@ -3832,25 +3833,26 @@ Future<void> _saveConversationLocally(dynamic ref) async {
       updatedAt: DateTime.now(),
     );
 
-    // Store conversation locally using the storage service's actual methods
-    final conversationsJson = await storage.getString('conversations') ?? '[]';
-    final List<dynamic> conversations = jsonDecode(conversationsJson);
-
-    // Find and update or add the conversation
-    final existingIndex = conversations.indexWhere(
-      (c) => c['id'] == updatedConversation.id,
+    final conversations = await storage.getLocalConversations();
+    final updatedConversations = conversations.toList(growable: true);
+    final existingIndex = updatedConversations.indexWhere(
+      (conversation) => conversation.id == updatedConversation.id,
     );
     if (existingIndex >= 0) {
-      conversations[existingIndex] = updatedConversation.toJson();
+      updatedConversations[existingIndex] = updatedConversation;
     } else {
-      conversations.add(updatedConversation.toJson());
+      updatedConversations.add(updatedConversation);
     }
 
-    await storage.setString('conversations', jsonEncode(conversations));
+    await storage.saveLocalConversations(updatedConversations);
     ref.read(activeConversationProvider.notifier).set(updatedConversation);
     refreshConversationsCache(ref);
   } catch (e) {
-    // Handle local storage errors silently
+    DebugLogger.error(
+      'Failed to save conversation locally',
+      scope: 'chat/providers',
+      error: e,
+    );
   }
 }
 
@@ -4217,7 +4219,7 @@ Future<List<Map<String, dynamic>>> _resolveToolServers(
             fullUrl.toLowerCase().endsWith('.yml') ||
             ct.contains('yaml')) {
           final doc = yaml.loadYaml(resp.data);
-          openapi = json.decode(json.encode(doc)) as Map<String, dynamic>;
+          openapi = normalizeJsonLikeMap(doc);
         } else {
           final data = resp.data;
           if (data is Map<String, dynamic>) {

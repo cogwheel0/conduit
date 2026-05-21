@@ -26,7 +26,7 @@ void main() {
     });
 
     test('toggles direct terminal selection inside user settings', () {
-      final updated = applyDirectTerminalSelectionForTest(<String, dynamic>{
+      final original = <String, dynamic>{
         'terminalServers': <Map<String, dynamic>>[
           <String, dynamic>{'name': 'Primary', 'url': 'https://a.example'},
           <String, dynamic>{
@@ -35,12 +35,21 @@ void main() {
             'enabled': true,
           },
         ],
-      }, 'https://a.example');
+      };
+      final updated = applyDirectTerminalSelectionForTest(
+        original,
+        'https://a.example',
+      );
 
       final servers = (updated['terminalServers']! as List<dynamic>)
           .cast<Map<String, dynamic>>();
       expect(servers[0]['enabled'], isTrue);
       expect(servers[1]['enabled'], isFalse);
+
+      final originalServers = (original['terminalServers']! as List<dynamic>)
+          .cast<Map<String, dynamic>>();
+      expect(originalServers[0].containsKey('enabled'), isFalse);
+      expect(originalServers[1]['enabled'], isTrue);
     });
 
     test('resolves explicit and enabled direct selections', () {

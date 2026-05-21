@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/core/models/server_config.dart';
+import 'package:conduit/core/models/socket_transport_availability.dart';
 import 'package:conduit/core/persistence/hive_boxes.dart';
 import 'package:conduit/core/services/optimized_storage_service.dart';
 import 'package:conduit/core/services/worker_manager.dart';
@@ -38,10 +39,10 @@ void main() {
     return caches.put(key, jsonEncode(payload));
   }
 
-  void expectScopedStringCache(String key, {required String? serverId}) {
+  void expectScopedStructuredCache(String key, {required String? serverId}) {
     final migrated = caches.get(key) as Map;
     expect(migrated['serverId'], serverId);
-    expect(migrated['data'], isA<String>());
+    expect(migrated['data'], isA<List>());
   }
 
   setUp(() async {
@@ -134,7 +135,7 @@ void main() {
         'legacy-chat',
       ]);
 
-      expectScopedStringCache(
+      expectScopedStructuredCache(
         HiveStoreKeys.localConversations,
         serverId: 'server-a',
       );
@@ -157,7 +158,10 @@ void main() {
         'legacy-chat',
       ]);
 
-      expectScopedStringCache(HiveStoreKeys.localConversations, serverId: null);
+      expectScopedStructuredCache(
+        HiveStoreKeys.localConversations,
+        serverId: null,
+      );
 
       await storage.setActiveServerId('server-a');
       expect(await storage.getLocalConversations(), isEmpty);
@@ -178,7 +182,10 @@ void main() {
         'legacy-chat',
       ]);
 
-      expectScopedStringCache(HiveStoreKeys.localConversations, serverId: null);
+      expectScopedStructuredCache(
+        HiveStoreKeys.localConversations,
+        serverId: null,
+      );
 
       await storage.setActiveServerId('server-a');
       expect(await storage.getLocalConversations(), isEmpty);
@@ -197,7 +204,10 @@ void main() {
       final folders = await storage.getLocalFolders();
       expect(folders.map((folder) => folder.id), ['legacy-folder']);
 
-      expectScopedStringCache(HiveStoreKeys.localFolders, serverId: 'server-a');
+      expectScopedStructuredCache(
+        HiveStoreKeys.localFolders,
+        serverId: 'server-a',
+      );
 
       await storage.setActiveServerId('server-b');
       expect(await storage.getLocalFolders(), isEmpty);
@@ -215,7 +225,7 @@ void main() {
       final folders = await storage.getLocalFolders();
       expect(folders.map((folder) => folder.id), ['legacy-folder']);
 
-      expectScopedStringCache(HiveStoreKeys.localFolders, serverId: null);
+      expectScopedStructuredCache(HiveStoreKeys.localFolders, serverId: null);
 
       await storage.setActiveServerId('server-a');
       expect(await storage.getLocalFolders(), isEmpty);
@@ -234,7 +244,7 @@ void main() {
       final folders = await storage.getLocalFolders();
       expect(folders.map((folder) => folder.id), ['legacy-folder']);
 
-      expectScopedStringCache(HiveStoreKeys.localFolders, serverId: null);
+      expectScopedStructuredCache(HiveStoreKeys.localFolders, serverId: null);
 
       await storage.setActiveServerId('server-a');
       expect(await storage.getLocalFolders(), isEmpty);
@@ -313,12 +323,32 @@ void main() {
 
       final stored = caches.get(HiveStoreKeys.localConversations) as Map;
       expect(stored['serverId'], isNull);
-      expect(stored['data'], isA<String>());
+      expect(stored['data'], isA<List>());
 
       await storage.setActiveServerId('server-a');
       expect(await storage.getLocalConversations(), isEmpty);
     },
   );
+
+  test('transport options are stored as structured scoped objects', () async {
+    await saveServerConfigs(['server-a']);
+    await storage.setActiveServerId('server-a');
+
+    await storage.saveLocalTransportOptions(
+      const SocketTransportAvailability(
+        allowPolling: false,
+        allowWebsocketOnly: true,
+      ),
+    );
+
+    final stored = caches.get(HiveStoreKeys.localTransportOptions) as Map;
+    expect(stored['serverId'], 'server-a');
+    expect(stored['data'], {'allowPolling': false, 'allowWebsocketOnly': true});
+
+    final options = storage.getLocalTransportOptionsSync();
+    expect(options?.allowPolling, isFalse);
+    expect(options?.allowWebsocketOnly, isTrue);
+  });
 
   test(
     'user-scoped auth cleanup preserves token and saved credentials',
