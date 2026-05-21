@@ -24,6 +24,7 @@ import '../../../core/utils/message_tree_utils.dart' as message_tree;
 import '../../../core/utils/tool_calls_parser.dart';
 import '../models/chat_context_attachment.dart';
 import '../providers/context_attachments_provider.dart';
+import '../services/conversation_message_cache.dart';
 import '../../../shared/services/tasks/task_queue.dart';
 import '../../tools/providers/tools_providers.dart';
 import '../services/chat_transport_dispatch.dart';
@@ -195,7 +196,23 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         _stopRemoteTaskMonitor();
 
         if (next != null) {
-          state = next.messages;
+          // Pillar #4: when switching to a conversation whose messages
+          // haven't been fetched yet, seed instantly from the local cache
+          // so the chat opens with content while the server refresh runs.
+          List<ChatMessage> initial = next.messages;
+          if (initial.isEmpty) {
+            final cached =
+                ref.read(conversationMessageCacheProvider).load(next.id);
+            if (cached != null && cached.isNotEmpty) {
+              initial = cached;
+            }
+          } else {
+            // Fresh server-backed messages — refresh the cache opportunistically.
+            unawaited(ref
+                .read(conversationMessageCacheProvider)
+                .save(next.id, initial));
+          }
+          state = initial;
           _syncStreamingProfileWithState();
 
           // Update selected model if conversation has a different model
@@ -497,6 +514,14 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
     if (needsCleanup) {
       _cancelMessageStream();
+    }
+
+    // Pillar #4: persist adopted snapshot so a later cold open is instant.
+    final activeId = ref.read(activeConversationProvider)?.id;
+    if (activeId != null && activeId.isNotEmpty) {
+      unawaited(
+        ref.read(conversationMessageCacheProvider).save(activeId, serverMessages),
+      );
     }
 
     DebugLogger.log(

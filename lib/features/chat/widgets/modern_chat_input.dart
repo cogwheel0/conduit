@@ -16,6 +16,7 @@ import 'dart:io' show Platform;
 import 'dart:async';
 import '../providers/chat_providers.dart';
 import '../services/clipboard_attachment_service.dart';
+import '../services/draft_storage.dart';
 import '../services/file_attachment_service.dart';
 import '../services/ios_native_paste_service.dart';
 import '../services/ios_keyboard_attachment_bridge.dart';
@@ -24,6 +25,7 @@ import '../providers/knowledge_cache_provider.dart';
 import '../../notes/providers/notes_providers.dart';
 import '../../tools/providers/tools_providers.dart';
 import '../../prompts/providers/prompts_providers.dart';
+import '../../../core/models/conversation.dart';
 import '../../../core/models/tool.dart';
 import '../../../core/models/model.dart';
 import '../../../core/models/prompt.dart';
@@ -129,6 +131,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   late VoiceInputService _voiceService;
   StreamSubscription<String>? _textSub;
   Timer? _contextSuggestionDebounce;
+  Timer? _draftSaveDebounce;
+  String? _activeDraftConvId;
+  bool _draftLoaded = false;
   String _baseTextAtStart = '';
   bool _isDeactivated = false;
   int _lastHandledFocusTick = 0;
@@ -163,6 +168,26 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         // Clear after applying so it doesn't re-apply on rebuilds
         ref.read(prefilledInputTextProvider.notifier).clear();
       }
+
+      // Pillar #2: restore any persisted draft for the active conversation.
+      // Skipped when prefilled text already populated the field.
+      _activeDraftConvId = ref.read(activeConversationProvider)?.id;
+      if (_controller.text.isEmpty) {
+        try {
+          final draft = ref
+              .read(draftStorageProvider)
+              .load(_activeDraftConvId);
+          if (draft != null && draft.isNotEmpty) {
+            _controller.text = draft;
+            _controller.selection =
+                TextSelection.collapsed(offset: draft.length);
+            _hasText = true;
+          }
+        } catch (_) {
+          // Best-effort; missing draft cache should never block input.
+        }
+      }
+      _draftLoaded = true;
     });
 
     // Removed ref.listen here; it must be used from build in this Riverpod version
@@ -238,11 +263,77 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     _keyboardAttachmentSubscription?.cancel();
     _textSub?.cancel();
     _contextSuggestionDebounce?.cancel();
+    // Flush any pending draft save before tearing down.
+    _flushDraftSaveIfPending();
+    _draftSaveDebounce?.cancel();
     if (!kIsWeb && Platform.isIOS) {
       unawaited(IosKeyboardAttachmentBridge.instance.hide());
     }
     _voiceService.stopListening();
     super.dispose();
+  }
+
+  // ---- Drafts (pillar #2) ------------------------------------------------
+
+  static const Duration _draftDebounce = Duration(milliseconds: 500);
+
+  void _scheduleDraftSave() {
+    if (!_draftLoaded) return;
+    _draftSaveDebounce?.cancel();
+    _draftSaveDebounce = Timer(_draftDebounce, _persistDraftNow);
+  }
+
+  void _flushDraftSaveIfPending() {
+    if (_draftSaveDebounce?.isActive ?? false) {
+      _draftSaveDebounce?.cancel();
+      _persistDraftNow();
+    }
+  }
+
+  void _persistDraftNow() {
+    if (!_draftLoaded) return;
+    final convId = _activeDraftConvId;
+    final text = _controller.text;
+    try {
+      unawaited(ref.read(draftStorageProvider).save(convId, text));
+    } catch (_) {
+      // Draft persistence is best-effort; never let it surface to the UI.
+    }
+  }
+
+  void _clearDraftFireAndForget(String? convId) {
+    _draftSaveDebounce?.cancel();
+    try {
+      unawaited(ref.read(draftStorageProvider).clear(convId));
+    } catch (_) {}
+  }
+
+  void _onActiveConversationChangedForDrafts(
+    Conversation? previous,
+    Conversation? next,
+  ) {
+    if (!_draftLoaded) return;
+    if (previous?.id == next?.id) return;
+
+    // Flush the previous conversation's draft under its own key.
+    _flushDraftSaveIfPending();
+
+    final newId = next?.id;
+    _activeDraftConvId = newId;
+
+    // Don't overwrite user-typed text that hasn't been associated with
+    // anything yet (e.g. brand-new chat flow). Only restore when the field
+    // is empty so we don't blow away in-flight typing.
+    if (_controller.text.isEmpty) {
+      try {
+        final draft = ref.read(draftStorageProvider).load(newId);
+        if (draft != null && draft.isNotEmpty) {
+          _controller.text = draft;
+          _controller.selection =
+              TextSelection.collapsed(offset: draft.length);
+        }
+      } catch (_) {}
+    }
   }
 
   void _ensureFocusedIfEnabled() {
@@ -309,6 +400,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final wireText = _controller.toWireFormat().trim();
 
     widget.onSendMessage(wireText);
+    _clearDraftFireAndForget(_activeDraftConvId);
     _controller.clearMentions();
     _controller.clear();
     _focusNode.unfocus();
@@ -551,6 +643,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   void _handleComposerChanged() {
     if (!mounted || _isDeactivated) return;
     _lastEditTime = DateTime.now();
+    _scheduleDraftSave();
 
     final String text = _controller.text;
     final TextSelection selection = _controller.selection;
@@ -1822,6 +1915,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<Conversation?>(activeConversationProvider, (previous, next) {
+      _onActiveConversationChangedForDrafts(previous, next);
+    });
+
     ref.listen<bool>(composerAutofocusEnabledProvider, (previous, next) {
       if ((previous ?? true) && !next && _focusNode.hasFocus) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
