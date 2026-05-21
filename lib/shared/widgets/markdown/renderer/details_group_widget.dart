@@ -8,7 +8,7 @@ import '../../assistant_detail_header.dart';
 class MarkdownDetailsGroupItem {
   const MarkdownDetailsGroupItem({
     required this.type,
-    required this.child,
+    required this.childBuilder,
     this.name = '',
     this.isDone = true,
   });
@@ -16,7 +16,7 @@ class MarkdownDetailsGroupItem {
   final String type;
   final String name;
   final bool isDone;
-  final Widget child;
+  final WidgetBuilder childBuilder;
 }
 
 class MarkdownDetailsGroup extends StatefulWidget {
@@ -147,7 +147,7 @@ class _MarkdownDetailsGroupState extends State<MarkdownDetailsGroup> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: widget.items
-                        .map((item) => item.child)
+                        .map((item) => Builder(builder: item.childBuilder))
                         .toList(growable: false),
                   ),
                 ),

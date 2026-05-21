@@ -1603,6 +1603,49 @@ void main() {
     );
 
     test(
+      'httpStream event completion done trusts visible streaming content before empty recovery checks',
+      () async {
+        final log = _CallbackLog();
+        const visibleStreamingContent = 'Visible streamed answer';
+        final api = _buildFakeApi(
+          pollResponse: _serverConversationResponse(
+            messages: [_serverAssistantMessage(content: 'Recovered answer')],
+          ),
+        );
+        final adapter = api.dio.httpClientAdapter as _StubAdapter;
+
+        _attach(
+          session: ChatCompletionSession.httpStream(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            conversationId: 'conv-1',
+            byteStream: Stream<List<int>>.fromIterable([
+              _sseFrame({
+                'type': 'chat:completion',
+                'data': {'done': true},
+              }),
+            ]),
+            abort: () async {},
+          ),
+          log: log,
+          api: api,
+          activeConversationId: 'conv-1',
+          getVisibleStreamingContent: () => visibleStreamingContent,
+        );
+
+        await pumpMicrotasks();
+        await pumpMicrotasks();
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        await pumpMicrotasks();
+
+        check(log.finishCount).equals(1);
+        check(
+          adapter.requestCount(method: 'GET', path: '/api/v1/chats/conv-1'),
+        ).equals(0);
+      },
+    );
+
+    test(
       'httpStream event completion done plus [DONE] only schedules completion side effects once',
       () async {
         final log = _CallbackLog();

@@ -742,6 +742,31 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     return error != null && error.isNotEmpty;
   }
 
+  ({ChatMessage message, String comparisonContent})
+  readLocalMessageComparisonSnapshot(ChatMessage localMessage) {
+    if (localMessage.role != 'assistant' ||
+        localMessage.id != assistantMessageId) {
+      return (message: localMessage, comparisonContent: localMessage.content);
+    }
+
+    flushStreamingBuffer();
+
+    final refreshedMessage =
+        getMessages()
+            .where((message) => message.id == localMessage.id)
+            .firstOrNull ??
+        localMessage;
+    var comparisonContent = refreshedMessage.content;
+    final visibleContent = getVisibleStreamingContent();
+    if (visibleContent != null &&
+        visibleContent.isNotEmpty &&
+        visibleContent.length >= comparisonContent.length) {
+      comparisonContent = visibleContent;
+    }
+
+    return (message: refreshedMessage, comparisonContent: comparisonContent);
+  }
+
   bool serverMessageMatchesLocalContext(
     Map<String, dynamic>? serverMessage,
     ChatMessage localMessage,
@@ -758,7 +783,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       return true;
     }
 
-    final localContent = localMessage.content.trim();
+    final localComparison = readLocalMessageComparisonSnapshot(localMessage);
+    final localContent = localComparison.comparisonContent.trim();
     final serverContent = extractServerMessageContent(
       serverMessage['content'],
     ).trim();
@@ -766,7 +792,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       return localContent == serverContent;
     }
 
-    final localError = localMessage.error?.content?.trim();
+    final localError = localComparison.message.error?.content?.trim();
     final serverError = extractServerErrorContent(
       serverMessage['error'],
     )?.trim();
@@ -789,13 +815,14 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       return true;
     }
 
-    final localContent = localMessage.content.trim();
+    final localComparison = readLocalMessageComparisonSnapshot(localMessage);
+    final localContent = localComparison.comparisonContent.trim();
     final serverContent = serverMessage.content.trim();
     if (localContent.isNotEmpty && serverContent.isNotEmpty) {
       return localContent == serverContent;
     }
 
-    final localError = localMessage.error?.content?.trim();
+    final localError = localComparison.message.error?.content?.trim();
     final serverError = serverMessage.error?.content?.trim();
     return localError != null &&
         localError.isNotEmpty &&
@@ -1020,25 +1047,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     final target = msgs[targetIndex];
     final isVisibleTarget =
         targetIndex == msgs.length - 1 && msgs.last.role == 'assistant';
-    var comparisonLength = target.content.length;
-    var visibleTargetIsStreaming = target.isStreaming;
-    if (isVisibleTarget) {
-      flushStreamingBuffer();
-      final refreshedMessages = getMessages();
-      final refreshedTargetIndex = refreshedMessages.indexWhere(
-        (message) =>
-            message.id == assistantMessageId && message.role == 'assistant',
-      );
-      if (refreshedTargetIndex != -1) {
-        final refreshedTarget = refreshedMessages[refreshedTargetIndex];
-        comparisonLength = refreshedTarget.content.length;
-        visibleTargetIsStreaming = refreshedTarget.isStreaming;
-      }
-      final visibleContent = getVisibleStreamingContent();
-      if (visibleContent != null && visibleContent.length > comparisonLength) {
-        comparisonLength = visibleContent.length;
-      }
-    }
+    final comparisonSnapshot = readLocalMessageComparisonSnapshot(target);
+    final comparisonLength = comparisonSnapshot.comparisonContent.length;
+    final visibleTargetIsStreaming = comparisonSnapshot.message.isStreaming;
 
     var applied = false;
 
@@ -1091,7 +1102,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         content.length < comparisonLength) {
       DebugLogger.log(
         '$source: keeping fresher visible content '
-        '(${comparisonLength} > ${content.length})',
+        '($comparisonLength > ${content.length})',
         scope: 'streaming/helper',
       );
     }
@@ -1201,21 +1212,21 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     if (isObsoleteStream) {
       return false;
     }
-    flushStreamingBuffer();
-
     final msgs = getMessages();
     if (msgs.isEmpty || msgs.last.role != 'assistant') {
       return false;
     }
 
-    final last = msgs.last;
+    final comparisonSnapshot = readLocalMessageComparisonSnapshot(msgs.last);
+    final last = comparisonSnapshot.message;
     if (!last.isStreaming) {
       return true;
     }
 
     final hasTerminalState =
         last.error != null ||
-        (allowContentOnlyTerminal && last.content.trim().isNotEmpty);
+        (allowContentOnlyTerminal &&
+            comparisonSnapshot.comparisonContent.trim().isNotEmpty);
     if (!hasTerminalState) {
       return false;
     }
@@ -1683,8 +1694,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
 
     final msgs = getMessages();
     if (msgs.isNotEmpty && msgs.last.role == 'assistant') {
-      final last = msgs.last;
-      final lastContent = last.content.trim();
+      final comparisonSnapshot = readLocalMessageComparisonSnapshot(msgs.last);
+      final last = comparisonSnapshot.message;
+      final lastContent = comparisonSnapshot.comparisonContent.trim();
       final hasNonTextArtifacts =
           (last.files?.isNotEmpty ?? false) ||
           (last.output?.isNotEmpty ?? false) ||

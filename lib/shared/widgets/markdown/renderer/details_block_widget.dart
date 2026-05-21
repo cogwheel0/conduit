@@ -208,8 +208,7 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
   }
 
   void _showDetailsBottomSheet(BuildContext context) {
-    final body = _buildBody(context);
-    if (body == null) {
+    if (!_canExpand) {
       return;
     }
 

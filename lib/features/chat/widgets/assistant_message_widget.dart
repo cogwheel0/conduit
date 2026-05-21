@@ -89,7 +89,7 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
 }
 
 class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   late AnimationController _fadeController;
   late AnimationController _slideController;
   String _displayedContent = '';
@@ -107,8 +107,12 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   // Active version index (-1 means current/live content)
   int _activeVersionIndex = -1;
   String? _lastStreamingContent;
+  String? _pendingDisplayedContent;
+  bool _displayedContentFrameScheduled = false;
   bool _disableAnimations = false;
   bool _hasAnimated = false;
+  bool _isAppForeground = true;
+  bool _isRouteVisible = true;
 
   /// Guards the triple-haptic so it fires only once per streaming session.
   bool _hasTriggeredContentHaptic = false;
@@ -139,6 +143,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _isAppForeground = _isLifecycleForeground(
+      WidgetsBinding.instance.lifecycleState,
+    );
     _disableAnimations = WidgetsBinding
         .instance
         .platformDispatcher
@@ -167,6 +175,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     super.didChangeDependencies();
     _disableAnimations =
         MediaQuery.maybeDisableAnimationsOf(context) ?? _disableAnimations;
+    _updateRouteVisibility();
     if (!_shouldAnimateOnMount && !_hasAnimated) {
       _fadeController.value = 1.0;
       _slideController.value = 1.0;
@@ -185,6 +194,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     if (messageChanged) {
       _lastStreamingContent = null;
       _displayedContent = '';
+      _pendingDisplayedContent = null;
       _cachedAvatar = null;
       _cachedAvatarModelName = null;
       _cachedAvatarIconUrl = null;
@@ -212,12 +222,14 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       _hasTriggeredContentHaptic = false;
       // Haptic: streaming finished
       _streamingHaptic(HapticType.medium);
-      _scheduleTtsPlainTextBuild(_displayedContent);
+      _scheduleTtsPlainTextBuild(
+        _pendingDisplayedContent ?? _resolvedMessageContent(),
+      );
     }
 
     // Refresh rendered content when the active message changes.
     if (messageChanged || _didMessageContentChange(oldWidget)) {
-      _refreshDisplayedContent();
+      _queueDisplayedContentRefresh();
     }
 
     // Update typing indicator gate when message properties that affect emptiness change
@@ -257,8 +269,38 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     return raw;
   }
 
-  void _refreshDisplayedContent([String? overrideContent]) {
-    final raw = _resolvedMessageContent(overrideContent);
+  void _queueDisplayedContentRefresh([String? overrideContent]) {
+    _queueDisplayedContent(_resolvedMessageContent(overrideContent));
+  }
+
+  void _queueDisplayedContent(String raw) {
+    if (!mounted) {
+      _applyDisplayedContent(raw);
+      return;
+    }
+
+    _pendingDisplayedContent = raw;
+    if (_displayedContentFrameScheduled) {
+      return;
+    }
+
+    _displayedContentFrameScheduled = true;
+    WidgetsBinding.instance.scheduleFrame();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _displayedContentFrameScheduled = false;
+      if (!mounted) {
+        return;
+      }
+      final pending = _pendingDisplayedContent;
+      _pendingDisplayedContent = null;
+      if (pending == null) {
+        return;
+      }
+      _applyDisplayedContent(pending);
+    });
+  }
+
+  void _applyDisplayedContent(String raw) {
     final previousLength = _displayedContent.length;
     final contentChanged = raw != _displayedContent;
 
@@ -696,14 +738,14 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     _streamingContentSub?.close();
     _streamingContentSub = null;
 
-    if (widget.isStreaming) {
+    if (widget.isStreaming && _canListenToStreamingContent) {
       _streamingContentSub = ref.listenManual(streamingContentProvider, (
         prev,
         next,
       ) {
         if (next != null && next != _lastStreamingContent) {
           _lastStreamingContent = next;
-          _refreshDisplayedContent(next);
+          _queueDisplayedContentRefresh(next);
         }
       }, fireImmediately: true);
     }
@@ -711,6 +753,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _streamingContentSub?.close();
     _typingGateTimer?.cancel();
     _ttsPlainTextDebounce?.cancel();
@@ -719,6 +762,37 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     _fadeController.dispose();
     _slideController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final nextIsForeground = _isLifecycleForeground(state);
+    if (_isAppForeground == nextIsForeground) {
+      return;
+    }
+    _isAppForeground = nextIsForeground;
+    _syncStreamingContentSubscription();
+  }
+
+  bool get _canListenToStreamingContent => _isAppForeground && _isRouteVisible;
+
+  bool _isLifecycleForeground(AppLifecycleState? state) =>
+      state == null ||
+      state == AppLifecycleState.resumed ||
+      state == AppLifecycleState.inactive;
+
+  bool _computeRouteVisibility() {
+    return TickerMode.valuesOf(context).enabled &&
+        (ModalRoute.isCurrentOf(context) ?? true);
+  }
+
+  void _updateRouteVisibility() {
+    final nextIsRouteVisible = _computeRouteVisibility();
+    if (_isRouteVisible == nextIsRouteVisible) {
+      return;
+    }
+    _isRouteVisible = nextIsRouteVisible;
+    _syncStreamingContentSubscription();
   }
 
   bool _didMessageContentChange(AssistantMessageWidget oldWidget) {

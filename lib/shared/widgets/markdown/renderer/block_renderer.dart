@@ -1053,7 +1053,7 @@ class BlockRenderer {
               type: item.type,
               name: item.name,
               isDone: item.isDone,
-              child: _renderCompiledDetailsBlock(item),
+              childBuilder: (_) => _renderCompiledDetailsBlock(item),
             ),
           )
           .toList(growable: false),

@@ -58,6 +58,12 @@ class MarkdownDocumentController {
       return;
     }
 
+    if (!preparedChanged &&
+        _compiledPreparedContent == preparedContent &&
+        _compiledDocument != null) {
+      return;
+    }
+
     final compiler = _readCompiler();
     final cached = compiler.peekPrepared(preparedContent);
     if (cached != null) {

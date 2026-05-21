@@ -343,6 +343,86 @@ void main() {
       check(container.read(chatMessagesProvider)).deepEquals(initialMessages);
     });
 
+    test(
+      'adopts streaming server updates when rich fields change in place',
+      () async {
+        final timestamp = DateTime.now();
+        final initialMessages = [
+          _userMessage('user-1', 'Hello', timestamp),
+          ChatMessage(
+            id: 'assistant-1',
+            role: 'assistant',
+            content: 'Draft answer',
+            timestamp: timestamp,
+            isStreaming: true,
+            files: const [
+              {'id': 'file-1', 'status': 'pending', 'url': 'about:blank'},
+            ],
+            output: const [
+              {'type': 'message', 'status': 'pending', 'text': 'Draft answer'},
+            ],
+            embeds: const [
+              {'kind': 'link', 'url': 'about:blank', 'title': 'Loading'},
+            ],
+          ),
+        ];
+        final refreshedMessages = [
+          _userMessage('user-1', 'Hello', timestamp),
+          ChatMessage(
+            id: 'assistant-1',
+            role: 'assistant',
+            content: 'Draft answer',
+            timestamp: timestamp,
+            isStreaming: true,
+            files: const [
+              {
+                'id': 'file-1',
+                'status': 'complete',
+                'url': 'https://example.com/final.png',
+              },
+            ],
+            output: const [
+              {'type': 'message', 'status': 'complete', 'text': 'Draft answer'},
+            ],
+            embeds: const [
+              {
+                'kind': 'link',
+                'url': 'https://example.com/final',
+                'title': 'Ready',
+              },
+            ],
+          ),
+        ];
+
+        final container = ProviderContainer(
+          overrides: [
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            socketServiceProvider.overrideWithValue(null),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        container
+            .read(activeConversationProvider.notifier)
+            .set(_conversation('chat-1', initialMessages, timestamp));
+
+        check(container.read(chatMessagesProvider)).deepEquals(initialMessages);
+
+        container
+            .read(activeConversationProvider.notifier)
+            .set(_conversation('chat-1', refreshedMessages, timestamp));
+        await pumpMicrotasks();
+
+        check(
+          container.read(chatMessagesProvider),
+        ).deepEquals(refreshedMessages);
+        container.read(chatMessagesProvider.notifier).clearMessages();
+        container.read(activeConversationProvider.notifier).clear();
+      },
+    );
+
     test('finishStreaming releases stale socket subscriptions', () async {
       final timestamp = DateTime.now();
       final user = _userMessage('user-1', 'Hello', timestamp);

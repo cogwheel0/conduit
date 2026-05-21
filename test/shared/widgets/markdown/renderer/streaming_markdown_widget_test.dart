@@ -40,6 +40,19 @@ class _TestTextToSpeechController extends TextToSpeechController {
   TextToSpeechState build() => const TextToSpeechState();
 }
 
+class _ImmediateWorkerManager extends WorkerManager {
+  _ImmediateWorkerManager() : super(maxConcurrentTasks: 1);
+
+  @override
+  Future<R> schedule<Q, R>(
+    WorkerTask<Q, R> callback,
+    Q message, {
+    String? debugLabel,
+  }) {
+    return Future<R>.value(callback(message));
+  }
+}
+
 class _DelayedMarkdownCompileService extends MarkdownCompileService {
   _DelayedMarkdownCompileService() : super(workerManager: WorkerManager());
 
@@ -101,6 +114,43 @@ class _SelectiveDelayedMarkdownCompileService extends MarkdownCompileService {
   }) => preparedContent != delayedPreparedContent;
 }
 
+class _PrepareCountingMarkdownCompileService extends MarkdownCompileService {
+  _PrepareCountingMarkdownCompileService()
+    : super(workerManager: WorkerManager());
+
+  int prepareCallCount = 0;
+  int compileCallCount = 0;
+
+  @override
+  Future<String> prepareContent(
+    String content, {
+    required bool streaming,
+    bool allowSynchronous = false,
+    bool widgetTest = false,
+  }) async {
+    prepareCallCount += 1;
+    return prepareMarkdownContent(content, streaming: streaming);
+  }
+
+  @override
+  bool shouldPrepareSynchronously(String content, {bool widgetTest = false}) =>
+      false;
+
+  @override
+  bool shouldCompileSynchronously(
+    String preparedContent, {
+    bool widgetTest = false,
+  }) => true;
+
+  @override
+  CompiledMarkdownDocument compilePreparedSynchronously(
+    String preparedContent,
+  ) {
+    compileCallCount += 1;
+    return super.compilePreparedSynchronously(preparedContent);
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -158,8 +208,10 @@ void main() {
     String? stateScopeId,
     List<ChatSourceReference> sources = const <ChatSourceReference>[],
     Locale? locale,
+    Duration? debugRenderInterval,
     VoidCallback? onCompiledViewMounted,
     VoidCallback? onCompiledViewDisposed,
+    VoidCallback? onStreamingRefreshFrame,
   }) {
     return ProviderScope(
       child: MaterialApp(
@@ -174,8 +226,10 @@ void main() {
               isStreaming: isStreaming,
               stateScopeId: stateScopeId,
               sources: sources,
+              debugRenderInterval: debugRenderInterval,
               debugOnCompiledViewMounted: onCompiledViewMounted,
               debugOnCompiledViewDisposed: onCompiledViewDisposed,
+              debugOnStreamingRefreshFrame: onStreamingRefreshFrame,
             ),
           ),
         ),
@@ -667,6 +721,164 @@ After
   });
 
   testWidgets(
+    'skips recompiling when async prepare resolves to the current snapshot',
+    (tester) async {
+      debugResetCompiledMarkdownCache();
+      final compiler = _PrepareCountingMarkdownCompileService();
+      addTearDown(compiler.dispose);
+      final baseContent = List<String>.filled(80, 'Stable sentence.').join(' ');
+      final hiddenTrailingToolCall = [
+        baseContent,
+        '<details type="tool_calls" done="true" name="run_command">',
+        '<summary>Tool Executed</summary>',
+      ].join('\n\n');
+
+      Widget buildCountingHarness(String content) {
+        return ProviderScope(
+          overrides: [
+            markdownCompileServiceProvider.overrideWithValue(compiler),
+          ],
+          child: MaterialApp(
+            theme: AppTheme.light(TweakcnThemes.t3Chat),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: StreamingMarkdownWidget(
+                  content: content,
+                  isStreaming: true,
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+
+      await tester.pumpWidget(buildCountingHarness(baseContent));
+      await tester.pump();
+
+      expect(compiler.prepareCallCount, 0);
+      expect(compiler.compileCallCount, 1);
+
+      await tester.pumpWidget(buildCountingHarness(hiddenTrailingToolCall));
+      await tester.pump();
+      await tester.pump();
+
+      expect(compiler.prepareCallCount, 1);
+      expect(compiler.compileCallCount, 1);
+    },
+  );
+
+  testWidgets(
+    'pauses streaming refresh while another route obscures the chat',
+    (tester) async {
+      final navigatorKey = GlobalKey<NavigatorState>();
+      var content = 'First pass';
+      var refreshFrameCount = 0;
+      late void Function(VoidCallback fn) rebuildHome;
+
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            navigatorKey: navigatorKey,
+            theme: AppTheme.light(TweakcnThemes.t3Chat),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: StatefulBuilder(
+              builder: (context, setState) {
+                rebuildHome = setState;
+                return Scaffold(
+                  body: SingleChildScrollView(
+                    child: StreamingMarkdownWidget(
+                      content: content,
+                      isStreaming: true,
+                      debugOnStreamingRefreshFrame: () {
+                        refreshFrameCount += 1;
+                      },
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      navigatorKey.currentState!.push(
+        MaterialPageRoute<void>(
+          builder: (_) => const Scaffold(body: SizedBox.shrink()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      rebuildHome(() {
+        content = 'Second pass while hidden';
+      });
+      await tester.pump();
+      await tester.pump();
+
+      expect(refreshFrameCount, 0);
+
+      navigatorKey.currentState!.pop();
+      await tester.pumpAndSettle();
+      await tester.pump();
+
+      expect(refreshFrameCount, 1);
+    },
+  );
+
+  testWidgets('keeps streaming refresh active while the app is inactive', (
+    tester,
+  ) async {
+    final binding = TestWidgetsFlutterBinding.instance;
+    var content = 'First pass';
+    var refreshFrameCount = 0;
+    late void Function(VoidCallback fn) rebuildHome;
+
+    addTearDown(() {
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    });
+
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: StatefulBuilder(
+            builder: (context, setState) {
+              rebuildHome = setState;
+              return Scaffold(
+                body: SingleChildScrollView(
+                  child: StreamingMarkdownWidget(
+                    content: content,
+                    isStreaming: true,
+                    debugOnStreamingRefreshFrame: () {
+                      refreshFrameCount += 1;
+                    },
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+
+    rebuildHome(() {
+      content = 'Second pass while inactive';
+    });
+    await tester.pump();
+    await tester.pump();
+
+    expect(refreshFrameCount, 1);
+  });
+
+  testWidgets(
     'assistant streaming haptics fire for content arrival and completion',
     (tester) async {
       debugDefaultTargetPlatformOverride = TargetPlatform.android;
@@ -818,17 +1030,123 @@ After
 
         container.read(streamingContentProvider.notifier).set('Hello');
         await tester.pump();
+        await tester.pump();
 
         expect(find.text('Hello', findRichText: true), findsOneWidget);
         expect(find.byType(ShaderMask), findsNothing);
 
         container.read(streamingContentProvider.notifier).set('Hello world');
         await tester.pump();
+        await tester.pump();
         await tester.pump(const Duration(milliseconds: 120));
 
         expect(find.text('Hello world', findRichText: true), findsOneWidget);
         expect(find.byType(ShaderMask), findsNothing);
       } finally {
+        container.dispose();
+      }
+    },
+  );
+
+  testWidgets(
+    'assistant streaming content keeps updating while the app is inactive',
+    (tester) async {
+      final binding = TestWidgetsFlutterBinding.instance;
+      final container = ProviderContainer(
+        overrides: [
+          appSettingsProvider.overrideWithValue(
+            const AppSettings(disableHapticsWhileStreaming: true),
+          ),
+          textToSpeechControllerProvider.overrideWith(
+            _TestTextToSpeechController.new,
+          ),
+        ],
+      );
+
+      final message = ChatMessage(
+        id: 'streaming-message',
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime(2026),
+      );
+
+      addTearDown(() {
+        binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      });
+
+      try {
+        await tester.pumpWidget(
+          buildAssistantHarness(
+            container: container,
+            message: message,
+            isStreaming: true,
+          ),
+        );
+        await tester.pump();
+
+        binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+
+        container.read(streamingContentProvider.notifier).set('Hello');
+        await tester.pump();
+        await tester.pump();
+
+        expect(find.text('Hello', findRichText: true), findsOneWidget);
+      } finally {
+        container.dispose();
+      }
+    },
+  );
+
+  testWidgets(
+    'assistant builds TTS plain text when streaming ends with unchanged content',
+    (tester) async {
+      final workerManager = _ImmediateWorkerManager();
+      final container = ProviderContainer(
+        overrides: [
+          appSettingsProvider.overrideWithValue(
+            const AppSettings(disableHapticsWhileStreaming: true),
+          ),
+          textToSpeechControllerProvider.overrideWith(
+            _TestTextToSpeechController.new,
+          ),
+          workerManagerProvider.overrideWithValue(workerManager),
+        ],
+      );
+
+      final message = ChatMessage(
+        id: 'streaming-message',
+        role: 'assistant',
+        content: 'Hello',
+        timestamp: DateTime(2026),
+      );
+
+      try {
+        await tester.pumpWidget(
+          buildAssistantHarness(
+            container: container,
+            message: message,
+            isStreaming: true,
+          ),
+        );
+        await tester.pump();
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(AssistantMessageWidget)),
+        )!;
+        expect(find.bySemanticsLabel(l10n.ttsListen), findsNothing);
+
+        await tester.pumpWidget(
+          buildAssistantHarness(
+            container: container,
+            message: message,
+            isStreaming: false,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.bySemanticsLabel(l10n.ttsListen), findsOneWidget);
+      } finally {
+        workerManager.dispose();
         container.dispose();
       }
     },

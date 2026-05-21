@@ -246,7 +246,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     if (_hasStreamingAssistant ||
         (serverMessages.lastOrNull?.role == 'assistant' &&
             serverMessages.lastOrNull?.isStreaming == true)) {
-      return false;
+      return _messagesDifferByStreamingSignatures(serverMessages, state);
     }
     return !listEquals(serverMessages, state);
   }
@@ -269,6 +269,199 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       }
     }
     return false;
+  }
+
+  bool _messagesDifferByStreamingSignatures(
+    List<ChatMessage> left,
+    List<ChatMessage> right,
+  ) {
+    if (left.length != right.length) {
+      return true;
+    }
+    for (var index = 0; index < left.length; index += 1) {
+      if (_streamingMessageSignature(left[index]) !=
+          _streamingMessageSignature(right[index])) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  int _streamingMessageSignature(ChatMessage message) {
+    return Object.hash(
+      message.id,
+      message.role,
+      message.model,
+      message.isStreaming,
+      message.content,
+      message.error?.content,
+      _statusHistoryStreamingSignature(message.statusHistory),
+      _stringListStreamingSignature(message.followUps),
+      _stringListStreamingSignature(message.attachmentIds ?? const <String>[]),
+      _dynamicMapListStreamingSignature(message.files),
+      _dynamicMapListStreamingSignature(message.output),
+      _dynamicMapListStreamingSignature(message.embeds),
+      _sourceStreamingSignature(message.sources),
+      _codeExecutionStreamingSignature(message.codeExecutions),
+      _versionStreamingSignature(message.versions),
+      _mapStreamingSignature(message.metadata),
+      _mapStreamingSignature(message.usage),
+    );
+  }
+
+  int _statusHistoryStreamingSignature(List<ChatStatusUpdate> statuses) {
+    return Object.hashAll(
+      statuses.map(
+        (status) => Object.hash(
+          status.action,
+          status.description,
+          status.done,
+          status.hidden,
+          status.count,
+          status.query,
+          Object.hashAll(status.queries),
+          Object.hashAll(status.urls),
+          _statusItemsStreamingSignature(status.items),
+          status.occurredAt?.millisecondsSinceEpoch,
+        ),
+      ),
+    );
+  }
+
+  int _stringListStreamingSignature(List<String> values) =>
+      Object.hashAll(values);
+
+  int _sourceStreamingSignature(List<ChatSourceReference> sources) {
+    return Object.hashAll(
+      sources.map(
+        (source) => Object.hash(
+          source.id,
+          source.title,
+          source.url,
+          source.snippet,
+          source.type,
+          _mapStreamingSignature(source.metadata),
+        ),
+      ),
+    );
+  }
+
+  int _codeExecutionStreamingSignature(List<ChatCodeExecution> executions) {
+    return Object.hashAll(
+      executions.map(
+        (execution) => Object.hash(
+          execution.id,
+          execution.name,
+          execution.language,
+          execution.code,
+          execution.result?.output,
+          execution.result?.error,
+          _executionFilesStreamingSignature(
+            execution.result?.files ?? const <ChatExecutionFile>[],
+          ),
+          _mapStreamingSignature(execution.result?.metadata),
+          _mapStreamingSignature(execution.metadata),
+        ),
+      ),
+    );
+  }
+
+  int _versionStreamingSignature(List<ChatMessageVersion> versions) {
+    return Object.hashAll(
+      versions.map(
+        (version) => Object.hash(
+          version.id,
+          version.model,
+          version.content,
+          version.error?.content,
+          _dynamicMapListStreamingSignature(version.files),
+          _dynamicMapListStreamingSignature(version.output),
+          _dynamicMapListStreamingSignature(version.embeds),
+          _sourceStreamingSignature(version.sources),
+          _stringListStreamingSignature(version.followUps),
+          _codeExecutionStreamingSignature(version.codeExecutions),
+          _mapStreamingSignature(version.usage),
+        ),
+      ),
+    );
+  }
+
+  int _statusItemsStreamingSignature(List<ChatStatusItem> items) {
+    return Object.hashAll(
+      items.map(
+        (item) => Object.hash(
+          item.title,
+          item.link,
+          item.snippet,
+          _mapStreamingSignature(item.metadata),
+        ),
+      ),
+    );
+  }
+
+  int _executionFilesStreamingSignature(List<ChatExecutionFile> files) {
+    return Object.hashAll(
+      files.map(
+        (file) => Object.hash(
+          file.name,
+          file.url,
+          _mapStreamingSignature(file.metadata),
+        ),
+      ),
+    );
+  }
+
+  int _dynamicMapListStreamingSignature(List<Map<String, dynamic>>? values) {
+    if (values == null || values.isEmpty) {
+      return 0;
+    }
+    return Object.hash(
+      values.length,
+      Object.hashAll(values.map(_mapStreamingSignature)),
+    );
+  }
+
+  int _mapStreamingSignature(Map<String, dynamic>? value) {
+    if (value == null || value.isEmpty) {
+      return 0;
+    }
+    final entries = value.entries.toList(growable: false)
+      ..sort((left, right) => left.key.compareTo(right.key));
+    return Object.hashAll(
+      entries.map((entry) {
+        return Object.hash(
+          entry.key,
+          _dynamicValueStreamingSignature(entry.value),
+        );
+      }),
+    );
+  }
+
+  int _dynamicValueStreamingSignature(Object? value) {
+    if (value == null) {
+      return 0;
+    }
+    if (value is String || value is num || value is bool) {
+      return Object.hash(value.runtimeType, value);
+    }
+    if (value is DateTime) {
+      return Object.hash(DateTime, value.microsecondsSinceEpoch);
+    }
+    if (value is Map) {
+      final normalized = <String, dynamic>{
+        for (final entry in value.entries)
+          entry.key?.toString() ?? '': entry.value,
+      };
+      return _mapStreamingSignature(normalized);
+    }
+    if (value is Iterable) {
+      final entries = value.toList(growable: false);
+      return Object.hash(
+        entries.length,
+        Object.hashAll(entries.map(_dynamicValueStreamingSignature)),
+      );
+    }
+    return Object.hash(value.runtimeType, value.toString());
   }
 
   void _adoptServerMessages(
@@ -858,6 +1051,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
             // Case 2: Find the local streaming message in server messages by ID
             // This handles cases where last messages differ
             if (localLast.role == 'assistant' && localLast.isStreaming) {
+              final comparisonSnapshot =
+                  _readStreamingMessageComparisonSnapshot(localLast.id);
               final serverVersion = serverMessages
                   .where((m) => m.id == localLast.id)
                   .firstOrNull;
@@ -875,7 +1070,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
                     'Server sync: adopting server state '
                     '(serverHasContent=$serverHasContent, '
                     'serverLen=${serverVersion.content.length}, '
-                    'localLen=${localLast.content.length})',
+                    'localLen=${comparisonSnapshot.comparisonContent.length})',
                     scope: 'chat/providers',
                   );
                   state = serverMessages;
@@ -1303,6 +1498,31 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
     _lastStreamingContentFlushAt = DateTime.now();
     ref.read(streamingContentProvider.notifier).set(nextContent);
+  }
+
+  ({ChatMessage? message, String comparisonContent})
+  _readStreamingMessageComparisonSnapshot(String messageId) {
+    _streamingContentTimer?.cancel();
+    _streamingContentTimer = null;
+    _flushStreamingContentUpdate();
+    _syncStreamingBufferToState();
+
+    final refreshedMessage = state
+        .where((message) => message.id == messageId)
+        .firstOrNull;
+    if (refreshedMessage == null) {
+      return (message: null, comparisonContent: '');
+    }
+
+    var comparisonContent = refreshedMessage.content;
+    final visibleContent = ref.read(streamingContentProvider);
+    if (visibleContent != null &&
+        visibleContent.isNotEmpty &&
+        visibleContent.length >= comparisonContent.length) {
+      comparisonContent = visibleContent;
+    }
+
+    return (message: refreshedMessage, comparisonContent: comparisonContent);
   }
 
   /// Syncs the accumulated streaming buffer content into

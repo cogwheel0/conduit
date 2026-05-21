@@ -3071,11 +3071,8 @@ List<int> _selectMarkdownPrewarmCandidateIndices({
     return const <int>[];
   }
 
-  final startOffset = (viewportTop - (viewportHeight * 0.5)).clamp(
-    0.0,
-    double.infinity,
-  );
-  final endOffset = viewportTop + (viewportHeight * 1.75);
+  final startOffset = viewportTop.clamp(0.0, double.infinity);
+  final endOffset = viewportTop + viewportHeight;
   final startIndex = _rowIndexForEstimatedOffset(layoutMetadata, startOffset);
   final endIndex = _rowIndexForEstimatedOffset(layoutMetadata, endOffset);
   for (var index = endIndex; index >= startIndex; index -= 1) {

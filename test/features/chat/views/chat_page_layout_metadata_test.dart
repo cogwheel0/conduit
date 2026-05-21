@@ -84,9 +84,31 @@ void main() {
         maxCount: 3,
       );
 
-      expect(indices, <int>[2, 1, 0]);
+      expect(indices, <int>[1, 0]);
     },
   );
+
+  test('markdown prewarm only returns rows intersecting the viewport', () {
+    final messages = List<ChatMessage>.generate(6, (index) {
+      return ChatMessage(
+        id: 'assistant-$index',
+        role: 'assistant',
+        content: 'Visible response $index',
+        timestamp: DateTime(2026),
+      );
+    });
+
+    final summary = debugBuildChatListLayoutSummaryForTesting(messages);
+    final targetRow = summary[4];
+    final indices = debugSelectMarkdownPrewarmCandidateIndicesForTesting(
+      messages,
+      viewportTop: targetRow.leadingOffset + 1,
+      viewportHeight: targetRow.estimatedExtent - 2,
+      maxCount: 6,
+    );
+
+    expect(indices, <int>[4]);
+  });
 
   test('markdown prewarm returns no candidates without viewport metrics', () {
     final messages = <ChatMessage>[
