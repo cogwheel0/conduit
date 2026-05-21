@@ -136,8 +136,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   Timer? _scrollDebounceTimer;
   bool _isDeactivated = false;
   double _inputHeight = 0;
-  bool _lastKeyboardVisible = false; // track keyboard visibility transitions
-  bool _keyboardScrollCallbackScheduled = false;
   bool _didStartupFocus = false; // one-time auto-focus on startup
   String? _lastConversationId;
   final Map<String, double> _savedScrollOffsets = {};
@@ -1103,19 +1101,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
 
     _scrollToBottom(smooth: true);
-  }
-
-  void _scheduleKeyboardScrollToBottom() {
-    if (_keyboardScrollCallbackScheduled) return;
-    _keyboardScrollCallbackScheduled = true;
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _keyboardScrollCallbackScheduled = false;
-        if (!mounted || MediaQuery.viewInsetsOf(context).bottom <= 0) return;
-        _scrollToBottom(smooth: true);
-      });
-    });
   }
 
   void _scrollToBottom({bool smooth = true}) {
@@ -2092,9 +2077,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         onChange: (size) {
           if (!mounted) return;
           setState(() => _inputHeight = size.height);
-          if (MediaQuery.viewInsetsOf(context).bottom > 0) {
-            _scheduleKeyboardScrollToBottom();
-          }
         },
         child: SafeArea(
           top: false,
@@ -2154,12 +2136,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final keyboardVisible = MediaQuery.viewInsetsOf(context).bottom > 0;
     // Whether the messages list can actually scroll (avoids showing button when not needed)
     final canScroll = _hasScrollableContentForBottomButton();
-
-    if (keyboardVisible && !_lastKeyboardVisible) {
-      _scheduleKeyboardScrollToBottom();
-    }
-
-    _lastKeyboardVisible = keyboardVisible;
 
     // Focus composer on app startup once (minimal delay for layout to settle)
     if (!_didStartupFocus) {
