@@ -145,6 +145,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   _PendingChatScrollAction _pendingScrollAction =
       const _PendingChatScrollAction.none();
   bool _isUserInteractingWithScroll = false;
+  bool _isAnchoredToBottom = true;
+  double? _lastBottomInset;
   String? _activeScrollProfileTaskKey;
   // Pin-to-top: scroll user message to top of viewport when sending
   _PinToTopState _pinToTopState = const _PinToTopState.inactive();
@@ -253,6 +255,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _pinToTopState = const _PinToTopState.inactive();
     _invalidateChatListStableLayoutMetadata();
     _endPinToTopInFlight = false;
+    _isAnchoredToBottom = true;
 
     // Reset temporary chat state based on user preference
     final settings = ref.read(appSettingsProvider);
@@ -454,6 +457,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    _handleBottomInsetChange(MediaQuery.viewInsetsOf(context).bottom);
   }
 
   @override
@@ -966,6 +970,42 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     } catch (_) {}
   }
 
+  void _handleBottomInsetChange(double nextBottomInset) {
+    final previousBottomInset = _lastBottomInset;
+    _lastBottomInset = nextBottomInset;
+    if (previousBottomInset == null) {
+      return;
+    }
+    if (!_shouldKeepConversationBottomAnchoredOnInsetChange(
+      previousBottomInset: previousBottomInset,
+      nextBottomInset: nextBottomInset,
+      isAnchoredToBottom: _isAnchoredToBottom,
+      isUserInteractingWithScroll: _isUserInteractingWithScroll,
+      wantsPinToTop: _wantsPinToTop,
+    )) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients) {
+        return;
+      }
+      _scrollToBottom(smooth: false);
+    });
+  }
+
+  void _updateBottomAnchorTracking() {
+    if (!_scrollController.hasClients) {
+      _isAnchoredToBottom = true;
+      return;
+    }
+
+    final hasScrollableContent = _hasScrollableContentForBottomButton();
+    final distanceFromBottom = _distanceFromBottom();
+    _isAnchoredToBottom =
+        !hasScrollableContent ||
+        distanceFromBottom <= _scrollButtonHideThreshold;
+  }
+
   Future<void> _refreshActiveConversation() async {
     final api = ref.read(apiServiceProvider);
     final active = ref.read(activeConversationProvider);
@@ -999,6 +1039,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   void _onScroll() {
     if (!_scrollController.hasClients) return;
+    _updateBottomAnchorTracking();
 
     // Debounce scroll handling to reduce rebuilds
     if (_scrollDebounceTimer?.isActive == true) return;
@@ -1015,6 +1056,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final bool farFromBottom = distanceFromBottom > _scrollButtonShowThreshold;
     final bool nearBottom = distanceFromBottom <= _scrollButtonHideThreshold;
     final bool hasScrollableContent = _hasScrollableContentForBottomButton();
+    _isAnchoredToBottom = !hasScrollableContent || nearBottom;
 
     final showButton = _showScrollToBottom
         ? !nearBottom && hasScrollableContent
@@ -1234,6 +1276,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       }
 
       _scrollController.jumpTo(clampedTargetOffset);
+      _updateScrollToBottomVisibility();
     });
   }
 
@@ -2882,6 +2925,22 @@ _ChatListStableLayoutMetadata _buildChatListStableLayoutMetadata({
   );
 }
 
+bool _shouldKeepConversationBottomAnchoredOnInsetChange({
+  required double previousBottomInset,
+  required double nextBottomInset,
+  required bool isAnchoredToBottom,
+  required bool isUserInteractingWithScroll,
+  required bool wantsPinToTop,
+}) {
+  const insetChangeEpsilon = 1.0;
+  final insetExpanded =
+      nextBottomInset > previousBottomInset + insetChangeEpsilon;
+  return insetExpanded &&
+      isAnchoredToBottom &&
+      !isUserInteractingWithScroll &&
+      !wantsPinToTop;
+}
+
 @visibleForTesting
 List<
   ({
@@ -2911,6 +2970,23 @@ debugBuildChatListLayoutSummaryForTesting(
         ),
       )
       .toList(growable: false);
+}
+
+@visibleForTesting
+bool debugShouldKeepConversationBottomAnchoredOnInsetChangeForTesting({
+  required double previousBottomInset,
+  required double nextBottomInset,
+  required bool isAnchoredToBottom,
+  required bool isUserInteractingWithScroll,
+  required bool wantsPinToTop,
+}) {
+  return _shouldKeepConversationBottomAnchoredOnInsetChange(
+    previousBottomInset: previousBottomInset,
+    nextBottomInset: nextBottomInset,
+    isAnchoredToBottom: isAnchoredToBottom,
+    isUserInteractingWithScroll: isUserInteractingWithScroll,
+    wantsPinToTop: wantsPinToTop,
+  );
 }
 
 @visibleForTesting

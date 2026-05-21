@@ -152,6 +152,57 @@ void main() {
     expect(indices, <int>[0]);
   });
 
+  test('keyboard inset growth preserves bottom anchor when already pinned', () {
+    final shouldKeepBottomAnchored =
+        debugShouldKeepConversationBottomAnchoredOnInsetChangeForTesting(
+          previousBottomInset: 0,
+          nextBottomInset: 320,
+          isAnchoredToBottom: true,
+          isUserInteractingWithScroll: false,
+          wantsPinToTop: false,
+        );
+
+    expect(shouldKeepBottomAnchored, isTrue);
+  });
+
+  test('keyboard inset growth does not jump when user left the bottom', () {
+    final shouldKeepBottomAnchored =
+        debugShouldKeepConversationBottomAnchoredOnInsetChangeForTesting(
+          previousBottomInset: 0,
+          nextBottomInset: 320,
+          isAnchoredToBottom: false,
+          isUserInteractingWithScroll: false,
+          wantsPinToTop: false,
+        );
+
+    expect(shouldKeepBottomAnchored, isFalse);
+  });
+
+  test(
+    'keyboard inset growth ignores pin-to-top mode and manual scrolling',
+    () {
+      final whilePinnedToTop =
+          debugShouldKeepConversationBottomAnchoredOnInsetChangeForTesting(
+            previousBottomInset: 0,
+            nextBottomInset: 320,
+            isAnchoredToBottom: true,
+            isUserInteractingWithScroll: false,
+            wantsPinToTop: true,
+          );
+      final whileUserScrolling =
+          debugShouldKeepConversationBottomAnchoredOnInsetChangeForTesting(
+            previousBottomInset: 0,
+            nextBottomInset: 320,
+            isAnchoredToBottom: true,
+            isUserInteractingWithScroll: true,
+            wantsPinToTop: false,
+          );
+
+      expect(whilePinnedToTop, isFalse);
+      expect(whileUserScrolling, isFalse);
+    },
+  );
+
   test('clearing pin-to-top tracking preserves the active phantom sliver', () {
     final cleared = debugClearPinToTopTrackingForTesting(
       isActive: true,
