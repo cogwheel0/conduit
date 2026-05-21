@@ -661,6 +661,105 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     appendVisibleAssistantChunk(status, updateImages: false);
   }
 
+  void handleStreamingToolCallStatuses(dynamic rawToolCalls) {
+    if (rawToolCalls is! List) {
+      return;
+    }
+
+    for (final call in rawToolCalls) {
+      if (call is! Map<String, dynamic>) {
+        continue;
+      }
+      final fn = call['function'];
+      final name = (fn is Map && fn['name'] is String)
+          ? fn['name'] as String
+          : null;
+      if (name is String && name.isNotEmpty) {
+        final exists = renderedStreamingContent.contains('name="$name"');
+        if (!exists) {
+          handleToolCallStatus(name);
+        }
+      }
+    }
+  }
+
+  Map<dynamic, dynamic>? extractStreamingChoiceDelta(
+    Map<String, dynamic> payload,
+  ) {
+    final choices = payload['choices'];
+    if (choices is! List || choices.isEmpty) {
+      return null;
+    }
+
+    final choice = choices.first;
+    final delta = choice is Map ? choice['delta'] : null;
+    return delta is Map ? delta : null;
+  }
+
+  void applyParsedOpenWebUIUpdate(
+    OpenWebUIStreamUpdate update, {
+    required VoidCallback onDone,
+    VoidCallback? onStructuredDoneEvent,
+    bool Function(String type, Object? data)? handleEvent,
+  }) {
+    switch (update) {
+      case OpenWebUIContentDelta(:final content):
+        appendVisibleAssistantChunk(content);
+
+      case OpenWebUIReasoningDelta(:final content):
+        applyStreamingReasoningDelta(content);
+
+      case OpenWebUIOutputUpdate(:final output):
+        // Store structured output items from backend middleware.
+        updateLastMessageWith(
+          (m) => m.copyWith(
+            output: output.whereType<Map<String, dynamic>>().toList(
+              growable: false,
+            ),
+          ),
+        );
+
+      case OpenWebUIUsageUpdate(:final usage):
+        updateLastMessageWith((m) => m.copyWith(usage: usage));
+
+      case OpenWebUISourcesUpdate(:final sources):
+        final parsed = parseOpenWebUISourceList(sources);
+        for (final source in parsed) {
+          appendSourceReference(assistantMessageId, source);
+        }
+
+      case OpenWebUIEventUpdate(:final type, :final data):
+        final eventPayload = _asStringMap(data);
+        if (type == 'chat:completion' && eventPayload?['done'] == true) {
+          onStructuredDoneEvent?.call();
+        }
+        handleEvent?.call(type, data);
+
+      case OpenWebUISelectedModelUpdate(:final selectedModelId):
+        updateLastMessageWith(
+          (m) => m.copyWith(
+            metadata: {
+              ...?m.metadata,
+              'selectedModelId': selectedModelId,
+              'arena': true,
+            },
+          ),
+        );
+
+      case OpenWebUIErrorUpdate(:final error):
+        updateLastMessageWith(
+          (m) => m.copyWith(
+            error: ChatMessageError(
+              content: error['message']?.toString(),
+            ),
+          ),
+        );
+
+      case OpenWebUIStreamDone():
+        onDone();
+    }
+  }
+
   void completeVisibleStreaming() {
     if (hasCompletedStreamingUi) return;
     finalizeStreamingReasoning();
@@ -1617,6 +1716,59 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     });
   }
 
+  bool handleHttpStreamEventFastPath({
+    required String type,
+    required Object? data,
+  }) {
+    final payload = _asStringMap(data);
+    switch (type) {
+      case 'chat:message:delta':
+      case 'message':
+      case 'event:message:delta':
+        final content = payload?['content']?.toString() ?? '';
+        if (content.isNotEmpty) {
+          appendVisibleAssistantChunk(content);
+        }
+        return true;
+
+      case 'chat:message':
+      case 'replace':
+        final content = payload?['content']?.toString() ?? '';
+        if (content.isNotEmpty) {
+          replaceVisibleAssistantContent(content);
+        }
+        return true;
+
+      case 'status':
+        if (payload == null) {
+          return false;
+        }
+        final statusUpdate = ChatStatusUpdate.fromJson(payload);
+        applyMergedStatusUpdate(
+          targetId: assistantMessageId,
+          statusUpdate: statusUpdate,
+          metadataStatus: statusUpdate.toJson(),
+          storeMetadataStatus: true,
+        );
+        return true;
+
+      case 'event:status':
+        if (payload == null) {
+          return false;
+        }
+        final statusText = payload['status']?.toString() ?? '';
+        final statusUpdate = ChatStatusUpdate.fromJson(payload);
+        applyMergedStatusUpdate(
+          targetId: assistantMessageId,
+          statusUpdate: statusUpdate,
+          metadataStatus: statusText,
+          storeMetadataStatus: statusText.isNotEmpty,
+        );
+        return true;
+    }
+    return false;
+  }
+
   bool scheduleDelayedDoneRecovery({required bool finishAfterRecovery}) {
     final chatId = activeConversationId;
     if (chatId == null || chatId.isEmpty || isTemporaryChat(chatId)) {
@@ -1728,59 +1880,6 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     wrappedFinishStreaming();
   }
 
-  bool handleHttpStreamEventFastPath({
-    required String type,
-    required Object? data,
-  }) {
-    final payload = _asStringMap(data);
-    switch (type) {
-      case 'chat:message:delta':
-      case 'message':
-      case 'event:message:delta':
-        final content = payload?['content']?.toString() ?? '';
-        if (content.isNotEmpty) {
-          appendVisibleAssistantChunk(content);
-        }
-        return true;
-
-      case 'chat:message':
-      case 'replace':
-        final content = payload?['content']?.toString() ?? '';
-        if (content.isNotEmpty) {
-          replaceVisibleAssistantContent(content);
-        }
-        return true;
-
-      case 'status':
-        if (payload == null) {
-          return false;
-        }
-        final statusUpdate = ChatStatusUpdate.fromJson(payload);
-        applyMergedStatusUpdate(
-          targetId: assistantMessageId,
-          statusUpdate: statusUpdate,
-          metadataStatus: statusUpdate.toJson(),
-          storeMetadataStatus: true,
-        );
-        return true;
-
-      case 'event:status':
-        if (payload == null) {
-          return false;
-        }
-        final statusText = payload['status']?.toString() ?? '';
-        final statusUpdate = ChatStatusUpdate.fromJson(payload);
-        applyMergedStatusUpdate(
-          targetId: assistantMessageId,
-          statusUpdate: statusUpdate,
-          metadataStatus: statusText,
-          storeMetadataStatus: statusText.isNotEmpty,
-        );
-        return true;
-    }
-    return false;
-  }
-
   void channelLineHandlerFactory(String channel) {
     void onChannelDone() {
       try {
@@ -1819,43 +1918,19 @@ ActiveChatStream attachUnifiedChunkedStreaming({
               return;
             }
             try {
-              final Map<String, dynamic> j = jsonDecode(dataStr);
-
-              // Capture usage statistics from OpenAI-style streaming (issue #274)
-              // Usage is sent in the final chunk with stream_options.include_usage
-              final usageData = j['usage'];
-              if (usageData is Map<String, dynamic> && usageData.isNotEmpty) {
-                updateLastMessageWith((m) => m.copyWith(usage: usageData));
+              final parsed = decodeOpenWebUIDataPayload(dataStr);
+              final delta = extractStreamingChoiceDelta(parsed);
+              if (delta != null) {
+                handleStreamingToolCallStatuses(delta['tool_calls']);
               }
 
-              final choices = j['choices'];
-              if (choices is List && choices.isNotEmpty) {
-                final choice = choices.first;
-                final delta = choice is Map ? choice['delta'] : null;
-                if (delta is Map) {
-                  if (delta.containsKey('tool_calls')) {
-                    final tc = delta['tool_calls'];
-                    if (tc is List) {
-                      for (final call in tc) {
-                        if (call is Map<String, dynamic>) {
-                          final fn = call['function'];
-                          final name = (fn is Map && fn['name'] is String)
-                              ? fn['name'] as String
-                              : null;
-                          if (name is String && name.isNotEmpty) {
-                            final exists = renderedStreamingContent.contains(
-                              'name="$name"',
-                            );
-                            if (!exists) {
-                              handleToolCallStatus(name);
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                  handleStreamingChoiceDelta(delta);
-                }
+              for (final update in parseOpenWebUIParsedPayload(parsed)) {
+                applyParsedOpenWebUIUpdate(
+                  update,
+                  onDone: onChannelDone,
+                  handleEvent: (type, data) =>
+                      handleHttpStreamEventFastPath(type: type, data: data),
+                );
               }
             } catch (_) {
               if (s.isNotEmpty) {
@@ -2671,69 +2746,26 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       final sub = parseOpenWebUIStream(session.byteStream!).listen(
         (update) {
           try {
-            switch (update) {
-              case OpenWebUIContentDelta(:final content):
-                appendVisibleAssistantChunk(content);
-
-              case OpenWebUIReasoningDelta(:final content):
-                applyStreamingReasoningDelta(content);
-
-              case OpenWebUIOutputUpdate(:final output):
-                // Store structured output items from backend middleware.
-                updateLastMessageWith(
-                  (m) => m.copyWith(
-                    output: output.whereType<Map<String, dynamic>>().toList(
-                      growable: false,
-                    ),
-                  ),
-                );
-
-              case OpenWebUIUsageUpdate(:final usage):
-                updateLastMessageWith((m) => m.copyWith(usage: usage));
-
-              case OpenWebUISourcesUpdate(:final sources):
-                final parsed = parseOpenWebUISourceList(sources);
-                for (final source in parsed) {
-                  appendSourceReference(assistantMessageId, source);
-                }
-
-              case OpenWebUIEventUpdate(:final type, :final data):
-                final eventPayload = _asStringMap(data);
-                if (type == 'chat:completion' &&
-                    eventPayload?['done'] == true) {
-                  receivedDone = true;
-                }
-                if (!handleHttpStreamEventFastPath(type: type, data: data)) {
-                  chatHandler({
-                    'message_id': assistantMessageId,
-                    'data': {'type': type, 'data': data},
-                  }, null);
-                }
-
-              case OpenWebUISelectedModelUpdate(:final selectedModelId):
-                updateLastMessageWith(
-                  (m) => m.copyWith(
-                    metadata: {
-                      ...?m.metadata,
-                      'selectedModelId': selectedModelId,
-                      'arena': true,
-                    },
-                  ),
-                );
-
-              case OpenWebUIErrorUpdate(:final error):
-                updateLastMessageWith(
-                  (m) => m.copyWith(
-                    error: ChatMessageError(
-                      content: error['message']?.toString(),
-                    ),
-                  ),
-                );
-
-              case OpenWebUIStreamDone():
+            applyParsedOpenWebUIUpdate(
+              update,
+              onDone: () {
                 receivedDone = true;
                 handleCompletionDone(allowEmptyContentRecovery: true);
-            }
+              },
+              onStructuredDoneEvent: () {
+                receivedDone = true;
+              },
+              handleEvent: (type, data) {
+                if (handleHttpStreamEventFastPath(type: type, data: data)) {
+                  return true;
+                }
+                chatHandler({
+                  'message_id': assistantMessageId,
+                  'data': {'type': type, 'data': data},
+                }, null);
+                return true;
+              },
+            );
           } catch (e) {
             DebugLogger.error(
               'httpStream update handler error',

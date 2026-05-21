@@ -176,6 +176,78 @@ void main() {
       },
     );
 
+    test('parses multiple SSE payloads from a single decoded chunk', () async {
+      final updates = await parseOpenWebUIStream(
+        Stream<List<int>>.fromIterable([
+          utf8.encode(
+            'data: {"choices":[{"delta":{"content":"hi"}}]}\n\n'
+            'data: {"usage":{"total_tokens":2}}\n\n'
+            'data: [DONE]\n\n',
+          ),
+        ]),
+      ).toList();
+
+      check(updates).has((it) => it.length, 'length').equals(3);
+      check(updates[0])
+          .isA<OpenWebUIContentDelta>()
+          .has((u) => u.content, 'content')
+          .equals('hi');
+      check(updates[1])
+          .isA<OpenWebUIUsageUpdate>()
+          .has((u) => u.usage['total_tokens'], 'total_tokens')
+          .equals(2);
+      check(updates[2]).isA<OpenWebUIStreamDone>();
+    });
+
+    test('joins multi-line data fields within a single SSE frame', () async {
+      final updates = await parseOpenWebUIStream(
+        Stream<List<int>>.fromIterable([
+          utf8.encode(
+            'data: {"choices":[{"delta":{\n'
+            'data: "content":"hello"}}]}\n\n',
+          ),
+        ]),
+      ).toList();
+
+      check(updates).has((it) => it.length, 'length').equals(1);
+      check(updates[0])
+          .isA<OpenWebUIContentDelta>()
+          .has((u) => u.content, 'content')
+          .equals('hello');
+    });
+
+    test('handles CRLF boundaries split across decoded chunks', () async {
+      final updates = await parseOpenWebUIStream(
+        Stream<List<int>>.fromIterable([
+          utf8.encode('data: {"choices":[{"delta":{"content":"hi"}}]}\r'),
+          utf8.encode('\n\r'),
+          utf8.encode('\ndata: [DONE]\r\n\r'),
+          utf8.encode('\n'),
+        ]),
+      ).toList();
+
+      check(updates).has((it) => it.length, 'length').equals(2);
+      check(updates[0])
+          .isA<OpenWebUIContentDelta>()
+          .has((u) => u.content, 'content')
+          .equals('hi');
+      check(updates[1]).isA<OpenWebUIStreamDone>();
+    });
+
+    test('flushes trailing unterminated data payloads at stream end', () async {
+      final updates = await parseOpenWebUIStream(
+        Stream<List<int>>.fromIterable([
+          utf8.encode('data: {"choices":[{"delta":{"content":"tail"}}]}'),
+        ]),
+      ).toList();
+
+      check(updates).has((it) => it.length, 'length').equals(1);
+      check(updates[0])
+          .isA<OpenWebUIContentDelta>()
+          .has((u) => u.content, 'content')
+          .equals('tail');
+    });
+
     test('handles a multibyte UTF-8 character split across chunks', () async {
       final bytes = utf8.encode(
         'data: {"choices":[{"delta":{"content":"🙂"}}]}\n\n',

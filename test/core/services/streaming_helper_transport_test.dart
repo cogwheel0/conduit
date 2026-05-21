@@ -736,6 +736,72 @@ void main() {
       },
     );
 
+    test('taskSocket channel stream applies usage updates from data payloads', () async {
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        socketService: _MockSocketService(registrar),
+      );
+
+      await pumpMicrotasks();
+
+      registrar.emitChatEvent('request:chat:completion', {
+        'channel': 'chan-1',
+      }, messageId: 'msg-1');
+      await pumpMicrotasks();
+
+      registrar.emitChannelLine(
+        'chan-1',
+        'data: {"usage":{"prompt_tokens":3,"completion_tokens":5}}',
+      );
+      await pumpMicrotasks();
+
+      final usage = log.messages.last.usage;
+      check(usage).isNotNull();
+      check(usage!['prompt_tokens']).equals(3);
+      check(usage['completion_tokens']).equals(5);
+    });
+
+    test('taskSocket channel stream preserves malformed payload fallback', () async {
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        socketService: _MockSocketService(registrar),
+      );
+
+      await pumpMicrotasks();
+
+      registrar.emitChatEvent('request:chat:completion', {
+        'channel': 'chan-1',
+      }, messageId: 'msg-1');
+      await pumpMicrotasks();
+
+      registrar.emitChannelLine('chan-1', 'data: {not json');
+      await pumpMicrotasks();
+
+      check(log.appendedChunks).deepEquals(['data: {not json']);
+      check(log.messages.last.content).equals('data: {not json');
+
+      registrar.emitChannelLine('chan-1', 'data: [DONE]');
+      await pumpMicrotasks();
+
+      check(log.finishCount).equals(1);
+    });
+
     // -----------------------------------------------------------------------
     // 2. taskSocket sessions consume socket deltas and finish once on done
     // -----------------------------------------------------------------------

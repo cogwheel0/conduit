@@ -93,74 +93,58 @@ final class OpenWebUIStreamDone extends OpenWebUIStreamUpdate {
 /// Handles:
 /// - Split SSE frames across byte chunks
 /// - Multi-byte UTF-8 characters split across chunks (via [utf8.decoder])
-/// - CRLF normalization
+/// - CRLF normalization, including split CRLF boundaries across chunks
 /// - Comment/event-only frames (skipped)
 /// - Trailing frames without final `\n\n` boundary
 Stream<OpenWebUIStreamUpdate> parseOpenWebUIStream(
   Stream<List<int>> chunks,
 ) async* {
-  final buffer = StringBuffer();
+  final scanner = _OpenWebUISseScanner();
   final textChunks = chunks.transform(utf8.decoder);
 
   await for (final chunk in textChunks) {
-    buffer.write(chunk.replaceAll('\r\n', '\n'));
-    final frames = _takeCompleteFrames(buffer);
-
-    for (final frame in frames) {
-      final data = _extractData(frame);
-      if (data.isEmpty) continue;
+    for (final data in scanner.addChunk(chunk)) {
       if (data == '[DONE]') {
         yield const OpenWebUIStreamDone();
         return;
       }
-      yield* _parseFrameData(data);
+      for (final update in parseOpenWebUIDataPayload(data)) {
+        yield update;
+      }
     }
   }
 
-  // Handle trailing data that wasn't terminated by \n\n.
-  final trailing = buffer.toString().trim();
-  if (trailing.isNotEmpty) {
-    final data = _extractData(trailing);
-    if (data.isEmpty) return;
+  for (final data in scanner.close()) {
     if (data == '[DONE]') {
       yield const OpenWebUIStreamDone();
-    } else {
-      yield* _parseFrameData(data);
+      return;
+    }
+    for (final update in parseOpenWebUIDataPayload(data)) {
+      yield update;
     }
   }
 }
 
-/// Splits completed SSE frames (delimited by `\n\n`) out of [buffer],
-/// leaving any incomplete trailing text in the buffer.
-List<String> _takeCompleteFrames(StringBuffer buffer) {
-  final text = buffer.toString();
-  final frames = text.split('\n\n');
-
-  // The last element is either empty (if text ended with \n\n) or an
-  // incomplete frame -- either way it stays in the buffer.
-  buffer
-    ..clear()
-    ..write(frames.removeLast());
-
-  return frames
-      .where((frame) => frame.trim().isNotEmpty)
-      .toList(growable: false);
+/// Decodes a JSON data payload and yields the appropriate typed updates.
+Iterable<OpenWebUIStreamUpdate> parseOpenWebUIDataPayload(String data) sync* {
+  yield* parseOpenWebUIParsedPayload(decodeOpenWebUIDataPayload(data));
 }
 
-/// Extracts the concatenated `data:` field values from an SSE frame,
-/// ignoring comment lines (`:`) and event/id lines.
-String _extractData(String frame) {
-  return frame
-      .split('\n')
-      .where((line) => line.startsWith('data:'))
-      .map((line) => line.substring(5).trimLeft())
-      .join('\n');
+/// Decodes a raw OpenWebUI/OpenAI-compatible SSE `data:` payload.
+Map<String, dynamic> decodeOpenWebUIDataPayload(String data) {
+  final decoded = jsonDecode(data);
+  if (decoded is! Map) {
+    throw const FormatException(
+      'OpenWebUI SSE payload must decode to a JSON object.',
+    );
+  }
+  return decoded.cast<String, dynamic>();
 }
 
-/// Decodes a JSON data payload and yields the appropriate typed update.
-Stream<OpenWebUIStreamUpdate> _parseFrameData(String data) async* {
-  final parsed = jsonDecode(data) as Map<String, dynamic>;
-
+/// Converts a decoded payload map into typed stream updates.
+Iterable<OpenWebUIStreamUpdate> parseOpenWebUIParsedPayload(
+  Map<String, dynamic> parsed,
+) sync* {
   final envelopedEvent = parsed['event'];
   if (envelopedEvent is Map) {
     final event = _eventUpdateFromMap(envelopedEvent);
@@ -219,6 +203,97 @@ Stream<OpenWebUIStreamUpdate> _parseFrameData(String data) async* {
     yield OpenWebUIContentDelta(content);
   }
 }
+
+/// Incrementally scans decoded SSE text and emits complete `data:` payloads.
+final class _OpenWebUISseScanner {
+  final StringBuffer _lineBuffer = StringBuffer();
+  final StringBuffer _dataBuffer = StringBuffer();
+  bool _frameHasDataLine = false;
+  bool _skipLeadingLineFeed = false;
+
+  Iterable<String> addChunk(String chunk) sync* {
+    for (var index = 0; index < chunk.length; index++) {
+      final codeUnit = chunk.codeUnitAt(index);
+      if (_skipLeadingLineFeed) {
+        _skipLeadingLineFeed = false;
+        if (codeUnit == _lineFeed) {
+          continue;
+        }
+      }
+
+      if (codeUnit == _lineFeed) {
+        final payload = _finishLine();
+        if (payload != null) {
+          yield payload;
+        }
+        continue;
+      }
+
+      if (codeUnit == _carriageReturn) {
+        final payload = _finishLine();
+        _skipLeadingLineFeed = true;
+        if (payload != null) {
+          yield payload;
+        }
+        continue;
+      }
+
+      _lineBuffer.writeCharCode(codeUnit);
+    }
+  }
+
+  Iterable<String> close() sync* {
+    _skipLeadingLineFeed = false;
+    if (_lineBuffer.length > 0) {
+      _consumeLine(_lineBuffer.toString());
+      _lineBuffer.clear();
+    }
+
+    final payload = _finishFrame();
+    if (payload != null) {
+      yield payload;
+    }
+  }
+
+  String? _finishLine() {
+    if (_lineBuffer.length == 0) {
+      return _finishFrame();
+    }
+
+    _consumeLine(_lineBuffer.toString());
+    _lineBuffer.clear();
+    return null;
+  }
+
+  void _consumeLine(String line) {
+    if (!line.startsWith('data:')) {
+      return;
+    }
+
+    if (_frameHasDataLine) {
+      _dataBuffer.write('\n');
+    }
+    _dataBuffer.write(line.substring(5).trimLeft());
+    _frameHasDataLine = true;
+  }
+
+  String? _finishFrame() {
+    if (!_frameHasDataLine) {
+      return null;
+    }
+
+    final payload = _dataBuffer.toString();
+    _dataBuffer.clear();
+    _frameHasDataLine = false;
+    if (payload.isEmpty) {
+      return null;
+    }
+    return payload;
+  }
+}
+
+const int _lineFeed = 0x0A;
+const int _carriageReturn = 0x0D;
 
 OpenWebUIEventUpdate? _eventUpdateFromMap(Map<dynamic, dynamic> raw) {
   final type = raw['type']?.toString();
