@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
@@ -37,6 +38,8 @@ class SwipeablePageRoute<T> extends PageRoute<T> {
   final WidgetBuilder builder;
   final bool _fullscreenDialog;
   final bool _opaque;
+  static const _cupertinoTransitionsBuilder =
+      CupertinoPageTransitionsBuilder();
 
   @override
   bool get fullscreenDialog => _fullscreenDialog;
@@ -72,7 +75,7 @@ class SwipeablePageRoute<T> extends PageRoute<T> {
     Animation<double> secondaryAnimation,
     Widget child,
   ) {
-    return const CupertinoPageTransitionsBuilder().buildTransitions<T>(
+    return _cupertinoTransitionsBuilder.buildTransitions<T>(
       this,
       context,
       animation,
