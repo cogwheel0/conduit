@@ -1761,7 +1761,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           opacity: animation,
           child: SizeTransition(
             sizeFactor: animation,
-            axisAlignment: -1,
+            alignment: Alignment.topCenter,
             child: child,
           ),
         );

@@ -875,7 +875,7 @@ class CompiledMarkdownNodeBlock extends CompiledMarkdownBlock {
 
 @immutable
 class CompiledMarkdownDetailsBlock extends CompiledMarkdownBlock {
-  CompiledMarkdownDetailsBlock({
+  const CompiledMarkdownDetailsBlock({
     required String blockId,
     required this.detailsData,
   }) : super(blockId);
