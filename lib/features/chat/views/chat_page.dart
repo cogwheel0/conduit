@@ -8,7 +8,7 @@ import '../../../shared/utils/platform_scroll_physics.dart';
 import 'package:flutter/services.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/rendering.dart' show ScrollCacheExtent, ScrollDirection;
+import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:io' show Platform;
 import 'dart:math' as math;
@@ -1504,7 +1504,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       controller: null,
       keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       physics: platformAlwaysScrollablePhysics(context),
-      scrollCacheExtent: const ScrollCacheExtent.pixels(300),
+      cacheExtent: 300,
       slivers: [
         SliverPadding(
           padding: EdgeInsets.fromLTRB(
@@ -1683,7 +1683,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         controller: _scrollController,
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         physics: platformAlwaysScrollablePhysics(context),
-        scrollCacheExtent: const ScrollCacheExtent.pixels(600),
+        cacheExtent: 600,
         slivers: [
           SliverPadding(
             padding: EdgeInsets.fromLTRB(

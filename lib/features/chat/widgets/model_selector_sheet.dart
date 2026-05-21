@@ -4,7 +4,6 @@ import 'dart:io' show Platform;
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/model.dart';
@@ -156,8 +155,7 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
                                   : ListView.builder(
                                       controller: scrollController,
                                       padding: const EdgeInsets.only(top: 72),
-                                      scrollCacheExtent:
-                                          const ScrollCacheExtent.pixels(400),
+                                      cacheExtent: 400,
                                       prototypeItem: ModelListTile(
                                         model: _filteredModels.first,
                                         isSelected: false,
