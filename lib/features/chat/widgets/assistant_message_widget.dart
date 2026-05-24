@@ -1099,6 +1099,16 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     return '${widget.message.id}|current';
   }
 
+  String _followUpStateScopeId() {
+    final selectedVersionIndex = _activeVersionIndex;
+    if (selectedVersionIndex >= 0 &&
+        selectedVersionIndex < widget.message.versions.length) {
+      final versionId = widget.message.versions[selectedVersionIndex].id;
+      return 'follow-ups|${widget.message.id}|version:$versionId';
+    }
+    return 'follow-ups|${widget.message.id}|current';
+  }
+
   List<Map<String, dynamic>>? _resolveActiveEmbeds() {
     final rawEmbeds =
         _activeVersionIndex >= 0 &&
@@ -1758,17 +1768,17 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       switchOutCurve: Curves.easeInCubic,
       transitionBuilder: (child, animation) {
         return FadeTransition(
-          opacity: animation,
-          child: SizeTransition(
-            sizeFactor: animation,
-            alignment: Alignment.topCenter,
-            child: child,
+          opacity: CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+            reverseCurve: Curves.easeInCubic,
           ),
+          child: child,
         );
       },
       child: shouldShow
           ? KeyedSubtree(
-              key: ValueKey('follow-ups-${suggestions.join('|')}'),
+              key: ValueKey<String>(_followUpStateScopeId()),
               child: FollowUpSuggestionBar(
                 suggestions: suggestions,
                 onSelected: _handleFollowUpTap,

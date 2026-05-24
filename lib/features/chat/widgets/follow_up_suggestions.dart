@@ -67,33 +67,37 @@ class _MinimalFollowUpButton extends StatelessWidget {
         1;
 
     return Semantics(
+      container: true,
       button: true,
       enabled: enabled,
+      label: label,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: enabled ? onPressed : null,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: Spacing.xs),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.subdirectory_arrow_right_rounded,
-                size: iconSize,
-                color: enabled
-                    ? theme.buttonPrimary.withValues(alpha: 0.7)
-                    : theme.textSecondary.withValues(alpha: 0.4),
-              ),
-              const SizedBox(width: Spacing.xs),
-              Flexible(
-                child: Text(
-                  label,
-                  style: textStyle,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
+        child: ExcludeSemantics(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: Spacing.xs),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.subdirectory_arrow_right_rounded,
+                  size: iconSize,
+                  color: enabled
+                      ? theme.buttonPrimary.withValues(alpha: 0.7)
+                      : theme.textSecondary.withValues(alpha: 0.4),
                 ),
-              ),
-            ],
+                const SizedBox(width: Spacing.xs),
+                Flexible(
+                  child: Text(
+                    label,
+                    style: textStyle,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

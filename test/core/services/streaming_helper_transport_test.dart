@@ -192,6 +192,7 @@ class _CallbackLog {
   final codeExecutions = <(String, ChatCodeExecution)>[];
   final sourceReferences = <(String, ChatSourceReference)>[];
   final messageByIdUpdates = <(String, ChatMessage Function(ChatMessage))>[];
+  int messageByIdMutationCount = 0;
   int uiFinishCount = 0;
   int finishCount = 0;
   int flushCount = 0;
@@ -260,7 +261,12 @@ class _CallbackLog {
     if (index == -1) {
       return;
     }
-    final updated = updater(messages[index]);
+    final current = messages[index];
+    final updated = updater(current);
+    if (identical(updated, current)) {
+      return;
+    }
+    messageByIdMutationCount++;
     messages = [...messages.take(index), updated, ...messages.skip(index + 1)];
   }
 
@@ -736,71 +742,77 @@ void main() {
       },
     );
 
-    test('taskSocket channel stream applies usage updates from data payloads', () async {
-      final log = _CallbackLog();
-      final registrar = FakeSocketInjector();
+    test(
+      'taskSocket channel stream applies usage updates from data payloads',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
 
-      _attach(
-        session: ChatCompletionSession.taskSocket(
-          messageId: 'msg-1',
-          sessionId: 'sess-1',
-          taskId: 'task-1',
-        ),
-        log: log,
-        socketService: _MockSocketService(registrar),
-      );
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
 
-      await pumpMicrotasks();
+        await pumpMicrotasks();
 
-      registrar.emitChatEvent('request:chat:completion', {
-        'channel': 'chan-1',
-      }, messageId: 'msg-1');
-      await pumpMicrotasks();
+        registrar.emitChatEvent('request:chat:completion', {
+          'channel': 'chan-1',
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
 
-      registrar.emitChannelLine(
-        'chan-1',
-        'data: {"usage":{"prompt_tokens":3,"completion_tokens":5}}',
-      );
-      await pumpMicrotasks();
+        registrar.emitChannelLine(
+          'chan-1',
+          'data: {"usage":{"prompt_tokens":3,"completion_tokens":5}}',
+        );
+        await pumpMicrotasks();
 
-      final usage = log.messages.last.usage;
-      check(usage).isNotNull();
-      check(usage!['prompt_tokens']).equals(3);
-      check(usage['completion_tokens']).equals(5);
-    });
+        final usage = log.messages.last.usage;
+        check(usage).isNotNull();
+        check(usage!['prompt_tokens']).equals(3);
+        check(usage['completion_tokens']).equals(5);
+      },
+    );
 
-    test('taskSocket channel stream preserves malformed payload fallback', () async {
-      final log = _CallbackLog();
-      final registrar = FakeSocketInjector();
+    test(
+      'taskSocket channel stream preserves malformed payload fallback',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
 
-      _attach(
-        session: ChatCompletionSession.taskSocket(
-          messageId: 'msg-1',
-          sessionId: 'sess-1',
-          taskId: 'task-1',
-        ),
-        log: log,
-        socketService: _MockSocketService(registrar),
-      );
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
 
-      await pumpMicrotasks();
+        await pumpMicrotasks();
 
-      registrar.emitChatEvent('request:chat:completion', {
-        'channel': 'chan-1',
-      }, messageId: 'msg-1');
-      await pumpMicrotasks();
+        registrar.emitChatEvent('request:chat:completion', {
+          'channel': 'chan-1',
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
 
-      registrar.emitChannelLine('chan-1', 'data: {not json');
-      await pumpMicrotasks();
+        registrar.emitChannelLine('chan-1', 'data: {not json');
+        await pumpMicrotasks();
 
-      check(log.appendedChunks).deepEquals(['data: {not json']);
-      check(log.messages.last.content).equals('data: {not json');
+        check(log.appendedChunks).deepEquals(['data: {not json']);
+        check(log.messages.last.content).equals('data: {not json');
 
-      registrar.emitChannelLine('chan-1', 'data: [DONE]');
-      await pumpMicrotasks();
+        registrar.emitChannelLine('chan-1', 'data: [DONE]');
+        await pumpMicrotasks();
 
-      check(log.finishCount).equals(1);
-    });
+        check(log.finishCount).equals(1);
+      },
+    );
 
     // -----------------------------------------------------------------------
     // 2. taskSocket sessions consume socket deltas and finish once on done
@@ -2594,6 +2606,49 @@ void main() {
       check(lastMsg.files).isNotNull();
       check(lastMsg.files!.length).equals(1);
       check(lastMsg.files![0]['url']).equals('https://example.com/gen.png');
+    });
+
+    test('duplicate status events do not rewrite identical metadata', () async {
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+      final statusPayload = <String, dynamic>{
+        'action': 'knowledge_search',
+        'description': 'Searching',
+        'done': false,
+      };
+
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        socketService: _MockSocketService(registrar),
+      );
+
+      await pumpMicrotasks();
+
+      registrar.emitChatEvent('status', statusPayload);
+      await pumpMicrotasks();
+
+      check(log.messageByIdMutationCount).equals(1);
+
+      registrar.emitChatEvent(
+        'status',
+        Map<String, dynamic>.from(statusPayload),
+      );
+      await pumpMicrotasks();
+
+      final lastMsg = log.messages.last;
+      check(log.messageByIdMutationCount).equals(1);
+      check(lastMsg.statusHistory.length).equals(1);
+      check(lastMsg.statusHistory.single.description).equals('Searching');
+      check(lastMsg.metadata).isNotNull();
+      check(lastMsg.metadata!['status']).isA<Map<String, dynamic>>();
+      check(
+        (lastMsg.metadata!['status'] as Map<String, dynamic>)['description'],
+      ).equals('Searching');
     });
 
     // -----------------------------------------------------------------------

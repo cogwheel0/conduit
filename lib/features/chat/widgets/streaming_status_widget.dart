@@ -239,6 +239,8 @@ class _MinimalHistoryTimeline extends StatelessWidget {
     required this.isStreaming,
   });
 
+  static const double _markerGap = Spacing.sm;
+
   final List<ChatStatusUpdate> updates;
   final bool isStreaming;
 
@@ -256,45 +258,47 @@ class _MinimalHistoryTimeline extends StatelessWidget {
       final queries = _collectQueries(update);
       final links = _collectLinks(update);
 
-      return IntrinsicHeight(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _TimelineMarker(
+      return Stack(
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(
+              left: _TimelineMarker._width + _markerGap,
+              bottom: Spacing.sm,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                AssistantDetailHeader(
+                  title: description,
+                  showShimmer: isPending,
+                  allowWrap: true,
+                  showChevron: false,
+                ),
+                if (queries.isNotEmpty) ...[
+                  const SizedBox(height: Spacing.xs),
+                  _MinimalQueryChips(queries: queries),
+                ],
+                if (links.isNotEmpty) ...[
+                  const SizedBox(height: Spacing.xs),
+                  _MinimalSourceLinks(links: links),
+                ],
+              ],
+            ),
+          ),
+          Positioned(
+            top: 0,
+            bottom: 0,
+            left: 0,
+            child: _TimelineMarker(
               index: index,
               isFirst: isFirst,
               isLast: isLast,
               isPending: isPending,
               theme: theme,
             ),
-            const SizedBox(width: Spacing.sm),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.only(bottom: Spacing.sm),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    AssistantDetailHeader(
-                      title: description,
-                      showShimmer: isPending,
-                      allowWrap: true,
-                      showChevron: false,
-                    ),
-                    if (queries.isNotEmpty) ...[
-                      const SizedBox(height: Spacing.xs),
-                      _MinimalQueryChips(queries: queries),
-                    ],
-                    if (links.isNotEmpty) ...[
-                      const SizedBox(height: Spacing.xs),
-                      _MinimalSourceLinks(links: links),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       );
     }).toList();
 

@@ -43,6 +43,7 @@ void main() {
     await tester.tap(find.text(currentDescription));
     await tester.pumpAndSettle();
 
+    expect(find.byType(IntrinsicHeight), findsNothing);
     expect(find.byType(AssistantDetailHeader), findsNWidgets(3));
     expect(
       find.byKey(const ValueKey<String>('status-timeline-rail-0')),

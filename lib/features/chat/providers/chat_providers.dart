@@ -1338,6 +1338,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       final history = [...current.statusHistory];
       if (history.isNotEmpty) {
         final last = history.last;
+        if (_statusUpdatesEquivalent(last, withTimestamp)) {
+          return current;
+        }
         final sameAction =
             last.action != null && last.action == withTimestamp.action;
         final sameDescription =
@@ -1356,8 +1359,26 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
   void setFollowUps(String messageId, List<String> followUps) {
     updateMessageById(messageId, (current) {
+      if (listEquals(current.followUps, followUps)) {
+        return current;
+      }
       return current.copyWith(followUps: List<String>.from(followUps));
     });
+  }
+
+  bool _statusUpdatesEquivalent(
+    ChatStatusUpdate previous,
+    ChatStatusUpdate next,
+  ) {
+    return previous.action == next.action &&
+        previous.description == next.description &&
+        previous.done == next.done &&
+        previous.hidden == next.hidden &&
+        previous.count == next.count &&
+        previous.query == next.query &&
+        listEquals(previous.queries, next.queries) &&
+        listEquals(previous.urls, next.urls) &&
+        listEquals(previous.items, next.items);
   }
 
   void upsertCodeExecution(String messageId, ChatCodeExecution execution) {

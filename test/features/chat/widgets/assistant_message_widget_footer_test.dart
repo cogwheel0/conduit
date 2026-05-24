@@ -1,6 +1,7 @@
 import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/features/chat/providers/text_to_speech_provider.dart';
 import 'package:conduit/features/chat/widgets/assistant_message_widget.dart';
+import 'package:conduit/features/chat/widgets/follow_up_suggestions.dart';
 import 'package:conduit/features/chat/widgets/streaming_status_widget.dart';
 import 'package:conduit/features/chat/widgets/sources/openwebui_sources.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -24,7 +25,10 @@ Widget _buildHarness(Widget child) {
   );
 }
 
-Widget _buildAssistantHarness(ChatMessage message) {
+Widget _buildAssistantHarness(
+  ChatMessage message, {
+  bool showFollowUps = false,
+}) {
   return ProviderScope(
     overrides: [
       textToSpeechControllerProvider.overrideWith(
@@ -39,7 +43,7 @@ Widget _buildAssistantHarness(ChatMessage message) {
         body: AssistantMessageWidget(
           message: message,
           isStreaming: false,
-          showFollowUps: false,
+          showFollowUps: showFollowUps,
           animateOnMount: false,
           modelName: message.model,
           onCopy: () {},
@@ -246,5 +250,48 @@ void main() {
 
     expect(find.text('Generating image...'), findsOneWidget);
     expect(find.byType(StreamingStatusWidget), findsOneWidget);
+  });
+
+  testWidgets('follow-ups update in place without size transitions', (
+    tester,
+  ) async {
+    final baseline = ChatMessage(
+      id: 'assistant-follow-ups',
+      role: 'assistant',
+      content: 'Visible response body',
+      timestamp: DateTime(2024, 1, 1),
+    );
+
+    await tester.pumpWidget(
+      _buildAssistantHarness(baseline, showFollowUps: true),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(FollowUpSuggestionBar), findsNothing);
+
+    await tester.pumpWidget(
+      _buildAssistantHarness(
+        baseline.copyWith(followUps: const ['Ask again']),
+        showFollowUps: true,
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byType(SizeTransition), findsNothing);
+    expect(find.byType(FollowUpSuggestionBar), findsOneWidget);
+    expect(find.text('Ask again'), findsOneWidget);
+
+    await tester.pumpWidget(
+      _buildAssistantHarness(
+        baseline.copyWith(followUps: const ['Try another angle']),
+        showFollowUps: true,
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byType(SizeTransition), findsNothing);
+    expect(find.byType(FollowUpSuggestionBar), findsOneWidget);
+    expect(find.text('Ask again'), findsNothing);
+    expect(find.text('Try another angle'), findsOneWidget);
   });
 }

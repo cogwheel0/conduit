@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/models/chat_message.dart';
@@ -38,6 +39,70 @@ final _jsonImagePattern = RegExp(
   r'\{[^}]*"url"[^}]*:[^}]*"(data:image/[^"]+|https?://[^"]+\.(jpg|jpeg|png|gif|webp))"[^}]*\}',
   caseSensitive: false,
 );
+
+bool _statusUpdatesEquivalent(
+  ChatStatusUpdate previous,
+  ChatStatusUpdate next,
+) {
+  return previous.action == next.action &&
+      previous.description == next.description &&
+      previous.done == next.done &&
+      previous.hidden == next.hidden &&
+      previous.count == next.count &&
+      previous.query == next.query &&
+      listEquals(previous.queries, next.queries) &&
+      listEquals(previous.urls, next.urls) &&
+      listEquals(previous.items, next.items);
+}
+
+bool _statusHistoriesEquivalent(
+  List<ChatStatusUpdate> previous,
+  List<ChatStatusUpdate> next,
+) {
+  if (identical(previous, next)) {
+    return true;
+  }
+  if (previous.length != next.length) {
+    return false;
+  }
+  for (var index = 0; index < previous.length; index += 1) {
+    if (!_statusUpdatesEquivalent(previous[index], next[index])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool _deepEquals(Object? previous, Object? next) {
+  if (identical(previous, next)) {
+    return true;
+  }
+  if (previous is Map && next is Map) {
+    if (previous.length != next.length) {
+      return false;
+    }
+    for (final entry in previous.entries) {
+      if (!next.containsKey(entry.key) ||
+          !_deepEquals(entry.value, next[entry.key])) {
+        return false;
+      }
+    }
+    return true;
+  }
+  if (previous is List && next is List) {
+    if (previous.length != next.length) {
+      return false;
+    }
+    for (var index = 0; index < previous.length; index += 1) {
+      if (!_deepEquals(previous[index], next[index])) {
+        return false;
+      }
+    }
+    return true;
+  }
+  return previous == next;
+}
+
 final _jsonUrlExtractPattern = RegExp(r'"url"[^:]*:[^"]*"([^"]+)"');
 final _partialResultsPattern = RegExp(
   r'(result|files)="([^"]*(?:data:image/[^"]*|https?://[^"]*\.(jpg|jpeg|png|gif|webp))[^"]*)"',
@@ -749,9 +814,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       case OpenWebUIErrorUpdate(:final error):
         updateLastMessageWith(
           (m) => m.copyWith(
-            error: ChatMessageError(
-              content: error['message']?.toString(),
-            ),
+            error: ChatMessageError(content: error['message']?.toString()),
           ),
         );
 
@@ -1280,19 +1343,30 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         // Preserve existing usage if server doesn't have it yet (issue #274)
         // Usage is captured from streaming but may not be persisted on server
         final effectiveUsage = assistant.usage ?? current.usage;
+        final nextFollowUps = List<String>.from(assistant.followUps);
+        final nextStatusHistory = assistant.statusHistory.isNotEmpty
+            ? assistant.statusHistory
+            : current.isStreaming
+            ? current.statusHistory
+            : current.statusHistory
+                  .where((status) => status.done != false)
+                  .toList(growable: false);
+        final nextSources = assistant.sources.isNotEmpty || !current.isStreaming
+            ? assistant.sources
+            : current.sources;
+        final nextMetadata = {...?current.metadata, ...?assistant.metadata};
+        if (listEquals(current.followUps, nextFollowUps) &&
+            listEquals(current.statusHistory, nextStatusHistory) &&
+            listEquals(current.sources, nextSources) &&
+            _deepEquals(current.metadata, nextMetadata) &&
+            _deepEquals(current.usage, effectiveUsage)) {
+          return current;
+        }
         return current.copyWith(
-          followUps: List<String>.from(assistant.followUps),
-          statusHistory: assistant.statusHistory.isNotEmpty
-              ? assistant.statusHistory
-              : current.isStreaming
-              ? current.statusHistory
-              : current.statusHistory
-                    .where((status) => status.done != false)
-                    .toList(growable: false),
-          sources: assistant.sources.isNotEmpty || !current.isStreaming
-              ? assistant.sources
-              : current.sources,
-          metadata: {...?current.metadata, ...?assistant.metadata},
+          followUps: nextFollowUps,
+          statusHistory: nextStatusHistory,
+          sources: nextSources,
+          metadata: nextMetadata,
           usage: effectiveUsage,
         );
       });
@@ -1682,21 +1756,23 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     final withTimestamp = update.occurredAt == null
         ? update.copyWith(occurredAt: DateTime.now())
         : update;
-    final history = [...existing];
-    if (history.isNotEmpty) {
-      final last = history.last;
+    if (existing.isNotEmpty) {
+      final last = existing.last;
+      if (_statusUpdatesEquivalent(last, withTimestamp)) {
+        return existing;
+      }
       final sameAction =
           last.action != null && last.action == withTimestamp.action;
       final sameDescription =
           (withTimestamp.description?.isNotEmpty ?? false) &&
           withTimestamp.description == last.description;
       if (sameAction && sameDescription) {
+        final history = [...existing];
         history[history.length - 1] = withTimestamp;
         return history;
       }
     }
-    history.add(withTimestamp);
-    return history;
+    return [...existing, withTimestamp];
   }
 
   void applyMergedStatusUpdate({
@@ -1706,11 +1782,22 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     bool storeMetadataStatus = false,
   }) {
     updateMessageById(targetId, (current) {
+      final mergedStatusHistory = mergeStatusHistory(
+        current.statusHistory,
+        statusUpdate,
+      );
       final metadata = storeMetadataStatus
           ? <String, dynamic>{...?current.metadata, 'status': metadataStatus}
           : current.metadata;
+      if (_statusHistoriesEquivalent(
+            current.statusHistory,
+            mergedStatusHistory,
+          ) &&
+          _deepEquals(current.metadata, metadata)) {
+        return current;
+      }
       return current.copyWith(
-        statusHistory: mergeStatusHistory(current.statusHistory, statusUpdate),
+        statusHistory: mergedStatusHistory,
         metadata: metadata,
       );
     });
@@ -2223,6 +2310,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             setFollowUps(targetId, suggestions);
             updateMessageById(targetId, (current) {
               final metadata = {...?current.metadata, 'followUps': suggestions};
+              if (_deepEquals(current.metadata, metadata)) {
+                return current;
+              }
               return current.copyWith(metadata: metadata);
             });
             DebugLogger.log(
