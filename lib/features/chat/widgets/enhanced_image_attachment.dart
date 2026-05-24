@@ -7,12 +7,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image_ce/cached_network_image.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:dio/dio.dart' as dio;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/platform_page_route.dart';
+import '../../../shared/widgets/jovial_svg_image.dart';
 import '../../../shared/widgets/skeleton_loader.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import '../../../core/providers/app_providers.dart';
@@ -988,7 +988,7 @@ class _EnhancedImageAttachmentState
     final defaultHeaders = buildImageHeadersFromWidgetRef(ref);
     final headers = _mergeHeaders(defaultHeaders, widget.httpHeaders);
 
-    final svgWidget = SvgPicture.network(
+    final svgWidget = JovialSvgImage.network(
       _cachedImageData!,
       key: ValueKey('svg_${widget.attachmentId}'),
       fit: BoxFit.contain,
@@ -1034,7 +1034,7 @@ class _EnhancedImageAttachmentState
       return _buildLoadingState();
     }
 
-    final svgWidget = SvgPicture.memory(
+    final svgWidget = JovialSvgImage.bytes(
       bytes,
       key: ValueKey('svg_${widget.attachmentId}'),
       fit: BoxFit.contain,
@@ -1155,7 +1155,7 @@ class FullScreenImageViewer extends ConsumerWidget {
     // If we have raw bytes, use them directly
     if (imageData == null && imageBytes != null) {
       if (isSvg || _isSvgBytes(imageBytes!)) {
-        imageWidget = SvgPicture.memory(
+        imageWidget = JovialSvgImage.bytes(
           imageBytes!,
           fit: BoxFit.contain,
           errorBuilder: (context, error, stackTrace) => Center(
@@ -1175,7 +1175,7 @@ class FullScreenImageViewer extends ConsumerWidget {
       final headers = _mergeHeaders(defaultHeaders, customHeaders);
 
       if (isSvg || _isSvgUrl(imageData!)) {
-        imageWidget = SvgPicture.network(
+        imageWidget = JovialSvgImage.network(
           imageData!,
           fit: BoxFit.contain,
           headers: headers,
@@ -1229,7 +1229,7 @@ class FullScreenImageViewer extends ConsumerWidget {
 
         // Check if SVG content
         if (isSvg || _isSvgDataUrl(imageData!) || _isSvgBytes(decodedBytes)) {
-          imageWidget = SvgPicture.memory(
+          imageWidget = JovialSvgImage.bytes(
             decodedBytes,
             fit: BoxFit.contain,
             errorBuilder: (context, error, stackTrace) => Center(

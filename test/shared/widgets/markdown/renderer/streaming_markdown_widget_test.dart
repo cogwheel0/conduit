@@ -1507,7 +1507,7 @@ $circles
 
       await tester.pumpWidget(buildHarness(content));
 
-      expect(find.text('SVG Preview'), findsOneWidget);
+      expect(find.text('SVG Preview'), findsNothing);
       expect(
         find.text('Embedded content preview is unavailable in widget tests.'),
         findsOneWidget,

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_tex/flutter_tex.dart';
 
+import '../../jovial_svg_image.dart';
 import 'latex_rendering_server.dart';
 
 /// Extracts LaTeX expressions before markdown parsing and
@@ -221,7 +222,7 @@ class LatexPreprocessor {
           final height = _svgExToPixels(svg, fontSize);
           return ColorFiltered(
             colorFilter: ColorFilter.mode(color, BlendMode.srcATop),
-            child: SvgPicture.string(svg, height: height),
+            child: JovialSvgImage.string(svg, height: height),
           );
         },
       );

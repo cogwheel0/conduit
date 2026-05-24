@@ -135,8 +135,6 @@ class ConduitMarkdown {
     required String language,
   }) {
     final theme = context.conduitTheme;
-    final markdownStyle = ConduitMarkdownStyle.fromTheme(context);
-    final previewLabel = _previewTitleForLanguage(language);
 
     return Container(
       margin: const EdgeInsets.only(top: Spacing.sm, bottom: Spacing.xs + 2),
@@ -152,19 +150,11 @@ class ConduitMarkdown {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            previewLabel,
-            style: markdownStyle.codeChrome.copyWith(
-              color: theme.textSecondary,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: Spacing.xs),
           WebContentEmbed(
             source: code,
             deferUntilExpanded: false,
             initiallyExpanded: true,
-            previewTitle: previewLabel,
+            previewTitle: _previewTitleForLanguage(language),
           ),
         ],
       ),
