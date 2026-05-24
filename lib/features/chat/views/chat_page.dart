@@ -152,7 +152,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   _PinToTopState _pinToTopState = const _PinToTopState.inactive();
   GlobalKey _pinnedUserMessageKey = GlobalKey();
   _ChatListStableLayoutMetadata? _stableLayoutMetadata;
-  List<ChatMessage>? _stableLayoutMetadataMessages;
+  _ChatListStableLayoutSignature? _stableLayoutMetadataSignature;
   List<Model>? _stableLayoutMetadataModels;
   ApiService? _stableLayoutMetadataApiService;
   double? _stableLayoutMetadataWidth;
@@ -177,7 +177,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   void _invalidateChatListStableLayoutMetadata() {
     _stableLayoutMetadata = null;
-    _stableLayoutMetadataMessages = null;
+    _stableLayoutMetadataSignature = null;
     _stableLayoutMetadataModels = null;
     _stableLayoutMetadataApiService = null;
     _stableLayoutMetadataWidth = null;
@@ -189,9 +189,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required ApiService? apiService,
   }) {
     final crossAxisExtent = _chatListCrossAxisExtent();
+    final signature = _buildChatListStableLayoutSignature(messages);
     final cached = _stableLayoutMetadata;
     if (cached != null &&
-        identical(_stableLayoutMetadataMessages, messages) &&
+        _stableLayoutMetadataSignature == signature &&
         identical(_stableLayoutMetadataModels, models) &&
         identical(_stableLayoutMetadataApiService, apiService) &&
         _stableLayoutMetadataWidth == crossAxisExtent) {
@@ -205,7 +206,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       crossAxisExtent: crossAxisExtent,
     );
     _stableLayoutMetadata = metadata;
-    _stableLayoutMetadataMessages = messages;
+    _stableLayoutMetadataSignature = signature;
     _stableLayoutMetadataModels = models;
     _stableLayoutMetadataApiService = apiService;
     _stableLayoutMetadataWidth = crossAxisExtent;
@@ -2820,6 +2821,21 @@ class _ChatRowLayoutMetadata {
 }
 
 @immutable
+class _ChatListStableLayoutSignature {
+  const _ChatListStableLayoutSignature(this.value);
+
+  final String value;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is _ChatListStableLayoutSignature && other.value == value;
+
+  @override
+  int get hashCode => value.hashCode;
+}
+
+@immutable
 class _ChatListStableLayoutMetadata {
   const _ChatListStableLayoutMetadata({
     required this.rows,
@@ -2839,6 +2855,53 @@ class _ChatListStableLayoutMetadata {
     }
     return rows[targetIndex].leadingOffset;
   }
+}
+
+_ChatListStableLayoutSignature _buildChatListStableLayoutSignature(
+  List<ChatMessage> messages,
+) {
+  final buffer = StringBuffer();
+  for (final message in messages) {
+    buffer
+      ..write(message.id)
+      ..write('\u0000')
+      ..write(message.role)
+      ..write('\u0000')
+      ..write(message.model ?? '')
+      ..write('\u0000')
+      ..write(message.isStreaming ? 1 : 0)
+      ..write('\u0000')
+      ..write(message.isStreaming ? -1 : message.content.trim().length)
+      ..write('\u0000')
+      ..write(message.attachmentIds?.length ?? 0)
+      ..write('\u0000')
+      ..write(message.files?.length ?? 0)
+      ..write('\u0000')
+      ..write(message.embeds?.length ?? 0)
+      ..write('\u0000')
+      ..write(message.output?.length ?? 0)
+      ..write('\u0000')
+      ..write(message.statusHistory.length)
+      ..write('\u0000')
+      ..write(message.followUps.length)
+      ..write('\u0000')
+      ..write(message.sources.length)
+      ..write('\u0000')
+      ..write(message.codeExecutions.length)
+      ..write('\u0000')
+      ..write(message.error == null ? 0 : 1)
+      ..write('\u0000')
+      ..write(message.metadata?['archivedVariant'] == true ? 1 : 0)
+      ..write('\u0000')
+      ..write(message.versions.length);
+    for (final version in message.versions) {
+      buffer
+        ..write('\u0000')
+        ..write(version.model ?? '');
+    }
+    buffer.writeln();
+  }
+  return _ChatListStableLayoutSignature(buffer.toString());
 }
 
 _ChatListStableLayoutMetadata _buildChatListStableLayoutMetadata({
@@ -2939,6 +3002,13 @@ bool _shouldKeepConversationBottomAnchoredOnInsetChange({
       isAnchoredToBottom &&
       !isUserInteractingWithScroll &&
       !wantsPinToTop;
+}
+
+@visibleForTesting
+String debugBuildChatListStableLayoutSignatureForTesting(
+  List<ChatMessage> messages,
+) {
+  return _buildChatListStableLayoutSignature(messages).value;
 }
 
 @visibleForTesting

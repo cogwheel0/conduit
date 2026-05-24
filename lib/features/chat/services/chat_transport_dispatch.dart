@@ -253,9 +253,6 @@ Future<void> dispatchChatTransport({
     appendStatusUpdate: (messageId, update) => ref
         .read(chatMessagesProvider.notifier)
         .appendStatusUpdate(messageId, update),
-    setFollowUps: (messageId, followUps) => ref
-        .read(chatMessagesProvider.notifier)
-        .setFollowUps(messageId, followUps),
     upsertCodeExecution: (messageId, execution) => ref
         .read(chatMessagesProvider.notifier)
         .upsertCodeExecution(messageId, execution),

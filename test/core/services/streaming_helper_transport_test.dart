@@ -107,6 +107,8 @@ Map<String, dynamic> _serverAssistantMessage({
   List<String>? followUps,
   List<Map<String, dynamic>>? statusHistory,
   List<Map<String, dynamic>>? sources,
+  Map<String, dynamic>? usage,
+  Map<String, dynamic>? metadata,
 }) {
   return {
     'id': id,
@@ -118,6 +120,8 @@ Map<String, dynamic> _serverAssistantMessage({
     'follow_ups': ?followUps,
     'statusHistory': ?statusHistory,
     'sources': ?sources,
+    'usage': ?usage,
+    'metadata': ?metadata,
   };
 }
 
@@ -188,7 +192,6 @@ class _CallbackLog {
   final replacedContents = <String>[];
   final messageUpdaters = <ChatMessage Function(ChatMessage)>[];
   final statusUpdates = <(String, ChatStatusUpdate)>[];
-  final followUpUpdates = <(String, List<String>)>[];
   final codeExecutions = <(String, ChatCodeExecution)>[];
   final sourceReferences = <(String, ChatSourceReference)>[];
   final messageByIdUpdates = <(String, ChatMessage Function(ChatMessage))>[];
@@ -241,10 +244,6 @@ class _CallbackLog {
 
   void appendStatusUpdate(String id, ChatStatusUpdate u) {
     statusUpdates.add((id, u));
-  }
-
-  void setFollowUps(String id, List<String> f) {
-    followUpUpdates.add((id, f));
   }
 
   void upsertCodeExecution(String id, ChatCodeExecution e) {
@@ -333,7 +332,6 @@ ActiveChatStream _attach({
     replaceLastMessageContent: log.replaceLastMessageContent,
     updateLastMessageWith: log.updateLastMessageWith,
     appendStatusUpdate: log.appendStatusUpdate,
-    setFollowUps: log.setFollowUps,
     upsertCodeExecution: log.upsertCodeExecution,
     appendSourceReference: log.appendSourceReference,
     updateMessageById: log.updateMessageById,
@@ -877,9 +875,13 @@ void main() {
 
       await pumpMicrotasks();
 
-      check(log.followUpUpdates.length).equals(1);
-      check(log.followUpUpdates.single.$1).equals('msg-1');
-      check(log.followUpUpdates.single.$2).deepEquals(['Ask a follow-up']);
+      check(log.messageByIdMutationCount).equals(1);
+      check(log.messages.last.followUps).deepEquals(['Ask a follow-up']);
+      check(log.messages.last.metadata).isNotNull();
+      expect(
+        log.messages.last.metadata!['followUps'],
+        equals(['Ask a follow-up']),
+      );
       check(log.uiFinishCount).equals(1);
       check(log.finishCount).equals(0);
     });
@@ -936,9 +938,10 @@ void main() {
 
         check(log.messages.last.id).equals('msg-1');
         check(log.messages.last.content).equals('Bound content');
-        check(log.followUpUpdates.length).equals(1);
-        check(log.followUpUpdates.single.$1).equals('msg-1');
-        check(log.followUpUpdates.single.$2).deepEquals(['Ask again']);
+        check(log.messageByIdMutationCount).equals(1);
+        check(log.messages.last.followUps).deepEquals(['Ask again']);
+        check(log.messages.last.metadata).isNotNull();
+        expect(log.messages.last.metadata!['followUps'], equals(['Ask again']));
         check(log.finishCount).equals(1);
       },
     );
@@ -978,7 +981,8 @@ void main() {
 
         check(registrar.hasChatHandler).isTrue();
         check(log.messages.last.content).equals('');
-        check(log.followUpUpdates).isEmpty();
+        check(log.messages.last.followUps).isEmpty();
+        check(log.messageByIdMutationCount).equals(0);
         check(log.finishCount).equals(0);
       },
     );
@@ -1059,7 +1063,8 @@ void main() {
 
         await pumpMicrotasks();
 
-        check(log.followUpUpdates).isEmpty();
+        check(log.messages.last.followUps).isEmpty();
+        check(log.messageByIdMutationCount).equals(0);
       },
     );
 
@@ -1098,7 +1103,8 @@ void main() {
         await pumpMicrotasks();
         await pumpMicrotasks();
 
-        check(log.followUpUpdates).isEmpty();
+        check(log.messages.last.followUps).isEmpty();
+        check(log.messageByIdMutationCount).equals(0);
         check(registrar.hasChatHandler).isFalse();
         check(
           adapter.requestCount(method: 'POST', path: '/api/v1/chats/conv-1'),
@@ -1522,6 +1528,8 @@ void main() {
                   'document': ['snippet'],
                 },
               ],
+              usage: const {'prompt_tokens': 7, 'completion_tokens': 11},
+              metadata: const {'serverFlag': true},
             ),
           ],
         );
@@ -1561,6 +1569,12 @@ void main() {
         check(lastMsg.statusHistory.single.description).equals('Searching');
         check(lastMsg.sources).has((it) => it.length, 'length').equals(1);
         check(lastMsg.sources.single.url).equals('https://example.com/doc');
+        expect(
+          lastMsg.usage,
+          equals({'prompt_tokens': 7, 'completion_tokens': 11}),
+        );
+        check(lastMsg.metadata).isNotNull();
+        check(lastMsg.metadata!['serverFlag']).equals(true);
         check(log.finishCount).equals(1);
         check(
           adapter.requestCount(method: 'GET', path: '/api/v1/chats/conv-1'),
@@ -2157,6 +2171,81 @@ void main() {
 
         check(log.finishCount).equals(1);
         check(log.messages.last.sources).isEmpty();
+      },
+    );
+
+    test(
+      'httpStream snapshot refresh batches follow-ups and metadata into one mutation',
+      () async {
+        final log = _CallbackLog(
+          initialMessages: [
+            ChatMessage(
+              id: 'msg-1',
+              role: 'assistant',
+              content: 'Answer',
+              timestamp: DateTime.now(),
+              isStreaming: true,
+            ),
+          ],
+        );
+        final api = _buildFakeApi(
+          pollResponse: _serverConversationResponse(
+            messages: [
+              _serverAssistantMessage(
+                content: 'Answer',
+                followUps: const ['Ask again'],
+                statusHistory: const [
+                  {'description': 'Searching', 'done': true},
+                ],
+                sources: const [
+                  {
+                    'source': {
+                      'name': 'doc',
+                      'url': 'https://example.com/doc',
+                    },
+                    'document': ['snippet'],
+                  },
+                ],
+                usage: const {'prompt_tokens': 5, 'completion_tokens': 8},
+                metadata: const {'serverFlag': true},
+              ),
+            ],
+          ),
+        );
+
+        _attach(
+          session: ChatCompletionSession.httpStream(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            conversationId: 'conv-1',
+            byteStream: Stream<List<int>>.fromIterable([_sseDone()]),
+            abort: () async {},
+          ),
+          log: log,
+          api: api,
+          activeConversationId: 'conv-1',
+        );
+
+        await pumpMicrotasks();
+        await Future<void>.delayed(const Duration(milliseconds: 700));
+        for (var i = 0; i < 3; i++) {
+          await pumpMicrotasks();
+        }
+
+        final lastMsg = log.messages.last;
+        check(log.finishCount).equals(1);
+        check(log.messageByIdMutationCount).equals(1);
+        check(lastMsg.followUps).deepEquals(['Ask again']);
+        check(lastMsg.statusHistory).has((it) => it.length, 'length').equals(1);
+        check(lastMsg.statusHistory.single.description).equals('Searching');
+        check(lastMsg.sources).has((it) => it.length, 'length').equals(1);
+        check(lastMsg.sources.single.url).equals('https://example.com/doc');
+        expect(
+          lastMsg.usage,
+          equals({'prompt_tokens': 5, 'completion_tokens': 8}),
+        );
+        check(lastMsg.metadata).isNotNull();
+        check(lastMsg.metadata!['serverFlag']).equals(true);
       },
     );
 

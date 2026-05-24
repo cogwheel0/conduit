@@ -65,6 +65,75 @@ void main() {
     },
   );
 
+  test('layout signature ignores streaming content-only changes', () {
+    final streamingMessage = ChatMessage(
+      id: 'assistant-streaming',
+      role: 'assistant',
+      content: 'Short draft',
+      timestamp: DateTime(2026),
+      model: 'model-a',
+      isStreaming: true,
+      attachmentIds: const ['attachment-1'],
+      statusHistory: const [ChatStatusUpdate(description: 'Searching')],
+      followUps: const ['Ask next'],
+    );
+    final updatedStreamingMessage = streamingMessage.copyWith(
+      content: 'A much longer draft that should not invalidate layout metadata',
+    );
+
+    final initialSignature = debugBuildChatListStableLayoutSignatureForTesting([
+      streamingMessage,
+    ]);
+    final updatedSignature = debugBuildChatListStableLayoutSignatureForTesting([
+      updatedStreamingMessage,
+    ]);
+
+    expect(updatedSignature, initialSignature);
+  });
+
+  test('layout signature changes for structural layout inputs', () {
+    final baseMessage = ChatMessage(
+      id: 'assistant-1',
+      role: 'assistant',
+      content: 'Final response',
+      timestamp: DateTime(2026),
+      model: 'model-a',
+      attachmentIds: const ['attachment-1'],
+      statusHistory: const [ChatStatusUpdate(description: 'Searching')],
+      followUps: const ['Ask next'],
+    );
+
+    final withExtraFollowUp = baseMessage.copyWith(
+      followUps: const ['Ask next', 'Dig deeper'],
+    );
+    final withExtraStatus = baseMessage.copyWith(
+      statusHistory: const [
+        ChatStatusUpdate(description: 'Searching'),
+        ChatStatusUpdate(description: 'Summarizing'),
+      ],
+    );
+    final archivedVariant = baseMessage.copyWith(
+      metadata: const {'archivedVariant': true},
+    );
+
+    final baseSignature = debugBuildChatListStableLayoutSignatureForTesting([
+      baseMessage,
+    ]);
+
+    expect(
+      debugBuildChatListStableLayoutSignatureForTesting([withExtraFollowUp]),
+      isNot(baseSignature),
+    );
+    expect(
+      debugBuildChatListStableLayoutSignatureForTesting([withExtraStatus]),
+      isNot(baseSignature),
+    );
+    expect(
+      debugBuildChatListStableLayoutSignatureForTesting([archivedVariant]),
+      isNot(baseSignature),
+    );
+  });
+
   test(
     'markdown prewarm candidates prioritize the visible viewport window',
     () {

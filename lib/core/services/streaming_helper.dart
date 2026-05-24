@@ -233,6 +233,28 @@ typedef _ServerMessageSnapshot = ({
   String? errorContent,
 });
 
+class _AssistantServerPatch {
+  const _AssistantServerPatch({
+    this.content,
+    this.followUps,
+    this.statusHistory,
+    this.sources,
+    this.usage,
+    this.metadata,
+    this.mergeMetadata = false,
+    this.error,
+  });
+
+  final String? content;
+  final List<String>? followUps;
+  final List<ChatStatusUpdate>? statusHistory;
+  final List<ChatSourceReference>? sources;
+  final Map<String, dynamic>? usage;
+  final Map<String, dynamic>? metadata;
+  final bool mergeMetadata;
+  final ChatMessageError? error;
+}
+
 /// Helper to handle reconnect recovery asynchronously with proper error handling.
 /// Extracted to avoid async callback in Timer which silently drops the Future.
 Future<void> _handleReconnectRecovery({
@@ -312,7 +334,6 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   updateLastMessageWith,
   required void Function(String messageId, ChatStatusUpdate update)
   appendStatusUpdate,
-  required void Function(String messageId, List<String> followUps) setFollowUps,
   required void Function(String messageId, ChatCodeExecution execution)
   upsertCodeExecution,
   required void Function(String messageId, ChatSourceReference reference)
@@ -1187,6 +1208,58 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     }
   }
 
+  bool applyAssistantServerPatch({
+    required String targetId,
+    required _AssistantServerPatch Function(ChatMessage current) buildPatch,
+  }) {
+    var applied = false;
+    updateMessageById(targetId, (current) {
+      final patch = buildPatch(current);
+      final nextContent = patch.content ?? current.content;
+      final nextFollowUps = patch.followUps == null
+          ? current.followUps
+          : List<String>.from(patch.followUps!);
+      final nextStatusHistory = patch.statusHistory == null
+          ? current.statusHistory
+          : List<ChatStatusUpdate>.from(patch.statusHistory!);
+      final nextSources = patch.sources == null
+          ? current.sources
+          : List<ChatSourceReference>.from(patch.sources!);
+      final nextUsage = patch.usage == null
+          ? current.usage
+          : Map<String, dynamic>.from(patch.usage!);
+      final nextMetadata = patch.metadata == null
+          ? current.metadata
+          : patch.mergeMetadata
+          ? <String, dynamic>{...?current.metadata, ...patch.metadata!}
+          : Map<String, dynamic>.from(patch.metadata!);
+      final nextError = patch.error ?? current.error;
+      if (current.content == nextContent &&
+          listEquals(current.followUps, nextFollowUps) &&
+          _statusHistoriesEquivalent(
+            current.statusHistory,
+            nextStatusHistory,
+          ) &&
+          listEquals(current.sources, nextSources) &&
+          _deepEquals(current.usage, nextUsage) &&
+          _deepEquals(current.metadata, nextMetadata) &&
+          current.error == nextError) {
+        return current;
+      }
+      applied = true;
+      return current.copyWith(
+        content: nextContent,
+        followUps: nextFollowUps,
+        statusHistory: nextStatusHistory,
+        sources: nextSources,
+        usage: nextUsage,
+        metadata: nextMetadata,
+        error: nextError,
+      );
+    });
+    return applied;
+  }
+
   // Helper to apply server content if it's better than local.
   // Returns true if content was applied, so caller can trigger image sync.
   bool applyServerContent(
@@ -1220,43 +1293,19 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         '$source: adopting server error',
         scope: 'streaming/helper',
       );
-      updateMessageById(
-        assistantMessageId,
-        (m) => m.copyWith(
-          error: errorContent.isNotEmpty
-              ? ChatMessageError(content: errorContent)
-              : const ChatMessageError(content: null),
-        ),
-      );
-      applied = true;
     }
 
-    if (content.isNotEmpty && content.length >= comparisonLength) {
+    final shouldAdoptContent =
+        content.isNotEmpty && content.length >= comparisonLength;
+    if (shouldAdoptContent) {
       DebugLogger.log(
         '$source: adopting server content (${content.length} chars)',
         scope: 'streaming/helper',
       );
       if (isVisibleTarget) {
         replaceVisibleAssistantContent(content);
-      } else {
-        updateMessageById(
-          assistantMessageId,
-          (m) => m.copyWith(content: content),
-        );
+        applied = true;
       }
-      applied = true;
-
-      if (followUps.isNotEmpty) {
-        setFollowUps(assistantMessageId, followUps);
-      }
-
-      if (finishIfDone &&
-          isDone &&
-          isVisibleTarget &&
-          visibleTargetIsStreaming) {
-        wrappedFinishStreaming();
-      }
-      return true;
     }
 
     if (content.isNotEmpty &&
@@ -1269,9 +1318,26 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       );
     }
 
-    if (followUps.isNotEmpty) {
-      setFollowUps(assistantMessageId, followUps);
-      applied = true;
+    applied =
+        applyAssistantServerPatch(
+          targetId: assistantMessageId,
+          buildPatch: (_) => _AssistantServerPatch(
+            content: shouldAdoptContent && !isVisibleTarget ? content : null,
+            followUps: followUps.isNotEmpty ? followUps : null,
+            error: errorContent == null
+                ? null
+                : errorContent.isNotEmpty
+                ? ChatMessageError(content: errorContent)
+                : const ChatMessageError(content: null),
+          ),
+        ) ||
+        applied;
+
+    if (shouldAdoptContent && isVisibleTarget) {
+      if (finishIfDone && isDone && visibleTargetIsStreaming) {
+        wrappedFinishStreaming();
+      }
+      return true;
     }
 
     if (finishIfDone && isDone && isVisibleTarget) {
@@ -1338,38 +1404,34 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         return;
       }
 
-      setFollowUps(assistantMessageId, assistant.followUps);
-      updateMessageById(assistantMessageId, (current) {
-        // Preserve existing usage if server doesn't have it yet (issue #274)
-        // Usage is captured from streaming but may not be persisted on server
-        final effectiveUsage = assistant.usage ?? current.usage;
-        final nextFollowUps = List<String>.from(assistant.followUps);
-        final nextStatusHistory = assistant.statusHistory.isNotEmpty
-            ? assistant.statusHistory
-            : current.isStreaming
-            ? current.statusHistory
-            : current.statusHistory
-                  .where((status) => status.done != false)
-                  .toList(growable: false);
-        final nextSources = assistant.sources.isNotEmpty || !current.isStreaming
-            ? assistant.sources
-            : current.sources;
-        final nextMetadata = {...?current.metadata, ...?assistant.metadata};
-        if (listEquals(current.followUps, nextFollowUps) &&
-            listEquals(current.statusHistory, nextStatusHistory) &&
-            listEquals(current.sources, nextSources) &&
-            _deepEquals(current.metadata, nextMetadata) &&
-            _deepEquals(current.usage, effectiveUsage)) {
-          return current;
-        }
-        return current.copyWith(
-          followUps: nextFollowUps,
-          statusHistory: nextStatusHistory,
-          sources: nextSources,
-          metadata: nextMetadata,
-          usage: effectiveUsage,
-        );
-      });
+      applyAssistantServerPatch(
+        targetId: assistantMessageId,
+        buildPatch: (current) {
+          // Preserve existing usage if server doesn't have it yet (issue #274)
+          // Usage is captured from streaming but may not be persisted on server
+          final effectiveUsage = assistant.usage ?? current.usage;
+          final nextFollowUps = List<String>.from(assistant.followUps);
+          final nextStatusHistory = assistant.statusHistory.isNotEmpty
+              ? assistant.statusHistory
+              : current.isStreaming
+              ? current.statusHistory
+              : current.statusHistory
+                    .where((status) => status.done != false)
+                    .toList(growable: false);
+          final nextSources =
+              assistant.sources.isNotEmpty || !current.isStreaming
+              ? assistant.sources
+              : current.sources;
+          return _AssistantServerPatch(
+            followUps: nextFollowUps,
+            statusHistory: nextStatusHistory,
+            sources: nextSources,
+            metadata: assistant.metadata,
+            mergeMetadata: true,
+            usage: effectiveUsage,
+          );
+        },
+      );
     } catch (_) {
       // Best-effort refresh; ignore failures.
     } finally {
@@ -1781,26 +1843,20 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     dynamic metadataStatus,
     bool storeMetadataStatus = false,
   }) {
-    updateMessageById(targetId, (current) {
-      final mergedStatusHistory = mergeStatusHistory(
-        current.statusHistory,
-        statusUpdate,
-      );
-      final metadata = storeMetadataStatus
-          ? <String, dynamic>{...?current.metadata, 'status': metadataStatus}
-          : current.metadata;
-      if (_statusHistoriesEquivalent(
-            current.statusHistory,
-            mergedStatusHistory,
-          ) &&
-          _deepEquals(current.metadata, metadata)) {
-        return current;
-      }
-      return current.copyWith(
-        statusHistory: mergedStatusHistory,
-        metadata: metadata,
-      );
-    });
+    applyAssistantServerPatch(
+      targetId: targetId,
+      buildPatch: (current) {
+        final mergedStatusHistory = mergeStatusHistory(
+          current.statusHistory,
+          statusUpdate,
+        );
+        return _AssistantServerPatch(
+          statusHistory: mergedStatusHistory,
+          metadata: storeMetadataStatus ? {'status': metadataStatus} : null,
+          mergeMetadata: storeMetadataStatus,
+        );
+      },
+    );
   }
 
   bool handleHttpStreamEventFastPath({
@@ -2307,14 +2363,16 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             scope: 'streaming/helper',
           );
           if (targetId != null) {
-            setFollowUps(targetId, suggestions);
-            updateMessageById(targetId, (current) {
-              final metadata = {...?current.metadata, 'followUps': suggestions};
-              if (_deepEquals(current.metadata, metadata)) {
-                return current;
-              }
-              return current.copyWith(metadata: metadata);
-            });
+            applyAssistantServerPatch(
+              targetId: targetId,
+              buildPatch: (_) {
+                return _AssistantServerPatch(
+                  followUps: suggestions,
+                  metadata: {'followUps': suggestions},
+                  mergeMetadata: true,
+                );
+              },
+            );
             DebugLogger.log(
               'Follow-ups set successfully',
               scope: 'streaming/helper',
