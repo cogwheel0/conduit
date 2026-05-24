@@ -103,6 +103,54 @@ bool _deepEquals(Object? previous, Object? next) {
   return previous == next;
 }
 
+List<Map<String, dynamic>> _copyJsonMapList(
+  List<Map<String, dynamic>> items,
+) {
+  return List<Map<String, dynamic>>.unmodifiable(
+    items
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList(growable: false),
+  );
+}
+
+List<Map<String, dynamic>> _normalizeJsonMapList(dynamic raw) {
+  if (raw is! List) {
+    return const <Map<String, dynamic>>[];
+  }
+  final normalized = <Map<String, dynamic>>[];
+  for (final item in raw) {
+    final map = _asStringMap(item);
+    if (map != null) {
+      normalized.add(map);
+    }
+  }
+  return List<Map<String, dynamic>>.unmodifiable(normalized);
+}
+
+List<ChatSourceReference> _mergeSourceReferences({
+  required List<ChatSourceReference> existing,
+  required Iterable<ChatSourceReference> incoming,
+}) {
+  final merged = [...existing];
+  for (final reference in incoming) {
+    final refId = reference.id?.trim();
+    final refUrl = reference.url?.trim();
+    final alreadyPresent = merged.any((source) {
+      if (refId != null && refId.isNotEmpty) {
+        return source.id == refId;
+      }
+      if (refUrl != null && refUrl.isNotEmpty) {
+        return source.url == refUrl;
+      }
+      return false;
+    });
+    if (!alreadyPresent) {
+      merged.add(reference);
+    }
+  }
+  return List<ChatSourceReference>.unmodifiable(merged);
+}
+
 final _jsonUrlExtractPattern = RegExp(r'"url"[^:]*:[^"]*"([^"]+)"');
 final _partialResultsPattern = RegExp(
   r'(result|files)="([^"]*(?:data:image/[^"]*|https?://[^"]*\.(jpg|jpeg|png|gif|webp))[^"]*)"',
@@ -240,8 +288,12 @@ class _AssistantServerPatch {
     this.statusHistory,
     this.sources,
     this.usage,
+    this.output,
+    this.files,
+    this.embeds,
     this.metadata,
     this.mergeMetadata = false,
+    this.isStreaming,
     this.error,
   });
 
@@ -250,8 +302,12 @@ class _AssistantServerPatch {
   final List<ChatStatusUpdate>? statusHistory;
   final List<ChatSourceReference>? sources;
   final Map<String, dynamic>? usage;
+  final List<Map<String, dynamic>>? output;
+  final List<Map<String, dynamic>>? files;
+  final List<Map<String, dynamic>>? embeds;
   final Map<String, dynamic>? metadata;
   final bool mergeMetadata;
+  final bool? isStreaming;
   final ChatMessageError? error;
 }
 
@@ -782,6 +838,12 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     return delta is Map ? delta : null;
   }
 
+  late final bool Function({
+    required String targetId,
+    required _AssistantServerPatch Function(ChatMessage current) buildPatch,
+  })
+  applyAssistantServerPatch;
+
   void applyParsedOpenWebUIUpdate(
     OpenWebUIStreamUpdate update, {
     required VoidCallback onDone,
@@ -796,22 +858,34 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         applyStreamingReasoningDelta(content);
 
       case OpenWebUIOutputUpdate(:final output):
-        // Store structured output items from backend middleware.
-        updateLastMessageWith(
-          (m) => m.copyWith(
-            output: output.whereType<Map<String, dynamic>>().toList(
-              growable: false,
-            ),
-          ),
-        );
+        final normalizedOutput = _normalizeJsonMapList(output);
+        if (normalizedOutput.isNotEmpty) {
+          applyAssistantServerPatch(
+            targetId: assistantMessageId,
+            buildPatch: (_) => _AssistantServerPatch(output: normalizedOutput),
+          );
+        }
 
       case OpenWebUIUsageUpdate(:final usage):
-        updateLastMessageWith((m) => m.copyWith(usage: usage));
+        if (usage.isNotEmpty) {
+          applyAssistantServerPatch(
+            targetId: assistantMessageId,
+            buildPatch: (_) => _AssistantServerPatch(usage: usage),
+          );
+        }
 
       case OpenWebUISourcesUpdate(:final sources):
         final parsed = parseOpenWebUISourceList(sources);
-        for (final source in parsed) {
-          appendSourceReference(assistantMessageId, source);
+        if (parsed.isNotEmpty) {
+          applyAssistantServerPatch(
+            targetId: assistantMessageId,
+            buildPatch: (current) => _AssistantServerPatch(
+              sources: _mergeSourceReferences(
+                existing: current.sources,
+                incoming: parsed,
+              ),
+            ),
+          );
         }
 
       case OpenWebUIEventUpdate(:final type, :final data):
@@ -822,19 +896,21 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         handleEvent?.call(type, data);
 
       case OpenWebUISelectedModelUpdate(:final selectedModelId):
-        updateLastMessageWith(
-          (m) => m.copyWith(
+        applyAssistantServerPatch(
+          targetId: assistantMessageId,
+          buildPatch: (_) => _AssistantServerPatch(
             metadata: {
-              ...?m.metadata,
               'selectedModelId': selectedModelId,
               'arena': true,
             },
+            mergeMetadata: true,
           ),
         );
 
       case OpenWebUIErrorUpdate(:final error):
-        updateLastMessageWith(
-          (m) => m.copyWith(
+        applyAssistantServerPatch(
+          targetId: assistantMessageId,
+          buildPatch: (_) => _AssistantServerPatch(
             error: ChatMessageError(content: error['message']?.toString()),
           ),
         );
@@ -1208,7 +1284,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     }
   }
 
-  bool applyAssistantServerPatch({
+  applyAssistantServerPatch = ({
     required String targetId,
     required _AssistantServerPatch Function(ChatMessage current) buildPatch,
   }) {
@@ -1228,11 +1304,21 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       final nextUsage = patch.usage == null
           ? current.usage
           : Map<String, dynamic>.from(patch.usage!);
+      final nextOutput = patch.output == null
+          ? current.output
+          : _copyJsonMapList(patch.output!);
+      final nextFiles = patch.files == null
+          ? current.files
+          : _copyJsonMapList(patch.files!);
+      final nextEmbeds = patch.embeds == null
+          ? current.embeds
+          : _copyJsonMapList(patch.embeds!);
       final nextMetadata = patch.metadata == null
           ? current.metadata
           : patch.mergeMetadata
           ? <String, dynamic>{...?current.metadata, ...patch.metadata!}
           : Map<String, dynamic>.from(patch.metadata!);
+      final nextIsStreaming = patch.isStreaming ?? current.isStreaming;
       final nextError = patch.error ?? current.error;
       if (current.content == nextContent &&
           listEquals(current.followUps, nextFollowUps) &&
@@ -1242,7 +1328,11 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           ) &&
           listEquals(current.sources, nextSources) &&
           _deepEquals(current.usage, nextUsage) &&
+          _deepEquals(current.output, nextOutput) &&
+          _deepEquals(current.files, nextFiles) &&
+          _deepEquals(current.embeds, nextEmbeds) &&
           _deepEquals(current.metadata, nextMetadata) &&
+          current.isStreaming == nextIsStreaming &&
           current.error == nextError) {
         return current;
       }
@@ -1253,12 +1343,16 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         statusHistory: nextStatusHistory,
         sources: nextSources,
         usage: nextUsage,
+        output: nextOutput,
+        files: nextFiles,
+        embeds: nextEmbeds,
         metadata: nextMetadata,
+        isStreaming: nextIsStreaming,
         error: nextError,
       );
     });
     return applied;
-  }
+  };
 
   // Helper to apply server content if it's better than local.
   // Returns true if content was applied, so caller can trigger image sync.
@@ -2155,61 +2249,48 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             allowBindingForeignMessage: true,
           );
           String? terminalFinishReason;
-
-          // Store the structured output[] array from the backend middleware.
-          // This contains OR-aligned items (message, reasoning,
-          // code_interpreter, function_call, function_call_output).
-          final outputItems = payload['output'];
-          if (completionTargetId != null &&
-              outputItems is List &&
-              outputItems.isNotEmpty) {
-            updateMessageById(completionTargetId, (current) {
-              return current.copyWith(
-                output: outputItems.whereType<Map<String, dynamic>>().toList(
-                  growable: false,
-                ),
-              );
-            });
-          }
-
-          // Capture the selected_model_id for arena/routing flows.
           final selectedModelId = payload['selected_model_id']?.toString();
-          if (completionTargetId != null &&
-              selectedModelId != null &&
-              selectedModelId.isNotEmpty) {
-            updateMessageById(completionTargetId, (current) {
-              return current.copyWith(
-                metadata: {
-                  ...?current.metadata,
-                  'selectedModelId': selectedModelId,
-                  'arena': true,
-                },
-              );
-            });
-          }
-
-          // Capture usage statistics whenever they appear (issue #274)
-          // Usage may come in a separate payload before the done:true payload
           final usageData = payload['usage'];
-          if (completionTargetId != null &&
-              usageData is Map<String, dynamic> &&
-              usageData.isNotEmpty) {
-            updateMessageById(completionTargetId, (current) {
-              return current.copyWith(usage: usageData);
-            });
-          }
-
+          final usagePatch =
+              usageData is Map && usageData.isNotEmpty
+              ? Map<String, dynamic>.from(usageData)
+              : null;
+          final normalizedOutputItems = _normalizeJsonMapList(payload['output']);
           final rawSources = payload['sources'] ?? payload['citations'];
           final normalizedSources = _normalizeSourcesPayload(rawSources);
+          final parsedSources =
+              normalizedSources == null || normalizedSources.isEmpty
+              ? const <ChatSourceReference>[]
+              : parseOpenWebUISourceList(normalizedSources);
+          final metadataPatch =
+              selectedModelId != null && selectedModelId.isNotEmpty
+              ? <String, dynamic>{
+                  'selectedModelId': selectedModelId,
+                  'arena': true,
+                }
+              : null;
           if (completionTargetId != null &&
-              normalizedSources != null &&
-              normalizedSources.isNotEmpty) {
-            final parsedSources = parseOpenWebUISourceList(normalizedSources);
-            if (parsedSources.isNotEmpty) {
-              for (final source in parsedSources) {
-                appendSourceReference(completionTargetId, source);
-              }
-            }
+              (normalizedOutputItems.isNotEmpty ||
+                  metadataPatch != null ||
+                  usagePatch != null ||
+                  parsedSources.isNotEmpty)) {
+            applyAssistantServerPatch(
+              targetId: completionTargetId,
+              buildPatch: (current) => _AssistantServerPatch(
+                output: normalizedOutputItems.isNotEmpty
+                    ? normalizedOutputItems
+                    : null,
+                metadata: metadataPatch,
+                mergeMetadata: metadataPatch != null,
+                usage: usagePatch,
+                sources: parsedSources.isEmpty
+                    ? null
+                    : _mergeSourceReferences(
+                        existing: current.sources,
+                        incoming: parsedSources,
+                      ),
+              ),
+            );
           }
           if (payload.containsKey('tool_calls')) {
             if (completionTargetId != null) {
@@ -2339,10 +2420,14 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         if (targetId == null) {
           return;
         }
-        updateMessageById(targetId, (current) {
-          final metadata = {...?current.metadata, 'tasksCancelled': true};
-          return current.copyWith(metadata: metadata, isStreaming: false);
-        });
+        applyAssistantServerPatch(
+          targetId: targetId,
+          buildPatch: (_) => _AssistantServerPatch(
+            metadata: {'tasksCancelled': true},
+            mergeMetadata: true,
+            isStreaming: false,
+          ),
+        );
         disposeSocketSubscriptions();
         wrappedFinishStreaming();
       } else if (type == 'chat:message:follow_ups' && payload != null) {
@@ -2443,9 +2528,15 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                   allowBindingForeignMessage: true,
                 );
                 if (targetId != null) {
-                  for (final source in sources) {
-                    appendSourceReference(targetId, source);
-                  }
+                  applyAssistantServerPatch(
+                    targetId: targetId,
+                    buildPatch: (current) => _AssistantServerPatch(
+                      sources: _mergeSourceReferences(
+                        existing: current.sources,
+                        incoming: sources,
+                      ),
+                    ),
+                  );
                 }
               }
             } catch (_) {}
@@ -2606,7 +2697,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
               existing: target.files ?? <Map<String, dynamic>>[],
             );
             if (merged != null) {
-              updateMessageById(targetId, (m) => m.copyWith(files: merged));
+              applyAssistantServerPatch(
+                targetId: targetId,
+                buildPatch: (_) => _AssistantServerPatch(files: merged),
+              );
             }
           }
         } catch (_) {}
@@ -2626,9 +2720,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
               allowBindingForeignMessage: true,
             );
             if (targetId != null) {
-              updateMessageById(targetId, (current) {
-                return current.copyWith(embeds: embeds);
-              });
+              applyAssistantServerPatch(
+                targetId: targetId,
+                buildPatch: (_) => _AssistantServerPatch(embeds: embeds),
+              );
             }
           }
         } catch (_) {}
@@ -3126,8 +3221,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             final errorMap = error is Map<String, dynamic>
                 ? error
                 : <String, dynamic>{'message': error.toString()};
-            updateLastMessageWith(
-              (m) => m.copyWith(
+            applyAssistantServerPatch(
+              targetId: assistantMessageId,
+              buildPatch: (_) => _AssistantServerPatch(
                 error: ChatMessageError(
                   content: errorMap['message']?.toString(),
                 ),
@@ -3152,22 +3248,46 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             }
           }
 
-          // Apply usage
           final usage = payload['usage'];
-          if (usage is Map<String, dynamic> && usage.isNotEmpty) {
-            updateLastMessageWith((m) => m.copyWith(usage: usage));
-          }
-
-          // Apply sources
-          final rawSources = payload['sources'];
-          if (rawSources != null) {
-            final normalizedSources = _normalizeSourcesPayload(rawSources);
-            if (normalizedSources != null && normalizedSources.isNotEmpty) {
-              final parsedSources = parseOpenWebUISourceList(normalizedSources);
-              for (final source in parsedSources) {
-                appendSourceReference(assistantMessageId, source);
-              }
-            }
+          final usagePatch = usage is Map && usage.isNotEmpty
+              ? Map<String, dynamic>.from(usage)
+              : null;
+          final normalizedOutputItems = _normalizeJsonMapList(payload['output']);
+          final selectedModelId = payload['selected_model_id']?.toString();
+          final metadataPatch =
+              selectedModelId != null && selectedModelId.isNotEmpty
+              ? <String, dynamic>{
+                  'selectedModelId': selectedModelId,
+                  'arena': true,
+                }
+              : null;
+          final rawSources = payload['sources'] ?? payload['citations'];
+          final normalizedSources = _normalizeSourcesPayload(rawSources);
+          final parsedSources =
+              normalizedSources == null || normalizedSources.isEmpty
+              ? const <ChatSourceReference>[]
+              : parseOpenWebUISourceList(normalizedSources);
+          if (usagePatch != null ||
+              normalizedOutputItems.isNotEmpty ||
+              metadataPatch != null ||
+              parsedSources.isNotEmpty) {
+            applyAssistantServerPatch(
+              targetId: assistantMessageId,
+              buildPatch: (current) => _AssistantServerPatch(
+                usage: usagePatch,
+                output: normalizedOutputItems.isNotEmpty
+                    ? normalizedOutputItems
+                    : null,
+                metadata: metadataPatch,
+                mergeMetadata: metadataPatch != null,
+                sources: parsedSources.isEmpty
+                    ? null
+                    : _mergeSourceReferences(
+                        existing: current.sources,
+                        incoming: parsedSources,
+                      ),
+              ),
+            );
           }
 
           wrappedFinishStreaming();

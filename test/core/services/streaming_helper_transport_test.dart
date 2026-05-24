@@ -777,6 +777,64 @@ void main() {
     );
 
     test(
+      'chat:completion batches output, usage, model, and sources once',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
+
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:completion', {
+          'output': [
+            {
+              'type': 'message',
+              'id': 'out-1',
+              'status': 'complete',
+              'role': 'assistant',
+              'content': [
+                {'type': 'output_text', 'text': 'Structured output'},
+              ],
+            },
+          ],
+          'selected_model_id': 'gpt-4o',
+          'usage': {'prompt_tokens': 3, 'completion_tokens': 5},
+          'sources': [
+            {
+              'source': {'name': 'doc', 'url': 'https://example.com/doc'},
+              'document': ['snippet'],
+            },
+          ],
+        }, messageId: 'msg-1');
+
+        await pumpMicrotasks();
+
+        final lastMessage = log.messages.last;
+        check(log.messageByIdMutationCount).equals(1);
+        check(log.sourceReferences).isEmpty();
+        check(lastMessage.output).has((it) => it?.length, 'length').equals(1);
+        check(lastMessage.metadata).isNotNull();
+        check(lastMessage.metadata!['selectedModelId']).equals('gpt-4o');
+        check(lastMessage.metadata!['arena']).equals(true);
+        expect(
+          lastMessage.usage,
+          equals({'prompt_tokens': 3, 'completion_tokens': 5}),
+        );
+        check(lastMessage.sources).has((it) => it.length, 'length').equals(1);
+        check(lastMessage.sources.single.url).equals('https://example.com/doc');
+      },
+    );
+
+    test(
       'taskSocket channel stream preserves malformed payload fallback',
       () async {
         final log = _CallbackLog();
@@ -1258,19 +1316,9 @@ void main() {
       await pumpMicrotasks();
       await pumpMicrotasks();
 
-      // Usage should have been applied via updateLastMessageWith
-      check(log.messageUpdaters.length).isGreaterOrEqual(1);
-      // Apply an updater to a blank message and check usage was set
-      final updated = log.messageUpdaters.first(
-        ChatMessage(
-          id: 'msg-1',
-          role: 'assistant',
-          content: '',
-          timestamp: DateTime.now(),
-        ),
-      );
-      check(updated.usage).isNotNull();
-      check(updated.usage!['total_tokens']).equals(42);
+      check(log.messageByIdMutationCount).equals(1);
+      check(log.messages.last.usage).isNotNull();
+      check(log.messages.last.usage!['total_tokens']).equals(42);
     });
 
     test('jsonCompletion applies error metadata', () async {
@@ -1291,8 +1339,9 @@ void main() {
       await pumpMicrotasks();
 
       check(log.finishCount).equals(1);
-      // Should have applied the error via updateLastMessageWith
-      check(log.messageUpdaters.length).isGreaterOrEqual(1);
+      check(log.messageByIdMutationCount).equals(1);
+      check(log.messages.last.error).isNotNull();
+      check(log.messages.last.error!.content).equals('something broke');
     });
 
     test('jsonCompletion applies sources metadata', () async {
@@ -1322,7 +1371,10 @@ void main() {
       await pumpMicrotasks();
       await pumpMicrotasks();
 
-      check(log.sourceReferences).isNotEmpty();
+      check(log.messageByIdMutationCount).equals(1);
+      check(log.sourceReferences).isEmpty();
+      check(log.messages.last.sources).has((it) => it.length, 'length').equals(1);
+      check(log.messages.last.sources.single.url).equals('https://example.com');
     });
 
     // -----------------------------------------------------------------------
@@ -1390,7 +1442,11 @@ void main() {
       await pumpMicrotasks();
       await pumpMicrotasks();
 
-      check(log.messageUpdaters.length).isGreaterOrEqual(1);
+      check(log.messageByIdMutationCount).equals(1);
+      expect(
+        log.messages.last.usage,
+        equals({'prompt_tokens': 10, 'completion_tokens': 5}),
+      );
     });
 
     test('httpStream applies selected model update', () async {
@@ -1414,7 +1470,10 @@ void main() {
       await pumpMicrotasks();
       await pumpMicrotasks();
 
-      check(log.messageUpdaters.length).isGreaterOrEqual(1);
+      check(log.messageByIdMutationCount).equals(1);
+      check(log.messages.last.metadata).isNotNull();
+      check(log.messages.last.metadata!['selectedModelId']).equals('gpt-4o');
+      check(log.messages.last.metadata!['arena']).equals(true);
     });
 
     test('httpStream applies sources update', () async {
@@ -1445,7 +1504,10 @@ void main() {
       await pumpMicrotasks();
       await pumpMicrotasks();
 
-      check(log.sourceReferences).isNotEmpty();
+      check(log.messageByIdMutationCount).equals(1);
+      check(log.sourceReferences).isEmpty();
+      check(log.messages.last.sources).has((it) => it.length, 'length').equals(1);
+      check(log.messages.last.sources.single.url).equals('https://a.com');
     });
 
     test('httpStream applies error update', () async {
@@ -1471,7 +1533,9 @@ void main() {
       await pumpMicrotasks();
       await pumpMicrotasks();
 
-      check(log.messageUpdaters.length).isGreaterOrEqual(1);
+      check(log.messageByIdMutationCount).equals(1);
+      check(log.messages.last.error).isNotNull();
+      check(log.messages.last.error!.content).equals('rate limited');
       check(log.finishCount).equals(1);
     });
 

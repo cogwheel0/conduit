@@ -38,6 +38,124 @@ final chatMessagesProvider =
       ChatMessagesNotifier.new,
     );
 
+@immutable
+class _ChatMessageListStructure {
+  const _ChatMessageListStructure({
+    required this.ids,
+    required this.signature,
+  });
+
+  factory _ChatMessageListStructure.fromMessages(List<ChatMessage> messages) {
+    final ids = List<String>.unmodifiable(
+      messages.map((message) => message.id).toList(growable: false),
+    );
+    final buffer = StringBuffer();
+    for (final message in messages) {
+      buffer
+        ..write(message.id)
+        ..write('\u0000')
+        ..write(message.role)
+        ..write('\u0000')
+        ..write(message.model ?? '')
+        ..write('\u0000')
+        ..write(message.isStreaming ? 1 : 0)
+        ..write('\u0000')
+        ..write(message.isStreaming ? -1 : message.content.trim().length)
+        ..write('\u0000')
+        ..write(message.attachmentIds?.length ?? 0)
+        ..write('\u0000')
+        ..write(message.files?.length ?? 0)
+        ..write('\u0000')
+        ..write(message.embeds?.length ?? 0)
+        ..write('\u0000')
+        ..write(message.output?.length ?? 0)
+        ..write('\u0000')
+        ..write(message.statusHistory.length)
+        ..write('\u0000')
+        ..write(message.followUps.length)
+        ..write('\u0000')
+        ..write(message.sources.length)
+        ..write('\u0000')
+        ..write(message.codeExecutions.length)
+        ..write('\u0000')
+        ..write(message.error == null ? 0 : 1)
+        ..write('\u0000')
+        ..write(message.metadata?['archivedVariant'] == true ? 1 : 0)
+        ..write('\u0000')
+        ..write(message.versions.length);
+      for (final version in message.versions) {
+        buffer
+          ..write('\u0000')
+          ..write(version.model ?? '');
+      }
+      buffer.writeln();
+    }
+    return _ChatMessageListStructure(ids: ids, signature: buffer.toString());
+  }
+
+  final List<String> ids;
+  final String signature;
+
+  bool get hasMessages => ids.isNotEmpty;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is _ChatMessageListStructure && other.signature == signature;
+
+  @override
+  int get hashCode => signature.hashCode;
+}
+
+final _chatMessageListStructureProvider = Provider<_ChatMessageListStructure>((
+  ref,
+) {
+  return ref.watch(
+    chatMessagesProvider.select(_ChatMessageListStructure.fromMessages),
+  );
+});
+
+final _chatMessageMapProvider = Provider<Map<String, ChatMessage>>((ref) {
+  return ref.watch(
+    chatMessagesProvider.select((messages) {
+      final byId = <String, ChatMessage>{};
+      for (final message in messages) {
+        byId[message.id] = message;
+      }
+      return Map<String, ChatMessage>.unmodifiable(byId);
+    }),
+  );
+});
+
+final chatMessageStructureSignatureProvider = Provider<String>((ref) {
+  return ref.watch(
+    _chatMessageListStructureProvider.select((structure) => structure.signature),
+  );
+});
+
+final chatMessageIdsProvider = Provider<List<String>>((ref) {
+  return ref.watch(
+    _chatMessageListStructureProvider.select((structure) => structure.ids),
+  );
+});
+
+final hasChatMessagesProvider = Provider<bool>((ref) {
+  return ref.watch(
+    _chatMessageListStructureProvider.select(
+      (structure) => structure.hasMessages,
+    ),
+  );
+});
+
+final chatMessageByIdProvider = Provider.autoDispose.family<ChatMessage?, String>((
+  ref,
+  messageId,
+) {
+  return ref.watch(
+    _chatMessageMapProvider.select((messagesById) => messagesById[messageId]),
+  );
+});
+
 /// Whether chat is currently streaming a response.
 /// Used by router to avoid showing connection issues during active streaming.
 /// Uses select() to only rebuild when the streaming state actually changes,
@@ -1273,7 +1391,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
     final lastMessage = state.last;
     if (lastMessage.role != 'assistant') return;
-    final updated = updater(lastMessage);
+    final bufferedLastMessage = _messageWithBufferedStreamingContent(lastMessage);
+    final updated = updater(bufferedLastMessage);
+    if (identical(updated, lastMessage)) {
+      return;
+    }
     state = [...state.sublist(0, state.length - 1), updated];
     if (updated.isStreaming) {
       _syncStreamingProfileWithState();
@@ -1293,7 +1415,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     final index = state.indexWhere((m) => m.id == messageId);
     if (index == -1) return;
     final original = state[index];
-    final updated = updater(original);
+    final bufferedOriginal = _messageWithBufferedStreamingContent(original);
+    final updated = updater(bufferedOriginal);
     if (identical(updated, original)) {
       return;
     }
@@ -1522,6 +1645,30 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     ref.read(streamingContentProvider.notifier).set(nextContent);
   }
 
+  ChatMessage _messageWithBufferedStreamingContent(ChatMessage message) {
+    final buffer = _streamingBuffer;
+    if (buffer == null ||
+        state.isEmpty ||
+        message.role != 'assistant' ||
+        !message.isStreaming) {
+      return message;
+    }
+
+    final lastMessage = state.last;
+    if (lastMessage.id != message.id ||
+        lastMessage.role != 'assistant' ||
+        !lastMessage.isStreaming) {
+      return message;
+    }
+
+    final accumulated = buffer.toString();
+    if (accumulated == message.content) {
+      return message;
+    }
+
+    return message.copyWith(content: accumulated);
+  }
+
   ({ChatMessage? message, String comparisonContent})
   _readStreamingMessageComparisonSnapshot(String messageId) {
     _streamingContentTimer?.cancel();
@@ -1557,13 +1704,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     if (lastMessage.role != 'assistant' || !lastMessage.isStreaming) {
       return;
     }
-
-    final accumulated = _streamingBuffer!.toString();
-    if (accumulated == lastMessage.content) return;
+    final bufferedLastMessage = _messageWithBufferedStreamingContent(lastMessage);
+    if (identical(bufferedLastMessage, lastMessage)) return;
 
     state = [
       ...state.sublist(0, state.length - 1),
-      lastMessage.copyWith(content: accumulated),
+      bufferedLastMessage,
     ];
     _syncStreamingProfileWithState();
   }
@@ -1690,14 +1836,15 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   }
 
   void _completeStreamingMessage({required bool releaseTransport}) {
-    // Sync final buffer content to state before clearing
     _streamingContentTimer?.cancel();
     _streamingContentTimer = null;
     _flushStreamingContentUpdate();
-    _syncStreamingBufferToState();
-    _streamingBuffer = null;
     _streamingSyncTimer?.cancel();
     _streamingSyncTimer = null;
+    final bufferedLastMessage = state.isEmpty
+        ? null
+        : _messageWithBufferedStreamingContent(state.last);
+    _streamingBuffer = null;
     _clearStreamingContent();
 
     if (state.isEmpty) {
@@ -1711,7 +1858,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       return;
     }
 
-    final lastMessage = state.last;
+    final lastMessage = bufferedLastMessage ?? state.last;
     if (lastMessage.role != 'assistant' || !lastMessage.isStreaming) {
       _finishStreamingProfile(reason: 'not_streaming', message: lastMessage);
       if (releaseTransport) {

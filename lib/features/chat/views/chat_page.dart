@@ -1479,10 +1479,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 
   Widget _buildMessagesList(ThemeData theme, WidgetRef watchRef) {
-    // Use select to watch only the messages list to reduce rebuilds
-    final messages = watchRef.watch(
-      chatMessagesProvider.select((messages) => messages),
-    );
+    watchRef.watch(chatMessageStructureSignatureProvider);
+    final messages = watchRef.read(chatMessagesProvider);
     final isLoadingConversation = watchRef.watch(isLoadingConversationProvider);
     final showLoadingSkeleton = isLoadingConversation && messages.isEmpty;
     if (showLoadingSkeleton) {
@@ -1697,9 +1695,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
               delegate: SliverChildBuilderDelegate(
                 (context, index) {
                   final message = messages[index];
+                  final messageId = message.id;
                   final rowMetadata = layoutMetadata.rows[index];
                   final isUser = message.role == 'user';
-                  final isStreaming = message.isStreaming;
 
                   if (rowMetadata.isArchivedVariant) {
                     return const SizedBox.shrink();
@@ -1710,32 +1708,82 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                     return KeyedSubtree(
                       key: isPinTarget
                           ? _pinnedUserMessageKey
-                          : ValueKey<String>('message-${message.id}'),
-                      child: UserMessageBubble(
-                        message: message,
-                        isUser: true,
-                        isStreaming: isStreaming,
-                        modelName: rowMetadata.displayModelName,
-                        onCopy: () => _copyMessage(message.content),
-                        onDelete: () => _deleteMessage(message),
-                        onRegenerate: () => _regenerateMessage(message.id),
+                          : ValueKey<String>('message-$messageId'),
+                      child: Consumer(
+                        builder: (context, rowRef, _) {
+                          final latestMessage = rowRef.watch(
+                            chatMessageByIdProvider(messageId),
+                          );
+                          if (latestMessage == null) {
+                            return const SizedBox.shrink();
+                          }
+                          return UserMessageBubble(
+                            message: latestMessage,
+                            isUser: true,
+                            isStreaming: latestMessage.isStreaming,
+                            modelName: rowMetadata.displayModelName,
+                            onCopy: () {
+                              final currentMessage = rowRef.read(
+                                chatMessageByIdProvider(messageId),
+                              );
+                              if (currentMessage != null) {
+                                _copyMessage(currentMessage.content);
+                              }
+                            },
+                            onDelete: () {
+                              final currentMessage = rowRef.read(
+                                chatMessageByIdProvider(messageId),
+                              );
+                              if (currentMessage != null) {
+                                _deleteMessage(currentMessage);
+                              }
+                            },
+                            onRegenerate: () => _regenerateMessage(messageId),
+                          );
+                        },
                       ),
                     );
                   }
 
-                  return assistant.AssistantMessageWidget(
-                    key: ValueKey<String>('message-${message.id}'),
-                    message: message,
-                    isStreaming: isStreaming,
-                    showFollowUps: rowMetadata.showFollowUps,
-                    animateOnMount: !rowMetadata.replacesArchivedAssistant,
-                    modelName: rowMetadata.displayModelName,
-                    modelIconUrl: rowMetadata.modelIconUrl,
-                    versionModelNames: rowMetadata.versionModelNames,
-                    versionModelIconUrls: rowMetadata.versionModelIconUrls,
-                    onCopy: () => _copyMessage(message.content),
-                    onRegenerate: () => _regenerateMessage(message.id),
-                    onDelete: () => _deleteMessage(message),
+                  return KeyedSubtree(
+                    key: ValueKey<String>('message-$messageId'),
+                    child: Consumer(
+                      builder: (context, rowRef, _) {
+                        final latestMessage = rowRef.watch(
+                          chatMessageByIdProvider(messageId),
+                        );
+                        if (latestMessage == null) {
+                          return const SizedBox.shrink();
+                        }
+                        return assistant.AssistantMessageWidget(
+                          message: latestMessage,
+                          isStreaming: latestMessage.isStreaming,
+                          showFollowUps: rowMetadata.showFollowUps,
+                          animateOnMount: !rowMetadata.replacesArchivedAssistant,
+                          modelName: rowMetadata.displayModelName,
+                          modelIconUrl: rowMetadata.modelIconUrl,
+                          versionModelNames: rowMetadata.versionModelNames,
+                          versionModelIconUrls: rowMetadata.versionModelIconUrls,
+                          onCopy: () {
+                            final currentMessage = rowRef.read(
+                              chatMessageByIdProvider(messageId),
+                            );
+                            if (currentMessage != null) {
+                              _copyMessage(currentMessage.content);
+                            }
+                          },
+                          onRegenerate: () => _regenerateMessage(messageId),
+                          onDelete: () {
+                            final currentMessage = rowRef.read(
+                              chatMessageByIdProvider(messageId),
+                            );
+                            if (currentMessage != null) {
+                              _deleteMessage(currentMessage);
+                            }
+                          },
+                        );
+                      },
+                    ),
                   );
                 },
                 childCount: messages.length,
@@ -2306,9 +2354,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   child: Consumer(
                     builder: (context, scrollButtonRef, _) {
                       final hasMessages = scrollButtonRef.watch(
-                        chatMessagesProvider.select(
-                          (messages) => messages.isNotEmpty,
-                        ),
+                        hasChatMessagesProvider,
                       );
                       return (_showScrollToBottom &&
                               !keyboardVisible &&
@@ -2416,9 +2462,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }) {
     final activeConversation = ref.watch(activeConversationProvider);
     final isTemporary = ref.watch(temporaryChatEnabledProvider);
-    final hasMessages = ref.watch(
-      chatMessagesProvider.select((messages) => messages.isNotEmpty),
-    );
+    final hasMessages = ref.watch(hasChatMessagesProvider);
     final showNewChatAction = activeConversation != null || hasMessages;
     final tintColor = context.conduitTheme.textPrimary;
     const leadingGap = kConduitAdaptiveToolbarLeadingGap;
