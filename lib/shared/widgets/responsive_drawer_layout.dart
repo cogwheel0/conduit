@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
 import 'package:flutter/services.dart';
@@ -11,6 +12,12 @@ import 'drawer_slot.dart';
 const double _kSidebarNativeBottomBarContentHeight = 50.0;
 
 enum _DrawerSettleEndpoint { open, closed }
+
+class _HorizontalScrollableHit {
+  const _HorizontalScrollableHit({required this.isAtOpenGestureLeadingEdge});
+
+  final bool isAtOpenGestureLeadingEdge;
+}
 
 bool _usesNativeSidebarChrome(BuildContext context) =>
     Theme.of(context).platform == TargetPlatform.iOS;
@@ -98,6 +105,10 @@ class ResponsiveDrawerLayout extends StatefulWidget {
 
 class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
     with SingleTickerProviderStateMixin {
+  static const double _kEdgeOpenTouchSlop = kTouchSlop;
+  static const double _kHorizontalScrollableOpenThreshold = 45.0;
+  static const double _kEdgeOpenAxisBias = 1.0;
+
   late final AnimationController _controller;
   late bool _isTabletDocked = widget.tabletInitiallyDocked;
 
@@ -107,6 +118,11 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
   _DrawerSettleEndpoint? _pendingSettledEndpoint;
   bool _isDragging = false;
   _DrawerSettleEndpoint? _dragTerminalEndpoint;
+  int? _edgePointer;
+  Offset? _edgePointerOrigin;
+  VelocityTracker? _edgeVelocityTracker;
+  bool _edgePointerSuppressedByHorizontalScrollable = false;
+  double _edgePointerActivationThreshold = _kEdgeOpenTouchSlop;
 
   /// Spring description matching iOS navigation drawer physics.
   static final SpringDescription _spring = SpringDescription(
@@ -290,9 +306,15 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
     _dragTerminalEndpoint = null;
   }
 
-  void _onDragStart(DragStartDetails d) {
-    if (_isTablet(context)) return;
+  void _resetEdgePointerState() {
+    _edgePointer = null;
+    _edgePointerOrigin = null;
+    _edgeVelocityTracker = null;
+    _edgePointerSuppressedByHorizontalScrollable = false;
+    _edgePointerActivationThreshold = _kEdgeOpenTouchSlop;
+  }
 
+  void _beginDrawerDrag() {
     _resetDragState();
     _isDragging = true;
     if (_controller.value <= 0.001) {
@@ -306,25 +328,20 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
     _dragCumulativeDelta = 0.0;
   }
 
-  void _onDragUpdate(DragUpdateDetails d) {
-    if (_isTablet(context)) return;
-
-    _dragCumulativeDelta += d.primaryDelta ?? 0.0;
-    final next =
-        (_dragStartControllerValue + _dragCumulativeDelta / _panelWidth).clamp(
-          0.0,
-          1.0,
-        );
+  void _updateDrawerDragFromTotalDelta(double totalDelta) {
+    _dragCumulativeDelta = totalDelta;
+    final next = (_dragStartControllerValue + totalDelta / _panelWidth).clamp(
+      0.0,
+      1.0,
+    );
     _controller.value = next;
     if (_settledEndpointForValue(next) != _dragTerminalEndpoint) {
       _dragTerminalEndpoint = null;
     }
   }
 
-  void _onDragEnd(DragEndDetails d) {
-    if (_isTablet(context)) return;
-
-    final vx = d.primaryVelocity ?? 0.0;
+  void _endDrawerDragWithVelocity(double velocity) {
+    final vx = velocity;
     final vMag = vx.abs();
     final endpoint = vMag > 300.0
         ? (vx > 0.0 ? _DrawerSettleEndpoint.open : _DrawerSettleEndpoint.closed)
@@ -350,6 +367,166 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
     } else {
       close(velocity: vMag);
     }
+  }
+
+  bool _isHorizontalAxisDirection(AxisDirection direction) =>
+      direction == AxisDirection.left || direction == AxisDirection.right;
+
+  bool _isAtLeadingEdgeForOpenGesture(
+    ScrollPosition position,
+    AxisDirection axisDirection,
+  ) {
+    const epsilon = 0.5;
+    return switch (axisDirection) {
+      AxisDirection.right =>
+        position.pixels <= position.minScrollExtent + epsilon,
+      AxisDirection.left =>
+        position.pixels >= position.maxScrollExtent - epsilon,
+      AxisDirection.up || AxisDirection.down => true,
+    };
+  }
+
+  _HorizontalScrollableHit? _detectHorizontalScrollableHit(
+    Offset globalPosition,
+    int viewId,
+  ) {
+    final result = HitTestResult();
+    WidgetsBinding.instance.hitTestInView(result, globalPosition, viewId);
+
+    for (final entry in result.path) {
+      final dynamic target = entry.target;
+
+      AxisDirection? axisDirection;
+      try {
+        final maybeAxisDirection = target.axisDirection;
+        if (maybeAxisDirection is AxisDirection) {
+          axisDirection = maybeAxisDirection;
+        }
+      } catch (_) {}
+
+      if (axisDirection == null || !_isHorizontalAxisDirection(axisDirection)) {
+        continue;
+      }
+
+      try {
+        final offset = target.offset;
+        if (offset is ScrollPosition) {
+          return _HorizontalScrollableHit(
+            isAtOpenGestureLeadingEdge: _isAtLeadingEdgeForOpenGesture(
+              offset,
+              axisDirection,
+            ),
+          );
+        }
+      } catch (_) {}
+
+      return const _HorizontalScrollableHit(isAtOpenGestureLeadingEdge: true);
+    }
+
+    return null;
+  }
+
+  void _onEdgePointerDown(PointerDownEvent event) {
+    if (_isTablet(context) || _controller.value > 0.001) return;
+
+    _resetEdgePointerState();
+    _edgePointer = event.pointer;
+    _edgePointerOrigin = event.position;
+    _edgeVelocityTracker = VelocityTracker.withKind(event.kind)
+      ..addPosition(event.timeStamp, event.position);
+
+    final horizontalHit = _detectHorizontalScrollableHit(
+      event.position,
+      event.viewId,
+    );
+    if (horizontalHit == null) {
+      return;
+    }
+
+    if (horizontalHit.isAtOpenGestureLeadingEdge) {
+      _edgePointerActivationThreshold = _kHorizontalScrollableOpenThreshold;
+    } else {
+      _edgePointerSuppressedByHorizontalScrollable = true;
+    }
+  }
+
+  void _onEdgePointerMove(PointerMoveEvent event) {
+    if (_isTablet(context) ||
+        _edgePointer != event.pointer ||
+        _edgePointerOrigin == null) {
+      return;
+    }
+
+    _edgeVelocityTracker?.addPosition(event.timeStamp, event.position);
+    if (_edgePointerSuppressedByHorizontalScrollable) {
+      return;
+    }
+
+    final delta = event.position - _edgePointerOrigin!;
+    final dx = delta.dx;
+    final dyAbs = delta.dy.abs();
+
+    if (!_isDragging) {
+      if (dyAbs > _kEdgeOpenTouchSlop && dyAbs > dx.abs()) {
+        _resetEdgePointerState();
+        return;
+      }
+      if (dx <= 0.0) {
+        if (dx.abs() > _kEdgeOpenTouchSlop && dx.abs() > dyAbs) {
+          _resetEdgePointerState();
+        }
+        return;
+      }
+      if (dx <= _edgePointerActivationThreshold ||
+          dx <= dyAbs * _kEdgeOpenAxisBias) {
+        return;
+      }
+
+      _beginDrawerDrag();
+    }
+
+    final effectiveDx = (dx - _edgePointerActivationThreshold).clamp(
+      0.0,
+      double.infinity,
+    );
+    _updateDrawerDragFromTotalDelta(effectiveDx);
+  }
+
+  void _onEdgePointerUp(PointerUpEvent event) {
+    if (_edgePointer != event.pointer) return;
+
+    _edgeVelocityTracker?.addPosition(event.timeStamp, event.position);
+    if (_isDragging) {
+      final estimate = _edgeVelocityTracker?.getVelocity();
+      _endDrawerDragWithVelocity(estimate?.pixelsPerSecond.dx ?? 0.0);
+    }
+    _resetEdgePointerState();
+  }
+
+  void _onEdgePointerCancel(PointerCancelEvent event) {
+    if (_edgePointer != event.pointer) return;
+
+    if (_isDragging) {
+      _resetDragState();
+    }
+    _resetEdgePointerState();
+  }
+
+  void _onDragStart(DragStartDetails d) {
+    if (_isTablet(context)) return;
+    _beginDrawerDrag();
+  }
+
+  void _onDragUpdate(DragUpdateDetails d) {
+    if (_isTablet(context)) return;
+    _updateDrawerDragFromTotalDelta(
+      _dragCumulativeDelta + (d.primaryDelta ?? 0.0),
+    );
+  }
+
+  void _onDragEnd(DragEndDetails d) {
+    if (_isTablet(context)) return;
+    _endDrawerDragWithVelocity(d.primaryVelocity ?? 0.0);
   }
 
   void _onDragCancel() {
@@ -519,12 +696,12 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
           top: 0,
           bottom: 0,
           width: _edgeWidth,
-          child: GestureDetector(
+          child: Listener(
             behavior: HitTestBehavior.translucent,
-            onHorizontalDragStart: _onDragStart,
-            onHorizontalDragUpdate: _onDragUpdate,
-            onHorizontalDragEnd: _onDragEnd,
-            onHorizontalDragCancel: _onDragCancel,
+            onPointerDown: _onEdgePointerDown,
+            onPointerMove: _onEdgePointerMove,
+            onPointerUp: _onEdgePointerUp,
+            onPointerCancel: _onEdgePointerCancel,
           ),
         ),
 

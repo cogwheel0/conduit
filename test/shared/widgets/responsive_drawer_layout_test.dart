@@ -80,22 +80,47 @@ Iterable<_RecordedPlatformCall> _settleHapticCalls(
 Widget _buildHarness({
   required Size size,
   GlobalKey<ResponsiveDrawerLayoutState>? layoutKey,
+  Widget? child,
+  Widget? drawer,
 }) {
   return MaterialApp(
     home: MediaQuery(
       data: MediaQueryData(size: size),
       child: ResponsiveDrawerLayout(
         key: layoutKey,
-        drawer: const ColoredBox(
-          key: ValueKey('drawer'),
-          color: Colors.blue,
-          child: SizedBox.expand(),
-        ),
-        child: const ColoredBox(
-          key: ValueKey('content'),
-          color: Colors.orange,
-          child: SizedBox.expand(),
-        ),
+        drawer:
+            drawer ??
+            const ColoredBox(
+              key: ValueKey('drawer'),
+              color: Colors.blue,
+              child: SizedBox.expand(),
+            ),
+        child:
+            child ??
+            const ColoredBox(
+              key: ValueKey('content'),
+              color: Colors.orange,
+              child: SizedBox.expand(),
+            ),
+      ),
+    ),
+  );
+}
+
+Widget _buildHorizontalScrollableContent({
+  ScrollController? controller,
+  Key? key,
+}) {
+  return ColoredBox(
+    color: Colors.orange,
+    child: SingleChildScrollView(
+      key: key,
+      controller: controller,
+      scrollDirection: Axis.horizontal,
+      child: const SizedBox(
+        width: 1200,
+        height: 844,
+        child: ColoredBox(color: Colors.deepOrange),
       ),
     ),
   );
@@ -125,6 +150,56 @@ void main() {
     expect(layoutKey.currentState!.isOpen, isTrue);
     expect(_settleHapticCalls(calls), hasLength(1));
   });
+
+  testWidgets(
+    'horizontal scrollable away from the leading edge wins the edge drag',
+    (tester) async {
+      final layoutKey = GlobalKey<ResponsiveDrawerLayoutState>();
+      final scrollController = ScrollController(initialScrollOffset: 120);
+
+      await tester.pumpWidget(
+        _buildHarness(
+          size: _mobileSize,
+          layoutKey: layoutKey,
+          child: _buildHorizontalScrollableContent(
+            controller: scrollController,
+            key: const ValueKey('horizontal-scrollable'),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.dragFrom(const Offset(10, 200), const Offset(180, 0));
+      await tester.pumpAndSettle();
+
+      expect(layoutKey.currentState!.isOpen, isFalse);
+      expect(scrollController.offset, lessThan(120));
+    },
+  );
+
+  testWidgets(
+    'horizontal scrollable at the leading edge can still open the drawer',
+    (tester) async {
+      final layoutKey = GlobalKey<ResponsiveDrawerLayoutState>();
+      final scrollController = ScrollController();
+
+      await tester.pumpWidget(
+        _buildHarness(
+          size: _mobileSize,
+          layoutKey: layoutKey,
+          child: _buildHorizontalScrollableContent(
+            controller: scrollController,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.dragFrom(const Offset(10, 200), const Offset(260, 0));
+      await tester.pumpAndSettle();
+
+      expect(layoutKey.currentState!.isOpen, isTrue);
+    },
+  );
 
   testWidgets(
     'horizontal drag closes an open mobile drawer and fires one haptic',
@@ -323,20 +398,11 @@ void main() {
         _buildHarness(size: _mobileSize, layoutKey: layoutKey),
       );
 
-      final edgeDragDetector = tester.widget<GestureDetector>(
-        find.byType(GestureDetector).first,
-      );
-      edgeDragDetector.onHorizontalDragStart!(
-        DragStartDetails(globalPosition: const Offset(10, 200)),
-      );
-      edgeDragDetector.onHorizontalDragUpdate!(
-        DragUpdateDetails(
-          delta: const Offset(160, 0),
-          globalPosition: const Offset(170, 200),
-          primaryDelta: 160,
-        ),
-      );
-      edgeDragDetector.onHorizontalDragCancel?.call();
+      final gesture = await tester.startGesture(const Offset(10, 200));
+      await gesture.moveBy(const Offset(160, 0));
+      await tester.pump();
+      await gesture.cancel();
+      await tester.pump();
 
       layoutKey.currentState!.open();
       await tester.pumpAndSettle();
