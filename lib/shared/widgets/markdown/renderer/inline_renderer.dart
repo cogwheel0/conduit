@@ -33,6 +33,7 @@ class InlineRenderer {
     this.onLinkTap,
     this.sources,
     this.onSourceTap,
+    this.latexStartupFuture,
   ]);
 
   /// The style configuration for rendering.
@@ -49,6 +50,9 @@ class InlineRenderer {
 
   /// Callback when a citation badge is tapped.
   final void Function(int sourceIndex)? onSourceTap;
+
+  /// Shared LaTeX startup future for the current visible document.
+  final Future<void>? latexStartupFuture;
 
   /// Gesture recognizers created during rendering.
   ///
@@ -137,6 +141,7 @@ class InlineRenderer {
             segment.content,
             textStyle: currentStyle,
             isBlock: segment.isBlock,
+            startupFuture: latexStartupFuture,
           ),
         ),
       );
@@ -177,6 +182,7 @@ class InlineRenderer {
               segment.tex,
               textStyle: currentStyle,
               isBlock: segment.isBlock,
+              startupFuture: latexStartupFuture,
             ),
           ),
         );

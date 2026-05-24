@@ -19,7 +19,6 @@ import '../services/connectivity_service.dart';
 import '../services/share_receiver_service.dart';
 import '../utils/debug_logger.dart';
 import '../models/server_config.dart';
-import '../../shared/widgets/markdown/renderer/latex_rendering_server.dart';
 import '../../features/tools/providers/tools_providers.dart';
 
 part 'app_startup_providers.g.dart';
@@ -801,11 +800,6 @@ class AppStartupFlow extends _$AppStartupFlow {
       const Duration(milliseconds: 80),
       () => ref.read(shareReceiverInitializerProvider),
       label: 'share-receiver',
-    );
-    _scheduleAfterDelay(
-      const Duration(milliseconds: 180),
-      LatexRenderingServer.prewarm,
-      label: 'latex-prewarm',
     );
   }
 

@@ -25,9 +25,13 @@ sealed class ChatMessage with _$ChatMessage {
     /// Rich UI embed objects attached to this message.
     List<Map<String, dynamic>>? embeds,
     Map<String, dynamic>? metadata,
-    @Default(<ChatStatusUpdate>[]) List<ChatStatusUpdate> statusHistory,
+    @JsonKey(toJson: _statusHistoryToJson)
+    @Default(<ChatStatusUpdate>[])
+    List<ChatStatusUpdate> statusHistory,
     @Default(<String>[]) List<String> followUps,
-    @Default(<ChatCodeExecution>[]) List<ChatCodeExecution> codeExecutions,
+    @JsonKey(toJson: _codeExecutionsToJson)
+    @Default(<ChatCodeExecution>[])
+    List<ChatCodeExecution> codeExecutions,
     @JsonKey(
       name: 'sources',
       fromJson: _sourceRefsFromJson,
@@ -144,7 +148,9 @@ abstract class ChatMessageVersion with _$ChatMessageVersion {
     @Default(<ChatSourceReference>[])
     List<ChatSourceReference> sources,
     @Default(<String>[]) List<String> followUps,
-    @Default(<ChatCodeExecution>[]) List<ChatCodeExecution> codeExecutions,
+    @JsonKey(toJson: _codeExecutionsToJson)
+    @Default(<ChatCodeExecution>[])
+    List<ChatCodeExecution> codeExecutions,
     Map<String, dynamic>? usage,
     // Error information preserved from the original message
     @JsonKey(
@@ -208,7 +214,10 @@ abstract class ChatCodeExecution with _$ChatCodeExecution {
     @JsonKey(fromJson: _nullableString) String? name,
     @JsonKey(fromJson: _nullableString) String? language,
     @JsonKey(fromJson: _nullableString) String? code,
-    @JsonKey(fromJson: _safeCodeExecutionResult)
+    @JsonKey(
+      fromJson: _safeCodeExecutionResult,
+      toJson: _codeExecutionResultToJson,
+    )
     ChatCodeExecutionResult? result,
     @JsonKey(fromJson: _safeJsonMap) Map<String, dynamic>? metadata,
   }) = _ChatCodeExecution;
@@ -326,6 +335,28 @@ List<ChatMessageVersion> _versionsFromJson(dynamic value) {
 /// Convert ChatMessageVersion list to JSON.
 List<Map<String, dynamic>> _versionsToJson(List<ChatMessageVersion> versions) {
   return versions.map((v) => v.toJson()).toList(growable: false);
+}
+
+List<Map<String, dynamic>> _statusHistoryToJson(
+  List<ChatStatusUpdate> statusHistory,
+) {
+  return statusHistory
+      .map((statusUpdate) => statusUpdate.toJson())
+      .toList(growable: false);
+}
+
+List<Map<String, dynamic>> _codeExecutionsToJson(
+  List<ChatCodeExecution> codeExecutions,
+) {
+  return codeExecutions
+      .map((codeExecution) => codeExecution.toJson())
+      .toList(growable: false);
+}
+
+Map<String, dynamic>? _codeExecutionResultToJson(
+  ChatCodeExecutionResult? result,
+) {
+  return result?.toJson();
 }
 
 List<ChatStatusItem> _statusItemsFromJson(dynamic value) {

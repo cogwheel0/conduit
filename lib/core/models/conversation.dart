@@ -1,6 +1,9 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
 import 'chat_message.dart';
 
+// Freezed applies JsonKey to constructor parameters.
+// ignore_for_file: invalid_annotation_target
+
 part 'conversation.freezed.dart';
 part 'conversation.g.dart';
 
@@ -13,7 +16,7 @@ sealed class Conversation with _$Conversation {
     required DateTime updatedAt,
     String? model,
     String? systemPrompt,
-    @Default([]) List<ChatMessage> messages,
+    @JsonKey(toJson: _messagesToJson) @Default([]) List<ChatMessage> messages,
     @Default({}) @_MetadataConverter() Map<String, dynamic> metadata,
     @Default(false) bool pinned,
     @Default(false) bool archived,
@@ -24,6 +27,10 @@ sealed class Conversation with _$Conversation {
 
   factory Conversation.fromJson(Map<String, dynamic> json) =>
       _$ConversationFromJson(json);
+}
+
+List<Map<String, dynamic>> _messagesToJson(List<ChatMessage> messages) {
+  return messages.map((message) => message.toJson()).toList(growable: false);
 }
 
 class _MetadataConverter

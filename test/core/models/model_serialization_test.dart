@@ -1,5 +1,6 @@
 import 'package:checks/checks.dart';
 import 'package:conduit/core/models/backend_config.dart';
+import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/core/models/folder.dart';
 import 'package:conduit/core/models/knowledge_base.dart';
@@ -13,6 +14,7 @@ import 'package:conduit/core/models/toggle_filter.dart';
 import 'package:conduit/core/models/tool.dart';
 import 'package:conduit/core/models/user.dart';
 import 'package:conduit/core/models/user_settings.dart';
+import 'package:conduit/core/utils/json_normalization.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -792,5 +794,135 @@ void main() {
       check(conv.folderId).equals('folder1');
       check(conv.tags).deepEquals(['important', 'work']);
     });
+
+    test('toJson encodes messages as json maps', () {
+      final conv = Conversation(
+        id: 'conv3',
+        title: 'Persistable',
+        createdAt: DateTime.utc(2024, 6, 15, 12),
+        updatedAt: DateTime.utc(2024, 6, 15, 13),
+        messages: [
+          ChatMessage(
+            id: 'msg1',
+            role: 'user',
+            content: 'hello',
+            timestamp: DateTime.utc(2024, 6, 15, 12, 1),
+          ),
+        ],
+      );
+
+      final json = conv.toJson();
+      final messages = json['messages'];
+
+      check(messages).isA<List<dynamic>>();
+      check((messages as List).single).isA<Map<String, dynamic>>();
+      check(
+        (messages.single as Map<String, dynamic>)['content'],
+      ).equals('hello');
+    });
+
+    test(
+      'toJson round-trip preserves nested chat message model collections',
+      () {
+        final conversation = Conversation(
+          id: 'conv4',
+          title: 'Nested models',
+          createdAt: DateTime.utc(2024, 6, 15, 12),
+          updatedAt: DateTime.utc(2024, 6, 15, 13),
+          messages: [
+            ChatMessage(
+              id: 'msg2',
+              role: 'assistant',
+              content: 'Working on it',
+              timestamp: DateTime.utc(2024, 6, 15, 12, 2),
+              statusHistory: [
+                ChatStatusUpdate(
+                  action: 'search',
+                  description: 'Searching docs',
+                  done: true,
+                  items: const [
+                    ChatStatusItem(
+                      title: 'Result title',
+                      link: 'https://example.com/result',
+                    ),
+                  ],
+                ),
+              ],
+              codeExecutions: [
+                ChatCodeExecution(
+                  id: 'exec-1',
+                  language: 'python',
+                  code: 'print(1)',
+                  result: const ChatCodeExecutionResult(
+                    output: '1',
+                    files: [
+                      ChatExecutionFile(
+                        name: 'plot.png',
+                        url: 'https://example.com/plot.png',
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              versions: [
+                ChatMessageVersion(
+                  id: 'version-1',
+                  content: 'Earlier draft',
+                  timestamp: DateTime.utc(2024, 6, 15, 12, 1),
+                  codeExecutions: const [
+                    ChatCodeExecution(
+                      id: 'exec-2',
+                      language: 'python',
+                      result: ChatCodeExecutionResult(output: '2'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ],
+        );
+
+        final normalized = normalizeJsonLikeMap(conversation.toJson());
+        final messageJson =
+            (normalized['messages'] as List<dynamic>).single
+                as Map<String, dynamic>;
+
+        check(messageJson['statusHistory']).isA<List<dynamic>>();
+        check(
+          (messageJson['statusHistory'] as List<dynamic>).single,
+        ).isA<Map<String, dynamic>>();
+        check(messageJson['codeExecutions']).isA<List<dynamic>>();
+        final codeExecutionJson =
+            (messageJson['codeExecutions'] as List<dynamic>).single;
+        check(codeExecutionJson).isA<Map<String, dynamic>>();
+        check(
+          (codeExecutionJson as Map<String, dynamic>)['result'],
+        ).isA<Map<String, dynamic>>();
+        final versionJson = (messageJson['versions'] as List<dynamic>).single;
+        check(versionJson).isA<Map<String, dynamic>>();
+        check(
+          ((versionJson as Map<String, dynamic>)['codeExecutions']
+                  as List<dynamic>)
+              .single,
+        ).isA<Map<String, dynamic>>();
+
+        final restored = Conversation.fromJson(normalized);
+        final restoredMessage = restored.messages.single;
+
+        check(
+          restoredMessage.statusHistory.single.description,
+        ).equals('Searching docs');
+        check(
+          restoredMessage.statusHistory.single.items.single.title,
+        ).equals('Result title');
+        check(restoredMessage.codeExecutions.single.result?.output).equals('1');
+        check(
+          restoredMessage.codeExecutions.single.result?.files.single.name,
+        ).equals('plot.png');
+        check(
+          restoredMessage.versions.single.codeExecutions.single.result?.output,
+        ).equals('2');
+      },
+    );
   });
 }

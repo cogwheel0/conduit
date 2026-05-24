@@ -79,6 +79,9 @@ class CompiledMarkdownDocument {
 
   bool get hasHeavyBlocks => heavyBlockCount > 0;
 
+  bool get hasLatex =>
+      blockLatexExpressions.isNotEmpty || inlineLatexExpressions.isNotEmpty;
+
   int get estimatedWeight {
     final blockWeight = blocks.fold<int>(0, (sum, block) => sum + block.weight);
     final nodeWeight = nodes.fold<int>(0, (sum, node) => sum + node.weight);

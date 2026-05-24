@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -10,7 +12,13 @@ import '../markdown_loading_skeleton.dart';
 import 'block_renderer.dart';
 import 'inline_renderer.dart';
 import 'latex_preprocessor.dart';
+import 'latex_rendering_server.dart';
 import 'markdown_style.dart';
+
+@visibleForTesting
+const int debugMaxLatexStartupRetryCount = 5;
+
+const int _maxLatexStartupRetryCount = debugMaxLatexStartupRetryCount;
 
 @visibleForTesting
 void debugResetParsedMarkdownCache() => debugResetCompiledMarkdownCache();
@@ -233,6 +241,9 @@ class _CompiledMarkdownView extends StatefulWidget {
 class _CompiledMarkdownViewState extends State<_CompiledMarkdownView> {
   InlineRenderer? _inlineRenderer;
   LatexPreprocessor _latexPreprocessor = LatexPreprocessor();
+  Future<void>? _latexStartupFuture;
+  Timer? _latexStartupRetryTimer;
+  int _latexStartupRetryCount = 0;
 
   @override
   void initState() {
@@ -251,6 +262,7 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView> {
 
   @override
   void dispose() {
+    _cancelLatexStartupRetry();
     widget.debugOnDisposed?.call();
     _inlineRenderer?.disposeRecognizers();
     super.dispose();
@@ -284,6 +296,7 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView> {
         widget.onLinkTap,
         widget.sources,
         widget.onSourceTap,
+        _latexStartupFuture,
       );
 
       final blockRenderer = BlockRenderer(
@@ -318,7 +331,76 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView> {
   }
 
   void _hydrateDocument(CompiledMarkdownDocument document) {
+    _cancelLatexStartupRetry();
+    _latexStartupRetryCount = 0;
     _latexPreprocessor = document.buildLatexPreprocessor();
+    if (!document.hasLatex) {
+      _latexStartupFuture = null;
+      return;
+    }
+    _startLatexStartup();
+  }
+
+  void _startLatexStartup({bool notify = false}) {
+    final startupFuture = LatexRenderingServer.ensureStarted();
+    if (notify && mounted) {
+      setState(() {
+        _latexStartupFuture = startupFuture;
+      });
+    } else {
+      _latexStartupFuture = startupFuture;
+    }
+
+    unawaited(
+      startupFuture.then<void>(
+        (_) {
+          if (!mounted || !identical(_latexStartupFuture, startupFuture)) {
+            return;
+          }
+          _latexStartupRetryCount = 0;
+        },
+        onError: (Object error, StackTrace stackTrace) {
+          if (!mounted ||
+              !identical(_latexStartupFuture, startupFuture) ||
+              !widget.document.hasLatex ||
+              LatexRenderingServer.isStarted) {
+            return;
+          }
+          _scheduleLatexStartupRetry();
+        },
+      ),
+    );
+  }
+
+  void _scheduleLatexStartupRetry() {
+    if (_latexStartupRetryTimer != null) {
+      return;
+    }
+    if (_latexStartupRetryCount >= _maxLatexStartupRetryCount) {
+      return;
+    }
+
+    final delay = _latexStartupRetryDelay(_latexStartupRetryCount);
+    _latexStartupRetryCount += 1;
+    _latexStartupRetryTimer = Timer(delay, () {
+      _latexStartupRetryTimer = null;
+      if (!mounted ||
+          !widget.document.hasLatex ||
+          LatexRenderingServer.isStarted) {
+        return;
+      }
+      _startLatexStartup(notify: true);
+    });
+  }
+
+  void _cancelLatexStartupRetry() {
+    _latexStartupRetryTimer?.cancel();
+    _latexStartupRetryTimer = null;
+  }
+
+  Duration _latexStartupRetryDelay(int retryCount) {
+    final clampedRetryCount = retryCount.clamp(0, 3);
+    return Duration(milliseconds: 200 * (1 << clampedRetryCount));
   }
 
   Widget _buildPlainText(ConduitMarkdownStyle style) {

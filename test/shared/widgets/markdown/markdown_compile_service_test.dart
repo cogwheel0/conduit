@@ -21,6 +21,24 @@ class _RecordingBatchMarkdownCompileService extends MarkdownCompileService {
   }
 }
 
+List<CompiledMarkdownLatexSegment> _collectLatexSegments(
+  Iterable<CompiledMarkdownNode> nodes,
+) {
+  final segments = <CompiledMarkdownLatexSegment>[];
+  for (final node in nodes) {
+    if (node is CompiledMarkdownText) {
+      segments.addAll(
+        node.inlineSegments.whereType<CompiledMarkdownLatexSegment>(),
+      );
+      continue;
+    }
+    if (node is CompiledMarkdownElement) {
+      segments.addAll(_collectLatexSegments(node.children));
+    }
+  }
+  return segments;
+}
+
 void main() {
   setUp(debugResetCompiledMarkdownCache);
   tearDown(debugResetCompiledMarkdownCache);
@@ -94,6 +112,61 @@ void main() {
       expect(codeBlock.blockKind, CompiledMarkdownBlockKind.mermaid);
       expect(codeBlock.isHeavyBlock, isTrue);
       expect(codeBlock.language, 'mermaid');
+    });
+
+    test('captures inline latex segments and marks documents as latex', () {
+      final document = compilePreparedMarkdownSync(
+        r'The area is $r^2$ and \(x+y\).',
+      );
+
+      expect(document.hasLatex, isTrue);
+      expect(
+        document.inlineLatexExpressions.values,
+        unorderedEquals(<String>['r^2', 'x+y']),
+      );
+
+      final latexSegments = _collectLatexSegments(document.nodes);
+      expect(latexSegments, hasLength(2));
+      expect(latexSegments.map((segment) => segment.tex).toList(), <String>[
+        'r^2',
+        'x+y',
+      ]);
+      expect(latexSegments.every((segment) => segment.isBlock), isFalse);
+    });
+
+    test('captures block latex expressions during compilation', () {
+      final document = compilePreparedMarkdownSync(
+        r'Before'
+        '\n\n'
+        r'$$'
+        '\n'
+        r'x^2 + y^2'
+        '\n'
+        r'$$'
+        '\n\n'
+        r'After',
+      );
+
+      expect(document.hasLatex, isTrue);
+      expect(document.blockLatexExpressions.values, <String>['x^2 + y^2']);
+
+      final latexSegments = _collectLatexSegments(document.nodes);
+      expect(latexSegments.where((segment) => segment.isBlock), hasLength(1));
+      expect(
+        latexSegments.where((segment) => segment.isBlock).single.tex,
+        'x^2 + y^2',
+      );
+    });
+
+    test('does not treat currency text as latex', () {
+      final document = compilePreparedMarkdownSync(
+        r'Plain currency text like $65,539 USD is about ~$42.6 million.',
+      );
+
+      expect(document.hasLatex, isFalse);
+      expect(document.blockLatexExpressions, isEmpty);
+      expect(document.inlineLatexExpressions, isEmpty);
+      expect(_collectLatexSegments(document.nodes), isEmpty);
     });
 
     test(

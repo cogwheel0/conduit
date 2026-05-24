@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:developer' as developer;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_tex/flutter_tex.dart';
 
 /// Coordinates startup of the shared MathJax rendering server.
@@ -13,6 +14,10 @@ class LatexRenderingServer {
 
   static Future<void>? _startFuture;
   static bool _started = false;
+  @visibleForTesting
+  static Future<void> Function()? debugStartOverride;
+  @visibleForTesting
+  static int debugStartInvocationCount = 0;
 
   /// Whether the renderer has completed startup.
   static bool get isStarted => _started;
@@ -24,6 +29,7 @@ class LatexRenderingServer {
     final existingFuture = _startFuture;
     if (existingFuture != null) return existingFuture;
 
+    debugStartInvocationCount += 1;
     final future = _start();
     _startFuture = future;
     return future;
@@ -44,8 +50,13 @@ class LatexRenderingServer {
   }
 
   static Future<void> _start() async {
+    final startOverride = debugStartOverride;
     try {
-      await TeXRenderingServer.start();
+      if (startOverride != null) {
+        await startOverride();
+      } else {
+        await TeXRenderingServer.start();
+      }
       _started = true;
     } catch (error, stackTrace) {
       _startFuture = null;
@@ -57,5 +68,13 @@ class LatexRenderingServer {
       );
       rethrow;
     }
+  }
+
+  @visibleForTesting
+  static void debugReset() {
+    _startFuture = null;
+    _started = false;
+    debugStartOverride = null;
+    debugStartInvocationCount = 0;
   }
 }
