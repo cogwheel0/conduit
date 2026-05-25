@@ -1196,9 +1196,30 @@ bool _shouldInlinePreviewCodeBlock(String language, String code) {
   return normalized == 'svg' || (normalized == 'xml' && code.contains('<svg'));
 }
 
+({Object error, StackTrace stackTrace}) _parseBackgroundIsolateError(
+  String prefix,
+  dynamic message,
+) {
+  if (message is List<dynamic> && message.isNotEmpty) {
+    final rawStackTrace = message.length > 1
+        ? (message[1]?.toString() ?? '')
+        : '';
+    return (
+      error: StateError('$prefix: ${message.first}'),
+      stackTrace: rawStackTrace.isEmpty
+          ? StackTrace.empty
+          : StackTrace.fromString(rawStackTrace),
+    );
+  }
+
+  return (error: StateError('$prefix: $message'), stackTrace: StackTrace.empty);
+}
+
 class _MarkdownCompilerBackend {
   Isolate? _isolate;
   ReceivePort? _receivePort;
+  ReceivePort? _errorPort;
+  ReceivePort? _exitPort;
   SendPort? _sendPort;
   Future<SendPort>? _startupFuture;
   final Map<int, Completer<Map<String, Object?>>> _pendingSingle =
@@ -1258,7 +1279,11 @@ class _MarkdownCompilerBackend {
 
   Future<SendPort> _spawnIsolate() async {
     final receivePort = ReceivePort();
+    final errorPort = ReceivePort();
+    final exitPort = ReceivePort();
     _receivePort = receivePort;
+    _errorPort = errorPort;
+    _exitPort = exitPort;
     final completer = Completer<SendPort>();
 
     receivePort.listen((dynamic message) {
@@ -1271,18 +1296,41 @@ class _MarkdownCompilerBackend {
       }
       _handleResponse(message);
     });
+    errorPort.listen((dynamic message) {
+      final isolateError = _parseBackgroundIsolateError(
+        'Markdown compiler isolate crashed',
+        message,
+      );
+      if (!completer.isCompleted) {
+        completer.completeError(isolateError.error, isolateError.stackTrace);
+      }
+      _handleUnexpectedShutdown(
+        error: isolateError.error,
+        stackTrace: isolateError.stackTrace,
+      );
+    });
+    exitPort.listen((dynamic _) {
+      final error = StateError('Markdown compiler isolate exited unexpectedly');
+      if (!completer.isCompleted) {
+        completer.completeError(error, StackTrace.empty);
+      }
+      _handleUnexpectedShutdown(error: error, stackTrace: StackTrace.empty);
+    });
 
     try {
       _isolate = await Isolate.spawn<SendPort>(
         _markdownCompilerIsolateMain,
         receivePort.sendPort,
         debugName: 'markdown_compiler',
+        onError: errorPort.sendPort,
+        onExit: exitPort.sendPort,
       );
       return await completer.future.timeout(const Duration(seconds: 5));
-    } catch (error) {
+    } catch (error, stackTrace) {
       if (!completer.isCompleted) {
-        completer.completeError(error);
+        completer.completeError(error, stackTrace);
       }
+      _resetIsolateState(killIsolate: true);
       rethrow;
     } finally {
       _startupFuture = null;
@@ -1304,14 +1352,7 @@ class _MarkdownCompilerBackend {
       final stackTrace = StackTrace.fromString(
         (typed['stackTrace'] ?? '').toString(),
       );
-      final singleCompleter = _pendingSingle.remove(requestId);
-      if (singleCompleter != null && !singleCompleter.isCompleted) {
-        singleCompleter.completeError(Exception(error.toString()), stackTrace);
-      }
-      final batchCompleter = _pendingBatch.remove(requestId);
-      if (batchCompleter != null && !batchCompleter.isCompleted) {
-        batchCompleter.completeError(Exception(error.toString()), stackTrace);
-      }
+      _completeRequestError(requestId, Exception(error.toString()), stackTrace);
       return;
     }
 
@@ -1339,18 +1380,36 @@ class _MarkdownCompilerBackend {
     final invalidResponseError = StateError(
       'Invalid markdown compiler response: $message',
     );
+    _completeRequestError(requestId, invalidResponseError, StackTrace.empty);
+  }
+
+  void _completeRequestError(
+    int requestId,
+    Object error,
+    StackTrace stackTrace,
+  ) {
     final singleCompleter = _pendingSingle.remove(requestId);
     if (singleCompleter != null && !singleCompleter.isCompleted) {
-      singleCompleter.completeError(invalidResponseError);
+      singleCompleter.completeError(error, stackTrace);
     }
     final batchCompleter = _pendingBatch.remove(requestId);
     if (batchCompleter != null && !batchCompleter.isCompleted) {
-      batchCompleter.completeError(invalidResponseError);
+      batchCompleter.completeError(error, stackTrace);
     }
   }
 
-  void dispose() {
-    _disposed = true;
+  void _handleUnexpectedShutdown({
+    required Object error,
+    required StackTrace stackTrace,
+  }) {
+    if (_disposed || !_hasActiveIsolateState) {
+      return;
+    }
+    _resetIsolateState(killIsolate: true);
+    _failPendingRequests(error, stackTrace);
+  }
+
+  void _failPendingRequests(Object error, StackTrace stackTrace) {
     final pendingSingle = List<Completer<Map<String, Object?>>>.from(
       _pendingSingle.values,
     );
@@ -1361,30 +1420,54 @@ class _MarkdownCompilerBackend {
     _pendingBatch.clear();
     for (final completer in pendingSingle) {
       if (!completer.isCompleted) {
-        completer.completeError(
-          StateError('Markdown compiler backend disposed'),
-        );
+        completer.completeError(error, stackTrace);
       }
     }
     for (final completer in pendingBatch) {
       if (!completer.isCompleted) {
-        completer.completeError(
-          StateError('Markdown compiler backend disposed'),
-        );
+        completer.completeError(error, stackTrace);
       }
     }
+  }
+
+  bool get _hasActiveIsolateState =>
+      _isolate != null ||
+      _receivePort != null ||
+      _errorPort != null ||
+      _exitPort != null ||
+      _sendPort != null;
+
+  void _resetIsolateState({required bool killIsolate}) {
     _receivePort?.close();
     _receivePort = null;
+    _errorPort?.close();
+    _errorPort = null;
+    _exitPort?.close();
+    _exitPort = null;
     _sendPort = null;
-    _isolate?.kill(priority: Isolate.immediate);
+    final isolate = _isolate;
     _isolate = null;
     _startupFuture = null;
+    if (killIsolate) {
+      isolate?.kill(priority: Isolate.immediate);
+    }
+  }
+
+  void dispose() {
+    _disposed = true;
+    _failPendingRequests(
+      StateError('Markdown compiler backend disposed'),
+      StackTrace.empty,
+    );
+    _resetIsolateState(killIsolate: true);
   }
 }
 
 class _MarkdownPrepareBackend {
   Isolate? _isolate;
   ReceivePort? _receivePort;
+  ReceivePort? _errorPort;
+  ReceivePort? _exitPort;
   SendPort? _sendPort;
   Future<SendPort>? _startupFuture;
   final Map<int, Completer<String>> _pendingPrepared =
@@ -1428,7 +1511,11 @@ class _MarkdownPrepareBackend {
 
   Future<SendPort> _spawnIsolate() async {
     final receivePort = ReceivePort();
+    final errorPort = ReceivePort();
+    final exitPort = ReceivePort();
     _receivePort = receivePort;
+    _errorPort = errorPort;
+    _exitPort = exitPort;
     final completer = Completer<SendPort>();
 
     receivePort.listen((dynamic message) {
@@ -1441,18 +1528,41 @@ class _MarkdownPrepareBackend {
       }
       _handleResponse(message);
     });
+    errorPort.listen((dynamic message) {
+      final isolateError = _parseBackgroundIsolateError(
+        'Markdown prepare isolate crashed',
+        message,
+      );
+      if (!completer.isCompleted) {
+        completer.completeError(isolateError.error, isolateError.stackTrace);
+      }
+      _handleUnexpectedShutdown(
+        error: isolateError.error,
+        stackTrace: isolateError.stackTrace,
+      );
+    });
+    exitPort.listen((dynamic _) {
+      final error = StateError('Markdown prepare isolate exited unexpectedly');
+      if (!completer.isCompleted) {
+        completer.completeError(error, StackTrace.empty);
+      }
+      _handleUnexpectedShutdown(error: error, stackTrace: StackTrace.empty);
+    });
 
     try {
       _isolate = await Isolate.spawn<SendPort>(
         _markdownPrepareIsolateMain,
         receivePort.sendPort,
         debugName: 'markdown_prepare',
+        onError: errorPort.sendPort,
+        onExit: exitPort.sendPort,
       );
       return await completer.future.timeout(const Duration(seconds: 5));
-    } catch (error) {
+    } catch (error, stackTrace) {
       if (!completer.isCompleted) {
-        completer.completeError(error);
+        completer.completeError(error, stackTrace);
       }
+      _resetIsolateState(killIsolate: true);
       rethrow;
     } finally {
       _startupFuture = null;
@@ -1474,10 +1584,7 @@ class _MarkdownPrepareBackend {
       final stackTrace = StackTrace.fromString(
         (typed['stackTrace'] ?? '').toString(),
       );
-      final completer = _pendingPrepared.remove(requestId);
-      if (completer != null && !completer.isCompleted) {
-        completer.completeError(Exception(error.toString()), stackTrace);
-      }
+      _completeRequestError(requestId, Exception(error.toString()), stackTrace);
       return;
     }
 
@@ -1493,31 +1600,73 @@ class _MarkdownPrepareBackend {
     final invalidResponseError = StateError(
       'Invalid markdown prepare response: $message',
     );
+    _completeRequestError(requestId, invalidResponseError, StackTrace.empty);
+  }
+
+  void _completeRequestError(
+    int requestId,
+    Object error,
+    StackTrace stackTrace,
+  ) {
     final completer = _pendingPrepared.remove(requestId);
     if (completer != null && !completer.isCompleted) {
-      completer.completeError(invalidResponseError);
+      completer.completeError(error, stackTrace);
     }
   }
 
-  void dispose() {
-    _disposed = true;
+  void _handleUnexpectedShutdown({
+    required Object error,
+    required StackTrace stackTrace,
+  }) {
+    if (_disposed || !_hasActiveIsolateState) {
+      return;
+    }
+    _resetIsolateState(killIsolate: true);
+    _failPendingRequests(error, stackTrace);
+  }
+
+  void _failPendingRequests(Object error, StackTrace stackTrace) {
     final pendingPrepared = List<Completer<String>>.from(
       _pendingPrepared.values,
     );
     _pendingPrepared.clear();
     for (final completer in pendingPrepared) {
       if (!completer.isCompleted) {
-        completer.completeError(
-          StateError('Markdown prepare backend disposed'),
-        );
+        completer.completeError(error, stackTrace);
       }
     }
+  }
+
+  bool get _hasActiveIsolateState =>
+      _isolate != null ||
+      _receivePort != null ||
+      _errorPort != null ||
+      _exitPort != null ||
+      _sendPort != null;
+
+  void _resetIsolateState({required bool killIsolate}) {
     _receivePort?.close();
     _receivePort = null;
+    _errorPort?.close();
+    _errorPort = null;
+    _exitPort?.close();
+    _exitPort = null;
     _sendPort = null;
-    _isolate?.kill(priority: Isolate.immediate);
+    final isolate = _isolate;
     _isolate = null;
     _startupFuture = null;
+    if (killIsolate) {
+      isolate?.kill(priority: Isolate.immediate);
+    }
+  }
+
+  void dispose() {
+    _disposed = true;
+    _failPendingRequests(
+      StateError('Markdown prepare backend disposed'),
+      StackTrace.empty,
+    );
+    _resetIsolateState(killIsolate: true);
   }
 }
 

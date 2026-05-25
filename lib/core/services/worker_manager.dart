@@ -13,28 +13,35 @@ part 'worker_manager.g.dart';
 /// Signature of a task that can be executed by [WorkerManager].
 typedef WorkerTask<Q, R> = ComputeCallback<Q, R>;
 
-/// Coordinates CPU intensive work off the UI isolate with lightweight pooling.
+/// Coordinates CPU intensive work off the UI isolate with bounded concurrency.
 ///
-/// The manager throttles concurrent isolate usage to avoid overwhelming the
-/// platform while still enabling parallel work. On web the callback executes
+/// This is not a long-lived isolate pool. On native platforms the manager
+/// throttles concurrent `compute` calls, and each job still uses short-lived
+/// isolate work with message copying semantics. On web the callback executes
 /// synchronously because secondary isolates are not supported.
 class WorkerManager {
-  WorkerManager({int maxConcurrentTasks = _defaultMaxConcurrentTasks})
-    : _maxConcurrentTasks = math.max(1, maxConcurrentTasks);
+  WorkerManager({
+    int maxConcurrentTasks = _defaultMaxConcurrentTasks,
+    @visibleForTesting bool? debugIsWebOverride,
+  }) : _maxConcurrentTasks = math.max(1, maxConcurrentTasks),
+       _debugIsWebOverride = debugIsWebOverride;
 
   static const int _defaultMaxConcurrentTasks = 2;
 
   final int _maxConcurrentTasks;
+  final bool? _debugIsWebOverride;
   final Queue<_EnqueuedJob> _pendingJobs = Queue<_EnqueuedJob>();
   bool _disposed = false;
   int _activeJobs = 0;
   int _jobCounter = 0;
 
+  bool get _runsSynchronously => _debugIsWebOverride ?? kIsWeb;
+
   /// Schedule [callback] with [message] to run on a worker isolate.
   ///
-  /// The [callback] must be a top-level or static function, mirroring the
-  /// constraints of `compute`. Errors from the task are propagated to the
-  /// returned [Future].
+  /// The [callback] should be a top-level or static function to stay
+  /// compatible with `compute` on native platforms. Errors from the task are
+  /// propagated to the returned [Future].
   Future<R> schedule<Q, R>(
     WorkerTask<Q, R> callback,
     Q message, {
@@ -50,7 +57,7 @@ class WorkerManager {
       id: jobId,
       debugLabel: debugLabel,
       run: () {
-        if (kIsWeb) {
+        if (_runsSynchronously) {
           return Future<R>.sync(() => callback(message));
         }
         return compute(callback, message);
