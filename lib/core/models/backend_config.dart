@@ -108,6 +108,7 @@ class BackendTtsVoice {
 class BackendConfig {
   const BackendConfig({
     this.enableWebsocket,
+    this.enableWebSearch,
     this.enableAudioInput,
     this.enableAudioOutput,
     this.sttProvider,
@@ -126,6 +127,10 @@ class BackendConfig {
 
   /// Mirrors `features.enable_websocket` from OpenWebUI.
   final bool? enableWebsocket;
+
+  /// Mirrors `features.enable_web_search` from OpenWebUI.
+  final bool? enableWebSearch;
+
   final bool? enableAudioInput;
   final bool? enableAudioOutput;
   final String? sttProvider;
@@ -153,6 +158,7 @@ class BackendConfig {
   /// Returns a copy with updated fields.
   BackendConfig copyWith({
     bool? enableWebsocket,
+    bool? enableWebSearch,
     bool? enableAudioInput,
     bool? enableAudioOutput,
     String? sttProvider,
@@ -170,6 +176,7 @@ class BackendConfig {
   }) {
     return BackendConfig(
       enableWebsocket: enableWebsocket ?? this.enableWebsocket,
+      enableWebSearch: enableWebSearch ?? this.enableWebSearch,
       enableAudioInput: enableAudioInput ?? this.enableAudioInput,
       enableAudioOutput: enableAudioOutput ?? this.enableAudioOutput,
       sttProvider: sttProvider ?? this.sttProvider,
@@ -209,6 +216,7 @@ class BackendConfig {
   Map<String, dynamic> toJson() {
     return <String, dynamic>{
       'enable_websocket': enableWebsocket,
+      'enable_web_search': enableWebSearch,
       'enable_audio_input': enableAudioInput,
       'enable_audio_output': enableAudioOutput,
       'stt_provider': sttProvider,
@@ -228,6 +236,7 @@ class BackendConfig {
 
   static BackendConfig fromJson(Map<String, dynamic> json) {
     bool? enableWebsocket;
+    bool? enableWebSearch;
     bool? enableAudioInput;
     bool? enableAudioOutput;
     String? sttProvider;
@@ -247,6 +256,10 @@ class BackendConfig {
     final value = json['enable_websocket'];
     if (value is bool) {
       enableWebsocket = value;
+    }
+    final webSearchValue = json['enable_web_search'];
+    if (webSearchValue is bool) {
+      enableWebSearch = webSearchValue;
     }
 
     final audioIn = json['enable_audio_input'];
@@ -305,6 +318,10 @@ class BackendConfig {
       final nestedValue = features['enable_websocket'];
       if (nestedValue is bool && enableWebsocket == null) {
         enableWebsocket = nestedValue;
+      }
+      final nestedWebSearch = features['enable_web_search'];
+      if (nestedWebSearch is bool && enableWebSearch == null) {
+        enableWebSearch = nestedWebSearch;
       }
       final nestedAudioIn = features['enable_audio_input'];
       if (nestedAudioIn is bool && enableAudioInput == null) {
@@ -366,6 +383,7 @@ class BackendConfig {
 
     return BackendConfig(
       enableWebsocket: enableWebsocket,
+      enableWebSearch: enableWebSearch,
       enableAudioInput: enableAudioInput,
       enableAudioOutput: enableAudioOutput,
       sttProvider: sttProvider,

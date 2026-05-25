@@ -3113,6 +3113,60 @@ Future<Map<String, dynamic>> userPermissions(Ref ref) async {
   }
 }
 
+bool _coerceFeatureFlag(dynamic value, {required bool fallback}) {
+  if (value is bool) return value;
+  if (value is num) return value != 0;
+  if (value is String) {
+    switch (value.trim().toLowerCase()) {
+      case 'true':
+      case '1':
+      case 'yes':
+        return true;
+      case 'false':
+      case '0':
+      case 'no':
+        return false;
+    }
+  }
+  return fallback;
+}
+
+bool _userCanUseFeature({
+  required User? user,
+  required Map<String, dynamic> permissions,
+  required String featureKey,
+}) {
+  if (user?.role == 'admin') {
+    return true;
+  }
+
+  final features = permissions['features'];
+  if (features is Map) {
+    return _coerceFeatureFlag(features[featureKey], fallback: true);
+  }
+
+  return true;
+}
+
+bool _modelSupportsFeature(Model? model, String featureKey) {
+  final metadata = model?.metadata;
+  final info = metadata?['info'];
+  final infoMeta = info is Map ? info['meta'] : null;
+  final rootMeta = metadata?['meta'];
+
+  for (final capabilities in <dynamic>[
+    if (infoMeta is Map) infoMeta['capabilities'],
+    if (rootMeta is Map) rootMeta['capabilities'],
+    model?.capabilities,
+  ]) {
+    if (capabilities is Map && capabilities.containsKey(featureKey)) {
+      return _coerceFeatureFlag(capabilities[featureKey], fallback: true);
+    }
+  }
+
+  return true;
+}
+
 final imageGenerationAvailableProvider = Provider<bool>((ref) {
   final perms = ref.watch(userPermissionsProvider);
   return perms.maybeWhen(
@@ -3134,20 +3188,28 @@ final imageGenerationAvailableProvider = Provider<bool>((ref) {
 });
 
 final webSearchAvailableProvider = Provider<bool>((ref) {
+  final backendConfig = ref
+      .watch(backendConfigProvider)
+      .maybeWhen(data: (config) => config, orElse: () => null);
+  if (backendConfig?.enableWebSearch == false) {
+    return false;
+  }
+
+  final selectedModel = ref.watch(selectedModelProvider);
+  if (!_modelSupportsFeature(selectedModel, 'web_search')) {
+    return false;
+  }
+
+  final user = ref
+      .watch(currentUserProvider)
+      .maybeWhen(data: (value) => value, orElse: () => null);
   final perms = ref.watch(userPermissionsProvider);
   return perms.maybeWhen(
-    data: (data) {
-      final features = data['features'];
-      if (features is Map<String, dynamic>) {
-        final value = features['web_search'];
-        if (value is bool) return value;
-        if (value is String) return value.toLowerCase() != 'false';
-      }
-      // No explicit permission — default to available. Open WebUI defaults
-      // web_search to true and the server will ignore the flag if the feature
-      // is not configured.
-      return true;
-    },
+    data: (data) => _userCanUseFeature(
+      user: user,
+      permissions: data,
+      featureKey: 'web_search',
+    ),
     // Permissions unavailable (loading, error, older server) — assume available.
     orElse: () => true,
   );
