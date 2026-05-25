@@ -84,19 +84,35 @@ class BlockRenderer {
 
   /// Renders a list of precompiled root blocks as a [Column].
   Widget renderCompiledBlocks(List<CompiledMarkdownBlock> blocks) {
-    final widgets = <Widget>[];
+    final renderedBlocks = <(String blockId, Widget widget)>[];
     for (final block in blocks) {
       final widget = _renderCompiledBlock(block);
       if (widget != null) {
-        widgets.add(widget);
+        renderedBlocks.add((block.blockId, widget));
       }
     }
-    if (widgets.isNotEmpty) {
-      widgets[widgets.length - 1] = _withoutBottomPadding(widgets.last);
+    if (renderedBlocks.isNotEmpty) {
+      final lastBlock = renderedBlocks.last;
+      renderedBlocks[renderedBlocks.length - 1] = (
+        lastBlock.$1,
+        _withoutBottomPadding(lastBlock.$2),
+      );
     }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: widgets,
+      children: renderedBlocks
+          .map((entry) => _withStableBlockKey(entry.$1, entry.$2))
+          .toList(growable: false),
+    );
+  }
+
+  Widget _withStableBlockKey(String blockId, Widget widget) {
+    if (blockId.isEmpty) {
+      return widget;
+    }
+    return KeyedSubtree(
+      key: ValueKey<String>('markdown-block:$blockId'),
+      child: widget,
     );
   }
 

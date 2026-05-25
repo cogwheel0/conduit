@@ -284,12 +284,13 @@ class AppTheme {
       ),
       textTheme: textTheme,
       textSelectionTheme: TextSelectionThemeData(
-        // Use the platform-native selection tint: iOS/macOS use system blue
-        // at ~15% opacity; other platforms use the theme primary at 20%.
+        // Keep cursor, handles, and selection highlight on the same
+        // platform-native accent while using highlight-appropriate opacity.
         cursorColor: textInputAccentColor,
         selectionColor: switch (defaultTargetPlatform) {
-          TargetPlatform.iOS || TargetPlatform.macOS => const Color(0x26007AFF),
-          _ => variant.primary.withValues(alpha: 0.2),
+          TargetPlatform.iOS || TargetPlatform.macOS =>
+            textInputAccentColor.withValues(alpha: 0.15),
+          _ => textInputAccentColor.withValues(alpha: 0.2),
         },
         selectionHandleColor: textInputAccentColor,
       ),

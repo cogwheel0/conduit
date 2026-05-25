@@ -157,6 +157,17 @@ class ConduitMarkdownPreprocessor {
     return output;
   }
 
+  /// Removes Markdown link reference definitions while keeping other content.
+  ///
+  /// This is a cheaper targeted transform than [normalize] for callers that
+  /// only need to hide reference-definition lines from display.
+  static String stripLinkReferenceDefinitions(String input) {
+    if (input.isEmpty || !input.contains(']:')) {
+      return input;
+    }
+    return _stripLinkReferenceDefinitions(input.replaceAll('\r\n', '\n'));
+  }
+
   /// Sanitizes content for clipboard copy or API submission.
   ///
   /// - Strips link reference definitions (including OpenAI annotations)

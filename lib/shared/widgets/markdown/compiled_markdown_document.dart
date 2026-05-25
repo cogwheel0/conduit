@@ -82,6 +82,10 @@ class CompiledMarkdownDocument {
   bool get hasLatex =>
       blockLatexExpressions.isNotEmpty || inlineLatexExpressions.isNotEmpty;
 
+  int get rootNodeCount => nodes.length;
+
+  int get rootBlockCount => blocks.length;
+
   int get estimatedWeight {
     final blockWeight = blocks.fold<int>(0, (sum, block) => sum + block.weight);
     final nodeWeight = nodes.fold<int>(0, (sum, node) => sum + node.weight);
@@ -102,6 +106,115 @@ class CompiledMarkdownDocument {
         blockLatexExpressions,
         inlineLatexExpressions,
       );
+
+  CompiledMarkdownDocument rebaseRootIds({required int rootNodeOffset}) {
+    if (rootNodeOffset == 0 || nodes.isEmpty) {
+      return this;
+    }
+
+    final rebasedRootNodes = <CompiledMarkdownNode>[];
+    final rebasedRootNodesByOldId = <String, CompiledMarkdownNode>{};
+    for (final node in nodes) {
+      final rebasedNode = _rebaseCompiledMarkdownNode(node, rootNodeOffset);
+      rebasedRootNodes.add(rebasedNode);
+      if (node.nodeId.isNotEmpty) {
+        rebasedRootNodesByOldId[node.nodeId] = rebasedNode;
+      }
+    }
+
+    return CompiledMarkdownDocument(
+      normalizedContent: normalizedContent,
+      renderTier: renderTier,
+      containsCitations: containsCitations,
+      heavyBlockCount: heavyBlockCount,
+      blocks: blocks
+          .map(
+            (block) => _rebaseCompiledMarkdownBlock(
+              block,
+              rootNodeOffset,
+              rebasedRootNodesByOldId,
+            ),
+          )
+          .toList(growable: false),
+      nodes: rebasedRootNodes,
+      blockLatexExpressions: blockLatexExpressions,
+      inlineLatexExpressions: inlineLatexExpressions,
+    );
+  }
+
+  static CompiledMarkdownDocument compose({
+    required String normalizedContent,
+    required Iterable<CompiledMarkdownDocument> segments,
+  }) {
+    final segmentList = segments
+        .where((segment) => segment.nodes.isNotEmpty)
+        .toList(growable: false);
+    if (segmentList.isEmpty) {
+      return normalizedContent.trim().isEmpty
+          ? const CompiledMarkdownDocument.empty()
+          : CompiledMarkdownDocument(
+              normalizedContent: normalizedContent,
+              renderTier: MarkdownRenderTier.plainText,
+              containsCitations: false,
+              heavyBlockCount: 0,
+              blocks: const <CompiledMarkdownBlock>[],
+              nodes: const <CompiledMarkdownNode>[],
+              blockLatexExpressions: const <String, String>{},
+              inlineLatexExpressions: const <String, String>{},
+            );
+    }
+    if (segmentList.length == 1) {
+      final segment = segmentList.single;
+      if (segment.normalizedContent == normalizedContent) {
+        return segment;
+      }
+      return CompiledMarkdownDocument(
+        normalizedContent: normalizedContent,
+        renderTier: segment.renderTier,
+        containsCitations: segment.containsCitations,
+        heavyBlockCount: segment.heavyBlockCount,
+        blocks: segment.blocks,
+        nodes: segment.nodes,
+        blockLatexExpressions: segment.blockLatexExpressions,
+        inlineLatexExpressions: segment.inlineLatexExpressions,
+      );
+    }
+
+    final nodes = <CompiledMarkdownNode>[];
+    final blocks = <CompiledMarkdownBlock>[];
+    var containsCitations = false;
+    var heavyBlockCount = 0;
+    final blockLatexExpressions = <String, String>{};
+    final inlineLatexExpressions = <String, String>{};
+
+    for (final segment in segmentList) {
+      nodes.addAll(segment.nodes);
+      for (final block in segment.blocks) {
+        _appendComposedCompiledMarkdownBlock(blocks, block);
+      }
+      containsCitations = containsCitations || segment.containsCitations;
+      heavyBlockCount += segment.heavyBlockCount;
+      _mergeLatexExpressions(
+        blockLatexExpressions,
+        segment.blockLatexExpressions,
+      );
+      _mergeLatexExpressions(
+        inlineLatexExpressions,
+        segment.inlineLatexExpressions,
+      );
+    }
+
+    return CompiledMarkdownDocument(
+      normalizedContent: normalizedContent,
+      renderTier: MarkdownRenderTier.blocks,
+      containsCitations: containsCitations,
+      heavyBlockCount: heavyBlockCount,
+      blocks: blocks,
+      nodes: nodes,
+      blockLatexExpressions: blockLatexExpressions,
+      inlineLatexExpressions: inlineLatexExpressions,
+    );
+  }
 
   Map<String, Object?> toMap() => <String, Object?>{
     'normalizedContent': normalizedContent,
@@ -176,6 +289,173 @@ class CompiledMarkdownDocument {
     Object.hashAll(nodes),
     Object.hashAllUnordered(blockLatexExpressions.entries),
     Object.hashAllUnordered(inlineLatexExpressions.entries),
+  );
+}
+
+CompiledMarkdownNode _rebaseCompiledMarkdownNode(
+  CompiledMarkdownNode node,
+  int rootNodeOffset,
+) {
+  if (node is CompiledMarkdownText) {
+    return CompiledMarkdownText(
+      node.text,
+      nodeId: _rebaseCompiledMarkdownPathId(node.nodeId, rootNodeOffset),
+      containsLatexPlaceholders: node.containsLatexPlaceholders,
+      containsCitations: node.containsCitations,
+      inlineSegments: node.inlineSegments,
+    );
+  }
+  if (node is CompiledMarkdownElement) {
+    return CompiledMarkdownElement(
+      nodeId: _rebaseCompiledMarkdownPathId(node.nodeId, rootNodeOffset),
+      tag: node.tag,
+      blockKind: node.blockKind,
+      language: node.language,
+      inlinePreview: node.inlinePreview,
+      detailsData: node.detailsData,
+      attributes: node.attributes,
+      children: node.children
+          .map((child) => _rebaseCompiledMarkdownNode(child, rootNodeOffset))
+          .toList(growable: false),
+    );
+  }
+  return node;
+}
+
+CompiledMarkdownBlock _rebaseCompiledMarkdownBlock(
+  CompiledMarkdownBlock block,
+  int rootNodeOffset,
+  Map<String, CompiledMarkdownNode> rebasedRootNodesByOldId,
+) {
+  if (block is CompiledMarkdownNodeBlock) {
+    final rebasedNode = block.node.nodeId.isNotEmpty
+        ? rebasedRootNodesByOldId[block.node.nodeId]
+        : null;
+    return CompiledMarkdownNodeBlock(
+      blockId: _rebaseCompiledMarkdownPathId(block.blockId, rootNodeOffset),
+      kind: block.kind,
+      node:
+          rebasedNode ??
+          _rebaseCompiledMarkdownNode(block.node, rootNodeOffset),
+    );
+  }
+  if (block is CompiledMarkdownDetailsBlock) {
+    return CompiledMarkdownDetailsBlock(
+      blockId: _rebaseCompiledMarkdownPathId(block.blockId, rootNodeOffset),
+      detailsData: block.detailsData,
+    );
+  }
+  if (block is CompiledMarkdownDetailsGroup) {
+    final items = block.items
+        .map(
+          (item) =>
+              _rebaseCompiledMarkdownBlock(
+                    item,
+                    rootNodeOffset,
+                    rebasedRootNodesByOldId,
+                  )
+                  as CompiledMarkdownDetailsBlock,
+        )
+        .toList(growable: false);
+    final blockId = items.isEmpty
+        ? _rebaseCompiledMarkdownPathId(block.blockId, rootNodeOffset)
+        : 'group:${items.first.blockId}:${items.first.type}';
+    return CompiledMarkdownDetailsGroup(blockId: blockId, items: items);
+  }
+  return block;
+}
+
+String _rebaseCompiledMarkdownPathId(String value, int rootNodeOffset) {
+  if (value.isEmpty || rootNodeOffset == 0) {
+    return value;
+  }
+
+  final groupMatch = RegExp(r'^group:(n\d+(?:\.\d+)*):(.*)$').firstMatch(value);
+  if (groupMatch != null) {
+    final firstBlockId = _rebaseCompiledMarkdownPathId(
+      groupMatch.group(1)!,
+      rootNodeOffset,
+    );
+    return 'group:$firstBlockId:${groupMatch.group(2)!}';
+  }
+
+  final nodeMatch = RegExp(r'^n(\d+)(.*)$').firstMatch(value);
+  if (nodeMatch == null) {
+    return value;
+  }
+  final rootIndex = int.parse(nodeMatch.group(1)!);
+  return 'n${rootIndex + rootNodeOffset}${nodeMatch.group(2)!}';
+}
+
+void _mergeLatexExpressions(
+  Map<String, String> target,
+  Map<String, String> source,
+) {
+  for (final entry in source.entries) {
+    final existing = target[entry.key];
+    if (existing != null && existing != entry.value) {
+      throw ArgumentError(
+        'Cannot compose markdown documents with colliding latex placeholders.',
+      );
+    }
+    target[entry.key] = entry.value;
+  }
+}
+
+void _appendComposedCompiledMarkdownBlock(
+  List<CompiledMarkdownBlock> blocks,
+  CompiledMarkdownBlock block,
+) {
+  final groupableItems = _groupableCompiledMarkdownDetailsItems(block);
+  if (groupableItems == null || groupableItems.isEmpty) {
+    blocks.add(block);
+    return;
+  }
+
+  final previousItems = blocks.isEmpty
+      ? null
+      : _groupableCompiledMarkdownDetailsItems(blocks.last);
+  if (previousItems == null ||
+      previousItems.isEmpty ||
+      previousItems.first.type != groupableItems.first.type) {
+    blocks.add(block);
+    return;
+  }
+
+  final mergedItems = <CompiledMarkdownDetailsBlock>[
+    ...previousItems,
+    ...groupableItems,
+  ];
+  blocks[blocks.length - 1] = _buildCompiledMarkdownDetailsGroup(mergedItems);
+}
+
+List<CompiledMarkdownDetailsBlock>? _groupableCompiledMarkdownDetailsItems(
+  CompiledMarkdownBlock block,
+) {
+  if (block is CompiledMarkdownDetailsBlock &&
+      _shouldGroupComposedCompiledMarkdownDetailsType(block.type)) {
+    return <CompiledMarkdownDetailsBlock>[block];
+  }
+  if (block is CompiledMarkdownDetailsGroup &&
+      block.items.isNotEmpty &&
+      block.items.every(
+        (item) => _shouldGroupComposedCompiledMarkdownDetailsType(item.type),
+      )) {
+    return block.items;
+  }
+  return null;
+}
+
+bool _shouldGroupComposedCompiledMarkdownDetailsType(String type) =>
+    type == 'tool_calls';
+
+CompiledMarkdownDetailsGroup _buildCompiledMarkdownDetailsGroup(
+  List<CompiledMarkdownDetailsBlock> items,
+) {
+  assert(items.isNotEmpty, 'Cannot build a details group without items.');
+  return CompiledMarkdownDetailsGroup(
+    blockId: 'group:${items.first.blockId}:${items.first.type}',
+    items: items,
   );
 }
 

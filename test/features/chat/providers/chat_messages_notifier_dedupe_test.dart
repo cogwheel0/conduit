@@ -2,6 +2,7 @@ import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -73,35 +74,41 @@ void main() {
       ]);
     });
 
-    test('setFollowUps folds buffered streaming content into one notification', () {
-      final container = buildContainer();
-      addTearDown(container.dispose);
+    test(
+      'setFollowUps folds buffered streaming content into one notification',
+      () {
+        final container = buildContainer();
+        addTearDown(container.dispose);
 
-      final notifier = container.read(chatMessagesProvider.notifier);
-      notifier.setMessages([
-        _assistantMessage(content: 'Buffered', isStreaming: true),
-      ]);
+        final notifier = container.read(chatMessagesProvider.notifier);
+        notifier.setMessages([
+          _assistantMessage(content: 'Buffered', isStreaming: true),
+        ]);
 
-      var notifications = 0;
-      final subscription = container.listen<List<ChatMessage>>(
-        chatMessagesProvider,
-        (_, _) => notifications += 1,
-        fireImmediately: false,
-      );
-      addTearDown(subscription.close);
+        var notifications = 0;
+        final subscription = container.listen<List<ChatMessage>>(
+          chatMessagesProvider,
+          (_, _) => notifications += 1,
+          fireImmediately: false,
+        );
+        addTearDown(subscription.close);
 
-      notifier.appendToLastMessage(' content');
-      expect(notifications, 0);
+        notifier.appendToLastMessage(' content');
+        expect(notifications, 0);
 
-      notifier.setFollowUps('assistant-1', const ['Ask again']);
-      expect(notifications, 1);
-      expect(container.read(chatMessagesProvider).single.content, 'Buffered content');
-      expect(container.read(chatMessagesProvider).single.followUps, const [
-        'Ask again',
-      ]);
+        notifier.setFollowUps('assistant-1', const ['Ask again']);
+        expect(notifications, 1);
+        expect(
+          container.read(chatMessagesProvider).single.content,
+          'Buffered content',
+        );
+        expect(container.read(chatMessagesProvider).single.followUps, const [
+          'Ask again',
+        ]);
 
-      notifier.clearMessages();
-    });
+        notifier.clearMessages();
+      },
+    );
 
     test(
       'appendStatusUpdate skips duplicate rows and notifies on meaningful changes',
@@ -187,29 +194,102 @@ void main() {
       expect(secondNotifications, 0);
     });
 
-    test('chatMessageStructureSignatureProvider ignores usage-only changes', () {
-      final container = buildContainer();
-      addTearDown(container.dispose);
+    test(
+      'chatMessageStructureSignatureProvider ignores usage-only changes',
+      () {
+        final container = buildContainer();
+        addTearDown(container.dispose);
 
-      final notifier = container.read(chatMessagesProvider.notifier);
-      notifier.setMessages([
-        _assistantMessage(usage: const {'total_tokens': 1}),
-      ]);
+        final notifier = container.read(chatMessagesProvider.notifier);
+        notifier.setMessages([
+          _assistantMessage(usage: const {'total_tokens': 1}),
+        ]);
 
-      var notifications = 0;
-      final subscription = container.listen<String>(
-        chatMessageStructureSignatureProvider,
-        (_, _) => notifications += 1,
-        fireImmediately: false,
+        var notifications = 0;
+        final subscription = container.listen<String>(
+          chatMessageStructureSignatureProvider,
+          (_, _) => notifications += 1,
+          fireImmediately: false,
+        );
+        addTearDown(subscription.close);
+
+        notifier.updateMessageById(
+          'assistant-1',
+          (current) => current.copyWith(usage: const {'total_tokens': 2}),
+        );
+
+        expect(notifications, 0);
+      },
+    );
+
+    test('streaming cadence grows with mobile response length', () {
+      expect(
+        debugStreamingContentUpdateIntervalForBuffer(
+          999,
+          platform: TargetPlatform.android,
+        ),
+        const Duration(milliseconds: 100),
       );
-      addTearDown(subscription.close);
-
-      notifier.updateMessageById(
-        'assistant-1',
-        (current) => current.copyWith(usage: const {'total_tokens': 2}),
+      expect(
+        debugStreamingContentUpdateIntervalForBuffer(
+          1000,
+          platform: TargetPlatform.android,
+        ),
+        const Duration(milliseconds: 160),
       );
+      expect(
+        debugStreamingContentUpdateIntervalForBuffer(
+          4000,
+          platform: TargetPlatform.android,
+        ),
+        const Duration(milliseconds: 300),
+      );
+      expect(
+        debugStreamingContentUpdateIntervalForBuffer(
+          8000,
+          platform: TargetPlatform.android,
+        ),
+        const Duration(milliseconds: 500),
+      );
+      expect(
+        debugStreamingContentUpdateIntervalForBuffer(
+          16000,
+          platform: TargetPlatform.android,
+        ),
+        const Duration(milliseconds: 750),
+      );
+    });
 
-      expect(notifications, 0);
+    test('streaming cadence stays less aggressive off mobile', () {
+      expect(
+        debugStreamingContentUpdateIntervalForBuffer(
+          4000,
+          platform: TargetPlatform.macOS,
+        ),
+        const Duration(milliseconds: 180),
+      );
+      expect(
+        debugStreamingContentUpdateIntervalForBuffer(
+          8000,
+          platform: TargetPlatform.macOS,
+        ),
+        const Duration(milliseconds: 280),
+      );
+      expect(
+        debugStreamingContentUpdateIntervalForBuffer(
+          16000,
+          platform: TargetPlatform.macOS,
+        ),
+        const Duration(milliseconds: 420),
+      );
+      expect(
+        debugStreamingContentUpdateIntervalForBuffer(
+          16000,
+          isWeb: true,
+          platform: TargetPlatform.android,
+        ),
+        const Duration(milliseconds: 420),
+      );
     });
   });
 }

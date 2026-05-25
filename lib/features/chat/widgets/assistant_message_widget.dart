@@ -29,6 +29,7 @@ import '../providers/chat_providers.dart'
 import '../../../core/utils/debug_logger.dart';
 import '../../../core/services/platform_service.dart';
 import '../../../core/services/settings_service.dart';
+import '../../../core/utils/citation_parser.dart';
 import '../../../core/utils/embed_utils.dart';
 import 'sources/openwebui_sources.dart';
 import '../providers/assistant_response_builder_provider.dart';
@@ -48,6 +49,53 @@ final _ttsDetailsPattern = RegExp(
   r'<details[^>]*>[\s\S]*?<\/details>',
   caseSensitive: false,
 );
+const int _cheapStreamingTextThreshold = 900;
+const int _cheapStreamingTextLineThreshold = 12;
+final _markdownBlockSyntaxPattern = RegExp(
+  r'(^|\n)[ \t]{0,3}(?:#{1,6}\s|>\s|[-*+]\s|\d+[.)]\s|```|~~~)',
+  multiLine: true,
+);
+final _markdownLinkOrImagePattern = RegExp(
+  r'!\[[^\]]*]\([^)]+\)|\[[^\]]+]\([^)]+\)',
+);
+final _markdownReferenceLinkPattern = RegExp(
+  r'!\[[^\]]*]\[[^\]]*]|'
+  r'\[[^\]]+]\[[^\]]*]',
+);
+final _markdownInlineSyntaxPattern = RegExp(
+  r'`[^`\n]+`|\*\*[^*\n]+\*\*|__[^_\n]+__|~~[^~\n]+~~',
+);
+final _markdownSingleEmphasisPattern = RegExp(
+  r'(?:^|[\s(])\*[^*\s][^*\n]*?[^*\s]\*(?=$|[\s).,!?:;])|'
+  r'(?:^|[\s(])_[^_\s][^_\n]*?[^_\s]_(?=$|[\s).,!?:;])',
+);
+final _markdownTablePattern = RegExp(
+  r'^\s*\|?.+\|.+\s*$\n^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?\s*$',
+  multiLine: true,
+);
+final _markdownHorizontalRulePattern = RegExp(
+  r'(^|\n)[ \t]{0,3}(?:-{3,}|\*{3,}|_{3,})(?:\n|$)',
+  multiLine: true,
+);
+final _markdownHtmlPattern = RegExp(
+  r'<(?:a|img|br|details|summary|table|tr|td|th|blockquote|pre|code)\b',
+  caseSensitive: false,
+);
+final _markdownAutolinkPattern = RegExp(r'<[A-Za-z][A-Za-z0-9+.\-]*:[^<>\s]+>');
+final _markdownBareAutolinkPattern = RegExp(
+  r'(?:(?:https?|ftp):\/\/|www\.)[^\s<]+|'
+  r"(?:^|[\s(])[\w.!#$%&'*+/=?^`{|}~-]+@[\w-]+(?:\.[\w-]+)+(?=$|[\s).,!?:;])",
+  caseSensitive: false,
+);
+final _markdownIndentedCodeBlockPattern = RegExp(
+  r'(^|\n)(?: {4}|\t)\S',
+  multiLine: true,
+);
+final _markdownBlockLatexPattern = RegExp(
+  r'(^|\n)[ \t]{0,3}\$\$[\s\S]+?\$\$[ \t]*(?=\n|$)',
+  multiLine: true,
+);
+final _markdownInlineLatexPattern = RegExp(r'\$[^$\n]+\$');
 // Handle both URL formats: /api/v1/files/{id} and /api/v1/files/{id}/content
 final _fileIdPattern = RegExp(r'/api/v1/files/([^/]+)(?:/content)?$');
 
@@ -1055,25 +1103,34 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final processedContent = _processContentForImages(content);
     final activeSources = _resolveActiveSources();
 
-    Widget buildDefault(BuildContext context) => StreamingMarkdownWidget(
-      content: processedContent,
-      isStreaming: widget.isStreaming,
-      stateScopeId: _markdownStateScopeId(),
-      onTapLink: (url, _) => _launchUri(url),
-      sources: activeSources,
-      imageBuilderOverride: (uri, title, alt) {
-        // Route markdown images through the enhanced image widget so they
-        // get caching, auth headers, fullscreen viewer, and sharing.
-        return RepaintBoundary(
-          child: EnhancedImageAttachment(
-            attachmentId: uri.toString(),
-            isMarkdownFormat: true,
-            constraints: const BoxConstraints(maxWidth: 500, maxHeight: 400),
-            disableAnimation: widget.isStreaming,
-          ),
-        );
-      },
-    );
+    Widget buildDefault(BuildContext context) {
+      final cheapStreamingTextContent = _cheapStreamingTextContent(
+        processedContent,
+      );
+      if (_shouldUseCheapStreamingText(cheapStreamingTextContent)) {
+        return _buildCheapStreamingText(cheapStreamingTextContent);
+      }
+
+      return StreamingMarkdownWidget(
+        content: processedContent,
+        isStreaming: widget.isStreaming,
+        stateScopeId: _markdownStateScopeId(),
+        onTapLink: (url, _) => _launchUri(url),
+        sources: activeSources,
+        imageBuilderOverride: (uri, title, alt) {
+          // Route markdown images through the enhanced image widget so they
+          // get caching, auth headers, fullscreen viewer, and sharing.
+          return RepaintBoundary(
+            child: EnhancedImageAttachment(
+              attachmentId: uri.toString(),
+              isMarkdownFormat: true,
+              constraints: const BoxConstraints(maxWidth: 500, maxHeight: 400),
+              disableAnimation: widget.isStreaming,
+            ),
+          );
+        },
+      );
+    }
 
     final responseBuilder = ref.watch(assistantResponseBuilderProvider);
     if (responseBuilder != null) {
@@ -1087,6 +1144,73 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     }
 
     return buildDefault(context);
+  }
+
+  String _cheapStreamingTextContent(String content) {
+    if (!widget.isStreaming || !content.contains(']:')) {
+      return content;
+    }
+    return ConduitMarkdownPreprocessor.stripLinkReferenceDefinitions(content);
+  }
+
+  bool _shouldUseCheapStreamingText(String content) {
+    if (!widget.isStreaming) {
+      return false;
+    }
+
+    final trimmedContent = content.trim();
+    if (trimmedContent.isEmpty) {
+      return false;
+    }
+
+    final newlineCount = '\n'.allMatches(trimmedContent).length;
+    final isLongPlainCandidate =
+        trimmedContent.length >= _cheapStreamingTextThreshold ||
+        newlineCount >= _cheapStreamingTextLineThreshold;
+    if (!isLongPlainCandidate) {
+      return false;
+    }
+
+    return !_contentHasClearMarkdown(trimmedContent);
+  }
+
+  bool _contentHasClearMarkdown(String content) {
+    if (content.isEmpty) {
+      return false;
+    }
+
+    if (content.contains('```') ||
+        content.contains('~~~') ||
+        content.contains('data:image/') ||
+        content.contains(r'\(') ||
+        content.contains(r'\[')) {
+      return true;
+    }
+
+    return _markdownBlockSyntaxPattern.hasMatch(content) ||
+        _markdownLinkOrImagePattern.hasMatch(content) ||
+        _markdownReferenceLinkPattern.hasMatch(content) ||
+        _markdownAutolinkPattern.hasMatch(content) ||
+        _markdownBareAutolinkPattern.hasMatch(content) ||
+        _markdownIndentedCodeBlockPattern.hasMatch(content) ||
+        _markdownInlineSyntaxPattern.hasMatch(content) ||
+        _markdownSingleEmphasisPattern.hasMatch(content) ||
+        _markdownTablePattern.hasMatch(content) ||
+        _markdownHorizontalRulePattern.hasMatch(content) ||
+        _markdownHtmlPattern.hasMatch(content) ||
+        _markdownBlockLatexPattern.hasMatch(content) ||
+        _markdownInlineLatexPattern.hasMatch(content) ||
+        CitationParser.hasCitations(content);
+  }
+
+  Widget _buildCheapStreamingText(String content) {
+    final style = ConduitMarkdownStyle.fromTheme(context);
+    return Text(
+      content,
+      key: const ValueKey('assistant-streaming-plain-text'),
+      style: style.body,
+      softWrap: true,
+    );
   }
 
   String _markdownStateScopeId() {

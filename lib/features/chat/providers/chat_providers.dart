@@ -40,10 +40,7 @@ final chatMessagesProvider =
 
 @immutable
 class _ChatMessageListStructure {
-  const _ChatMessageListStructure({
-    required this.ids,
-    required this.signature,
-  });
+  const _ChatMessageListStructure({required this.ids, required this.signature});
 
   factory _ChatMessageListStructure.fromMessages(List<ChatMessage> messages) {
     final ids = List<String>.unmodifiable(
@@ -129,7 +126,9 @@ final _chatMessageMapProvider = Provider<Map<String, ChatMessage>>((ref) {
 
 final chatMessageStructureSignatureProvider = Provider<String>((ref) {
   return ref.watch(
-    _chatMessageListStructureProvider.select((structure) => structure.signature),
+    _chatMessageListStructureProvider.select(
+      (structure) => structure.signature,
+    ),
   );
 });
 
@@ -147,14 +146,14 @@ final hasChatMessagesProvider = Provider<bool>((ref) {
   );
 });
 
-final chatMessageByIdProvider = Provider.autoDispose.family<ChatMessage?, String>((
-  ref,
-  messageId,
-) {
-  return ref.watch(
-    _chatMessageMapProvider.select((messagesById) => messagesById[messageId]),
-  );
-});
+final chatMessageByIdProvider = Provider.autoDispose
+    .family<ChatMessage?, String>((ref, messageId) {
+      return ref.watch(
+        _chatMessageMapProvider.select(
+          (messagesById) => messagesById[messageId],
+        ),
+      );
+    });
 
 /// Whether chat is currently streaming a response.
 /// Used by router to avoid showing connection issues during active streaming.
@@ -193,6 +192,54 @@ class StreamingContent extends _$StreamingContent {
 
   // ignore: use_setters_to_change_properties
   void set(String? value) => state = value;
+}
+
+@visibleForTesting
+Duration debugStreamingContentUpdateIntervalForBuffer(
+  int length, {
+  bool isWeb = false,
+  TargetPlatform platform = TargetPlatform.android,
+}) {
+  return _streamingContentUpdateIntervalForTarget(
+    length,
+    isMobileTarget:
+        !isWeb &&
+        (platform == TargetPlatform.android || platform == TargetPlatform.iOS),
+  );
+}
+
+Duration _streamingContentUpdateIntervalForTarget(
+  int length, {
+  required bool isMobileTarget,
+}) {
+  if (length >= 16000) {
+    return isMobileTarget
+        ? const Duration(milliseconds: 750)
+        : const Duration(milliseconds: 420);
+  }
+  if (length >= 8000) {
+    return isMobileTarget
+        ? const Duration(milliseconds: 500)
+        : const Duration(milliseconds: 280);
+  }
+  if (length >= 4000) {
+    return isMobileTarget
+        ? const Duration(milliseconds: 300)
+        : const Duration(milliseconds: 180);
+  }
+  if (length >= 2000) {
+    return isMobileTarget
+        ? const Duration(milliseconds: 220)
+        : const Duration(milliseconds: 140);
+  }
+  if (length >= 1000) {
+    return isMobileTarget
+        ? const Duration(milliseconds: 160)
+        : const Duration(milliseconds: 120);
+  }
+  return isMobileTarget
+      ? const Duration(milliseconds: 100)
+      : const Duration(milliseconds: 80);
 }
 
 // Loading state for conversation (used to show chat skeletons during fetch)
@@ -265,6 +312,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   Timer? _streamingContentTimer;
   bool _streamingContentFrameScheduled = false;
   DateTime? _lastStreamingContentFlushAt;
+  int _streamingBufferVersion = 0;
+  int _lastFlushedStreamingBufferVersion = -1;
   Timer? _taskStatusTimer;
   Timer? _passiveConversationRefreshTimer;
   bool _taskStatusCheckInFlight = false;
@@ -602,7 +651,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
     final needsCleanup = _shouldCleanupStreamingFromServer(serverMessages);
 
-    _streamingBuffer = null;
+    _clearStreamingBuffer();
     _streamingSyncTimer?.cancel();
     _streamingSyncTimer = null;
     _streamingContentTimer?.cancel();
@@ -835,6 +884,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _streamingContentTimer = null;
     _streamingContentFrameScheduled = false;
     _lastStreamingContentFlushAt = null;
+    _lastFlushedStreamingBufferVersion = -1;
     try {
       ref.read(streamingContentProvider.notifier).set(null);
     } on Object catch (_) {
@@ -957,6 +1007,16 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _streamingProfileBytes = 0;
   }
 
+  void _markStreamingBufferChanged() {
+    _streamingBufferVersion += 1;
+  }
+
+  void _clearStreamingBuffer() {
+    _streamingBuffer = null;
+    _streamingBufferVersion = 0;
+    _lastFlushedStreamingBufferVersion = -1;
+  }
+
   void _cancelMessageStream({bool clearStreamingContent = true}) {
     final controller = _messageStream;
     _messageStream = null;
@@ -965,7 +1025,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       unawaited(controller.cancel());
     }
     cancelSocketSubscriptions();
-    _streamingBuffer = null;
+    _clearStreamingBuffer();
     _streamingSyncTimer?.cancel();
     _streamingSyncTimer = null;
     _streamingContentTimer?.cancel();
@@ -1069,7 +1129,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _messageStream = null;
     _activeStreamingTransportMessageId = null;
     cancelSocketSubscriptions();
-    _streamingBuffer = null;
+    _clearStreamingBuffer();
     _streamingSyncTimer?.cancel();
     _streamingSyncTimer = null;
     _streamingContentTimer?.cancel();
@@ -1391,7 +1451,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
     final lastMessage = state.last;
     if (lastMessage.role != 'assistant') return;
-    final bufferedLastMessage = _messageWithBufferedStreamingContent(lastMessage);
+    final bufferedLastMessage = _messageWithBufferedStreamingContent(
+      lastMessage,
+    );
     final updated = updater(bufferedLastMessage);
     if (identical(updated, lastMessage)) {
       return;
@@ -1538,6 +1600,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
   void appendToLastMessage(String content) {
     if (state.isEmpty) return;
+    if (content.isEmpty) return;
 
     final lastMessage = state.last;
     if (lastMessage.role != 'assistant') return;
@@ -1553,6 +1616,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     // Initialize buffer with existing content on first chunk
     _streamingBuffer ??= StringBuffer(lastMessage.content);
     _streamingBuffer!.write(content);
+    _markStreamingBufferChanged();
     _recordStreamingChunk(content);
 
     _scheduleStreamingContentUpdate();
@@ -1594,24 +1658,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         !kIsWeb &&
         (defaultTargetPlatform == TargetPlatform.android ||
             defaultTargetPlatform == TargetPlatform.iOS);
-    if (length >= 16000) {
-      return isMobileTarget
-          ? const Duration(milliseconds: 220)
-          : const Duration(milliseconds: 180);
-    }
-    if (length >= 8000) {
-      return isMobileTarget
-          ? const Duration(milliseconds: 180)
-          : const Duration(milliseconds: 140);
-    }
-    if (length >= 4000) {
-      return isMobileTarget
-          ? const Duration(milliseconds: 140)
-          : const Duration(milliseconds: 110);
-    }
-    return isMobileTarget
-        ? const Duration(milliseconds: 100)
-        : const Duration(milliseconds: 80);
+    return _streamingContentUpdateIntervalForTarget(
+      length,
+      isMobileTarget: isMobileTarget,
+    );
   }
 
   void _scheduleStreamingContentFrame() {
@@ -1637,11 +1687,16 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
     final buffer = _streamingBuffer;
     if (buffer == null) return;
+    if (_streamingBufferVersion == _lastFlushedStreamingBufferVersion) {
+      return;
+    }
     final nextContent = buffer.toString();
     if (ref.read(streamingContentProvider) == nextContent) {
+      _lastFlushedStreamingBufferVersion = _streamingBufferVersion;
       return;
     }
     _lastStreamingContentFlushAt = DateTime.now();
+    _lastFlushedStreamingBufferVersion = _streamingBufferVersion;
     ref.read(streamingContentProvider.notifier).set(nextContent);
   }
 
@@ -1704,13 +1759,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     if (lastMessage.role != 'assistant' || !lastMessage.isStreaming) {
       return;
     }
-    final bufferedLastMessage = _messageWithBufferedStreamingContent(lastMessage);
+    final bufferedLastMessage = _messageWithBufferedStreamingContent(
+      lastMessage,
+    );
     if (identical(bufferedLastMessage, lastMessage)) return;
 
-    state = [
-      ...state.sublist(0, state.length - 1),
-      bufferedLastMessage,
-    ];
+    state = [...state.sublist(0, state.length - 1), bufferedLastMessage];
     _syncStreamingProfileWithState();
   }
 
@@ -1736,7 +1790,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     if (lastMessage.role != 'assistant' || !lastMessage.isStreaming) return;
 
     final sanitized = _stripStreamingPlaceholders(content);
+    if (_streamingBuffer?.toString() == sanitized) {
+      return;
+    }
     _streamingBuffer = StringBuffer(sanitized);
+    _markStreamingBufferChanged();
     _scheduleStreamingContentUpdate();
     _touchStreamingActivity();
     _syncStreamingProfileWithBufferedContent();
@@ -1758,7 +1816,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       _touchStreamingActivity();
       return;
     }
+    if (_streamingBuffer?.toString() == sanitized) {
+      return;
+    }
     _streamingBuffer = StringBuffer(sanitized);
+    _markStreamingBufferChanged();
     _scheduleStreamingContentUpdate();
     _touchStreamingActivity();
     _syncStreamingProfileWithBufferedContent();
@@ -1844,7 +1906,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     final bufferedLastMessage = state.isEmpty
         ? null
         : _messageWithBufferedStreamingContent(state.last);
-    _streamingBuffer = null;
+    _clearStreamingBuffer();
     _clearStreamingContent();
 
     if (state.isEmpty) {

@@ -177,6 +177,24 @@ class _StreamingMarkdownWidgetState
       return;
     }
 
+    final compiler = ref.read(markdownCompileServiceProvider);
+    if (_canActivelyRefreshStreamingMarkdown &&
+        compiler.shouldPrepareSynchronously(
+          widget.content,
+          widgetTest: _isWidgetTest,
+        )) {
+      final preparedContent = prepareMarkdownContent(
+        widget.content,
+        streaming: true,
+      );
+      if (_needsPreparedSnapshotUpdate(preparedContent)) {
+        widget.debugOnStreamingRefreshFrame?.call();
+      }
+      _invalidatePendingAsyncSnapshot();
+      _applyPreparedSnapshotIfNeeded(preparedContent);
+      return;
+    }
+
     _markPendingStreamingContent(widget.content);
     _scheduleStreamingRefresh();
   }
@@ -413,6 +431,10 @@ class _StreamingMarkdownWidgetState
   }
 
   void _resolveCompiledDocument(_MarkdownRenderSnapshot snapshot) {
+    if (widget.isStreaming) {
+      _documentController.resolveStreamingPrepared(snapshot.normalizedContent);
+      return;
+    }
     _documentController.resolvePrepared(snapshot.normalizedContent);
   }
 
