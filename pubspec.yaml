@@ -88,6 +88,7 @@ dependencies:
   cached_network_image_ce: ^4.6.4
   jovial_svg: ^1.1.29
   highlight: ^0.7.0
+  geolocator: ^14.0.2
   
 dev_dependencies:
   flutter_test:

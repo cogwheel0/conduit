@@ -31,6 +31,7 @@ import '../../../core/models/toggle_filter.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../core/services/native_sheet_bridge.dart';
+import '../../../core/services/location_service.dart';
 import '../../../core/services/settings_service.dart';
 import '../../chat/services/voice_input_service.dart';
 import '../../../core/models/knowledge_base.dart';
@@ -1139,13 +1140,28 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       orElse: () => authUser,
     );
     final locale = Localizations.localeOf(context);
+    String? userLocation;
+    const parser = PromptVariableParser();
+    final needsUserLocation = parser.parse(prompt.content).any(
+      (variable) =>
+          variable.isSystemVariable &&
+          variable.name.toUpperCase() == 'USER_LOCATION',
+    );
+
+    if (needsUserLocation) {
+      final locationResult = await ref
+          .read(locationServiceProvider)
+          .resolveCurrentLocation();
+      userLocation = locationResult.hasLocation
+          ? locationResult.location
+          : 'LOCATION_UNKNOWN';
+    }
 
     // Create the processor with system variable context
-    const parser = PromptVariableParser();
     final systemResolver = SystemVariableResolver(
       userName: user?.name ?? user?.email,
       userLanguage: locale.languageCode,
-      // userLocation requires permission - left empty for now
+      userLocation: userLocation,
     );
     final processor = PromptProcessor(
       parser: parser,

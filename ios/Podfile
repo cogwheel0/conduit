@@ -62,6 +62,9 @@ post_install do |installer|
       ].each do |flag|
         defs << flag unless defs.include?(flag)
       end
+      if target.name == 'geolocator_apple'
+        defs << 'BYPASS_PERMISSION_LOCATION_ALWAYS=1' unless defs.include?('BYPASS_PERMISSION_LOCATION_ALWAYS=1')
+      end
       config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = defs
 
       # Flutter engine in this setup is arm64-only for simulator.

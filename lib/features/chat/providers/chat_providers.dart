@@ -14,6 +14,7 @@ import '../../../core/models/model.dart';
 import '../../../core/models/conversation.dart';
 import '../../../core/providers/app_providers.dart';
 
+import '../../../core/services/location_service.dart';
 import '../../../core/services/settings_service.dart';
 import '../../../core/services/socket_service.dart';
 import '../../../core/services/streaming_response_controller.dart';
@@ -2185,6 +2186,61 @@ Map<String, dynamic> _buildOpenWebUiPromptVariables({
   };
 }
 
+Future<Map<String, dynamic>> _buildOpenWebUiPromptVariablesForRequest(
+  dynamic ref, {
+  required DateTime now,
+  required Map<String, dynamic>? userSettings,
+}) async {
+  String userName = 'User';
+  String userEmail = 'Unknown';
+  String userLanguage = 'en-US';
+  String? userLocation;
+
+  try {
+    final userData = ref.read(currentUserProvider);
+    if (userData is AsyncData) {
+      final user = userData.value;
+      if (user != null) {
+        userName = user.name?.trim().isNotEmpty == true
+            ? user.name!.trim()
+            : user.email;
+        userEmail = user.email;
+      }
+    }
+  } catch (_) {}
+
+  try {
+    final dynamic locale = ref.read(appLocaleProvider);
+    if (locale != null) {
+      userLanguage = locale.toLanguageTag()?.toString() ?? 'en-US';
+    }
+  } catch (_) {}
+
+  try {
+    final locationService = ref.read(locationServiceProvider);
+    final api = ref.read(apiServiceProvider);
+    userLocation = await locationService.resolveLocationForUserSettings(
+      userSettings,
+      api: api,
+    );
+  } catch (error, stackTrace) {
+    DebugLogger.error(
+      'Failed to resolve user location',
+      scope: 'chat/providers',
+      error: error,
+      stackTrace: stackTrace,
+    );
+  }
+
+  return _buildOpenWebUiPromptVariables(
+    now: now,
+    userName: userName,
+    userEmail: userEmail,
+    userLanguage: userLanguage,
+    userLocation: userLocation,
+  );
+}
+
 String? _resolveOpenWebUiParentIdForNewUserMessage(List<ChatMessage> messages) {
   for (var index = messages.length - 1; index >= 0; index--) {
     final messageId = messages[index].id.trim();
@@ -3185,48 +3241,10 @@ Future<void> regenerateMessage(
     Map<String, dynamic>? promptVars2;
     Map<String, dynamic>? parentMsgMap;
     try {
-      final now2 = DateTime.now();
-      String userName = 'User';
-      String userEmail = 'Unknown';
-      String userLanguage = 'en-US';
-      String? userLocation;
-
-      try {
-        final userData = ref.read(currentUserProvider);
-        if (userData is AsyncData) {
-          final user = userData.value;
-          if (user != null) {
-            userName = user.name?.trim().isNotEmpty == true
-                ? user.name!.trim()
-                : user.email;
-            userEmail = user.email;
-          }
-        }
-      } catch (_) {}
-
-      try {
-        final dynamic locale = ref.read(appLocaleProvider);
-        if (locale != null) {
-          userLanguage = locale.toLanguageTag()?.toString() ?? 'en-US';
-        }
-      } catch (_) {}
-
-      try {
-        final uiSettings = userSettingsData?['ui'];
-        if (uiSettings is Map) {
-          final rawLocation = uiSettings['userLocation'];
-          if (rawLocation is String && rawLocation.trim().isNotEmpty) {
-            userLocation = rawLocation.trim();
-          }
-        }
-      } catch (_) {}
-
-      promptVars2 = _buildOpenWebUiPromptVariables(
-        now: now2,
-        userName: userName,
-        userEmail: userEmail,
-        userLanguage: userLanguage,
-        userLocation: userLocation,
+      promptVars2 = await _buildOpenWebUiPromptVariablesForRequest(
+        ref,
+        now: DateTime.now(),
+        userSettings: userSettingsData,
       );
     } catch (_) {}
 
@@ -3824,45 +3842,10 @@ Future<void> _sendMessageInternal(
     Map<String, dynamic>? promptVariables;
     Map<String, dynamic>? userMessageMap;
     try {
-      final now = DateTime.now();
-      String userName = 'User';
-      String userEmail = 'Unknown';
-      String userLanguage = 'en-US';
-      String? userLocation;
-      try {
-        final userData = ref.read(currentUserProvider);
-        if (userData is AsyncData) {
-          final user = userData.value;
-          if (user != null) {
-            userName = user.name?.trim().isNotEmpty == true
-                ? user.name!.trim()
-                : user.email;
-            userEmail = user.email;
-          }
-        }
-      } catch (_) {}
-      try {
-        final dynamic locale = ref.read(appLocaleProvider);
-        if (locale != null) {
-          userLanguage = locale.toLanguageTag()?.toString() ?? 'en-US';
-        }
-      } catch (_) {}
-      try {
-        final uiSettings = userSettingsData?['ui'];
-        if (uiSettings is Map) {
-          final rawLocation = uiSettings['userLocation'];
-          if (rawLocation is String && rawLocation.trim().isNotEmpty) {
-            userLocation = rawLocation.trim();
-          }
-        }
-      } catch (_) {}
-
-      promptVariables = _buildOpenWebUiPromptVariables(
-        now: now,
-        userName: userName,
-        userEmail: userEmail,
-        userLanguage: userLanguage,
-        userLocation: userLocation,
+      promptVariables = await _buildOpenWebUiPromptVariablesForRequest(
+        ref,
+        now: DateTime.now(),
+        userSettings: userSettingsData,
       );
     } catch (e) {
       DebugLogger.error(

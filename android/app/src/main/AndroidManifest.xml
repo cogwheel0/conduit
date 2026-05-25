@@ -11,6 +11,8 @@
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
     <uses-permission android:name="android.permission.CAMERA"/>
     <uses-permission android:name="android.permission.VIBRATE"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <!-- No broad media/storage permissions; use Android Photo Picker (API 33+) and SAF/share intents -->
 
     <!-- Bluetooth permissions for audio routing (Android 12+) -->

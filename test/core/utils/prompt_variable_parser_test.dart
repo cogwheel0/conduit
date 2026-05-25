@@ -108,6 +108,11 @@ void main() {
       check(vars.first.isSystemVariable).isTrue();
     });
 
+    test('isSystemVariable for USER_LOCATION variant spacing and case', () {
+      final vars = parser.parse('{{ user_location }}');
+      check(vars.first.isSystemVariable).isTrue();
+    });
+
     test('requiresUserInput for custom variable', () {
       final vars = parser.parse('{{my_custom_var}}');
       check(vars.first.requiresUserInput).isTrue();

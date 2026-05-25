@@ -745,6 +745,14 @@ class ApiService {
     );
   }
 
+  Future<void> updateUserInfo(Map<String, Object?> info) async {
+    if (info.isEmpty) {
+      return;
+    }
+    _traceApi('Updating user info');
+    await _dio.post('/api/v1/users/user/info/update', data: info);
+  }
+
   Future<AccountMetadata> updateAccountMetadata({
     required String name,
     required String profileImageUrl,

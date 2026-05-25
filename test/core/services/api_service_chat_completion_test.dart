@@ -1257,6 +1257,24 @@ void main() {
     });
   });
 
+  group('updateUserInfo', () {
+    test('posts user info updates to the expected endpoint', () async {
+      final adapter = _FakeAdapter.json({});
+      final api = _buildApiServiceForTest(adapter);
+
+      await api.updateUserInfo({
+        'location': '12.346, 67.890 (lat, long)',
+      });
+
+      final request = adapter.lastRequest!;
+      check(request.path).equals('/api/v1/users/user/info/update');
+      final body = request.data as Map<String, dynamic>;
+      check(body).deepEquals({
+        'location': '12.346, 67.890 (lat, long)',
+      });
+    });
+  });
+
   group('getChannels feature flag', () {
     test('200 with list → returns (channels, true)', () async {
       final adapter = _FakeAdapter(
