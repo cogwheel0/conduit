@@ -14,6 +14,7 @@ import 'package:conduit/shared/widgets/markdown/markdown_config.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_compile_service.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_loading_skeleton.dart';
 import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
+import 'package:conduit/shared/widgets/themed_sheets.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -2241,6 +2242,42 @@ Reasoning body
 
     expect(find.text('Reasoning body'), findsOneWidget);
   });
+
+  testWidgets(
+    'shows completed reasoning with separate header and body surfaces',
+    (tester) async {
+      const content = '''
+<details type="reasoning" done="true" duration="5">
+<summary>Thinking…</summary>
+Reasoning body
+</details>
+''';
+
+      await tester.pumpWidget(buildHarness(content));
+      await tester.tap(find.text('Thought for 5 seconds'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey<String>('reasoning-details-sheet-header')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('reasoning-details-sheet-body')),
+        findsOneWidget,
+      );
+      expect(find.byType(ConduitModalSheetSurface), findsNothing);
+      expect(find.text('Reasoning body'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(
+            const ValueKey<String>('reasoning-details-sheet-body'),
+          ),
+          matching: find.text('Reasoning body'),
+        ),
+        findsOneWidget,
+      );
+    },
+  );
 
   testWidgets(
     'renders text that trails a closing details tag on the same line',

@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 import '../../conduit_loading.dart';
 import '../../../theme/theme_extensions.dart';
 import '../compiled_markdown_document.dart';
+import '../markdown_compile_service.dart';
 import '../markdown_config.dart';
 import '../streaming_markdown_widget.dart';
+import 'conduit_markdown_widget.dart';
 import 'details_block_widget.dart';
 import 'details_group_widget.dart';
 import 'inline_renderer.dart';
@@ -1026,6 +1028,49 @@ class BlockRenderer {
 
   // -- Details --
 
+  Widget _buildDetailsBody({
+    required CompiledMarkdownDetailsData data,
+    required String? nestedStateScopeId,
+  }) {
+    final imageBuilder = this.imageBuilder;
+    final usesStreamingBody =
+        data.isPending || heavyBlockPolicy == MarkdownHeavyBlockPolicy.defer;
+
+    if (usesStreamingBody) {
+      return StreamingMarkdownWidget(
+        content: data.bodyMarkdown,
+        isStreaming: true,
+        stateScopeId: nestedStateScopeId,
+        onTapLink: onLinkTap,
+        sources: inlineRenderer.sources,
+        onSourceTap: inlineRenderer.onSourceTap,
+        imageBuilderOverride: imageBuilder == null
+            ? null
+            : (uri, title, alt) => imageBuilder!(uri.toString(), alt, title),
+      );
+    }
+
+    final preparedBody = data.bodyMarkdown.trim();
+    if (preparedBody.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final document = compilePreparedMarkdownSync(preparedBody);
+    if (document.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return ConduitMarkdownWidget(
+      compiledDocument: document,
+      stateScopeId: nestedStateScopeId,
+      onLinkTap: onLinkTap,
+      sources: inlineRenderer.sources,
+      onSourceTap: inlineRenderer.onSourceTap,
+      imageBuilder: imageBuilder,
+      heavyBlockPolicy: heavyBlockPolicy,
+    );
+  }
+
   Widget _renderCompiledDetailsBlock(CompiledMarkdownDetailsBlock block) {
     final inlineExpansionStateId = _scopedDetailsInlineExpansionStateId(
       block.blockId,
@@ -1038,22 +1083,10 @@ class BlockRenderer {
       deferHeavyContent: heavyBlockPolicy == MarkdownHeavyBlockPolicy.defer,
       inlineExpansionStateId: inlineExpansionStateId,
       bodyBuilder: block.hasBody
-          ? (context) {
-              return StreamingMarkdownWidget(
-                content: block.bodyMarkdown,
-                isStreaming:
-                    block.isPending ||
-                    heavyBlockPolicy == MarkdownHeavyBlockPolicy.defer,
-                stateScopeId: nestedStateScopeId,
-                onTapLink: onLinkTap,
-                sources: inlineRenderer.sources,
-                onSourceTap: inlineRenderer.onSourceTap,
-                imageBuilderOverride: imageBuilder == null
-                    ? null
-                    : (uri, title, alt) =>
-                          imageBuilder!(uri.toString(), alt, title),
-              );
-            }
+          ? (_, data) => _buildDetailsBody(
+              data: data,
+              nestedStateScopeId: nestedStateScopeId,
+            )
           : null,
     );
   }

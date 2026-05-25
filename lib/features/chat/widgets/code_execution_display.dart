@@ -144,8 +144,8 @@ class CodeExecutionListView extends StatelessWidget {
       builder: (ctx) {
         final result = execution.result;
         return DraggableScrollableSheet(
-          initialChildSize: 0.6,
-          maxChildSize: 0.95,
+          initialChildSize: DraggableModalSheetSizes.initialChildSize,
+          maxChildSize: DraggableModalSheetSizes.maxChildSize,
           expand: false,
           builder: (_, controller) {
             return Padding(

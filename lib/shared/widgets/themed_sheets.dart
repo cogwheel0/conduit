@@ -8,6 +8,16 @@ import '../theme/theme_extensions.dart';
 import 'modal_safe_area.dart';
 import 'sheet_handle.dart';
 
+/// Default size fractions for [DraggableScrollableSheet] inside modal sheets.
+///
+/// [maxChildSize] stops below the top safe area so sheets do not sit under the
+/// status bar or dynamic island when fully expanded.
+abstract final class DraggableModalSheetSizes {
+  static const double initialChildSize = 0.6;
+  static const double minChildSize = 0.3;
+  static const double maxChildSize = 0.92;
+}
+
 /// Centralized helper for modal bottom sheets.
 ///
 /// Use [showCustom] when the sheet widget draws its own rounded surface. Use

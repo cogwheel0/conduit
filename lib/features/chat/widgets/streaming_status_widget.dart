@@ -136,9 +136,9 @@ class _StreamingStatusWidgetState extends State<StreamingStatusWidget> {
       padding: EdgeInsets.zero,
       builder: (ctx) {
         return DraggableScrollableSheet(
-          initialChildSize: 0.6,
-          minChildSize: 0.3,
-          maxChildSize: 0.95,
+          initialChildSize: DraggableModalSheetSizes.initialChildSize,
+          minChildSize: DraggableModalSheetSizes.minChildSize,
+          maxChildSize: DraggableModalSheetSizes.maxChildSize,
           expand: false,
           builder: (_, controller) {
             return Column(

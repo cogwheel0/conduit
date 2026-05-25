@@ -11,6 +11,13 @@ import '../compiled_markdown_document.dart';
 import '../markdown_config.dart';
 import 'markdown_style.dart';
 
+/// Builds markdown body content from the current [CompiledMarkdownDetailsData].
+typedef DetailsMarkdownBodyBuilder =
+    Widget Function(
+      BuildContext context,
+      CompiledMarkdownDetailsData detailsData,
+    );
+
 /// Upstream-style collapsible renderer for markdown `<details>` blocks.
 class MarkdownDetailsBlock extends StatefulWidget {
   const MarkdownDetailsBlock({
@@ -22,7 +29,7 @@ class MarkdownDetailsBlock extends StatefulWidget {
   });
 
   final CompiledMarkdownDetailsData detailsData;
-  final WidgetBuilder? bodyBuilder;
+  final DetailsMarkdownBodyBuilder? bodyBuilder;
   final String? inlineExpansionStateId;
   final bool deferHeavyContent;
 
@@ -91,7 +98,13 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
       _isInlineExpanded = false;
       _persistInlineExpansionState();
     }
-    _scheduleSheetRefresh();
+    if (_isSheetOpen && _sheetContentNeedsRefresh(oldWidget.detailsData)) {
+      _scheduleSheetRefresh();
+    }
+  }
+
+  bool _sheetContentNeedsRefresh(CompiledMarkdownDetailsData previous) {
+    return previous != _detailsData;
   }
 
   @override
@@ -214,90 +227,143 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
 
     _isSheetOpen = true;
 
-    ThemedSheets.showSurface<void>(
+    ThemedSheets.showCustom<void>(
       context: context,
       isScrollControlled: true,
-      showHandle: false,
-      padding: EdgeInsets.zero,
-      builder: (sheetContext) {
-        return ValueListenableBuilder<int>(
-          valueListenable: _sheetRevision,
-          builder: (context, value, child) {
-            final liveTheme = sheetContext.conduitTheme;
-            final markdownStyle = ConduitMarkdownStyle.fromTheme(sheetContext);
-            final title = _modalTitle(sheetContext);
-            final liveBody = _buildBody(sheetContext);
-            if (liveBody == null) {
-              return const SizedBox.shrink();
-            }
-
-            return DraggableScrollableSheet(
-              initialChildSize: 0.6,
-              minChildSize: 0.3,
-              maxChildSize: 0.95,
-              expand: false,
-              builder: (_, controller) {
-                return Column(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.only(top: Spacing.sm),
-                      child: Container(
-                        width: 36,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: liveTheme.dividerColor.withValues(alpha: 0.4),
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: Spacing.lg,
-                        vertical: Spacing.sm,
-                      ),
-                      child: Row(
-                        children: [
-                          _buildLeadingIcon(
-                            liveTheme,
-                            iconSize: IconSize.md,
-                            spinnerSize: IconSize.md,
-                          ),
-                          const SizedBox(width: Spacing.sm),
-                          Expanded(
-                            child: Text(
-                              title,
-                              overflow: TextOverflow.ellipsis,
-                              style: markdownStyle.sheetTitle,
-                            ),
-                          ),
-                          SheetCloseButton(
-                            onPressed: () => Navigator.of(sheetContext).pop(),
-                            color: liveTheme.textSecondary,
-                          ),
-                        ],
-                      ),
-                    ),
-                    Divider(
-                      height: 1,
-                      color: liveTheme.dividerColor.withValues(alpha: 0.3),
-                    ),
-                    Expanded(
-                      child: ListView(
-                        controller: controller,
-                        padding: const EdgeInsets.all(Spacing.lg),
-                        children: [liveBody],
-                      ),
-                    ),
-                  ],
-                );
-              },
-            );
-          },
-        );
-      },
+      constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width),
+      builder: _buildDetailsBottomSheet,
     ).whenComplete(() {
       _isSheetOpen = false;
     });
+  }
+
+  Widget _buildDetailsBottomSheet(BuildContext sheetContext) {
+    final liveTheme = sheetContext.conduitTheme;
+    final sheetSurface = liveTheme.surfaceBackground;
+    final bottomSafePadding = MediaQuery.paddingOf(sheetContext).bottom;
+
+    return SizedBox(
+      width: MediaQuery.sizeOf(sheetContext).width,
+      child: DraggableScrollableSheet(
+        initialChildSize: DraggableModalSheetSizes.initialChildSize,
+        minChildSize: DraggableModalSheetSizes.minChildSize,
+        maxChildSize: DraggableModalSheetSizes.maxChildSize,
+        expand: false,
+        builder: (_, controller) {
+          return SizedBox.expand(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: sheetSurface,
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(AppBorderRadius.bottomSheet),
+                ),
+              ),
+              child: ValueListenableBuilder<int>(
+                valueListenable: _sheetRevision,
+                builder: (context, value, child) {
+                  final markdownStyle = ConduitMarkdownStyle.fromTheme(
+                    sheetContext,
+                  );
+                  final liveBody = _buildBody(sheetContext);
+                  if (liveBody == null) {
+                    return const SizedBox.shrink();
+                  }
+
+                  return CustomScrollView(
+                    key: _isReasoning
+                        ? const ValueKey<String>('reasoning-details-sheet-body')
+                        : null,
+                    controller: controller,
+                    slivers: [
+                      SliverToBoxAdapter(
+                        child: KeyedSubtree(
+                          key: _isReasoning
+                              ? const ValueKey<String>(
+                                  'reasoning-details-sheet-header',
+                                )
+                              : null,
+                          child: _buildSheetHeader(
+                            sheetContext,
+                            theme: liveTheme,
+                            markdownStyle: markdownStyle,
+                            title: _modalTitle(sheetContext),
+                          ),
+                        ),
+                      ),
+                      SliverPadding(
+                        padding: EdgeInsets.fromLTRB(
+                          Spacing.lg,
+                          Spacing.sm,
+                          Spacing.lg,
+                          Spacing.lg + bottomSafePadding,
+                        ),
+                        sliver: SliverToBoxAdapter(
+                          child: KeyedSubtree(
+                            key: ValueKey<int>(value),
+                            child: liveBody,
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildSheetHeader(
+    BuildContext sheetContext, {
+    required ConduitThemeExtension theme,
+    required ConduitMarkdownStyle markdownStyle,
+    required String title,
+  }) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: Spacing.sm),
+          child: Container(
+            width: 36,
+            height: 4,
+            decoration: BoxDecoration(
+              color: theme.dividerColor.withValues(alpha: 0.4),
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: Spacing.lg,
+            vertical: Spacing.sm,
+          ),
+          child: Row(
+            children: [
+              _buildLeadingIcon(
+                theme,
+                iconSize: IconSize.md,
+                spinnerSize: IconSize.md,
+              ),
+              const SizedBox(width: Spacing.sm),
+              Expanded(
+                child: Text(
+                  title,
+                  overflow: TextOverflow.ellipsis,
+                  style: markdownStyle.sheetTitle,
+                ),
+              ),
+              SheetCloseButton(
+                onPressed: () => Navigator.of(sheetContext).pop(),
+                color: theme.textSecondary,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 
   Widget? _buildBody(BuildContext context) {
@@ -308,7 +374,7 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
     if (builder == null || !_detailsData.hasBody) {
       return null;
     }
-    return builder(context);
+    return builder(context, _detailsData);
   }
 
   Widget _buildLeadingIcon(
@@ -534,7 +600,7 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
           if (children.isNotEmpty) {
             children.add(const SizedBox(height: Spacing.sm));
           }
-          children.add(builder(context));
+          children.add(builder(context, _detailsData));
         }
 
         if (isHeavyPreviewDeferred) {
