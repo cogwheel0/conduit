@@ -182,10 +182,6 @@ class TextToSpeechController extends Notifier<TextToSpeechState> {
     required String messageId,
     required String text,
   }) async {
-    if (text.trim().isEmpty) {
-      return;
-    }
-
     final isPausedActive =
         state.activeMessageId == messageId &&
         state.status == TtsPlaybackStatus.paused;
@@ -202,6 +198,10 @@ class TextToSpeechController extends Notifier<TextToSpeechState> {
 
     if (isCurrentlyActive) {
       await stop();
+      return;
+    }
+
+    if (text.trim().isEmpty) {
       return;
     }
 

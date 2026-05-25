@@ -147,11 +147,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   bool _allowTypingIndicator = false;
   Timer? _typingGateTimer;
   String _ttsPlainText = '';
-  Timer? _ttsPlainTextDebounce;
-  Map<String, dynamic>? _pendingTtsPlainTextPayload;
-  String? _pendingTtsPlainTextSource;
   String? _lastAppliedTtsPlainTextSource;
   int _ttsPlainTextRequestId = 0;
+  bool _isPreparingTtsPlainText = false;
   // Active version index (-1 means current/live content)
   int _activeVersionIndex = -1;
   String? _lastStreamingContent;
@@ -213,7 +211,6 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     );
     _hasAnimated = !shouldAnimateOnMount;
     _displayedContent = _resolvedMessageContent();
-    _scheduleTtsPlainTextBuild(_displayedContent);
     _updateTypingIndicatorGate();
     _syncStreamingContentSubscription();
   }
@@ -246,12 +243,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       _cachedAvatar = null;
       _cachedAvatarModelName = null;
       _cachedAvatarIconUrl = null;
-      _ttsPlainText = '';
-      _ttsPlainTextRequestId++;
-      _ttsPlainTextDebounce?.cancel();
-      _pendingTtsPlainTextPayload = null;
-      _pendingTtsPlainTextSource = null;
-      _lastAppliedTtsPlainTextSource = null;
+      _resetTtsPlainTextState();
       _hasAnimated = !_shouldAnimateOnMount;
       _hasTriggeredContentHaptic = false;
       _fadeController.value = _shouldAnimateOnMount ? 0.0 : 1.0;
@@ -270,9 +262,6 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       _hasTriggeredContentHaptic = false;
       // Haptic: streaming finished
       _streamingHaptic(HapticType.medium);
-      _scheduleTtsPlainTextBuild(
-        _pendingDisplayedContent ?? _resolvedMessageContent(),
-      );
     }
 
     // Refresh rendered content when the active message changes.
@@ -365,7 +354,11 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       }
     }
 
-    _scheduleTtsPlainTextBuild(raw);
+    if (raw.trim().isEmpty ||
+        raw != _lastAppliedTtsPlainTextSource ||
+        _isPreparingTtsPlainText) {
+      _resetTtsPlainTextState();
+    }
     _updateTypingIndicatorGate();
   }
 
@@ -375,8 +368,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       _activeVersionIndex = nextIndex;
       _displayedContent = raw;
     });
+    _resetTtsPlainTextState();
     _buildCachedAvatar();
-    _scheduleTtsPlainTextBuild(raw);
     _updateTypingIndicatorGate();
   }
 
@@ -423,72 +416,38 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     return _buildTtsPlainTextFromRaw(raw);
   }
 
-  void _scheduleTtsPlainTextBuild(String raw) {
+  void _resetTtsPlainTextState() {
+    final hadCachedText = _ttsPlainText.isNotEmpty;
+    final wasPreparing = _isPreparingTtsPlainText;
+    final hadAppliedSource = _lastAppliedTtsPlainTextSource != null;
+    if (!hadCachedText && !wasPreparing && !hadAppliedSource) {
+      return;
+    }
+    _ttsPlainTextRequestId++;
+    _ttsPlainText = '';
+    _isPreparingTtsPlainText = false;
+    _lastAppliedTtsPlainTextSource = null;
+  }
+
+  Future<String> _buildTtsPlainTextOnDemand(String raw) async {
+    if (raw == _lastAppliedTtsPlainTextSource) {
+      return _ttsPlainText;
+    }
     if (raw.trim().isEmpty) {
-      _pendingTtsPlainTextPayload = null;
-      _pendingTtsPlainTextSource = null;
-      _lastAppliedTtsPlainTextSource = null;
-      if (_ttsPlainText.isNotEmpty && mounted) {
-        setState(() {
-          _ttsPlainText = '';
-        });
-      }
-      return;
+      _resetTtsPlainTextState();
+      return '';
     }
 
-    if (widget.isStreaming) {
-      _ttsPlainTextDebounce?.cancel();
-      _ttsPlainTextDebounce = null;
-      _pendingTtsPlainTextPayload = null;
-      _pendingTtsPlainTextSource = null;
-      return;
-    }
-
-    if (_pendingTtsPlainTextPayload == null &&
-        raw == _lastAppliedTtsPlainTextSource) {
-      return;
-    }
-    if (raw == _pendingTtsPlainTextSource &&
-        _pendingTtsPlainTextPayload != null) {
-      return;
-    }
-
-    _pendingTtsPlainTextPayload = {'raw': raw};
-    _pendingTtsPlainTextSource = raw;
-
-    final delay = widget.isStreaming
-        ? const Duration(milliseconds: 250)
-        : Duration.zero;
-
-    _ttsPlainTextDebounce?.cancel();
-    if (delay == Duration.zero) {
-      _runPendingTtsPlainTextBuild();
-    } else {
-      _ttsPlainTextDebounce = Timer(delay, _runPendingTtsPlainTextBuild);
-    }
-  }
-
-  void _runPendingTtsPlainTextBuild() {
-    _ttsPlainTextDebounce?.cancel();
-    _ttsPlainTextDebounce = null;
-
-    final payload = _pendingTtsPlainTextPayload;
-    final source = _pendingTtsPlainTextSource;
-    if (payload == null || source == null) {
-      return;
-    }
-
-    _pendingTtsPlainTextPayload = null;
-    _pendingTtsPlainTextSource = null;
     final requestId = ++_ttsPlainTextRequestId;
-    unawaited(_executeTtsPlainTextBuild(payload, source, requestId));
-  }
+    if (mounted && !_isPreparingTtsPlainText) {
+      setState(() {
+        _isPreparingTtsPlainText = true;
+      });
+    } else {
+      _isPreparingTtsPlainText = true;
+    }
 
-  Future<void> _executeTtsPlainTextBuild(
-    Map<String, dynamic> payload,
-    String raw,
-    int requestId,
-  ) async {
+    final payload = <String, dynamic>{'raw': raw};
     String speechText;
     try {
       final worker = ref.read(workerManagerProvider);
@@ -501,16 +460,58 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       speechText = _buildTtsPlainTextFallback(raw);
     }
 
-    if (!mounted || requestId != _ttsPlainTextRequestId) {
+    if (requestId != _ttsPlainTextRequestId) {
+      return '';
+    }
+
+    if (!mounted) {
+      _lastAppliedTtsPlainTextSource = raw;
+      _ttsPlainText = speechText;
+      _isPreparingTtsPlainText = false;
+      return speechText;
+    }
+
+    final shouldNotify =
+        _ttsPlainText != speechText ||
+        _isPreparingTtsPlainText ||
+        _lastAppliedTtsPlainTextSource != raw;
+    _lastAppliedTtsPlainTextSource = raw;
+    if (shouldNotify) {
+      setState(() {
+        _ttsPlainText = speechText;
+        _isPreparingTtsPlainText = false;
+      });
+    } else {
+      _isPreparingTtsPlainText = false;
+    }
+    return speechText;
+  }
+
+  Future<void> _handleTtsToggle(String messageId) async {
+    if (messageId.isEmpty || _isPreparingTtsPlainText) {
+      return;
+    }
+    final controller = ref.read(textToSpeechControllerProvider.notifier);
+    final ttsState = ref.read(textToSpeechControllerProvider);
+    final isActiveMessage = ttsState.activeMessageId == messageId;
+    final hasActivePlayback =
+        isActiveMessage &&
+        ttsState.status != TtsPlaybackStatus.idle &&
+        ttsState.status != TtsPlaybackStatus.error;
+
+    if (hasActivePlayback) {
+      await controller.toggleForMessage(
+        messageId: messageId,
+        text: _ttsPlainText,
+      );
       return;
     }
 
-    _lastAppliedTtsPlainTextSource = raw;
-    if (_ttsPlainText != speechText) {
-      setState(() {
-        _ttsPlainText = speechText;
-      });
+    final speechText = await _buildTtsPlainTextOnDemand(_displayedContent);
+    if (!mounted || speechText.trim().isEmpty) {
+      return;
     }
+    await controller.toggleForMessage(messageId: messageId, text: speechText);
   }
 
   Widget _buildMessageContent() {
@@ -804,9 +805,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     WidgetsBinding.instance.removeObserver(this);
     _streamingContentSub?.close();
     _typingGateTimer?.cancel();
-    _ttsPlainTextDebounce?.cancel();
-    _pendingTtsPlainTextPayload = null;
-    _pendingTtsPlainTextSource = null;
+    _resetTtsPlainTextState();
     _fadeController.dispose();
     _slideController.dispose();
     super.dispose();
@@ -1677,7 +1676,6 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final isChatStreaming = ref.watch(isChatStreamingProvider);
     final activeUsage = _resolveActiveUsage();
     final messageId = _messageId;
-    final hasSpeechText = _ttsPlainText.trim().isNotEmpty;
     final activeError = _getActiveError();
     final hasErrorField = activeError != null;
     final isErrorMessage =
@@ -1700,9 +1698,17 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final bool ttsAvailable = !ttsState.initialized || ttsState.available;
     final bool showStopState =
         isActiveMessage && (isSpeaking || isPaused || isBusy);
-    final bool shouldShowTtsButton = hasSpeechText && messageId.isNotEmpty;
+    final bool showPreparingTtsState = _isPreparingTtsPlainText;
+    final bool shouldShowTtsButton =
+        (showStopState ||
+            showPreparingTtsState ||
+            _displayedContent.trim().isNotEmpty) &&
+        messageId.isNotEmpty;
     final bool canStartTts =
-        shouldShowTtsButton && !disableDueToStreaming && ttsAvailable;
+        shouldShowTtsButton &&
+        !disableDueToStreaming &&
+        ttsAvailable &&
+        !showPreparingTtsState;
     final bool canRegenerate = widget.onRegenerate != null && !isChatStreaming;
     final bool hasVersions = widget.message.versions.isNotEmpty;
     final bool canGoToPreviousVersion =
@@ -1715,9 +1721,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         if (messageId.isEmpty) {
           return;
         }
-        ref
-            .read(textToSpeechControllerProvider.notifier)
-            .toggleForMessage(messageId: messageId, text: _ttsPlainText);
+        unawaited(_handleTtsToggle(messageId));
       };
     }
 
@@ -1741,10 +1745,14 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       if (shouldShowTtsButton)
         _AssistantFooterAction(
           id: 'tts',
-          icon: showStopState ? stopIcon : listenIcon,
-          label: showStopState ? l10n.ttsStop : l10n.ttsListen,
+          icon: (showStopState || showPreparingTtsState) ? stopIcon : listenIcon,
+          label: (showStopState || showPreparingTtsState)
+              ? l10n.ttsStop
+              : l10n.ttsListen,
           onTap: ttsOnTap,
-          sfSymbol: showStopState ? 'stop.fill' : 'speaker.wave.2.fill',
+          sfSymbol: (showStopState || showPreparingTtsState)
+              ? 'stop.fill'
+              : 'speaker.wave.2.fill',
         ),
       _AssistantFooterAction(
         id: isErrorMessage ? 'retry' : 'regenerate',
