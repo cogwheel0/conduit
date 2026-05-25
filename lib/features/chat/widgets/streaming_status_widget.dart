@@ -88,25 +88,13 @@ class _StreamingStatusWidgetState extends State<StreamingStatusWidget> {
 
     if (Platform.isIOS) {
       final items = <NativeSheetItemConfig>[
-        for (var index = 0; index < updates.length; index++) ...[
-          NativeSheetItemConfig(
-            id: 'status-update-$index',
-            title: _resolveStatusDescription(updates[index]),
-            subtitle: _collectQueries(updates[index]).isEmpty
-                ? null
-                : _collectQueries(updates[index]).join(', '),
-            sfSymbol: 'circle.dotted',
-            kind: NativeSheetItemKind.info,
+        for (var index = 0; index < updates.length; index++)
+          _buildNativeStatusItem(
+            updates[index],
+            index: index,
+            total: updates.length,
+            isStreaming: isStreaming,
           ),
-          for (final link in _collectLinks(updates[index]))
-            NativeSheetItemConfig(
-              id: 'status-link-$index-${link.url}',
-              title: link.title ?? link.url,
-              subtitle: link.url,
-              sfSymbol: 'link',
-              url: link.url,
-            ),
-        ],
       ];
       try {
         await NativeSheetBridge.instance.presentSheet(
@@ -206,6 +194,51 @@ class _StreamingStatusWidgetState extends State<StreamingStatusWidget> {
         );
       },
     );
+  }
+
+  NativeSheetItemConfig _buildNativeStatusItem(
+    ChatStatusUpdate update, {
+    required int index,
+    required int total,
+    required bool isStreaming,
+  }) {
+    final queries = _collectQueries(update);
+    final links = _collectLinks(update);
+
+    return NativeSheetItemConfig(
+      id: 'status-update-$index',
+      title: _resolveStatusDescription(update),
+      subtitle: queries.isEmpty ? null : queries.join(', '),
+      sfSymbol: 'circle.dotted',
+      kind: NativeSheetItemKind.statusUpdate,
+      queries: queries,
+      links: [
+        for (final link in links)
+          NativeSheetLinkConfig(
+            url: link.url,
+            title: link.title,
+            faviconUrl: _nativeFaviconUrl(link.url),
+          ),
+      ],
+      pending: index == total - 1 && update.done != true && isStreaming,
+    );
+  }
+
+  String? _nativeFaviconUrl(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null || uri.host.isEmpty) {
+      return null;
+    }
+
+    var domain = uri.host.trim();
+    if (domain.startsWith('www.')) {
+      domain = domain.substring(4);
+    }
+    if (domain.isEmpty) {
+      return null;
+    }
+
+    return 'https://www.google.com/s2/favicons?sz=16&domain=$domain';
   }
 }
 

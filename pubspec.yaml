@@ -87,6 +87,7 @@ dependencies:
   web_socket_channel: ^3.0.3
   cached_network_image_ce: ^4.6.4
   jovial_svg: ^1.1.29
+  highlight: ^0.7.0
   
 dev_dependencies:
   flutter_test:

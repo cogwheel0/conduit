@@ -578,6 +578,26 @@ class NativeSheetDetailConfig {
   }
 }
 
+class NativeSheetLinkConfig {
+  const NativeSheetLinkConfig({
+    required this.url,
+    this.title,
+    this.faviconUrl,
+  });
+
+  final String url;
+  final String? title;
+  final String? faviconUrl;
+
+  Map<String, Object?> toMap() {
+    return {
+      'url': url,
+      'title': title,
+      'faviconUrl': faviconUrl,
+    };
+  }
+}
+
 class NativeSheetItemConfig {
   const NativeSheetItemConfig({
     required this.id,
@@ -590,6 +610,14 @@ class NativeSheetItemConfig {
     this.value,
     this.placeholder,
     this.options = const [],
+    this.sourceIndex,
+    this.sourceUrl,
+    this.sourceType,
+    this.snippet,
+    this.faviconUrl,
+    this.queries = const <String>[],
+    this.links = const <NativeSheetLinkConfig>[],
+    this.pending,
     this.min,
     this.max,
     this.divisions,
@@ -605,6 +633,14 @@ class NativeSheetItemConfig {
   final Object? value;
   final String? placeholder;
   final List<NativeSheetOptionConfig> options;
+  final int? sourceIndex;
+  final String? sourceUrl;
+  final String? sourceType;
+  final String? snippet;
+  final String? faviconUrl;
+  final List<String> queries;
+  final List<NativeSheetLinkConfig> links;
+  final bool? pending;
 
   /// Inclusive bounds for [NativeSheetItemKind.slider] (e.g. STT silence ms, TTS rate).
   final double? min;
@@ -625,6 +661,14 @@ class NativeSheetItemConfig {
       'value': value,
       'placeholder': placeholder,
       'options': options.map((option) => option.toMap()).toList(),
+      if (sourceIndex != null) 'sourceIndex': sourceIndex,
+      if (sourceUrl != null) 'sourceUrl': sourceUrl,
+      if (sourceType != null) 'sourceType': sourceType,
+      if (snippet != null) 'snippet': snippet,
+      if (faviconUrl != null) 'faviconUrl': faviconUrl,
+      if (queries.isNotEmpty) 'queries': queries,
+      if (links.isNotEmpty) 'links': links.map((link) => link.toMap()).toList(),
+      if (pending != null) 'pending': pending,
       if (min != null) 'min': min,
       if (max != null) 'max': max,
       if (divisions != null) 'divisions': divisions,
@@ -644,6 +688,8 @@ enum NativeSheetItemKind {
   slider,
   info,
   readOnlyText,
+  source,
+  statusUpdate,
 }
 
 class NativeSheetOptionConfig {

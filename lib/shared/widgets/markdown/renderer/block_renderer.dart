@@ -1046,7 +1046,7 @@ class BlockRenderer {
         onSourceTap: inlineRenderer.onSourceTap,
         imageBuilderOverride: imageBuilder == null
             ? null
-            : (uri, title, alt) => imageBuilder!(uri.toString(), alt, title),
+            : (uri, title, alt) => imageBuilder(uri.toString(), alt, title),
       );
     }
 

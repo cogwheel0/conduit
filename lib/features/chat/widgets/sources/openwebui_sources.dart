@@ -137,18 +137,7 @@ class OpenWebUISourcesWidget extends StatelessWidget {
             title: _sourceCountLabel(sources.length),
             items: [
               for (var index = 0; index < sources.length; index++)
-                NativeSheetItemConfig(
-                  id: 'source-$index',
-                  title: SourceReferenceHelper.getSourceLabel(
-                    sources[index],
-                    index,
-                  ),
-                  subtitle: _sourceSnippet(sources[index]),
-                  sfSymbol: 'link',
-                  url: SourceReferenceHelper.getSourceUrl(
-                    sources[index],
-                  )?.toString(),
-                ),
+                _buildNativeSourceItem(sources[index], index),
             ],
           ),
           rethrowErrors: true,
@@ -363,8 +352,36 @@ class OpenWebUISourcesWidget extends StatelessWidget {
     );
   }
 
+  NativeSheetItemConfig _buildNativeSourceItem(
+    ChatSourceReference source,
+    int index,
+  ) {
+    final url = SourceReferenceHelper.getSourceUrl(source);
+    final snippet = _sourceSnippet(source);
+    final type = _sourceType(source);
+
+    return NativeSheetItemConfig(
+      id: 'source-$index',
+      title: SourceReferenceHelper.getSourceLabel(source, index),
+      subtitle: snippet,
+      sfSymbol: url == null ? 'doc.text' : 'link',
+      url: url,
+      kind: NativeSheetItemKind.source,
+      sourceIndex: index + 1,
+      sourceUrl: url,
+      sourceType: type,
+      snippet: snippet,
+      faviconUrl: _sourceFaviconUrl(url),
+    );
+  }
+
   String _sourceCountLabel(int count) {
     return count == 1 ? '1 Source' : '$count Sources';
+  }
+
+  String? _sourceType(ChatSourceReference source) {
+    final type = source.type?.trim();
+    return type == null || type.isEmpty ? null : type;
   }
 
   String? _sourceSnippet(ChatSourceReference source) {
@@ -418,6 +435,19 @@ class OpenWebUISourcesWidget extends StatelessWidget {
 
     final text = value.toString().replaceAll(RegExp(r'\s+'), ' ').trim();
     return text.isEmpty ? null : text;
+  }
+
+  String? _sourceFaviconUrl(String? url) {
+    if (url == null) {
+      return null;
+    }
+
+    final domain = SourceReferenceHelper.extractDomain(url).trim();
+    if (domain.isEmpty) {
+      return null;
+    }
+
+    return 'https://www.google.com/s2/favicons?sz=32&domain=$domain';
   }
 
   Future<void> _launchUrl(String url) async {

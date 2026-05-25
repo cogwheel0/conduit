@@ -117,6 +117,14 @@ private struct NativeSheetItem {
     let value: Any?
     let placeholder: String?
     let options: [NativeSheetOption]
+    let sourceIndex: Int?
+    let sourceUrl: String?
+    let sourceType: String?
+    let snippet: String?
+    let faviconUrl: String?
+    let queries: [String]
+    let links: [NativeSheetLink]
+    let pending: Bool
     let sliderMin: Double?
     let sliderMax: Double?
     let sliderDivisions: Int?
@@ -146,6 +154,19 @@ private struct NativeSheetItem {
         placeholder = payload["placeholder"] as? String
         options = (payload["options"] as? [[String: Any]] ?? [])
             .compactMap(NativeSheetOption.init)
+        sourceIndex = NativeSheetItem.optionalInt(payload["sourceIndex"])
+        sourceUrl = payload["sourceUrl"] as? String
+        sourceType = payload["sourceType"] as? String
+        snippet = payload["snippet"] as? String
+        faviconUrl = payload["faviconUrl"] as? String
+        queries = (payload["queries"] as? [Any] ?? []).compactMap { value in
+            guard let raw = value as? String else { return nil }
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        links = (payload["links"] as? [[String: Any]] ?? [])
+            .compactMap(NativeSheetLink.init)
+        pending = payload["pending"] as? Bool ?? false
         sliderMin = NativeSheetItem.optionalDouble(payload["min"])
         sliderMax = NativeSheetItem.optionalDouble(payload["max"])
         if let n = payload["divisions"] as? NSNumber {
@@ -163,6 +184,17 @@ private struct NativeSheetItem {
             return d
         case let i as Int:
             return Double(i)
+        default:
+            return nil
+        }
+    }
+
+    private static func optionalInt(_ value: Any?) -> Int? {
+        switch value {
+        case let n as NSNumber:
+            return n.intValue
+        case let i as Int:
+            return i
         default:
             return nil
         }
@@ -190,6 +222,72 @@ private extension NativeSheetItem {
     var selectedOptionLabel: String? {
         guard let selectedOptionId else { return nil }
         return options.first(where: { $0.id == selectedOptionId })?.label
+    }
+
+    var sourceDisplayUrl: String? {
+        if let sourceUrl, !sourceUrl.isEmpty {
+            return sourceUrl
+        }
+        return url?.absoluteString
+    }
+
+    var sourceDisplayType: String? {
+        guard let sourceType, !sourceType.isEmpty else { return nil }
+        return sourceType
+    }
+
+    var sourceDisplaySnippet: String? {
+        if let snippet, !snippet.isEmpty {
+            return snippet
+        }
+        return subtitle
+    }
+}
+
+private struct NativeSheetLink {
+    let title: String?
+    let rawUrl: String
+    let url: URL?
+    let faviconUrl: String?
+
+    init?(_ payload: [String: Any]) {
+        guard
+            let rawUrl = payload["url"] as? String,
+            !rawUrl.isEmpty
+        else {
+            return nil
+        }
+
+        self.rawUrl = rawUrl
+        url = URL(string: rawUrl)
+        title = payload["title"] as? String
+        faviconUrl = payload["faviconUrl"] as? String
+    }
+}
+
+private enum NativeSheetURLFormatting {
+    static func extractDomain(from rawUrl: String?) -> String? {
+        guard let rawUrl,
+              let url = URL(string: rawUrl),
+              var host = url.host,
+              !host.isEmpty
+        else {
+            return nil
+        }
+
+        if host.hasPrefix("www.") {
+            host.removeFirst(4)
+        }
+        return host
+    }
+
+    static func googleFaviconUrl(rawUrl: String?, size: Int) -> String? {
+        guard let domain = extractDomain(from: rawUrl) else { return nil }
+        return "https://www.google.com/s2/favicons?sz=\(size)&domain=\(domain)"
+    }
+
+    static func displayLabel(for rawUrl: String) -> String {
+        extractDomain(from: rawUrl) ?? rawUrl
     }
 }
 
@@ -2977,6 +3075,406 @@ private final class NativeSheetSliderTableViewCell: UITableViewCell {
     }
 }
 
+private func clearArrangedSubviews(from stack: UIStackView) {
+    for view in stack.arrangedSubviews {
+        stack.removeArrangedSubview(view)
+        view.removeFromSuperview()
+    }
+}
+
+private func nativeChipConfiguration(
+    title: String,
+    image: UIImage?,
+    foregroundColor: UIColor
+) -> UIButton.Configuration {
+    var configuration = UIButton.Configuration.gray()
+    configuration.title = title
+    configuration.image = image
+    configuration.imagePadding = image == nil ? 0 : 6
+    configuration.baseForegroundColor = foregroundColor
+    configuration.buttonSize = .small
+    configuration.cornerStyle = .capsule
+    configuration.titleLineBreakMode = .byTruncatingTail
+    configuration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(
+        pointSize: 12,
+        weight: .medium
+    )
+    configuration.contentInsets = NSDirectionalEdgeInsets(
+        top: 4,
+        leading: 8,
+        bottom: 4,
+        trailing: 8
+    )
+    return configuration
+}
+
+private final class NativeSheetQueryChipButton: UIButton {
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        titleLabel?.font = .preferredFont(forTextStyle: .caption1)
+        titleLabel?.adjustsFontForContentSizeCategory = true
+        titleLabel?.numberOfLines = 1
+        titleLabel?.lineBreakMode = .byTruncatingTail
+        contentHorizontalAlignment = .leading
+        isUserInteractionEnabled = false
+        setContentCompressionResistancePriority(.required, for: .horizontal)
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    func configure(title: String) {
+        configuration = nativeChipConfiguration(
+            title: title,
+            image: UIImage(systemName: "magnifyingglass"),
+            foregroundColor: .secondaryLabel
+        )
+    }
+}
+
+private final class NativeSheetFaviconView: UIView {
+    private let imageView = UIImageView()
+    private let fallbackView = UIView()
+    private let fallbackIconView = UIImageView()
+    private var expectedImageUrl: String?
+
+    init(side: CGFloat) {
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        widthAnchor.constraint(equalToConstant: side).isActive = true
+        heightAnchor.constraint(equalToConstant: side).isActive = true
+        layer.cornerRadius = side / 2
+        layer.cornerCurve = .continuous
+        layer.borderWidth = 1
+        layer.borderColor = UIColor.systemBackground.cgColor
+        clipsToBounds = true
+        backgroundColor = .systemBackground
+
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        imageView.contentMode = .scaleAspectFill
+        imageView.isHidden = true
+        addSubview(imageView)
+
+        fallbackView.translatesAutoresizingMaskIntoConstraints = false
+        fallbackView.backgroundColor = .tertiarySystemFill
+        addSubview(fallbackView)
+
+        fallbackIconView.translatesAutoresizingMaskIntoConstraints = false
+        fallbackIconView.contentMode = .scaleAspectFit
+        fallbackIconView.tintColor = .secondaryLabel
+        fallbackView.addSubview(fallbackIconView)
+
+        NSLayoutConstraint.activate([
+            imageView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 1),
+            imageView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -1),
+            imageView.topAnchor.constraint(equalTo: topAnchor, constant: 1),
+            imageView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -1),
+            fallbackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 1),
+            fallbackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -1),
+            fallbackView.topAnchor.constraint(equalTo: topAnchor, constant: 1),
+            fallbackView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -1),
+            fallbackIconView.centerXAnchor.constraint(equalTo: fallbackView.centerXAnchor),
+            fallbackIconView.centerYAnchor.constraint(equalTo: fallbackView.centerYAnchor),
+            fallbackIconView.widthAnchor.constraint(equalTo: fallbackView.widthAnchor, multiplier: 0.6),
+            fallbackIconView.heightAnchor.constraint(equalTo: fallbackView.heightAnchor, multiplier: 0.6),
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    func configure(rawUrl: String?, faviconUrl: String?, fallbackSystemName: String) {
+        expectedImageUrl = faviconUrl ?? NativeSheetURLFormatting.googleFaviconUrl(rawUrl: rawUrl, size: 32)
+        imageView.image = nil
+        imageView.isHidden = true
+        fallbackView.isHidden = false
+        fallbackIconView.image = UIImage(systemName: fallbackSystemName)
+
+        guard let imageUrl = expectedImageUrl else { return }
+        NativeSheetImageLoader.load(rawUrl: imageUrl) { [weak self] image in
+            guard let self, self.expectedImageUrl == imageUrl else { return }
+            self.imageView.image = image
+            self.imageView.isHidden = false
+            self.fallbackView.isHidden = true
+        }
+    }
+}
+
+private final class NativeSheetLinkChipButton: UIButton {
+    private var actionUrl: URL?
+    private var onOpen: ((URL) -> Void)?
+    private var expectedImageUrl: String?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        titleLabel?.font = .preferredFont(forTextStyle: .caption1)
+        titleLabel?.adjustsFontForContentSizeCategory = true
+        titleLabel?.numberOfLines = 1
+        titleLabel?.lineBreakMode = .byTruncatingTail
+        contentHorizontalAlignment = .leading
+        addAction(
+            UIAction { [weak self] _ in
+                guard let self, let actionUrl = self.actionUrl else { return }
+                self.onOpen?(actionUrl)
+            },
+            for: .touchUpInside
+        )
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    func configure(link: NativeSheetLink, onOpen: @escaping (URL) -> Void) {
+        self.onOpen = onOpen
+        actionUrl = link.url
+        expectedImageUrl = link.faviconUrl
+            ?? NativeSheetURLFormatting.googleFaviconUrl(rawUrl: link.rawUrl, size: 16)
+
+        var buttonConfiguration = nativeChipConfiguration(
+            title: link.title ?? NativeSheetURLFormatting.displayLabel(for: link.rawUrl),
+            image: UIImage(systemName: "globe"),
+            foregroundColor: .label
+        )
+        configuration = buttonConfiguration
+        isEnabled = link.url != nil
+        alpha = link.url == nil ? 0.75 : 1
+
+        guard let imageUrl = expectedImageUrl else { return }
+        NativeSheetImageLoader.load(rawUrl: imageUrl) { [weak self] image in
+            guard let self, self.expectedImageUrl == imageUrl else { return }
+            var updated = self.configuration ?? buttonConfiguration
+            updated.image = image.withRenderingMode(.alwaysOriginal)
+            self.configuration = updated
+        }
+    }
+}
+private final class NativeSheetSourceTableViewCell: UITableViewCell {
+    static let reuseId = "NativeSheetSourceTableViewCell"
+
+    private let rootStack = UIStackView()
+    private let headerStack = UIStackView()
+    private let indexLabel = UILabel()
+    private let faviconView = NativeSheetFaviconView(side: NativeSheetSettingsStyle.iconSize)
+    private let textStack = UIStackView()
+    private let titleLabel = UILabel()
+    private let detailLabel = UILabel()
+    private let snippetLabel = UILabel()
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        NativeSheetSettingsStyle.applyCellStyle(self)
+        rootStack.axis = .vertical
+        rootStack.spacing = 6
+        rootStack.translatesAutoresizingMaskIntoConstraints = false
+
+        headerStack.axis = .horizontal
+        headerStack.alignment = .top
+        headerStack.spacing = NativeSheetSettingsStyle.iconSpacing
+
+        indexLabel.font = UIFontMetrics(forTextStyle: .caption1)
+            .scaledFont(for: .systemFont(ofSize: 12, weight: .semibold))
+        indexLabel.adjustsFontForContentSizeCategory = true
+        indexLabel.textColor = .tertiaryLabel
+        indexLabel.textAlignment = .natural
+        indexLabel.setContentHuggingPriority(.required, for: .horizontal)
+        indexLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        textStack.axis = .vertical
+        textStack.spacing = 3
+        textStack.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        titleLabel.font = UIFontMetrics(forTextStyle: .body)
+            .scaledFont(for: .systemFont(ofSize: 17, weight: .semibold))
+        titleLabel.adjustsFontForContentSizeCategory = true
+        titleLabel.textColor = .label
+        titleLabel.numberOfLines = 2
+
+        detailLabel.font = .preferredFont(forTextStyle: .caption1)
+        detailLabel.adjustsFontForContentSizeCategory = true
+        detailLabel.textColor = .secondaryLabel
+        detailLabel.numberOfLines = 1
+        detailLabel.lineBreakMode = .byTruncatingMiddle
+
+        snippetLabel.font = .preferredFont(forTextStyle: .footnote)
+        snippetLabel.adjustsFontForContentSizeCategory = true
+        snippetLabel.textColor = .secondaryLabel
+        snippetLabel.numberOfLines = 4
+
+        contentView.addSubview(rootStack)
+        rootStack.addArrangedSubview(headerStack)
+        rootStack.addArrangedSubview(snippetLabel)
+        headerStack.addArrangedSubview(indexLabel)
+        headerStack.addArrangedSubview(faviconView)
+        headerStack.addArrangedSubview(textStack)
+        textStack.addArrangedSubview(titleLabel)
+        textStack.addArrangedSubview(detailLabel)
+
+        NSLayoutConstraint.activate([
+            rootStack.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
+            rootStack.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
+            rootStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 11),
+            rootStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -11),
+            indexLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 18),
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    func configure(item: NativeSheetItem) {
+        titleLabel.text = item.title
+        detailLabel.text = item.sourceDisplayUrl ?? item.sourceDisplayType
+        detailLabel.isHidden = detailLabel.text?.isEmpty ?? true
+        snippetLabel.text = item.sourceDisplaySnippet
+        snippetLabel.isHidden = snippetLabel.text?.isEmpty ?? true
+
+        if let sourceIndex = item.sourceIndex {
+            indexLabel.text = "\(sourceIndex)."
+            indexLabel.isHidden = false
+        } else {
+            indexLabel.text = nil
+            indexLabel.isHidden = true
+        }
+
+        let fallbackSymbol = item.url == nil ? "doc.text" : "globe"
+        faviconView.configure(
+            rawUrl: item.sourceDisplayUrl,
+            faviconUrl: item.faviconUrl,
+            fallbackSystemName: fallbackSymbol
+        )
+
+        accessoryType = item.url == nil ? .none : .disclosureIndicator
+        selectionStyle = item.url == nil ? .none : .default
+        NativeSheetSettingsStyle.applyCellStyle(self)
+    }
+}
+
+private final class NativeSheetStatusTableViewCell: UITableViewCell {
+    static let reuseId = "NativeSheetStatusTableViewCell"
+
+    private let rootStack = UIStackView()
+    private let headerStack = UIStackView()
+    private let iconView = UIImageView()
+    private let contentStack = UIStackView()
+    private let titleLabel = UILabel()
+    private let querySectionLabel = UILabel()
+    private let queryStack = UIStackView()
+    private let linkSectionLabel = UILabel()
+    private let linkStack = UIStackView()
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        selectionStyle = .none
+        NativeSheetSettingsStyle.applyCellStyle(self)
+
+        rootStack.axis = .vertical
+        rootStack.spacing = 10
+        rootStack.translatesAutoresizingMaskIntoConstraints = false
+
+        headerStack.axis = .horizontal
+        headerStack.alignment = .top
+        headerStack.spacing = NativeSheetSettingsStyle.iconSpacing
+
+        iconView.tintColor = .secondaryLabel
+        iconView.contentMode = .scaleAspectFit
+        iconView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
+            pointSize: NativeSheetSettingsStyle.iconSize,
+            weight: .regular
+        )
+        iconView.setContentHuggingPriority(.required, for: .horizontal)
+
+        contentStack.axis = .vertical
+        contentStack.spacing = 6
+        contentStack.alignment = .fill
+
+        titleLabel.font = UIFontMetrics(forTextStyle: .body)
+            .scaledFont(for: .systemFont(ofSize: 17, weight: .semibold))
+        titleLabel.adjustsFontForContentSizeCategory = true
+        titleLabel.textColor = .label
+        titleLabel.numberOfLines = 0
+
+        querySectionLabel.text = nativeLocalized("native.sheet.searches", "Searches")
+        querySectionLabel.font = .preferredFont(forTextStyle: .caption1)
+        querySectionLabel.adjustsFontForContentSizeCategory = true
+        querySectionLabel.textColor = .secondaryLabel
+
+        queryStack.axis = .vertical
+        queryStack.spacing = 6
+        queryStack.alignment = .leading
+
+        linkSectionLabel.text = nativeLocalized("native.sheet.sources", "Sources")
+        linkSectionLabel.font = .preferredFont(forTextStyle: .caption1)
+        linkSectionLabel.adjustsFontForContentSizeCategory = true
+        linkSectionLabel.textColor = .secondaryLabel
+
+        linkStack.axis = .vertical
+        linkStack.spacing = 6
+        linkStack.alignment = .leading
+
+        contentView.addSubview(rootStack)
+        rootStack.addArrangedSubview(headerStack)
+        headerStack.addArrangedSubview(iconView)
+        headerStack.addArrangedSubview(contentStack)
+        contentStack.addArrangedSubview(titleLabel)
+        contentStack.addArrangedSubview(querySectionLabel)
+        contentStack.addArrangedSubview(queryStack)
+        contentStack.addArrangedSubview(linkSectionLabel)
+        contentStack.addArrangedSubview(linkStack)
+
+        NSLayoutConstraint.activate([
+            rootStack.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
+            rootStack.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
+            rootStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 11),
+            rootStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -11),
+            iconView.widthAnchor.constraint(equalToConstant: NativeSheetSettingsStyle.iconSize),
+            iconView.heightAnchor.constraint(equalToConstant: NativeSheetSettingsStyle.iconSize),
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        clearArrangedSubviews(from: queryStack)
+        clearArrangedSubviews(from: linkStack)
+    }
+
+    func configure(
+        item: NativeSheetItem,
+        onOpenLink: @escaping (URL) -> Void
+    ) {
+        titleLabel.text = item.title
+        let symbolName = item.pending ? "circle.dotted" : "circle.fill"
+        iconView.image = UIImage(systemName: symbolName)
+        iconView.tintColor = item.pending ? .tintColor : .secondaryLabel
+
+        clearArrangedSubviews(from: queryStack)
+        clearArrangedSubviews(from: linkStack)
+
+        for query in item.queries {
+            let chip = NativeSheetQueryChipButton(frame: .zero)
+            chip.configure(title: query)
+            queryStack.addArrangedSubview(chip)
+        }
+        querySectionLabel.isHidden = item.queries.isEmpty
+        queryStack.isHidden = item.queries.isEmpty
+
+        for link in item.links {
+            let button = NativeSheetLinkChipButton(frame: .zero)
+            button.configure(link: link, onOpen: onOpenLink)
+            linkStack.addArrangedSubview(button)
+        }
+        linkSectionLabel.isHidden = item.links.isEmpty
+        linkStack.isHidden = item.links.isEmpty
+    }
+}
+
 private final class NativeDetailTableViewController: UITableViewController {
     private var detail: NativeSheetDetail
     private let canNavigate: (NativeSheetItem) -> Bool
@@ -3079,6 +3577,14 @@ private final class NativeDetailTableViewController: UITableViewController {
             NativeSheetSliderTableViewCell.self,
             forCellReuseIdentifier: NativeSheetSliderTableViewCell.reuseId
         )
+        tableView.register(
+            NativeSheetSourceTableViewCell.self,
+            forCellReuseIdentifier: NativeSheetSourceTableViewCell.reuseId
+        )
+        tableView.register(
+            NativeSheetStatusTableViewCell.self,
+            forCellReuseIdentifier: NativeSheetStatusTableViewCell.reuseId
+        )
         tableView.estimatedRowHeight = NativeSheetSettingsStyle.defaultCellHeight
         tableView.rowHeight = UITableView.automaticDimension
         NativeSheetSettingsStyle.apply(to: tableView)
@@ -3175,6 +3681,22 @@ private final class NativeDetailTableViewController: UITableViewController {
             ) as! NativeSheetReadOnlyTextTableViewCell
             cell.configure(item: item)
             return cell
+        case "source":
+            let cell = tableView.dequeueReusableCell(
+                withIdentifier: NativeSheetSourceTableViewCell.reuseId,
+                for: indexPath
+            ) as! NativeSheetSourceTableViewCell
+            cell.configure(item: item)
+            return cell
+        case "statusUpdate":
+            let cell = tableView.dequeueReusableCell(
+                withIdentifier: NativeSheetStatusTableViewCell.reuseId,
+                for: indexPath
+            ) as! NativeSheetStatusTableViewCell
+            cell.configure(item: item) { url in
+                UIApplication.shared.open(url)
+            }
+            return cell
         case "slider":
             let cell = tableView.dequeueReusableCell(
                 withIdentifier: NativeSheetSliderTableViewCell.reuseId,
@@ -3203,8 +3725,12 @@ private final class NativeDetailTableViewController: UITableViewController {
                 onControlChanged(item, !(item.value as? Bool ?? false))
             }
         case "info", "textField", "secureTextField", "dropdown", "segment",
-             "multilineTextField", "slider", "readOnlyText":
+             "multilineTextField", "slider", "readOnlyText", "statusUpdate":
             break
+        case "source":
+            guard item.url != nil || canNavigate(item) else { break }
+            commitPendingTextChanges()
+            onSelect(item)
         default:
             commitPendingTextChanges()
             onSelect(item)
