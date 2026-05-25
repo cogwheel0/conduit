@@ -6,8 +6,6 @@
 		<array>
 			<string>app.cogwheel.conduit.refresh</string>
 		</array>
-		<key>CADisableMinimumFrameDurationOnPhone</key>
-		<true/>
 		<key>CFBundleDevelopmentRegion</key>
 		<string>$(DEVELOPMENT_LANGUAGE)</string>
 		<key>CFBundleDisplayName</key>
@@ -145,5 +143,7 @@
 		</array>
 		<key>UIViewControllerBasedStatusBarAppearance</key>
 		<true/>
-	</dict>
+		<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
+</dict>
 </plist>
