@@ -110,6 +110,23 @@ void main() {
       },
     );
 
+    test('stop generation preserves the visible partial response', () {
+      final container = buildContainer();
+      addTearDown(container.dispose);
+
+      final notifier = container.read(chatMessagesProvider.notifier);
+      notifier.setMessages([
+        _assistantMessage(content: 'Hello', isStreaming: true),
+      ]);
+      notifier.appendToLastMessage(' world');
+
+      container.read(stopGenerationProvider)();
+
+      final message = container.read(chatMessagesProvider).single;
+      expect(message.isStreaming, isFalse);
+      expect(message.content, 'Hello world');
+    });
+
     test(
       'appendStatusUpdate skips duplicate rows and notifies on meaningful changes',
       () {

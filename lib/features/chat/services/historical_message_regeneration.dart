@@ -101,6 +101,8 @@ void _cancelPendingHistoricalRegeneration({
   }
 
   stopActiveTransport(lastMessage, api);
-  ref.read(chatMessagesProvider.notifier).cancelActiveMessageStream();
+  ref
+      .read(chatMessagesProvider.notifier)
+      .cancelActiveMessageStreamPreservingContent();
   ref.read(chatMessagesProvider.notifier).finishStreaming();
 }

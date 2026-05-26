@@ -66,6 +66,48 @@ class _TestMessagesNotifier extends ChatMessagesNotifier {
   void cancelActiveMessageStream() {}
 
   @override
+  void cancelActiveMessageStreamPreservingContent() {}
+
+  @override
+  void appendToLastMessage(String content) {
+    if (state.isEmpty || content.isEmpty) {
+      return;
+    }
+
+    final lastMessage = state.last;
+    if (lastMessage.role != 'assistant') {
+      return;
+    }
+
+    state = [
+      ...state.sublist(0, state.length - 1),
+      lastMessage.copyWith(content: '${lastMessage.content}$content'),
+    ];
+  }
+
+  @override
+  void bufferLastMessageContent(String content) {
+    replaceLastMessageContent(content);
+  }
+
+  @override
+  void replaceLastMessageContent(String content) {
+    if (state.isEmpty) {
+      return;
+    }
+
+    final lastMessage = state.last;
+    if (lastMessage.role != 'assistant') {
+      return;
+    }
+
+    state = [
+      ...state.sublist(0, state.length - 1),
+      lastMessage.copyWith(content: content),
+    ];
+  }
+
+  @override
   void finishStreaming() {
     if (state.isEmpty) {
       return;

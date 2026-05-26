@@ -1329,6 +1329,16 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _cancelMessageStream();
   }
 
+  /// Cancels the active stream after folding any buffered content into state.
+  ///
+  /// This is used by explicit stop flows where the user expects the partial
+  /// assistant response to remain visible after streaming ends.
+  void cancelActiveMessageStreamPreservingContent() {
+    _flushStreamingContentUpdate();
+    _syncStreamingBufferToState();
+    _cancelMessageStream(clearStreamingContent: false);
+  }
+
   Future<void> _updateModelForConversation(Conversation conversation) async {
     // Check if conversation has a model specified
     if (conversation.model == null || conversation.model!.isEmpty) {
@@ -4364,7 +4374,9 @@ final stopGenerationProvider = Provider<void Function()>((ref) {
         stopActiveTransport(messages.last, api);
 
         // Cancel local stream subscription to stop propagating further chunks
-        ref.read(chatMessagesProvider.notifier).cancelActiveMessageStream();
+        ref
+            .read(chatMessagesProvider.notifier)
+            .cancelActiveMessageStreamPreservingContent();
       }
     } catch (_) {}
 
