@@ -1884,6 +1884,15 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.4.1"
+  super_sliver_list:
+    dependency: "direct main"
+    description:
+      path: "."
+      ref: "7a897c8ef022966758ac1f7a8d96c0a14b260c9c"
+      resolved-ref: "7a897c8ef022966758ac1f7a8d96c0a14b260c9c"
+      url: "https://github.com/Telosnex/super_sliver_list.git"
+    source: git
+    version: "0.4.1"
   sync_http:
     dependency: transitive
     description:

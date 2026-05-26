@@ -256,11 +256,62 @@ void main() {
     expect(shouldKeepBottomAnchored, isTrue);
   });
 
+  test('message list extent returns zero for null global fallback', () {
+    final messages = <ChatMessage>[
+      ChatMessage(
+        id: 'user-1',
+        role: 'user',
+        content: 'Short prompt',
+        timestamp: DateTime(2026),
+      ),
+      ChatMessage(
+        id: 'assistant-1',
+        role: 'assistant',
+        content:
+            'A much longer assistant response that should have a larger estimated extent.',
+        timestamp: DateTime(2026),
+      ),
+    ];
+
+    final extent = debugEstimateMessageListExtentForTesting(
+      messages,
+      index: null,
+    );
+
+    expect(extent, 0);
+  });
+
+  test('composer height growth preserves bottom anchor when already pinned', () {
+    final shouldKeepBottomAnchored =
+        debugShouldKeepConversationBottomAnchoredOnComposerHeightChangeForTesting(
+          previousComposerHeight: 0,
+          nextComposerHeight: 160,
+          isAnchoredToBottom: true,
+          isUserInteractingWithScroll: false,
+          wantsPinToTop: false,
+        );
+
+    expect(shouldKeepBottomAnchored, isTrue);
+  });
+
   test('keyboard inset growth does not jump when user left the bottom', () {
     final shouldKeepBottomAnchored =
         debugShouldKeepConversationBottomAnchoredOnInsetChangeForTesting(
           previousBottomInset: 0,
           nextBottomInset: 320,
+          isAnchoredToBottom: false,
+          isUserInteractingWithScroll: false,
+          wantsPinToTop: false,
+        );
+
+    expect(shouldKeepBottomAnchored, isFalse);
+  });
+
+  test('composer height change does not jump when user left the bottom', () {
+    final shouldKeepBottomAnchored =
+        debugShouldKeepConversationBottomAnchoredOnComposerHeightChangeForTesting(
+          previousComposerHeight: 0,
+          nextComposerHeight: 160,
           isAnchoredToBottom: false,
           isUserInteractingWithScroll: false,
           wantsPinToTop: false,
@@ -293,6 +344,28 @@ void main() {
       expect(whileUserScrolling, isFalse);
     },
   );
+
+  test('composer height growth ignores pin-to-top mode and manual scrolling', () {
+    final whilePinnedToTop =
+        debugShouldKeepConversationBottomAnchoredOnComposerHeightChangeForTesting(
+          previousComposerHeight: 0,
+          nextComposerHeight: 160,
+          isAnchoredToBottom: true,
+          isUserInteractingWithScroll: false,
+          wantsPinToTop: true,
+        );
+    final whileUserScrolling =
+        debugShouldKeepConversationBottomAnchoredOnComposerHeightChangeForTesting(
+          previousComposerHeight: 0,
+          nextComposerHeight: 160,
+          isAnchoredToBottom: true,
+          isUserInteractingWithScroll: true,
+          wantsPinToTop: false,
+        );
+
+    expect(whilePinnedToTop, isFalse);
+    expect(whileUserScrolling, isFalse);
+  });
 
   test('clearing pin-to-top tracking preserves the active phantom sliver', () {
     final cleared = debugClearPinToTopTrackingForTesting(

@@ -10,6 +10,7 @@ import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent, ScrollDirection;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:super_sliver_list/super_sliver_list.dart';
 import 'dart:io' show Platform;
 import 'dart:math' as math;
 
@@ -130,8 +131,11 @@ class ChatPage extends ConsumerStatefulWidget {
 class _ChatPageState extends ConsumerState<ChatPage> {
   static const double _scrollButtonShowThreshold = 300.0;
   static const double _scrollButtonHideThreshold = 150.0;
+  static const int _initialBottomSettleMaxAttempts = 8;
+  static const double _scrollCorrectionEpsilon = 1.0;
 
   final ScrollController _scrollController = ScrollController();
+  final ListController _messageListController = ListController();
   bool _showScrollToBottom = false;
   Timer? _scrollDebounceTimer;
   bool _isDeactivated = false;
@@ -156,11 +160,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   List<Model>? _stableLayoutMetadataModels;
   ApiService? _stableLayoutMetadataApiService;
   double? _stableLayoutMetadataWidth;
+  _ChatListStableLayoutMetadata? _lastExtentCacheInvalidationMetadata;
   String? _cachedGreetingName;
   bool _greetingReady = false;
   ProviderSubscription<String?>? _screenContextSub;
   ProviderSubscription<bool>? _reviewerModeSub;
   ProviderSubscription<String?>? _conversationIdSub;
+  int _initialBottomSettleGeneration = 0;
+  int _extentCacheInvalidationGeneration = 0;
 
   bool get _wantsPinToTop => _pinToTopState.isActive;
   String? get _pinnedUserMessageId => _pinToTopState.userMessageId;
@@ -181,6 +188,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _stableLayoutMetadataModels = null;
     _stableLayoutMetadataApiService = null;
     _stableLayoutMetadataWidth = null;
+    _lastExtentCacheInvalidationMetadata = null;
   }
 
   _ChatListStableLayoutMetadata _resolveChatListStableLayoutMetadata({
@@ -253,6 +261,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
 
     _pendingScrollAction = const _PendingChatScrollAction.none();
+    _cancelPendingInitialBottomSettle();
     _pinToTopState = const _PinToTopState.inactive();
     _invalidateChatListStableLayoutMetadata();
     _endPinToTopInFlight = false;
@@ -468,6 +477,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _conversationIdSub?.close();
     _markdownPrewarmTimer?.cancel();
     _endScrollProfile(reason: 'disposed');
+    _messageListController.dispose();
     _scrollController.dispose();
     _scrollDebounceTimer?.cancel();
     super.dispose();
@@ -986,12 +996,29 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     )) {
       return;
     }
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_scrollController.hasClients) {
-        return;
-      }
-      _scrollToBottom(smooth: false);
-    });
+    _scheduleInitialScrollToBottom();
+  }
+
+  void _handleComposerHeightChange(double nextInputHeight) {
+    if ((nextInputHeight - _inputHeight).abs() < _scrollCorrectionEpsilon) {
+      return;
+    }
+
+    final shouldKeepBottomAnchored =
+        _shouldKeepConversationBottomAnchoredOnComposerHeightChange(
+          previousComposerHeight: _inputHeight,
+          nextComposerHeight: nextInputHeight,
+          isAnchoredToBottom: _isAnchoredToBottom,
+          isUserInteractingWithScroll: _isUserInteractingWithScroll,
+          wantsPinToTop: _wantsPinToTop,
+        );
+
+    setState(() => _inputHeight = nextInputHeight);
+
+    if (!shouldKeepBottomAnchored) {
+      return;
+    }
+    _scheduleInitialScrollToBottom();
   }
 
   void _updateBottomAnchorTracking() {
@@ -1115,20 +1142,27 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     return MediaQuery.of(context).size.height;
   }
 
+  double _bottomScrollOffset() {
+    if (!_scrollController.hasClients) {
+      return 0.0;
+    }
+    final maxScroll = _scrollController.position.maxScrollExtent;
+    if (!maxScroll.isFinite || maxScroll <= 0) {
+      return 0.0;
+    }
+    return (maxScroll - _pinToTopPhantomScrollExtent()).clamp(0.0, maxScroll);
+  }
+
   double _distanceFromBottom() {
     if (!_scrollController.hasClients) {
       return double.infinity;
     }
     final position = _scrollController.position;
-    final maxScroll = position.maxScrollExtent;
-    if (!maxScroll.isFinite) {
+    final bottomOffset = _bottomScrollOffset();
+    if (!bottomOffset.isFinite) {
       return double.infinity;
     }
-    final actualMaxScroll = (maxScroll - _pinToTopPhantomScrollExtent()).clamp(
-      0.0,
-      maxScroll,
-    );
-    final distance = actualMaxScroll - position.pixels;
+    final distance = bottomOffset - position.pixels;
     return distance >= 0 ? distance : 0.0;
   }
 
@@ -1148,16 +1182,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   void _scrollToBottom({bool smooth = true}) {
     if (_isUserInteractingWithScroll || !_scrollController.hasClients) return;
-    final position = _scrollController.position;
-    var maxScroll = position.maxScrollExtent;
+    final maxScroll = _bottomScrollOffset();
     if (!maxScroll.isFinite || maxScroll <= 0) return;
-
-    // During pin-to-top, subtract the phantom sliver so we scroll
-    // to the actual content bottom, not into empty space.
-    if (_wantsPinToTop) {
-      final phantomHeight = _pinToTopPhantomScrollExtent();
-      maxScroll = (maxScroll - phantomHeight).clamp(0.0, maxScroll);
-    }
 
     PerformanceProfiler.instance.instant(
       'chat_auto_scroll',
@@ -1224,6 +1250,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         currentStreamingId != null && currentStreamingId == _pinnedStreamingId;
 
     _lastConversationId = conversationId;
+    _cancelPendingInitialBottomSettle();
     _markdownPrewarmTimer?.cancel();
     _markdownPrewarmTimer = null;
     _markdownPrewarmGeneration++;
@@ -1257,17 +1284,49 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     });
   }
 
-  void _scheduleInitialScrollToBottom() {
+  void _cancelPendingInitialBottomSettle() {
+    _initialBottomSettleGeneration += 1;
+  }
+
+  void _scheduleInitialScrollToBottom({int attempt = 0, int? generation}) {
+    final settleGeneration =
+        generation ?? (_initialBottomSettleGeneration += 1);
     _scheduleAfterScrollAttachment(() {
+      if (!mounted || _initialBottomSettleGeneration != settleGeneration) {
+        return;
+      }
       if (_hasActiveStreamingAssistant(ref.read(chatMessagesProvider))) {
+        return;
+      }
+      if (_isUserInteractingWithScroll) {
         return;
       }
       _scrollToBottom(smooth: false);
       _updateScrollToBottomVisibility();
+
+      if (attempt >= _initialBottomSettleMaxAttempts) {
+        return;
+      }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted ||
+            _initialBottomSettleGeneration != settleGeneration ||
+            !_scrollController.hasClients ||
+            _isUserInteractingWithScroll ||
+            _hasActiveStreamingAssistant(ref.read(chatMessagesProvider))) {
+          return;
+        }
+        if (_distanceFromBottom() > _scrollCorrectionEpsilon) {
+          _scheduleInitialScrollToBottom(
+            attempt: attempt + 1,
+            generation: settleGeneration,
+          );
+        }
+      });
     });
   }
 
   void _scheduleScrollRestore(double targetOffset) {
+    _cancelPendingInitialBottomSettle();
     _scheduleAfterScrollAttachment(() {
       final clampedTargetOffset = targetOffset
           .clamp(0.0, _scrollController.position.maxScrollExtent)
@@ -1360,6 +1419,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       return;
     }
 
+    if (_messageListController.isAttached) {
+      _messageListController.jumpToItem(
+        index: targetIndex,
+        scrollController: _scrollController,
+        alignment: 0,
+      );
+      return;
+    }
+
     final modelsAsync = ref.read(modelsProvider);
     final models = modelsAsync.hasValue ? modelsAsync.value : null;
     final metadata = _resolveChatListStableLayoutMetadata(
@@ -1373,6 +1441,40 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         .estimatedOffsetBefore(targetIndex)
         .clamp(0.0, maxScroll);
     _scrollController.jumpTo(targetOffset);
+  }
+
+  void _scheduleExtentCacheInvalidation({int attempt = 0, int? generation}) {
+    final invalidationGeneration =
+        generation ?? (_extentCacheInvalidationGeneration += 1);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          _extentCacheInvalidationGeneration != invalidationGeneration) {
+        return;
+      }
+      if (!_messageListController.isAttached ||
+          _messageListController.isLocked) {
+        if (attempt < 2) {
+          _scheduleExtentCacheInvalidation(
+            attempt: attempt + 1,
+            generation: invalidationGeneration,
+          );
+        }
+        return;
+      }
+      _messageListController.invalidateAllExtents();
+    });
+  }
+
+  double _estimateMessageListExtent(
+    _ChatListStableLayoutMetadata layoutMetadata,
+    int? index,
+    double crossAxisExtent,
+  ) {
+    return _estimateMessageListExtentForIndex(
+      layoutMetadata,
+      index,
+      crossAxisExtent,
+    );
   }
 
   bool _endPinToTopInFlight = false;
@@ -1607,6 +1709,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       models: models,
       apiService: apiService,
     );
+    if (!identical(_lastExtentCacheInvalidationMetadata, layoutMetadata)) {
+      _lastExtentCacheInvalidationMetadata = layoutMetadata;
+      _scheduleExtentCacheInvalidation();
+    }
     _scheduleMarkdownPrewarm(messages, layoutMetadata: layoutMetadata);
     final hasStreamingMessage = layoutMetadata.hasStreamingMessage;
 
@@ -1658,6 +1764,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         // User scrolling dismisses pin-to-top once the user takes control.
         if (isTouchDragStart || isTouchDragUpdate || isUserDirectionalScroll) {
           if (!_isUserInteractingWithScroll) {
+            _cancelPendingInitialBottomSettle();
             _beginScrollProfile('user_drag');
           }
           _isUserInteractingWithScroll = true;
@@ -1681,7 +1788,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         key: const ValueKey('actual_messages'),
         controller: _scrollController,
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-        physics: platformAlwaysScrollablePhysics(context),
+        physics: SuperRangeMaintainingScrollPhysics(
+          parent: platformAlwaysScrollablePhysics(context),
+        ),
         scrollCacheExtent: const ScrollCacheExtent.pixels(600),
         slivers: [
           SliverPadding(
@@ -1691,7 +1800,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
               Spacing.inputPadding,
               bottomPadding,
             ),
-            sliver: SliverList(
+            sliver: SuperSliverList(
+              listController: _messageListController,
+              extentEstimation: (index, crossAxisExtent) =>
+                  _estimateMessageListExtent(
+                    layoutMetadata,
+                    index,
+                    crossAxisExtent,
+                  ),
               delegate: SliverChildBuilderDelegate(
                 (context, index) {
                   final message = messages[index];
@@ -1759,11 +1875,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                           message: latestMessage,
                           isStreaming: latestMessage.isStreaming,
                           showFollowUps: rowMetadata.showFollowUps,
-                          animateOnMount: !rowMetadata.replacesArchivedAssistant,
+                          animateOnMount:
+                              !rowMetadata.replacesArchivedAssistant,
                           modelName: rowMetadata.displayModelName,
                           modelIconUrl: rowMetadata.modelIconUrl,
                           versionModelNames: rowMetadata.versionModelNames,
-                          versionModelIconUrls: rowMetadata.versionModelIconUrls,
+                          versionModelIconUrls:
+                              rowMetadata.versionModelIconUrls,
                           onCopy: () {
                             final currentMessage = rowRef.read(
                               chatMessageByIdProvider(messageId),
@@ -2168,7 +2286,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       child: MeasureSize(
         onChange: (size) {
           if (!mounted) return;
-          setState(() => _inputHeight = size.height);
+          _handleComposerHeightChange(size.height);
         },
         child: SafeArea(
           top: false,
@@ -3048,6 +3166,37 @@ bool _shouldKeepConversationBottomAnchoredOnInsetChange({
       !wantsPinToTop;
 }
 
+bool _shouldKeepConversationBottomAnchoredOnComposerHeightChange({
+  required double previousComposerHeight,
+  required double nextComposerHeight,
+  required bool isAnchoredToBottom,
+  required bool isUserInteractingWithScroll,
+  required bool wantsPinToTop,
+}) {
+  const heightChangeEpsilon = 1.0;
+  final composerHeightChanged =
+      (nextComposerHeight - previousComposerHeight).abs() > heightChangeEpsilon;
+  return composerHeightChanged &&
+      isAnchoredToBottom &&
+      !isUserInteractingWithScroll &&
+      !wantsPinToTop;
+}
+
+double _estimateMessageListExtentForIndex(
+  _ChatListStableLayoutMetadata layoutMetadata,
+  int? index,
+  double crossAxisExtent,
+) {
+  if (index != null && index >= 0 && index < layoutMetadata.rows.length) {
+    return layoutMetadata.rows[index].estimatedExtent;
+  }
+
+  // SuperSliverList treats a null index as a shared fallback estimate for all
+  // unmeasured rows. Our chat rows vary substantially by message type/content,
+  // so return 0 to force per-index estimates instead.
+  return 0.0;
+}
+
 @visibleForTesting
 String debugBuildChatListStableLayoutSignatureForTesting(
   List<ChatMessage> messages,
@@ -3101,6 +3250,38 @@ bool debugShouldKeepConversationBottomAnchoredOnInsetChangeForTesting({
     isUserInteractingWithScroll: isUserInteractingWithScroll,
     wantsPinToTop: wantsPinToTop,
   );
+}
+
+@visibleForTesting
+bool debugShouldKeepConversationBottomAnchoredOnComposerHeightChangeForTesting({
+  required double previousComposerHeight,
+  required double nextComposerHeight,
+  required bool isAnchoredToBottom,
+  required bool isUserInteractingWithScroll,
+  required bool wantsPinToTop,
+}) {
+  return _shouldKeepConversationBottomAnchoredOnComposerHeightChange(
+    previousComposerHeight: previousComposerHeight,
+    nextComposerHeight: nextComposerHeight,
+    isAnchoredToBottom: isAnchoredToBottom,
+    isUserInteractingWithScroll: isUserInteractingWithScroll,
+    wantsPinToTop: wantsPinToTop,
+  );
+}
+
+@visibleForTesting
+double debugEstimateMessageListExtentForTesting(
+  List<ChatMessage> messages, {
+  required int? index,
+  double crossAxisExtent = 400,
+}) {
+  final metadata = _buildChatListStableLayoutMetadata(
+    messages: messages,
+    models: null,
+    apiService: null,
+    crossAxisExtent: crossAxisExtent,
+  );
+  return _estimateMessageListExtentForIndex(metadata, index, crossAxisExtent);
 }
 
 @visibleForTesting

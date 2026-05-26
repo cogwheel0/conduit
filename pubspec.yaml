@@ -89,6 +89,10 @@ dependencies:
   jovial_svg: ^1.1.29
   highlight: ^0.7.0
   geolocator: ^14.0.2
+  super_sliver_list:
+    git:
+      url: https://github.com/Telosnex/super_sliver_list.git
+      ref: 7a897c8ef022966758ac1f7a8d96c0a14b260c9c
   
 dev_dependencies:
   flutter_test:
