@@ -31,6 +31,15 @@ double sidebarTabContentTopPadding(BuildContext context) {
   return MediaQuery.viewPaddingOf(context).top + kTextTabBarHeight + Spacing.sm;
 }
 
+/// Edge offset so pull-to-refresh indicators appear below sidebar chrome.
+double sidebarRefreshIndicatorEdgeOffset(BuildContext context) {
+  if (!_usesNativeSidebarChrome(context)) {
+    return 0.0;
+  }
+
+  return MediaQuery.viewPaddingOf(context).top + kTextTabBarHeight;
+}
+
 /// Bottom inset so sidebar tab content clears native sidebar chrome.
 double sidebarTabContentBottomPadding(BuildContext context) {
   if (!_usesNativeSidebarChrome(context)) {

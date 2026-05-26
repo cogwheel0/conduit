@@ -1347,6 +1347,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
     ];
 
     final scrollView = ConduitRefreshIndicator(
+      edgeOffset: MediaQuery.of(context).padding.top + kTextTabBarHeight,
       onRefresh: _refreshFolderContents,
       child: CustomScrollView(
         key: ValueKey<String>('folder-page-${widget.folderId}'),

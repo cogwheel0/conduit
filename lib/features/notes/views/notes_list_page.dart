@@ -271,6 +271,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
     ];
 
     return ConduitRefreshIndicator(
+      edgeOffset: topPadding + kTextTabBarHeight,
       onRefresh: _refreshNotes,
       child: CustomScrollView(
         controller: _scrollController,

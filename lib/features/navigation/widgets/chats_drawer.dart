@@ -193,6 +193,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     );
 
     final refreshableScroll = ConduitRefreshIndicator(
+      edgeOffset: sidebarRefreshIndicatorEdgeOffset(context),
       onRefresh: _refreshChats,
       child: scroll,
     );
