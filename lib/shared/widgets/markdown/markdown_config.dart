@@ -6,12 +6,12 @@ import 'package:cached_network_image_ce/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_highlight/themes/atom-one-dark.dart';
 import 'package:flutter_highlight/themes/github.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:highlight/highlight.dart' show Node, highlight;
-import 'package:webview_flutter_plus/webview_flutter_plus.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
 
@@ -29,6 +29,12 @@ typedef MarkdownLinkTapCallback = void Function(String url, String title);
 const _chartPreviewMinHeight = 320.0;
 const _mermaidPreviewMinHeight = 360.0;
 const _embeddedPreviewMaxHeight = 1200.0;
+
+bool _isRunningInWidgetTest() {
+  return WidgetsBinding.instance.runtimeType.toString().contains(
+    'TestWidgetsFlutterBinding',
+  );
+}
 
 class ConduitMarkdown {
   const ConduitMarkdown._();
@@ -1179,7 +1185,7 @@ class ChartJsDiagram extends StatefulWidget {
 }
 
 class _ChartJsDiagramState extends State<ChartJsDiagram> {
-  WebViewControllerPlus? _controller;
+  InAppWebViewController? _controller;
   String? _script;
   double _height = _chartPreviewMinHeight;
   bool _isLoading = true;
@@ -1191,10 +1197,7 @@ class _ChartJsDiagramState extends State<ChartJsDiagram> {
         Factory<OneSequenceGestureRecognizer>(() => EagerGestureRecognizer()),
       };
 
-  @override
-  void initState() {
-    super.initState();
-  }
+  bool get _isRunningInTestEnvironment => _isRunningInWidgetTest();
 
   @override
   void didUpdateWidget(ChartJsDiagram oldWidget) {
@@ -1208,33 +1211,59 @@ class _ChartJsDiagramState extends State<ChartJsDiagram> {
         oldWidget.colorScheme != widget.colorScheme ||
         oldWidget.tokens != widget.tokens;
     if (contentChanged || themeChanged) {
-      if (_controller != null && _script != null) {
-        _loadHtml();
-      } else {
-        _loadScheduled = false;
-        _retryLoadScheduled = false;
-      }
+      unawaited(_loadHtml());
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_controller == null) {
+    if (_isRunningInTestEnvironment) {
+      return const SizedBox(
+        height: _chartPreviewMinHeight,
+        width: double.infinity,
+      );
+    }
+
+    if (_script == null) {
       _scheduleInitialization(context);
       return const SizedBox(
         height: _chartPreviewMinHeight,
         child: Center(child: CircularProgressIndicator()),
       );
     }
+
     return SizedBox(
       height: _height,
       width: double.infinity,
       child: Stack(
         children: [
           Positioned.fill(
-            child: WebViewWidget(
-              controller: _controller!,
+            child: InAppWebView(
               gestureRecognizers: _gestureRecognizers,
+              initialSettings: InAppWebViewSettings(
+                javaScriptEnabled: true,
+                transparentBackground: true,
+              ),
+              onWebViewCreated: (controller) {
+                _controller = controller;
+                unawaited(_loadHtml());
+              },
+              onLoadStop: (controller, _) async {
+                if (!mounted || controller != _controller) {
+                  return;
+                }
+                await _scheduleHeightUpdates(_loadRequestId);
+              },
+              onReceivedError: (controller, request, error) {
+                if (!mounted ||
+                    controller != _controller ||
+                    !(request.isForMainFrame ?? false)) {
+                  return;
+                }
+                setState(() {
+                  _isLoading = false;
+                });
+              },
             ),
           ),
           if (_isLoading)
@@ -1250,7 +1279,10 @@ class _ChartJsDiagramState extends State<ChartJsDiagram> {
   }
 
   void _scheduleInitialization(BuildContext context) {
-    if (_loadScheduled || _controller != null || !ChartJsDiagram.isSupported) {
+    if (_isRunningInTestEnvironment ||
+        _loadScheduled ||
+        _script != null ||
+        !ChartJsDiagram.isSupported) {
       return;
     }
 
@@ -1264,7 +1296,7 @@ class _ChartJsDiagramState extends State<ChartJsDiagram> {
           return;
         }
         _retryLoadScheduled = false;
-        if (_controller == null && !_loadScheduled) {
+        if (_script == null && !_loadScheduled) {
           setState(() {});
         }
       });
@@ -1282,7 +1314,9 @@ class _ChartJsDiagramState extends State<ChartJsDiagram> {
   }
 
   Future<void> _initializeController() async {
-    if (!ChartJsDiagram.isSupported || _controller != null) {
+    if (_isRunningInTestEnvironment ||
+        !ChartJsDiagram.isSupported ||
+        _script != null) {
       _loadScheduled = false;
       return;
     }
@@ -1292,36 +1326,46 @@ class _ChartJsDiagramState extends State<ChartJsDiagram> {
       if (!mounted) {
         return;
       }
-      _script = value;
-      _controller = WebViewControllerPlus()
-        ..setJavaScriptMode(JavaScriptMode.unrestricted)
-        ..setBackgroundColor(Colors.transparent)
-        ..setNavigationDelegate(
-          NavigationDelegate(
-            onPageFinished: (_) {
-              _scheduleHeightUpdates(_loadRequestId);
-            },
-          ),
-        );
-      _loadHtml();
-      setState(() {});
+      setState(() {
+        _script = value;
+      });
     } finally {
       _loadScheduled = false;
     }
   }
 
-  void _loadHtml() {
-    if (_controller == null || _script == null) {
+  Future<void> _loadHtml() async {
+    final controller = _controller;
+    final script = _script;
+    if (controller == null || script == null) {
       return;
     }
-    ++_loadRequestId;
+    final requestId = ++_loadRequestId;
     if (mounted) {
       setState(() {
         _height = _chartPreviewMinHeight;
         _isLoading = true;
       });
     }
-    _controller!.loadHtmlString(_buildHtml(widget.htmlContent, _script!));
+    final baseUrl = WebUri('https://chart-preview.conduit.local/');
+    try {
+      await controller.loadData(
+        data: _buildHtml(widget.htmlContent, script),
+        baseUrl: baseUrl,
+        historyUrl: baseUrl,
+      );
+      if (!mounted || controller != _controller || requestId != _loadRequestId) {
+        return;
+      }
+      await _scheduleHeightUpdates(requestId);
+    } catch (_) {
+      if (!mounted || controller != _controller) {
+        return;
+      }
+      setState(() {
+        _isLoading = false;
+      });
+    }
   }
 
   Future<void> _scheduleHeightUpdates(int requestId) async {
@@ -1606,7 +1650,7 @@ class MermaidDiagram extends StatefulWidget {
 }
 
 class _MermaidDiagramState extends State<MermaidDiagram> {
-  WebViewControllerPlus? _controller;
+  InAppWebViewController? _controller;
   String? _script;
   double _height = _mermaidPreviewMinHeight;
   bool _isLoading = true;
@@ -1618,10 +1662,7 @@ class _MermaidDiagramState extends State<MermaidDiagram> {
         Factory<OneSequenceGestureRecognizer>(() => EagerGestureRecognizer()),
       };
 
-  @override
-  void initState() {
-    super.initState();
-  }
+  bool get _isRunningInTestEnvironment => _isRunningInWidgetTest();
 
   @override
   void didUpdateWidget(MermaidDiagram oldWidget) {
@@ -1635,33 +1676,59 @@ class _MermaidDiagramState extends State<MermaidDiagram> {
         oldWidget.colorScheme != widget.colorScheme ||
         oldWidget.tokens != widget.tokens;
     if (codeChanged || themeChanged) {
-      if (_controller != null && _script != null) {
-        _loadHtml();
-      } else {
-        _loadScheduled = false;
-        _retryLoadScheduled = false;
-      }
+      unawaited(_loadHtml());
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_controller == null) {
+    if (_isRunningInTestEnvironment) {
+      return const SizedBox(
+        height: _mermaidPreviewMinHeight,
+        width: double.infinity,
+      );
+    }
+
+    if (_script == null) {
       _scheduleInitialization(context);
       return const SizedBox(
         height: _mermaidPreviewMinHeight,
         child: Center(child: CircularProgressIndicator()),
       );
     }
+
     return SizedBox(
       height: _height,
       width: double.infinity,
       child: Stack(
         children: [
           Positioned.fill(
-            child: WebViewWidget(
-              controller: _controller!,
+            child: InAppWebView(
               gestureRecognizers: _gestureRecognizers,
+              initialSettings: InAppWebViewSettings(
+                javaScriptEnabled: true,
+                transparentBackground: true,
+              ),
+              onWebViewCreated: (controller) {
+                _controller = controller;
+                unawaited(_loadHtml());
+              },
+              onLoadStop: (controller, _) async {
+                if (!mounted || controller != _controller) {
+                  return;
+                }
+                await _scheduleHeightUpdates(_loadRequestId);
+              },
+              onReceivedError: (controller, request, error) {
+                if (!mounted ||
+                    controller != _controller ||
+                    !(request.isForMainFrame ?? false)) {
+                  return;
+                }
+                setState(() {
+                  _isLoading = false;
+                });
+              },
             ),
           ),
           if (_isLoading)
@@ -1677,7 +1744,10 @@ class _MermaidDiagramState extends State<MermaidDiagram> {
   }
 
   void _scheduleInitialization(BuildContext context) {
-    if (_loadScheduled || _controller != null || !MermaidDiagram.isSupported) {
+    if (_isRunningInTestEnvironment ||
+        _loadScheduled ||
+        _script != null ||
+        !MermaidDiagram.isSupported) {
       return;
     }
 
@@ -1691,7 +1761,7 @@ class _MermaidDiagramState extends State<MermaidDiagram> {
           return;
         }
         _retryLoadScheduled = false;
-        if (_controller == null && !_loadScheduled) {
+        if (_script == null && !_loadScheduled) {
           setState(() {});
         }
       });
@@ -1709,7 +1779,9 @@ class _MermaidDiagramState extends State<MermaidDiagram> {
   }
 
   Future<void> _initializeController() async {
-    if (!MermaidDiagram.isSupported || _controller != null) {
+    if (_isRunningInTestEnvironment ||
+        !MermaidDiagram.isSupported ||
+        _script != null) {
       _loadScheduled = false;
       return;
     }
@@ -1719,38 +1791,46 @@ class _MermaidDiagramState extends State<MermaidDiagram> {
       if (!mounted) {
         return;
       }
-      _script = value;
-      _controller = WebViewControllerPlus()
-        ..setJavaScriptMode(JavaScriptMode.unrestricted)
-        ..setBackgroundColor(Colors.transparent)
-        ..setNavigationDelegate(
-          NavigationDelegate(
-            onPageFinished: (_) {
-              _scheduleHeightUpdates(_loadRequestId);
-            },
-          ),
-        );
-      _loadHtml();
-      setState(() {});
+      setState(() {
+        _script = value;
+      });
     } finally {
       _loadScheduled = false;
     }
   }
 
-  void _loadHtml() {
-    if (_controller == null || _script == null) {
+  Future<void> _loadHtml() async {
+    final controller = _controller;
+    final script = _script;
+    if (controller == null || script == null) {
       return;
     }
-    ++_loadRequestId;
+    final requestId = ++_loadRequestId;
     if (mounted) {
       setState(() {
         _height = _mermaidPreviewMinHeight;
         _isLoading = true;
       });
     }
-    _controller!.loadHtmlString(
-      _buildHtml(_sanitizeMermaidCode(widget.code), _script!),
-    );
+    final baseUrl = WebUri('https://mermaid-preview.conduit.local/');
+    try {
+      await controller.loadData(
+        data: _buildHtml(_sanitizeMermaidCode(widget.code), script),
+        baseUrl: baseUrl,
+        historyUrl: baseUrl,
+      );
+      if (!mounted || controller != _controller || requestId != _loadRequestId) {
+        return;
+      }
+      await _scheduleHeightUpdates(requestId);
+    } catch (_) {
+      if (!mounted || controller != _controller) {
+        return;
+      }
+      setState(() {
+        _isLoading = false;
+      });
+    }
   }
 
   Future<void> _scheduleHeightUpdates(int requestId) async {

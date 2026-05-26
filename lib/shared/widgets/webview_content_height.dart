@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:webview_flutter_plus/webview_flutter_plus.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 const _measureWebViewContentHeightScript = r'''
 (() => {
@@ -45,17 +45,21 @@ const _measureWebViewContentHeightScript = r'''
 /// Returns `null` when the page is not ready yet or when the platform bridge
 /// returns a value that cannot be parsed as a number.
 Future<double?> measureWebViewContentHeight(
-  WebViewControllerPlus controller,
+  InAppWebViewController controller,
 ) async {
-  final result = await controller.runJavaScriptReturningResult(
-    _measureWebViewContentHeightScript,
+  final result = await controller.evaluateJavascript(
+    source: _measureWebViewContentHeightScript,
   );
 
-  return _parseMeasuredWebViewContentHeightResult(result.toString());
+  return _parseMeasuredWebViewContentHeightResult(result);
 }
 
-double? _parseMeasuredWebViewContentHeightResult(String rawValue) {
-  dynamic decoded = rawValue.trim();
+double? _parseMeasuredWebViewContentHeightResult(Object? rawValue) {
+  dynamic decoded = rawValue;
+
+  if (decoded == null) {
+    return null;
+  }
 
   for (var i = 0; i < 2; i++) {
     if (decoded is! String) {
@@ -144,7 +148,7 @@ double? _selectMeasuredWebViewContentHeight(Map<dynamic, dynamic> metrics) {
 }
 
 @visibleForTesting
-double? parseMeasuredWebViewContentHeightResultForTesting(String rawValue) {
+double? parseMeasuredWebViewContentHeightResultForTesting(Object? rawValue) {
   return _parseMeasuredWebViewContentHeightResult(rawValue);
 }
 

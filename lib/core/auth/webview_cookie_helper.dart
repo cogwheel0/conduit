@@ -1,9 +1,19 @@
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
-import 'package:webview_flutter_plus/webview_flutter_plus.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 import '../utils/debug_logger.dart';
+
+final Set<WebsiteDataType> _appleWebsiteDataTypes = <WebsiteDataType>{
+  WebsiteDataType.WKWebsiteDataTypeLocalStorage,
+  WebsiteDataType.WKWebsiteDataTypeSessionStorage,
+  WebsiteDataType.WKWebsiteDataTypeIndexedDBDatabases,
+  WebsiteDataType.WKWebsiteDataTypeWebSQLDatabases,
+  WebsiteDataType.WKWebsiteDataTypeOfflineWebApplicationCache,
+  WebsiteDataType.WKWebsiteDataTypeFetchCache,
+  WebsiteDataType.WKWebsiteDataTypeServiceWorkerRegistrations,
+};
 
 /// Check if WebView is supported on the current platform.
 ///
@@ -25,7 +35,7 @@ class WebViewCookieHelper {
     if (!isWebViewSupported) return false;
 
     try {
-      return await WebViewCookieManager().clearCookies();
+      return await CookieManager.instance().deleteAllCookies();
     } catch (e) {
       // Silently fail - WebView may not be available
       return false;
@@ -43,7 +53,7 @@ class WebViewCookieHelper {
 
     // Clear cookies
     try {
-      await WebViewCookieManager().clearCookies();
+      await CookieManager.instance().deleteAllCookies();
       DebugLogger.auth('WebView cookies cleared');
     } catch (e) {
       DebugLogger.warning(
@@ -54,12 +64,10 @@ class WebViewCookieHelper {
       success = false;
     }
 
-    // Clear localStorage and cache using a temporary controller
+    // Clear localStorage and other persistent website data.
     try {
-      final controller = WebViewControllerPlus();
-      await controller.clearLocalStorage();
-      await controller.clearCache();
-      DebugLogger.auth('WebView localStorage and cache cleared');
+      await _clearWebStorage();
+      DebugLogger.auth('WebView storage cleared');
     } catch (e) {
       DebugLogger.warning(
         'webview-storage-clear-failed',
@@ -69,47 +77,60 @@ class WebViewCookieHelper {
       success = false;
     }
 
+    // Clear the shared WebView cache separately so unsupported storage APIs
+    // don't skip cache removal on supported platforms.
+    try {
+      await InAppWebViewController.clearAllCache();
+      DebugLogger.auth('WebView cache cleared');
+    } catch (e) {
+      DebugLogger.warning(
+        'webview-cache-clear-failed',
+        scope: 'auth/webview',
+        data: {'error': e.toString()},
+      );
+      success = false;
+    }
+
     return success;
   }
 
-  /// Gets cookies from a WebView controller via JavaScript.
+  static Future<void> _clearWebStorage() async {
+    if (Platform.isAndroid) {
+      await WebStorageManager.instance().deleteAllData();
+      return;
+    }
+
+    if (Platform.isIOS) {
+      await WebStorageManager.instance().removeDataModifiedSince(
+        dataTypes: _appleWebsiteDataTypes,
+        date: DateTime.fromMillisecondsSinceEpoch(0),
+      );
+      return;
+    }
+  }
+
+  /// Gets cookies from the current WebView cookie store.
   ///
   /// This can be used to extract session cookies set by proxy authentication
   /// and pass them to HTTP clients like Dio.
   ///
-  /// Note: Only works for cookies without the HttpOnly flag.
-  /// For HttpOnly cookies, iOS/Android platforms may share cookies
-  /// automatically through the shared cookie store.
-  ///
   /// Returns a map of cookie names to values, or empty map if unavailable.
   static Future<Map<String, String>> getCookiesFromController(
-    WebViewControllerPlus controller,
+    InAppWebViewController controller,
   ) async {
     if (!isWebViewSupported) return {};
 
     try {
-      final result = await controller.runJavaScriptReturningResult(
-        'document.cookie',
+      final url = await controller.getUrl();
+      if (url == null) return {};
+
+      final cookies = await CookieManager.instance().getCookies(
+        url: url,
+        webViewController: controller,
       );
-
-      final cookieString = result.toString();
-      // Remove surrounding quotes if present
-      final cleaned = cookieString.startsWith('"') && cookieString.endsWith('"')
-          ? cookieString.substring(1, cookieString.length - 1)
-          : cookieString;
-
-      if (cleaned.isEmpty || cleaned == 'null') return {};
-
       final cookieMap = <String, String>{};
-      final pairs = cleaned.split(';');
-      for (final pair in pairs) {
-        final trimmed = pair.trim();
-        final idx = trimmed.indexOf('=');
-        if (idx > 0) {
-          final name = trimmed.substring(0, idx).trim();
-          final value = trimmed.substring(idx + 1).trim();
-          cookieMap[name] = value;
-        }
+      for (final cookie in cookies) {
+        cookieMap[cookie.name] = cookie.value;
       }
 
       DebugLogger.auth('Retrieved ${cookieMap.length} cookies from WebView');
@@ -133,3 +154,7 @@ class WebViewCookieHelper {
     return cookies.entries.map((e) => '${e.key}=${e.value}').join('; ');
   }
 }
+
+@visibleForTesting
+Set<WebsiteDataType> get appleWebsiteDataTypesForTesting =>
+    _appleWebsiteDataTypes;

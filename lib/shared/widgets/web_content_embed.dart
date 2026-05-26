@@ -4,7 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:webview_flutter_plus/webview_flutter_plus.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 
 import '../theme/theme_extensions.dart';
@@ -56,7 +56,7 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
         Factory<OneSequenceGestureRecognizer>(() => EagerGestureRecognizer()),
       };
 
-  WebViewControllerPlus? _controller;
+  InAppWebViewController? _controller;
   double _height = _embedDefaultHeight;
   bool _isLoading = true;
   bool _loadScheduled = false;
@@ -65,6 +65,7 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
   int _loadRequestId = 0;
   late bool _isExpanded;
   bool _debugHasSeededController = false;
+  bool _shouldRenderWebView = false;
 
   bool get _isRunningInTestEnvironment {
     return WidgetsBinding.instance.runtimeType.toString().contains(
@@ -98,7 +99,17 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
         raw.startsWith('//');
   }
 
-  bool get _hasController => _controller != null || _debugHasSeededController;
+  Uri? get _resolvedRemoteUri {
+    if (!_isRemoteUrl) {
+      return null;
+    }
+    return Uri.tryParse(
+      widget.source.startsWith('//') ? 'https:${widget.source}' : widget.source,
+    );
+  }
+
+  bool get _hasController =>
+      _controller != null || _debugHasSeededController || _shouldRenderWebView;
 
   String get _unsupportedMessage {
     if (_isRunningInTestEnvironment) {
@@ -129,7 +140,7 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
       _isExpanded = widget.initiallyExpanded || !widget.deferUntilExpanded;
       _resetControllerState(isLoading: _isExpanded);
       if (_isExpanded) {
-        unawaited(_initializeController());
+        unawaited(_initializeController(reuseCurrentRequestId: true));
       }
     }
   }
@@ -141,6 +152,7 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
         _loadRequestId += 1;
         _controller = null;
         _debugHasSeededController = false;
+        _shouldRenderWebView = false;
         _height = _embedDefaultHeight;
         _isLoading = isLoading;
         _loadError = null;
@@ -149,6 +161,7 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
       _loadRequestId += 1;
       _controller = null;
       _debugHasSeededController = false;
+      _shouldRenderWebView = false;
       _height = _embedDefaultHeight;
       _isLoading = isLoading;
       _loadError = null;
@@ -159,7 +172,7 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
   }
 
   void _scheduleControllerInitialization(BuildContext context) {
-    if (!_isExpanded || _loadScheduled || _hasController || !_isSupported) {
+    if (!_isExpanded || _loadScheduled || _shouldRenderWebView || !_isSupported) {
       return;
     }
 
@@ -186,62 +199,18 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
       if (!mounted) {
         return;
       }
-      _initializeController();
+      unawaited(_initializeController());
     });
   }
 
-  Future<void> _initializeController() async {
+  Future<void> _initializeController({bool reuseCurrentRequestId = false}) async {
     if (!_isSupported || !_isExpanded) {
+      _loadScheduled = false;
       return;
     }
 
-    setState(() {
-      _controller = null;
-      _height = _embedDefaultHeight;
-      _isLoading = true;
-      _loadError = null;
-    });
-
-    try {
-      final requestId = ++_loadRequestId;
-      final controller = WebViewControllerPlus();
-      controller
-        ..setJavaScriptMode(JavaScriptMode.unrestricted)
-        ..setBackgroundColor(Colors.transparent)
-        ..setNavigationDelegate(
-          NavigationDelegate(
-            onPageFinished: (_) async {
-              if (requestId != _loadRequestId) {
-                return;
-              }
-              await _injectArguments(controller);
-              _scheduleHeightUpdates(controller, requestId);
-            },
-          ),
-        );
-
-      if (mounted) {
-        setState(() {
-          _controller = controller;
-        });
-      } else {
-        _controller = controller;
-      }
-
-      if (_isRemoteUrl) {
-        final uri = Uri.tryParse(
-          widget.source.startsWith('//')
-              ? 'https:${widget.source}'
-              : widget.source,
-        );
-        if (uri == null) {
-          throw StateError('Invalid embed URL');
-        }
-        await controller.loadRequest(uri);
-      } else {
-        await controller.loadHtmlString(_wrapHtmlDocument(widget.source));
-      }
-    } catch (_) {
+    if (_isRemoteUrl && _resolvedRemoteUri == null) {
+      _loadScheduled = false;
       if (!mounted) {
         return;
       }
@@ -249,21 +218,84 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
         _isLoading = false;
         _loadError = 'Unable to load embedded content.';
       });
+      return;
+    }
+
+    try {
+      if (!reuseCurrentRequestId) {
+        _loadRequestId += 1;
+      }
+      setState(() {
+        _controller = null;
+        _debugHasSeededController = false;
+        _shouldRenderWebView = true;
+        _height = _embedDefaultHeight;
+        _isLoading = true;
+        _loadError = null;
+      });
+    } finally {
+      _loadScheduled = false;
     }
   }
 
-  Future<void> _injectArguments(WebViewControllerPlus controller) async {
+  Future<void> _handleWebViewCreated(
+    InAppWebViewController controller,
+    int requestId,
+  ) async {
+    if (requestId != _loadRequestId) {
+      return;
+    }
+
+    if (mounted) {
+      setState(() {
+        _controller = controller;
+      });
+    } else {
+      _controller = controller;
+    }
+
+    try {
+      if (_isRemoteUrl) {
+        final uri = _resolvedRemoteUri;
+        if (uri == null) {
+          throw StateError('Invalid embed URL');
+        }
+        await controller.loadUrl(urlRequest: URLRequest(url: WebUri.uri(uri)));
+      } else {
+        final baseUrl = WebUri('https://embed.conduit.local/');
+        await controller.loadData(
+          data: _wrapHtmlDocument(widget.source),
+          baseUrl: baseUrl,
+          historyUrl: baseUrl,
+        );
+      }
+    } catch (_) {
+      if (!mounted || requestId != _loadRequestId) {
+        return;
+      }
+      setState(() {
+        _controller = null;
+        _shouldRenderWebView = false;
+        _isLoading = false;
+        _loadError = 'Unable to load embedded content.';
+      });
+    }
+  }
+
+  Future<void> _injectArguments(InAppWebViewController controller) async {
     final argsText = widget.argsText.trim();
     if (argsText.isEmpty) {
       return;
     }
 
     try {
-      await controller.runJavaScript('window.args = ${jsonEncode(argsText)};');
+      await controller.evaluateJavascript(
+        source: 'window.args = ${jsonEncode(argsText)};',
+      );
     } catch (_) {}
   }
 
-  void _scheduleHeightUpdates(WebViewControllerPlus controller, int requestId) {
+  void _scheduleHeightUpdates(InAppWebViewController controller, int requestId) {
     _updateHeight(controller, requestId);
     for (final delay in <int>[60, 250, 600]) {
       Future<void>.delayed(Duration(milliseconds: delay), () {
@@ -281,7 +313,7 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
   }
 
   Future<void> _updateHeight(
-    WebViewControllerPlus controller,
+    InAppWebViewController controller,
     int requestId,
   ) async {
     try {
@@ -338,7 +370,7 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
       );
     }
 
-    if (_controller == null) {
+    if (!_shouldRenderWebView) {
       _scheduleControllerInitialization(context);
       if (!widget.showChrome) {
         return const Center(child: CircularProgressIndicator());
@@ -346,12 +378,40 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
       return const _EmbedLoadingCard();
     }
 
+    final requestId = _loadRequestId;
     final webView = Stack(
       children: [
         Positioned.fill(
-          child: WebViewWidget(
-            controller: _controller!,
+          child: InAppWebView(
+            key: ValueKey<int>(requestId),
             gestureRecognizers: _gestureRecognizers,
+            initialSettings: InAppWebViewSettings(
+              javaScriptEnabled: true,
+              transparentBackground: true,
+            ),
+            onWebViewCreated: (controller) {
+              unawaited(_handleWebViewCreated(controller, requestId));
+            },
+            onLoadStop: (controller, _) async {
+              if (requestId != _loadRequestId) {
+                return;
+              }
+              await _injectArguments(controller);
+              _scheduleHeightUpdates(controller, requestId);
+            },
+            onReceivedError: (controller, request, error) {
+              if (requestId != _loadRequestId ||
+                  !(request.isForMainFrame ?? false) ||
+                  !mounted) {
+                return;
+              }
+              setState(() {
+                _controller = null;
+                _shouldRenderWebView = false;
+                _isLoading = false;
+                _loadError = error.description;
+              });
+            },
           ),
         ),
         if (_isLoading)

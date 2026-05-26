@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
@@ -5,8 +6,8 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:go_router/go_router.dart';
-import 'package:webview_flutter_plus/webview_flutter_plus.dart';
 
 import '../../../core/auth/native_cookie_manager.dart';
 import '../../../core/auth/webview_cookie_helper.dart';
@@ -298,13 +299,14 @@ class ProxyAuthPage extends ConsumerStatefulWidget {
 }
 
 class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
-  WebViewControllerPlus? _controller;
+  InAppWebViewController? _controller;
   bool _isLoading = true;
   bool _cookiesCaptured = false;
   final _captureQueue = ProxyAuthCaptureQueue();
   bool _automaticCaptureRequiresJwt = false;
   String? _error;
   bool _isOnTargetServer = false;
+  bool _shouldRenderWebView = false;
 
   @override
   void initState() {
@@ -337,29 +339,35 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
     final serverUrl = widget.config.serverConfig.url;
     DebugLogger.auth('Initializing Proxy Auth WebView for $serverUrl');
 
-    final controller = WebViewControllerPlus()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onPageStarted: _onPageStarted,
-          onPageFinished: _onPageFinished,
-          onWebResourceError: _onWebResourceError,
-          onNavigationRequest: _onNavigationRequest,
-        ),
-      )
-      ..setUserAgent(_buildUserAgent());
-
     // Don't clear cookies - preserve any existing proxy session
     if (!mounted) return;
 
-    // Load the server URL - the proxy will intercept and show its login
-    await controller.loadRequest(Uri.parse(serverUrl));
-
-    if (!mounted) return;
-
     setState(() {
-      _controller = controller;
+      _controller = null;
+      _shouldRenderWebView = true;
+      _isLoading = true;
+      _error = null;
+      _cookiesCaptured = false;
+      _isOnTargetServer = false;
     });
+  }
+
+  Future<void> _loadInitialServerPage(InAppWebViewController controller) async {
+    final serverUrl = widget.config.serverConfig.url;
+    try {
+      await controller.loadUrl(urlRequest: URLRequest(url: WebUri(serverUrl)));
+    } catch (e) {
+      DebugLogger.error(
+        'proxy-webview-initial-load-failed',
+        scope: 'auth/proxy',
+        error: e,
+      );
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString();
+        _isLoading = false;
+      });
+    }
   }
 
   String _buildUserAgent() {
@@ -424,7 +432,8 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
     try {
       // Check if this is an OpenWebUI page by looking for specific elements
       // or the /api/config endpoint being accessible
-      final result = await controller.runJavaScriptReturningResult('''
+      final result = await controller.evaluateJavascript(
+        source: '''
         (function() {
           var title = (document.title || "").toLowerCase();
           var hasKnownIds =
@@ -445,7 +454,8 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
             title.includes('chat');
           return isOpenWebUI ? "true" : "false";
         })()
-        ''');
+        ''',
+      );
 
       if (!mounted) return;
 
@@ -661,13 +671,15 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
     if (controller == null || !mounted) return false;
 
     try {
-      final result = await controller.runJavaScriptReturningResult('''
+      final result = await controller.evaluateJavascript(
+        source: '''
         (function() {
           return document.querySelector(
             'input[type="password"], input[name="password"], #password'
           ) !== null ? "true" : "false";
         })()
-        ''');
+        ''',
+      );
 
       if (!mounted) return false;
       return result.toString().contains('true');
@@ -706,7 +718,8 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
 
     // Strategy 1: Check token cookie
     try {
-      final cookieResult = await controller.runJavaScriptReturningResult('''
+      final cookieResult = await controller.evaluateJavascript(
+        source: '''
         (function() {
           var cookies = document.cookie.split(";");
           for (var i = 0; i < cookies.length; i++) {
@@ -717,7 +730,8 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
           }
           return "";
         })()
-        ''');
+        ''',
+      );
 
       if (!mounted) return null;
 
@@ -740,8 +754,8 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
 
     // Strategy 2: Check localStorage
     try {
-      final result = await controller.runJavaScriptReturningResult(
-        'localStorage.getItem("token")',
+      final result = await controller.evaluateJavascript(
+        source: 'localStorage.getItem("token")',
       );
 
       if (!mounted) return null;
@@ -788,19 +802,19 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
     return segments.length == 3 && trimmed.length >= 50;
   }
 
-  void _onWebResourceError(WebResourceError error) {
+  void _onWebResourceError(WebResourceRequest request, WebResourceError error) {
     if (!mounted) return;
     DebugLogger.error(
       'proxy-webview-error',
       scope: 'auth/proxy',
       data: {
-        'errorCode': error.errorCode,
+        'url': request.url.toString(),
         'description': error.description,
-        'errorType': error.errorType?.name,
+        'errorType': error.type.toString(),
       },
     );
 
-    if (error.isForMainFrame ?? false) {
+    if (request.isForMainFrame ?? false) {
       setState(() {
         _error = error.description;
         _isLoading = false;
@@ -808,10 +822,13 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
     }
   }
 
-  NavigationDecision _onNavigationRequest(NavigationRequest request) {
-    final url = request.url;
+  Future<NavigationActionPolicy?> _onNavigationRequest(
+    InAppWebViewController controller,
+    NavigationAction request,
+  ) async {
+    final url = request.request.url;
     DebugLogger.auth('Proxy auth navigation request: $url');
-    return NavigationDecision.navigate;
+    return NavigationActionPolicy.ALLOW;
   }
 
   Future<void> _refresh() async {
@@ -829,7 +846,9 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
 
     if (!mounted) return;
 
-    await controller.loadRequest(Uri.parse(widget.config.serverConfig.url));
+    await controller.loadUrl(
+      urlRequest: URLRequest(url: WebUri(widget.config.serverConfig.url)),
+    );
   }
 
   /// Manual completion button for when auto-detection doesn't work.
@@ -874,13 +893,44 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
       return _buildErrorState(l10n);
     }
 
-    if (_controller == null || !isWebViewSupported) {
+    if (!_shouldRenderWebView || !isWebViewSupported) {
       return _buildLoadingState(l10n);
     }
 
     return Stack(
       children: [
-        WebViewWidget(controller: _controller!),
+        InAppWebView(
+          key: ValueKey<String>(widget.config.serverConfig.url),
+          initialSettings: InAppWebViewSettings(
+            javaScriptEnabled: true,
+            useShouldOverrideUrlLoading: true,
+            userAgent: _buildUserAgent(),
+          ),
+          onWebViewCreated: (controller) {
+            if (mounted) {
+              setState(() {
+                _controller = controller;
+              });
+            } else {
+              _controller = controller;
+            }
+            unawaited(_loadInitialServerPage(controller));
+          },
+          onLoadStart: (controller, url) {
+            _onPageStarted(url?.toString() ?? '');
+          },
+          onLoadStop: (controller, url) async {
+            final urlText = url?.toString();
+            if (urlText == null || urlText.isEmpty) {
+              return;
+            }
+            await _onPageFinished(urlText);
+          },
+          onReceivedError: (controller, request, error) {
+            _onWebResourceError(request, error);
+          },
+          shouldOverrideUrlLoading: _onNavigationRequest,
+        ),
         if (_isLoading) _buildLoadingOverlay(l10n),
         // Help text and manual continue button at the bottom
         Positioned(left: 0, right: 0, bottom: 0, child: _buildHelpBanner(l10n)),
