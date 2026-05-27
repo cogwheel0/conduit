@@ -135,7 +135,7 @@ Future<void> _openDrawer(
 }
 
 void main() {
-  testWidgets('drag settle open fires one selection haptic', (tester) async {
+  testWidgets('drag settle open emits no sidebar haptic', (tester) async {
     final layoutKey = GlobalKey<ResponsiveDrawerLayoutState>();
 
     final calls = await _recordPlatformCalls(() async {
@@ -148,7 +148,7 @@ void main() {
     });
 
     expect(layoutKey.currentState!.isOpen, isTrue);
-    expect(_settleHapticCalls(calls), hasLength(1));
+    expect(_settleHapticCalls(calls), isEmpty);
   });
 
   testWidgets(
@@ -201,29 +201,28 @@ void main() {
     },
   );
 
-  testWidgets(
-    'horizontal drag closes an open mobile drawer and fires one haptic',
-    (tester) async {
-      final layoutKey = GlobalKey<ResponsiveDrawerLayoutState>();
+  testWidgets('horizontal drag closes an open mobile drawer without haptic', (
+    tester,
+  ) async {
+    final layoutKey = GlobalKey<ResponsiveDrawerLayoutState>();
 
-      await tester.pumpWidget(
-        _buildHarness(size: _mobileSize, layoutKey: layoutKey),
+    await tester.pumpWidget(
+      _buildHarness(size: _mobileSize, layoutKey: layoutKey),
+    );
+    await _openDrawer(tester, layoutKey);
+    expect(layoutKey.currentState!.isOpen, isTrue);
+
+    final calls = await _recordPlatformCalls(() async {
+      await tester.drag(
+        find.byKey(const ValueKey('drawer')),
+        const Offset(-400, 0),
       );
-      await _openDrawer(tester, layoutKey);
-      expect(layoutKey.currentState!.isOpen, isTrue);
+      await tester.pumpAndSettle();
+    });
 
-      final calls = await _recordPlatformCalls(() async {
-        await tester.drag(
-          find.byKey(const ValueKey('drawer')),
-          const Offset(-400, 0),
-        );
-        await tester.pumpAndSettle();
-      });
-
-      expect(layoutKey.currentState!.isOpen, isFalse);
-      expect(_settleHapticCalls(calls), hasLength(1));
-    },
-  );
+    expect(layoutKey.currentState!.isOpen, isFalse);
+    expect(_settleHapticCalls(calls), isEmpty);
+  });
 
   testWidgets('initial mount fires zero haptics', (tester) async {
     final calls = await _recordPlatformCalls(() async {
@@ -264,9 +263,7 @@ void main() {
     expect(_settleHapticCalls(calls), isEmpty);
   });
 
-  testWidgets('programmatic open fires one selection haptic on settle', (
-    tester,
-  ) async {
+  testWidgets('programmatic open settles without haptic', (tester) async {
     final layoutKey = GlobalKey<ResponsiveDrawerLayoutState>();
 
     final calls = await _recordPlatformCalls(() async {
@@ -279,12 +276,10 @@ void main() {
     });
 
     expect(layoutKey.currentState!.isOpen, isTrue);
-    expect(_settleHapticCalls(calls), hasLength(1));
+    expect(_settleHapticCalls(calls), isEmpty);
   });
 
-  testWidgets('programmatic close fires one selection haptic on settle', (
-    tester,
-  ) async {
+  testWidgets('programmatic close settles without haptic', (tester) async {
     final layoutKey = GlobalKey<ResponsiveDrawerLayoutState>();
 
     await tester.pumpWidget(
@@ -299,7 +294,7 @@ void main() {
     });
 
     expect(layoutKey.currentState!.isOpen, isFalse);
-    expect(_settleHapticCalls(calls), hasLength(1));
+    expect(_settleHapticCalls(calls), isEmpty);
   });
 
   testWidgets('open when already open fires zero haptics', (tester) async {
@@ -334,9 +329,7 @@ void main() {
     expect(_settleHapticCalls(calls), isEmpty);
   });
 
-  testWidgets('same endpoint repeat settle does not double fire', (
-    tester,
-  ) async {
+  testWidgets('same endpoint repeat settle emits no haptic', (tester) async {
     final layoutKey = GlobalKey<ResponsiveDrawerLayoutState>();
 
     final calls = await _recordPlatformCalls(() async {
@@ -355,11 +348,11 @@ void main() {
     });
 
     expect(layoutKey.currentState!.isOpen, isTrue);
-    expect(_settleHapticCalls(calls), hasLength(1));
+    expect(_settleHapticCalls(calls), isEmpty);
   });
 
   testWidgets(
-    'drag leaving an endpoint before release waits for the final settle haptic',
+    'drag leaving an endpoint before release settles without haptic',
     (tester) async {
       final layoutKey = GlobalKey<ResponsiveDrawerLayoutState>();
 
@@ -383,12 +376,12 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(layoutKey.currentState!.isOpen, isTrue);
-        expect(_settleHapticCalls(calls), hasLength(1));
+        expect(_settleHapticCalls(calls), isEmpty);
       });
     },
   );
 
-  testWidgets('drag cancel resets state so next open settle haptics once', (
+  testWidgets('drag cancel resets state so next open settles without haptic', (
     tester,
   ) async {
     final layoutKey = GlobalKey<ResponsiveDrawerLayoutState>();
@@ -409,7 +402,7 @@ void main() {
     });
 
     expect(layoutKey.currentState!.isOpen, isTrue);
-    expect(_settleHapticCalls(calls), hasLength(1));
+    expect(_settleHapticCalls(calls), isEmpty);
   });
 
   testWidgets('interrupted reversed settle emits no abandoned haptic', (
