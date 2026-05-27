@@ -294,6 +294,72 @@ void main() {
     expect(shouldKeepBottomAnchored, isTrue);
   });
 
+  test('message content growth preserves bottom anchor when already pinned', () {
+    final shouldKeepBottomAnchored =
+        debugShouldKeepConversationBottomAnchoredOnContentSizeChangeForTesting(
+          isAnchoredToBottom: true,
+          isUserInteractingWithScroll: false,
+          wantsPinToTop: false,
+        );
+
+    expect(shouldKeepBottomAnchored, isTrue);
+  });
+
+  test('row extent invalidation resolves only changed message indices', () {
+    final messages = <ChatMessage>[
+      ChatMessage(
+        id: 'user-1',
+        role: 'user',
+        content: 'Question',
+        timestamp: DateTime(2026),
+      ),
+      ChatMessage(
+        id: 'assistant-1',
+        role: 'assistant',
+        content: 'Answer',
+        timestamp: DateTime(2026),
+      ),
+      ChatMessage(
+        id: 'assistant-2',
+        role: 'assistant',
+        content: 'Another answer',
+        timestamp: DateTime(2026),
+      ),
+    ];
+
+    final indices = debugMessageRowIndicesForIdsForTesting(messages, {
+      'assistant-2',
+      'missing-message',
+      'user-1',
+    });
+
+    expect(indices, <int>[0, 2]);
+  });
+
+  test('row extent invalidation ignores stale message ids', () {
+    final messages = <ChatMessage>[
+      ChatMessage(
+        id: 'current-user',
+        role: 'user',
+        content: 'Current question',
+        timestamp: DateTime(2026),
+      ),
+      ChatMessage(
+        id: 'current-assistant',
+        role: 'assistant',
+        content: 'Current answer',
+        timestamp: DateTime(2026),
+      ),
+    ];
+
+    final indices = debugMessageRowIndicesForIdsForTesting(messages, {
+      'previous-user',
+      'previous-assistant',
+    });
+
+    expect(indices, isEmpty);
+  });
+
   test('keyboard inset growth does not jump when user left the bottom', () {
     final shouldKeepBottomAnchored =
         debugShouldKeepConversationBottomAnchoredOnInsetChangeForTesting(
@@ -312,6 +378,17 @@ void main() {
         debugShouldKeepConversationBottomAnchoredOnComposerHeightChangeForTesting(
           previousComposerHeight: 0,
           nextComposerHeight: 160,
+          isAnchoredToBottom: false,
+          isUserInteractingWithScroll: false,
+          wantsPinToTop: false,
+        );
+
+    expect(shouldKeepBottomAnchored, isFalse);
+  });
+
+  test('message content growth does not jump when user left the bottom', () {
+    final shouldKeepBottomAnchored =
+        debugShouldKeepConversationBottomAnchoredOnContentSizeChangeForTesting(
           isAnchoredToBottom: false,
           isUserInteractingWithScroll: false,
           wantsPinToTop: false,
@@ -358,6 +435,24 @@ void main() {
         debugShouldKeepConversationBottomAnchoredOnComposerHeightChangeForTesting(
           previousComposerHeight: 0,
           nextComposerHeight: 160,
+          isAnchoredToBottom: true,
+          isUserInteractingWithScroll: true,
+          wantsPinToTop: false,
+        );
+
+    expect(whilePinnedToTop, isFalse);
+    expect(whileUserScrolling, isFalse);
+  });
+
+  test('message content growth ignores pin-to-top mode and manual scrolling', () {
+    final whilePinnedToTop =
+        debugShouldKeepConversationBottomAnchoredOnContentSizeChangeForTesting(
+          isAnchoredToBottom: true,
+          isUserInteractingWithScroll: false,
+          wantsPinToTop: true,
+        );
+    final whileUserScrolling =
+        debugShouldKeepConversationBottomAnchoredOnContentSizeChangeForTesting(
           isAnchoredToBottom: true,
           isUserInteractingWithScroll: true,
           wantsPinToTop: false,

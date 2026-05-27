@@ -168,6 +168,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   ProviderSubscription<String?>? _conversationIdSub;
   int _initialBottomSettleGeneration = 0;
   int _extentCacheInvalidationGeneration = 0;
+  final Set<String> _pendingRowExtentInvalidationMessageIds = <String>{};
+  bool _rowExtentInvalidationScheduled = false;
 
   bool get _wantsPinToTop => _pinToTopState.isActive;
   String? get _pinnedUserMessageId => _pinToTopState.userMessageId;
@@ -476,6 +478,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _reviewerModeSub?.close();
     _conversationIdSub?.close();
     _markdownPrewarmTimer?.cancel();
+    _pendingRowExtentInvalidationMessageIds.clear();
     _endScrollProfile(reason: 'disposed');
     _messageListController.dispose();
     _scrollController.dispose();
@@ -1021,6 +1024,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _scheduleInitialScrollToBottom();
   }
 
+  void _handleMessageRowSizeChange(String messageId) {
+    if (!mounted || _isDeactivated) {
+      return;
+    }
+
+    _pendingRowExtentInvalidationMessageIds.add(messageId);
+    _scheduleRowExtentInvalidation();
+  }
+
   void _updateBottomAnchorTracking() {
     if (!_scrollController.hasClients) {
       _isAnchoredToBottom = true;
@@ -1255,6 +1267,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _markdownPrewarmTimer = null;
     _markdownPrewarmGeneration++;
     _lastMarkdownPrewarmSignature = null;
+    _pendingRowExtentInvalidationMessageIds.clear();
     if (!preserveStreamingPin) {
       _pinToTopState = const _PinToTopState.inactive();
       _invalidateChatListStableLayoutMetadata();
@@ -1288,14 +1301,19 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _initialBottomSettleGeneration += 1;
   }
 
-  void _scheduleInitialScrollToBottom({int attempt = 0, int? generation}) {
+  void _scheduleInitialScrollToBottom({
+    int attempt = 0,
+    int? generation,
+    bool allowDuringStreaming = false,
+  }) {
     final settleGeneration =
         generation ?? (_initialBottomSettleGeneration += 1);
     _scheduleAfterScrollAttachment(() {
       if (!mounted || _initialBottomSettleGeneration != settleGeneration) {
         return;
       }
-      if (_hasActiveStreamingAssistant(ref.read(chatMessagesProvider))) {
+      if (!allowDuringStreaming &&
+          _hasActiveStreamingAssistant(ref.read(chatMessagesProvider))) {
         return;
       }
       if (_isUserInteractingWithScroll) {
@@ -1312,13 +1330,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             _initialBottomSettleGeneration != settleGeneration ||
             !_scrollController.hasClients ||
             _isUserInteractingWithScroll ||
-            _hasActiveStreamingAssistant(ref.read(chatMessagesProvider))) {
+            (!allowDuringStreaming &&
+                _hasActiveStreamingAssistant(ref.read(chatMessagesProvider)))) {
           return;
         }
         if (_distanceFromBottom() > _scrollCorrectionEpsilon) {
           _scheduleInitialScrollToBottom(
             attempt: attempt + 1,
             generation: settleGeneration,
+            allowDuringStreaming: allowDuringStreaming,
           );
         }
       });
@@ -1462,6 +1482,58 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         return;
       }
       _messageListController.invalidateAllExtents();
+    });
+  }
+
+  void _scheduleRowExtentInvalidation({int attempt = 0}) {
+    if (_rowExtentInvalidationScheduled) {
+      return;
+    }
+    _rowExtentInvalidationScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _rowExtentInvalidationScheduled = false;
+      if (!mounted || _isDeactivated) {
+        _pendingRowExtentInvalidationMessageIds.clear();
+        return;
+      }
+      if (_pendingRowExtentInvalidationMessageIds.isEmpty) {
+        return;
+      }
+      if (!_messageListController.isAttached ||
+          _messageListController.isLocked) {
+        if (attempt < 2) {
+          _scheduleRowExtentInvalidation(attempt: attempt + 1);
+        } else {
+          _pendingRowExtentInvalidationMessageIds.clear();
+        }
+        return;
+      }
+
+      final changedIndices = _messageRowIndicesForIds(
+        ref.read(chatMessagesProvider),
+        _pendingRowExtentInvalidationMessageIds,
+      );
+      _pendingRowExtentInvalidationMessageIds.clear();
+      if (changedIndices.isEmpty) {
+        return;
+      }
+      for (final index in changedIndices) {
+        _messageListController.invalidateExtent(index);
+      }
+
+      final shouldKeepBottomAnchored =
+          _shouldKeepConversationBottomAnchoredOnContentSizeChange(
+            isAnchoredToBottom: _isAnchoredToBottom,
+            isUserInteractingWithScroll: _isUserInteractingWithScroll,
+            wantsPinToTop: _wantsPinToTop,
+          );
+
+      if (shouldKeepBottomAnchored) {
+        _scheduleInitialScrollToBottom(allowDuringStreaming: true);
+        return;
+      }
+
+      _updateScrollToBottomVisibility();
     });
   }
 
@@ -1821,8 +1893,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
                   if (isUser) {
                     final isPinTarget = index == pinnedUserMessageIndex;
-                    return KeyedSubtree(
-                      key: isPinTarget
+                    return _buildMeasuredMessageRow(
+                      messageId: messageId,
+                      rowKey: isPinTarget
                           ? _pinnedUserMessageKey
                           : ValueKey<String>('message-$messageId'),
                       child: Consumer(
@@ -1861,8 +1934,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                     );
                   }
 
-                  return KeyedSubtree(
-                    key: ValueKey<String>('message-$messageId'),
+                  return _buildMeasuredMessageRow(
+                    messageId: messageId,
+                    rowKey: ValueKey<String>('message-$messageId'),
                     child: Consumer(
                       builder: (context, rowRef, _) {
                         final latestMessage = rowRef.watch(
@@ -1917,6 +1991,20 @@ class _ChatPageState extends ConsumerState<ChatPage> {
               child: SizedBox(height: MediaQuery.of(context).size.height),
             ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildMeasuredMessageRow({
+    required String messageId,
+    required Key rowKey,
+    required Widget child,
+  }) {
+    return KeyedSubtree(
+      key: rowKey,
+      child: MeasureSize(
+        onChange: (_) => _handleMessageRowSizeChange(messageId),
+        child: child,
       ),
     );
   }
@@ -3182,6 +3270,32 @@ bool _shouldKeepConversationBottomAnchoredOnComposerHeightChange({
       !wantsPinToTop;
 }
 
+bool _shouldKeepConversationBottomAnchoredOnContentSizeChange({
+  required bool isAnchoredToBottom,
+  required bool isUserInteractingWithScroll,
+  required bool wantsPinToTop,
+}) {
+  return isAnchoredToBottom && !isUserInteractingWithScroll && !wantsPinToTop;
+}
+
+List<int> _messageRowIndicesForIds(
+  List<ChatMessage> messages,
+  Iterable<String> messageIds,
+) {
+  final pendingIds = messageIds.toSet();
+  if (pendingIds.isEmpty || messages.isEmpty) {
+    return const <int>[];
+  }
+
+  final indices = <int>[];
+  for (var index = 0; index < messages.length; index += 1) {
+    if (pendingIds.contains(messages[index].id)) {
+      indices.add(index);
+    }
+  }
+  return List<int>.unmodifiable(indices);
+}
+
 double _estimateMessageListExtentForIndex(
   _ChatListStableLayoutMetadata layoutMetadata,
   int? index,
@@ -3267,6 +3381,27 @@ bool debugShouldKeepConversationBottomAnchoredOnComposerHeightChangeForTesting({
     isUserInteractingWithScroll: isUserInteractingWithScroll,
     wantsPinToTop: wantsPinToTop,
   );
+}
+
+@visibleForTesting
+bool debugShouldKeepConversationBottomAnchoredOnContentSizeChangeForTesting({
+  required bool isAnchoredToBottom,
+  required bool isUserInteractingWithScroll,
+  required bool wantsPinToTop,
+}) {
+  return _shouldKeepConversationBottomAnchoredOnContentSizeChange(
+    isAnchoredToBottom: isAnchoredToBottom,
+    isUserInteractingWithScroll: isUserInteractingWithScroll,
+    wantsPinToTop: wantsPinToTop,
+  );
+}
+
+@visibleForTesting
+List<int> debugMessageRowIndicesForIdsForTesting(
+  List<ChatMessage> messages,
+  Iterable<String> messageIds,
+) {
+  return _messageRowIndicesForIds(messages, messageIds);
 }
 
 @visibleForTesting
