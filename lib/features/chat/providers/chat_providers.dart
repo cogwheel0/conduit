@@ -1498,6 +1498,17 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     state = next;
   }
 
+  Map<String, dynamic>? _metadataWithoutResponseDone(
+    Map<String, dynamic>? metadata,
+  ) {
+    if (metadata == null || metadata.isEmpty) {
+      return metadata;
+    }
+    final next = Map<String, dynamic>.from(metadata);
+    next.remove('responseDone');
+    return next.isEmpty ? null : next;
+  }
+
   // Archive the last assistant message's current content as a previous version
   // and clear it to prepare for regeneration, keeping the same message id.
   void archiveLastAssistantAsVersion() {
@@ -1510,6 +1521,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     final updated = last.copyWith(
       // Start a fresh stream for the new generation
       isStreaming: true,
+      metadata: _metadataWithoutResponseDone(last.metadata),
       content: '',
       files: null,
       followUps: const [],
@@ -1971,6 +1983,16 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   }
 }
 
+bool _shouldIncludeConversationHistoryMessage(ChatMessage message) {
+  if (message.role.isEmpty || message.content.isEmpty) {
+    return false;
+  }
+  if (message.role != 'assistant') {
+    return true;
+  }
+  return assistantMessageResponseCompleted(message);
+}
+
 bool _isArchivedAssistantVariant(ChatMessage message) {
   return message.role == 'assistant' &&
       message.metadata?['archivedVariant'] == true;
@@ -2041,10 +2063,14 @@ Future<String> _preseedAssistantAndPersist(
           last.id == assistantMessageId &&
           last.role == 'assistant' &&
           !last.isStreaming) {
-        (ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier)
-            .updateLastMessageWithFunction(
-              (ChatMessage m) => m.copyWith(isStreaming: true),
-            );
+        final notifier =
+            ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
+        notifier.updateLastMessageWithFunction(
+          (ChatMessage m) => m.copyWith(
+            isStreaming: true,
+            metadata: notifier._metadataWithoutResponseDone(m.metadata),
+          ),
+        );
       }
     } catch (_) {}
   }
@@ -3092,7 +3118,7 @@ Future<void> regenerateMessage(
       if (_isArchivedAssistantVariant(msg)) {
         continue;
       }
-      if (msg.role.isNotEmpty && msg.content.isNotEmpty && !msg.isStreaming) {
+      if (_shouldIncludeConversationHistoryMessage(msg)) {
         final cleaned = ToolCallsParser.sanitizeForApi(msg.content);
 
         // Prefer provided attachments for the last user message; otherwise use message attachments
@@ -3699,9 +3725,9 @@ Future<void> _sendMessageInternal(
       <Map<String, dynamic>>[];
 
   for (final msg in messages) {
-    // Skip only empty assistant message placeholders that are currently streaming
-    // Include completed messages (both user and assistant) for conversation history
-    if (msg.role.isNotEmpty && msg.content.isNotEmpty && !msg.isStreaming) {
+    // Skip in-progress assistant placeholders, but include assistant replies
+    // that already settled their response content in the responseDone gap.
+    if (_shouldIncludeConversationHistoryMessage(msg)) {
       // Prepare cleaned text content (strip tool details etc.)
       final cleaned = ToolCallsParser.sanitizeForApi(msg.content);
 

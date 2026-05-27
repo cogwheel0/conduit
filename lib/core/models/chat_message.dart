@@ -57,6 +57,16 @@ sealed class ChatMessage with _$ChatMessage {
       _$ChatMessageFromJson(json);
 }
 
+bool assistantMessageResponseCompleted(ChatMessage message) {
+  if (message.role != 'assistant') {
+    return false;
+  }
+  if (!message.isStreaming) {
+    return true;
+  }
+  return message.metadata?['responseDone'] == true;
+}
+
 /// Error information for a chat message, matching OpenWebUI's error format.
 /// OpenWebUI stores errors as `{ error: { content: "..." } }` on messages.
 @freezed

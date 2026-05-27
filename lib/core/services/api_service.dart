@@ -1299,7 +1299,7 @@ class ApiService {
         if (msg.role == 'assistant' && msg.model != null)
           'modelName': msg.model,
         if (msg.role == 'assistant') 'modelIdx': 0,
-        if (msg.role == 'assistant' && !msg.isStreaming) 'done': true,
+        if (assistantMessageResponseCompleted(msg)) 'done': true,
         // User message fields
         if (msg.role == 'user' && model != null) 'models': [model],
         if (msg.attachmentIds != null && msg.attachmentIds!.isNotEmpty)
@@ -1341,7 +1341,7 @@ class ApiService {
         if (msg.role == 'assistant' && msg.model != null)
           'modelName': msg.model,
         if (msg.role == 'assistant') 'modelIdx': 0,
-        if (msg.role == 'assistant' && !msg.isStreaming) 'done': true,
+        if (assistantMessageResponseCompleted(msg)) 'done': true,
         // User message fields
         if (msg.role == 'user' && model != null) 'models': [model],
         if (msg.attachmentIds != null && msg.attachmentIds!.isNotEmpty)
@@ -1464,10 +1464,11 @@ class ApiService {
         if (msg.role == 'assistant' && msg.model != null)
           'modelName': msg.model,
         if (msg.role == 'assistant') 'modelIdx': 0,
-        // Mirror OpenWebUI's pre-send save behavior: leave streaming
-        // assistant placeholders unfinished so the backend can continue
-        // writing into the same branch during completion.
-        if (msg.role == 'assistant' && !msg.isStreaming) 'done': true,
+        // Mirror OpenWebUI's pre-send save behavior: only leave truly
+        // in-progress assistant placeholders unfinished. Once the assistant
+        // has settled its response content, mark it done even if follow-ups or
+        // other trailing updates are still arriving.
+        if (assistantMessageResponseCompleted(msg)) 'done': true,
         if (msg.role == 'user' && model != null) 'models': [model],
         if (msg.attachmentIds != null && msg.attachmentIds!.isNotEmpty)
           'attachment_ids': List<String>.from(msg.attachmentIds!),
@@ -1510,7 +1511,7 @@ class ApiService {
         if (msg.role == 'assistant' && msg.model != null)
           'modelName': msg.model,
         if (msg.role == 'assistant') 'modelIdx': 0,
-        if (msg.role == 'assistant' && !msg.isStreaming) 'done': true,
+        if (assistantMessageResponseCompleted(msg)) 'done': true,
         if (msg.role == 'user' && model != null) 'models': [model],
         if (msg.attachmentIds != null && msg.attachmentIds!.isNotEmpty)
           'attachment_ids': List<String>.from(msg.attachmentIds!),

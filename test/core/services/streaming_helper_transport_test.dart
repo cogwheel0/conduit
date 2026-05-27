@@ -894,8 +894,8 @@ void main() {
       check(stream.controller).isNotNull();
     });
 
-    test('taskSocket closes visible streaming on terminal finish_reason '
-        'before follow-ups arrive', () async {
+    test('taskSocket keeps streaming open after terminal finish_reason '
+        'until done arrives', () async {
       final log = _CallbackLog();
       final registrar = FakeSocketInjector();
 
@@ -922,10 +922,23 @@ void main() {
 
       await pumpMicrotasks();
 
-      check(log.uiFinishCount).equals(1);
+      check(log.uiFinishCount).equals(0);
       check(log.finishCount).equals(0);
-      check(log.messages.last.isStreaming).isFalse();
+      check(log.messages.last.isStreaming).isTrue();
       check(log.messages.last.content).equals('Hello there.');
+      expect(log.messages.last.metadata?['responseDone'], isTrue);
+
+      registrar.emitChatEvent('chat:completion', {
+        'content': 'Hello there.\n\nFinal answer',
+      }, messageId: 'msg-1');
+
+      await pumpMicrotasks();
+
+      check(log.uiFinishCount).equals(0);
+      check(log.finishCount).equals(0);
+      check(log.messages.last.isStreaming).isTrue();
+      check(log.messages.last.content).equals('Hello there.\n\nFinal answer');
+      expect(log.messages.last.metadata?['responseDone'], isTrue);
 
       registrar.emitChatEvent('chat:message:follow_ups', {
         'follow_ups': ['Ask a follow-up'],
@@ -933,16 +946,363 @@ void main() {
 
       await pumpMicrotasks();
 
-      check(log.messageByIdMutationCount).equals(1);
+      check(log.messageByIdMutationCount).equals(2);
       check(log.messages.last.followUps).deepEquals(['Ask a follow-up']);
       check(log.messages.last.metadata).isNotNull();
       expect(
         log.messages.last.metadata!['followUps'],
         equals(['Ask a follow-up']),
       );
-      check(log.uiFinishCount).equals(1);
+      check(log.uiFinishCount).equals(0);
       check(log.finishCount).equals(0);
+      check(log.messages.last.isStreaming).isTrue();
+      expect(log.messages.last.metadata?['responseDone'], isTrue);
+
+      registrar.emitChatEvent('chat:completion', {
+        'done': true,
+      }, messageId: 'msg-1');
+
+      await pumpMicrotasks();
+
+      check(log.uiFinishCount).equals(0);
+      check(log.finishCount).equals(1);
+      check(log.messages.last.isStreaming).isFalse();
+      expect(log.messages.last.metadata?['responseDone'], isTrue);
     });
+
+    test(
+      'taskSocket terminal finish_reason recovers when done is missed',
+      () async {
+        final previousDelay = debugTaskSocketTerminalRecoveryDelay;
+        debugTaskSocketTerminalRecoveryDelay = const Duration(milliseconds: 10);
+        addTearDown(() {
+          debugTaskSocketTerminalRecoveryDelay = previousDelay;
+        });
+
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+        final api = _buildFakeApi(
+          pollResponse: _serverConversationResponse(
+            messages: [
+              _serverAssistantMessage(
+                id: 'msg-1',
+                content: 'Hello there.',
+                done: true,
+              ),
+            ],
+          ),
+        );
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            conversationId: 'conv-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          api: api,
+          activeConversationId: 'conv-1',
+          socketService: _MockSocketService(registrar),
+        );
+
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:completion', {
+          'choices': [
+            {
+              'delta': {'content': 'Hello there.'},
+              'finish_reason': 'stop',
+            },
+          ],
+        }, messageId: 'msg-1');
+
+        await pumpMicrotasks();
+
+        check(log.finishCount).equals(0);
+        check(log.messages.last.isStreaming).isTrue();
+        expect(log.messages.last.metadata?['responseDone'], isTrue);
+
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        for (var i = 0; i < 5; i++) {
+          await pumpMicrotasks();
+        }
+
+        check(log.finishCount).equals(1);
+        check(log.messages.last.isStreaming).isFalse();
+        expect(log.messages.last.content, equals('Hello there.'));
+      },
+    );
+
+    test(
+      'taskSocket terminal recovery keeps streaming open when polled snapshot is not done',
+      () async {
+        final previousDelay = debugTaskSocketTerminalRecoveryDelay;
+        final previousLimit = debugTaskSocketStableNonTerminalRecoveryLimit;
+        debugTaskSocketTerminalRecoveryDelay = const Duration(milliseconds: 10);
+        debugTaskSocketStableNonTerminalRecoveryLimit = 4;
+        addTearDown(() {
+          debugTaskSocketTerminalRecoveryDelay = previousDelay;
+          debugTaskSocketStableNonTerminalRecoveryLimit = previousLimit;
+        });
+
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+        final api = _buildFakeApi(
+          pollResponse: _serverConversationResponse(
+            messages: [
+              {
+                'id': 'msg-1',
+                'role': 'assistant',
+                'content': 'Hello there.',
+                'timestamp': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+                'done': false,
+                'isStreaming': true,
+              },
+            ],
+          ),
+        );
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            conversationId: 'conv-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          api: api,
+          activeConversationId: 'conv-1',
+          socketService: _MockSocketService(registrar),
+        );
+
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:completion', {
+          'choices': [
+            {
+              'delta': {'content': 'Hello there.'},
+              'finish_reason': 'stop',
+            },
+          ],
+        }, messageId: 'msg-1');
+
+        await pumpMicrotasks();
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        for (var i = 0; i < 5; i++) {
+          await pumpMicrotasks();
+        }
+
+        check(log.finishCount).equals(0);
+        check(log.messages.last.isStreaming).isTrue();
+        expect(log.messages.last.metadata?['responseDone'], isTrue);
+
+        registrar.emitChatEvent('chat:message:follow_ups', {
+          'follow_ups': ['Ask a follow-up'],
+        }, messageId: 'msg-1');
+
+        await pumpMicrotasks();
+
+        check(log.finishCount).equals(0);
+        check(log.messages.last.isStreaming).isTrue();
+        check(log.messages.last.followUps).deepEquals(['Ask a follow-up']);
+
+        registrar.emitChatEvent('chat:completion', {
+          'done': true,
+        }, messageId: 'msg-1');
+
+        await pumpMicrotasks();
+
+        check(log.finishCount).equals(1);
+        check(log.messages.last.isStreaming).isFalse();
+        check(log.messages.last.followUps).deepEquals(['Ask a follow-up']);
+      },
+    );
+
+    test(
+      'taskSocket terminal recovery keeps streaming open when poll is unavailable and follow-ups arrive late',
+      () async {
+        final previousDelay = debugTaskSocketTerminalRecoveryDelay;
+        final previousLimit = debugTaskSocketStableNonTerminalRecoveryLimit;
+        debugTaskSocketTerminalRecoveryDelay = const Duration(milliseconds: 10);
+        debugTaskSocketStableNonTerminalRecoveryLimit = 6;
+        addTearDown(() {
+          debugTaskSocketTerminalRecoveryDelay = previousDelay;
+          debugTaskSocketStableNonTerminalRecoveryLimit = previousLimit;
+        });
+
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            conversationId: 'local:temp',
+            taskId: 'task-1',
+          ),
+          log: log,
+          activeConversationId: 'local:temp',
+          socketService: _MockSocketService(registrar),
+        );
+
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:completion', {
+          'choices': [
+            {
+              'delta': {'content': 'Hello there.'},
+              'finish_reason': 'stop',
+            },
+          ],
+        }, messageId: 'msg-1');
+
+        await pumpMicrotasks();
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        for (var i = 0; i < 5; i++) {
+          await pumpMicrotasks();
+        }
+
+        check(log.finishCount).equals(0);
+        check(log.messages.last.isStreaming).isTrue();
+        expect(log.messages.last.metadata?['responseDone'], isTrue);
+
+        registrar.emitChatEvent('chat:message:follow_ups', {
+          'follow_ups': ['Ask a follow-up'],
+        }, messageId: 'msg-1');
+
+        await pumpMicrotasks();
+
+        check(log.finishCount).equals(0);
+        check(log.messages.last.isStreaming).isTrue();
+        check(log.messages.last.followUps).deepEquals(['Ask a follow-up']);
+
+        registrar.emitChatEvent('chat:completion', {
+          'done': true,
+        }, messageId: 'msg-1');
+
+        await pumpMicrotasks();
+
+        check(log.finishCount).equals(1);
+        check(log.messages.last.isStreaming).isFalse();
+        check(log.messages.last.followUps).deepEquals(['Ask a follow-up']);
+      },
+    );
+
+    test(
+      'taskSocket terminal recovery finishes once the poll-miss retry limit is exhausted',
+      () async {
+        final previousDelay = debugTaskSocketTerminalRecoveryDelay;
+        final previousLimit = debugTaskSocketStableNonTerminalRecoveryLimit;
+        debugTaskSocketTerminalRecoveryDelay = const Duration(milliseconds: 10);
+        debugTaskSocketStableNonTerminalRecoveryLimit = 1;
+        addTearDown(() {
+          debugTaskSocketTerminalRecoveryDelay = previousDelay;
+          debugTaskSocketStableNonTerminalRecoveryLimit = previousLimit;
+        });
+
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            conversationId: 'local:temp',
+            taskId: 'task-1',
+          ),
+          log: log,
+          activeConversationId: 'local:temp',
+          socketService: _MockSocketService(registrar),
+        );
+
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:completion', {
+          'choices': [
+            {
+              'delta': {'content': 'Hello there.'},
+              'finish_reason': 'stop',
+            },
+          ],
+        }, messageId: 'msg-1');
+
+        await pumpMicrotasks();
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+        for (var i = 0; i < 20; i++) {
+          await pumpMicrotasks();
+        }
+
+        check(log.finishCount).equals(1);
+        check(log.messages.last.isStreaming).isFalse();
+        check(log.messages.last.content).equals('Hello there.');
+      },
+    );
+
+    test(
+      'taskSocket terminal recovery eventually finishes after a stable non-terminal snapshot repeats',
+      () async {
+        final previousDelay = debugTaskSocketTerminalRecoveryDelay;
+        final previousLimit = debugTaskSocketStableNonTerminalRecoveryLimit;
+        debugTaskSocketTerminalRecoveryDelay = const Duration(milliseconds: 10);
+        debugTaskSocketStableNonTerminalRecoveryLimit = 2;
+        addTearDown(() {
+          debugTaskSocketTerminalRecoveryDelay = previousDelay;
+          debugTaskSocketStableNonTerminalRecoveryLimit = previousLimit;
+        });
+
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+        final api = _buildFakeApi(
+          pollResponse: _serverConversationResponse(
+            messages: [
+              {
+                'id': 'msg-1',
+                'role': 'assistant',
+                'content': 'Hello there.',
+                'timestamp': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+                'done': false,
+                'isStreaming': true,
+              },
+            ],
+          ),
+        );
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            conversationId: 'conv-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          api: api,
+          activeConversationId: 'conv-1',
+          socketService: _MockSocketService(registrar),
+        );
+
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:completion', {
+          'choices': [
+            {
+              'delta': {'content': 'Hello there.'},
+              'finish_reason': 'stop',
+            },
+          ],
+        }, messageId: 'msg-1');
+
+        await pumpMicrotasks();
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        for (var i = 0; i < 6; i++) {
+          await pumpMicrotasks();
+        }
+
+        check(log.finishCount).equals(1);
+        check(log.messages.last.isStreaming).isFalse();
+        check(log.messages.last.content).equals('Hello there.');
+      },
+    );
 
     test(
       'taskSocket binds alternate server message ids for the active session',
@@ -1373,7 +1733,9 @@ void main() {
 
       check(log.messageByIdMutationCount).equals(1);
       check(log.sourceReferences).isEmpty();
-      check(log.messages.last.sources).has((it) => it.length, 'length').equals(1);
+      check(
+        log.messages.last.sources,
+      ).has((it) => it.length, 'length').equals(1);
       check(log.messages.last.sources.single.url).equals('https://example.com');
     });
 
@@ -1506,7 +1868,9 @@ void main() {
 
       check(log.messageByIdMutationCount).equals(1);
       check(log.sourceReferences).isEmpty();
-      check(log.messages.last.sources).has((it) => it.length, 'length').equals(1);
+      check(
+        log.messages.last.sources,
+      ).has((it) => it.length, 'length').equals(1);
       check(log.messages.last.sources.single.url).equals('https://a.com');
     });
 
@@ -2263,10 +2627,7 @@ void main() {
                 ],
                 sources: const [
                   {
-                    'source': {
-                      'name': 'doc',
-                      'url': 'https://example.com/doc',
-                    },
+                    'source': {'name': 'doc', 'url': 'https://example.com/doc'},
                     'document': ['snippet'],
                   },
                 ],

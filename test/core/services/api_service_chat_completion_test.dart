@@ -1091,6 +1091,48 @@ void main() {
     );
 
     test(
+      'syncConversationMessages keeps done for responseDone streaming assistant messages',
+      () async {
+        final adapter = _FakeAdapter.json({});
+        final api = _buildApiServiceForTest(adapter);
+
+        final messages = [
+          ChatMessage(
+            id: 'user-1',
+            role: 'user',
+            content: 'hello',
+            timestamp: DateTime.fromMillisecondsSinceEpoch(1700000000000),
+          ),
+          ChatMessage(
+            id: 'asst-1',
+            role: 'assistant',
+            content: 'Hi there',
+            timestamp: DateTime.fromMillisecondsSinceEpoch(1700000001000),
+            model: 'gpt-4',
+            isStreaming: true,
+            metadata: const {'responseDone': true},
+          ),
+        ];
+
+        await api.syncConversationMessages('conv-1', messages, model: 'gpt-4');
+
+        final body = adapter.lastRequest!.data as Map<String, dynamic>;
+        final chat = body['chat'] as Map<String, dynamic>;
+        final serializedMessages =
+            chat['messages'] as List<Map<String, dynamic>>;
+        final history = chat['history'] as Map<String, dynamic>;
+        final historyMessages = history['messages'] as Map<String, dynamic>;
+
+        final serializedAssistant = serializedMessages.last;
+        final historyAssistant =
+            historyMessages['asst-1'] as Map<String, dynamic>;
+
+        check(serializedAssistant['done']).equals(true);
+        check(historyAssistant['done']).equals(true);
+      },
+    );
+
+    test(
       'createConversation omits done for streaming assistant placeholders',
       () async {
         final adapter = _FakeAdapter.json({
@@ -1175,6 +1217,97 @@ void main() {
 
         check(serializedAssistant.containsKey('done')).isFalse();
         check(historyAssistant.containsKey('done')).isFalse();
+      },
+    );
+
+    test(
+      'createConversation keeps done for responseDone streaming assistant messages',
+      () async {
+        final adapter = _FakeAdapter.json({
+          'id': 'conv-1',
+          'title': 'New Chat',
+          'created_at': 1700000000,
+          'updated_at': 1700000001,
+          'chat': {
+            'models': ['gpt-4'],
+            'history': {
+              'currentId': 'asst-1',
+              'messages': {
+                'user-1': {
+                  'id': 'user-1',
+                  'role': 'user',
+                  'content': 'hello',
+                  'timestamp': 1700000000,
+                  'childrenIds': ['asst-1'],
+                },
+                'asst-1': {
+                  'id': 'asst-1',
+                  'role': 'assistant',
+                  'content': 'Hi there',
+                  'parentId': 'user-1',
+                  'timestamp': 1700000001,
+                  'childrenIds': [],
+                  'done': true,
+                },
+              },
+            },
+            'messages': [
+              {
+                'id': 'user-1',
+                'role': 'user',
+                'content': 'hello',
+                'timestamp': 1700000000,
+              },
+              {
+                'id': 'asst-1',
+                'role': 'assistant',
+                'content': 'Hi there',
+                'timestamp': 1700000001,
+                'done': true,
+              },
+            ],
+          },
+        });
+        final api = _buildApiServiceForTest(adapter);
+
+        await api.createConversation(
+          title: 'New Chat',
+          model: 'gpt-4',
+          messages: [
+            ChatMessage(
+              id: 'user-1',
+              role: 'user',
+              content: 'hello',
+              timestamp: DateTime.fromMillisecondsSinceEpoch(1700000000000),
+            ),
+            ChatMessage(
+              id: 'asst-1',
+              role: 'assistant',
+              content: 'Hi there',
+              timestamp: DateTime.fromMillisecondsSinceEpoch(1700000001000),
+              model: 'gpt-4',
+              isStreaming: true,
+              metadata: const {'responseDone': true},
+            ),
+          ],
+        );
+
+        final request = adapter.lastRequest!;
+        check(request.path).equals('/api/v1/chats/new');
+
+        final body = request.data as Map<String, dynamic>;
+        final chat = body['chat'] as Map<String, dynamic>;
+        final serializedMessages =
+            chat['messages'] as List<Map<String, dynamic>>;
+        final history = chat['history'] as Map<String, dynamic>;
+        final historyMessages = history['messages'] as Map<String, dynamic>;
+
+        final serializedAssistant = serializedMessages.last;
+        final historyAssistant =
+            historyMessages['asst-1'] as Map<String, dynamic>;
+
+        check(serializedAssistant['done']).equals(true);
+        check(historyAssistant['done']).equals(true);
       },
     );
   });
