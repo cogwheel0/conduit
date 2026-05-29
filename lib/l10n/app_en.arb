@@ -2241,10 +2241,6 @@
   "@terminalKeyDown": {
     "description": "Label for the toolbar button that sends the Down arrow key to navigate command history."
   },
-  "terminalKeyEscape": "Esc",
-  "@terminalKeyEscape": {
-    "description": "Label for the toolbar button that sends the Escape key."
-  },
   "terminalKeyCtrlC": "Ctrl-C",
   "@terminalKeyCtrlC": {
     "description": "Label for the toolbar button that sends Ctrl-C to interrupt the running process."
