@@ -183,6 +183,28 @@ String? _connectedSocketSessionId(SocketService? socketService) {
   return sessionId;
 }
 
+Future<String?> _ensureConnectedSocketSessionId(
+  SocketService? socketService, {
+  Duration timeout = const Duration(milliseconds: 1200),
+}) async {
+  if (socketService == null) {
+    return null;
+  }
+
+  if (!socketService.isConnected) {
+    try {
+      await socketService.ensureConnected(timeout: timeout);
+    } catch (e) {
+      DebugLogger.log(
+        'Socket reconnect before chat send failed: $e',
+        scope: 'chat/providers',
+      );
+    }
+  }
+
+  return _connectedSocketSessionId(socketService);
+}
+
 /// The content of the currently streaming assistant message.
 /// Only the actively streaming message widget should watch this.
 /// This avoids rebuilding all visible messages on every chunk.
@@ -3219,9 +3241,12 @@ Future<void> regenerateMessage(
 
     final modelItem = _buildLocalModelItem(selectedModel);
 
-    // Socket is optional — only needed for taskSocket transport.
+    // Reconnect before choosing session_id so eligible sends stay on the
+    // task/socket transport instead of falling back to fragile HTTP streaming.
     final socketService = ref.read(socketServiceProvider);
-    final socketSessionId = _connectedSocketSessionId(socketService);
+    final socketSessionId = await _ensureConnectedSocketSessionId(
+      socketService,
+    );
 
     List<Map<String, dynamic>>? toolServers;
     try {
@@ -3816,9 +3841,12 @@ Future<void> _sendMessageInternal(
   try {
     final modelItem = _buildLocalModelItem(selectedModel);
 
-    // Socket is optional — only needed for taskSocket transport.
+    // Reconnect before choosing session_id so eligible sends stay on the
+    // task/socket transport instead of falling back to fragile HTTP streaming.
     final socketService = ref.read(socketServiceProvider);
-    final socketSessionId = _connectedSocketSessionId(socketService);
+    final socketSessionId = await _ensureConnectedSocketSessionId(
+      socketService,
+    );
 
     List<Map<String, dynamic>>? toolServers;
     try {

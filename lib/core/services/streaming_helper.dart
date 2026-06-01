@@ -33,18 +33,12 @@ Duration debugTaskSocketTerminalRecoveryDelay = const Duration(seconds: 2);
 @visibleForTesting
 int debugTaskSocketStableNonTerminalRecoveryLimit = 3;
 
-// Pre-compiled regex patterns for image extraction (performance optimization)
-final _base64ImagePattern = RegExp(
-  r'data:image/[^;\s]+;base64,[A-Za-z0-9+/]+=*',
-);
-final _urlImagePattern = RegExp(
-  r'https?://[^\s<>\"]+\.(jpg|jpeg|png|gif|webp)',
-  caseSensitive: false,
-);
-final _jsonImagePattern = RegExp(
-  r'\{[^}]*"url"[^}]*:[^}]*"(data:image/[^"]+|https?://[^"]+\.(jpg|jpeg|png|gif|webp))"[^}]*\}',
-  caseSensitive: false,
-);
+@visibleForTesting
+List<Map<String, dynamic>> debugCollectImageReferencesFromContent(
+  String content,
+) => _collectImageReferencesWorker(content);
+
+const Set<String> _explicitImageFileTypes = {'image'};
 
 bool _statusUpdatesEquivalent(
   ChatStatusUpdate previous,
@@ -155,15 +149,6 @@ List<ChatSourceReference> _mergeSourceReferences({
   return List<ChatSourceReference>.unmodifiable(merged);
 }
 
-final _jsonUrlExtractPattern = RegExp(r'"url"[^:]*:[^"]*"([^"]+)"');
-final _partialResultsPattern = RegExp(
-  r'(result|files)="([^"]*(?:data:image/[^"]*|https?://[^"]*\.(jpg|jpeg|png|gif|webp))[^"]*)"',
-  caseSensitive: false,
-);
-final _imageFilePattern = RegExp(
-  r'https?://[^\s]+\.(jpg|jpeg|png|gif|webp)$',
-  caseSensitive: false,
-);
 const HtmlEscape _htmlContentEscape = HtmlEscape();
 
 String _buildStreamingReasoningDetails(
@@ -209,61 +194,92 @@ List<Map<String, dynamic>> _collectImageReferencesWorker(String content) {
     if (parsed != null) {
       for (final entry in parsed.toolCalls) {
         if (entry.files != null && entry.files!.isNotEmpty) {
-          collected.addAll(_extractFilesFromResult(entry.files));
+          collected.addAll(_extractExplicitImageFiles(entry.files));
         }
         if (entry.result != null) {
-          collected.addAll(_extractFilesFromResult(entry.result));
+          collected.addAll(_extractExplicitImageFiles(entry.result));
         }
-      }
-    }
-  }
-
-  if (collected.isNotEmpty) {
-    return collected;
-  }
-
-  final base64Matches = _base64ImagePattern.allMatches(content);
-  for (final match in base64Matches) {
-    final url = match.group(0);
-    if (url != null && url.isNotEmpty) {
-      collected.add({'type': 'image', 'url': url});
-    }
-  }
-
-  final urlMatches = _urlImagePattern.allMatches(content);
-  for (final match in urlMatches) {
-    final url = match.group(0);
-    if (url != null && url.isNotEmpty) {
-      collected.add({'type': 'image', 'url': url});
-    }
-  }
-
-  final jsonMatches = _jsonImagePattern.allMatches(content);
-  for (final match in jsonMatches) {
-    final url = _jsonUrlExtractPattern
-        .firstMatch(match.group(0) ?? '')
-        ?.group(1);
-    if (url != null && url.isNotEmpty) {
-      collected.add({'type': 'image', 'url': url});
-    }
-  }
-
-  final partialMatches = _partialResultsPattern.allMatches(content);
-  for (final match in partialMatches) {
-    final attrValue = match.group(2);
-    if (attrValue == null) continue;
-    try {
-      final decoded = json.decode(attrValue);
-      collected.addAll(_extractFilesFromResult(decoded));
-    } catch (_) {
-      if (attrValue.startsWith('data:image/') ||
-          _imageFilePattern.hasMatch(attrValue)) {
-        collected.add({'type': 'image', 'url': attrValue});
       }
     }
   }
 
   return collected;
+}
+
+List<Map<String, dynamic>> _extractExplicitImageFiles(dynamic raw) {
+  final results = <Map<String, dynamic>>[];
+  if (raw == null) {
+    return results;
+  }
+
+  dynamic value = raw;
+  if (value is String) {
+    try {
+      value = jsonDecode(value);
+    } catch (_) {
+      return results;
+    }
+  }
+
+  if (value is List) {
+    for (final item in value) {
+      results.addAll(_extractExplicitImageFiles(item));
+    }
+    return results;
+  }
+
+  if (value is! Map) {
+    return results;
+  }
+
+  final map = _asStringMap(value);
+  if (map == null) {
+    return results;
+  }
+
+  final nestedFiles = map['files'];
+  if (nestedFiles is List || nestedFiles is String) {
+    results.addAll(_extractExplicitImageFiles(nestedFiles));
+  }
+
+  final type = map['type']?.toString().toLowerCase().trim();
+  final contentType =
+      (map['content_type'] ??
+              map['contentType'] ??
+              map['mime_type'] ??
+              map['mimeType'])
+          ?.toString()
+          .toLowerCase()
+          .trim() ??
+      '';
+  final isImage =
+      (type != null && _explicitImageFileTypes.contains(type)) ||
+      contentType.startsWith('image/');
+  if (!isImage) {
+    return results;
+  }
+
+  final url = map['url']?.toString();
+  final content = map['content']?.toString();
+  final rawBase64 = (map['b64_json'] ?? map['b64'])?.toString();
+  final base64MimeType = contentType.startsWith('image/')
+      ? contentType
+      : 'image/png';
+  final imageUrl = url?.isNotEmpty == true
+      ? url
+      : content?.startsWith('data:image/') == true
+      ? content
+      : rawBase64?.isNotEmpty == true
+      ? rawBase64!.startsWith('data:image/')
+            ? rawBase64
+            : 'data:$base64MimeType;base64,$rawBase64'
+      : null;
+
+  if (imageUrl != null && imageUrl.isNotEmpty) {
+    results.add({'type': 'image', 'url': imageUrl});
+  }
+
+  return results;
 }
 
 class ActiveChatStream {
