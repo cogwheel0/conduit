@@ -29,6 +29,7 @@ import '../utils/embed_utils.dart';
 import '../utils/json_normalization.dart';
 import '../utils/message_tree_utils.dart' as message_tree;
 import 'conversation_parsing.dart';
+import 'settings_service.dart';
 import 'worker_manager.dart';
 import 'server_tls_http_client_factory.dart';
 
@@ -1996,6 +1997,22 @@ class ApiService {
     final settings = _deepCloneJsonMap(await getUserSettings());
     final ui = _coerceJsonMap(settings['ui']) ?? <String, dynamic>{};
     ui['memory'] = enabled;
+    settings['ui'] = ui;
+
+    final response = await _dio.post(
+      '/api/v1/users/user/settings/update',
+      data: settings,
+    );
+    final data = _coerceResponseMap(response.data) ?? settings;
+    return ServerUserSettings.fromJson(data);
+  }
+
+  Future<ServerUserSettings> updateUserPinnedModels(
+    List<String> modelIds,
+  ) async {
+    final settings = _deepCloneJsonMap(await getUserSettings());
+    final ui = _coerceJsonMap(settings['ui']) ?? <String, dynamic>{};
+    ui['pinnedModels'] = SettingsService.sanitizePinnedModels(modelIds);
     settings['ui'] = ui;
 
     final response = await _dio.post(

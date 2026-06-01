@@ -35,6 +35,7 @@ final class PreferenceKeys {
   static const String voiceSilenceDuration = 'voice_silence_duration';
   static const String androidAssistantTrigger = 'android_assistant_trigger';
   static const String temporaryChatByDefault = 'temporary_chat_by_default';
+  static const String pinnedModels = 'pinned_models';
 
   // Drawer section collapsed states
   static const String drawerShowPinned = 'drawer_show_pinned';

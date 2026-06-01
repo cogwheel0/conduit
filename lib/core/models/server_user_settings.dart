@@ -7,11 +7,13 @@ class ServerUserSettings {
     this.systemPrompt,
     this.memoryEnabled = false,
     this.defaultModelIds = const <String>[],
+    this.pinnedModelIds = const <String>[],
   });
 
   final String? systemPrompt;
   final bool memoryEnabled;
   final List<String> defaultModelIds;
+  final List<String> pinnedModelIds;
 
   /// The user's preferred default model, if one is configured.
   String? get defaultModelId =>
@@ -26,9 +28,28 @@ class ServerUserSettings {
       systemPrompt: uiSystem ?? rootSystem,
       memoryEnabled: _coerceBool(ui?['memory']) ?? false,
       defaultModelIds: _coerceStringList(ui?['models']),
+      pinnedModelIds: _coerceUniqueStringList(ui?['pinnedModels']),
+    );
+  }
+
+  ServerUserSettings copyWith({
+    Object? systemPrompt = _serverUserSettingsUnset,
+    bool? memoryEnabled,
+    List<String>? defaultModelIds,
+    List<String>? pinnedModelIds,
+  }) {
+    return ServerUserSettings(
+      systemPrompt: systemPrompt == _serverUserSettingsUnset
+          ? this.systemPrompt
+          : systemPrompt as String?,
+      memoryEnabled: memoryEnabled ?? this.memoryEnabled,
+      defaultModelIds: defaultModelIds ?? this.defaultModelIds,
+      pinnedModelIds: pinnedModelIds ?? this.pinnedModelIds,
     );
   }
 }
+
+const Object _serverUserSettingsUnset = Object();
 
 Map<String, dynamic>? _coerceJsonMap(dynamic value) {
   if (value is Map<String, dynamic>) {
@@ -79,4 +100,20 @@ List<String> _coerceStringList(dynamic value) {
         .map((entry) => entry.toString().trim())
         .where((entry) => entry.isNotEmpty),
   );
+}
+
+List<String> _coerceUniqueStringList(dynamic value) {
+  final entries = _coerceStringList(value);
+  if (entries.isEmpty) {
+    return const <String>[];
+  }
+
+  final uniqueEntries = <String>[];
+  final seen = <String>{};
+  for (final entry in entries) {
+    if (seen.add(entry)) {
+      uniqueEntries.add(entry);
+    }
+  }
+  return List<String>.unmodifiable(uniqueEntries);
 }

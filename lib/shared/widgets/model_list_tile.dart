@@ -71,6 +71,9 @@ class ModelListTile extends StatelessWidget {
   /// Whether this tile represents the "auto-select" option.
   final bool isAutoSelect;
 
+  /// Whether this model is pinned in model selectors.
+  final bool isPinned;
+
   const ModelListTile({
     super.key,
     required this.model,
@@ -78,6 +81,7 @@ class ModelListTile extends StatelessWidget {
     required this.onTap,
     this.iconUrl,
     this.isAutoSelect = false,
+    this.isPinned = false,
   });
 
   @override
@@ -189,6 +193,16 @@ class ModelListTile extends StatelessWidget {
                   ],
                 ),
               ),
+              if (isPinned && !isAutoSelect) ...[
+                const SizedBox(width: Spacing.xs),
+                Icon(
+                  Platform.isIOS
+                      ? CupertinoIcons.pin_fill
+                      : Icons.push_pin_rounded,
+                  color: theme.textSecondary,
+                  size: IconSize.small,
+                ),
+              ],
               if (isSelected) ...[
                 const SizedBox(width: Spacing.xs),
                 Icon(

@@ -272,6 +272,9 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       if (!mounted) {
         return;
       }
+      final pinnedModelIds = ref.read(effectivePinnedModelIdsProvider);
+      final canTogglePinnedModels = ref.read(canTogglePinnedModelsProvider);
+      final orderedModels = sortModelsWithPinnedOrder(models, pinnedModelIds);
 
       if (Platform.isIOS) {
         try {
@@ -279,7 +282,15 @@ class _FolderPageState extends ConsumerState<FolderPage> {
               .presentModelSelector(
                 title: AppLocalizations.of(context)!.chooseModel,
                 selectedModelId: ref.read(selectedModelProvider)?.id,
-                models: models
+                pinnedModelIds: pinnedModelIds,
+                pinTitle: AppLocalizations.of(context)!.pin,
+                unpinTitle: AppLocalizations.of(context)!.unpin,
+                onTogglePinned: canTogglePinnedModels
+                    ? (modelId) => ref
+                          .read(personalizationSettingsProvider.notifier)
+                          .togglePinnedModel(modelId)
+                    : null,
+                models: orderedModels
                     .map(
                       (model) => NativeSheetModelOption(
                         id: model.id,
@@ -297,7 +308,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
           }
           if (selectedId != null) {
             Model? selected;
-            for (final model in models) {
+            for (final model in orderedModels) {
               if (model.id == selectedId) {
                 selected = model;
                 break;

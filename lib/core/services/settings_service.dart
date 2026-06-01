@@ -69,6 +69,7 @@ class SettingsService {
       PreferenceKeys.voiceSilenceDuration;
   static const String _androidAssistantTriggerKey =
       PreferenceKeys.androidAssistantTrigger;
+  static const String _pinnedModelsKey = PreferenceKeys.pinnedModels;
   static Box<dynamic>? _preferencesBox() {
     if (!Hive.isBoxOpen(HiveBoxNames.preferences)) {
       return null;
@@ -214,6 +215,7 @@ class SettingsService {
       _androidAssistantTriggerKey:
           settings.androidAssistantTrigger.storageValue,
       PreferenceKeys.temporaryChatByDefault: settings.temporaryChatByDefault,
+      _pinnedModelsKey: settings.pinnedModels.toList(),
     };
 
     await box.putAll(updates);
@@ -426,6 +428,31 @@ class SettingsService {
     return _putPreference(PreferenceKeys.temporaryChatByDefault, value);
   }
 
+  static List<String> sanitizePinnedModels(Iterable<String> modelIds) {
+    final sanitized = <String>[];
+    final seen = <String>{};
+    for (final modelId in modelIds) {
+      final trimmed = modelId.trim();
+      if (trimmed.isEmpty || !seen.add(trimmed)) {
+        continue;
+      }
+      sanitized.add(trimmed);
+    }
+    return sanitized;
+  }
+
+  static Future<List<String>> getPinnedModels() {
+    final raw = _preferencesBox()?.get(_pinnedModelsKey);
+    if (raw is! List) {
+      return Future.value(const []);
+    }
+    return Future.value(sanitizePinnedModels(raw.whereType<String>()));
+  }
+
+  static Future<void> setPinnedModels(List<String> modelIds) {
+    return _putPreference(_pinnedModelsKey, sanitizePinnedModels(modelIds));
+  }
+
   static Future<int> getVoiceSilenceDuration() {
     final value = _getPreference<int>(_voiceSilenceDurationKey);
     return Future.value(
@@ -542,6 +569,10 @@ class SettingsService {
               .clamp(minVoiceSilenceDurationMs, maxVoiceSilenceDurationMs),
       temporaryChatByDefault:
           (box.get(PreferenceKeys.temporaryChatByDefault) as bool?) ?? false,
+      pinnedModels: sanitizePinnedModels(
+        ((box.get(_pinnedModelsKey) as List<dynamic>?) ?? const <dynamic>[])
+            .whereType<String>(),
+      ),
     );
   }
 }
@@ -580,6 +611,7 @@ class AppSettings {
   final AndroidAssistantTrigger androidAssistantTrigger;
   final int voiceSilenceDuration;
   final bool temporaryChatByDefault;
+  final List<String> pinnedModels;
   const AppSettings({
     this.reduceMotion = false,
     this.animationSpeed = 1.0,
@@ -608,6 +640,7 @@ class AppSettings {
     this.androidAssistantTrigger = AndroidAssistantTrigger.overlay,
     this.voiceSilenceDuration = SettingsService.defaultVoiceSilenceDurationMs,
     this.temporaryChatByDefault = false,
+    this.pinnedModels = const [],
   });
 
   AppSettings copyWith({
@@ -638,6 +671,7 @@ class AppSettings {
     int? voiceSilenceDuration,
     AndroidAssistantTrigger? androidAssistantTrigger,
     bool? temporaryChatByDefault,
+    List<String>? pinnedModels,
   }) {
     return AppSettings(
       reduceMotion: reduceMotion ?? this.reduceMotion,
@@ -679,6 +713,7 @@ class AppSettings {
       voiceSilenceDuration: voiceSilenceDuration ?? this.voiceSilenceDuration,
       temporaryChatByDefault:
           temporaryChatByDefault ?? this.temporaryChatByDefault,
+      pinnedModels: pinnedModels ?? this.pinnedModels,
     );
   }
 
@@ -711,6 +746,7 @@ class AppSettings {
         other.androidAssistantTrigger == androidAssistantTrigger &&
         other.voiceSilenceDuration == voiceSilenceDuration &&
         other.temporaryChatByDefault == temporaryChatByDefault &&
+        _listEquals(other.pinnedModels, pinnedModels) &&
         _listEquals(other.quickPills, quickPills);
     // socketTransportMode intentionally not included in == to avoid frequent rebuilds
   }
@@ -732,7 +768,6 @@ class AppSettings {
       chatWebSearchEnabled,
       chatImageGenerationEnabled,
       sttPreference,
-      socketTransportMode,
       sendOnEnter,
       ttsVoice,
       ttsSpeechRate,
@@ -745,6 +780,7 @@ class AppSettings {
       voiceSilenceDuration,
       temporaryChatByDefault,
       Object.hashAllUnordered(quickPills),
+      Object.hashAll(pinnedModels),
     ]);
   }
 }
@@ -887,6 +923,27 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
   Future<void> setTemporaryChatByDefault(bool value) async {
     state = state.copyWith(temporaryChatByDefault: value);
     await SettingsService.setTemporaryChatByDefault(value);
+  }
+
+  Future<void> setPinnedModels(List<String> modelIds) async {
+    final sanitized = SettingsService.sanitizePinnedModels(modelIds);
+    state = state.copyWith(pinnedModels: sanitized);
+    await SettingsService.setPinnedModels(sanitized);
+  }
+
+  Future<void> togglePinnedModel(String modelId) async {
+    final trimmed = modelId.trim();
+    if (trimmed.isEmpty) {
+      return;
+    }
+
+    final current = state.pinnedModels;
+    final updated = current.contains(trimmed)
+        ? current.where((id) => id != trimmed).toList(growable: false)
+        : SettingsService.sanitizePinnedModels([...current, trimmed]);
+
+    state = state.copyWith(pinnedModels: updated);
+    await SettingsService.setPinnedModels(updated);
   }
 
   Future<void> setSttPreference(SttPreference preference) async {

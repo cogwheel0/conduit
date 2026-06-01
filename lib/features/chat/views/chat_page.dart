@@ -2909,6 +2909,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         ) ??
         const <String, String>{};
     _dismissComposerFocus();
+    final pinnedModelIds = ref.read(effectivePinnedModelIdsProvider);
+    final canTogglePinnedModels = ref.read(canTogglePinnedModelsProvider);
+    final orderedModels = sortModelsWithPinnedOrder(models, pinnedModelIds);
 
     Future<void> restoreFocusIfNeeded() async {
       if (!mounted) return;
@@ -2928,7 +2931,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             .presentModelSelector(
               title: AppLocalizations.of(context)!.chooseModel,
               selectedModelId: ref.read(selectedModelProvider)?.id,
-              models: models
+              pinnedModelIds: pinnedModelIds,
+              pinTitle: AppLocalizations.of(context)!.pin,
+              unpinTitle: AppLocalizations.of(context)!.unpin,
+              onTogglePinned: canTogglePinnedModels
+                  ? (modelId) => ref
+                        .read(personalizationSettingsProvider.notifier)
+                        .togglePinnedModel(modelId)
+                  : null,
+              models: orderedModels
                   .map(
                     (model) => NativeSheetModelOption(
                       id: model.id,
@@ -2944,7 +2955,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         if (!mounted) return;
         if (selectedId != null) {
           Model? selected;
-          for (final model in models) {
+          for (final model in orderedModels) {
             if (model.id == selectedId) {
               selected = model;
               break;

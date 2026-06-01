@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../utils/debug_logger.dart';
@@ -49,8 +50,15 @@ class NativeSheetBridge {
 
   final StreamController<NativeSheetEvent> _events =
       StreamController<NativeSheetEvent>.broadcast();
+  Future<void> Function(String modelId)? _modelPinToggleHandler;
+  Object? _modelPinToggleHandlerOwner;
+
+  @visibleForTesting
+  bool? debugIsIOSOverride;
 
   Stream<NativeSheetEvent> get events => _events.stream;
+
+  bool get _isIOS => debugIsIOSOverride ?? Platform.isIOS;
 
   Future<bool> presentProfileMenu(NativeProfileSheetConfig config) async {
     if (!Platform.isIOS) return false;
@@ -86,17 +94,54 @@ class NativeSheetBridge {
     required String title,
     required List<NativeSheetModelOption> models,
     String? selectedModelId,
+    List<String> pinnedModelIds = const <String>[],
+    String? pinTitle,
+    String? unpinTitle,
+    Future<void> Function(String modelId)? onTogglePinned,
     bool rethrowErrors = false,
   }) async {
-    if (!Platform.isIOS || models.isEmpty) return null;
+    if (!_isIOS || models.isEmpty) return null;
+    final previousPinToggleHandler = _modelPinToggleHandler;
+    final previousPinToggleHandlerOwner = _modelPinToggleHandlerOwner;
+    final pinToggleHandlerOwner = Object();
+    var shouldClearPinToggleHandler = false;
+    _modelPinToggleHandler = onTogglePinned;
+    _modelPinToggleHandlerOwner = pinToggleHandlerOwner;
     try {
-      return await _nativeSheetChannel
-          .invokeMethod<String>('presentModelSelector', {
+      final result = await _nativeSheetChannel
+          .invokeMethod<dynamic>('presentModelSelector', {
             'title': title,
             'selectedModelId': selectedModelId,
             'models': models.map((model) => model.toMap()).toList(),
+            'pinnedModelIds': pinnedModelIds,
+            'allowsPinning': onTogglePinned != null,
+            'pinTitle': pinTitle,
+            'unpinTitle': unpinTitle,
           });
+      shouldClearPinToggleHandler = true;
+      if (result is String) {
+        return result;
+      }
+      if (result is Map) {
+        final action = result['action'];
+        final modelId = result['modelId'];
+        if (action == 'togglePin' && modelId is String) {
+          await onTogglePinned?.call(modelId);
+          return null;
+        }
+        if (action == 'select' && modelId is String) {
+          return modelId;
+        }
+      }
+      return null;
     } on PlatformException catch (error, stackTrace) {
+      if (!shouldClearPinToggleHandler) {
+        _restorePreviousModelPinToggleHandler(
+          owner: pinToggleHandlerOwner,
+          previousHandler: previousPinToggleHandler,
+          previousOwner: previousPinToggleHandlerOwner,
+        );
+      }
       _logNativeSheetBridgeError(
         'presentModelSelector',
         error,
@@ -106,6 +151,13 @@ class NativeSheetBridge {
       if (rethrowErrors) rethrow;
       return null;
     } catch (error, stackTrace) {
+      if (!shouldClearPinToggleHandler) {
+        _restorePreviousModelPinToggleHandler(
+          owner: pinToggleHandlerOwner,
+          previousHandler: previousPinToggleHandler,
+          previousOwner: previousPinToggleHandlerOwner,
+        );
+      }
       _logNativeSheetBridgeError(
         'presentModelSelector',
         error,
@@ -114,7 +166,25 @@ class NativeSheetBridge {
       );
       if (rethrowErrors) rethrow;
       return null;
+    } finally {
+      if (shouldClearPinToggleHandler &&
+          identical(_modelPinToggleHandlerOwner, pinToggleHandlerOwner)) {
+        _modelPinToggleHandler = null;
+        _modelPinToggleHandlerOwner = null;
+      }
     }
+  }
+
+  void _restorePreviousModelPinToggleHandler({
+    required Object owner,
+    required Future<void> Function(String modelId)? previousHandler,
+    required Object? previousOwner,
+  }) {
+    if (!identical(_modelPinToggleHandlerOwner, owner)) {
+      return;
+    }
+    _modelPinToggleHandler = previousHandler;
+    _modelPinToggleHandlerOwner = previousOwner;
   }
 
   Future<String?> presentOptionsSelector({
@@ -326,6 +396,23 @@ class NativeSheetBridge {
           final id = args['detailId'] as String?;
           if (id == null || id.isEmpty) return;
           _events.add(NativeSheetDetailAppeared(detailId: id));
+        }
+        break;
+      case 'onModelPinToggled':
+        final args = call.arguments;
+        if (args is Map) {
+          final modelId = args['modelId'] as String?;
+          if (modelId == null || modelId.isEmpty) return;
+          try {
+            await _modelPinToggleHandler?.call(modelId);
+          } catch (error, stackTrace) {
+            _logNativeSheetBridgeError(
+              'onModelPinToggled',
+              error,
+              stackTrace,
+              data: {'modelId': modelId},
+            );
+          }
         }
         break;
       case 'commitEditProfile':

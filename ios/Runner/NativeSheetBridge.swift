@@ -328,6 +328,10 @@ private struct NativeModelSelectorConfiguration {
     let title: String
     let selectedModelId: String?
     let models: [NativeModelSelectorOption]
+    let pinnedModelIds: [String]
+    let allowsPinning: Bool
+    let pinTitle: String
+    let unpinTitle: String
 
     init?(_ arguments: Any?) {
         guard let payload = arguments as? [String: Any] else {
@@ -338,6 +342,17 @@ private struct NativeModelSelectorConfiguration {
         selectedModelId = payload["selectedModelId"] as? String
         models = (payload["models"] as? [[String: Any]] ?? [])
             .compactMap(NativeModelSelectorOption.init)
+        var seenPinnedIds = Set<String>()
+        pinnedModelIds = (payload["pinnedModelIds"] as? [String] ?? []).compactMap { modelId in
+            let trimmed = modelId.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, seenPinnedIds.insert(trimmed).inserted else {
+                return nil
+            }
+            return trimmed
+        }
+        allowsPinning = payload["allowsPinning"] as? Bool ?? false
+        pinTitle = (payload["pinTitle"] as? String) ?? nativeLocalized("native.pin", "Pin")
+        unpinTitle = (payload["unpinTitle"] as? String) ?? nativeLocalized("native.unpin", "Unpin")
         if models.isEmpty {
             return nil
         }
@@ -1225,23 +1240,18 @@ final class NativeSheetBridge {
             configuration: configuration,
             onSelect: { [weak self] modelId in
                 guard let self else { return }
-                let pending = self.pendingModelSelectorResult
-                self.pendingModelSelectorResult = nil
-                self.activeController?.dismiss(animated: true)
-                self.activeController = nil
-                self.presentationDelegate = nil
-                self.activeDetailTableController = nil
-                self.detailPayloads = [:]
-                self.resultSheetValues = [:]
-                self.activeSheetMode = .profileMenu
-                pending?(modelId)
+                self.completeModelSelector(with: modelId)
+            },
+            onTogglePin: { [weak self] modelId in
+                guard let self else { return }
+                self.channel?.invokeMethod(
+                    "onModelPinToggled",
+                    arguments: ["modelId": modelId]
+                )
             },
             onClose: { [weak self] in
                 guard let self else { return }
-                let pending = self.pendingModelSelectorResult
-                self.pendingModelSelectorResult = nil
-                self.dismissActive()
-                pending?(nil)
+                self.completeModelSelector(with: nil)
             }
         )
         let navigation = NativeSheetNavigationController(rootViewController: controller)
@@ -1255,6 +1265,20 @@ final class NativeSheetBridge {
                 details: nil
             ))
         }
+    }
+
+    private func completeModelSelector(with value: Any?) {
+        let pending = pendingModelSelectorResult
+        pendingModelSelectorResult = nil
+        flushActiveSheetEditing()
+        activeController?.dismiss(animated: true)
+        activeController = nil
+        presentationDelegate = nil
+        activeDetailTableController = nil
+        detailPayloads = [:]
+        resultSheetValues = [:]
+        activeSheetMode = .profileMenu
+        pending?(value)
     }
 
     private func presentOptionsSelector(
@@ -3890,18 +3914,29 @@ private final class NativeDetailTableViewController: UITableViewController {
 private final class NativeModelSelectorTableViewController: UITableViewController {
     private let configuration: NativeModelSelectorConfiguration
     private let onSelect: (String) -> Void
+    private let onTogglePin: (String) -> Void
     private let onClose: () -> Void
     private var filteredModels: [NativeModelSelectorOption]
+    private var pinnedModelIds: [String]
+    private var pinnedModelIdSet: Set<String>
+    private var currentSearchQuery = ""
 
     init(
         configuration: NativeModelSelectorConfiguration,
         onSelect: @escaping (String) -> Void,
+        onTogglePin: @escaping (String) -> Void,
         onClose: @escaping () -> Void
     ) {
         self.configuration = configuration
         self.onSelect = onSelect
+        self.onTogglePin = onTogglePin
         self.onClose = onClose
-        filteredModels = configuration.models
+        pinnedModelIds = configuration.pinnedModelIds
+        pinnedModelIdSet = Set(configuration.pinnedModelIds)
+        filteredModels = Self.sortedModels(
+            configuration.models,
+            pinnedModelIds: configuration.pinnedModelIds
+        )
         super.init(style: .insetGrouped)
     }
 
@@ -3941,9 +3976,9 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
         ) as! NativeModelSelectorTableViewCell
         cell.configure(
             model: model,
-            isSelected: model.id == configuration.selectedModelId
+            isSelected: model.id == configuration.selectedModelId,
+            isPinned: pinnedModelIdSet.contains(model.id)
         )
-        cell.accessoryType = model.id == configuration.selectedModelId ? .checkmark : .none
         return cell
     }
 
@@ -3952,11 +3987,84 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
         onSelect(filteredModels[indexPath.row].id)
     }
 
+    override func tableView(
+        _ tableView: UITableView,
+        contextMenuConfigurationForRowAt indexPath: IndexPath,
+        point: CGPoint
+    ) -> UIContextMenuConfiguration? {
+        guard configuration.allowsPinning else { return nil }
+        let model = filteredModels[indexPath.row]
+        let isPinned = pinnedModelIdSet.contains(model.id)
+        let title = isPinned ? configuration.unpinTitle : configuration.pinTitle
+        let image = UIImage(systemName: isPinned ? "pin.slash" : "pin")
+        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
+            let action = UIAction(
+                title: title,
+                image: image
+            ) { [weak self] _ in
+                self?.togglePinnedModel(model.id)
+                self?.onTogglePin(model.id)
+            }
+            return UIMenu(children: [action])
+        }
+    }
+
     private func closeButton() -> UIBarButtonItem {
         UIBarButtonItem(
             systemItem: .close,
             primaryAction: UIAction { [weak self] _ in self?.onClose() }
         )
+    }
+
+    private func togglePinnedModel(_ modelId: String) {
+        if pinnedModelIdSet.contains(modelId) {
+            pinnedModelIdSet.remove(modelId)
+            pinnedModelIds.removeAll { $0 == modelId }
+        } else {
+            pinnedModelIdSet.insert(modelId)
+            pinnedModelIds.append(modelId)
+        }
+        applyFilterAndSort(query: currentSearchQuery)
+    }
+
+    private func applyFilterAndSort(query: String) {
+        currentSearchQuery = query
+        let searchedModels = query.isEmpty
+            ? configuration.models
+            : configuration.models.filter { model in
+                model.name.lowercased().contains(query)
+                    || model.id.lowercased().contains(query)
+            }
+        filteredModels = Self.sortedModels(searchedModels, pinnedModelIds: pinnedModelIds)
+        tableView.reloadData()
+    }
+
+    private static func sortedModels(
+        _ models: [NativeModelSelectorOption],
+        pinnedModelIds: [String]
+    ) -> [NativeModelSelectorOption] {
+        guard !models.isEmpty, !pinnedModelIds.isEmpty else {
+            return models
+        }
+        let pinnedOrder = Dictionary(
+            uniqueKeysWithValues: pinnedModelIds.enumerated().map { index, modelId in
+                (modelId, index)
+            }
+        )
+        return models.enumerated().sorted { lhs, rhs in
+            let leftOrder = pinnedOrder[lhs.element.id]
+            let rightOrder = pinnedOrder[rhs.element.id]
+            switch (leftOrder, rightOrder) {
+            case let (left?, right?):
+                return left == right ? lhs.offset < rhs.offset : left < right
+            case (_?, nil):
+                return true
+            case (nil, _?):
+                return false
+            case (nil, nil):
+                return lhs.offset < rhs.offset
+            }
+        }.map(\.element)
     }
 }
 
@@ -3965,13 +4073,7 @@ extension NativeModelSelectorTableViewController: UISearchResultsUpdating {
         let query = searchController.searchBar.text?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased() ?? ""
-        filteredModels = query.isEmpty
-            ? configuration.models
-            : configuration.models.filter { model in
-                model.name.lowercased().contains(query)
-                    || model.id.lowercased().contains(query)
-            }
-        tableView.reloadData()
+        applyFilterAndSort(query: query)
     }
 }
 
@@ -4088,6 +4190,9 @@ private final class NativeModelSelectorTableViewCell: UITableViewCell {
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
     private let textStack = UIStackView()
+    private let pinImageView = UIImageView(image: UIImage(systemName: "pin.fill"))
+    private var pinWidthConstraint: NSLayoutConstraint?
+    private var textTrailingToPinConstraint: NSLayoutConstraint?
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -4098,7 +4203,7 @@ private final class NativeModelSelectorTableViewCell: UITableViewCell {
         nil
     }
 
-    func configure(model: NativeModelSelectorOption, isSelected: Bool) {
+    func configure(model: NativeModelSelectorOption, isSelected: Bool, isPinned: Bool) {
         titleLabel.text = model.name
         titleLabel.font = .preferredFont(forTextStyle: .body)
         titleLabel.textColor = .label
@@ -4111,7 +4216,7 @@ private final class NativeModelSelectorTableViewCell: UITableViewCell {
         subtitleLabel.textColor = .secondaryLabel
         subtitleLabel.adjustsFontForContentSizeCategory = true
         subtitleLabel.numberOfLines = 2
-        subtitleLabel.isHidden = subtitle == nil
+        subtitleLabel.isHidden = subtitle.isEmpty
 
         avatarView.configure(
             name: model.name,
@@ -4121,6 +4226,9 @@ private final class NativeModelSelectorTableViewCell: UITableViewCell {
         )
 
         accessoryType = isSelected ? .checkmark : .none
+        pinImageView.isHidden = !isPinned
+        pinWidthConstraint?.constant = isPinned ? 16 : 0
+        textTrailingToPinConstraint?.constant = isPinned ? -NativeSheetSettingsStyle.iconSpacing : 0
         selectionStyle = .default
         isUserInteractionEnabled = true
         NativeSheetSettingsStyle.applyCellStyle(self)
@@ -4130,6 +4238,7 @@ private final class NativeModelSelectorTableViewCell: UITableViewCell {
         backgroundColor = .secondarySystemGroupedBackground
         contentView.addSubview(avatarView)
         contentView.addSubview(textStack)
+        contentView.addSubview(pinImageView)
 
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -4139,6 +4248,15 @@ private final class NativeModelSelectorTableViewCell: UITableViewCell {
         textStack.alignment = .fill
         textStack.addArrangedSubview(titleLabel)
         textStack.addArrangedSubview(subtitleLabel)
+        pinImageView.translatesAutoresizingMaskIntoConstraints = false
+        pinImageView.contentMode = .scaleAspectFit
+        pinImageView.tintColor = .secondaryLabel
+        pinImageView.isHidden = true
+        pinImageView.setContentHuggingPriority(.required, for: .horizontal)
+        pinWidthConstraint = pinImageView.widthAnchor.constraint(equalToConstant: 0)
+        textTrailingToPinConstraint = textStack.trailingAnchor.constraint(
+            equalTo: pinImageView.leadingAnchor
+        )
 
         NSLayoutConstraint.activate([
             avatarView.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
@@ -4150,9 +4268,13 @@ private final class NativeModelSelectorTableViewCell: UITableViewCell {
                 equalTo: avatarView.trailingAnchor,
                 constant: NativeSheetSettingsStyle.iconSpacing
             ),
-            textStack.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
+            textTrailingToPinConstraint!,
             textStack.topAnchor.constraint(equalTo: contentView.layoutMarginsGuide.topAnchor),
             textStack.bottomAnchor.constraint(equalTo: contentView.layoutMarginsGuide.bottomAnchor),
+            pinImageView.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
+            pinImageView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            pinImageView.heightAnchor.constraint(equalToConstant: 16),
+            pinWidthConstraint!,
         ])
     }
 }

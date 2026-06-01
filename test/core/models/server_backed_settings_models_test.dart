@@ -14,6 +14,7 @@ void main() {
           'system': 'preferred prompt',
           'memory': true,
           'models': ['gpt-4.1', 'fallback-model'],
+          'pinnedModels': ['gpt-4.1', 'gpt-4.1', 'claude-sonnet'],
         },
       });
 
@@ -21,6 +22,7 @@ void main() {
       check(settings.memoryEnabled).isTrue();
       check(settings.defaultModelIds).deepEquals(['gpt-4.1', 'fallback-model']);
       check(settings.defaultModelId).equals('gpt-4.1');
+      check(settings.pinnedModelIds).deepEquals(['gpt-4.1', 'claude-sonnet']);
     });
 
     test('falls back to root system when nested prompt is absent', () {
@@ -32,6 +34,23 @@ void main() {
       check(settings.systemPrompt).equals('root prompt');
       check(settings.memoryEnabled).isFalse();
       check(settings.defaultModelIds).isEmpty();
+      check(settings.pinnedModelIds).isEmpty();
+    });
+
+    test('copyWith preserves fields and can replace pinned models', () {
+      const original = ServerUserSettings(
+        systemPrompt: 'prompt',
+        memoryEnabled: true,
+        defaultModelIds: ['gpt-4.1'],
+        pinnedModelIds: ['old-model'],
+      );
+
+      final updated = original.copyWith(pinnedModelIds: ['new-model']);
+
+      check(updated.systemPrompt).equals('prompt');
+      check(updated.memoryEnabled).isTrue();
+      check(updated.defaultModelIds).deepEquals(['gpt-4.1']);
+      check(updated.pinnedModelIds).deepEquals(['new-model']);
     });
   });
 
