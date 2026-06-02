@@ -112,6 +112,16 @@ void main() {
             .setPinnedModels(['new-pin']);
         await api.waitForRequestCount(1);
 
+        check(
+          container
+              .read(personalizationSettingsProvider)
+              .requireValue
+              .pinnedModelIds,
+        ).deepEquals(['new-pin']);
+        check(
+          container.read(effectivePinnedModelIdsProvider),
+        ).deepEquals(['new-pin']);
+
         api.completeSettingsRead(0, ['old-pin']);
         final loaded = await initialRead;
 

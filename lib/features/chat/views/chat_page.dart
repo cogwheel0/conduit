@@ -2977,7 +2977,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     await ThemedSheets.showCustom<void>(
       context: context,
       isScrollControlled: true,
-      builder: (context) => ModelSelectorSheet(models: models, ref: ref),
+      builder: (context) => ModelSelectorSheet(models: models),
     );
     await restoreFocusIfNeeded();
   }

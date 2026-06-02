@@ -327,7 +327,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       await ThemedSheets.showCustom<void>(
         context: context,
         isScrollControlled: true,
-        builder: (sheetContext) => ModelSelectorSheet(models: models, ref: ref),
+        builder: (sheetContext) => ModelSelectorSheet(models: models),
       );
     } catch (_) {
       return;

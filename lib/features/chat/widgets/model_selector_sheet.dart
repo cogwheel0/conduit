@@ -57,15 +57,7 @@ class ModelSelectorSheet extends ConsumerStatefulWidget {
   /// The full list of models to choose from.
   final List<Model> models;
 
-  /// A [WidgetRef] used to read/watch providers outside the
-  /// widget's own [ConsumerState].
-  final WidgetRef ref;
-
-  const ModelSelectorSheet({
-    super.key,
-    required this.models,
-    required this.ref,
-  });
+  const ModelSelectorSheet({super.key, required this.models});
 
   @override
   ConsumerState<ModelSelectorSheet> createState() => ModelSelectorSheetState();
@@ -115,18 +107,22 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
     });
   }
 
+  Future<void> _togglePinnedModel(String modelId) {
+    return ref
+        .read(personalizationSettingsProvider.notifier)
+        .togglePinnedModel(modelId);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final selectedModelId = widget.ref.watch(selectedModelProvider)?.id;
-    final pinnedModelIds = widget.ref.watch(effectivePinnedModelIdsProvider);
-    final canTogglePinnedModels = widget.ref.watch(
-      canTogglePinnedModelsProvider,
-    );
+    final selectedModelId = ref.watch(selectedModelProvider)?.id;
+    final pinnedModelIds = ref.watch(effectivePinnedModelIdsProvider);
+    final canTogglePinnedModels = ref.watch(canTogglePinnedModelsProvider);
     final displayedModels = sortModelsWithPinnedOrder(
       _filteredModels,
       pinnedModelIds,
     );
-    final api = widget.ref.watch(apiServiceProvider);
+    final api = ref.watch(apiServiceProvider);
     final l10n = AppLocalizations.of(context)!;
 
     return Stack(
@@ -239,14 +235,9 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
                                                         ? l10n.unpin
                                                         : l10n.pin,
                                                     onSelected: () async {
-                                                      await widget.ref
-                                                          .read(
-                                                            personalizationSettingsProvider
-                                                                .notifier,
-                                                          )
-                                                          .togglePinnedModel(
-                                                            model.id,
-                                                          );
+                                                      await _togglePinnedModel(
+                                                        model.id,
+                                                      );
                                                     },
                                                   ),
                                                 ]
@@ -257,7 +248,7 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
                                             isPinned: isPinned,
                                             iconUrl: iconUrl,
                                             onTap: () {
-                                              widget.ref
+                                              ref
                                                   .read(
                                                     selectedModelProvider
                                                         .notifier,
