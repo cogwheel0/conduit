@@ -43,14 +43,14 @@ dependencies:
   flutter_animate: ^4.5.0
   
   # Platform Features
-  vad: ^0.0.7+1
-  speech_to_text: ^7.3.0
+  vad: ^0.0.8
+  speech_to_text: ^7.4.0
   record: ^6.2.0
   flutter_tts: ^4.2.5
   audio_session: ^0.2.2
   permission_handler: ^12.0.1
   image_picker: ^1.2.0
-  file_picker: ^11.0.2
+  file_picker: ^12.0.0-beta.5
   flutter_image_compress: ^2.1.0
   path_provider: ^2.1.4
   
@@ -58,7 +58,7 @@ dependencies:
   path: ^1.9.0
   uuid: ^4.5.0
   crypto: ^3.0.3
-  package_info_plus: ^9.0.1
+  package_info_plus: ^10.1.0
   url_launcher: ^6.3.0
   intl: ^0.20.2
 
@@ -67,13 +67,13 @@ dependencies:
   json_annotation: ^4.9.0
   freezed_annotation: ^3.0.0
   wakelock_plus: ^1.4.0
-  share_plus: ^12.0.0
+  share_plus: ^13.1.0
   riverpod_annotation: ^4.0.0
-  flutter_local_notifications: ^21.0.0
+  flutter_local_notifications: ^22.0.0-dev.3
   connectivity_plus: ^7.0.0
   flutter_cache_manager: ^3.4.1
   http: ^1.5.0
-  flutter_callkit_incoming: ^3.0.0
+  flutter_callkit_incoming: ^3.1.1
   quick_actions: 1.1.0
   html_unescape: ^2.0.0
   home_widget: ^0.9.2

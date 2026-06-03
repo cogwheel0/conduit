@@ -48,40 +48,39 @@ class NativeCallSurfaceCallkit implements NativeCallSurface {
   Future<void> endAllCalls() => _service.endAllCalls();
 
   NativeCallEvent? _mapEvent(CallEvent event) {
-    final body = event.body;
-    final callId = body is Map ? body['id']?.toString() : null;
-
-    switch (event.event) {
-      case Event.actionCallEnded:
-      case Event.actionCallDecline:
-        return NativeCallEvent(type: NativeCallEventType.ended, callId: callId);
-      case Event.actionCallTimeout:
-        return NativeCallEvent(
-          type: NativeCallEventType.timeout,
-          callId: callId,
-        );
-      case Event.actionCallConnected:
-        return NativeCallEvent(
-          type: NativeCallEventType.connected,
-          callId: callId,
-        );
-      case Event.actionCallToggleMute:
-        final isMuted = body is Map ? body['isMuted'] == true : body == true;
-        return NativeCallEvent(
-          type: NativeCallEventType.muteToggled,
-          callId: callId,
-          isMuted: isMuted,
-        );
-      case Event.actionCallToggleHold:
-        final isOnHold = body is Map ? body['isOnHold'] == true : body == true;
-        return NativeCallEvent(
-          type: NativeCallEventType.holdToggled,
-          callId: callId,
-          isOnHold: isOnHold,
-        );
-      default:
-        return null;
+    if (event is CallEventActionCallEnded) {
+      return NativeCallEvent(type: NativeCallEventType.ended, callId: event.id);
     }
+    if (event is CallEventActionCallDecline) {
+      return NativeCallEvent(type: NativeCallEventType.ended, callId: event.id);
+    }
+    if (event is CallEventActionCallTimeout) {
+      return NativeCallEvent(
+        type: NativeCallEventType.timeout,
+        callId: event.id,
+      );
+    }
+    if (event is CallEventActionCallConnected) {
+      return NativeCallEvent(
+        type: NativeCallEventType.connected,
+        callId: event.id,
+      );
+    }
+    if (event is CallEventActionCallToggleMute) {
+      return NativeCallEvent(
+        type: NativeCallEventType.muteToggled,
+        callId: event.id,
+        isMuted: event.isMuted,
+      );
+    }
+    if (event is CallEventActionCallToggleHold) {
+      return NativeCallEvent(
+        type: NativeCallEventType.holdToggled,
+        callId: event.id,
+        isOnHold: event.isOnHold,
+      );
+    }
+    return null;
   }
 }
 

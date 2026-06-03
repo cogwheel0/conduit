@@ -181,8 +181,6 @@ class CallKitService {
       handle: handle,
       type: 0, // 0 = audio call
       duration: durationMs,
-      textAccept: l10n.acceptCall,
-      textDecline: l10n.declineCall,
       missedCallNotification: NotificationParams(
         showNotification: true,
         isShowCallback: true,
@@ -202,6 +200,8 @@ class CallKitService {
         ringtonePath: 'system_ringtone_default',
         backgroundColor: '#0D1726',
         actionColor: '#4CAF50',
+        textAccept: l10n.acceptCall,
+        textDecline: l10n.declineCall,
         incomingCallNotificationChannelName: l10n.incomingCallChannelName,
         missedCallNotificationChannelName: l10n.missedCallChannelName,
       ),

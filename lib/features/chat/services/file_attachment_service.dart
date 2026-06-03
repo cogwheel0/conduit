@@ -72,6 +72,26 @@ String _extractMimeTypeFromDataUrl(String imageDataUrl) {
   return match?.group(1)?.toLowerCase() ?? 'image/png';
 }
 
+Future<List<PlatformFile>> _pickPlatformFiles({
+  required bool allowMultiple,
+  FileType type = FileType.any,
+  List<String>? allowedExtensions,
+}) async {
+  if (allowMultiple) {
+    final result = await FilePicker.pickFiles(
+      type: type,
+      allowedExtensions: allowedExtensions,
+    );
+    return result?.files ?? const [];
+  }
+
+  final file = await FilePicker.pickFile(
+    type: type,
+    allowedExtensions: allowedExtensions,
+  );
+  return file == null ? const [] : [file];
+}
+
 /// Top-level function for base64 encoding in an isolate.
 String _encodeToDataUrlWorker(Map<String, dynamic> payload) {
   final bytes = payload['bytes'] as List<int>;
@@ -268,17 +288,17 @@ class FileAttachmentService {
     List<String>? allowedExtensions,
   }) async {
     try {
-      final result = await FilePicker.pickFiles(
+      final files = await _pickPlatformFiles(
         allowMultiple: allowMultiple,
         type: allowedExtensions != null ? FileType.custom : FileType.any,
         allowedExtensions: allowedExtensions,
       );
 
-      if (result == null || result.files.isEmpty) {
+      if (files.isEmpty) {
         return [];
       }
 
-      return result.files.where((file) => file.path != null).map((file) {
+      return files.where((file) => file.path != null).map((file) {
         final displayName = _deriveDisplayName(
           preferredName: file.name,
           filePath: file.path!,
@@ -328,20 +348,14 @@ class FileAttachmentService {
 
   Future<LocalAttachment?> _pickImageWithFilePicker() async {
     try {
-      final result = await FilePicker.pickFiles(
-        allowMultiple: false,
-        type: FileType.image,
-      );
+      final platformFile = await FilePicker.pickFile(type: FileType.image);
 
-      if (result != null && result.files.isNotEmpty) {
-        final platformFile = result.files.first;
-        if (platformFile.path != null) {
-          return _localAttachmentFromPath(
-            filePath: platformFile.path!,
-            preferredName: platformFile.name,
-            fallbackPrefix: 'photo',
-          );
-        }
+      if (platformFile != null && platformFile.path != null) {
+        return _localAttachmentFromPath(
+          filePath: platformFile.path!,
+          preferredName: platformFile.name,
+          fallbackPrefix: 'photo',
+        );
       }
     } catch (e) {
       DebugLogger.log(
@@ -356,10 +370,7 @@ class FileAttachmentService {
 
   Future<List<LocalAttachment>> _pickImagesWithFilePicker() async {
     try {
-      final result = await FilePicker.pickFiles(
-        allowMultiple: true,
-        type: FileType.image,
-      );
+      final result = await FilePicker.pickFiles(type: FileType.image);
 
       if (result == null || result.files.isEmpty) {
         return [];
@@ -614,17 +625,17 @@ class MockFileAttachmentService {
     List<String>? allowedExtensions,
   }) async {
     try {
-      final result = await FilePicker.pickFiles(
+      final files = await _pickPlatformFiles(
         allowMultiple: allowMultiple,
         type: allowedExtensions != null ? FileType.custom : FileType.any,
         allowedExtensions: allowedExtensions,
       );
 
-      if (result == null || result.files.isEmpty) {
+      if (files.isEmpty) {
         return [];
       }
 
-      return result.files.where((file) => file.path != null).map((file) {
+      return files.where((file) => file.path != null).map((file) {
         final displayName = _deriveDisplayName(
           preferredName: file.name,
           filePath: file.path!,

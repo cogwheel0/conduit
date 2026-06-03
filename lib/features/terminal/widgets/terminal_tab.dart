@@ -557,8 +557,9 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
   }) async {
     final sessionScopeId = ref.read(terminalSessionScopeIdProvider);
     final normalizedPath = ensureTerminalDirectoryPath(path);
-    final failedToLoadFilesMessage =
-        AppLocalizations.of(context)!.terminalFailedToLoadFiles;
+    final failedToLoadFilesMessage = AppLocalizations.of(
+      context,
+    )!.terminalFailedToLoadFiles;
 
     if (mounted) {
       setState(() => _loadingFiles = true);
@@ -601,8 +602,9 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
     TerminalServerInfo server,
   ) async {
     final sessionScopeId = ref.read(terminalSessionScopeIdProvider);
-    final failedToLoadPortsMessage =
-        AppLocalizations.of(context)!.terminalFailedToLoadPorts;
+    final failedToLoadPortsMessage = AppLocalizations.of(
+      context,
+    )!.terminalFailedToLoadPorts;
     if (mounted) {
       setState(() => _loadingPorts = true);
     }
@@ -842,8 +844,7 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
 
     final l10n = AppLocalizations.of(context)!;
     try {
-      final result = await FilePicker.pickFiles(withData: true);
-      final pickedFile = result?.files.single;
+      final pickedFile = await FilePicker.pickFile();
       if (pickedFile == null) {
         return;
       }
@@ -932,12 +933,12 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
       return File(pickedFile.path!);
     }
 
-    final bytes = pickedFile.bytes;
-    if (bytes == null) {
+    try {
+      final bytes = await pickedFile.readAsBytes();
+      return _materializeTempFile(pickedFile.name, bytes);
+    } catch (_) {
       return null;
     }
-
-    return _materializeTempFile(pickedFile.name, bytes);
   }
 
   Future<File> _materializeTempFile(String fileName, List<int> bytes) async {

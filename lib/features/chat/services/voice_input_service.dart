@@ -334,7 +334,10 @@ class VoiceInputService {
       }
 
       // Start and stop quickly to test
-      await _speech.listen(onResult: (_) {}, localeId: _selectedLocaleId);
+      await _speech.listen(
+        onResult: (_) {},
+        listenOptions: SpeechListenOptions(localeId: _selectedLocaleId),
+      );
       await Future.delayed(const Duration(milliseconds: 100));
       await _speech.stop();
 
@@ -488,11 +491,10 @@ class VoiceInputService {
     try {
       await _speech.listen(
         onResult: _handleSttResult,
-        localeId: _selectedLocaleId,
-        listenFor: _localRecognitionMaxDuration,
-        // Use user's silence duration setting for pause detection
-        pauseFor: pauseDuration,
         listenOptions: SpeechListenOptions(
+          localeId: _selectedLocaleId,
+          listenFor: _localRecognitionMaxDuration,
+          pauseFor: pauseDuration,
           listenMode: ListenMode.dictation,
           cancelOnError: false,
           partialResults: true,

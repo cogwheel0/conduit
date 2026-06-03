@@ -648,19 +648,17 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
 
   Future<void> _pickMutualTlsFile({required bool isPrivateKey}) async {
     try {
-      final result = await FilePicker.pickFiles(
-        allowMultiple: false,
+      final file = await FilePicker.pickFile(
         type: FileType.custom,
         allowedExtensions: isPrivateKey
             ? const ['pem', 'key']
             : const ['pem', 'crt', 'cer'],
       );
 
-      if (result == null || result.files.isEmpty) {
+      if (file == null) {
         return;
       }
 
-      final file = result.files.single;
       final pemContent = await _readPickedPemFile(file);
       final validationError = _validatePickedPemContent(
         pemContent,
@@ -695,10 +693,10 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
 
   Future<String> _readPickedPemFile(PlatformFile file) async {
     final l10n = AppLocalizations.of(context)!;
-    final bytes =
-        file.bytes ??
-        (file.path != null ? await File(file.path!).readAsBytes() : null);
-    if (bytes == null || bytes.isEmpty) {
+    final bytes = file.path != null
+        ? await File(file.path!).readAsBytes()
+        : await file.readAsBytes();
+    if (bytes.isEmpty) {
       throw Exception(l10n.mutualTlsFileReadFailed);
     }
 
