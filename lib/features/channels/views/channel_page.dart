@@ -88,7 +88,8 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
             channelId: widget.channelId,
             parentMessage: message,
             onClose: () => Navigator.pop(ctx),
-            overflowButtonBuilder: _buildAttachmentButton,
+            overflowButtonBuilder: (size) =>
+                _buildAttachmentButton(size, parentMessageId: message.id),
           ),
         ),
       );
@@ -241,7 +242,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
 
   /// Builds the overflow (+) button as an [AdaptivePopupMenuButton]
   /// with file, photo, and camera actions.
-  Widget _buildAttachmentButton(double size) {
+  Widget _buildAttachmentButton(double size, {String? parentMessageId}) {
     final l10n = AppLocalizations.of(context);
     final theme = context.conduitTheme;
 
@@ -263,8 +264,10 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
           icon: Platform.isIOS ? CupertinoIcons.camera : Icons.camera_alt,
         ),
       ],
-      onSelected: (index, entry) =>
-          _handleAttachmentAction(entry.value as String),
+      onSelected: (index, entry) => _handleAttachmentAction(
+        entry.value as String,
+        parentMessageId: parentMessageId,
+      ),
       child: Container(
         width: size,
         height: size,
@@ -282,20 +285,159 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     );
   }
 
-  Future<void> _handleAttachmentAction(String action) async {
+  Future<void> _handleAttachmentAction(
+    String action, {
+    String? parentMessageId,
+  }) async {
     final fileService = ref.read(fileAttachmentServiceProvider);
-    if (fileService == null || fileService is! FileAttachmentService) {
+    if (fileService == null) {
       return;
     }
 
     switch (action) {
       case 'file':
-        await fileService.pickFiles();
+        final attachments = List<LocalAttachment>.from(
+          await fileService.pickFiles(),
+        );
+        await _sendAttachmentMessage(
+          attachments,
+          parentMessageId: parentMessageId,
+        );
       case 'photo':
-        await fileService.pickImage();
+        final attachments = List<LocalAttachment>.from(
+          await fileService.pickImages(),
+        );
+        await _sendAttachmentMessage(
+          attachments,
+          parentMessageId: parentMessageId,
+        );
       case 'camera':
-        await fileService.takePhoto();
+        final attachment = await fileService.takePhoto() as LocalAttachment?;
+        if (attachment != null) {
+          await _sendAttachmentMessage([
+            attachment,
+          ], parentMessageId: parentMessageId);
+        }
     }
+  }
+
+  Future<void> _sendAttachmentMessage(
+    List<LocalAttachment> attachments, {
+    String? parentMessageId,
+  }) async {
+    if (attachments.isEmpty || _isSending) return;
+
+    final api = ref.read(apiServiceProvider);
+    if (api == null) return;
+
+    setState(() => _isSending = true);
+    try {
+      final attachmentSizes = <LocalAttachment, int>{};
+      for (final attachment in attachments) {
+        final fileSize = await attachment.file.length();
+        attachmentSizes[attachment] = fileSize;
+        if (!_validateChannelAttachmentSize(fileSize, 20)) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(AppLocalizations.of(context)!.channelSendError),
+            ),
+          );
+          return;
+        }
+      }
+
+      final files = <Map<String, dynamic>>[];
+      for (final attachment in attachments) {
+        final fileSize = attachmentSizes[attachment]!;
+        final contentType = _contentTypeForChannelAttachment(attachment);
+        final fileId = await api.uploadFile(
+          attachment.file.path,
+          attachment.displayName,
+          contentType: contentType,
+          metadata: {'channel_id': widget.channelId},
+        );
+        files.add({
+          'type': attachment.isImage ? 'image' : 'file',
+          'id': fileId,
+          'url': fileId,
+          'name': attachment.displayName,
+          'size': fileSize,
+          'status': 'uploaded',
+          'content_type': ?contentType,
+        });
+      }
+
+      if (files.isEmpty) return;
+
+      final tempId = DateTime.now().microsecondsSinceEpoch.toString();
+      final json = await api.postChannelMessage(
+        widget.channelId,
+        content: '',
+        tempId: tempId,
+        replyToId: parentMessageId == null ? _replyToMessage?.id : null,
+        parentId: parentMessageId,
+        data: {'files': files},
+      );
+      if (!mounted) return;
+
+      final message = ChannelMessage.fromJson(json);
+      if (parentMessageId != null) {
+        ref
+            .read(
+              threadMessagesProvider(
+                widget.channelId,
+                parentMessageId,
+              ).notifier,
+            )
+            .prependMessage(message);
+      } else {
+        ref
+            .read(channelMessagesProvider(widget.channelId).notifier)
+            .prependMessage(message);
+        _clearReplyTo();
+      }
+    } catch (e, s) {
+      developer.log(
+        'Failed to send channel attachment',
+        name: 'ChannelPage',
+        error: e,
+        stackTrace: s,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppLocalizations.of(context)!.channelSendError)),
+      );
+    } finally {
+      if (mounted) setState(() => _isSending = false);
+    }
+  }
+
+  bool _validateChannelAttachmentSize(int fileSize, int maxSizeMB) {
+    final maxSizeBytes = maxSizeMB * 1024 * 1024;
+    return fileSize <= maxSizeBytes;
+  }
+
+  String? _contentTypeForChannelAttachment(LocalAttachment attachment) {
+    return switch (attachment.extension) {
+      '.jpg' || '.jpeg' => 'image/jpeg',
+      '.png' => 'image/png',
+      '.gif' => 'image/gif',
+      '.webp' => 'image/webp',
+      '.heic' => 'image/heic',
+      '.heif' => 'image/heif',
+      '.bmp' => 'image/bmp',
+      '.pdf' => 'application/pdf',
+      '.txt' => 'text/plain',
+      '.md' => 'text/markdown',
+      '.csv' => 'text/csv',
+      '.json' => 'application/json',
+      '.mp4' => 'video/mp4',
+      '.mov' => 'video/quicktime',
+      '.mp3' => 'audio/mpeg',
+      '.wav' => 'audio/wav',
+      _ => null,
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -863,7 +1005,10 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
                       channelId: widget.channelId,
                       parentMessage: _threadParent!,
                       onClose: () => setState(() => _threadParent = null),
-                      overflowButtonBuilder: _buildAttachmentButton,
+                      overflowButtonBuilder: (size) => _buildAttachmentButton(
+                        size,
+                        parentMessageId: _threadParent!.id,
+                      ),
                     ),
                   ),
                 ),
@@ -1420,9 +1565,17 @@ class _MessageBubble extends StatelessWidget {
                       ],
                     )
                   else
-                    ChannelMessageContent(
-                      content: message.content,
-                      stateScopeId: 'channel:${message.id}',
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        ChannelMessageContent(
+                          content: message.content,
+                          stateScopeId: 'channel:${message.id}',
+                        ),
+                        ChannelMessageAttachments(
+                          files: message.data?['files'],
+                        ),
+                      ],
                     ),
                   if (message.replyCount > 0 && onThreadTap != null)
                     Padding(

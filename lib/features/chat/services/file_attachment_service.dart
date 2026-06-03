@@ -231,6 +231,30 @@ class LocalAttachment {
   bool get isImage => allSupportedImageFormats.contains(extension);
 }
 
+LocalAttachment _localAttachmentFromPath({
+  required String filePath,
+  required String? preferredName,
+  required String fallbackPrefix,
+}) {
+  final displayName = _deriveDisplayName(
+    preferredName: preferredName,
+    filePath: filePath,
+    fallbackPrefix: fallbackPrefix,
+  );
+  return LocalAttachment(file: File(filePath), displayName: displayName);
+}
+
+LocalAttachment _localAttachmentFromXFile(
+  XFile file, {
+  required String fallbackPrefix,
+}) {
+  return _localAttachmentFromPath(
+    filePath: file.path,
+    preferredName: file.name,
+    fallbackPrefix: fallbackPrefix,
+  );
+}
+
 class FileAttachmentService {
   final ImagePicker _imagePicker = ImagePicker();
 
@@ -284,6 +308,22 @@ class FileAttachmentService {
     return _pickImageWithFilePicker();
   }
 
+  // Pick images from gallery. On iOS this opens PHPicker in multi-select mode.
+  Future<List<LocalAttachment>> pickImages() async {
+    if (Platform.isAndroid || Platform.isIOS) {
+      try {
+        return await _pickImagesWithImagePicker();
+      } catch (e) {
+        DebugLogger.log(
+          'ImagePicker multi image failed: $e',
+          scope: 'attachments/image',
+        );
+      }
+    }
+
+    return _pickImagesWithFilePicker();
+  }
+
   Future<LocalAttachment?> _pickImageWithFilePicker() async {
     try {
       final result = await FilePicker.pickFiles(
@@ -294,14 +334,10 @@ class FileAttachmentService {
       if (result != null && result.files.isNotEmpty) {
         final platformFile = result.files.first;
         if (platformFile.path != null) {
-          final displayName = _deriveDisplayName(
-            preferredName: platformFile.name,
+          return _localAttachmentFromPath(
             filePath: platformFile.path!,
+            preferredName: platformFile.name,
             fallbackPrefix: 'photo',
-          );
-          return LocalAttachment(
-            file: File(platformFile.path!),
-            displayName: displayName,
           );
         }
       }
@@ -316,6 +352,36 @@ class FileAttachmentService {
     return _pickImageWithImagePicker();
   }
 
+  Future<List<LocalAttachment>> _pickImagesWithFilePicker() async {
+    try {
+      final result = await FilePicker.pickFiles(
+        allowMultiple: true,
+        type: FileType.image,
+      );
+
+      if (result == null || result.files.isEmpty) {
+        return [];
+      }
+
+      return result.files.where((file) => file.path != null).map((file) {
+        return _localAttachmentFromPath(
+          filePath: file.path!,
+          preferredName: file.name,
+          fallbackPrefix: 'photo',
+        );
+      }).toList();
+    } catch (e) {
+      DebugLogger.log(
+        'FilePicker images failed: $e',
+        scope: 'attachments/image',
+      );
+    }
+
+    if (Platform.isAndroid || Platform.isIOS) return [];
+    final attachment = await _pickImageWithImagePicker();
+    return attachment == null ? [] : [attachment];
+  }
+
   Future<LocalAttachment?> _pickImageWithImagePicker() async {
     try {
       final XFile? image = await _imagePicker.pickImage(
@@ -324,15 +390,23 @@ class FileAttachmentService {
       );
 
       if (image == null) return null;
-      final file = File(image.path);
-      final displayName = _deriveDisplayName(
-        preferredName: image.name,
-        filePath: image.path,
-        fallbackPrefix: 'photo',
-      );
-      return LocalAttachment(file: file, displayName: displayName);
+      return _localAttachmentFromXFile(image, fallbackPrefix: 'photo');
     } catch (e) {
       throw Exception('Failed to pick image: $e');
+    }
+  }
+
+  Future<List<LocalAttachment>> _pickImagesWithImagePicker() async {
+    try {
+      final images = await _imagePicker.pickMultiImage(imageQuality: 85);
+      return images
+          .map(
+            (image) =>
+                _localAttachmentFromXFile(image, fallbackPrefix: 'photo'),
+          )
+          .toList();
+    } catch (e) {
+      throw Exception('Failed to pick images: $e');
     }
   }
 
@@ -345,13 +419,7 @@ class FileAttachmentService {
       );
 
       if (photo == null) return null;
-      final file = File(photo.path);
-      final displayName = _deriveDisplayName(
-        preferredName: photo.name,
-        filePath: photo.path,
-        fallbackPrefix: 'photo',
-      );
-      return LocalAttachment(file: file, displayName: displayName);
+      return _localAttachmentFromXFile(photo, fallbackPrefix: 'photo');
     } catch (e) {
       throw Exception('Failed to take photo: $e');
     }
@@ -577,15 +645,23 @@ class MockFileAttachmentService {
         imageQuality: 85,
       );
       if (image == null) return null;
-      final file = File(image.path);
-      final displayName = _deriveDisplayName(
-        preferredName: image.name,
-        filePath: image.path,
-        fallbackPrefix: 'photo',
-      );
-      return LocalAttachment(file: file, displayName: displayName);
+      return _localAttachmentFromXFile(image, fallbackPrefix: 'photo');
     } catch (e) {
       throw Exception('Failed to pick image: $e');
+    }
+  }
+
+  Future<List<LocalAttachment>> pickImages() async {
+    try {
+      final images = await _imagePicker.pickMultiImage(imageQuality: 85);
+      return images
+          .map(
+            (image) =>
+                _localAttachmentFromXFile(image, fallbackPrefix: 'photo'),
+          )
+          .toList();
+    } catch (e) {
+      throw Exception('Failed to pick images: $e');
     }
   }
 
@@ -596,13 +672,7 @@ class MockFileAttachmentService {
         imageQuality: 85,
       );
       if (photo == null) return null;
-      final file = File(photo.path);
-      final displayName = _deriveDisplayName(
-        preferredName: photo.name,
-        filePath: photo.path,
-        fallbackPrefix: 'photo',
-      );
-      return LocalAttachment(file: file, displayName: displayName);
+      return _localAttachmentFromXFile(photo, fallbackPrefix: 'photo');
     } catch (e) {
       throw Exception('Failed to take photo: $e');
     }

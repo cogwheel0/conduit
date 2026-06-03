@@ -101,7 +101,8 @@ class ChannelSocketHandler extends _$ChannelSocketHandler {
   /// }
   /// ```
   void _handleEvent(Map<String, dynamic> event) {
-    if (_activeChannelId == null) return;
+    final channelId = _activeChannelId;
+    if (channelId == null) return;
 
     try {
       final envelope = event['data'];
@@ -115,20 +116,16 @@ class ChannelSocketHandler extends _$ChannelSocketHandler {
 
       final type = envelope['type'] as String?;
       final data = envelope['data'];
-      final notifier = ref.read(
-        channelMessagesProvider(_activeChannelId!).notifier,
-      );
+      final notifier = ref.read(channelMessagesProvider(channelId).notifier);
 
       switch (type) {
         case 'message':
           if (data is Map<String, dynamic>) {
-            final message = ChannelMessage.fromJson(data);
-            notifier.prependMessage(message);
+            unawaited(_prependHydratedMessage(channelId, data));
           }
         case 'message:update':
           if (data is Map<String, dynamic>) {
-            final message = ChannelMessage.fromJson(data);
-            notifier.updateMessage(message);
+            unawaited(_updateHydratedMessage(channelId, data));
           }
         case 'message:delete':
           final messageId = data is Map
@@ -141,7 +138,7 @@ class ChannelSocketHandler extends _$ChannelSocketHandler {
           if (data is Map<String, dynamic>) {
             final parentId = data['parent_id'] as String?;
             if (parentId != null) {
-              _refreshMessage(_activeChannelId!, parentId);
+              _refreshMessage(channelId, parentId);
             }
           }
         case 'message:reaction:add' || 'message:reaction:remove':
@@ -149,12 +146,10 @@ class ChannelSocketHandler extends _$ChannelSocketHandler {
               ? data['message_id'] as String? ?? data['id'] as String?
               : null;
           if (messageId != null) {
-            _refreshMessage(_activeChannelId!, messageId);
+            _refreshMessage(channelId, messageId);
           }
         case 'channel:delete':
-          ref
-              .read(channelsListProvider.notifier)
-              .removeChannel(_activeChannelId!);
+          ref.read(channelsListProvider.notifier).removeChannel(channelId);
         case 'typing':
           _handleTyping(event);
         default:
@@ -171,6 +166,84 @@ class ChannelSocketHandler extends _$ChannelSocketHandler {
         stackTrace: st,
       );
     }
+  }
+
+  Future<void> _prependHydratedMessage(
+    String channelId,
+    Map<String, dynamic> data,
+  ) async {
+    try {
+      final message = await _parseHydratedMessage(channelId, data);
+      if (message == null || !ref.mounted || _activeChannelId != channelId) {
+        return;
+      }
+      ref
+          .read(channelMessagesProvider(channelId).notifier)
+          .prependMessage(message);
+    } catch (e, st) {
+      _logHydratedMessageError('prepend', channelId, data, e, st);
+    }
+  }
+
+  Future<void> _updateHydratedMessage(
+    String channelId,
+    Map<String, dynamic> data,
+  ) async {
+    try {
+      final message = await _parseHydratedMessage(channelId, data);
+      if (message == null || !ref.mounted || _activeChannelId != channelId) {
+        return;
+      }
+      ref
+          .read(channelMessagesProvider(channelId).notifier)
+          .updateMessage(message);
+    } catch (e, st) {
+      _logHydratedMessageError('update', channelId, data, e, st);
+    }
+  }
+
+  Future<ChannelMessage?> _parseHydratedMessage(
+    String channelId,
+    Map<String, dynamic> data,
+  ) async {
+    var messageJson = data;
+    if (data['data'] == true) {
+      final messageId = data['id'];
+      if (messageId is String && messageId.isNotEmpty) {
+        try {
+          final api = ref.read(apiServiceProvider);
+          final hydratedData = await api?.getMessageData(channelId, messageId);
+          if (hydratedData != null) {
+            messageJson = {...data, 'data': hydratedData};
+          }
+        } catch (e, st) {
+          developer.log(
+            'Failed to hydrate socket message data $messageId',
+            name: 'channel_socket',
+            error: e,
+            stackTrace: st,
+          );
+        }
+      }
+    }
+
+    return ChannelMessage.fromJson(messageJson);
+  }
+
+  void _logHydratedMessageError(
+    String action,
+    String channelId,
+    Map<String, dynamic> data,
+    Object error,
+    StackTrace stackTrace,
+  ) {
+    developer.log(
+      'Failed to $action socket channel message '
+      '${data['id']} in channel $channelId',
+      name: 'channel_socket',
+      error: error,
+      stackTrace: stackTrace,
+    );
   }
 
   /// Fetches a single message from the API and updates

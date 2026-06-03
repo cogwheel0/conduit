@@ -104,14 +104,16 @@ class ChannelMessages extends _$ChannelMessages {
     state = AsyncValue.data([...current, ...older]);
   }
 
-  /// Prepends a new message (from send or socket event).
+  /// Adds a new message (from send or socket event).
   ///
   /// Deduplicates by ID to prevent double-insertion when the
-  /// local send response and the socket event both arrive.
+  /// local send response and the socket event both arrive. Keeps
+  /// the list newest-first so async socket hydration cannot reorder
+  /// delayed attachment messages ahead of newer messages.
   void prependMessage(ChannelMessage message) {
     final current = state.value ?? [];
     if (current.any((m) => m.id == message.id)) return;
-    state = AsyncValue.data([message, ...current]);
+    state = AsyncValue.data(_insertNewestFirst(current, message));
   }
 
   /// Updates a message in the list (edit, reaction change).
@@ -206,8 +208,41 @@ class ThreadMessages extends _$ThreadMessages {
   void prependMessage(ChannelMessage message) {
     final current = state.value ?? [];
     if (current.any((m) => m.id == message.id)) return;
-    state = AsyncValue.data([message, ...current]);
+    state = AsyncValue.data(_insertNewestFirst(current, message));
   }
+}
+
+List<ChannelMessage> _insertNewestFirst(
+  List<ChannelMessage> messages,
+  ChannelMessage message,
+) {
+  final insertIndex = _newestFirstInsertIndex(messages, message);
+  return [
+    ...messages.take(insertIndex),
+    message,
+    ...messages.skip(insertIndex),
+  ];
+}
+
+int _newestFirstInsertIndex(
+  List<ChannelMessage> messages,
+  ChannelMessage message,
+) {
+  final createdAt = message.createdAt;
+  if (createdAt == null) {
+    return 0;
+  }
+
+  for (var index = 0; index < messages.length; index++) {
+    final existingCreatedAt = messages[index].createdAt;
+    if (existingCreatedAt == null) {
+      continue;
+    }
+    if (existingCreatedAt < createdAt) {
+      return index;
+    }
+  }
+  return messages.length;
 }
 
 /// Fetches member list for a channel (first page).

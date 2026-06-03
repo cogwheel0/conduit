@@ -708,49 +708,73 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
     try {
       DebugLogger.log('Picking image...', scope: 'chat/page');
-      final attachment = fromCamera
-          ? await fileService.takePhoto()
-          : await fileService.pickImage();
-      if (attachment == null) {
-        DebugLogger.log('No image selected', scope: 'chat/page');
+      final List<LocalAttachment> attachments;
+      if (fromCamera) {
+        final attachment = await fileService.takePhoto() as LocalAttachment?;
+        if (attachment == null) {
+          DebugLogger.log('No image selected', scope: 'chat/page');
+          return;
+        }
+        attachments = [attachment];
+      } else {
+        attachments = List<LocalAttachment>.from(
+          await fileService.pickImages(),
+        );
+      }
+
+      if (attachments.isEmpty) {
+        DebugLogger.log('No images selected', scope: 'chat/page');
         return;
       }
 
-      DebugLogger.log(
-        'Image selected: ${attachment.file.path}',
-        scope: 'chat/page',
-      );
-      DebugLogger.log(
-        'Image display name: ${attachment.displayName}',
-        scope: 'chat/page',
-      );
-      final imageSize = await attachment.file.length();
-      DebugLogger.log('Image size: $imageSize bytes', scope: 'chat/page');
+      final imageSizes = <LocalAttachment, int>{};
+      for (final attachment in attachments) {
+        DebugLogger.log(
+          'Image selected: ${attachment.file.path}',
+          scope: 'chat/page',
+        );
+        DebugLogger.log(
+          'Image display name: ${attachment.displayName}',
+          scope: 'chat/page',
+        );
+        final imageSize = await attachment.file.length();
+        imageSizes[attachment] = imageSize;
+        DebugLogger.log('Image size: $imageSize bytes', scope: 'chat/page');
 
-      // Validate file size (default 20MB limit like OpenWebUI)
-      if (!validateFileSize(imageSize, 20)) {
-        if (!mounted) return;
-        return;
+        // Validate file size (default 20MB limit like OpenWebUI)
+        if (!validateFileSize(imageSize, 20)) {
+          if (!mounted) return;
+          return;
+        }
       }
 
-      // Add image to the attachment list
-      ref.read(attachedFilesProvider.notifier).addFiles([attachment]);
-      DebugLogger.log('Image added to attachment list', scope: 'chat/page');
+      // Add images to the attachment list
+      ref.read(attachedFilesProvider.notifier).addFiles(attachments);
+      DebugLogger.log(
+        'Images added to attachment list: ${attachments.length}',
+        scope: 'chat/page',
+      );
 
       // Enqueue upload via task queue for unified retry/progress
-      DebugLogger.log('Enqueueing image upload...', scope: 'chat/page');
+      DebugLogger.log('Enqueueing image upload(s)...', scope: 'chat/page');
       final activeConv = ref.read(activeConversationProvider);
-      try {
-        await ref
-            .read(taskQueueProvider.notifier)
-            .enqueueUploadMedia(
-              conversationId: activeConv?.id,
-              filePath: attachment.file.path,
-              fileName: attachment.displayName,
-              fileSize: imageSize,
-            );
-      } catch (e) {
-        DebugLogger.log('Enqueue image upload failed: $e', scope: 'chat/page');
+      for (final attachment in attachments) {
+        try {
+          await ref
+              .read(taskQueueProvider.notifier)
+              .enqueueUploadMedia(
+                conversationId: activeConv?.id,
+                filePath: attachment.file.path,
+                fileName: attachment.displayName,
+                fileSize:
+                    imageSizes[attachment] ?? await attachment.file.length(),
+              );
+        } catch (e) {
+          DebugLogger.log(
+            'Enqueue image upload failed: $e',
+            scope: 'chat/page',
+          );
+        }
       }
     } catch (e) {
       DebugLogger.log('Image attachment error: $e', scope: 'chat/page');

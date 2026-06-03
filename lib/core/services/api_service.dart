@@ -4001,7 +4001,10 @@ class ApiService {
     );
     final data = response.data;
     if (data is List) {
-      return data.cast<Map<String, dynamic>>();
+      return _hydrateChannelMessageDataList(
+        channelId,
+        data.cast<Map<String, dynamic>>(),
+      );
     }
     return [];
   }
@@ -4027,7 +4030,10 @@ class ApiService {
         'meta': ?meta,
       },
     );
-    return response.data as Map<String, dynamic>;
+    return _hydrateChannelMessageData(
+      channelId,
+      response.data as Map<String, dynamic>,
+    );
   }
 
   Future<Map<String, dynamic>> updateChannelMessage(
@@ -4154,7 +4160,9 @@ class ApiService {
       '/api/v1/channels/$channelId/messages'
       '/$messageId',
     );
-    return response.data as Map<String, dynamic>?;
+    final message = response.data as Map<String, dynamic>?;
+    if (message == null) return null;
+    return _hydrateChannelMessageData(channelId, message);
   }
 
   /// Fetches thread replies for a message.
@@ -4175,7 +4183,10 @@ class ApiService {
     );
     final data = response.data;
     if (data is List) {
-      return data.cast<Map<String, dynamic>>();
+      return _hydrateChannelMessageDataList(
+        channelId,
+        data.cast<Map<String, dynamic>>(),
+      );
     }
     return [];
   }
@@ -4211,7 +4222,10 @@ class ApiService {
     );
     final data = response.data;
     if (data is List) {
-      return data.cast<Map<String, dynamic>>();
+      return _hydrateChannelMessageDataList(
+        channelId,
+        data.cast<Map<String, dynamic>>(),
+      );
     }
     return [];
   }
@@ -4230,6 +4244,49 @@ class ApiService {
       '/$messageId/data',
     );
     return response.data as Map<String, dynamic>?;
+  }
+
+  Future<List<Map<String, dynamic>>> _hydrateChannelMessageDataList(
+    String channelId,
+    List<Map<String, dynamic>> messages,
+  ) {
+    if (!messages.any((message) => message['data'] == true)) {
+      return Future.value(messages);
+    }
+    return Future.wait(
+      messages.map((message) => _hydrateChannelMessageData(channelId, message)),
+    );
+  }
+
+  Future<Map<String, dynamic>> _hydrateChannelMessageData(
+    String channelId,
+    Map<String, dynamic> message,
+  ) async {
+    if (message['data'] != true) {
+      return message;
+    }
+
+    final messageId = message['id'];
+    if (messageId is! String || messageId.isEmpty) {
+      return message;
+    }
+
+    try {
+      final data = await getMessageData(channelId, messageId);
+      if (data == null) {
+        return message;
+      }
+      return {...message, 'data': data};
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'channel-message-data-hydrate-failed',
+        scope: 'api/channels',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'channelId': channelId, 'messageId': messageId},
+      );
+      return message;
+    }
   }
 
   // Chat streaming with conversation context
@@ -5129,6 +5186,7 @@ class ApiService {
     String filePath,
     String fileName, {
     String? contentType,
+    Map<String, dynamic>? metadata,
   }) async {
     _traceApi('Starting file upload: $fileName from $filePath');
 
@@ -5148,6 +5206,8 @@ class ApiService {
           filename: fileName,
           contentType: mimeType != null ? DioMediaType.parse(mimeType) : null,
         ),
+        if (metadata != null && metadata.isNotEmpty)
+          'metadata': jsonEncode(metadata),
       });
 
       _traceApi('Uploading to /api/v1/files/');

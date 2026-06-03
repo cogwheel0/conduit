@@ -623,27 +623,44 @@ class _FolderPageState extends ConsumerState<FolderPage> {
     }
 
     try {
-      final attachment = fromCamera
-          ? await fileService.takePhoto()
-          : await fileService.pickImage();
-      if (attachment == null) {
+      final List<LocalAttachment> attachments;
+      if (fromCamera) {
+        final attachment = await fileService.takePhoto() as LocalAttachment?;
+        if (attachment == null) {
+          return;
+        }
+        attachments = [attachment];
+      } else {
+        attachments = List<LocalAttachment>.from(
+          await fileService.pickImages(),
+        );
+      }
+
+      if (attachments.isEmpty) {
         return;
       }
 
-      final imageSize = await attachment.file.length();
-      if (!chat.validateFileSize(imageSize, 20)) {
-        return;
+      final imageSizes = <LocalAttachment, int>{};
+      for (final attachment in attachments) {
+        final imageSize = await attachment.file.length();
+        imageSizes[attachment] = imageSize;
+        if (!chat.validateFileSize(imageSize, 20)) {
+          return;
+        }
       }
 
-      ref.read(attachedFilesProvider.notifier).addFiles([attachment]);
-      await ref
-          .read(taskQueueProvider.notifier)
-          .enqueueUploadMedia(
-            conversationId: null,
-            filePath: attachment.file.path,
-            fileName: attachment.displayName,
-            fileSize: imageSize,
-          );
+      ref.read(attachedFilesProvider.notifier).addFiles(attachments);
+      for (final attachment in attachments) {
+        await ref
+            .read(taskQueueProvider.notifier)
+            .enqueueUploadMedia(
+              conversationId: null,
+              filePath: attachment.file.path,
+              fileName: attachment.displayName,
+              fileSize:
+                  imageSizes[attachment] ?? await attachment.file.length(),
+            );
+      }
     } catch (_) {}
   }
 
