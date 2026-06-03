@@ -2221,6 +2221,54 @@
   "@terminalFolderCreateFailed": {
     "description": "Error message shown when creating a new terminal folder fails."
   },
+  "terminalExpandAction": "Full screen",
+  "@terminalExpandAction": {
+    "description": "Tooltip for the button that opens the terminal in a full-screen page."
+  },
+  "terminalReopenFullscreen": "Opened in full screen — tap to reopen",
+  "@terminalReopenFullscreen": {
+    "description": "Placeholder shown in the inline terminal pane while the full-screen terminal page is open."
+  },
+  "terminalKeyTab": "Tab",
+  "@terminalKeyTab": {
+    "description": "Label for the toolbar button that sends a Tab key to trigger shell completion."
+  },
+  "terminalKeyUp": "Up",
+  "@terminalKeyUp": {
+    "description": "Label for the toolbar button that sends the Up arrow key to navigate command history."
+  },
+  "terminalKeyDown": "Down",
+  "@terminalKeyDown": {
+    "description": "Label for the toolbar button that sends the Down arrow key to navigate command history."
+  },
+  "terminalKeyCtrlC": "Ctrl-C",
+  "@terminalKeyCtrlC": {
+    "description": "Label for the toolbar button that sends Ctrl-C to interrupt the running process."
+  },
+  "terminalCopyAction": "Copy",
+  "@terminalCopyAction": {
+    "description": "Tooltip for the button that copies the current terminal selection to the clipboard."
+  },
+  "terminalPasteAction": "Paste",
+  "@terminalPasteAction": {
+    "description": "Tooltip for the button that pastes clipboard contents into the terminal."
+  },
+  "terminalNothingToCopy": "Nothing selected to copy",
+  "@terminalNothingToCopy": {
+    "description": "Message shown when the user taps Copy but no terminal text is selected."
+  },
+  "terminalCopied": "Copied to clipboard",
+  "@terminalCopied": {
+    "description": "Confirmation shown after copying the terminal selection to the clipboard."
+  },
+  "terminalPasteWhileDisconnected": "Connect to paste",
+  "@terminalPasteWhileDisconnected": {
+    "description": "Message shown when the user tries to paste while the terminal is disconnected."
+  },
+  "terminalPortsToggle": "Listening ports",
+  "@terminalPortsToggle": {
+    "description": "Label for the collapsible header that shows or hides the listening ports list."
+  },
   "closeSidebar": "Close sidebar",
   "@closeSidebar": {
     "description": "Tooltip for the sidebar close button"

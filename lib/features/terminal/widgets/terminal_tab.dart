@@ -17,6 +17,7 @@ import 'package:xterm/xterm.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/utils/platform_page_route.dart';
 import '../../../shared/utils/platform_scroll_physics.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/utils/utf16_sanitizer.dart';
@@ -29,6 +30,9 @@ import '../../tools/providers/tools_providers.dart';
 import '../models/terminal_models.dart';
 import '../providers/terminal_providers.dart';
 import '../services/terminal_service.dart';
+import 'terminal_connection_badge.dart';
+import 'terminal_console_surface.dart';
+import 'terminal_fullscreen_page.dart';
 
 class TerminalTab extends ConsumerStatefulWidget {
   const TerminalTab({super.key, this.isActive = true});
@@ -59,6 +63,8 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
   bool _loadingFiles = false;
   bool _loadingPorts = false;
   bool _terminalSupported = true;
+  bool _fullscreen = false;
+  bool _portsCollapsed = true;
   String? _syncKey;
   int _syncGeneration = 0;
   int _connectionGeneration = 0;
@@ -549,6 +555,30 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
     channel.sink.add(jsonEncode(const <String, dynamic>{'type': 'ping'}));
   }
 
+  Future<void> _openFullscreen() async {
+    if (_fullscreen) {
+      return;
+    }
+    // Swap the inline TerminalView for a placeholder while full screen is open
+    // so only one TerminalView is ever mounted against the shared session.
+    setState(() => _fullscreen = true);
+    try {
+      await Navigator.of(context, rootNavigator: true).push(
+        buildPlatformPageRoute<void>(
+          fullscreenDialog: true,
+          builder: (_) => TerminalFullscreenPage(
+            terminal: _terminal,
+            controller: _terminalController,
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _fullscreen = false);
+      }
+    }
+  }
+
   Future<void> _loadDirectory(
     TerminalService service,
     TerminalServerInfo server, {
@@ -964,35 +994,6 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
     )?.showSnackBar(SnackBar(content: Text(sanitizeUtf16(message))));
   }
 
-  TerminalTheme _terminalTheme(BuildContext context) {
-    final theme = context.conduitTheme;
-    return TerminalTheme(
-      cursor: theme.codeText,
-      selection: theme.buttonPrimary.withValues(alpha: 0.25),
-      foreground: theme.codeText,
-      background: theme.codeBackground,
-      black: const Color(0xFF000000),
-      white: const Color(0xFFE5E5E5),
-      red: const Color(0xFFCD3131),
-      green: const Color(0xFF0DBC79),
-      yellow: const Color(0xFFE5E510),
-      blue: const Color(0xFF2472C8),
-      magenta: const Color(0xFFBC3FBC),
-      cyan: const Color(0xFF11A8CD),
-      brightBlack: const Color(0xFF666666),
-      brightRed: const Color(0xFFF14C4C),
-      brightGreen: const Color(0xFF23D18B),
-      brightYellow: const Color(0xFFF5F543),
-      brightBlue: const Color(0xFF3B8EEA),
-      brightMagenta: const Color(0xFFD670D6),
-      brightCyan: const Color(0xFF29B8DB),
-      brightWhite: const Color(0xFFFFFFFF),
-      searchHitBackground: theme.buttonPrimary.withValues(alpha: 0.35),
-      searchHitBackgroundCurrent: theme.buttonPrimary.withValues(alpha: 0.55),
-      searchHitForeground: theme.textPrimary,
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     super.build(context);
@@ -1083,8 +1084,53 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
             ),
           ),
           const SizedBox(height: Spacing.md),
-          _buildPortsSection(l10n: l10n, theme: theme, ports: ports),
+          _buildPortsToggleHeader(l10n: l10n, theme: theme, ports: ports),
+          if (!_portsCollapsed) ...[
+            const SizedBox(height: Spacing.xs),
+            _buildPortsSection(l10n: l10n, ports: ports),
+          ],
         ],
+      ),
+    );
+  }
+
+  Widget _buildPortsToggleHeader({
+    required AppLocalizations l10n,
+    required ConduitThemeExtension theme,
+    required List<TerminalListeningPort> ports,
+  }) {
+    final labelStyle = AppTypography.labelStyle.copyWith(
+      color: theme.textSecondary,
+      fontWeight: FontWeight.w700,
+    );
+    return Semantics(
+      button: true,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => setState(() => _portsCollapsed = !_portsCollapsed),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: Spacing.xxs),
+          child: Row(
+            children: [
+              Icon(
+                _portsCollapsed
+                    ? Icons.chevron_right_rounded
+                    : Icons.expand_more_rounded,
+                size: IconSize.medium,
+                color: theme.iconSecondary,
+              ),
+              const SizedBox(width: Spacing.xs),
+              Text(l10n.terminalPortsToggle, style: labelStyle),
+              if (ports.isNotEmpty) ...[
+                const SizedBox(width: Spacing.xs),
+                Text(
+                  '(${ports.length})',
+                  style: labelStyle.copyWith(fontWeight: FontWeight.w500),
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1161,14 +1207,8 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
 
   Widget _buildPortsSection({
     required AppLocalizations l10n,
-    required ConduitThemeExtension theme,
     required List<TerminalListeningPort> ports,
   }) {
-    final labelStyle = AppTypography.labelStyle.copyWith(
-      color: theme.textSecondary,
-      fontWeight: FontWeight.w700,
-    );
-
     return ConstrainedBox(
       constraints: const BoxConstraints(maxHeight: 180),
       child: CustomScrollView(
@@ -1176,10 +1216,6 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
         shrinkWrap: true,
         physics: platformAlwaysScrollablePhysics(context),
         slivers: [
-          SliverToBoxAdapter(
-            child: Text(l10n.terminalPortsSectionLabel, style: labelStyle),
-          ),
-          const SliverToBoxAdapter(child: SizedBox(height: Spacing.xs)),
           if (_loadingPorts)
             const SliverToBoxAdapter(
               child: Padding(
@@ -1240,26 +1276,7 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
                     ),
                   ),
                 ),
-                _ConnectionBadge(
-                  label: switch (connectionState.status) {
-                    TerminalConnectionStatus.connected =>
-                      l10n.terminalConnectedStatus,
-                    TerminalConnectionStatus.connecting =>
-                      l10n.terminalConnectingStatus,
-                    TerminalConnectionStatus.error => l10n.errorMessage,
-                    TerminalConnectionStatus.disconnected =>
-                      l10n.terminalDisconnectedStatus,
-                  },
-                  color: switch (connectionState.status) {
-                    TerminalConnectionStatus.connected => const Color(
-                      0xFF16A34A,
-                    ),
-                    TerminalConnectionStatus.connecting => theme.buttonPrimary,
-                    TerminalConnectionStatus.error => theme.error,
-                    TerminalConnectionStatus.disconnected =>
-                      theme.textSecondary,
-                  },
-                ),
+                TerminalConnectionBadge(state: connectionState),
                 if (selectedServer != null) ...[
                   const SizedBox(width: Spacing.xs),
                   if (connectionState.isConnected ||
@@ -1290,48 +1307,81 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
                               ),
                             ),
                     ),
+                  const SizedBox(width: Spacing.xs),
+                  _buildAdaptiveIconActionButton(
+                    tooltip: l10n.terminalExpandAction,
+                    iosIcon: CupertinoIcons.fullscreen,
+                    materialIcon: Icons.fullscreen_rounded,
+                    compact: true,
+                    onPressed: _terminalSupported
+                        ? () => unawaited(_openFullscreen())
+                        : null,
+                  ),
                 ],
               ],
             ),
           ),
           Expanded(
-            child: ClipRRect(
-              borderRadius: const BorderRadius.vertical(
-                bottom: Radius.circular(AppBorderRadius.standard),
-              ),
-              child: Stack(
-                children: [
-                  Positioned.fill(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(color: theme.codeBackground),
-                      child: MediaQuery.removePadding(
-                        context: context,
-                        removeTop: true,
-                        child: TerminalView(
-                          _terminal,
-                          controller: _terminalController,
-                          autofocus: true,
-                          theme: _terminalTheme(context),
-                          textStyle: TerminalStyle.fromTextStyle(
-                            AppTypography.codeStyle.copyWith(fontSize: 12),
-                          ),
-                          backgroundOpacity: 1,
-                          deleteDetection: true,
-                        ),
+            child: _fullscreen
+                ? _buildFullscreenPlaceholder(l10n)
+                : TerminalConsoleSurface(
+                    terminal: _terminal,
+                    controller: _terminalController,
+                    connected: connectionState.isConnected,
+                    overlayMessage: noServersConfigured
+                        ? l10n.terminalNoServersConfigured
+                        : selectedServer == null
+                        ? l10n.terminalSelectServer
+                        : !_terminalSupported
+                        ? l10n.terminalFeatureDisabled
+                        : null,
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFullscreenPlaceholder(AppLocalizations l10n) {
+    final theme = context.conduitTheme;
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(
+        bottom: Radius.circular(AppBorderRadius.standard),
+      ),
+      child: SizedBox.expand(
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => unawaited(_openFullscreen()),
+          child: ColoredBox(
+            color: theme.codeBackground,
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(Spacing.lg),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      UiUtils.platformIcon(
+                        ios: CupertinoIcons.fullscreen,
+                        android: Icons.fullscreen_rounded,
+                      ),
+                      color: theme.codeText,
+                      size: IconSize.medium,
+                    ),
+                    const SizedBox(height: Spacing.sm),
+                    Text(
+                      l10n.terminalReopenFullscreen,
+                      textAlign: TextAlign.center,
+                      style: AppTypography.bodyMediumStyle.copyWith(
+                        color: theme.codeText,
                       ),
                     ),
-                  ),
-                  if (noServersConfigured)
-                    _OverlayMessage(message: l10n.terminalNoServersConfigured)
-                  else if (selectedServer == null)
-                    _OverlayMessage(message: l10n.terminalSelectServer)
-                  else if (!_terminalSupported)
-                    _OverlayMessage(message: l10n.terminalFeatureDisabled),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -1475,59 +1525,62 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
 
     return ConduitCard(
       padding: EdgeInsets.zero,
-      child: AdaptiveListTile(
-        hideBottomDivider: true,
-        backgroundColor: Colors.transparent,
-        padding: const EdgeInsets.symmetric(
-          horizontal: Spacing.md,
-          vertical: Spacing.sm,
-        ),
-        onTap: () => _openEntry(entry),
-        leading: Icon(
-          entry.isDirectory
-              ? UiUtils.folderIcon
-              : UiUtils.platformIcon(
-                  ios: CupertinoIcons.doc,
-                  android: Icons.insert_drive_file_outlined,
+      child: Material(
+        type: MaterialType.transparency,
+        child: AdaptiveListTile(
+          hideBottomDivider: true,
+          backgroundColor: Colors.transparent,
+          padding: const EdgeInsets.symmetric(
+            horizontal: Spacing.md,
+            vertical: Spacing.sm,
+          ),
+          onTap: () => _openEntry(entry),
+          leading: Icon(
+            entry.isDirectory
+                ? UiUtils.folderIcon
+                : UiUtils.platformIcon(
+                    ios: CupertinoIcons.doc,
+                    android: Icons.insert_drive_file_outlined,
+                  ),
+          ),
+          title: Text(
+            sanitizeUtf16(entry.displayName),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          subtitle: subtitle.isEmpty
+              ? null
+              : Text(
+                  sanitizeUtf16(subtitle),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-        ),
-        title: Text(
-          sanitizeUtf16(entry.displayName),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        subtitle: subtitle.isEmpty
-            ? null
-            : Text(
-                sanitizeUtf16(subtitle),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+          trailing: AdaptiveTooltip(
+            message: l10n.more,
+            child: AdaptivePopupMenuButton.icon<String>(
+              icon: conduitAdaptivePopupMenuIcon(
+                iosSymbol: 'ellipsis',
+                materialIcon: Icons.more_horiz_rounded,
               ),
-        trailing: AdaptiveTooltip(
-          message: l10n.more,
-          child: AdaptivePopupMenuButton.icon<String>(
-            icon: conduitAdaptivePopupMenuIcon(
-              iosSymbol: 'ellipsis',
-              materialIcon: Icons.more_horiz_rounded,
+              items: _buildEntryMenuItems(l10n: l10n, entry: entry),
+              onSelected: (_, selected) async {
+                switch (selected.value) {
+                  case 'download':
+                    await _downloadEntry(entry);
+                    break;
+                  case 'rename':
+                    await _renameEntry(entry);
+                    break;
+                  case 'delete':
+                    await _deleteEntry(entry);
+                    break;
+                  case null:
+                    return;
+                }
+              },
+              buttonStyle: PopupButtonStyle.glass,
+              size: TouchTarget.medium,
             ),
-            items: _buildEntryMenuItems(l10n: l10n, entry: entry),
-            onSelected: (_, selected) async {
-              switch (selected.value) {
-                case 'download':
-                  await _downloadEntry(entry);
-                  break;
-                case 'rename':
-                  await _renameEntry(entry);
-                  break;
-                case 'delete':
-                  await _deleteEntry(entry);
-                  break;
-                case null:
-                  return;
-              }
-            },
-            buttonStyle: PopupButtonStyle.glass,
-            size: TouchTarget.medium,
           ),
         ),
       ),
@@ -1545,29 +1598,32 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
     ];
     return ConduitCard(
       padding: EdgeInsets.zero,
-      child: AdaptiveListTile(
-        hideBottomDivider: true,
-        backgroundColor: Colors.transparent,
-        padding: const EdgeInsets.symmetric(
-          horizontal: Spacing.md,
-          vertical: Spacing.sm,
-        ),
-        onTap: () => _openPortInBrowser(port),
-        leading: Icon(
-          UiUtils.platformIcon(
-            ios: CupertinoIcons.globe,
-            android: Icons.lan_outlined,
+      child: Material(
+        type: MaterialType.transparency,
+        child: AdaptiveListTile(
+          hideBottomDivider: true,
+          backgroundColor: Colors.transparent,
+          padding: const EdgeInsets.symmetric(
+            horizontal: Spacing.md,
+            vertical: Spacing.sm,
           ),
-        ),
-        title: Text('localhost:${port.port}'),
-        subtitle: subtitleParts.isEmpty
-            ? null
-            : Text(sanitizeUtf16(subtitleParts.join(' • '))),
-        trailing: _buildAdaptiveIconActionButton(
-          tooltip: l10n.terminalOpenInBrowserAction,
-          iosIcon: CupertinoIcons.arrow_up_right,
-          materialIcon: Icons.open_in_new_rounded,
-          onPressed: () => _openPortInBrowser(port),
+          onTap: () => _openPortInBrowser(port),
+          leading: Icon(
+            UiUtils.platformIcon(
+              ios: CupertinoIcons.globe,
+              android: Icons.lan_outlined,
+            ),
+          ),
+          title: Text('localhost:${port.port}'),
+          subtitle: subtitleParts.isEmpty
+              ? null
+              : Text(sanitizeUtf16(subtitleParts.join(' • '))),
+          trailing: _buildAdaptiveIconActionButton(
+            tooltip: l10n.terminalOpenInBrowserAction,
+            iosIcon: CupertinoIcons.arrow_up_right,
+            materialIcon: Icons.open_in_new_rounded,
+            onPressed: () => _openPortInBrowser(port),
+          ),
         ),
       ),
     );
@@ -1660,62 +1716,3 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
   }
 }
 
-class _OverlayMessage extends StatelessWidget {
-  const _OverlayMessage({required this.message});
-
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-    return Positioned.fill(
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: theme.codeBackground.withValues(alpha: 0.88),
-        ),
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(Spacing.lg),
-            child: Text(
-              sanitizeUtf16(message),
-              textAlign: TextAlign.center,
-              style: AppTypography.bodyMediumStyle.copyWith(
-                color: theme.codeText,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ConnectionBadge extends StatelessWidget {
-  const _ConnectionBadge({required this.label, required this.color});
-
-  final String label;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(AppBorderRadius.pill),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: Spacing.sm,
-          vertical: 6,
-        ),
-        child: Text(
-          label,
-          style: AppTypography.labelSmallStyle.copyWith(
-            color: color,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ),
-    );
-  }
-}
