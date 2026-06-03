@@ -1,11 +1,14 @@
 package app.cogwheel.conduit
 
+import android.app.ActivityOptions
+import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.widget.RemoteViews
-import es.antonborri.home_widget.HomeWidgetLaunchIntent
 
 /**
  * Home screen widget provider for Conduit.
@@ -43,6 +46,7 @@ class ConduitWidgetProvider : AppWidgetProvider() {
         private const val ACTION_CAMERA = "camera"
         private const val ACTION_PHOTOS = "photos"
         private const val ACTION_CLIPBOARD = "clipboard"
+        private const val HOME_WIDGET_LAUNCH_ACTION = "es.antonborri.home_widget.action.LAUNCH"
 
         private fun updateAppWidget(
             context: Context,
@@ -56,55 +60,83 @@ class ConduitWidgetProvider : AppWidgetProvider() {
             // recognize these URLs and forward them to the Flutter widgetClicked stream
             views.setOnClickPendingIntent(
                 R.id.widget_container,
-                HomeWidgetLaunchIntent.getActivity(
+                homeWidgetLaunchIntent(
                     context,
-                    MainActivity::class.java,
                     Uri.parse("conduit://$ACTION_NEW_CHAT?homeWidget=true")
                 )
             )
             views.setOnClickPendingIntent(
                 R.id.btn_new_chat,
-                HomeWidgetLaunchIntent.getActivity(
+                homeWidgetLaunchIntent(
                     context,
-                    MainActivity::class.java,
                     Uri.parse("conduit://$ACTION_NEW_CHAT?homeWidget=true")
                 )
             )
             views.setOnClickPendingIntent(
                 R.id.btn_mic,
-                HomeWidgetLaunchIntent.getActivity(
+                homeWidgetLaunchIntent(
                     context,
-                    MainActivity::class.java,
                     Uri.parse("conduit://$ACTION_MIC?homeWidget=true")
                 )
             )
             views.setOnClickPendingIntent(
                 R.id.btn_camera,
-                HomeWidgetLaunchIntent.getActivity(
+                homeWidgetLaunchIntent(
                     context,
-                    MainActivity::class.java,
                     Uri.parse("conduit://$ACTION_CAMERA?homeWidget=true")
                 )
             )
             views.setOnClickPendingIntent(
                 R.id.btn_photos,
-                HomeWidgetLaunchIntent.getActivity(
+                homeWidgetLaunchIntent(
                     context,
-                    MainActivity::class.java,
                     Uri.parse("conduit://$ACTION_PHOTOS?homeWidget=true")
                 )
             )
             views.setOnClickPendingIntent(
                 R.id.btn_clipboard,
-                HomeWidgetLaunchIntent.getActivity(
+                homeWidgetLaunchIntent(
                     context,
-                    MainActivity::class.java,
                     Uri.parse("conduit://$ACTION_CLIPBOARD?homeWidget=true")
                 )
             )
 
             appWidgetManager.updateAppWidget(appWidgetId, views)
         }
+
+        @Suppress("DEPRECATION")
+        private fun homeWidgetLaunchIntent(context: Context, uri: Uri): PendingIntent {
+            val intent = Intent(context, MainActivity::class.java).apply {
+                data = uri
+                action = HOME_WIDGET_LAUNCH_ACTION
+            }
+
+            var flags = PendingIntent.FLAG_UPDATE_CURRENT
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                flags = flags or PendingIntent.FLAG_IMMUTABLE
+            }
+
+            if (Build.VERSION.SDK_INT < 34) {
+                return PendingIntent.getActivity(context, uri.hashCode(), intent, flags)
+            }
+
+            val options = ActivityOptions.makeBasic()
+            if (Build.VERSION.SDK_INT >= 35) {
+                options.setPendingIntentCreatorBackgroundActivityStartMode(
+                    ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+                )
+            } else {
+                options.pendingIntentBackgroundActivityStartMode =
+                    ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+            }
+
+            return PendingIntent.getActivity(
+                context,
+                uri.hashCode(),
+                intent,
+                flags,
+                options.toBundle()
+            )
+        }
     }
 }
-

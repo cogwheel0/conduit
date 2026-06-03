@@ -6,9 +6,11 @@
     <string>Ask Conduit</string>
     <key>AppGroupId</key>
     <string>$(APP_GROUP_ID)</string>
+    <key>AppURLScheme</key>
+    <string>$(APP_URL_SCHEME)</string>
 
     <key>CFBundleVersion</key>
-    <string>$(FLUTTER_BUILD_NUMBER)</string>
+    <string>$(CURRENT_PROJECT_VERSION)</string>
     <key>NSExtension</key>
     <dict>
         <key>NSExtensionAttributes</key>
@@ -25,15 +27,15 @@
             <!-- Add a new NSExtensionActivationRule. The rule below will allow sharing one or more file of any type, url, or text content, You can modify these rules to your liking for which types of share content, as well as how many your app can handle -->
             <dict>
                 <key>NSExtensionActivationSupportsImageWithMaxCount</key>
-                <integer>10</integer>
+                <integer>6</integer>
                 <key>NSExtensionActivationSupportsMovieWithMaxCount</key>
-                <integer>10</integer>
+                <integer>6</integer>
                 <key>NSExtensionActivationSupportsWebURLWithMaxCount</key>
-                <integer>10</integer>
+                <integer>6</integer>
                 <key>NSExtensionActivationSupportsText</key>
                 <true/>
                 <key>NSExtensionActivationSupportsFileWithMaxCount</key>
-                <integer>20</integer>
+                <integer>6</integer>
             </dict>
 	    <key>PHSupportedMediaTypes</key>
 	    <array>

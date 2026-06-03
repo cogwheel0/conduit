@@ -839,7 +839,20 @@ struct AppShortcuts: AppShortcutsProvider {
   ) -> Bool {
     backgroundStreamingHandler = BackgroundStreamingHandler()
     backgroundStreamingHandler?.registerBackgroundTasks()
+    NativeShareReceiverBridge.shared.captureLaunchOptions(launchOptions)
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  override func application(
+    _ application: UIApplication,
+    open url: URL,
+    options: [UIApplication.OpenURLOptionsKey: Any] = [:]
+  ) -> Bool {
+    if NativeShareReceiverBridge.shared.handleOpenUrl(url) {
+      return true
+    }
+
+    return super.application(application, open: url, options: options)
   }
 
   func didInitializeImplicitFlutterEngine(
@@ -869,6 +882,11 @@ struct AppShortcuts: AppShortcutsProvider {
     let nativeDropdownRegistrar = engineBridge.applicationRegistrar
     NativeDropdownBridge.shared.configure(
       messenger: nativeDropdownRegistrar.messenger()
+    )
+
+    let shareReceiverRegistrar = engineBridge.applicationRegistrar
+    NativeShareReceiverBridge.shared.configure(
+      messenger: shareReceiverRegistrar.messenger()
     )
 
     // Setup background streaming handler

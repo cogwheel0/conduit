@@ -8,10 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */ = {isa = PBXBuildFile; fileRef = 1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */; };
-		2C7FFDAA810DE8D0DE1C65C2 /* Pods_ShareExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 13BB6B75A265269EC0480713 /* Pods_ShareExtension.framework */; };
 		331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C807B294A618700263BE5 /* RunnerTests.swift */; };
 		74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74858FAE1ED2DC5600515810 /* AppDelegate.swift */; };
-		78A318202AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage in Frameworks */ = {isa = PBXBuildFile; productRef = 78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */; };
 		97C146FC1CF9000F007C117D /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FA1CF9000F007C117D /* Main.storyboard */; };
 		97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FD1CF9000F007C117D /* Assets.xcassets */; };
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
@@ -21,6 +19,8 @@
 		D2A0B1D42F5E4D6C7B8A9012 /* NativeKeyboardAttachmentBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B1D32F5E4D6C7B8A9012 /* NativeKeyboardAttachmentBridge.swift */; };
 		D2A0B1E42F5E4D6C7B8A9012 /* NativeSheetBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B1E32F5E4D6C7B8A9012 /* NativeSheetBridge.swift */; };
 		D2A0B1F42F5E4D6C7B8A9012 /* NativeDropdownBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B1F32F5E4D6C7B8A9012 /* NativeDropdownBridge.swift */; };
+		D2A0B2042F5E4D6C7B8A9012 /* NativeShareReceiverBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B2032F5E4D6C7B8A9012 /* NativeShareReceiverBridge.swift */; };
+		D2A0B2062F5E4D6C7B8A9012 /* ConduitSceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B2052F5E4D6C7B8A9012 /* ConduitSceneDelegate.swift */; };
 		F15AFEC42EE5499D00A1FABB /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F15AFEC32EE5499D00A1FABB /* WidgetKit.framework */; };
 		F15AFEC62EE5499D00A1FABB /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F15AFEC52EE5499D00A1FABB /* SwiftUI.framework */; };
 		F15AFED12EE5499E00A1FABB /* ConduitWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = F15AFEC22EE5499D00A1FABB /* ConduitWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -79,10 +79,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		13BB6B75A265269EC0480713 /* Pods_ShareExtension.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_ShareExtension.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GeneratedPluginRegistrant.h; sourceTree = "<group>"; };
 		1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GeneratedPluginRegistrant.m; sourceTree = "<group>"; };
-		17E0A3AD86D4871138027AA4 /* Pods-ShareExtension.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-ShareExtension.release.xcconfig"; path = "Target Support Files/Pods-ShareExtension/Pods-ShareExtension.release.xcconfig"; sourceTree = "<group>"; };
 		2A77EF27E68BB7EB54F177DB /* Pods-Runner.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.release.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"; sourceTree = "<group>"; };
 		2AF06AFD3A8B2A85B9000E43 /* Pods-RunnerTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.debug.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.debug.xcconfig"; sourceTree = "<group>"; };
 		2C219D22481EC5F0F9827718 /* Pods-Runner.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.profile.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.profile.xcconfig"; sourceTree = "<group>"; };
@@ -92,10 +90,8 @@
 		42FA90454A654BE3B4EA8A89 /* Pods_RunnerTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_RunnerTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		606D3073E5BC84DF85E7D8C2 /* Pods-RunnerTests.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.profile.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.profile.xcconfig"; sourceTree = "<group>"; };
 		6DEBCC1D4A97BA7E06B4F749 /* Pods-Runner.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.debug.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"; sourceTree = "<group>"; };
-		70EF9357577041094051C2F1 /* Pods-ShareExtension.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-ShareExtension.profile.xcconfig"; path = "Target Support Files/Pods-ShareExtension/Pods-ShareExtension.profile.xcconfig"; sourceTree = "<group>"; };
 		74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Runner-Bridging-Header.h"; sourceTree = "<group>"; };
 		74858FAE1ED2DC5600515810 /* AppDelegate.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
-		78E0A7A72DC9AD7400C4905E /* FlutterGeneratedPluginSwiftPackage */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = FlutterGeneratedPluginSwiftPackage; path = Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage; sourceTree = "<group>"; };
 		7AFA3C8E1D35360C0083082E /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Release.xcconfig; path = Flutter/Release.xcconfig; sourceTree = "<group>"; };
 		9740EEB21CF90195004384FC /* Debug.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; name = Debug.xcconfig; path = Flutter/Debug.xcconfig; sourceTree = "<group>"; };
 		9740EEB31CF90195004384FC /* Generated.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; name = Generated.xcconfig; path = Flutter/Generated.xcconfig; sourceTree = "<group>"; };
@@ -104,11 +100,16 @@
 		97C146FD1CF9000F007C117D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		97C147001CF9000F007C117D /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		97C147021CF9000F007C117D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		AEC6CFD537128217FAB31030 /* Pods-ShareExtension.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-ShareExtension.debug.xcconfig"; path = "Target Support Files/Pods-ShareExtension/Pods-ShareExtension.debug.xcconfig"; sourceTree = "<group>"; };
 		D2A0B1C32F5E4D6C7B8A9012 /* NativePasteBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePasteBridge.swift; sourceTree = "<group>"; };
 		D2A0B1D32F5E4D6C7B8A9012 /* NativeKeyboardAttachmentBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeKeyboardAttachmentBridge.swift; sourceTree = "<group>"; };
 		D2A0B1E32F5E4D6C7B8A9012 /* NativeSheetBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSheetBridge.swift; sourceTree = "<group>"; };
 		D2A0B1F32F5E4D6C7B8A9012 /* NativeDropdownBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDropdownBridge.swift; sourceTree = "<group>"; };
+		D2A0B2032F5E4D6C7B8A9012 /* NativeShareReceiverBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeShareReceiverBridge.swift; sourceTree = "<group>"; };
+		D2A0B2052F5E4D6C7B8A9012 /* ConduitSceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConduitSceneDelegate.swift; sourceTree = "<group>"; };
+		D2A0B3012F5E4D6C7B8A9012 /* ConduitWidget.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = ConduitWidget/ConduitWidget.xcconfig; sourceTree = "<group>"; };
+		D2A0B3022F5E4D6C7B8A9012 /* ShareExtension.debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = ShareExtension/ShareExtension.debug.xcconfig; sourceTree = "<group>"; };
+		D2A0B3032F5E4D6C7B8A9012 /* ShareExtension.release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = ShareExtension/ShareExtension.release.xcconfig; sourceTree = "<group>"; };
+		D2A0B3042F5E4D6C7B8A9012 /* ShareExtension.profile.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = ShareExtension/ShareExtension.profile.xcconfig; sourceTree = "<group>"; };
 		E590F0BC5DD9A3EFB1FDDDBF /* Pods-RunnerTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.release.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.release.xcconfig"; sourceTree = "<group>"; };
 		E952EFF81F1FEABA348FE2CC /* Pods_Runner.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Runner.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		F15AFEC22EE5499D00A1FABB /* ConduitWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ConduitWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -145,6 +146,7 @@
 		F15AFED52EE5499E00A1FABB /* Exceptions for "ConduitWidget" folder in "ConduitWidgetExtension" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				ConduitWidget.xcconfig,
 				Info.plist,
 			);
 			target = F15AFEC12EE5499D00A1FABB /* ConduitWidgetExtension */;
@@ -153,6 +155,9 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
+				ShareExtension.debug.xcconfig,
+				ShareExtension.profile.xcconfig,
+				ShareExtension.release.xcconfig,
 			);
 			target = F1DBCF122E601A39004C2540 /* ShareExtension */;
 		};
@@ -198,7 +203,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				78A318202AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage in Frameworks */,
 				CA4A256DAFB6E4374BC67B91 /* Pods_Runner.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -216,7 +220,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				2C7FFDAA810DE8D0DE1C65C2 /* Pods_ShareExtension.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -238,7 +241,6 @@
 				F15AFEC52EE5499D00A1FABB /* SwiftUI.framework */,
 				E952EFF81F1FEABA348FE2CC /* Pods_Runner.framework */,
 				42FA90454A654BE3B4EA8A89 /* Pods_RunnerTests.framework */,
-				13BB6B75A265269EC0480713 /* Pods_ShareExtension.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -252,9 +254,6 @@
 				2AF06AFD3A8B2A85B9000E43 /* Pods-RunnerTests.debug.xcconfig */,
 				E590F0BC5DD9A3EFB1FDDDBF /* Pods-RunnerTests.release.xcconfig */,
 				606D3073E5BC84DF85E7D8C2 /* Pods-RunnerTests.profile.xcconfig */,
-				AEC6CFD537128217FAB31030 /* Pods-ShareExtension.debug.xcconfig */,
-				17E0A3AD86D4871138027AA4 /* Pods-ShareExtension.release.xcconfig */,
-				70EF9357577041094051C2F1 /* Pods-ShareExtension.profile.xcconfig */,
 			);
 			path = Pods;
 			sourceTree = "<group>";
@@ -262,7 +261,6 @@
 		9740EEB11CF90186004384FC /* Flutter */ = {
 			isa = PBXGroup;
 			children = (
-				78E0A7A72DC9AD7400C4905E /* FlutterGeneratedPluginSwiftPackage */,
 				3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */,
 				9740EEB21CF90195004384FC /* Debug.xcconfig */,
 				7AFA3C8E1D35360C0083082E /* Release.xcconfig */,
@@ -279,6 +277,10 @@
 				97C146F01CF9000F007C117D /* Runner */,
 				F1DBCF142E601A39004C2540 /* ShareExtension */,
 				F15AFEC72EE5499D00A1FABB /* ConduitWidget */,
+				D2A0B3012F5E4D6C7B8A9012 /* ConduitWidget.xcconfig */,
+				D2A0B3022F5E4D6C7B8A9012 /* ShareExtension.debug.xcconfig */,
+				D2A0B3032F5E4D6C7B8A9012 /* ShareExtension.release.xcconfig */,
+				D2A0B3042F5E4D6C7B8A9012 /* ShareExtension.profile.xcconfig */,
 				97C146EF1CF9000F007C117D /* Products */,
 				331C8082294A63A400263BE5 /* RunnerTests */,
 				8C43905FA2E52A883F49D605 /* Pods */,
@@ -314,6 +316,8 @@
 				D2A0B1D32F5E4D6C7B8A9012 /* NativeKeyboardAttachmentBridge.swift */,
 				D2A0B1E32F5E4D6C7B8A9012 /* NativeSheetBridge.swift */,
 				D2A0B1F32F5E4D6C7B8A9012 /* NativeDropdownBridge.swift */,
+				D2A0B2032F5E4D6C7B8A9012 /* NativeShareReceiverBridge.swift */,
+				D2A0B2052F5E4D6C7B8A9012 /* ConduitSceneDelegate.swift */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
 			);
 			path = Runner;
@@ -363,9 +367,6 @@
 				F15AFED02EE5499E00A1FABB /* PBXTargetDependency */,
 			);
 			name = Runner;
-			packageProductDependencies = (
-				78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */,
-			);
 			productName = Runner;
 			productReference = 97C146EE1CF9000F007C117D /* Runner.app */;
 			productType = "com.apple.product-type.application";
@@ -394,7 +395,6 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = F1DBCF232E601A39004C2540 /* Build configuration list for PBXNativeTarget "ShareExtension" */;
 			buildPhases = (
-				E39A68DFADF7E2F25C8E5C48 /* [CP] Check Pods Manifest.lock */,
 				F1DBCF0F2E601A39004C2540 /* Sources */,
 				F1DBCF102E601A39004C2540 /* Frameworks */,
 				F1DBCF112E601A39004C2540 /* Resources */,
@@ -457,9 +457,6 @@
 				Base,
 			);
 			mainGroup = 97C146E51CF9000F007C117D;
-			packageReferences = (
-				781AD8BC2B33823900A9FFBB /* XCLocalSwiftPackageReference "FlutterGeneratedPluginSwiftPackage" */,
-			);
 			productRefGroup = 97C146EF1CF9000F007C117D /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -614,28 +611,6 @@
 			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
 			showEnvVarsInLog = 0;
 		};
-		E39A68DFADF7E2F25C8E5C48 /* [CP] Check Pods Manifest.lock */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
-				"${PODS_ROOT}/Manifest.lock",
-			);
-			name = "[CP] Check Pods Manifest.lock";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-				"$(DERIVED_FILE_DIR)/Pods-ShareExtension-checkManifestLockResult.txt",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
-			showEnvVarsInLog = 0;
-		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -652,6 +627,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				D2A0B1F42F5E4D6C7B8A9012 /* NativeDropdownBridge.swift in Sources */,
+				D2A0B2042F5E4D6C7B8A9012 /* NativeShareReceiverBridge.swift in Sources */,
+				D2A0B2062F5E4D6C7B8A9012 /* ConduitSceneDelegate.swift in Sources */,
 				D2A0B1E42F5E4D6C7B8A9012 /* NativeSheetBridge.swift in Sources */,
 				D2A0B1D42F5E4D6C7B8A9012 /* NativeKeyboardAttachmentBridge.swift in Sources */,
 				D2A0B1C42F5E4D6C7B8A9012 /* NativePasteBridge.swift in Sources */,
@@ -821,6 +798,7 @@
 				INFOPLIST_FILE = Runner/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Conduit;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -1021,6 +999,7 @@
 				INFOPLIST_FILE = Runner/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Conduit Debug";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -1060,6 +1039,7 @@
 				INFOPLIST_FILE = Runner/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Conduit;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -1082,6 +1062,7 @@
 		};
 		F15AFED22EE5499E00A1FABB /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = D2A0B3012F5E4D6C7B8A9012 /* ConduitWidget.xcconfig */;
 			buildSettings = {
 				APP_GROUP_ID = group.app.cogwheel.conduit.x2662v5dt2.debug;
 				APP_URL_SCHEME = "conduit-debug";
@@ -1096,7 +1077,7 @@
 				CODE_SIGN_ENTITLEMENTS = ConduitWidgetExtension.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
 				DEVELOPMENT_TEAM = X2662V5DT2;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
@@ -1111,7 +1092,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = "$(FLUTTER_BUILD_NAME)";
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = app.cogwheel.conduit.debug.ConduitWidget;
@@ -1130,6 +1111,7 @@
 		};
 		F15AFED32EE5499E00A1FABB /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = D2A0B3012F5E4D6C7B8A9012 /* ConduitWidget.xcconfig */;
 			buildSettings = {
 				APP_GROUP_ID = group.app.cogwheel.conduit;
 				APP_URL_SCHEME = conduit;
@@ -1144,7 +1126,7 @@
 				CODE_SIGN_ENTITLEMENTS = ConduitWidgetExtension.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
 				DEVELOPMENT_TEAM = X2662V5DT2;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
@@ -1159,7 +1141,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = "$(FLUTTER_BUILD_NAME)";
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = app.cogwheel.conduit.ConduitWidget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1175,6 +1157,7 @@
 		};
 		F15AFED42EE5499E00A1FABB /* Profile */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = D2A0B3012F5E4D6C7B8A9012 /* ConduitWidget.xcconfig */;
 			buildSettings = {
 				APP_GROUP_ID = group.app.cogwheel.conduit.x2662v5dt2.debug;
 				APP_URL_SCHEME = "conduit-debug";
@@ -1189,7 +1172,7 @@
 				CODE_SIGN_ENTITLEMENTS = ConduitWidgetExtension.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
 				DEVELOPMENT_TEAM = X2662V5DT2;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
@@ -1204,7 +1187,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = "$(FLUTTER_BUILD_NAME)";
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = app.cogwheel.conduit.debug.ConduitWidget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1220,10 +1203,11 @@
 		};
 		F1DBCF1F2E601A39004C2540 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = AEC6CFD537128217FAB31030 /* Pods-ShareExtension.debug.xcconfig */;
+			baseConfigurationReference = D2A0B3022F5E4D6C7B8A9012 /* ShareExtension.debug.xcconfig */;
 			buildSettings = {
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = NO;
 				APP_GROUP_ID = group.app.cogwheel.conduit.x2662v5dt2.debug;
+				APP_URL_SCHEME = "conduit-debug";
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
 				CLANG_ENABLE_OBJC_WEAK = YES;
@@ -1233,7 +1217,7 @@
 				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
 				DEVELOPMENT_TEAM = X2662V5DT2;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
@@ -1249,14 +1233,9 @@
 					"@executable_path/../../Frameworks",
 				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = "$(FLUTTER_BUILD_NAME)";
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
-				OTHER_LDFLAGS = (
-					"$(inherited)",
-					"-ObjC",
-					"-lc++",
-				);
 				PRODUCT_BUNDLE_IDENTIFIER = app.cogwheel.conduit.debug.ShareExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -1270,10 +1249,11 @@
 		};
 		F1DBCF202E601A39004C2540 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 17E0A3AD86D4871138027AA4 /* Pods-ShareExtension.release.xcconfig */;
+			baseConfigurationReference = D2A0B3032F5E4D6C7B8A9012 /* ShareExtension.release.xcconfig */;
 			buildSettings = {
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = NO;
 				APP_GROUP_ID = group.app.cogwheel.conduit;
+				APP_URL_SCHEME = conduit;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
 				CLANG_ENABLE_OBJC_WEAK = YES;
@@ -1283,7 +1263,7 @@
 				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
 				DEVELOPMENT_TEAM = X2662V5DT2;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
@@ -1299,13 +1279,8 @@
 					"@executable_path/../../Frameworks",
 				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = "$(FLUTTER_BUILD_NAME)";
 				MTL_FAST_MATH = YES;
-				OTHER_LDFLAGS = (
-					"$(inherited)",
-					"-ObjC",
-					"-lc++",
-				);
 				PRODUCT_BUNDLE_IDENTIFIER = app.cogwheel.conduit.ShareExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -1317,10 +1292,11 @@
 		};
 		F1DBCF212E601A39004C2540 /* Profile */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 70EF9357577041094051C2F1 /* Pods-ShareExtension.profile.xcconfig */;
+			baseConfigurationReference = D2A0B3042F5E4D6C7B8A9012 /* ShareExtension.profile.xcconfig */;
 			buildSettings = {
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = NO;
 				APP_GROUP_ID = group.app.cogwheel.conduit.x2662v5dt2.debug;
+				APP_URL_SCHEME = "conduit-debug";
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
 				CLANG_ENABLE_OBJC_WEAK = YES;
@@ -1330,7 +1306,7 @@
 				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
 				DEVELOPMENT_TEAM = X2662V5DT2;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
@@ -1346,13 +1322,8 @@
 					"@executable_path/../../Frameworks",
 				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = "$(FLUTTER_BUILD_NAME)";
 				MTL_FAST_MATH = YES;
-				OTHER_LDFLAGS = (
-					"$(inherited)",
-					"-ObjC",
-					"-lc++",
-				);
 				PRODUCT_BUNDLE_IDENTIFIER = app.cogwheel.conduit.debug.ShareExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -1416,20 +1387,6 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
-
-/* Begin XCLocalSwiftPackageReference section */
-		781AD8BC2B33823900A9FFBB /* XCLocalSwiftPackageReference "FlutterGeneratedPluginSwiftPackage" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage;
-		};
-/* End XCLocalSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = FlutterGeneratedPluginSwiftPackage;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 97C146E61CF9000F007C117D /* Project object */;
 }

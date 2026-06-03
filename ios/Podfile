@@ -1,5 +1,6 @@
 # Uncomment this line to define a global platform for your project
-platform :ios, '16.0'
+IOS_DEPLOYMENT_TARGET = '16.0'
+platform :ios, IOS_DEPLOYMENT_TARGET
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
@@ -37,13 +38,6 @@ target 'Runner' do
 
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 
-  # share_handler addition start
-  target 'ShareExtension' do
-    inherit! :search_paths
-    # Only models are needed in extension to avoid app-only APIs
-    pod "share_handler_ios_models", :path => ".symlinks/plugins/share_handler_ios/ios/Models"
-  end
-  # share_handler addition end
   target 'RunnerTests' do
     inherit! :search_paths
   end
@@ -71,6 +65,7 @@ post_install do |installer|
       # Exclude x86_64 simulator architecture to avoid unresolved Flutter
       # symbols when Xcode attempts a universal simulator link.
       config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'x86_64'
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = IOS_DEPLOYMENT_TARGET
     end
   end
 
@@ -79,10 +74,11 @@ post_install do |installer|
   installer.aggregate_targets.each do |aggregate_target|
     user_project = aggregate_target.user_project
     user_project.native_targets.each do |native_target|
-      if ['Runner', 'ShareExtension'].include?(native_target.name)
+      if native_target.name == 'Runner'
         native_target.build_configurations.each do |config|
           config.build_settings['ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES'] = 'NO'
           config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'x86_64'
+          config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = IOS_DEPLOYMENT_TARGET
            
           # Add -ObjC and -lc++ flags for native extensions support
           other_ldflags = config.build_settings['OTHER_LDFLAGS'] || ['$(inherited)']

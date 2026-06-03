@@ -8,6 +8,7 @@ import 'dart:typed_data';
 import '../../../core/models/file_info.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/attachment_upload_queue.dart';
+import '../../../core/services/share_staging_cleanup.dart';
 import '../../../core/services/worker_manager.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../features/chat/providers/chat_providers.dart' as chat;
@@ -210,6 +211,16 @@ class TaskWorker {
       } catch (_) {}
       switch (entry.status) {
         case QueuedAttachmentStatus.completed:
+          unawaited(deleteShareStagingFile(task.filePath));
+          sub.cancel();
+          // Clean up temp file from image conversion
+          if (tempFilePath != null) {
+            try {
+              File(tempFilePath).parent.deleteSync(recursive: true);
+            } catch (_) {}
+          }
+          completer.complete();
+          break;
         case QueuedAttachmentStatus.failed:
         case QueuedAttachmentStatus.cancelled:
           sub.cancel();

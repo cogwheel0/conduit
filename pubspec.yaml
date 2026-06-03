@@ -68,7 +68,6 @@ dependencies:
   freezed_annotation: ^3.0.0
   wakelock_plus: ^1.4.0
   share_plus: ^12.0.0
-  share_handler: ^0.0.19
   riverpod_annotation: ^4.0.0
   flutter_local_notifications: ^21.0.0
   connectivity_plus: ^7.0.0
@@ -77,7 +76,7 @@ dependencies:
   flutter_callkit_incoming: ^3.0.0
   quick_actions: 1.1.0
   html_unescape: ^2.0.0
-  home_widget: ^0.9.1
+  home_widget: ^0.9.2
   flutter_highlight: ^0.7.0
   just_audio: ^0.10.5
   adaptive_platform_ui: ^0.1.103
@@ -109,6 +108,8 @@ dev_dependencies:
   checks: ^0.3.1
 
 flutter:
+  config:
+    enable-swift-package-manager: false
   uses-material-design: true
   generate: true
   # Localization
