@@ -103,6 +103,15 @@ class TaskWorker {
   }
 
   Future<void> _performUploadMedia(UploadMediaTask task) async {
+    try {
+      await _performUploadMediaInner(task);
+    } catch (_) {
+      unawaited(deleteShareStagingFile(task.filePath));
+      rethrow;
+    }
+  }
+
+  Future<void> _performUploadMediaInner(UploadMediaTask task) async {
     final lowerName = task.fileName.toLowerCase();
     final bool isImage = allSupportedImageFormats.any(lowerName.endsWith);
 
@@ -223,6 +232,7 @@ class TaskWorker {
           break;
         case QueuedAttachmentStatus.failed:
         case QueuedAttachmentStatus.cancelled:
+          unawaited(deleteShareStagingFile(task.filePath));
           sub.cancel();
           // Clean up temp file from image conversion
           if (tempFilePath != null) {
@@ -251,6 +261,8 @@ class TaskWorker {
             File(tempFilePath).parent.deleteSync(recursive: true);
           } catch (_) {}
         }
+
+        unawaited(deleteShareStagingFile(task.filePath));
 
         // Update state to failed on timeout
         try {

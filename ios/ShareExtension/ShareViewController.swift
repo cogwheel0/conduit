@@ -333,19 +333,7 @@ final class ShareViewController: UIViewController {
       return
     }
 
-    let selector = sel_registerName("openURL:")
-    var responder: UIResponder? = self
-    while let currentResponder = responder {
-      if let application = currentResponder as? UIApplication {
-        if #available(iOS 18.0, *) {
-          application.open(url, options: [:], completionHandler: nil)
-        } else {
-          application.perform(selector, with: url)
-        }
-        return
-      }
-      responder = currentResponder.next
-    }
+    extensionContext?.open(url, completionHandler: nil)
   }
 
   private func finish() {

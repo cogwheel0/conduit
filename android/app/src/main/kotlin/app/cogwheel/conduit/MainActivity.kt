@@ -1,6 +1,7 @@
 package app.cogwheel.conduit
 
 import android.content.ContentResolver
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import io.flutter.embedding.android.FlutterActivity
@@ -16,6 +17,8 @@ import android.webkit.MimeTypeMap
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import io.flutter.plugin.common.MethodChannel
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
@@ -26,6 +29,7 @@ class MainActivity : FlutterActivity() {
     private lateinit var backgroundStreamingHandler: BackgroundStreamingHandler
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        sanitizeHistoryHomeWidgetIntent(intent)?.let { setIntent(it) }
         super.onCreate(savedInstanceState)
 
         // Enable edge-to-edge display for all Android versions
@@ -40,6 +44,9 @@ class MainActivity : FlutterActivity() {
     
     private val ASSISTANT_CHANNEL = "app.cogwheel.conduit/assistant"
     private val SHARE_CHANNEL = "conduit/share_receiver"
+    private val HOME_WIDGET_LAUNCH_ACTION = "es.antonborri.home_widget.action.LAUNCH"
+    private val SHARE_PREFS_NAME = "conduit_share_receiver"
+    private val PENDING_SHARE_PAYLOAD_KEY = "pending_share_payload"
     private var methodChannel: MethodChannel? = null
     private var shareChannel: MethodChannel? = null
     private var initialSharePayload: Map<String, Any?>? = null
@@ -58,6 +65,8 @@ class MainActivity : FlutterActivity() {
         backgroundStreamingHandler = BackgroundStreamingHandler(this)
         backgroundStreamingHandler.setup(flutterEngine)
 
+        pendingSharePayload = restorePendingSharePayload()
+
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, ASSISTANT_CHANNEL)
         shareChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SHARE_CHANNEL)
         shareChannel?.setMethodCallHandler { call, result ->
@@ -70,6 +79,7 @@ class MainActivity : FlutterActivity() {
                 "resetInitialSharedPayload" -> {
                     initialSharePayload = null
                     pendingSharePayload = null
+                    clearPersistedPendingSharePayload()
                     result.success(null)
                 }
                 "ackSharedPayload" -> {
@@ -79,6 +89,7 @@ class MainActivity : FlutterActivity() {
                     }
                     if (matchesSharePayload(pendingSharePayload, ackId)) {
                         pendingSharePayload = null
+                        clearPersistedPendingSharePayloadIfMatches(ackId)
                     }
                     result.success(null)
                 }
@@ -126,9 +137,24 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        setIntent(intent)
-        handleIntent(intent, initial = false)
+        val sanitizedIntent = sanitizeHistoryHomeWidgetIntent(intent) ?: intent
+        super.onNewIntent(sanitizedIntent)
+        setIntent(sanitizedIntent)
+        handleIntent(sanitizedIntent, initial = false)
+    }
+
+    private fun sanitizeHistoryHomeWidgetIntent(intent: Intent?): Intent? {
+        if (intent == null || intent.action != HOME_WIDGET_LAUNCH_ACTION) {
+            return intent
+        }
+        if ((intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) == 0) {
+            return intent
+        }
+
+        return Intent(intent).apply {
+            action = Intent.ACTION_MAIN
+            data = null
+        }
     }
 
     private fun handleIntent(intent: Intent, initial: Boolean = false) {
@@ -177,12 +203,14 @@ class MainActivity : FlutterActivity() {
         val shareIntent = Intent(intent)
         shareCopyExecutor.execute {
             val payload = sharePayloadFromIntent(shareIntent) ?: return@execute
+            persistPendingSharePayload(payload)
             mainHandler.post {
                 if (initial) {
                     if (initialSharePayloadRequested) {
                         deliverSharePayload(payload)
                     } else {
                         initialSharePayload = payload
+                        setPendingSharePayload(payload)
                     }
                 } else {
                     deliverSharePayload(payload)
@@ -192,9 +220,10 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun deliverSharePayload(payload: Map<String, Any?>) {
+        setPendingSharePayload(payload)
+
         val channel = shareChannel
         if (channel == null) {
-            pendingSharePayload = payload
             return
         }
 
@@ -209,6 +238,11 @@ class MainActivity : FlutterActivity() {
                 pendingSharePayload = payload
             }
         })
+    }
+
+    private fun setPendingSharePayload(payload: Map<String, Any?>) {
+        pendingSharePayload = payload
+        persistPendingSharePayload(payload)
     }
 
     private fun sharePayloadFromIntent(intent: Intent): Map<String, Any?>? {
@@ -260,6 +294,105 @@ class MainActivity : FlutterActivity() {
             return false
         }
         return id == null || payload["id"] == id
+    }
+
+    private fun persistPendingSharePayload(payload: Map<String, Any?>) {
+        try {
+            val json = JSONObject()
+            (payload["id"] as? String)?.let { json.put("id", it) }
+            (payload["text"] as? String)?.let { json.put("text", it) }
+
+            val paths = JSONArray()
+            (payload["filePaths"] as? List<*>)?.forEach { path ->
+                if (path is String && path.isNotEmpty()) {
+                    paths.put(path)
+                }
+            }
+            json.put("filePaths", paths)
+
+            val committed = getSharedPreferences(SHARE_PREFS_NAME, Context.MODE_PRIVATE)
+                .edit()
+                .putString(PENDING_SHARE_PAYLOAD_KEY, json.toString())
+                .commit()
+            if (!committed) {
+                Log.w("MainActivity", "Failed to persist pending share payload")
+            }
+        } catch (error: Exception) {
+            Log.w("MainActivity", "Failed to serialize pending share payload", error)
+        }
+    }
+
+    private fun restorePendingSharePayload(): Map<String, Any?>? {
+        val raw = getSharedPreferences(SHARE_PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(PENDING_SHARE_PAYLOAD_KEY, null)
+            ?: return null
+
+        return try {
+            val json = JSONObject(raw)
+            val filePaths = mutableListOf<String>()
+            val paths = json.optJSONArray("filePaths")
+            if (paths != null) {
+                for (index in 0 until paths.length()) {
+                    val path = paths.optString(index)
+                    if (path.isNotEmpty()) {
+                        filePaths.add(path)
+                    }
+                }
+            }
+
+            val text = json.optString("text").trim().takeIf { it.isNotEmpty() }
+            if (text == null && filePaths.isEmpty()) {
+                return null
+            }
+
+            mutableMapOf<String, Any?>(
+                "filePaths" to filePaths,
+            ).apply {
+                json.optString("id").takeIf { it.isNotEmpty() }?.let {
+                    put("id", it)
+                }
+                text?.let { put("text", it) }
+            }
+        } catch (error: Exception) {
+            Log.w("MainActivity", "Failed to restore pending share payload", error)
+            null
+        }
+    }
+
+    private fun clearPersistedPendingSharePayloadIfMatches(id: String?) {
+        val persistedId = persistedPendingSharePayloadId()
+        if (id != null) {
+            if (persistedId != id) {
+                return
+            }
+        } else if (persistedId != null) {
+            return
+        }
+
+        clearPersistedPendingSharePayload()
+    }
+
+    private fun persistedPendingSharePayloadId(): String? {
+        val raw = getSharedPreferences(SHARE_PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(PENDING_SHARE_PAYLOAD_KEY, null)
+            ?: return null
+
+        return try {
+            JSONObject(raw).optString("id").takeIf { it.isNotEmpty() }
+        } catch (error: Exception) {
+            Log.w("MainActivity", "Failed to inspect pending share payload id", error)
+            null
+        }
+    }
+
+    private fun clearPersistedPendingSharePayload() {
+        val committed = getSharedPreferences(SHARE_PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .remove(PENDING_SHARE_PAYLOAD_KEY)
+            .commit()
+        if (!committed) {
+            Log.w("MainActivity", "Failed to clear pending share payload")
+        }
     }
 
     private fun isShareIntent(intent: Intent): Boolean {

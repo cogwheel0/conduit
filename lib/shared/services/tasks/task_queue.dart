@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../../core/persistence/persistence_providers.dart';
 import '../../../core/persistence/hive_boxes.dart';
+import '../../../core/services/share_staging_cleanup.dart';
 import 'outbound_task.dart';
 import 'task_worker.dart';
 import '../../../core/utils/debug_logger.dart';
@@ -119,6 +120,15 @@ class TaskQueueNotifier extends Notifier<List<OutboundTask>> {
   }
 
   Future<void> cancel(String id) async {
+    for (final task in state.where(
+      (task) =>
+          task.id == id &&
+          (task.status == TaskStatus.queued ||
+              task.status == TaskStatus.running),
+    )) {
+      _cleanupShareStagingForTask(task);
+    }
+
     state = [
       for (final t in state)
         if (t.id == id)
@@ -162,11 +172,21 @@ class TaskQueueNotifier extends Notifier<List<OutboundTask>> {
         ),
     ];
     if (updated) {
+      unawaited(deleteShareStagingFile(filePath));
       await _save();
     }
   }
 
   Future<void> cancelByConversation(String conversationId) async {
+    for (final task in state.where(
+      (task) =>
+          (task.maybeConversationId ?? '') == conversationId &&
+          (task.status == TaskStatus.queued ||
+              task.status == TaskStatus.running),
+    )) {
+      _cleanupShareStagingForTask(task);
+    }
+
     state = [
       for (final t in state)
         if ((t.maybeConversationId ?? '') == conversationId &&
@@ -176,6 +196,16 @@ class TaskQueueNotifier extends Notifier<List<OutboundTask>> {
           t,
     ];
     await _save();
+  }
+
+  void _cleanupShareStagingForTask(OutboundTask task) {
+    task.maybeMap(
+      uploadMedia: (upload) =>
+          unawaited(deleteShareStagingFile(upload.filePath)),
+      imageToDataUrl: (image) =>
+          unawaited(deleteShareStagingFile(image.filePath)),
+      orElse: () {},
+    );
   }
 
   Future<void> retry(String id) async {

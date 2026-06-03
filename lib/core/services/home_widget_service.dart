@@ -37,7 +37,8 @@ const String _debugAppGroupId = 'group.app.cogwheel.conduit.x2662v5dt2.debug';
 String get _appGroupId => kReleaseMode ? _releaseAppGroupId : _debugAppGroupId;
 
 /// Android widget provider class name.
-const String _androidWidgetName = 'ConduitWidgetProvider';
+const String _qualifiedAndroidWidgetName =
+    'app.cogwheel.conduit.ConduitWidgetProvider';
 
 /// iOS widget kind identifier.
 const String _iOSWidgetKind = 'ConduitWidget';
@@ -427,7 +428,9 @@ class HomeWidgetCoordinator extends _$HomeWidgetCoordinator {
       // In the future, we could pass data like recent conversations
 
       if (Platform.isAndroid) {
-        await HomeWidget.updateWidget(androidName: _androidWidgetName);
+        await HomeWidget.updateWidget(
+          qualifiedAndroidName: _qualifiedAndroidWidgetName,
+        );
       } else if (Platform.isIOS) {
         await HomeWidget.updateWidget(iOSName: _iOSWidgetKind);
       }
