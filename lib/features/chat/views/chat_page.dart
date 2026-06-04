@@ -3281,9 +3281,9 @@ bool _shouldKeepConversationBottomAnchoredOnInsetChange({
   required bool wantsPinToTop,
 }) {
   const insetChangeEpsilon = 1.0;
-  final insetExpanded =
-      nextBottomInset > previousBottomInset + insetChangeEpsilon;
-  return insetExpanded &&
+  final insetChanged =
+      (nextBottomInset - previousBottomInset).abs() > insetChangeEpsilon;
+  return insetChanged &&
       isAnchoredToBottom &&
       !isUserInteractingWithScroll &&
       !wantsPinToTop;

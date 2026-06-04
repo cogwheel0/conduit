@@ -256,6 +256,35 @@ void main() {
     expect(shouldKeepBottomAnchored, isTrue);
   });
 
+  test('keyboard inset shrink preserves bottom anchor when already pinned', () {
+    final shouldKeepBottomAnchored =
+        debugShouldKeepConversationBottomAnchoredOnInsetChangeForTesting(
+          previousBottomInset: 320,
+          nextBottomInset: 0,
+          isAnchoredToBottom: true,
+          isUserInteractingWithScroll: false,
+          wantsPinToTop: false,
+        );
+
+    expect(shouldKeepBottomAnchored, isTrue);
+  });
+
+  test(
+    'tiny keyboard inset changes do not trigger bottom anchor correction',
+    () {
+      final shouldKeepBottomAnchored =
+          debugShouldKeepConversationBottomAnchoredOnInsetChangeForTesting(
+            previousBottomInset: 320,
+            nextBottomInset: 319.5,
+            isAnchoredToBottom: true,
+            isUserInteractingWithScroll: false,
+            wantsPinToTop: false,
+          );
+
+      expect(shouldKeepBottomAnchored, isFalse);
+    },
+  );
+
   test('message list extent returns zero for null global fallback', () {
     final messages = <ChatMessage>[
       ChatMessage(
