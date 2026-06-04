@@ -105,7 +105,7 @@ dev_dependencies:
   riverpod_lint: ^3.1.0
   mocktail: ^1.0.4
   checks: ^0.3.1
-  pigeon: 26.3.2
+  pigeon: ^26.3.4
 
 flutter:
   config:
