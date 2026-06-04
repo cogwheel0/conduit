@@ -28,22 +28,6 @@ class AppTheme {
     );
   }
 
-  static CupertinoThemeData cupertinoTheme(
-    BuildContext context,
-    TweakcnThemeDefinition theme,
-  ) {
-    final brightness = Theme.of(context).brightness;
-    final variant = theme.variantFor(brightness);
-    final tokens = brightness == Brightness.dark
-        ? AppColorTokens.dark(theme: theme)
-        : AppColorTokens.light(theme: theme);
-    return _buildCupertinoThemeData(
-      brightness: brightness,
-      variant: variant,
-      tokens: tokens,
-    );
-  }
-
   /// Builds a [CupertinoThemeData] for light mode.
   static CupertinoThemeData cupertinoLight(TweakcnThemeDefinition theme) {
     final variant = theme.variantFor(Brightness.light);
@@ -73,7 +57,6 @@ class AppTheme {
   }) {
     final variant = theme.variantFor(brightness);
     final isDark = brightness == Brightness.dark;
-    final typography = TypographyThemeExtension.fromVariant(variant);
     final surfaces = SurfaceThemeExtension.fromVariant(variant);
     final shadows = ShadowThemeExtension.standard();
     final shapes = ShapeThemeExtension.fromVariant(variant);
@@ -82,7 +65,6 @@ class AppTheme {
       theme: theme,
       tokens: tokens,
       brightness: brightness,
-      typography: typography,
       surfaces: surfaces,
       shadows: shadows,
       shapes: shapes,
@@ -107,15 +89,7 @@ class AppTheme {
       ),
     );
 
-    final TextTheme textTheme = _buildTextTheme(tokens: tokens, isDark: isDark)
-        .apply(
-          fontFamily: typography.primaryFont.isEmpty
-              ? null
-              : typography.primaryFont,
-          fontFamilyFallback: typography.primaryFallback.isEmpty
-              ? null
-              : typography.primaryFallback,
-        );
+    final TextTheme textTheme = _buildTextTheme(tokens: tokens, isDark: isDark);
     final cupertinoOverrideTheme = _buildCupertinoThemeData(
       brightness: brightness,
       variant: variant,
@@ -126,12 +100,7 @@ class AppTheme {
     return ThemeData(
       useMaterial3: true,
       brightness: brightness,
-      fontFamily: typography.primaryFont.isEmpty
-          ? null
-          : typography.primaryFont,
-      fontFamilyFallback: typography.primaryFallback.isEmpty
-          ? null
-          : typography.primaryFallback,
+      fontFamily: AppTypography.fontFamily,
       colorScheme: colorScheme,
       scaffoldBackgroundColor: surfaces.background,
       canvasColor: surfaces.background,
@@ -288,15 +257,14 @@ class AppTheme {
         // platform-native accent while using highlight-appropriate opacity.
         cursorColor: textInputAccentColor,
         selectionColor: switch (defaultTargetPlatform) {
-          TargetPlatform.iOS || TargetPlatform.macOS =>
-            textInputAccentColor.withValues(alpha: 0.15),
+          TargetPlatform.iOS ||
+          TargetPlatform.macOS => textInputAccentColor.withValues(alpha: 0.15),
           _ => textInputAccentColor.withValues(alpha: 0.2),
         },
         selectionHandleColor: textInputAccentColor,
       ),
       extensions: <ThemeExtension<dynamic>>[
         tokens,
-        typography,
         surfaces,
         shadows,
         shapes,

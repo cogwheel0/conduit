@@ -1,9 +1,33 @@
 import 'package:checks/checks.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:conduit/core/services/settings_service.dart';
 
 void main() {
+  group('SettingsService accessibility helpers', () {
+    testWidgets('does not clamp platform text scale', (tester) async {
+      late double scale;
+
+      await tester.pumpWidget(
+        MediaQuery(
+          data: const MediaQueryData(textScaler: TextScaler.linear(4.0)),
+          child: Builder(
+            builder: (context) {
+              scale = SettingsService.getEffectiveTextScaleFactor(
+                context,
+                const AppSettings(),
+              );
+              return const SizedBox.shrink();
+            },
+          ),
+        ),
+      );
+
+      check(scale).equals(4.0);
+    });
+  });
+
   group('AppSettings', () {
     group('default constructor values', () {
       const settings = AppSettings();

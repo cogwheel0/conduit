@@ -522,8 +522,7 @@ class SettingsService {
       baseScale *= 1.3;
     }
 
-    // Ensure reasonable bounds
-    return baseScale.clamp(0.8, 3.0);
+    return baseScale;
   }
 
   static AppSettings _loadSettingsSync(Box<dynamic> box) {

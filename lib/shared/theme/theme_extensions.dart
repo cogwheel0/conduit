@@ -2,7 +2,6 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-// Using system fonts; no GoogleFonts dependency required
 import 'tweakcn_themes.dart';
 import 'color_tokens.dart';
 
@@ -13,7 +12,6 @@ class ConduitThemeExtension extends ThemeExtension<ConduitThemeExtension> {
     required this.tokens,
     required this.variant,
     required this.isDark,
-    required this.typography,
     required this.surfaces,
     required this.shadows,
     required this.shapes,
@@ -23,7 +21,6 @@ class ConduitThemeExtension extends ThemeExtension<ConduitThemeExtension> {
     required TweakcnThemeDefinition theme,
     required AppColorTokens tokens,
     required Brightness brightness,
-    required TypographyThemeExtension typography,
     required SurfaceThemeExtension surfaces,
     required ShadowThemeExtension shadows,
     required ShapeThemeExtension shapes,
@@ -32,7 +29,6 @@ class ConduitThemeExtension extends ThemeExtension<ConduitThemeExtension> {
       tokens: tokens,
       variant: theme.variantFor(brightness),
       isDark: brightness == Brightness.dark,
-      typography: typography,
       surfaces: surfaces,
       shadows: shadows,
       shapes: shapes,
@@ -42,7 +38,6 @@ class ConduitThemeExtension extends ThemeExtension<ConduitThemeExtension> {
   final AppColorTokens tokens;
   final TweakcnThemeVariant variant;
   final bool isDark;
-  final TypographyThemeExtension typography;
   final SurfaceThemeExtension surfaces;
   final ShadowThemeExtension shadows;
   final ShapeThemeExtension shapes;
@@ -214,22 +209,14 @@ class ConduitThemeExtension extends ThemeExtension<ConduitThemeExtension> {
   TextStyle? get label =>
       AppTypography.labelStyle.copyWith(color: tokens.neutralTone80);
 
-  TextStyle? get code => AppTypography.codeStyle.copyWith(
-    color: tokens.neutralOnSurface,
-    fontFamily: typography.monospaceFont.isEmpty
-        ? AppTypography.monospaceFontFamily
-        : typography.monospaceFont,
-    fontFamilyFallback: typography.monospaceFallback.isEmpty
-        ? null
-        : typography.monospaceFallback,
-  );
+  TextStyle? get code =>
+      AppTypography.codeStyle.copyWith(color: tokens.neutralOnSurface);
 
   @override
   ConduitThemeExtension copyWith({
     AppColorTokens? tokens,
     TweakcnThemeVariant? variant,
     bool? isDark,
-    TypographyThemeExtension? typography,
     SurfaceThemeExtension? surfaces,
     ShadowThemeExtension? shadows,
     ShapeThemeExtension? shapes,
@@ -238,7 +225,6 @@ class ConduitThemeExtension extends ThemeExtension<ConduitThemeExtension> {
       tokens: tokens ?? this.tokens,
       variant: variant ?? this.variant,
       isDark: isDark ?? this.isDark,
-      typography: typography ?? this.typography,
       surfaces: surfaces ?? this.surfaces,
       shadows: shadows ?? this.shadows,
       shapes: shapes ?? this.shapes,
@@ -294,9 +280,6 @@ extension ConduitThemeContext on BuildContext {
     final tokens = theme.brightness == Brightness.dark
         ? AppColorTokens.dark(theme: palette)
         : AppColorTokens.light(theme: palette);
-    final TypographyThemeExtension typography =
-        theme.extension<TypographyThemeExtension>() ??
-        TypographyThemeExtension.fromVariant(variant);
     final SurfaceThemeExtension surfaces =
         theme.extension<SurfaceThemeExtension>() ??
         SurfaceThemeExtension.fromVariant(variant);
@@ -310,7 +293,6 @@ extension ConduitThemeContext on BuildContext {
       theme: palette,
       tokens: tokens,
       brightness: theme.brightness,
-      typography: typography,
       surfaces: surfaces,
       shadows: shadows,
       shapes: shapes,
@@ -382,65 +364,6 @@ class StatusPalette {
   final StatusColors warning;
   final StatusColors info;
   final StatusColors destructive;
-}
-
-@immutable
-class TypographyThemeExtension
-    extends ThemeExtension<TypographyThemeExtension> {
-  const TypographyThemeExtension({
-    required this.primaryFont,
-    required this.primaryFallback,
-    required this.serifFont,
-    required this.serifFallback,
-    required this.monospaceFont,
-    required this.monospaceFallback,
-  });
-
-  factory TypographyThemeExtension.fromVariant(TweakcnThemeVariant variant) {
-    return TypographyThemeExtension(
-      primaryFont: _preferredFont(variant.fontSans),
-      primaryFallback: _fallbackForStack(variant.fontSans),
-      serifFont: _preferredFont(variant.fontSerif),
-      serifFallback: _fallbackForStack(variant.fontSerif),
-      monospaceFont: _preferredFont(variant.fontMono),
-      monospaceFallback: _fallbackForStack(variant.fontMono),
-    );
-  }
-
-  final String primaryFont;
-  final List<String> primaryFallback;
-  final String serifFont;
-  final List<String> serifFallback;
-  final String monospaceFont;
-  final List<String> monospaceFallback;
-
-  @override
-  TypographyThemeExtension copyWith({
-    String? primaryFont,
-    List<String>? primaryFallback,
-    String? serifFont,
-    List<String>? serifFallback,
-    String? monospaceFont,
-    List<String>? monospaceFallback,
-  }) {
-    return TypographyThemeExtension(
-      primaryFont: primaryFont ?? this.primaryFont,
-      primaryFallback: primaryFallback ?? this.primaryFallback,
-      serifFont: serifFont ?? this.serifFont,
-      serifFallback: serifFallback ?? this.serifFallback,
-      monospaceFont: monospaceFont ?? this.monospaceFont,
-      monospaceFallback: monospaceFallback ?? this.monospaceFallback,
-    );
-  }
-
-  @override
-  TypographyThemeExtension lerp(
-    covariant ThemeExtension<TypographyThemeExtension>? other,
-    double t,
-  ) {
-    if (other is! TypographyThemeExtension) return this;
-    return t < 0.5 ? this : other;
-  }
 }
 
 @immutable
@@ -803,16 +726,6 @@ List<BoxShadow> _buildShadow(List<_ShadowSpec> specs) {
       .toList(growable: false);
 }
 
-/// Always returns empty so Flutter uses the platform's
-/// default system font (which includes emoji support).
-/// CSS font stacks from tweakcn themes are web-oriented
-/// and not usable by Flutter's native text engine.
-String _preferredFont(List<String> stack) => '';
-
-/// Returns an empty fallback list — the platform system
-/// font handles all glyph coverage including emoji.
-List<String> _fallbackForStack(List<String> stack) => const <String>[];
-
 /// Consistent spacing values - Enhanced for production with better hierarchy
 class Spacing {
   // Base spacing scale (8pt grid system)
@@ -1165,23 +1078,28 @@ class _AppTypographyScale {
     required Color primary,
     required Color secondary,
     required Color tertiary,
+    required String fontFamily,
   }) {
+    TextStyle withColor(TextStyle style, Color color) {
+      return style.copyWith(color: color, fontFamily: fontFamily);
+    }
+
     return TextTheme(
-      displayLarge: displayLargeStyle.copyWith(color: primary),
-      displayMedium: displayMediumStyle.copyWith(color: primary),
-      displaySmall: displaySmallStyle.copyWith(color: primary),
-      headlineLarge: headlineLargeStyle.copyWith(color: primary),
-      headlineMedium: headlineMediumStyle.copyWith(color: primary),
-      headlineSmall: headlineSmallStyle.copyWith(color: primary),
-      titleLarge: titleLargeStyle.copyWith(color: primary),
-      titleMedium: titleMediumStyle.copyWith(color: primary),
-      titleSmall: titleSmallStyle.copyWith(color: secondary),
-      bodyLarge: bodyLargeStyle.copyWith(color: primary),
-      bodyMedium: bodyMediumStyle.copyWith(color: primary),
-      bodySmall: bodySmallStyle.copyWith(color: secondary),
-      labelLarge: labelLargeStyle.copyWith(color: primary),
-      labelMedium: labelMediumStyle.copyWith(color: secondary),
-      labelSmall: labelSmallStyle.copyWith(color: tertiary),
+      displayLarge: withColor(displayLargeStyle, primary),
+      displayMedium: withColor(displayMediumStyle, primary),
+      displaySmall: withColor(displaySmallStyle, primary),
+      headlineLarge: withColor(headlineLargeStyle, primary),
+      headlineMedium: withColor(headlineMediumStyle, primary),
+      headlineSmall: withColor(headlineSmallStyle, primary),
+      titleLarge: withColor(titleLargeStyle, primary),
+      titleMedium: withColor(titleMediumStyle, primary),
+      titleSmall: withColor(titleSmallStyle, secondary),
+      bodyLarge: withColor(bodyLargeStyle, primary),
+      bodyMedium: withColor(bodyMediumStyle, primary),
+      bodySmall: withColor(bodySmallStyle, secondary),
+      labelLarge: withColor(labelLargeStyle, primary),
+      labelMedium: withColor(labelMediumStyle, secondary),
+      labelSmall: withColor(labelSmallStyle, tertiary),
     );
   }
 }
@@ -1196,15 +1114,14 @@ bool _usesAppleTypographyRamp(TargetPlatform platform) {
 /// Typography scale that follows the current platform convention:
 /// Cupertino/HIG on Apple platforms and Material 3 elsewhere.
 class AppTypography {
-  // Primary UI font uses the platform default system font.
-  static const String fontFamily = '';
-  static const String monospaceFontFamily = 'monospace';
+  static const String fontFamily = 'Geist Sans';
+  static const String monospaceFontFamily = 'Geist Mono';
 
   // These semantic spacing values are used in a few custom layouts.
-  static const double letterSpacingTight = -0.1;
+  static const double letterSpacingTight = 0.0;
   static const double letterSpacingNormal = 0.0;
-  static const double letterSpacingWide = 0.1;
-  static const double letterSpacingExtraWide = 0.2;
+  static const double letterSpacingWide = 0.0;
+  static const double letterSpacingExtraWide = 0.0;
 
   static _AppTypographyScale get _scale =>
       _usesAppleTypographyRamp(defaultTargetPlatform)
@@ -1213,6 +1130,12 @@ class AppTypography {
 
   static bool get usesAppleRamp =>
       _usesAppleTypographyRamp(defaultTargetPlatform);
+
+  static TextStyle _primaryFont(TextStyle style) =>
+      style.copyWith(fontFamily: fontFamily);
+
+  static TextStyle _monospaceFont(TextStyle style) =>
+      style.copyWith(fontFamily: monospaceFontFamily);
 
   static double get displayLarge => displayLargeStyle.fontSize!;
   static double get displayMedium => displayMediumStyle.fontSize!;
@@ -1230,34 +1153,42 @@ class AppTypography {
   static double get labelMedium => labelMediumStyle.fontSize!;
   static double get labelSmall => labelSmallStyle.fontSize!;
 
-  static TextStyle get displayLargeStyle => _scale.displayLargeStyle;
-  static TextStyle get displayMediumStyle => _scale.displayMediumStyle;
-  static TextStyle get displaySmallStyle => _scale.displaySmallStyle;
-  static TextStyle get headlineLargeStyle => _scale.headlineLargeStyle;
-  static TextStyle get headlineMediumStyle => _scale.headlineMediumStyle;
-  static TextStyle get headlineSmallStyle => _scale.headlineSmallStyle;
-  static TextStyle get titleLargeStyle => _scale.titleLargeStyle;
-  static TextStyle get titleMediumStyle => _scale.titleMediumStyle;
-  static TextStyle get titleSmallStyle => _scale.titleSmallStyle;
-  static TextStyle get bodyLargeStyle => _scale.bodyLargeStyle;
-  static TextStyle get bodyMediumStyle => _scale.bodyMediumStyle;
-  static TextStyle get bodySmallStyle => _scale.bodySmallStyle;
+  static TextStyle get displayLargeStyle =>
+      _primaryFont(_scale.displayLargeStyle);
+  static TextStyle get displayMediumStyle =>
+      _primaryFont(_scale.displayMediumStyle);
+  static TextStyle get displaySmallStyle =>
+      _primaryFont(_scale.displaySmallStyle);
+  static TextStyle get headlineLargeStyle =>
+      _primaryFont(_scale.headlineLargeStyle);
+  static TextStyle get headlineMediumStyle =>
+      _primaryFont(_scale.headlineMediumStyle);
+  static TextStyle get headlineSmallStyle =>
+      _primaryFont(_scale.headlineSmallStyle);
+  static TextStyle get titleLargeStyle => _primaryFont(_scale.titleLargeStyle);
+  static TextStyle get titleMediumStyle =>
+      _primaryFont(_scale.titleMediumStyle);
+  static TextStyle get titleSmallStyle => _primaryFont(_scale.titleSmallStyle);
+  static TextStyle get bodyLargeStyle => _primaryFont(_scale.bodyLargeStyle);
+  static TextStyle get bodyMediumStyle => _primaryFont(_scale.bodyMediumStyle);
+  static TextStyle get bodySmallStyle => _primaryFont(_scale.bodySmallStyle);
 
-  static TextStyle get codeStyle => _scale.codeStyle;
+  static TextStyle get codeStyle => _monospaceFont(_scale.codeStyle);
 
   static TextStyle get chatMessageStyle => bodyLargeStyle;
 
   static TextStyle get chatCodeStyle => codeStyle;
 
-  static TextStyle get labelStyle => _scale.labelLargeStyle;
+  static TextStyle get labelStyle => _primaryFont(_scale.labelLargeStyle);
 
-  static TextStyle get labelMediumStyle => _scale.labelMediumStyle;
+  static TextStyle get labelMediumStyle =>
+      _primaryFont(_scale.labelMediumStyle);
 
-  static TextStyle get labelSmallStyle => _scale.labelSmallStyle;
+  static TextStyle get labelSmallStyle => _primaryFont(_scale.labelSmallStyle);
 
   static TextStyle get captionStyle => labelSmallStyle;
 
-  static TextStyle get micro => _scale.microStyle;
+  static TextStyle get micro => _primaryFont(_scale.microStyle);
 
   static TextStyle get tiny => labelSmallStyle;
 
@@ -1301,13 +1232,14 @@ class AppTypography {
     primary: primary,
     secondary: secondary,
     tertiary: tertiary,
+    fontFamily: fontFamily,
   );
 
   static const _AppTypographyScale _materialScale = _AppTypographyScale(
     displayLargeStyle: TextStyle(
       fontSize: 57,
       fontWeight: FontWeight.w400,
-      letterSpacing: -0.25,
+      letterSpacing: 0,
       height: 1.12,
     ),
     displayMediumStyle: TextStyle(
@@ -1349,62 +1281,62 @@ class AppTypography {
     titleMediumStyle: TextStyle(
       fontSize: 16,
       fontWeight: FontWeight.w500,
-      letterSpacing: 0.15,
+      letterSpacing: 0,
       height: 1.5,
     ),
     titleSmallStyle: TextStyle(
       fontSize: 14,
       fontWeight: FontWeight.w500,
-      letterSpacing: 0.1,
+      letterSpacing: 0,
       height: 1.43,
     ),
     bodyLargeStyle: TextStyle(
       fontSize: 16,
       fontWeight: FontWeight.w400,
-      letterSpacing: 0.5,
+      letterSpacing: 0,
       height: 1.5,
     ),
     bodyMediumStyle: TextStyle(
       fontSize: 14,
       fontWeight: FontWeight.w400,
-      letterSpacing: 0.25,
+      letterSpacing: 0,
       height: 1.43,
     ),
     bodySmallStyle: TextStyle(
-      fontSize: 12,
+      fontSize: 13,
       fontWeight: FontWeight.w400,
-      letterSpacing: 0.4,
-      height: 1.33,
+      letterSpacing: 0,
+      height: 1.38,
     ),
     labelLargeStyle: TextStyle(
       fontSize: 14,
       fontWeight: FontWeight.w500,
-      letterSpacing: 0.1,
+      letterSpacing: 0,
       height: 1.43,
     ),
     labelMediumStyle: TextStyle(
-      fontSize: 12,
+      fontSize: 13,
       fontWeight: FontWeight.w500,
-      letterSpacing: 0.5,
-      height: 1.33,
+      letterSpacing: 0,
+      height: 1.38,
     ),
     labelSmallStyle: TextStyle(
-      fontSize: 11,
+      fontSize: 12,
       fontWeight: FontWeight.w500,
-      letterSpacing: 0.5,
-      height: 1.45,
+      letterSpacing: 0,
+      height: 1.33,
     ),
     codeStyle: TextStyle(
-      fontSize: 12,
+      fontSize: 13,
       fontWeight: FontWeight.w400,
       letterSpacing: 0,
       height: 1.4,
       fontFamily: monospaceFontFamily,
     ),
     microStyle: TextStyle(
-      fontSize: 10,
+      fontSize: 11,
       fontWeight: FontWeight.w500,
-      letterSpacing: 0.5,
+      letterSpacing: 0,
       height: 1.4,
     ),
     inputVerticalPadding: 14,
@@ -1422,7 +1354,7 @@ class AppTypography {
     displayLargeStyle: TextStyle(
       fontSize: 34,
       fontWeight: FontWeight.w700,
-      letterSpacing: 0.38,
+      letterSpacing: 0,
       height: 1.21,
     ),
     displayMediumStyle: TextStyle(
@@ -1452,55 +1384,55 @@ class AppTypography {
     headlineSmallStyle: TextStyle(
       fontSize: 17,
       fontWeight: FontWeight.w600,
-      letterSpacing: -0.41,
+      letterSpacing: 0,
       height: 1.29,
     ),
     titleLargeStyle: TextStyle(
       fontSize: 17,
       fontWeight: FontWeight.w600,
-      letterSpacing: -0.41,
+      letterSpacing: 0,
       height: 1.29,
     ),
     titleMediumStyle: TextStyle(
       fontSize: 15,
       fontWeight: FontWeight.w400,
-      letterSpacing: -0.23,
+      letterSpacing: 0,
       height: 1.33,
     ),
     titleSmallStyle: TextStyle(
       fontSize: 13,
       fontWeight: FontWeight.w400,
-      letterSpacing: -0.08,
+      letterSpacing: 0,
       height: 1.38,
     ),
     bodyLargeStyle: TextStyle(
       fontSize: 17,
       fontWeight: FontWeight.w400,
-      letterSpacing: -0.41,
+      letterSpacing: 0,
       height: 1.29,
     ),
     bodyMediumStyle: TextStyle(
       fontSize: 16,
       fontWeight: FontWeight.w400,
-      letterSpacing: -0.32,
+      letterSpacing: 0,
       height: 1.31,
     ),
     bodySmallStyle: TextStyle(
       fontSize: 13,
       fontWeight: FontWeight.w400,
-      letterSpacing: -0.08,
+      letterSpacing: 0,
       height: 1.38,
     ),
     labelLargeStyle: TextStyle(
       fontSize: 16,
       fontWeight: FontWeight.w600,
-      letterSpacing: -0.32,
+      letterSpacing: 0,
       height: 1.31,
     ),
     labelMediumStyle: TextStyle(
       fontSize: 13,
       fontWeight: FontWeight.w600,
-      letterSpacing: -0.08,
+      letterSpacing: 0,
       height: 1.38,
     ),
     labelSmallStyle: TextStyle(
@@ -1519,7 +1451,7 @@ class AppTypography {
     microStyle: TextStyle(
       fontSize: 11,
       fontWeight: FontWeight.w500,
-      letterSpacing: 0.06,
+      letterSpacing: 0,
       height: 1.18,
     ),
     inputVerticalPadding: 12,

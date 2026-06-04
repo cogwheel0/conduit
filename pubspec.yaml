@@ -123,6 +123,34 @@ flutter:
     - assets/flutter_tex.css
     - assets/vad/
 
+  fonts:
+    - family: Geist Sans
+      fonts:
+        - asset: assets/fonts/geist/Geist-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/geist/Geist-Italic.ttf
+          weight: 400
+          style: italic
+        - asset: assets/fonts/geist/Geist-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/geist/Geist-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/geist/Geist-Bold.ttf
+          weight: 700
+    - family: Geist Mono
+      fonts:
+        - asset: assets/fonts/geist/GeistMono-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/geist/GeistMono-Italic.ttf
+          weight: 400
+          style: italic
+        - asset: assets/fonts/geist/GeistMono-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/geist/GeistMono-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/geist/GeistMono-Bold.ttf
+          weight: 700
+
 flutter_native_splash:
   # Splash background matches the light theme; `color_dark` handles dark mode.
   color: "#FFFFFF"

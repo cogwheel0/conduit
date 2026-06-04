@@ -31,5 +31,33 @@ void main() {
       check(style.blockquoteSpacing).equals(Spacing.md);
       check(style.tableSpacing).equals(Spacing.md);
     });
+
+    testWidgets('uses bundled Geist font families', (tester) async {
+      late ThemeData materialTheme;
+      late ConduitThemeExtension conduitTheme;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          home: Builder(
+            builder: (context) {
+              materialTheme = Theme.of(context);
+              conduitTheme = context.conduitTheme;
+              return const SizedBox.shrink();
+            },
+          ),
+        ),
+      );
+
+      check(
+        materialTheme.textTheme.bodyMedium?.fontFamily,
+      ).equals(AppTypography.fontFamily);
+      check(
+        AppTypography.codeStyle.fontFamily,
+      ).equals(AppTypography.monospaceFontFamily);
+      check(
+        conduitTheme.code?.fontFamily,
+      ).equals(AppTypography.monospaceFontFamily);
+    });
   });
 }

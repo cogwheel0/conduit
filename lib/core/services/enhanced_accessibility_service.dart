@@ -99,14 +99,6 @@ class EnhancedAccessibilityService {
     return shouldReduceMotion(context) ? Duration.zero : defaultDuration;
   }
 
-  /// Get text scale factor with bounds for accessibility
-  static double getBoundedTextScaleFactor(BuildContext context) {
-    final textScaler = MediaQuery.of(context).textScaler;
-    final textScaleFactor = textScaler.scale(1.0);
-    // Ensure text doesn't get too small or too large
-    return textScaleFactor.clamp(0.8, 3.0);
-  }
-
   /// Create accessible button with proper semantics
   static Widget createAccessibleButton({
     required Widget child,
@@ -445,17 +437,9 @@ class EnhancedAccessibilityService {
   }) {
     return Builder(
       builder: (context) {
-        final textScaleFactor = getBoundedTextScaleFactor(context);
-
         Widget textWidget = Text(
           text,
-          style:
-              style?.copyWith(
-                fontSize: style.fontSize != null
-                    ? style.fontSize! * textScaleFactor
-                    : null,
-              ) ??
-              TextStyle(fontSize: AppTypography.bodyLarge * textScaleFactor),
+          style: style ?? AppTypography.bodyLargeStyle,
           textAlign: textAlign,
           maxLines: maxLines,
           overflow: maxLines != null ? TextOverflow.ellipsis : null,

@@ -8,6 +8,7 @@ import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/chat/providers/text_to_speech_provider.dart';
 import 'package:conduit/features/chat/widgets/assistant_message_widget.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
+import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/markdown/compiled_markdown_document.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_config.dart';
@@ -458,7 +459,7 @@ graph TD
       expect(find.textContaining('vertexaisearch'), findsNothing);
 
       final chipText = tester.widget<Text>(find.text('crypto.com'));
-      expect(chipText.style?.fontSize, 10);
+      expect(chipText.style?.fontSize, AppTypography.labelSmall);
     },
   );
 

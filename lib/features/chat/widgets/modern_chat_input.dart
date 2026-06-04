@@ -2957,10 +2957,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         : theme.cardBorder;
 
     final Color textColor = isActive
-        ? theme.buttonPrimary
+        ? theme.textPrimary
         : theme.textSecondary.withValues(alpha: enabled ? 1.0 : Alpha.disabled);
 
-    final Color iconColor = textColor;
+    final Color iconColor = isActive ? theme.buttonPrimary : textColor;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
@@ -3009,7 +3009,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   style: AppTypography.labelMediumStyle.copyWith(
                     color: textColor,
                     fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
-                    letterSpacing: -0.1,
+                    letterSpacing: AppTypography.letterSpacingNormal,
                   ),
                   child: Text(
                     label,

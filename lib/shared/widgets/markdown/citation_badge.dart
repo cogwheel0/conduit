@@ -21,14 +21,12 @@ TextStyle _badgeLabelTextStyle(BuildContext context, Color color) {
   return textTheme.labelSmall?.copyWith(
         color: color,
         fontWeight: FontWeight.w500,
-        fontSize: 10,
-        height: 1,
+        height: 1.1,
       ) ??
       AppTypography.labelSmallStyle.copyWith(
         color: color,
         fontWeight: FontWeight.w500,
-        fontSize: 10,
-        height: 1,
+        height: 1.1,
       );
 }
 
@@ -37,11 +35,12 @@ TextStyle _badgeCountTextStyle(BuildContext context, Color color) {
   return textTheme.labelSmall?.copyWith(
         color: color,
         fontWeight: FontWeight.w600,
-        fontSize: AppTypography.labelSmallStyle.fontSize,
+        height: 1.1,
       ) ??
       AppTypography.labelSmallStyle.copyWith(
         color: color,
         fontWeight: FontWeight.w600,
+        height: 1.1,
       );
 }
 
@@ -154,7 +153,7 @@ class CitationBadgeGroup extends StatelessWidget {
 
     final theme = context.conduitTheme;
     final badgeTextStyle = _badgeLabelTextStyle(context, theme.textSecondary);
-    final countTextStyle = _badgeCountTextStyle(context, theme.buttonPrimary);
+    final countTextStyle = _badgeCountTextStyle(context, theme.textPrimary);
 
     // Get first valid source for display
     final firstIndex = sourceIndices.first;
@@ -230,7 +229,7 @@ class CitationBadgeGroup extends StatelessWidget {
             children: [
               Icon(
                 Icons.link_rounded,
-                size: 9,
+                size: 11,
                 color: theme.textSecondary.withValues(alpha: 0.7),
               ),
               const SizedBox(width: 3),
@@ -244,7 +243,7 @@ class CitationBadgeGroup extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                 decoration: BoxDecoration(
-                  color: theme.buttonPrimary.withValues(alpha: 0.15),
+                  color: theme.surfaceContainerHighest.withValues(alpha: 0.6),
                   borderRadius: BorderRadius.circular(AppBorderRadius.small),
                 ),
                 child: Text('+$additionalCount', style: countTextStyle),

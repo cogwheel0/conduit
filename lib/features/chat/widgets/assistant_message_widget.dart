@@ -694,7 +694,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
               style: AppTypography.bodySmallStyle.copyWith(
                 color: theme.textSecondary,
                 fontWeight: FontWeight.w500,
-                letterSpacing: 0.1,
+                letterSpacing: AppTypography.letterSpacingNormal,
               ),
             ),
           ),

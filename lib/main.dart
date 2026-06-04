@@ -598,7 +598,6 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
               applySystemUiOverlayStyleOnce(brightness: brightness);
             });
           }
-          final mediaQuery = MediaQuery.of(context);
           final safeChild = child ?? const SizedBox.shrink();
 
           // On iOS, AdaptiveApp creates CupertinoApp which
@@ -613,15 +612,7 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
 
           return Theme(
             data: materialTheme,
-            child: MediaQuery(
-              data: mediaQuery.copyWith(
-                textScaler: mediaQuery.textScaler.clamp(
-                  minScaleFactor: 1.0,
-                  maxScaleFactor: 3.0,
-                ),
-              ),
-              child: _KeyboardDismissOnScroll(child: safeChild),
-            ),
+            child: _KeyboardDismissOnScroll(child: safeChild),
           );
         },
       ),
