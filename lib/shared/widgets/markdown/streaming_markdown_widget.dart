@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/chat_message.dart';
+import '../../utils/ask_conduit_context_menu.dart';
 import 'compiled_markdown_document.dart';
 import 'markdown_config.dart';
 import 'markdown_compile_service.dart';
@@ -58,6 +59,7 @@ class StreamingMarkdownWidget extends ConsumerStatefulWidget {
     this.imageBuilderOverride,
     this.sources,
     this.onSourceTap,
+    this.askConduitComposerTargetId,
     this.stateScopeId,
     this.debugTreatAsWidgetTest,
     this.debugRenderInterval,
@@ -78,6 +80,11 @@ class StreamingMarkdownWidget extends ConsumerStatefulWidget {
 
   /// Callback when a source badge is tapped.
   final void Function(int sourceIndex)? onSourceTap;
+
+  /// Composer target that should receive "Ask Conduit" insertions.
+  ///
+  /// When null, this markdown surface uses Flutter's default selection menu.
+  final String? askConduitComposerTargetId;
 
   /// Optional scope used to preserve state for remounted markdown blocks.
   final String? stateScopeId;
@@ -113,6 +120,7 @@ class _StreamingMarkdownWidgetState
   bool _snapshotInFlight = false;
   bool _streamingRefreshFrameScheduled = false;
   String? _pendingStreamingContent;
+  String? _selectedText;
   int _snapshotGeneration = 0;
   bool _isAppForeground = true;
   bool _isRouteVisible = true;
@@ -407,7 +415,20 @@ class _StreamingMarkdownWidgetState
       return result;
     }
 
-    return SelectionArea(child: result);
+    return SelectionArea(
+      contextMenuBuilder: (context, selectableRegionState) {
+        return buildAskConduitSelectionAreaContextMenu(
+          selectableRegionState: selectableRegionState,
+          ref: ref,
+          selectedText: _selectedText,
+          composerTargetId: widget.askConduitComposerTargetId,
+        );
+      },
+      onSelectionChanged: (content) {
+        _selectedText = content?.plainText;
+      },
+      child: result,
+    );
   }
 
   /// Builds markdown with inline citation badges.
@@ -534,6 +555,7 @@ extension StreamingMarkdownExtension on String {
     MarkdownLinkTapCallback? onTapLink,
     List<ChatSourceReference>? sources,
     void Function(int sourceIndex)? onSourceTap,
+    String? askConduitComposerTargetId,
     String? stateScopeId,
   }) {
     return StreamingMarkdownWidget(
@@ -542,6 +564,7 @@ extension StreamingMarkdownExtension on String {
       onTapLink: onTapLink,
       sources: sources,
       onSourceTap: onSourceTap,
+      askConduitComposerTargetId: askConduitComposerTargetId,
       stateScopeId: stateScopeId,
     );
   }

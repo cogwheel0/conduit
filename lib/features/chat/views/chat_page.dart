@@ -2423,6 +2423,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                     onSendMessage: _handleMessageSend,
                     enabled: !isLoadingConversation,
                     bottomPadding: 0,
+                    composerTextInsertionTargetId:
+                        chatComposerTextInsertionTargetId,
                     onVoiceInput: null,
                     onVoiceCall: _handleVoiceCall,
                     onFileAttachment: _handleFileAttachment,

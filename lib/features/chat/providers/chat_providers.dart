@@ -285,6 +285,49 @@ class PrefilledInputText extends _$PrefilledInputText {
   void clear() => state = null;
 }
 
+const String chatComposerTextInsertionTargetId = 'chat-composer';
+
+class ComposerTextInsertion {
+  const ComposerTextInsertion({
+    required this.id,
+    required this.targetId,
+    required this.text,
+  });
+
+  final int id;
+  final String targetId;
+  final String text;
+}
+
+final composerTextInsertionProvider =
+    NotifierProvider<ComposerTextInsertionNotifier, ComposerTextInsertion?>(
+      ComposerTextInsertionNotifier.new,
+    );
+
+class ComposerTextInsertionNotifier extends Notifier<ComposerTextInsertion?> {
+  int _nextId = 0;
+
+  @override
+  ComposerTextInsertion? build() => null;
+
+  void insert({required String targetId, required String text}) {
+    if (text.trim().isEmpty) {
+      return;
+    }
+    state = ComposerTextInsertion(
+      id: ++_nextId,
+      targetId: targetId,
+      text: text,
+    );
+  }
+
+  void clear(int id) {
+    if (state?.id == id) {
+      state = null;
+    }
+  }
+}
+
 // Trigger to request focus on the chat input (increment to signal)
 @Riverpod(keepAlive: true)
 class InputFocusTrigger extends _$InputFocusTrigger {

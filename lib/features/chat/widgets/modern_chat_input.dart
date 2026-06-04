@@ -38,6 +38,7 @@ import '../../../core/models/knowledge_base.dart';
 import '../../../core/models/knowledge_base_file.dart';
 
 import '../../../shared/utils/platform_utils.dart';
+import '../../../shared/utils/ask_conduit_context_menu.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import '../../../shared/widgets/modal_safe_area.dart';
 import '../../../shared/widgets/model_avatar.dart';
@@ -78,6 +79,13 @@ class ModernChatInput extends ConsumerStatefulWidget {
   /// Callback invoked when images or files are pasted from clipboard.
   final Future<void> Function(List<LocalAttachment>)? onPastedAttachments;
 
+  /// Target id for app-level text insertion requests.
+  ///
+  /// When null, this composer uses a private per-instance target so its own
+  /// text-selection menu can still insert back into itself without receiving
+  /// events meant for another composer.
+  final String? composerTextInsertionTargetId;
+
   const ModernChatInput({
     super.key,
     required this.onSendMessage,
@@ -93,6 +101,7 @@ class ModernChatInput extends ConsumerStatefulWidget {
     this.onCameraCapture,
     this.onWebAttachment,
     this.onPastedAttachments,
+    this.composerTextInsertionTargetId,
   });
 
   @override
@@ -107,10 +116,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   static const int _maxContextSuggestionsPerType = 4;
 
   static const double _composerRadius = AppBorderRadius.card;
+  static int _nextGeneratedInsertionTargetId = 0;
 
   final MentionTextEditingController _controller =
       MentionTextEditingController();
   final FocusNode _focusNode = FocusNode();
+  late final String _generatedInsertionTargetId =
+      'modern-chat-input-${_nextGeneratedInsertionTargetId++}';
+  String get _composerTextInsertionTargetId =>
+      widget.composerTextInsertionTargetId ?? _generatedInsertionTargetId;
 
   /// Preserves the text field widget across parent shell swaps.
   /// Without this, different parent ValueKeys cause Flutter to unmount and
@@ -476,40 +490,45 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final items = List<ContextMenuButtonItem>.from(
       editableTextState.contextMenuButtonItems,
     );
-    if (kIsWeb || !Platform.isIOS || widget.onPastedAttachments == null) {
-      return items;
-    }
 
-    final pasteIndex = items.indexWhere(
-      (item) => item.type == ContextMenuButtonType.paste,
-    );
-    if (pasteIndex >= 0) {
-      final defaultPaste = items[pasteIndex];
-      items[pasteIndex] = ContextMenuButtonItem(
-        type: defaultPaste.type,
-        label: defaultPaste.label,
-        onPressed: () {
-          unawaited(
-            _handleFallbackPaste(
-              editableTextState,
-              defaultPaste: defaultPaste.onPressed,
-            ),
-          );
-        },
+    if (!kIsWeb && Platform.isIOS && widget.onPastedAttachments != null) {
+      final pasteIndex = items.indexWhere(
+        (item) => item.type == ContextMenuButtonType.paste,
       );
-      return items;
+      if (pasteIndex >= 0) {
+        final defaultPaste = items[pasteIndex];
+        items[pasteIndex] = ContextMenuButtonItem(
+          type: defaultPaste.type,
+          label: defaultPaste.label,
+          onPressed: () {
+            unawaited(
+              _handleFallbackPaste(
+                editableTextState,
+                defaultPaste: defaultPaste.onPressed,
+              ),
+            );
+          },
+        );
+      } else {
+        items.add(
+          ContextMenuButtonItem(
+            type: ContextMenuButtonType.paste,
+            label: MaterialLocalizations.of(context).pasteButtonLabel,
+            onPressed: () {
+              unawaited(_handleFallbackPaste(editableTextState));
+            },
+          ),
+        );
+      }
     }
 
-    items.add(
-      ContextMenuButtonItem(
-        type: ContextMenuButtonType.paste,
-        label: MaterialLocalizations.of(context).pasteButtonLabel,
-        onPressed: () {
-          unawaited(_handleFallbackPaste(editableTextState));
-        },
-      ),
+    return withAskConduitContextMenuItem(
+      items: items,
+      ref: ref,
+      selectedText: selectedTextFromEditableTextState(editableTextState),
+      composerTargetId: _composerTextInsertionTargetId,
+      hideToolbar: () => editableTextState.hideToolbar(false),
     );
-    return items;
   }
 
   Future<void> _handleFallbackPaste(
@@ -544,6 +563,31 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       composing: TextRange.empty,
     );
     // Ensure field stays focused
+    _ensureFocusedIfEnabled();
+  }
+
+  void _insertTextAtCurrentSelection(String content) {
+    if (content.isEmpty) {
+      return;
+    }
+
+    final text = _controller.text;
+    final selection = _controller.selection;
+    final int start = selection.isValid
+        ? selection.start.clamp(0, text.length).toInt()
+        : text.length;
+    final int end = selection.isValid
+        ? selection.end.clamp(0, text.length).toInt()
+        : text.length;
+    final before = text.substring(0, start);
+    final after = text.substring(end);
+    final caret = before.length + content.length;
+
+    _controller.value = TextEditingValue(
+      text: '$before$content$after',
+      selection: TextSelection.collapsed(offset: caret),
+      composing: TextRange.empty,
+    );
     _ensureFocusedIfEnabled();
   }
 
@@ -1858,6 +1902,23 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         );
         try {
           ref.read(prefilledInputTextProvider.notifier).clear();
+        } catch (_) {}
+      });
+    });
+    ref.listen<ComposerTextInsertion?>(composerTextInsertionProvider, (
+      previous,
+      next,
+    ) {
+      if (next == null ||
+          next.text.isEmpty ||
+          next.targetId != _composerTextInsertionTargetId) {
+        return;
+      }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _isDeactivated) return;
+        _insertTextAtCurrentSelection(next.text);
+        try {
+          ref.read(composerTextInsertionProvider.notifier).clear(next.id);
         } catch (_) {}
       });
     });

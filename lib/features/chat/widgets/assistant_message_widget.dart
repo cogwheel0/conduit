@@ -23,6 +23,7 @@ import '../../../shared/widgets/web_content_embed.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import '../providers/chat_providers.dart'
     show
+        chatComposerTextInsertionTargetId,
         isChatStreamingProvider,
         sendMessageWithContainer,
         streamingContentProvider;
@@ -1131,6 +1132,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       return StreamingMarkdownWidget(
         content: processedContent,
         isStreaming: bodyTreatsAsStreaming,
+        askConduitComposerTargetId: chatComposerTextInsertionTargetId,
         stateScopeId: _markdownStateScopeId(),
         onTapLink: (url, _) => _launchUri(url),
         sources: activeSources,
