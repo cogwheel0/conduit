@@ -1,11 +1,15 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
+import 'package:conduit/core/platform/conduit_platform_apis.g.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-const _nativeSheetChannel = MethodChannel('conduit/native_sheet');
+final _presentModelSelectorChannel = BasicMessageChannel<Object?>(
+  'dev.flutter.pigeon.conduit.NativeSheetHostApi.presentModelSelector',
+  NativeSheetHostApi.pigeonChannelCodec,
+);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -13,7 +17,10 @@ void main() {
   tearDown(() {
     NativeSheetBridge.instance.debugIsIOSOverride = null;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(_nativeSheetChannel, null);
+        .setMockDecodedMessageHandler<Object?>(
+          _presentModelSelectorChannel,
+          null,
+        );
   });
 
   group('NativeSheetBridge.presentModelSelector', () {
@@ -28,14 +35,21 @@ void main() {
         final firstPins = <String>[];
         final secondPins = <String>[];
 
-        messenger.setMockMethodCallHandler(_nativeSheetChannel, (call) {
-          check(call.method).equals('presentModelSelector');
-          presentCalls += 1;
-          if (presentCalls == 1) {
-            return firstPresentation.future;
-          }
-          throw PlatformException(code: 'ALREADY_PRESENTING');
-        });
+        messenger.setMockDecodedMessageHandler<Object?>(
+          _presentModelSelectorChannel,
+          (message) async {
+            final args = message! as List<Object?>;
+            check(args.single).isA<PlatformNativeSheetModelSelectorRequest>();
+            presentCalls += 1;
+            if (presentCalls == 1) {
+              await firstPresentation.future;
+              return wrapResponse(result: null);
+            }
+            return wrapResponse(
+              error: PlatformException(code: 'ALREADY_PRESENTING'),
+            );
+          },
+        );
 
         final firstFuture = NativeSheetBridge.instance.presentModelSelector(
           title: 'Models',
@@ -56,13 +70,10 @@ void main() {
             );
 
         check(secondResult).isNull();
-        await messenger.handlePlatformMessage(
-          _nativeSheetChannel.name,
-          _nativeSheetChannel.codec.encodeMethodCall(
-            const MethodCall('onModelPinToggled', {'modelId': 'model-a'}),
-          ),
-          null,
+        NativeSheetBridge.instance.onModelPinToggled(
+          PlatformNativeSheetModelPinToggledEvent(modelId: 'model-a'),
         );
+        await Future<void>.delayed(Duration.zero);
 
         check(firstPins).deepEquals(['model-a']);
         check(secondPins).isEmpty();

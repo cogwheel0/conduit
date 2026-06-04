@@ -103,9 +103,9 @@ dev_dependencies:
   flutter_native_splash: ^2.4.6
   riverpod_generator: ^4.0.0+1
   riverpod_lint: ^3.1.0
-  custom_lint: 0.8.1
   mocktail: ^1.0.4
   checks: ^0.3.1
+  pigeon: 26.3.2
 
 flutter:
   config:

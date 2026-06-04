@@ -297,8 +297,8 @@ roadmap.
 ## Enterprise and White-Label
 
 If you need private distribution, internal deployment support, or a custom
-enterprise/white-label build, open a discussion or contact the maintainer
-through the repository.
+enterprise/white-label build, open a discussion or contact the maintainer at
+[cogwheel@cogwheel.app](mailto:cogwheel@cogwheel.app).
 
 ## Support
 

@@ -14,6 +14,17 @@ private struct NativeKeyboardAttachmentAction: Equatable {
     let selected: Bool
     let dismissesKeyboard: Bool
 
+    init(_ config: PlatformKeyboardAttachmentActionConfig) {
+        id = config.id
+        label = config.label
+        subtitle = config.subtitle
+        section = config.section
+        sfSymbol = config.sfSymbol
+        enabled = config.enabled
+        selected = config.selected
+        dismissesKeyboard = config.dismissesKeyboard
+    }
+
     init?(_ payload: [String: Any]) {
         guard
             let id = payload["id"] as? String,
@@ -40,13 +51,12 @@ private struct NativeKeyboardAttachmentAction: Equatable {
 /// This mirrors the archived native composer approach: the Flutter text input
 /// remains first responder while its `inputView` is temporarily replaced by a
 /// native attachment surface.
-final class NativeKeyboardAttachmentBridge {
+final class NativeKeyboardAttachmentBridge: NativeKeyboardAttachmentHostApi {
     static let shared = NativeKeyboardAttachmentBridge()
 
-    private static let channelName = "conduit/keyboard_attachment"
     private static var didSwizzleInputView = false
 
-    private var channel: FlutterMethodChannel?
+    private var flutterApi: NativeKeyboardAttachmentFlutterApi?
     private weak var capturedFirstResponder: UIResponder?
     private weak var activeResponder: UIResponder?
     private var actions: [NativeKeyboardAttachmentAction] = []
@@ -73,39 +83,72 @@ final class NativeKeyboardAttachmentBridge {
     }
 
     func configure(messenger: FlutterBinaryMessenger) {
-        channel = FlutterMethodChannel(
-            name: Self.channelName,
-            binaryMessenger: messenger
+        flutterApi = NativeKeyboardAttachmentFlutterApi(binaryMessenger: messenger)
+        NativeKeyboardAttachmentHostApiSetup.setUp(
+            binaryMessenger: messenger,
+            api: self
         )
-        channel?.setMethodCallHandler { [weak self] call, result in
-            DispatchQueue.main.async {
-                self?.handle(call, result: result)
-            }
-        }
     }
 
     fileprivate func capture(firstResponder: UIResponder) {
         capturedFirstResponder = firstResponder
     }
 
-    private func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
-        switch call.method {
-        case "configure":
-            updateConfiguration(from: call.arguments)
-            result(nil)
-        case "hide":
-            hide()
-            result(nil)
-        case "toggle":
-            if isPresented {
-                hide()
-                result(true)
-            } else {
-                updateConfiguration(from: call.arguments)
-                result(show())
-            }
-        default:
-            result(FlutterMethodNotImplemented)
+    func configure(config: PlatformKeyboardAttachmentConfig) throws {
+        if Thread.isMainThread {
+            updateConfiguration(from: config)
+            return
+        }
+
+        DispatchQueue.main.sync { [weak self] in
+            self?.updateConfiguration(from: config)
+        }
+    }
+
+    func toggle(config: PlatformKeyboardAttachmentConfig) throws -> Bool {
+        if Thread.isMainThread {
+            return toggleOnMainThread(config: config)
+        }
+
+        var didShow = false
+        DispatchQueue.main.sync { [weak self] in
+            didShow = self?.toggleOnMainThread(config: config) ?? false
+        }
+        return didShow
+    }
+
+    func hide() throws {
+        if Thread.isMainThread {
+            hideAttachmentView()
+            return
+        }
+
+        DispatchQueue.main.sync { [weak self] in
+            self?.hideAttachmentView()
+        }
+    }
+
+    private func toggleOnMainThread(
+        config: PlatformKeyboardAttachmentConfig
+    ) -> Bool {
+        if isPresented {
+            hideAttachmentView()
+            return true
+        }
+        updateConfiguration(from: config)
+        return show()
+    }
+
+    private func updateConfiguration(
+        from config: PlatformKeyboardAttachmentConfig
+    ) {
+        let parsedActions = config.actions.map(NativeKeyboardAttachmentAction.init)
+        guard parsedActions != actions else {
+            return
+        }
+        actions = parsedActions
+        if isPresented {
+            attachmentInputView.update(actions: parsedActions)
         }
     }
 
@@ -183,7 +226,7 @@ final class NativeKeyboardAttachmentBridge {
         return attachmentInputView
     }
 
-    private func hide() {
+    private func hideAttachmentView() {
         shouldPresentOnNextFocus = false
         guard let responder = activeResponder else {
             sendVisibilityChanged(false)
@@ -219,20 +262,18 @@ final class NativeKeyboardAttachmentBridge {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
 
         if action.dismissesKeyboard {
-            hide()
+            hideAttachmentView()
         }
 
-        channel?.invokeMethod(
-            "onAction",
-            arguments: ["id": action.id]
-        )
+        flutterApi?.onAction(
+            event: PlatformKeyboardAttachmentActionEvent(id: action.id)
+        ) { _ in }
     }
 
     private func sendVisibilityChanged(_ isVisible: Bool) {
-        channel?.invokeMethod(
-            "onVisibilityChanged",
-            arguments: ["visible": isVisible]
-        )
+        flutterApi?.onVisibilityChanged(
+            event: PlatformKeyboardAttachmentVisibilityEvent(visible: isVisible)
+        ) { _ in }
     }
 
     private func currentFirstResponder() -> UIResponder? {
@@ -297,7 +338,7 @@ final class NativeKeyboardAttachmentBridge {
     @objc
     private func handleKeyboardDidHide(_: Notification) {
         guard isPresented else { return }
-        hide()
+        hideAttachmentView()
     }
 
     private var activeResponderView: UIView? {

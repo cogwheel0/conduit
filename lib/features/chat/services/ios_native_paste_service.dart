@@ -1,18 +1,18 @@
 import 'dart:async';
+import 'dart:typed_data';
 
-import 'package:flutter/services.dart';
-
-const _iosNativePasteChannel = MethodChannel('conduit/native_paste');
+import '../../../core/platform/conduit_platform_apis.g.dart';
 
 /// Streams paste payloads delivered by the native iOS text input bridge.
 class IosNativePasteService {
   IosNativePasteService._() {
-    _iosNativePasteChannel.setMethodCallHandler(_handleMethodCall);
+    NativePasteFlutterApi.setUp(_IosNativePasteFlutterApi(this));
   }
 
   /// Shared singleton for the app-owned iOS paste bridge.
   static final IosNativePasteService instance = IosNativePasteService._();
 
+  final NativePasteHostApi _api = NativePasteHostApi();
   final StreamController<IosNativePastePayload> _pasteController =
       StreamController<IosNativePastePayload>.broadcast();
 
@@ -26,30 +26,50 @@ class IosNativePasteService {
   /// continue to handle it.
   Future<bool> requestPaste() async {
     try {
-      return await _iosNativePasteChannel.invokeMethod<bool>('requestPaste') ??
-          false;
+      return await _api.requestPaste();
     } catch (_) {
       return false;
     }
   }
 
-  Future<void> _handleMethodCall(MethodCall call) async {
-    if (call.method != 'onPaste') {
-      return;
-    }
+  void _handlePaste(PlatformNativePastePayload payload) {
+    _pasteController.add(IosNativePastePayload.fromPlatform(payload));
+  }
+}
 
-    final arguments = call.arguments;
-    if (arguments is! Map) {
-      return;
-    }
+class _IosNativePasteFlutterApi implements NativePasteFlutterApi {
+  const _IosNativePasteFlutterApi(this.service);
 
-    _pasteController.add(IosNativePastePayload.fromMap(arguments));
+  final IosNativePasteService service;
+
+  @override
+  void onPaste(PlatformNativePastePayload payload) {
+    service._handlePaste(payload);
   }
 }
 
 /// Represents a payload emitted by the native iOS paste bridge.
 sealed class IosNativePastePayload {
   const IosNativePastePayload();
+
+  factory IosNativePastePayload.fromPlatform(
+    PlatformNativePastePayload payload,
+  ) {
+    switch (payload.kind) {
+      case PlatformNativePasteKind.text:
+        return IosNativeTextPaste(payload.text ?? '');
+      case PlatformNativePasteKind.images:
+        final items =
+            payload.items
+                ?.map(IosNativeImagePasteItem.fromPlatform)
+                .where((item) => item.data.isNotEmpty)
+                .toList(growable: false) ??
+            const <IosNativeImagePasteItem>[];
+        return IosNativeImagePaste(items);
+      case PlatformNativePasteKind.unsupported:
+        return const IosNativeUnsupportedPaste();
+    }
+  }
 
   factory IosNativePastePayload.fromMap(Map<dynamic, dynamic> map) {
     final kind = map['kind'] as String?;
@@ -93,6 +113,12 @@ final class IosNativeUnsupportedPaste extends IosNativePastePayload {
 /// A pasted image item from the native iOS bridge.
 final class IosNativeImagePasteItem {
   const IosNativeImagePasteItem({required this.data, required this.mimeType});
+
+  factory IosNativeImagePasteItem.fromPlatform(
+    PlatformNativePasteImageItem item,
+  ) {
+    return IosNativeImagePasteItem(data: item.data, mimeType: item.mimeType);
+  }
 
   factory IosNativeImagePasteItem.fromMap(Map<dynamic, dynamic> map) {
     final data = switch (map['data']) {

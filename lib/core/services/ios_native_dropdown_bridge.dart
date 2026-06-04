@@ -1,11 +1,10 @@
 import 'dart:io' show Platform;
 
-import 'package:flutter/widgets.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 
+import '../platform/conduit_platform_apis.g.dart';
 import '../utils/debug_logger.dart';
-
-const _iosNativeDropdownChannel = MethodChannel('conduit/native_dropdown');
 
 void _logNativeDropdownBridgeError(
   String method,
@@ -27,6 +26,8 @@ class IosNativeDropdownBridge {
 
   static final IosNativeDropdownBridge instance = IosNativeDropdownBridge._();
 
+  final NativeDropdownHostApi _api = NativeDropdownHostApi();
+
   Future<String?> show({
     required List<IosNativeDropdownOption> options,
     String? title,
@@ -37,13 +38,15 @@ class IosNativeDropdownBridge {
   }) async {
     if (!Platform.isIOS || options.isEmpty) return null;
     try {
-      return await _iosNativeDropdownChannel.invokeMethod<String>('show', {
-        'title': title,
-        'message': message,
-        'cancelLabel': cancelLabel,
-        'options': options.map((option) => option.toMap()).toList(),
-        if (sourceRect != null) 'sourceRect': _rectToMap(sourceRect),
-      });
+      return await _api.show(
+        PlatformDropdownRequest(
+          title: title,
+          message: message,
+          cancelLabel: cancelLabel,
+          options: options.map((option) => option.toPlatform()).toList(),
+          sourceRect: sourceRect == null ? null : _rectToPlatform(sourceRect),
+        ),
+      );
     } on PlatformException catch (error, stackTrace) {
       _logNativeDropdownBridgeError(
         'show',
@@ -83,13 +86,13 @@ class IosNativeDropdownBridge {
     );
   }
 
-  Map<String, double> _rectToMap(Rect rect) {
-    return {
-      'x': rect.left,
-      'y': rect.top,
-      'width': rect.width,
-      'height': rect.height,
-    };
+  PlatformRect _rectToPlatform(Rect rect) {
+    return PlatformRect(
+      x: rect.left,
+      y: rect.top,
+      width: rect.width,
+      height: rect.height,
+    );
   }
 
   Rect? _globalRectForContext(BuildContext context) {
@@ -128,5 +131,16 @@ class IosNativeDropdownOption {
       'enabled': enabled,
       'destructive': destructive,
     };
+  }
+
+  PlatformDropdownOption toPlatform() {
+    return PlatformDropdownOption(
+      id: id,
+      label: label,
+      subtitle: subtitle,
+      sfSymbol: sfSymbol,
+      enabled: enabled,
+      destructive: destructive,
+    );
   }
 }

@@ -1,20 +1,19 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 
-import 'package:flutter/services.dart';
+import '../../../core/platform/conduit_platform_apis.g.dart';
 
-const _iosKeyboardAttachmentChannel = MethodChannel(
-  'conduit/keyboard_attachment',
-);
-
-class IosKeyboardAttachmentBridge {
+class IosKeyboardAttachmentBridge
+    implements NativeKeyboardAttachmentFlutterApi {
   IosKeyboardAttachmentBridge._() {
-    _iosKeyboardAttachmentChannel.setMethodCallHandler(_handleMethodCall);
+    NativeKeyboardAttachmentFlutterApi.setUp(this);
   }
 
   static final IosKeyboardAttachmentBridge instance =
       IosKeyboardAttachmentBridge._();
 
+  final NativeKeyboardAttachmentHostApi _api =
+      NativeKeyboardAttachmentHostApi();
   final StreamController<IosKeyboardAttachmentEvent> _events =
       StreamController<IosKeyboardAttachmentEvent>.broadcast();
 
@@ -26,7 +25,7 @@ class IosKeyboardAttachmentBridge {
     if (!Platform.isIOS || actions.isEmpty) {
       return Future<void>.value();
     }
-    return _invokeVoid('configure', actions: actions);
+    return _invokeVoid(() => _api.configure(_platformConfig(actions)));
   }
 
   Future<bool> toggle({
@@ -36,66 +35,47 @@ class IosKeyboardAttachmentBridge {
       return false;
     }
 
-    return _invokeBool('toggle', actions: actions);
+    return _invokeBool(() => _api.toggle(_platformConfig(actions)));
   }
 
   Future<void> hide() {
     if (!Platform.isIOS) {
       return Future<void>.value();
     }
-    return _invokeVoid('hide');
+    return _invokeVoid(_api.hide);
   }
 
-  Future<void> _invokeVoid(
-    String method, {
-    List<IosKeyboardAttachmentActionConfig> actions = const [],
-  }) async {
-    final payload = actions.isEmpty
-        ? null
-        : {'actions': actions.map((action) => action.toMap()).toList()};
-
+  Future<void> _invokeVoid(Future<void> Function() invoke) async {
     try {
-      await _iosKeyboardAttachmentChannel.invokeMethod<void>(method, payload);
+      await invoke();
     } catch (_) {}
   }
 
-  Future<bool> _invokeBool(
-    String method, {
-    List<IosKeyboardAttachmentActionConfig> actions = const [],
-  }) async {
-    final payload = actions.isEmpty
-        ? null
-        : {'actions': actions.map((action) => action.toMap()).toList()};
-
+  Future<bool> _invokeBool(Future<bool> Function() invoke) async {
     try {
-      return await _iosKeyboardAttachmentChannel.invokeMethod<bool>(
-            method,
-            payload,
-          ) ??
-          false;
+      return await invoke();
     } catch (_) {
       return false;
     }
   }
 
-  Future<void> _handleMethodCall(MethodCall call) async {
-    final arguments = call.arguments;
-    if (arguments is! Map) {
-      return;
-    }
+  PlatformKeyboardAttachmentConfig _platformConfig(
+    List<IosKeyboardAttachmentActionConfig> actions,
+  ) {
+    return PlatformKeyboardAttachmentConfig(
+      actions: actions.map((action) => action.toPlatform()).toList(),
+    );
+  }
 
-    switch (call.method) {
-      case 'onAction':
-        final id = arguments['id'] as String?;
-        if (id == null || id.isEmpty) return;
-        _events.add(IosKeyboardAttachmentAction(id));
-      case 'onVisibilityChanged':
-        _events.add(
-          IosKeyboardAttachmentVisibilityChanged(
-            visible: arguments['visible'] == true,
-          ),
-        );
-    }
+  @override
+  void onAction(PlatformKeyboardAttachmentActionEvent event) {
+    if (event.id.isEmpty) return;
+    _events.add(IosKeyboardAttachmentAction(event.id));
+  }
+
+  @override
+  void onVisibilityChanged(PlatformKeyboardAttachmentVisibilityEvent event) {
+    _events.add(IosKeyboardAttachmentVisibilityChanged(visible: event.visible));
   }
 }
 
@@ -131,6 +111,19 @@ class IosKeyboardAttachmentActionConfig {
       'selected': selected,
       'dismissesKeyboard': dismissesKeyboard,
     };
+  }
+
+  PlatformKeyboardAttachmentActionConfig toPlatform() {
+    return PlatformKeyboardAttachmentActionConfig(
+      id: id,
+      label: label,
+      subtitle: subtitle,
+      sfSymbol: sfSymbol,
+      section: section,
+      enabled: enabled,
+      selected: selected,
+      dismissesKeyboard: dismissesKeyboard,
+    );
   }
 }
 

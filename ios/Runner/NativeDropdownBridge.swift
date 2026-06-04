@@ -13,6 +13,15 @@ private struct NativeDropdownOption {
     let enabled: Bool
     let destructive: Bool
 
+    init(_ option: PlatformDropdownOption) {
+        id = option.id
+        label = option.label
+        subtitle = option.subtitle
+        sfSymbol = option.sfSymbol
+        enabled = option.enabled
+        destructive = option.destructive
+    }
+
     init?(_ payload: [String: Any]) {
         guard
             let id = payload["id"] as? String,
@@ -38,6 +47,27 @@ private struct NativeDropdownConfiguration {
     let cancelLabel: String
     let options: [NativeDropdownOption]
     let sourceRect: CGRect?
+
+    init?(_ request: PlatformDropdownRequest) {
+        options = request.options.map(NativeDropdownOption.init)
+        guard !options.isEmpty else {
+            return nil
+        }
+        title = request.title
+        message = request.message
+        cancelLabel = request.cancelLabel
+            ?? dropdownLocalized("native.cancel", "Cancel")
+        if let rect = request.sourceRect {
+            sourceRect = CGRect(
+                x: rect.x,
+                y: rect.y,
+                width: rect.width,
+                height: rect.height
+            )
+        } else {
+            sourceRect = nil
+        }
+    }
 
     init?(_ arguments: Any?) {
         guard let payload = arguments as? [String: Any] else {
@@ -72,60 +102,43 @@ private struct NativeDropdownConfiguration {
 }
 
 /// Presents simple option lists with native UIKit menus/action sheets.
-final class NativeDropdownBridge {
+final class NativeDropdownBridge: NativeDropdownHostApi {
     static let shared = NativeDropdownBridge()
-
-    private static let channelName = "conduit/native_dropdown"
-
-    private var channels: [FlutterMethodChannel] = []
 
     private init() {}
 
     func configure(messenger: FlutterBinaryMessenger) {
-        let channel = FlutterMethodChannel(
-            name: Self.channelName,
-            binaryMessenger: messenger
-        )
-        channels.append(channel)
-        channel.setMethodCallHandler { [weak self] call, result in
-            DispatchQueue.main.async {
-                self?.handle(call, result: result)
-            }
-        }
+        NativeDropdownHostApiSetup.setUp(binaryMessenger: messenger, api: self)
     }
 
-    private func handle(
-        _ call: FlutterMethodCall,
-        result: @escaping FlutterResult
+    func show(
+        request: PlatformDropdownRequest,
+        completion: @escaping (Result<String?, Error>) -> Void
     ) {
-        switch call.method {
-        case "show":
-            guard let configuration = NativeDropdownConfiguration(call.arguments)
+        DispatchQueue.main.async { [weak self] in
+            guard let configuration = NativeDropdownConfiguration(request)
             else {
-                result(FlutterError(
+                completion(.failure(PigeonError(
                     code: "INVALID_ARGS",
                     message: dropdownLocalized("native.missingDropdownOptions", "Missing dropdown options"),
                     details: nil
-                ))
+                )))
                 return
             }
-            show(configuration, result: result)
-
-        default:
-            result(FlutterMethodNotImplemented)
+            self?.show(configuration, completion: completion)
         }
     }
 
     private func show(
         _ configuration: NativeDropdownConfiguration,
-        result: @escaping FlutterResult
+        completion: @escaping (Result<String?, Error>) -> Void
     ) {
         guard let presenter = topViewController() else {
-            result(FlutterError(
+            completion(.failure(PigeonError(
                 code: "PRESENTATION_FAILED",
                 message: dropdownLocalized("native.unablePresentDropdown", "Unable to present native dropdown"),
                 details: nil
-            ))
+            )))
             return
         }
 
@@ -140,7 +153,7 @@ final class NativeDropdownBridge {
                 ? .destructive
                 : .default
             let action = UIAlertAction(title: option.label, style: style) { _ in
-                result(option.id)
+                completion(.success(option.id))
             }
             action.isEnabled = option.enabled
             if let sfSymbol = option.sfSymbol,
@@ -152,7 +165,7 @@ final class NativeDropdownBridge {
 
         controller.addAction(
             UIAlertAction(title: configuration.cancelLabel, style: .cancel) { _ in
-                result(nil)
+                completion(.success(nil))
             }
         )
 

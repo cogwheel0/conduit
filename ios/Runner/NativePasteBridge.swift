@@ -4,30 +4,23 @@ import UIKit
 import UniformTypeIdentifiers
 
 /// Exposes native iOS paste events from Flutter's text input view to Dart.
-final class NativePasteBridge {
+final class NativePasteBridge: NativePasteHostApi {
     static let shared = NativePasteBridge()
 
-    private static let channelName = "conduit/native_paste"
     private static var didSwizzle = false
 
-    private var channel: FlutterMethodChannel?
+    private var flutterApi: NativePasteFlutterApi?
 
     private init() {}
 
     func configure(messenger: FlutterBinaryMessenger) {
-        channel = FlutterMethodChannel(
-            name: Self.channelName,
-            binaryMessenger: messenger
-        )
-        channel?.setMethodCallHandler { [weak self] call, result in
-            guard call.method == "requestPaste" else {
-                result(FlutterMethodNotImplemented)
-                return
-            }
-
-            result(self?.handlePasteAction() ?? false)
-        }
+        flutterApi = NativePasteFlutterApi(binaryMessenger: messenger)
+        NativePasteHostApiSetup.setUp(binaryMessenger: messenger, api: self)
         Self.installSwizzlesIfNeeded()
+    }
+
+    func requestPaste() throws -> Bool {
+        handlePasteAction()
     }
 
     private static func installSwizzlesIfNeeded() {
@@ -152,31 +145,28 @@ final class NativePasteBridge {
             return false
         }
 
-        guard let kind = payload["kind"] as? String, kind == "images" else {
+        guard payload.kind == .images else {
             return false
         }
 
-        DispatchQueue.main.async { [channel] in
-            channel?.invokeMethod("onPaste", arguments: payload)
+        DispatchQueue.main.async { [flutterApi] in
+            flutterApi?.onPaste(payload: payload) { _ in }
         }
         return true
     }
 
-    private func buildPayload() -> [String: Any]? {
+    private func buildPayload() -> PlatformNativePastePayload? {
         let pasteboard = UIPasteboard.general
         let imageItems = extractImageItems(from: pasteboard)
         if !imageItems.isEmpty {
-            return [
-                "kind": "images",
-                "items": imageItems,
-            ]
+            return PlatformNativePastePayload(
+                kind: .images,
+                items: imageItems
+            )
         }
 
         if let text = pasteboard.string, !text.isEmpty {
-            return [
-                "kind": "text",
-                "text": text,
-            ]
+            return PlatformNativePastePayload(kind: .text, text: text)
         }
 
         return nil
@@ -184,7 +174,7 @@ final class NativePasteBridge {
 
     private func extractImageItems(
         from pasteboard: UIPasteboard
-    ) -> [[String: Any]] {
+    ) -> [PlatformNativePasteImageItem] {
         let supportedTypes: [(UTType, String)] = [
             (.gif, "image/gif"),
             (.png, "image/png"),
@@ -197,7 +187,7 @@ final class NativePasteBridge {
         ]
 
         let itemCount = max(pasteboard.numberOfItems, 1)
-        var results: [[String: Any]] = []
+        var results: [PlatformNativePasteImageItem] = []
 
         for index in 0..<itemCount {
             let indexSet = IndexSet(integer: index)
@@ -215,10 +205,10 @@ final class NativePasteBridge {
                     continue
                 }
 
-                results.append([
-                    "mimeType": mimeType,
-                    "data": FlutterStandardTypedData(bytes: data),
-                ])
+                results.append(PlatformNativePasteImageItem(
+                    mimeType: mimeType,
+                    data: FlutterStandardTypedData(bytes: data)
+                ))
                 matched = true
                 break
             }
@@ -228,10 +218,10 @@ final class NativePasteBridge {
             if let images = pasteboard.images,
                index < images.count,
                let data = images[index].pngData() {
-                results.append([
-                    "mimeType": "image/png",
-                    "data": FlutterStandardTypedData(bytes: data),
-                ])
+                results.append(PlatformNativePasteImageItem(
+                    mimeType: "image/png",
+                    data: FlutterStandardTypedData(bytes: data)
+                ))
             }
         }
 

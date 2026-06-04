@@ -1,13 +1,12 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../platform/conduit_platform_apis.g.dart';
 import '../providers/app_providers.dart';
 import '../utils/debug_logger.dart';
 import 'navigation_service.dart';
@@ -20,54 +19,55 @@ import '../../shared/services/tasks/task_queue.dart';
 
 part 'app_intents_service.g.dart';
 
-const _askIntentId = 'app.cogwheel.conduit.ask_chat';
-const _voiceCallIntentId = 'app.cogwheel.conduit.start_voice_call';
-const _sendTextIntentId = 'app.cogwheel.conduit.send_text';
-const _sendUrlIntentId = 'app.cogwheel.conduit.send_url';
-const _sendImageIntentId = 'app.cogwheel.conduit.send_image';
-
-/// Method channel for receiving App Intent invocations from native iOS code.
-/// Native Swift code defines the intents with proper titles and metadata.
-/// This Flutter code handles the business logic (navigation, state management).
-const _appIntentsChannel = MethodChannel('conduit/app_intents');
-
 /// Handles iOS App Intents for Siri/Shortcuts.
 ///
 /// Native Swift code in AppDelegate.swift defines the App Intents with proper
 /// titles, descriptions, and parameters. This coordinator sets up a method
 /// channel to receive invocations and execute Flutter-side business logic.
 @Riverpod(keepAlive: true)
-class AppIntentCoordinator extends _$AppIntentCoordinator {
+class AppIntentCoordinator extends _$AppIntentCoordinator
+    implements AppIntentFlutterApi {
   @override
   FutureOr<void> build() {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) {
       return null;
     }
-    _setupMethodChannel();
+    AppIntentFlutterApi.setUp(this);
+    ref.onDispose(() => AppIntentFlutterApi.setUp(null));
   }
 
-  void _setupMethodChannel() {
-    _appIntentsChannel.setMethodCallHandler(_handleMethodCall);
+  @override
+  Future<PlatformAppIntentResponse> askChat(String? prompt) {
+    return _dispatchAppIntent(() => _handleAskIntent({'prompt': prompt}));
   }
 
-  Future<Map<String, dynamic>> _handleMethodCall(MethodCall call) async {
-    final parameters = (call.arguments as Map?)?.cast<String, dynamic>() ?? {};
+  @override
+  Future<PlatformAppIntentResponse> startVoiceCall() {
+    return _dispatchAppIntent(() => _handleVoiceCallIntent(const {}));
+  }
 
+  @override
+  Future<PlatformAppIntentResponse> sendText(String text) {
+    return _dispatchAppIntent(() => _handleSendTextIntent({'text': text}));
+  }
+
+  @override
+  Future<PlatformAppIntentResponse> sendUrl(String url) {
+    return _dispatchAppIntent(() => _handleSendUrlIntent({'url': url}));
+  }
+
+  @override
+  Future<PlatformAppIntentResponse> sendImage(
+    PlatformAppIntentImagePayload payload,
+  ) {
+    return _dispatchAppIntent(() => _handleSendImageIntent(payload));
+  }
+
+  Future<PlatformAppIntentResponse> _dispatchAppIntent(
+    Future<Map<String, dynamic>> Function() handler,
+  ) async {
     try {
-      switch (call.method) {
-        case _askIntentId:
-          return await _handleAskIntent(parameters);
-        case _voiceCallIntentId:
-          return await _handleVoiceCallIntent(parameters);
-        case _sendTextIntentId:
-          return await _handleSendTextIntent(parameters);
-        case _sendUrlIntentId:
-          return await _handleSendUrlIntent(parameters);
-        case _sendImageIntentId:
-          return await _handleSendImageIntent(parameters);
-        default:
-          return {'success': false, 'error': 'Unknown intent: ${call.method}'};
-      }
+      return _responseFromMap(await handler());
     } catch (error, stackTrace) {
       DebugLogger.error(
         'app-intents-dispatch',
@@ -75,8 +75,16 @@ class AppIntentCoordinator extends _$AppIntentCoordinator {
         error: error,
         stackTrace: stackTrace,
       );
-      return {'success': false, 'error': error.toString()};
+      return PlatformAppIntentResponse(success: false, error: error.toString());
     }
+  }
+
+  PlatformAppIntentResponse _responseFromMap(Map<String, dynamic> result) {
+    return PlatformAppIntentResponse(
+      success: result['success'] == true,
+      value: result['value'] as String?,
+      error: result['error'] as String?,
+    );
   }
 
   Future<Map<String, dynamic>> _handleAskIntent(
@@ -261,21 +269,20 @@ class AppIntentCoordinator extends _$AppIntentCoordinator {
   }
 
   Future<Map<String, dynamic>> _handleSendImageIntent(
-    Map<String, dynamic> parameters,
+    PlatformAppIntentImagePayload payload,
   ) async {
-    final base64 = parameters['bytes'] as String?;
-    if (base64 == null || base64.isEmpty) {
+    if (payload.bytes.isEmpty) {
       return {'success': false, 'error': 'No image data provided.'};
     }
-    final filenameRaw = (parameters['filename'] as String?)?.trim();
+    final filenameRaw = payload.filename.trim();
 
     try {
       final file = await _materializeTempFile(
-        base64,
+        payload.bytes,
         preferredName: filenameRaw,
       );
-      await _attachFiles([file]);
       await _prepareChatWithOptions(focusComposer: true, resetChat: true);
+      await _attachFiles([file]);
       return {'success': true, 'value': 'Image attached in Conduit'};
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -342,10 +349,9 @@ class AppIntentCoordinator extends _$AppIntentCoordinator {
   }
 
   Future<File> _materializeTempFile(
-    String base64Data, {
+    Uint8List bytes, {
     String? preferredName,
   }) async {
-    final bytes = base64Decode(base64Data);
     const maxBytes = 20 * 1024 * 1024; // 20 MB guardrail
     if (bytes.length > maxBytes) {
       throw StateError('Image too large (max 20 MB).');
