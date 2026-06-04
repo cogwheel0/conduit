@@ -4409,38 +4409,40 @@ extension NativeModelSelectorTableViewController: UISearchResultsUpdating {
     }
 }
 
-private final class NativeModelTagLabel: UILabel {
-    private let textInsets = UIEdgeInsets(top: 2, left: 5, bottom: 2, right: 5)
-
+private final class NativeModelTagButton: UIButton {
     init(text: String) {
         super.init(frame: .zero)
-        self.text = text.uppercased()
-        font = .preferredFont(forTextStyle: .caption2)
-        adjustsFontForContentSizeCategory = true
-        textColor = .secondaryLabel
-        backgroundColor = .tertiarySystemFill
-        layer.cornerRadius = 4
-        clipsToBounds = true
-        numberOfLines = 1
-        lineBreakMode = .byTruncatingTail
+
+        var configuration = UIButton.Configuration.gray()
+        configuration.title = text.uppercased()
+        configuration.buttonSize = .mini
+        configuration.cornerStyle = .capsule
+        configuration.contentInsets = NSDirectionalEdgeInsets(
+            top: 2,
+            leading: 6,
+            bottom: 2,
+            trailing: 6
+        )
+        configuration.baseForegroundColor = .secondaryLabel
+        configuration.baseBackgroundColor = .quaternarySystemFill
+        configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer {
+            incoming in
+            var outgoing = incoming
+            outgoing.font = .preferredFont(forTextStyle: .caption2)
+            return outgoing
+        }
+        self.configuration = configuration
+
+        isUserInteractionEnabled = false
+        titleLabel?.adjustsFontForContentSizeCategory = true
+        titleLabel?.numberOfLines = 1
+        titleLabel?.lineBreakMode = .byTruncatingTail
         setContentHuggingPriority(.required, for: .horizontal)
         setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
     }
 
     required init?(coder: NSCoder) {
         nil
-    }
-
-    override var intrinsicContentSize: CGSize {
-        let size = super.intrinsicContentSize
-        return CGSize(
-            width: size.width + textInsets.left + textInsets.right,
-            height: size.height + textInsets.top + textInsets.bottom
-        )
-    }
-
-    override func drawText(in rect: CGRect) {
-        super.drawText(in: rect.inset(by: textInsets))
     }
 }
 
@@ -4620,13 +4622,19 @@ private final class NativeModelSelectorTableViewCell: UITableViewCell {
         if sortedTags.count > visibleTags.count {
             addTagLabel("+\(sortedTags.count - visibleTags.count)")
         }
+        if !sortedTags.isEmpty {
+            let spacer = UIView()
+            spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            spacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            tagsStack.addArrangedSubview(spacer)
+        }
         tagsStack.isHidden = sortedTags.isEmpty
     }
 
     private func addTagLabel(_ text: String) {
-        let label = NativeModelTagLabel(text: text)
-        label.widthAnchor.constraint(lessThanOrEqualToConstant: 120).isActive = true
-        tagsStack.addArrangedSubview(label)
+        let button = NativeModelTagButton(text: text)
+        button.widthAnchor.constraint(lessThanOrEqualToConstant: 120).isActive = true
+        tagsStack.addArrangedSubview(button)
     }
 
     private func configureViews() {
