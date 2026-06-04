@@ -710,6 +710,7 @@ class _HighlightedCodeText extends StatelessWidget {
 
     return RichText(
       text: TextSpan(style: rootStyle, children: children),
+      textScaler: MediaQuery.textScalerOf(context),
     );
   }
 }

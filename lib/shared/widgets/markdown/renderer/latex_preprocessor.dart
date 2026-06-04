@@ -208,7 +208,7 @@ class LatexPreprocessor {
     Future<void>? startupFuture,
   }) {
     final color = textStyle.color ?? Colors.black;
-    final fontSize = textStyle.fontSize ?? 14.0;
+    final baseFontSize = textStyle.fontSize ?? 14.0;
 
     Widget buildMath() {
       return Math2SVG(
@@ -219,7 +219,10 @@ class LatexPreprocessor {
         loadingWidgetBuilder: (_) => _buildLatexFallback(tex, textStyle),
         errorWidgetBuilder: (_, _) => _buildLatexFallback(tex, textStyle),
         formulaWidgetBuilder: (context, svg) {
-          final height = _svgExToPixels(svg, fontSize);
+          final scaledFontSize = MediaQuery.textScalerOf(
+            context,
+          ).scale(baseFontSize);
+          final height = _svgExToPixels(svg, scaledFontSize);
           return ColorFiltered(
             colorFilter: ColorFilter.mode(color, BlendMode.srcATop),
             child: JovialSvgImage.string(svg, height: height),

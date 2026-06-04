@@ -2251,8 +2251,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       fontWeight: FontWeight.w600,
       color: context.conduitTheme.textPrimary,
     );
+    final textScaler = MediaQuery.textScalerOf(context);
     final greetingHeight =
-        (greetingStyle.fontSize ?? 24) * (greetingStyle.height ?? 1.1);
+        textScaler.scale(greetingStyle.fontSize ?? 24) *
+        (greetingStyle.height ?? 1.1);
     final String? resolvedGreetingName = hasGreeting ? greetingName : null;
     final greetingText = resolvedGreetingName != null
         ? l10n.greetingTitle(resolvedGreetingName)
@@ -2355,8 +2357,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                       ],
                     ),
                   ] else ...[
-                    SizedBox(
-                      height: greetingHeight,
+                    ConstrainedBox(
+                      constraints: BoxConstraints(minHeight: greetingHeight),
                       child: AnimatedOpacity(
                         duration: const Duration(milliseconds: 260),
                         curve: Curves.easeOutCubic,

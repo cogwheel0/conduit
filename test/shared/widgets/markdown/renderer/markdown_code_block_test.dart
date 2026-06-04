@@ -41,4 +41,33 @@ void main() {
     expect(find.text('Show less'), findsOneWidget);
     expect(find.textContaining('"key60"', findRichText: true), findsOneWidget);
   });
+
+  testWidgets('highlighted code text respects system text scaling', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          home: MediaQuery(
+            data: const MediaQueryData(textScaler: TextScaler.linear(2.5)),
+            child: const Scaffold(
+              body: SingleChildScrollView(
+                child: ConduitMarkdownWidget(
+                  data: '```dart\nfinal x = 1;\n```',
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final scaledCodeRichText = tester
+        .widgetList<RichText>(find.byType(RichText))
+        .where((widget) => widget.text.toPlainText().contains('final x = 1;'));
+
+    expect(scaledCodeRichText, isNotEmpty);
+    expect(scaledCodeRichText.first.textScaler.scale(10), 25);
+  });
 }

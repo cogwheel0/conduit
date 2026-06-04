@@ -24,7 +24,6 @@ sealed class UserSettings with _$UserSettings {
     // Interface preferences
     @Default('comfortable')
     String density, // 'compact', 'comfortable', 'spacious'
-    @Default(14.0) double fontSize,
     @Default('en') String language,
 
     // Accessibility settings

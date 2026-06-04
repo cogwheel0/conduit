@@ -45,7 +45,6 @@ class SettingsService {
   static const String _disableHapticsWhileStreamingKey =
       PreferenceKeys.disableHapticsWhileStreaming;
   static const String _highContrastKey = PreferenceKeys.highContrast;
-  static const String _largeTextKey = PreferenceKeys.largeText;
   static const String _darkModeKey = PreferenceKeys.darkMode;
   static const String _defaultModelKey = PreferenceKeys.defaultModel;
   // Voice input settings
@@ -144,17 +143,6 @@ class SettingsService {
     return _putPreference(_highContrastKey, value);
   }
 
-  /// Get large text preference
-  static Future<bool> getLargeText() {
-    final value = _getPreference<bool>(_largeTextKey);
-    return Future.value(value ?? false);
-  }
-
-  /// Set large text preference
-  static Future<void> setLargeText(bool value) {
-    return _putPreference(_largeTextKey, value);
-  }
-
   /// Get dark mode preference
   static Future<bool> getDarkMode() {
     final value = _getPreference<bool>(_darkModeKey);
@@ -199,7 +187,6 @@ class SettingsService {
       _hapticFeedbackKey: settings.hapticFeedback,
       _disableHapticsWhileStreamingKey: settings.disableHapticsWhileStreaming,
       _highContrastKey: settings.highContrast,
-      _largeTextKey: settings.largeText,
       _darkModeKey: settings.darkMode,
       _voiceHoldToTalkKey: settings.voiceHoldToTalk,
       _voiceAutoSendKey: settings.voiceAutoSendFinal,
@@ -509,22 +496,6 @@ class SettingsService {
     return Duration(milliseconds: adjustedMs.clamp(50, 1000));
   }
 
-  /// Get text scale factor considering user preferences
-  static double getEffectiveTextScaleFactor(
-    BuildContext context,
-    AppSettings settings,
-  ) {
-    final textScaler = MediaQuery.of(context).textScaler;
-    double baseScale = textScaler.scale(1.0);
-
-    // Apply large text preference
-    if (settings.largeText) {
-      baseScale *= 1.3;
-    }
-
-    return baseScale;
-  }
-
   static AppSettings _loadSettingsSync(Box<dynamic> box) {
     return AppSettings(
       reduceMotion: (box.get(_reduceMotionKey) as bool?) ?? false,
@@ -533,7 +504,6 @@ class SettingsService {
       disableHapticsWhileStreaming:
           (box.get(_disableHapticsWhileStreamingKey) as bool?) ?? false,
       highContrast: (box.get(_highContrastKey) as bool?) ?? false,
-      largeText: (box.get(_largeTextKey) as bool?) ?? false,
       darkMode: (box.get(_darkModeKey) as bool?) ?? true,
       defaultModel: box.get(_defaultModelKey) as String?,
       voiceLocaleId: box.get(_voiceLocaleKey) as String?,
@@ -588,7 +558,6 @@ class AppSettings {
   final bool hapticFeedback;
   final bool disableHapticsWhileStreaming;
   final bool highContrast;
-  final bool largeText;
   final bool darkMode;
   final String? defaultModel;
   final String? voiceLocaleId;
@@ -617,7 +586,6 @@ class AppSettings {
     this.hapticFeedback = true,
     this.disableHapticsWhileStreaming = false,
     this.highContrast = false,
-    this.largeText = false,
     this.darkMode = true,
     this.defaultModel,
     this.voiceLocaleId,
@@ -648,7 +616,6 @@ class AppSettings {
     bool? hapticFeedback,
     bool? disableHapticsWhileStreaming,
     bool? highContrast,
-    bool? largeText,
     bool? darkMode,
     Object? defaultModel = const _DefaultValue(),
     Object? voiceLocaleId = const _DefaultValue(),
@@ -679,7 +646,6 @@ class AppSettings {
       disableHapticsWhileStreaming:
           disableHapticsWhileStreaming ?? this.disableHapticsWhileStreaming,
       highContrast: highContrast ?? this.highContrast,
-      largeText: largeText ?? this.largeText,
       darkMode: darkMode ?? this.darkMode,
       defaultModel: defaultModel is _DefaultValue
           ? this.defaultModel
@@ -725,7 +691,6 @@ class AppSettings {
         other.hapticFeedback == hapticFeedback &&
         other.disableHapticsWhileStreaming == disableHapticsWhileStreaming &&
         other.highContrast == highContrast &&
-        other.largeText == largeText &&
         other.darkMode == darkMode &&
         other.defaultModel == defaultModel &&
         other.voiceLocaleId == voiceLocaleId &&
@@ -758,7 +723,6 @@ class AppSettings {
       hapticFeedback,
       disableHapticsWhileStreaming,
       highContrast,
-      largeText,
       darkMode,
       defaultModel,
       voiceLocaleId,
@@ -851,11 +815,6 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
   Future<void> setHighContrast(bool value) async {
     state = state.copyWith(highContrast: value);
     await SettingsService.setHighContrast(value);
-  }
-
-  Future<void> setLargeText(bool value) async {
-    state = state.copyWith(largeText: value);
-    await SettingsService.setLargeText(value);
   }
 
   Future<void> setDarkMode(bool value) async {

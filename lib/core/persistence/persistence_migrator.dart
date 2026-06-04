@@ -85,7 +85,6 @@ class PersistenceMigrator {
     copyBool(PreferenceKeys.hapticFeedback);
     copyBool(PreferenceKeys.disableHapticsWhileStreaming);
     copyBool(PreferenceKeys.highContrast);
-    copyBool(PreferenceKeys.largeText);
     copyBool(PreferenceKeys.darkMode);
     copyString(PreferenceKeys.defaultModel);
     copyString(PreferenceKeys.voiceLocaleId);
@@ -207,7 +206,7 @@ class PersistenceMigrator {
       PreferenceKeys.hapticFeedback,
       PreferenceKeys.disableHapticsWhileStreaming,
       PreferenceKeys.highContrast,
-      PreferenceKeys.largeText,
+      'large_text',
       PreferenceKeys.darkMode,
       PreferenceKeys.defaultModel,
       PreferenceKeys.voiceLocaleId,

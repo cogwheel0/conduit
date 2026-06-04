@@ -515,7 +515,6 @@ void main() {
       check(settings.maxTokens).equals(2048);
       check(settings.streamResponses).isFalse();
       check(settings.density).equals('comfortable');
-      check(settings.fontSize).equals(14.0);
       check(settings.language).equals('en');
       check(settings.reduceMotion).isFalse();
       check(settings.hapticFeedback).isTrue();
@@ -534,7 +533,6 @@ void main() {
         'saveConversations': false,
         'shareUsageData': true,
         'density': 'compact',
-        'fontSize': 16.0,
         'language': 'fr',
         'reduceMotion': true,
         'hapticFeedback': false,

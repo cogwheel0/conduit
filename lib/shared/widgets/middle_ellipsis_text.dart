@@ -38,11 +38,13 @@ class MiddleEllipsisText extends StatelessWidget {
           context,
         ).style.merge(style);
         final TextDirection direction = Directionality.of(context);
+        final TextScaler textScaler = MediaQuery.textScalerOf(context);
         final double maxWidth = constraints.maxWidth;
         final key = _MiddleEllipsisCacheKey(
           text: safeText,
           style: effectiveStyle,
           textDirection: direction,
+          textScaler: textScaler,
           maxWidth: maxWidth,
           ellipsis: ellipsis,
         );
@@ -64,6 +66,7 @@ class MiddleEllipsisText extends StatelessWidget {
         final fullPainter = TextPainter(
           text: fullSpan,
           textDirection: direction,
+          textScaler: textScaler,
           maxLines: 1,
         )..layout(minWidth: 0, maxWidth: double.infinity);
 
@@ -90,6 +93,7 @@ class MiddleEllipsisText extends StatelessWidget {
         final ellipsisPainter = TextPainter(
           text: ellipsisSpan,
           textDirection: direction,
+          textScaler: textScaler,
           maxLines: 1,
         )..layout(minWidth: 0, maxWidth: double.infinity);
         final double _ = ellipsisPainter.width; // hint width; not used directly
@@ -121,6 +125,7 @@ class MiddleEllipsisText extends StatelessWidget {
           final trialPainter = TextPainter(
             text: trialSpan,
             textDirection: direction,
+            textScaler: textScaler,
             maxLines: 1,
           )..layout(minWidth: 0, maxWidth: double.infinity);
 
@@ -190,6 +195,7 @@ class _MiddleEllipsisCacheKey {
     required this.text,
     required this.style,
     required this.textDirection,
+    required this.textScaler,
     required this.maxWidth,
     required this.ellipsis,
   });
@@ -197,6 +203,7 @@ class _MiddleEllipsisCacheKey {
   final String text;
   final TextStyle style;
   final TextDirection textDirection;
+  final TextScaler textScaler;
   final double maxWidth;
   final String ellipsis;
 
@@ -206,11 +213,12 @@ class _MiddleEllipsisCacheKey {
         other.text == text &&
         other.style == style &&
         other.textDirection == textDirection &&
+        other.textScaler == textScaler &&
         other.maxWidth == maxWidth &&
         other.ellipsis == ellipsis;
   }
 
   @override
   int get hashCode =>
-      Object.hash(text, style, textDirection, maxWidth, ellipsis);
+      Object.hash(text, style, textDirection, textScaler, maxWidth, ellipsis);
 }

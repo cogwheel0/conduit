@@ -7,7 +7,6 @@ final class PreferenceKeys {
   static const String disableHapticsWhileStreaming =
       'disable_haptics_while_streaming';
   static const String highContrast = 'high_contrast';
-  static const String largeText = 'large_text';
   static const String darkMode = 'dark_mode';
   static const String defaultModel = 'default_model';
   static const String voiceLocaleId = 'voice_locale_id';

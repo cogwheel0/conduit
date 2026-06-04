@@ -1,33 +1,9 @@
 import 'package:checks/checks.dart';
-import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:conduit/core/services/settings_service.dart';
 
 void main() {
-  group('SettingsService accessibility helpers', () {
-    testWidgets('does not clamp platform text scale', (tester) async {
-      late double scale;
-
-      await tester.pumpWidget(
-        MediaQuery(
-          data: const MediaQueryData(textScaler: TextScaler.linear(4.0)),
-          child: Builder(
-            builder: (context) {
-              scale = SettingsService.getEffectiveTextScaleFactor(
-                context,
-                const AppSettings(),
-              );
-              return const SizedBox.shrink();
-            },
-          ),
-        ),
-      );
-
-      check(scale).equals(4.0);
-    });
-  });
-
   group('AppSettings', () {
     group('default constructor values', () {
       const settings = AppSettings();
@@ -50,10 +26,6 @@ void main() {
 
       test('highContrast defaults to false', () {
         check(settings.highContrast).equals(false);
-      });
-
-      test('largeText defaults to false', () {
-        check(settings.largeText).equals(false);
       });
 
       test('darkMode defaults to true', () {
@@ -154,7 +126,6 @@ void main() {
           hapticFeedback: false,
           disableHapticsWhileStreaming: true,
           highContrast: true,
-          largeText: true,
           darkMode: false,
           voiceHoldToTalk: true,
           voiceAutoSendFinal: true,
@@ -177,7 +148,6 @@ void main() {
         check(modified.hapticFeedback).equals(false);
         check(modified.disableHapticsWhileStreaming).equals(true);
         check(modified.highContrast).equals(true);
-        check(modified.largeText).equals(true);
         check(modified.darkMode).equals(false);
         check(modified.voiceHoldToTalk).equals(true);
         check(modified.voiceAutoSendFinal).equals(true);

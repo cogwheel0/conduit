@@ -599,7 +599,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
     return ConduitCard(
       padding: const EdgeInsets.all(Spacing.sm),
-      child: RichText(text: buildSpans()),
+      child: RichText(
+        text: buildSpans(),
+        textScaler: MediaQuery.textScalerOf(context),
+      ),
     );
   }
 

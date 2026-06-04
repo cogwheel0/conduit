@@ -1217,6 +1217,7 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
   }) {
     final theme = context.conduitTheme;
     final terminalService = ref.read(terminalServiceProvider);
+    final terminalTextStyle = AppTypography.codeStyle;
 
     return ConduitCard(
       padding: EdgeInsets.zero,
@@ -1313,7 +1314,7 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
                           autofocus: true,
                           theme: _terminalTheme(context),
                           textStyle: TerminalStyle.fromTextStyle(
-                            AppTypography.codeStyle.copyWith(fontSize: 12),
+                            terminalTextStyle,
                           ),
                           backgroundOpacity: 1,
                           deleteDetection: true,

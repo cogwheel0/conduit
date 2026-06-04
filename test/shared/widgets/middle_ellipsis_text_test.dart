@@ -60,5 +60,46 @@ void main() {
 
       expect(find.byType(MiddleEllipsisText), findsOneWidget);
     });
+
+    testWidgets('recomputes truncation when text scale changes', (
+      tester,
+    ) async {
+      const text = 'abcdefghijklmnop';
+
+      Widget harness(double scale) {
+        return MaterialApp(
+          home: MediaQuery(
+            data: MediaQueryData(textScaler: TextScaler.linear(scale)),
+            child: const Scaffold(
+              body: SizedBox(
+                width: 220,
+                child: MiddleEllipsisText(text, style: TextStyle(fontSize: 14)),
+              ),
+            ),
+          ),
+        );
+      }
+
+      await tester.pumpWidget(harness(1));
+      final baseline = tester
+          .widget<Text>(
+            find.descendant(
+              of: find.byType(MiddleEllipsisText),
+              matching: find.byType(Text),
+            ),
+          )
+          .data;
+
+      await tester.pumpWidget(harness(3));
+
+      final rendered = tester.widget<Text>(
+        find.descendant(
+          of: find.byType(MiddleEllipsisText),
+          matching: find.byType(Text),
+        ),
+      );
+      expect(rendered.data, isNot(baseline));
+      expect(rendered.data, contains('…'));
+    });
   });
 }
