@@ -97,7 +97,10 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
         list = list.where((model) {
           final name = model.name.toLowerCase();
           final id = model.id.toLowerCase();
-          return name.contains(normalized) || id.contains(normalized);
+          final tags = model.modelTags.map((tag) => tag.toLowerCase());
+          return name.contains(normalized) ||
+              id.contains(normalized) ||
+              tags.any((tag) => tag.contains(normalized));
         });
       }
 
@@ -199,12 +202,6 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
                                       padding: const EdgeInsets.only(top: 72),
                                       scrollCacheExtent:
                                           const ScrollCacheExtent.pixels(400),
-                                      prototypeItem: ModelListTile(
-                                        model: displayedModels.first,
-                                        isSelected: false,
-                                        iconUrl: null,
-                                        onTap: () {},
-                                      ),
                                       itemCount: displayedModels.length,
                                       itemBuilder: (context, index) {
                                         final model = displayedModels[index];

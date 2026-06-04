@@ -20,6 +20,31 @@ dynamic _mapValue(dynamic value, String key) {
   return null;
 }
 
+String? _tagName(dynamic value) {
+  final raw = switch (value) {
+    String() => value,
+    Map() => value['name'] ?? value['id'],
+    _ => null,
+  };
+  final tag = raw?.toString().trim();
+  return tag == null || tag.isEmpty ? null : tag;
+}
+
+List<String> _coerceModelTags(dynamic value) {
+  if (value is! Iterable) return const [];
+
+  final tags = <String>[];
+  final seen = <String>{};
+  for (final item in value) {
+    final tag = _tagName(item);
+    if (tag == null) continue;
+    if (seen.add(tag.toLowerCase())) {
+      tags.add(tag);
+    }
+  }
+  return tags;
+}
+
 @freezed
 sealed class Model with _$Model {
   const Model._();
@@ -130,6 +155,7 @@ sealed class Model with _$Model {
       if (json['connection_type'] != null)
         'connection_type':
             baseMetadata['connection_type'] ?? json['connection_type'],
+      if (json['tags'] != null) 'tags': baseMetadata['tags'] ?? json['tags'],
     };
 
     if (profileImage != null && profileImage.isNotEmpty) {
@@ -264,5 +290,28 @@ sealed class Model with _$Model {
         _safeBool(_mapValue(nestedMeta, 'hidden')) ??
         _safeBool(metadata?['hidden']) ??
         false;
+  }
+
+  /// OpenWebUI model tags, normalized from supported live and cached payloads.
+  List<String> get modelTags {
+    final info = metadata?['info'];
+    final infoMeta = _mapValue(info, 'meta');
+    final rootMeta = metadata?['meta'];
+
+    final tags = <String>[];
+    final seen = <String>{};
+    for (final candidate in <dynamic>[
+      _mapValue(infoMeta, 'tags'),
+      _mapValue(info, 'tags'),
+      _mapValue(rootMeta, 'tags'),
+      metadata?['tags'],
+    ]) {
+      for (final tag in _coerceModelTags(candidate)) {
+        if (seen.add(tag.toLowerCase())) {
+          tags.add(tag);
+        }
+      }
+    }
+    return tags;
   }
 }

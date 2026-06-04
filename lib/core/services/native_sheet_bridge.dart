@@ -802,6 +802,7 @@ class NativeSheetModelOption {
     this.sfSymbol,
     this.avatarUrl,
     this.avatarHeaders = const <String, String>{},
+    this.tags = const <String>[],
   });
 
   final String id;
@@ -810,6 +811,7 @@ class NativeSheetModelOption {
   final String? sfSymbol;
   final String? avatarUrl;
   final Map<String, String> avatarHeaders;
+  final List<String> tags;
 
   Map<String, Object?> toMap() {
     return {
@@ -819,6 +821,7 @@ class NativeSheetModelOption {
       'sfSymbol': sfSymbol,
       'avatarUrl': avatarUrl,
       'avatarHeaders': avatarHeaders,
+      'tags': tags,
     };
   }
 }
@@ -1093,6 +1096,7 @@ extension on NativeSheetModelOption {
       sfSymbol: sfSymbol,
       avatarUrl: avatarUrl,
       avatarHeaders: avatarHeaders,
+      tags: tags,
     );
   }
 }

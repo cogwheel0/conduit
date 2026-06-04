@@ -304,6 +304,7 @@ private struct NativeModelSelectorOption {
     let sfSymbol: String?
     let avatarUrl: String?
     let avatarHeaders: [String: String]
+    let tags: [String]
 
     init?(_ payload: [String: Any]) {
         guard
@@ -321,6 +322,14 @@ private struct NativeModelSelectorOption {
         sfSymbol = payload["sfSymbol"] as? String
         avatarUrl = payload["avatarUrl"] as? String
         avatarHeaders = payload["avatarHeaders"] as? [String: String] ?? [:]
+        var seenTags = Set<String>()
+        tags = (payload["tags"] as? [String] ?? []).compactMap { rawTag in
+            let tag = rawTag.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !tag.isEmpty, seenTags.insert(tag.lowercased()).inserted else {
+                return nil
+            }
+            return tag
+        }
     }
 }
 
@@ -869,6 +878,7 @@ private extension PlatformNativeSheetModelOption {
         payload["subtitle"] = subtitle
         payload["sfSymbol"] = sfSymbol
         payload["avatarUrl"] = avatarUrl
+        payload["tags"] = tags
         return payload
     }
 }
@@ -4355,6 +4365,7 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
             : configuration.models.filter { model in
                 model.name.lowercased().contains(query)
                     || model.id.lowercased().contains(query)
+                    || model.tags.contains { $0.lowercased().contains(query) }
             }
         filteredModels = Self.sortedModels(searchedModels, pinnedModelIds: pinnedModelIds)
         tableView.reloadData()
@@ -4395,6 +4406,41 @@ extension NativeModelSelectorTableViewController: UISearchResultsUpdating {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased() ?? ""
         applyFilterAndSort(query: query)
+    }
+}
+
+private final class NativeModelTagLabel: UILabel {
+    private let textInsets = UIEdgeInsets(top: 2, left: 5, bottom: 2, right: 5)
+
+    init(text: String) {
+        super.init(frame: .zero)
+        self.text = text.uppercased()
+        font = .preferredFont(forTextStyle: .caption2)
+        adjustsFontForContentSizeCategory = true
+        textColor = .secondaryLabel
+        backgroundColor = .tertiarySystemFill
+        layer.cornerRadius = 4
+        clipsToBounds = true
+        numberOfLines = 1
+        lineBreakMode = .byTruncatingTail
+        setContentHuggingPriority(.required, for: .horizontal)
+        setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override var intrinsicContentSize: CGSize {
+        let size = super.intrinsicContentSize
+        return CGSize(
+            width: size.width + textInsets.left + textInsets.right,
+            height: size.height + textInsets.top + textInsets.bottom
+        )
+    }
+
+    override func drawText(in rect: CGRect) {
+        super.drawText(in: rect.inset(by: textInsets))
     }
 }
 
@@ -4510,6 +4556,7 @@ private final class NativeModelSelectorTableViewCell: UITableViewCell {
     private let avatarView = NativeModelAvatarView(side: 32)
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
+    private let tagsStack = UIStackView()
     private let textStack = UIStackView()
     private let pinImageView = UIImageView(image: UIImage(systemName: "pin.fill"))
     private var pinWidthConstraint: NSLayoutConstraint?
@@ -4531,13 +4578,15 @@ private final class NativeModelSelectorTableViewCell: UITableViewCell {
         titleLabel.adjustsFontForContentSizeCategory = true
         titleLabel.numberOfLines = 2
 
-        let subtitle = model.subtitle?.isEmpty == false ? model.subtitle! : model.id
+        let subtitle = model.subtitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         subtitleLabel.text = subtitle
         subtitleLabel.font = .preferredFont(forTextStyle: .footnote)
         subtitleLabel.textColor = .secondaryLabel
         subtitleLabel.adjustsFontForContentSizeCategory = true
         subtitleLabel.numberOfLines = 2
         subtitleLabel.isHidden = subtitle.isEmpty
+
+        configureTags(model.tags)
 
         avatarView.configure(
             name: model.name,
@@ -4555,6 +4604,31 @@ private final class NativeModelSelectorTableViewCell: UITableViewCell {
         NativeSheetSettingsStyle.applyCellStyle(self)
     }
 
+    private func configureTags(_ tags: [String]) {
+        tagsStack.arrangedSubviews.forEach { view in
+            tagsStack.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+
+        let sortedTags = tags.sorted {
+            $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
+        }
+        let visibleTags = sortedTags.prefix(3)
+        for tag in visibleTags {
+            addTagLabel(tag)
+        }
+        if sortedTags.count > visibleTags.count {
+            addTagLabel("+\(sortedTags.count - visibleTags.count)")
+        }
+        tagsStack.isHidden = sortedTags.isEmpty
+    }
+
+    private func addTagLabel(_ text: String) {
+        let label = NativeModelTagLabel(text: text)
+        label.widthAnchor.constraint(lessThanOrEqualToConstant: 120).isActive = true
+        tagsStack.addArrangedSubview(label)
+    }
+
     private func configureViews() {
         backgroundColor = .secondarySystemGroupedBackground
         contentView.addSubview(avatarView)
@@ -4569,6 +4643,13 @@ private final class NativeModelSelectorTableViewCell: UITableViewCell {
         textStack.alignment = .fill
         textStack.addArrangedSubview(titleLabel)
         textStack.addArrangedSubview(subtitleLabel)
+        textStack.addArrangedSubview(tagsStack)
+        tagsStack.translatesAutoresizingMaskIntoConstraints = false
+        tagsStack.axis = .horizontal
+        tagsStack.spacing = 4
+        tagsStack.alignment = .center
+        tagsStack.distribution = .fill
+        tagsStack.isHidden = true
         pinImageView.translatesAutoresizingMaskIntoConstraints = false
         pinImageView.contentMode = .scaleAspectFit
         pinImageView.tintColor = .secondaryLabel

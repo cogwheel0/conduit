@@ -39,12 +39,15 @@ void main() {
           _presentModelSelectorChannel,
           (message) async {
             final args = message! as List<Object?>;
-            check(args.single).isA<PlatformNativeSheetModelSelectorRequest>();
+            final request =
+                args.single as PlatformNativeSheetModelSelectorRequest;
             presentCalls += 1;
             if (presentCalls == 1) {
+              check(request.models.single.tags).deepEquals(['tag-a']);
               await firstPresentation.future;
               return wrapResponse(result: null);
             }
+            check(request.models.single.tags).deepEquals(['tag-b']);
             return wrapResponse(
               error: PlatformException(code: 'ALREADY_PRESENTING'),
             );
@@ -53,7 +56,9 @@ void main() {
 
         final firstFuture = NativeSheetBridge.instance.presentModelSelector(
           title: 'Models',
-          models: const [NativeSheetModelOption(id: 'model-a', name: 'A')],
+          models: const [
+            NativeSheetModelOption(id: 'model-a', name: 'A', tags: ['tag-a']),
+          ],
           onTogglePinned: (modelId) async {
             firstPins.add(modelId);
           },
@@ -63,7 +68,13 @@ void main() {
         final secondResult = await NativeSheetBridge.instance
             .presentModelSelector(
               title: 'Models again',
-              models: const [NativeSheetModelOption(id: 'model-b', name: 'B')],
+              models: const [
+                NativeSheetModelOption(
+                  id: 'model-b',
+                  name: 'B',
+                  tags: ['tag-b'],
+                ),
+              ],
               onTogglePinned: (modelId) async {
                 secondPins.add(modelId);
               },

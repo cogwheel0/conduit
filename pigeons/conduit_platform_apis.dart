@@ -460,6 +460,7 @@ class PlatformNativeSheetModelOption {
     this.sfSymbol,
     this.avatarUrl,
     required this.avatarHeaders,
+    required this.tags,
   });
 
   String id;
@@ -468,6 +469,7 @@ class PlatformNativeSheetModelOption {
   String? sfSymbol;
   String? avatarUrl;
   Map<String, String> avatarHeaders;
+  List<String> tags;
 }
 
 class PlatformNativeSheetModelSelectorRequest {

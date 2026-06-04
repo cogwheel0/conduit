@@ -167,6 +167,36 @@ void main() {
 
       check(restored.isHidden).isTrue();
     });
+
+    test('extracts OpenWebUI model tags from live and cached payloads', () {
+      final model = Model.fromJson({
+        'id': 'tagged-model',
+        'name': 'Tagged Model',
+        'tags': [
+          {'name': 'coding'},
+          {'name': 'Reasoning'},
+          {'id': 'reasoning'},
+          'fast',
+          {'name': ' '},
+        ],
+        'info': {
+          'meta': {
+            'tags': [
+              {'name': 'tools'},
+            ],
+          },
+        },
+      });
+
+      check(
+        model.modelTags,
+      ).deepEquals(['tools', 'coding', 'Reasoning', 'fast']);
+
+      final restored = Model.fromJson(model.toJson());
+      check(
+        restored.modelTags,
+      ).deepEquals(['tools', 'coding', 'Reasoning', 'fast']);
+    });
   });
 
   group('Prompt', () {

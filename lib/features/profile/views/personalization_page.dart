@@ -418,9 +418,10 @@ class _PersonalizationPageState extends ConsumerState<PersonalizationPage> {
               (model) => NativeSheetModelOption(
                 id: model.id,
                 name: model.name,
-                subtitle: model.description ?? model.id,
+                subtitle: model.description,
                 avatarUrl: resolveModelIconUrlForModel(api, model),
                 avatarHeaders: avatarHeaders,
+                tags: model.modelTags,
               ),
             ),
           ],

@@ -74,7 +74,10 @@ class DefaultModelBottomSheetState
           : allModels.where((model) {
               final name = model.name.toLowerCase();
               final id = model.id.toLowerCase();
-              return name.contains(normalized) || id.contains(normalized);
+              final tags = model.modelTags.map((tag) => tag.toLowerCase());
+              return name.contains(normalized) ||
+                  id.contains(normalized) ||
+                  tags.any((tag) => tag.contains(normalized));
             }).toList();
 
       setState(() {
