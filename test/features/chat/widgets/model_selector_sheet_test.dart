@@ -2,7 +2,7 @@ import 'package:checks/checks.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:conduit/core/models/model.dart';
-import 'package:conduit/features/chat/widgets/model_selector_sheet.dart';
+import 'package:conduit/core/utils/model_sort_utils.dart';
 
 void main() {
   group('sortModelsWithPinnedOrder', () {

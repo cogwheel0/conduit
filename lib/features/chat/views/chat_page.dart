@@ -17,8 +17,8 @@ import 'dart:math' as math;
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import 'dart:async';
 import '../../../core/providers/app_providers.dart';
-import '../../../core/network/image_header_utils.dart';
 import '../../../core/services/native_sheet_bridge.dart';
+import '../../../core/services/native_sheet_hydration_service.dart';
 import '../../../core/services/performance_profiler.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/services/settings_service.dart';
@@ -2652,35 +2652,18 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 
   Future<void> _openModelSelector(BuildContext context) async {
-    final modelsAsync = ref.read(modelsProvider);
-
-    if (modelsAsync.isLoading) {
-      try {
-        final models = await ref.read(modelsProvider.future);
-        if (!mounted || !context.mounted) return;
-        await _showModelDropdown(context, ref, models);
-      } catch (e) {
-        DebugLogger.error(
-          'model-load-failed',
-          scope: 'chat/model-selector',
-          error: e,
-        );
-      }
-    } else if (modelsAsync.hasValue) {
-      await _showModelDropdown(context, ref, modelsAsync.value!);
-    } else if (modelsAsync.hasError) {
-      try {
-        ref.invalidate(modelsProvider);
-        final models = await ref.read(modelsProvider.future);
-        if (!mounted || !context.mounted) return;
-        await _showModelDropdown(context, ref, models);
-      } catch (e) {
-        DebugLogger.error(
-          'model-refresh-failed',
-          scope: 'chat/model-selector',
-          error: e,
-        );
-      }
+    try {
+      final models = await ref
+          .read(nativeSheetHydrationServiceProvider)
+          .loadModels();
+      if (!mounted || !context.mounted) return;
+      await _showModelDropdown(context, ref, models);
+    } catch (e) {
+      DebugLogger.error(
+        'model-load-failed',
+        scope: 'chat/model-selector',
+        error: e,
+      );
     }
   }
 
@@ -2926,16 +2909,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   ) async {
     // Ensure keyboard is closed before presenting modal
     final hadFocus = ref.read(composerHasFocusProvider);
-    final api = ref.read(apiServiceProvider);
-    final avatarHeaders =
-        buildImageHeadersFromContainer(
-          ProviderScope.containerOf(context, listen: false),
-        ) ??
-        const <String, String>{};
     _dismissComposerFocus();
-    final pinnedModelIds = ref.read(effectivePinnedModelIdsProvider);
-    final canTogglePinnedModels = ref.read(canTogglePinnedModelsProvider);
-    final orderedModels = sortModelsWithPinnedOrder(models, pinnedModelIds);
 
     Future<void> restoreFocusIfNeeded() async {
       if (!mounted) return;
@@ -2951,36 +2925,20 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
     if (Platform.isIOS) {
       try {
-        final selectedId = await NativeSheetBridge.instance
+        final selectedId = await ref
+            .read(nativeSheetHydrationServiceProvider)
             .presentModelSelector(
+              context,
               title: AppLocalizations.of(context)!.chooseModel,
               selectedModelId: ref.read(selectedModelProvider)?.id,
-              pinnedModelIds: pinnedModelIds,
-              pinTitle: AppLocalizations.of(context)!.pin,
-              unpinTitle: AppLocalizations.of(context)!.unpin,
-              onTogglePinned: canTogglePinnedModels
-                  ? (modelId) => ref
-                        .read(personalizationSettingsProvider.notifier)
-                        .togglePinnedModel(modelId)
-                  : null,
-              models: orderedModels
-                  .map(
-                    (model) => NativeSheetModelOption(
-                      id: model.id,
-                      name: model.name,
-                      subtitle: model.description,
-                      avatarUrl: resolveModelIconUrlForModel(api, model),
-                      avatarHeaders: avatarHeaders,
-                      tags: model.modelTags,
-                    ),
-                  )
-                  .toList(),
+              models: models,
+              allowsPinning: true,
               rethrowErrors: true,
             );
         if (!mounted) return;
         if (selectedId != null) {
           Model? selected;
-          for (final model in orderedModels) {
+          for (final model in models) {
             if (model.id == selectedId) {
               selected = model;
               break;

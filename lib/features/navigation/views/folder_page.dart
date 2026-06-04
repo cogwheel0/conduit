@@ -12,13 +12,12 @@ import 'package:go_router/go_router.dart';
 import '../../../core/models/conversation.dart';
 import '../../../core/models/folder.dart';
 import '../../../core/models/model.dart';
-import '../../../core/network/image_header_utils.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/haptic_service.dart';
 import '../../../core/services/native_sheet_bridge.dart';
+import '../../../core/services/native_sheet_hydration_service.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../core/services/settings_service.dart';
-import '../../../core/utils/model_icon_utils.dart';
 import '../../../core/widgets/error_boundary.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/conduit_input_styles.dart';
@@ -248,68 +247,32 @@ class _FolderPageState extends ConsumerState<FolderPage> {
 
   Future<void> _showModelSelector() async {
     final hadFocus = ref.read(chat.composerHasFocusProvider);
-    final api = ref.read(apiServiceProvider);
-    final avatarHeaders =
-        buildImageHeadersFromContainer(
-          ProviderScope.containerOf(context, listen: false),
-        ) ??
-        const <String, String>{};
     _dismissComposerFocus();
 
     try {
-      List<Model> models;
-      final modelsAsync = ref.read(modelsProvider);
-
-      if (modelsAsync.hasValue) {
-        models = modelsAsync.value!;
-      } else {
-        if (modelsAsync.hasError) {
-          ref.invalidate(modelsProvider);
-        }
-        models = await ref.read(modelsProvider.future);
-      }
+      final nativeSheets = ref.read(nativeSheetHydrationServiceProvider);
+      final models = await nativeSheets.loadModels();
 
       if (!mounted) {
         return;
       }
-      final pinnedModelIds = ref.read(effectivePinnedModelIdsProvider);
-      final canTogglePinnedModels = ref.read(canTogglePinnedModelsProvider);
-      final orderedModels = sortModelsWithPinnedOrder(models, pinnedModelIds);
 
       if (Platform.isIOS) {
         try {
-          final selectedId = await NativeSheetBridge.instance
-              .presentModelSelector(
-                title: AppLocalizations.of(context)!.chooseModel,
-                selectedModelId: ref.read(selectedModelProvider)?.id,
-                pinnedModelIds: pinnedModelIds,
-                pinTitle: AppLocalizations.of(context)!.pin,
-                unpinTitle: AppLocalizations.of(context)!.unpin,
-                onTogglePinned: canTogglePinnedModels
-                    ? (modelId) => ref
-                          .read(personalizationSettingsProvider.notifier)
-                          .togglePinnedModel(modelId)
-                    : null,
-                models: orderedModels
-                    .map(
-                      (model) => NativeSheetModelOption(
-                        id: model.id,
-                        name: model.name,
-                        subtitle: model.description,
-                        avatarUrl: resolveModelIconUrlForModel(api, model),
-                        avatarHeaders: avatarHeaders,
-                        tags: model.modelTags,
-                      ),
-                    )
-                    .toList(),
-                rethrowErrors: true,
-              );
+          final selectedId = await nativeSheets.presentModelSelector(
+            context,
+            title: AppLocalizations.of(context)!.chooseModel,
+            selectedModelId: ref.read(selectedModelProvider)?.id,
+            models: models,
+            allowsPinning: true,
+            rethrowErrors: true,
+          );
           if (!mounted) {
             return;
           }
           if (selectedId != null) {
             Model? selected;
-            for (final model in orderedModels) {
+            for (final model in models) {
               if (model.id == selectedId) {
                 selected = model;
                 break;

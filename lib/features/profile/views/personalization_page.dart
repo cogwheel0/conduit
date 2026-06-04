@@ -10,12 +10,11 @@ import 'package:intl/intl.dart';
 import '../../../core/models/model.dart';
 import '../../../core/models/server_user_settings.dart';
 import '../../../core/models/server_memory.dart';
-import '../../../core/network/image_header_utils.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/native_sheet_bridge.dart';
+import '../../../core/services/native_sheet_hydration_service.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../core/services/settings_service.dart';
-import '../../../core/utils/model_icon_utils.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
@@ -395,38 +394,26 @@ class _PersonalizationPageState extends ConsumerState<PersonalizationPage> {
     required String? currentDefaultModelId,
   }) async {
     final l10n = AppLocalizations.of(context)!;
-    final api = ref.read(apiServiceProvider);
-    final avatarHeaders =
-        buildImageHeadersFromContainer(
-          ProviderScope.containerOf(context, listen: false),
-        ) ??
-        const <String, String>{};
 
     if (Platform.isIOS) {
       try {
-        final result = await NativeSheetBridge.instance.presentModelSelector(
-          title: l10n.defaultModel,
-          selectedModelId: currentDefaultModelId ?? 'auto-select',
-          models: [
-            NativeSheetModelOption(
-              id: 'auto-select',
-              name: l10n.autoSelect,
-              subtitle: l10n.autoSelectDescription,
-              sfSymbol: 'wand.and.stars',
-            ),
-            ...models.map(
-              (model) => NativeSheetModelOption(
-                id: model.id,
-                name: model.name,
-                subtitle: model.description,
-                avatarUrl: resolveModelIconUrlForModel(api, model),
-                avatarHeaders: avatarHeaders,
-                tags: model.modelTags,
-              ),
-            ),
-          ],
-          rethrowErrors: true,
-        );
+        final result = await ref
+            .read(nativeSheetHydrationServiceProvider)
+            .presentModelSelector(
+              context,
+              title: l10n.defaultModel,
+              selectedModelId: currentDefaultModelId ?? 'auto-select',
+              leadingOptions: [
+                NativeSheetModelOption(
+                  id: 'auto-select',
+                  name: l10n.autoSelect,
+                  subtitle: l10n.autoSelectDescription,
+                  sfSymbol: 'wand.and.stars',
+                ),
+              ],
+              models: models,
+              rethrowErrors: true,
+            );
         if (result == null) return;
         final selectedId = result == 'auto-select' ? null : result;
         await ref

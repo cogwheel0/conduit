@@ -10,47 +10,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/models/model.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/utils/model_icon_utils.dart';
+import '../../../core/utils/model_sort_utils.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/modal_safe_area.dart';
 import '../../../shared/widgets/model_list_tile.dart';
 import '../../../shared/widgets/sheet_handle.dart';
-
-List<Model> sortModelsWithPinnedOrder(
-  List<Model> models,
-  List<String> pinnedModelIds,
-) {
-  if (models.isEmpty || pinnedModelIds.isEmpty) {
-    return List<Model>.of(models, growable: false);
-  }
-
-  final pinnedOrder = <String, int>{};
-  for (final modelId in pinnedModelIds) {
-    final trimmed = modelId.trim();
-    if (trimmed.isEmpty || pinnedOrder.containsKey(trimmed)) {
-      continue;
-    }
-    pinnedOrder[trimmed] = pinnedOrder.length;
-  }
-
-  if (pinnedOrder.isEmpty) {
-    return List<Model>.of(models, growable: false);
-  }
-
-  final pinned = <Model>[];
-  final unpinned = <Model>[];
-  for (final model in models) {
-    if (pinnedOrder.containsKey(model.id)) {
-      pinned.add(model);
-    } else {
-      unpinned.add(model);
-    }
-  }
-
-  pinned.sort((a, b) => pinnedOrder[a.id]!.compareTo(pinnedOrder[b.id]!));
-  return [...pinned, ...unpinned];
-}
 
 /// Bottom sheet for selecting a model from the available list.
 class ModelSelectorSheet extends ConsumerStatefulWidget {
