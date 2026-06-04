@@ -4,6 +4,7 @@ import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter_driver/driver_extension.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:pdfrx/pdfrx.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/widgets/error_boundary.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -71,6 +72,9 @@ void main() {
   runZonedGuarded(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
+      // pdfrx: warm up the PDFium engine once at startup so the inline PDF
+      // viewer opens without a first-use delay.
+      unawaited(pdfrxFlutterInitialize());
       PerformanceProfiler.instance.attachFrameTimings();
 
       // Global error handlers

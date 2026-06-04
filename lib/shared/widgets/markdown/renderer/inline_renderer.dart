@@ -10,6 +10,7 @@ import '../compiled_markdown_document.dart';
 import '../citation_badge.dart';
 import 'latex_preprocessor.dart';
 import 'markdown_style.dart';
+import 'pdf_inline_view.dart';
 
 /// Callback invoked when a user taps a markdown link.
 typedef LinkTapCallback = void Function(String url, String title);
@@ -336,6 +337,24 @@ class InlineRenderer {
   ) {
     final href = element.attributes['href'] ?? '';
     final title = element.attributes['title'] ?? '';
+
+    // Links to a PDF (a URL ending in .pdf) render as an inline PDF preview card
+    // with tap-to-fullscreen, instead of a plain tappable hyperlink. Works in
+    // every render tier because both richText and blocks route `<a>` elements
+    // through this method.
+    if (PdfInlineView.isPdfLink(href)) {
+      return [
+        WidgetSpan(
+          alignment: PlaceholderAlignment.middle,
+          child: PdfInlineView(
+            key: ValueKey(href),
+            url: href,
+            label: element.textContent,
+          ),
+        ),
+      ];
+    }
+
     final linkStyle = currentStyle.copyWith(
       color: style.linkColor,
       decoration: TextDecoration.underline,
