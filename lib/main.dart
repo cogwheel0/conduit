@@ -16,6 +16,7 @@ import 'core/router/app_router.dart';
 import 'core/services/native_sheet_bridge.dart';
 import 'core/services/native_sheet_hydration_service.dart';
 import 'core/services/performance_profiler.dart';
+import 'core/services/carplay_service.dart';
 import 'core/services/settings_service.dart';
 import 'features/auth/providers/unified_auth_providers.dart';
 import 'features/chat/providers/text_to_speech_provider.dart';
@@ -157,12 +158,19 @@ void main() {
         _startupTimeline = null;
       });
 
+      final providerContainer = ProviderContainer(
+        overrides: [
+          secureStorageProvider.overrideWithValue(secureStorage),
+          hiveBoxesProvider.overrideWithValue(hiveBoxes),
+        ],
+      );
+      // CarPlay can cold-launch Conduit without a visible Flutter scene, so
+      // install its method-channel handler before frame-scheduled startup work.
+      providerContainer.read(carPlayCoordinatorProvider);
+
       runApp(
-        ProviderScope(
-          overrides: [
-            secureStorageProvider.overrideWithValue(secureStorage),
-            hiveBoxesProvider.overrideWithValue(hiveBoxes),
-          ],
+        UncontrolledProviderScope(
+          container: providerContainer,
           child: const ConduitApp(),
         ),
       );

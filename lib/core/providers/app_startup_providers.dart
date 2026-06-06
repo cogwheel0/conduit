@@ -10,6 +10,7 @@ import '../providers/app_providers.dart';
 import '../../features/auth/providers/unified_auth_providers.dart';
 import '../services/navigation_service.dart';
 import '../services/app_intents_service.dart';
+import '../services/carplay_service.dart';
 import '../services/home_widget_service.dart';
 import '../services/api_service.dart';
 import '../models/conversation.dart';
@@ -790,6 +791,11 @@ class AppStartupFlow extends _$AppStartupFlow {
       const Duration(milliseconds: 48),
       appIntentCoordinatorProvider,
       label: 'app-intents',
+    );
+    _scheduleDeferredKeepAlive(
+      const Duration(milliseconds: 56),
+      carPlayCoordinatorProvider,
+      label: 'carplay',
     );
     _scheduleDeferredKeepAlive(
       const Duration(milliseconds: 64),

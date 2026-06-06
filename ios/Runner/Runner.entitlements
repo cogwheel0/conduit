@@ -6,5 +6,7 @@
 	<array>
 		<string>$(APP_GROUP_ID)</string>
 	</array>
+	<key>com.apple.developer.carplay-voice-based-conversation</key>
+	<true/>
 </dict>
 </plist>

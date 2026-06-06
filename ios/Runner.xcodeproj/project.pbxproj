@@ -22,6 +22,9 @@
 		D2A0B2042F5E4D6C7B8A9012 /* NativeShareReceiverBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B2032F5E4D6C7B8A9012 /* NativeShareReceiverBridge.swift */; };
 		D2A0B2062F5E4D6C7B8A9012 /* ConduitSceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B2052F5E4D6C7B8A9012 /* ConduitSceneDelegate.swift */; };
 		D2A0B2142F5E4D6C7B8A9012 /* ConduitPlatformApis.g.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B2132F5E4D6C7B8A9012 /* ConduitPlatformApis.g.swift */; };
+		D2A0B2242F5E4D6C7B8A9012 /* ConduitCarPlayBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B2222F5E4D6C7B8A9012 /* ConduitCarPlayBridge.swift */; };
+		D2A0B2252F5E4D6C7B8A9012 /* ConduitCarPlaySceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B2232F5E4D6C7B8A9012 /* ConduitCarPlaySceneDelegate.swift */; };
+		D2A0B2262F5E4D6C7B8A9012 /* CarPlay.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D2A0B2212F5E4D6C7B8A9012 /* CarPlay.framework */; };
 		F15AFEC42EE5499D00A1FABB /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F15AFEC32EE5499D00A1FABB /* WidgetKit.framework */; };
 		F15AFEC62EE5499D00A1FABB /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F15AFEC52EE5499D00A1FABB /* SwiftUI.framework */; };
 		F15AFED12EE5499E00A1FABB /* ConduitWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = F15AFEC22EE5499D00A1FABB /* ConduitWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -108,6 +111,9 @@
 		D2A0B2032F5E4D6C7B8A9012 /* NativeShareReceiverBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeShareReceiverBridge.swift; sourceTree = "<group>"; };
 		D2A0B2052F5E4D6C7B8A9012 /* ConduitSceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConduitSceneDelegate.swift; sourceTree = "<group>"; };
 		D2A0B2132F5E4D6C7B8A9012 /* ConduitPlatformApis.g.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConduitPlatformApis.g.swift; sourceTree = "<group>"; };
+		D2A0B2212F5E4D6C7B8A9012 /* CarPlay.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CarPlay.framework; path = System/Library/Frameworks/CarPlay.framework; sourceTree = SDKROOT; };
+		D2A0B2222F5E4D6C7B8A9012 /* ConduitCarPlayBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConduitCarPlayBridge.swift; sourceTree = "<group>"; };
+		D2A0B2232F5E4D6C7B8A9012 /* ConduitCarPlaySceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConduitCarPlaySceneDelegate.swift; sourceTree = "<group>"; };
 		D2A0B3012F5E4D6C7B8A9012 /* ConduitWidget.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = ConduitWidget/ConduitWidget.xcconfig; sourceTree = "<group>"; };
 		D2A0B3022F5E4D6C7B8A9012 /* ShareExtension.debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = ShareExtension/ShareExtension.debug.xcconfig; sourceTree = "<group>"; };
 		D2A0B3032F5E4D6C7B8A9012 /* ShareExtension.release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = ShareExtension/ShareExtension.release.xcconfig; sourceTree = "<group>"; };
@@ -205,6 +211,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D2A0B2262F5E4D6C7B8A9012 /* CarPlay.framework in Frameworks */,
 				CA4A256DAFB6E4374BC67B91 /* Pods_Runner.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -239,6 +246,7 @@
 		5C7D9D0FF0837699EA9220F9 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				D2A0B2212F5E4D6C7B8A9012 /* CarPlay.framework */,
 				F15AFEC32EE5499D00A1FABB /* WidgetKit.framework */,
 				F15AFEC52EE5499D00A1FABB /* SwiftUI.framework */,
 				E952EFF81F1FEABA348FE2CC /* Pods_Runner.framework */,
@@ -321,6 +329,8 @@
 				D2A0B1F32F5E4D6C7B8A9012 /* NativeDropdownBridge.swift */,
 				D2A0B2032F5E4D6C7B8A9012 /* NativeShareReceiverBridge.swift */,
 				D2A0B2052F5E4D6C7B8A9012 /* ConduitSceneDelegate.swift */,
+				D2A0B2222F5E4D6C7B8A9012 /* ConduitCarPlayBridge.swift */,
+				D2A0B2232F5E4D6C7B8A9012 /* ConduitCarPlaySceneDelegate.swift */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
 			);
 			path = Runner;
@@ -633,6 +643,8 @@
 				D2A0B2042F5E4D6C7B8A9012 /* NativeShareReceiverBridge.swift in Sources */,
 				D2A0B2062F5E4D6C7B8A9012 /* ConduitSceneDelegate.swift in Sources */,
 				D2A0B2142F5E4D6C7B8A9012 /* ConduitPlatformApis.g.swift in Sources */,
+				D2A0B2242F5E4D6C7B8A9012 /* ConduitCarPlayBridge.swift in Sources */,
+				D2A0B2252F5E4D6C7B8A9012 /* ConduitCarPlaySceneDelegate.swift in Sources */,
 				D2A0B1E42F5E4D6C7B8A9012 /* NativeSheetBridge.swift in Sources */,
 				D2A0B1D42F5E4D6C7B8A9012 /* NativeKeyboardAttachmentBridge.swift in Sources */,
 				D2A0B1C42F5E4D6C7B8A9012 /* NativePasteBridge.swift in Sources */,

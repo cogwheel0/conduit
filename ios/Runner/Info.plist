@@ -110,9 +110,20 @@
 		<key>UIApplicationSceneManifest</key>
 		<dict>
 			<key>UIApplicationSupportsMultipleScenes</key>
-			<false/>
+			<true/>
 			<key>UISceneConfigurations</key>
 			<dict>
+				<key>CPTemplateApplicationSceneSessionRoleApplication</key>
+				<array>
+					<dict>
+						<key>UISceneClassName</key>
+						<string>CPTemplateApplicationScene</string>
+						<key>UISceneConfigurationName</key>
+						<string>ConduitCarPlay</string>
+						<key>UISceneDelegateClassName</key>
+						<string>$(PRODUCT_MODULE_NAME).ConduitCarPlaySceneDelegate</string>
+					</dict>
+				</array>
 				<key>UIWindowSceneSessionRoleApplication</key>
 				<array>
 					<dict>
@@ -122,8 +133,6 @@
 						<string>$(PRODUCT_MODULE_NAME).ConduitSceneDelegate</string>
 						<key>UISceneConfigurationName</key>
 						<string>flutter</string>
-						<key>UISceneStoryboardFile</key>
-						<string>Main</string>
 					</dict>
 				</array>
 			</dict>

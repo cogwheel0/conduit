@@ -876,6 +876,10 @@ struct AppShortcuts: AppShortcutsProvider {
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   private var backgroundStreamingHandler: BackgroundStreamingHandler?
+  private var sharedFlutterEngine: FlutterEngine?
+  private weak var sharedFlutterWindowScene: UIWindowScene?
+  private var didConfigureSharedFlutterEngine = false
+  private var cookieChannel: FlutterMethodChannel?
 
   /// Checks if a cookie matches a given URL based on domain.
   private func cookieMatchesUrl(cookie: HTTPCookie, url: URL) -> Bool {
@@ -914,47 +918,81 @@ struct AppShortcuts: AppShortcutsProvider {
   func didInitializeImplicitFlutterEngine(
     _ engineBridge: FlutterImplicitEngineBridge
   ) {
+    guard sharedFlutterEngine == nil else { return }
+
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
-
-    // Setup App Intents method channel for native -> Flutter communication
-    let appIntentRegistrar = engineBridge.applicationRegistrar
-    AppIntentBridge.shared = AppIntentBridge(
-      messenger: appIntentRegistrar.messenger()
+    configureApplicationFlutterChannels(
+      messenger: engineBridge.applicationRegistrar.messenger()
     )
+  }
 
-    let pasteRegistrar = engineBridge.applicationRegistrar
-    NativePasteBridge.shared.configure(messenger: pasteRegistrar.messenger())
+  @discardableResult
+  func ensureCarPlayFlutterEngine() -> Bool {
+    return ensureSharedFlutterEngine() != nil
+  }
 
-    let keyboardAttachmentRegistrar = engineBridge.applicationRegistrar
-    NativeKeyboardAttachmentBridge.shared.configure(
-      messenger: keyboardAttachmentRegistrar.messenger()
+  @discardableResult
+  func ensureSharedFlutterEngine() -> FlutterEngine? {
+    if let engine = sharedFlutterEngine {
+      configureSharedFlutterEngineIfNeeded(engine)
+      return engine
+    }
+
+    let engine = FlutterEngine(
+      name: "conduit.shared",
+      project: nil,
+      allowHeadlessExecution: true
     )
+    guard engine.run() else {
+      print("AppDelegate: failed to start shared Flutter engine")
+      return nil
+    }
 
-    let nativeSheetRegistrar = engineBridge.applicationRegistrar
-    NativeSheetBridge.shared.configure(
-      messenger: nativeSheetRegistrar.messenger()
-    )
+    sharedFlutterEngine = engine
+    configureSharedFlutterEngineIfNeeded(engine)
+    return engine
+  }
 
-    let nativeDropdownRegistrar = engineBridge.applicationRegistrar
-    NativeDropdownBridge.shared.configure(
-      messenger: nativeDropdownRegistrar.messenger()
-    )
+  func claimSharedFlutterWindowScene(_ windowScene: UIWindowScene) -> Bool {
+    if let currentScene = sharedFlutterWindowScene, currentScene !== windowScene {
+      return false
+    }
 
-    let shareReceiverRegistrar = engineBridge.applicationRegistrar
-    NativeShareReceiverBridge.shared.configure(
-      messenger: shareReceiverRegistrar.messenger()
-    )
+    sharedFlutterWindowScene = windowScene
+    return true
+  }
 
-	    // Setup background streaming handler
-	    let bgRegistrar = engineBridge.applicationRegistrar
-	    backgroundStreamingHandler?.setup(messenger: bgRegistrar.messenger())
+  func releaseSharedFlutterWindowScene(_ windowScene: UIWindowScene) {
+    if sharedFlutterWindowScene === windowScene {
+      sharedFlutterWindowScene = nil
+    }
+  }
 
-    // Setup cookie manager channel for WebView cookie access
-    let cookieRegistrar = engineBridge.applicationRegistrar
+  private func configureSharedFlutterEngineIfNeeded(_ engine: FlutterEngine) {
+    guard !didConfigureSharedFlutterEngine else { return }
+
+    GeneratedPluginRegistrant.register(with: engine)
+    configureApplicationFlutterChannels(messenger: engine.binaryMessenger)
+    didConfigureSharedFlutterEngine = true
+  }
+
+  private func configureApplicationFlutterChannels(
+    messenger: FlutterBinaryMessenger
+  ) {
+    AppIntentBridge.shared = AppIntentBridge(messenger: messenger)
+    ConduitCarPlayBridge.shared.configure(messenger: messenger)
+    NativePasteBridge.shared.configure(messenger: messenger)
+    NativeKeyboardAttachmentBridge.shared.configure(messenger: messenger)
+    NativeSheetBridge.shared.configure(messenger: messenger)
+    NativeDropdownBridge.shared.configure(messenger: messenger)
+    NativeShareReceiverBridge.shared.configure(messenger: messenger)
+    backgroundStreamingHandler?.setup(messenger: messenger)
+
     let cookieChannel = FlutterMethodChannel(
       name: "com.conduit.app/cookies",
-      binaryMessenger: cookieRegistrar.messenger()
+      binaryMessenger: messenger
     )
+    self.cookieChannel = cookieChannel
 
     cookieChannel.setMethodCallHandler { [weak self] (call, result) in
       if call.method == "getCookies" {
