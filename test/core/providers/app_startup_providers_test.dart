@@ -8,6 +8,7 @@ import 'package:conduit/core/providers/app_startup_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/connectivity_service.dart';
 import 'package:conduit/core/services/worker_manager.dart';
+import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter/widgets.dart';
@@ -288,6 +289,106 @@ void main() {
       warmIfNeededCalls: 1,
     );
   });
+
+  test('resume refreshes the active conversation from the server', () async {
+    final binding = TestWidgetsFlutterBinding.ensureInitialized();
+    final api = _StubApiService(
+      conversations: {
+        'active-chat': _conversation(
+          'active-chat',
+        ).copyWith(title: 'Server copy'),
+      },
+    );
+    final container = await _createAuthenticatedWarmupContainer(
+      apiOverride: apiServiceProvider.overrideWithValue(api),
+    );
+    container
+        .read(activeConversationProvider.notifier)
+        .set(_conversation('active-chat').copyWith(title: 'Local copy'));
+    container.read(foregroundRefreshProvider);
+
+    binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await _flushMicrotasks(5);
+
+    expect(api.requestedConversationIds, ['active-chat']);
+    expect(container.read(activeConversationProvider)?.title, 'Server copy');
+    expect(
+      container
+          .read(conversationsProvider)
+          .requireValue
+          .any(
+            (conversation) =>
+                conversation.id == 'active-chat' &&
+                conversation.title == 'Server copy',
+          ),
+      isTrue,
+    );
+  });
+
+  test('resume active conversation refresh ignores stale fetches', () async {
+    final binding = TestWidgetsFlutterBinding.ensureInitialized();
+    final getConversationGate = Completer<void>();
+    final api = _StubApiService(
+      conversations: {
+        'active-chat': _conversation(
+          'active-chat',
+        ).copyWith(title: 'Server copy'),
+      },
+      getConversationGate: getConversationGate,
+    );
+    final container = await _createAuthenticatedWarmupContainer(
+      apiOverride: apiServiceProvider.overrideWithValue(api),
+    );
+    container
+        .read(activeConversationProvider.notifier)
+        .set(_conversation('active-chat').copyWith(title: 'Local copy'));
+    container.read(foregroundRefreshProvider);
+
+    binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await _flushMicrotasks(2);
+
+    container
+        .read(activeConversationProvider.notifier)
+        .set(_conversation('other-chat'));
+    getConversationGate.complete();
+    await _flushMicrotasks(5);
+
+    expect(api.requestedConversationIds, ['active-chat']);
+    expect(container.read(activeConversationProvider)?.id, 'other-chat');
+  });
+
+  test(
+    'resume active conversation refresh skips protected streaming state',
+    () async {
+      final binding = TestWidgetsFlutterBinding.ensureInitialized();
+      final api = _StubApiService(
+        conversations: {
+          'active-chat': _conversation(
+            'active-chat',
+          ).copyWith(title: 'Server copy'),
+        },
+      );
+      final container = await _createAuthenticatedWarmupContainer(
+        apiOverride: apiServiceProvider.overrideWithValue(api),
+        extraOverrides: [
+          shouldProtectLocalStreamingStateProvider.overrideWithValue(true),
+        ],
+      );
+      container
+          .read(activeConversationProvider.notifier)
+          .set(_conversation('active-chat').copyWith(title: 'Local copy'));
+      container.read(foregroundRefreshProvider);
+
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await _flushMicrotasks(5);
+
+      expect(api.requestedConversationIds, isEmpty);
+      expect(container.read(activeConversationProvider)?.title, 'Local copy');
+    },
+  );
 }
 
 abstract class _TrackingWarmupFolders extends Folders {
@@ -360,15 +461,32 @@ class _FakeConnectivityService extends Fake implements ConnectivityService {
 }
 
 class _StubApiService extends ApiService {
-  _StubApiService()
-    : super(
-        serverConfig: const ServerConfig(
-          id: 'test-server',
-          name: 'Test Server',
-          url: 'https://example.com',
-        ),
-        workerManager: WorkerManager(),
-      );
+  _StubApiService({
+    Map<String, Conversation>? conversations,
+    this.getConversationGate,
+  }) : _conversations = conversations ?? const <String, Conversation>{},
+       super(
+         serverConfig: const ServerConfig(
+           id: 'test-server',
+           name: 'Test Server',
+           url: 'https://example.com',
+         ),
+         workerManager: WorkerManager(),
+       );
+
+  final Map<String, Conversation> _conversations;
+  final Completer<void>? getConversationGate;
+  final List<String> requestedConversationIds = <String>[];
+
+  @override
+  Future<Conversation> getConversation(String id) async {
+    requestedConversationIds.add(id);
+    final gate = getConversationGate;
+    if (gate != null) {
+      await gate.future;
+    }
+    return _conversations[id] ?? _conversation(id);
+  }
 }
 
 Conversation _conversation(String id) {

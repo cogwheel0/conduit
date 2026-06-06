@@ -20,19 +20,35 @@ typedef SocketChannelEventHandler =
       void Function(dynamic response)? ack,
     );
 
+typedef SocketFactory =
+    io.Socket Function(
+      String base,
+      io.OptionBuilder builder,
+      ServerConfig serverConfig,
+    );
+
 class SocketService with WidgetsBindingObserver {
   final ServerConfig serverConfig;
   final bool websocketOnly;
   final bool allowWebsocketUpgrade;
+  final SocketFactory _socketFactory;
+  final Duration _resumeReconnectWatchdogTimeout;
   io.Socket? _socket;
   String? _authToken;
   bool _isConnecting = false;
   bool _isAppForeground = true;
+  bool _wasBackgrounded = false;
+  bool _resumeReconnectInFlight = false;
+  bool _signalReconnectOnConnect = false;
   Timer? _heartbeatTimer;
+  Timer? _resumeReconnectWatchdogTimer;
   bool _forcePollingFallback = false;
 
   /// Heartbeat interval matching OpenWebUI's 30-second interval.
   static const Duration _heartbeatInterval = Duration(seconds: 30);
+  static const Duration _defaultResumeReconnectWatchdogTimeout = Duration(
+    seconds: 30,
+  );
 
   /// Tracks the last heartbeat round-trip latency in milliseconds.
   int _lastHeartbeatLatencyMs = -1;
@@ -86,6 +102,7 @@ class SocketService with WidgetsBindingObserver {
 
   final Map<String, _ChatEventRegistration> _chatEventHandlers = {};
   final Map<String, _ChannelEventRegistration> _channelEventHandlers = {};
+  final Map<String, List<void Function(dynamic)>> _dynamicEventHandlers = {};
   int _handlerSeed = 0;
 
   // ---------------------------------------------------------------------------
@@ -221,17 +238,76 @@ class SocketService with WidgetsBindingObserver {
     String? authToken,
     this.websocketOnly = false,
     this.allowWebsocketUpgrade = true,
-  }) : _authToken = authToken {
+    SocketFactory? socketFactory,
+    Duration resumeReconnectWatchdogTimeout =
+        _defaultResumeReconnectWatchdogTimeout,
+  }) : _authToken = authToken,
+       _resumeReconnectWatchdogTimeout = resumeReconnectWatchdogTimeout,
+       _socketFactory =
+           socketFactory ?? createSocketWithOptionalBadCertOverride {
     final binding = WidgetsBinding.instance;
     final lifecycle = binding.lifecycleState;
-    _isAppForeground =
-        lifecycle == null || lifecycle == AppLifecycleState.resumed;
+    _isAppForeground = lifecycle == null || _isLifecycleForeground(lifecycle);
+    _wasBackgrounded = lifecycle != null && _isLifecycleBackground(lifecycle);
     binding.addObserver(this);
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    _isAppForeground = state == AppLifecycleState.resumed;
+    switch (state) {
+      case AppLifecycleState.paused:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.detached:
+        _isAppForeground = false;
+        _wasBackgrounded = true;
+        break;
+      case AppLifecycleState.inactive:
+        _isAppForeground = true;
+        break;
+      case AppLifecycleState.resumed:
+        _isAppForeground = true;
+        if (_wasBackgrounded) {
+          _wasBackgrounded = false;
+          unawaited(_reconnectAfterResume());
+        }
+        break;
+    }
+  }
+
+  static bool _isLifecycleForeground(AppLifecycleState state) =>
+      state == AppLifecycleState.resumed || state == AppLifecycleState.inactive;
+
+  static bool _isLifecycleBackground(AppLifecycleState state) =>
+      state == AppLifecycleState.paused ||
+      state == AppLifecycleState.hidden ||
+      state == AppLifecycleState.detached;
+
+  Future<void> _reconnectAfterResume() async {
+    if (_resumeReconnectInFlight) return;
+
+    _resumeReconnectInFlight = true;
+    _signalReconnectOnConnect = true;
+    _resumeReconnectWatchdogTimer?.cancel();
+    _resumeReconnectWatchdogTimer = Timer(
+      _resumeReconnectWatchdogTimeout,
+      _releaseResumeReconnectAttempt,
+    );
+    try {
+      await connect(force: true);
+    } catch (_) {
+      _clearPendingResumeReconnect();
+    }
+  }
+
+  void _releaseResumeReconnectAttempt() {
+    _resumeReconnectWatchdogTimer?.cancel();
+    _resumeReconnectWatchdogTimer = null;
+    _resumeReconnectInFlight = false;
+  }
+
+  void _clearPendingResumeReconnect() {
+    _releaseResumeReconnectAttempt();
+    _signalReconnectOnConnect = false;
   }
 
   String? get sessionId => _socket?.id;
@@ -338,12 +414,9 @@ class SocketService with WidgetsBindingObserver {
     }
 
     try {
-      _socket = createSocketWithOptionalBadCertOverride(
-        base,
-        builder,
-        serverConfig,
-      );
+      _socket = _socketFactory(base, builder, serverConfig);
       _bindCoreSocketHandlers();
+      _bindDynamicSocketHandlers(_socket);
     } catch (_) {
       _isConnecting = false;
       rethrow;
@@ -509,19 +582,34 @@ class SocketService with WidgetsBindingObserver {
 
   // Subscribe to an arbitrary socket.io event (used for dynamic tool channels)
   void onEvent(String eventName, void Function(dynamic data) handler) {
+    _dynamicEventHandlers
+        .putIfAbsent(eventName, () => <void Function(dynamic)>[])
+        .add(handler);
     _socket?.on(eventName, handler);
   }
 
   void offEvent(String eventName) {
-    _socket?.off(eventName);
+    final handlers = _dynamicEventHandlers.remove(eventName);
+    if (handlers == null) {
+      return;
+    }
+    final socket = _socket;
+    if (socket == null) {
+      return;
+    }
+    for (final handler in handlers) {
+      socket.off(eventName, handler);
+    }
   }
 
   void dispose() {
     _stopHeartbeat();
+    _clearPendingResumeReconnect();
     try {
       final existing = _socket;
       if (existing != null) {
         _unbindCoreSocketHandlers(existing);
+        _unbindDynamicSocketHandlers(existing);
         existing.dispose();
       }
     } catch (_) {}
@@ -529,6 +617,7 @@ class SocketService with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _chatEventHandlers.clear();
     _channelEventHandlers.clear();
+    _dynamicEventHandlers.clear();
     _reconnectController.close();
     _healthController.close();
     _connectionCompleter?.completeError(StateError('Service disposed'));
@@ -603,6 +692,23 @@ class SocketService with WidgetsBindingObserver {
       ..off('disconnect', _handleDisconnect);
   }
 
+  void _bindDynamicSocketHandlers(io.Socket? socket) {
+    if (socket == null) return;
+    for (final entry in _dynamicEventHandlers.entries) {
+      for (final handler in entry.value) {
+        socket.on(entry.key, handler);
+      }
+    }
+  }
+
+  void _unbindDynamicSocketHandlers(io.Socket socket) {
+    for (final entry in _dynamicEventHandlers.entries) {
+      for (final handler in entry.value) {
+        socket.off(entry.key, handler);
+      }
+    }
+  }
+
   void _handleConnect(dynamic _) {
     _isConnecting = false;
 
@@ -631,6 +737,15 @@ class SocketService with WidgetsBindingObserver {
 
     // Emit health update
     _emitHealthUpdate();
+
+    final shouldSignalReconnect = _signalReconnectOnConnect;
+    _releaseResumeReconnectAttempt();
+    if (shouldSignalReconnect) {
+      _signalReconnectOnConnect = false;
+      if (!_reconnectController.isClosed) {
+        _reconnectController.add(null);
+      }
+    }
   }
 
   void _handleReconnectAttempt(dynamic attempt) {
@@ -677,6 +792,7 @@ class SocketService with WidgetsBindingObserver {
     if (!_reconnectController.isClosed) {
       _reconnectController.add(null);
     }
+    _clearPendingResumeReconnect();
 
     // Emit health update
     _emitHealthUpdate();
@@ -706,6 +822,7 @@ class SocketService with WidgetsBindingObserver {
 
   void _handleReconnectFailed(dynamic _) {
     _isConnecting = false;
+    _clearPendingResumeReconnect();
     DebugLogger.error(
       'Socket reconnection failed after all attempts',
       scope: 'socket',

@@ -22,6 +22,7 @@ import '../utils/debug_logger.dart';
 import '../utils/system_ui_style.dart';
 import '../models/server_config.dart';
 import '../../features/tools/providers/tools_providers.dart';
+import '../../features/chat/providers/chat_providers.dart';
 
 part 'app_startup_providers.g.dart';
 
@@ -1124,12 +1125,63 @@ class _ForegroundRefreshObserver extends WidgetsBindingObserver {
         try {
           refreshConversationsCache(_ref);
           _resetConversationWarmup(_ref);
+          unawaited(_refreshActiveConversationOnResume(_ref));
         } catch (_) {}
         // Resume already kicked off a forced conversations refresh above; only
         // finish the warmup work that should run alongside it.
         _scheduleForcedConversationWarmup(_ref, refreshConversations: false);
       });
     }
+  }
+}
+
+Future<void> _refreshActiveConversationOnResume(Ref ref) async {
+  String? conversationId;
+  try {
+    if (!ref.mounted) {
+      return;
+    }
+
+    final api = ref.read(apiServiceProvider);
+    final active = ref.read(activeConversationProvider);
+    if (api == null ||
+        active == null ||
+        isTemporaryChat(active.id) ||
+        ref.read(shouldProtectLocalStreamingStateProvider)) {
+      return;
+    }
+
+    conversationId = active.id;
+    final refreshed = await api.getConversation(conversationId);
+    if (!ref.mounted) {
+      return;
+    }
+
+    final currentActive = ref.read(activeConversationProvider);
+    if (currentActive == null ||
+        currentActive.id != conversationId ||
+        ref.read(shouldProtectLocalStreamingStateProvider)) {
+      return;
+    }
+
+    ref.read(activeConversationProvider.notifier).set(refreshed);
+    try {
+      ref
+          .read(conversationsProvider.notifier)
+          .upsertConversation(
+            refreshed.copyWith(messages: const []),
+            trustFolderConversation:
+                refreshed.folderId != null && refreshed.folderId!.isNotEmpty,
+          );
+    } catch (_) {}
+  } catch (error, stackTrace) {
+    DebugLogger.error(
+      'resume-active-conversation-refresh-failed',
+      scope: 'startup',
+      error: error,
+      stackTrace: stackTrace,
+      data: {'conversationId': conversationId ?? '<unknown>'},
+    );
   }
 }
 

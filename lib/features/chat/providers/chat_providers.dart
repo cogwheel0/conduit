@@ -170,6 +170,19 @@ final isChatStreamingProvider = Provider<bool>((ref) {
   );
 });
 
+final shouldProtectLocalStreamingStateProvider = Provider<bool>((ref) {
+  final isStreaming = ref.watch(isChatStreamingProvider);
+  if (isStreaming) {
+    return true;
+  }
+
+  return ref.watch(
+    streamingContentProvider.select(
+      (content) => content != null && content.isNotEmpty,
+    ),
+  );
+});
+
 String? _connectedSocketSessionId(SocketService? socketService) {
   if (socketService?.isConnected != true) {
     return null;
