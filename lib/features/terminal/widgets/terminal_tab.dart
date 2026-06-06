@@ -17,6 +17,7 @@ import 'package:xterm/xterm.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/utils/adaptive_glass.dart';
 import '../../../shared/utils/platform_scroll_physics.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/utils/utf16_sanitizer.dart';
@@ -1411,7 +1412,9 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
                       return;
                   }
                 },
-                buttonStyle: PopupButtonStyle.glass,
+                buttonStyle: conduitSupportsNativeGlass()
+                    ? PopupButtonStyle.glass
+                    : PopupButtonStyle.plain,
                 tint: theme.iconSecondary,
                 size: TouchTarget.medium,
               ),
@@ -1527,7 +1530,9 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
                   return;
               }
             },
-            buttonStyle: PopupButtonStyle.glass,
+            buttonStyle: conduitSupportsNativeGlass()
+                ? PopupButtonStyle.glass
+                : PopupButtonStyle.plain,
             size: TouchTarget.medium,
           ),
         ),
@@ -1617,6 +1622,7 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
     final theme = context.conduitTheme;
     final iconSize = compact ? IconSize.sm : IconSize.medium;
     final minSide = compact ? TouchTarget.micro : TouchTarget.medium;
+    final usesOpaqueFallback = conduitUsesOpaqueGlassFallback();
     return AdaptiveTooltip(
       message: tooltip,
       child: Semantics(
@@ -1626,10 +1632,10 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
         child: AdaptiveButton.child(
           onPressed: onPressed,
           enabled: onPressed != null,
-          style: Platform.isAndroid
+          style: usesOpaqueFallback
               ? AdaptiveButtonStyle.filled
               : AdaptiveButtonStyle.glass,
-          color: Platform.isAndroid ? theme.surfaceContainerHighest : null,
+          color: usesOpaqueFallback ? theme.surfaceContainerHighest : null,
           size: compact ? AdaptiveButtonSize.small : AdaptiveButtonSize.medium,
           minSize: Size(minSide, minSide),
           padding: compact

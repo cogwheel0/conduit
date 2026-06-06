@@ -5,6 +5,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../theme/theme_extensions.dart';
+import '../utils/adaptive_glass.dart';
 import 'conduit_components.dart';
 import 'conduit_loading.dart';
 import 'middle_ellipsis_text.dart';
@@ -139,7 +140,7 @@ Widget buildConduitAdaptiveToolbarPillSurface({
 }) {
   final sizedChild = SizedBox(width: width, child: child);
 
-  if (Platform.isAndroid) {
+  if (conduitUsesOpaqueGlassFallback()) {
     if (onPressed == null) {
       return SizedBox(
         width: width,
@@ -292,7 +293,7 @@ class ConduitAdaptiveAppBarIconButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final effectiveIconColor = iconColor ?? context.conduitTheme.textPrimary;
 
-    if (Platform.isAndroid) {
+    if (conduitUsesOpaqueGlassFallback()) {
       return FloatingAppBarIconButton(
         icon: icon,
         onTap: onPressed,
@@ -407,7 +408,7 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
       ),
     );
 
-    if (Platform.isAndroid) {
+    if (conduitUsesOpaqueGlassFallback()) {
       return FloatingAppBarButton(
         onTap: isLoading ? null : onPressed,
         semanticLabel: label,
@@ -452,12 +453,12 @@ class ConduitAdaptiveToolbarOverflowButton<T> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (Platform.isAndroid) {
+    if (conduitUsesOpaqueGlassFallback()) {
       return AdaptivePopupMenuButton.widget<T>(
         items: items,
         onSelected: _handleSelected,
         child: FloatingAppBarIconButton(
-          icon: materialIcon,
+          icon: Platform.isIOS ? CupertinoIcons.ellipsis : materialIcon,
           iconColor: tintColor,
         ),
       );

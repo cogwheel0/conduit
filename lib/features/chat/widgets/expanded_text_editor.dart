@@ -4,6 +4,7 @@ import 'package:flutter/cupertino.dart';
 
 import 'dart:io' show Platform;
 
+import '../../../shared/utils/adaptive_glass.dart';
 import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/themed_sheets.dart';
@@ -77,7 +78,9 @@ class _ExpandedTextEditorSheetState extends State<ExpandedTextEditorSheet> {
     final sendButton = AdaptiveButton.child(
       onPressed: _hasText ? widget.onSend : null,
       enabled: _hasText,
-      style: AdaptiveButtonStyle.prominentGlass,
+      style: conduitUsesOpaqueGlassFallback()
+          ? AdaptiveButtonStyle.filled
+          : AdaptiveButtonStyle.prominentGlass,
       color: theme.buttonPrimary,
       size: AdaptiveButtonSize.medium,
       minSize: const Size(buttonSize, buttonSize),

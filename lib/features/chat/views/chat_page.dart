@@ -49,6 +49,7 @@ import '../../../core/models/conversation.dart';
 import '../../../core/models/folder.dart';
 import '../../../core/models/model.dart';
 import '../providers/context_attachments_provider.dart';
+import '../../../shared/utils/adaptive_glass.dart';
 import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/themed_sheets.dart';
@@ -1657,14 +1658,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     const buttonSize = 40.0;
     const iconSize = IconSize.medium;
     final theme = context.conduitTheme;
-    final style = Platform.isAndroid
+    final usesOpaqueFallback = conduitUsesOpaqueGlassFallback();
+    final style = usesOpaqueFallback
         ? AdaptiveButtonStyle.filled
         : AdaptiveButtonStyle.glass;
 
     return AdaptiveButton.child(
       onPressed: _userScrollToBottom,
       style: style,
-      color: Platform.isAndroid
+      color: usesOpaqueFallback
           ? theme.surfaceContainerHighest.withValues(alpha: 0.95)
           : null,
       size: AdaptiveButtonSize.medium,

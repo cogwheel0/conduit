@@ -18,6 +18,7 @@ import '../../../core/utils/native_sheet_utils.dart';
 import '../../../core/utils/user_avatar_utils.dart';
 import '../../../core/utils/user_display_name.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/utils/adaptive_glass.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../../auth/providers/unified_auth_providers.dart';
@@ -86,7 +87,8 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
         : displayName.characters.first.toUpperCase();
     final avatarUrl = resolveUserAvatarUrlForUser(api, user);
     final iconColor = context.conduitTheme.textPrimary;
-    final style = Platform.isAndroid
+    final useOpaqueFallback = conduitUsesOpaqueGlassFallback();
+    final style = useOpaqueFallback
         ? AdaptiveButtonStyle.plain
         : AdaptiveButtonStyle.glass;
 
@@ -117,7 +119,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
           }
         },
         style: style,
-        color: Platform.isAndroid ? iconColor : null,
+        color: useOpaqueFallback ? iconColor : null,
         size: AdaptiveButtonSize.large,
         padding: EdgeInsets.zero,
         minSize: const Size(TouchTarget.minimum, TouchTarget.minimum),

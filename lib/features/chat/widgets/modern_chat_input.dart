@@ -38,6 +38,7 @@ import '../../../core/models/knowledge_base.dart';
 import '../../../core/models/knowledge_base_file.dart';
 
 import '../../../shared/utils/platform_utils.dart';
+import '../../../shared/utils/adaptive_glass.dart';
 import '../../../shared/utils/ask_conduit_context_menu.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import '../../../shared/widgets/modal_safe_area.dart';
@@ -3088,8 +3089,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   /// Builds a circular icon button for the composer.
   ///
-  /// Uses native glass on iOS while keeping Material composer buttons native to
-  /// Android instead of using the adaptive glass tonal fallback.
+  /// Uses native glass only where iOS supports it; older iOS follows the same
+  /// opaque fallback treatment as Android.
   Widget _buildComposerIconButton({
     Key? key,
     required VoidCallback? onPressed,
@@ -3103,7 +3104,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final effectiveColor = color ?? theme.buttonPrimary;
     final androidBackgroundColor =
         color ?? theme.surfaceContainerHighest.withValues(alpha: 0.95);
-    final buttonStyle = Platform.isAndroid
+    final usesOpaqueFallback = conduitUsesOpaqueGlassFallback();
+    final buttonStyle = usesOpaqueFallback
         ? (isProminent || androidShowBackground
               ? AdaptiveButtonStyle.filled
               : AdaptiveButtonStyle.plain)
@@ -3116,7 +3118,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       onPressed: onPressed,
       enabled: onPressed != null,
       style: buttonStyle,
-      color: Platform.isAndroid && androidShowBackground && !isProminent
+      color: usesOpaqueFallback && androidShowBackground && !isProminent
           ? androidBackgroundColor
           : effectiveColor,
       size: size > 40 ? AdaptiveButtonSize.large : AdaptiveButtonSize.medium,
@@ -3130,7 +3132,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   /// Builds the composer shell container.
   ///
-  /// Uses package-provided glass on iOS and a themed Material surface elsewhere.
+  /// Uses native glass on iOS 26+ and a themed opaque surface elsewhere.
   Widget _buildComposerShell({
     Key? key,
     required Widget child,
@@ -3139,7 +3141,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   }) {
     final theme = context.conduitTheme;
 
-    if (!kIsWeb && Platform.isIOS) {
+    if (conduitSupportsNativeGlass()) {
       return Stack(
         key: key,
         fit: StackFit.passthrough,

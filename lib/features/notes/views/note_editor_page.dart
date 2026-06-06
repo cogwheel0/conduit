@@ -17,6 +17,7 @@ import '../../../core/services/ios_native_dropdown_bridge.dart';
 import '../../../core/widgets/error_boundary.dart';
 import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/utils/adaptive_glass.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/chrome_gradient_fade.dart';
@@ -1402,7 +1403,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                   _generateTitle();
               }
             },
-            buttonStyle: PopupButtonStyle.glass,
+            buttonStyle: conduitSupportsNativeGlass()
+                ? PopupButtonStyle.glass
+                : PopupButtonStyle.plain,
             child: IgnorePointer(child: button),
           ),
         ),
@@ -1424,14 +1427,21 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     required bool isLoading,
     Color? color,
   }) {
-    final labelColor = context.conduitTheme.textPrimary;
+    final theme = context.conduitTheme;
+    final labelColor = theme.textPrimary;
     final borderRadius = BorderRadius.circular(AppBorderRadius.floatingButton);
+    final usesOpaqueFallback = conduitUsesOpaqueGlassFallback();
+    final effectiveColor = usesOpaqueFallback && color == null
+        ? theme.surfaceContainerHighest
+        : color;
 
     return AdaptiveButton.child(
       onPressed: onPressed,
       enabled: onPressed != null,
-      color: color,
-      style: color == null
+      color: effectiveColor,
+      style: usesOpaqueFallback
+          ? AdaptiveButtonStyle.filled
+          : color == null
           ? AdaptiveButtonStyle.glass
           : AdaptiveButtonStyle.prominentGlass,
       size: AdaptiveButtonSize.large,

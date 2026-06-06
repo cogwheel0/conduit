@@ -5,6 +5,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../theme/theme_extensions.dart';
+import '../utils/adaptive_glass.dart';
 import 'modal_safe_area.dart';
 import 'sheet_handle.dart';
 
@@ -128,7 +129,7 @@ class SheetCloseButton extends StatelessWidget {
       color: iconColor,
     );
 
-    if (Platform.isIOS) {
+    if (conduitSupportsNativeGlass()) {
       final button = AdaptiveButton.child(
         onPressed: onPressed,
         enabled: onPressed != null,

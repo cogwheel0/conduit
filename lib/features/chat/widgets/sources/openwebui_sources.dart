@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../../core/models/chat_message.dart';
 import '../../../../core/services/native_sheet_bridge.dart';
 import '../../../../shared/theme/theme_extensions.dart';
+import '../../../../shared/utils/adaptive_glass.dart';
 import '../../../../shared/widgets/markdown/source_reference_helper.dart';
 import '../../../../shared/widgets/sheet_handle.dart';
 import '../../../../shared/widgets/themed_sheets.dart';
@@ -30,6 +31,7 @@ class OpenWebUISourcesWidget extends StatelessWidget {
     }
 
     final theme = context.conduitTheme;
+    final usesOpaqueFallback = conduitUsesOpaqueGlassFallback();
     final urlSources = sources
         .where((source) {
           return SourceReferenceHelper.getSourceUrl(source) != null;
@@ -65,10 +67,10 @@ class OpenWebUISourcesWidget extends StatelessWidget {
           label: _sourceCountLabel(sources.length),
           child: AdaptiveButton.child(
             onPressed: () => _showSourcesBottomSheet(context),
-            style: Platform.isAndroid
+            style: usesOpaqueFallback
                 ? AdaptiveButtonStyle.filled
                 : AdaptiveButtonStyle.glass,
-            color: Platform.isAndroid
+            color: usesOpaqueFallback
                 ? theme.surfaceContainerHighest.withValues(alpha: 0.95)
                 : null,
             size: AdaptiveButtonSize.small,
