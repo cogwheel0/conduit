@@ -2,6 +2,7 @@ import 'package:checks/checks.dart';
 import 'package:conduit/features/chat/services/voice_input_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/widgets.dart';
 
 void main() {
   group('VoiceInputService.silenceDurationToVadFrames', () {
@@ -13,6 +14,35 @@ void main() {
     test('preserves longer server STT silence windows', () {
       check(VoiceInputService.silenceDurationToVadFrames(3000)).equals(94);
       check(VoiceInputService.silenceDurationToVadFrames(5000)).equals(157);
+    });
+  });
+
+  group('VoiceInputService.resolveServerLanguageHint', () {
+    test('uses explicit STT language before locale fallbacks', () {
+      final language = VoiceInputService.resolveServerLanguageHint(
+        configuredLanguageCode: 'PL',
+        selectedLocaleId: 'de_DE',
+        fallbackLocale: const Locale('en'),
+      );
+
+      check(language).equals('pl');
+    });
+
+    test('falls back to selected locale when no explicit language is set', () {
+      final language = VoiceInputService.resolveServerLanguageHint(
+        selectedLocaleId: 'de_DE',
+        fallbackLocale: const Locale('en'),
+      );
+
+      check(language).equals('de');
+    });
+
+    test('falls back to device locale when selected locale is unavailable', () {
+      final language = VoiceInputService.resolveServerLanguageHint(
+        fallbackLocale: const Locale('pl'),
+      );
+
+      check(language).equals('pl');
     });
   });
 

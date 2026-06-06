@@ -110,6 +110,9 @@ class NativeSheetHydrationService {
       case NativeSheetRoutes.aiMemory:
         await _hydrateNativeAiMemoryDetail(ctx, l10n);
         return;
+      case NativeSheetRoutes.voice:
+        await _hydrateNativeVoiceDetail(l10n);
+        return;
       case NativeSheetRoutes.helpAbout:
         await _hydrateNativeAboutDetail(
           ctx,
@@ -448,6 +451,20 @@ class NativeSheetHydrationService {
         l10n.unableToLoadOpenWebuiSettings,
       );
     }
+  }
+
+  Future<void> _hydrateNativeVoiceDetail(AppLocalizations l10n) async {
+    final appSettings = _ref.read(appSettingsProvider);
+    final nativeAudio = buildNativeAudioSheetParts(l10n, appSettings);
+    await _applyNativeDetail(
+      NativeSheetDetailConfig(
+        id: NativeSheetRoutes.voice,
+        title: l10n.voice,
+        subtitle: l10n.audioSettingsSubtitle,
+        items: nativeAudio.mainItems,
+      ),
+      detailSheets: [nativeAudio.voicePickerDetail],
+    );
   }
 
   Future<void> _hydrateNativeSignalStyleSettingsDetails(

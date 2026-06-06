@@ -392,18 +392,40 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
             await ref
                 .read(appSettingsProvider.notifier)
                 .setSttPreference(SttPreference.serverOnly);
+            await _refreshNativeVoiceDetail();
           } else if (value == SttPreference.deviceOnly.name) {
             await ref
                 .read(appSettingsProvider.notifier)
                 .setSttPreference(SttPreference.deviceOnly);
+            await _refreshNativeVoiceDetail();
+          }
+        case 'stt-language-code':
+          if (value is String) {
+            final normalized = SettingsService.normalizeSttLanguageCode(value);
+            if (normalized != null ||
+                SettingsService.isSttLanguageAutoInput(value)) {
+              await ref
+                  .read(appSettingsProvider.notifier)
+                  .setSttLanguageCode(normalized);
+              await _refreshNativeVoiceDetail();
+            } else {
+              DebugLogger.validation(
+                'Ignoring invalid native STT language code',
+                scope: 'native-sheet',
+                data: {'value': value},
+              );
+              await _refreshNativeVoiceDetail();
+            }
           }
         case 'tts-engine':
           final notifier = ref.read(appSettingsProvider.notifier);
           if (value == TtsEngine.server.name) {
             await notifier.setTtsVoice(null);
             await notifier.setTtsEngine(TtsEngine.server);
+            await _refreshNativeVoiceDetail();
           } else if (value == TtsEngine.device.name) {
             await notifier.setTtsEngine(TtsEngine.device);
+            await _refreshNativeVoiceDetail();
           }
         case 'theme-light':
           switch (value) {
@@ -483,6 +505,12 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
   String? _normalizeOptionalNativeText(String? value) {
     final trimmed = value?.trim();
     return trimmed == null || trimmed.isEmpty ? null : trimmed;
+  }
+
+  Future<void> _refreshNativeVoiceDetail() {
+    return ref
+        .read(nativeSheetHydrationServiceProvider)
+        .hydrateDetail(NativeSheetRoutes.voice);
   }
 
   Future<void> _saveNativePasswordDraft(String id, Object? value) async {

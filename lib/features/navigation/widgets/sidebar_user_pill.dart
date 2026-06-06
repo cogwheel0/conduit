@@ -12,8 +12,8 @@ import '../../../core/models/user.dart';
 import '../../../core/network/image_header_utils.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/native_sheet_bridge.dart';
-import '../../../core/services/settings_service.dart';
 import '../../../core/services/navigation_service.dart';
+import '../../../core/services/settings_service.dart';
 import '../../../core/utils/native_sheet_utils.dart';
 import '../../../core/utils/user_avatar_utils.dart';
 import '../../../core/utils/user_display_name.dart';
@@ -150,7 +150,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
     final email = _extractEmail(user) ?? l10n.noEmailLabel;
     final accountProfile = ref.read(accountProfileProvider).asData?.value;
     final appSettings = ref.read(appSettingsProvider);
-    final nativeAudio = _nativeAudioSheetParts(l10n, appSettings);
+    final nativeAudio = buildNativeAudioSheetParts(l10n, appSettings);
     final settingsTitle = nativeSettingsTitle(l10n);
     final profileTitle = nativeProfileTitle(l10n);
     final appearanceTitle = nativeAppearanceTitle(l10n);
@@ -416,139 +416,6 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
     }
     return null;
   }
-}
-
-class _NativeAudioSheetParts {
-  const _NativeAudioSheetParts({
-    required this.mainItems,
-    required this.voicePickerDetail,
-  });
-
-  final List<NativeSheetItemConfig> mainItems;
-  final NativeSheetDetailConfig voicePickerDetail;
-}
-
-_NativeAudioSheetParts _nativeAudioSheetParts(
-  AppLocalizations l10n,
-  AppSettings appSettings,
-) {
-  final sttSegment = NativeSheetItemConfig(
-    id: 'stt-engine',
-    title: l10n.sttSettings,
-    subtitle: l10n.sttEngineDeviceDescription,
-    sfSymbol: 'mic',
-    kind: NativeSheetItemKind.segment,
-    value: appSettings.sttPreference.name,
-    options: [
-      NativeSheetOptionConfig(id: 'deviceOnly', label: l10n.sttEngineDevice),
-      NativeSheetOptionConfig(id: 'serverOnly', label: l10n.sttEngineServer),
-    ],
-  );
-
-  final silenceDivisions =
-      ((SettingsService.maxVoiceSilenceDurationMs -
-                  SettingsService.minVoiceSilenceDurationMs) ~/
-              100)
-          .clamp(1, 1000)
-          .toInt();
-
-  final silenceSlider = NativeSheetItemConfig(
-    id: 'stt-silence-duration',
-    title: l10n.sttSilenceDuration,
-    subtitle: l10n.sttSilenceDurationDescription,
-    sfSymbol: 'timer',
-    kind: NativeSheetItemKind.slider,
-    value: appSettings.voiceSilenceDuration.toDouble(),
-    min: SettingsService.minVoiceSilenceDurationMs.toDouble(),
-    max: SettingsService.maxVoiceSilenceDurationMs.toDouble(),
-    divisions: silenceDivisions,
-  );
-
-  final ttsSegment = NativeSheetItemConfig(
-    id: 'tts-engine',
-    title: l10n.ttsSettings,
-    subtitle: appSettings.ttsEngine == TtsEngine.server
-        ? l10n.ttsEngineServerDescription
-        : l10n.ttsEngineDeviceDescription,
-    sfSymbol: 'speaker.wave.2',
-    kind: NativeSheetItemKind.segment,
-    value: appSettings.ttsEngine.name,
-    options: [
-      NativeSheetOptionConfig(id: 'device', label: l10n.ttsEngineDevice),
-      NativeSheetOptionConfig(id: 'server', label: l10n.ttsEngineServer),
-    ],
-  );
-
-  final voicePickerNav = NativeSheetItemConfig(
-    id: 'tts-voice-picker',
-    title: l10n.ttsVoice,
-    subtitle: _nativeVoiceSubtitle(l10n, appSettings),
-    sfSymbol: 'person.wave.2',
-  );
-
-  final speechRateSlider = NativeSheetItemConfig(
-    id: 'tts-speech-rate',
-    title: l10n.ttsSpeechRate,
-    subtitle: '${(appSettings.ttsSpeechRate * 100).round()}%',
-    sfSymbol: 'gauge.with.dots.needle.67percent',
-    kind: NativeSheetItemKind.slider,
-    value: appSettings.ttsSpeechRate,
-    min: 0.25,
-    max: 2.0,
-    divisions: 35,
-  );
-
-  final previewNav = NativeSheetItemConfig(
-    id: 'tts-preview',
-    title: l10n.ttsPreview,
-    subtitle: l10n.ttsPreviewText,
-    sfSymbol: 'play.circle',
-    value: l10n.ttsPreviewText,
-  );
-
-  final sttItems = <NativeSheetItemConfig>[
-    sttSegment,
-    if (appSettings.sttPreference == SttPreference.serverOnly) silenceSlider,
-  ];
-
-  final ttsItems = <NativeSheetItemConfig>[
-    ttsSegment,
-    voicePickerNav,
-    if (appSettings.ttsEngine == TtsEngine.device) speechRateSlider,
-    previewNav,
-  ];
-
-  final mainItems = <NativeSheetItemConfig>[...sttItems, ...ttsItems];
-
-  final pickerRows = <NativeSheetItemConfig>[
-    NativeSheetItemConfig(
-      id: 'tts-voice-pick:${Uri.encodeComponent('__default__')}',
-      title: l10n.ttsSystemDefault,
-      sfSymbol: 'sparkles',
-      value: '',
-    ),
-  ];
-
-  final voicePickerDetail = NativeSheetDetailConfig(
-    id: 'tts-voice-picker',
-    title: l10n.ttsSelectVoice,
-    subtitle: l10n.ttsVoice,
-    items: pickerRows,
-  );
-
-  return _NativeAudioSheetParts(
-    mainItems: mainItems,
-    voicePickerDetail: voicePickerDetail,
-  );
-}
-
-String _nativeVoiceSubtitle(AppLocalizations l10n, AppSettings settings) {
-  if (settings.ttsEngine == TtsEngine.server) {
-    return settings.ttsServerVoiceName ??
-        settings.ttsServerVoiceId ??
-        l10n.ttsSystemDefault;
-  }
-  return settings.ttsVoice ?? l10n.ttsSystemDefault;
 }
 
 /// Search field used as the sidebar adaptive app bar leading widget.

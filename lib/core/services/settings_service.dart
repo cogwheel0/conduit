@@ -51,6 +51,8 @@ class SettingsService {
   static const String _voiceLocaleKey = PreferenceKeys.voiceLocaleId;
   static const String _voiceHoldToTalkKey = PreferenceKeys.voiceHoldToTalk;
   static const String _voiceAutoSendKey = PreferenceKeys.voiceAutoSendFinal;
+  static const String _voiceSttLanguageCodeKey =
+      PreferenceKeys.voiceSttLanguageCode;
   // Realtime transport preference
   static const String _socketTransportModeKey =
       PreferenceKeys.socketTransportMode; // 'polling' or 'ws'
@@ -234,6 +236,13 @@ class SettingsService {
       await box.delete(_voiceLocaleKey);
     }
 
+    final sttLanguageCode = normalizeSttLanguageCode(settings.sttLanguageCode);
+    if (sttLanguageCode != null) {
+      await box.put(_voiceSttLanguageCodeKey, sttLanguageCode);
+    } else {
+      await box.delete(_voiceSttLanguageCodeKey);
+    }
+
     if (settings.ttsVoice != null && settings.ttsVoice!.isNotEmpty) {
       await box.put(PreferenceKeys.ttsVoice, settings.ttsVoice);
     } else {
@@ -300,6 +309,29 @@ class SettingsService {
     }
   }
 
+  static String? normalizeSttLanguageCode(String? raw) {
+    final trimmed = raw?.trim();
+    if (isSttLanguageAutoInput(trimmed)) {
+      return null;
+    }
+
+    final lower = trimmed!.replaceAll('_', '-').toLowerCase();
+    final primary = lower.split('-').first;
+    if (RegExp(r'^[a-z]{2}$').hasMatch(primary)) {
+      return primary;
+    }
+    return null;
+  }
+
+  static bool isSttLanguageAutoInput(String? raw) {
+    final lower = raw?.trim().toLowerCase();
+    return lower == null ||
+        lower.isEmpty ||
+        lower == 'auto' ||
+        lower == 'default' ||
+        lower == 'system';
+  }
+
   // Voice input specific settings
   static Future<String?> getVoiceLocaleId() {
     final value = _getPreference<String>(_voiceLocaleKey);
@@ -312,6 +344,20 @@ class SettingsService {
       return box?.delete(_voiceLocaleKey) ?? Future.value();
     }
     return box?.put(_voiceLocaleKey, localeId) ?? Future.value();
+  }
+
+  static Future<String?> getSttLanguageCode() {
+    final value = _getPreference<String>(_voiceSttLanguageCodeKey);
+    return Future.value(normalizeSttLanguageCode(value));
+  }
+
+  static Future<void> setSttLanguageCode(String? languageCode) {
+    final box = _preferencesBox();
+    final normalized = normalizeSttLanguageCode(languageCode);
+    if (normalized == null) {
+      return box?.delete(_voiceSttLanguageCodeKey) ?? Future.value();
+    }
+    return box?.put(_voiceSttLanguageCodeKey, normalized) ?? Future.value();
   }
 
   static Future<bool> getVoiceHoldToTalk() {
@@ -529,6 +575,9 @@ class SettingsService {
       sttPreference: _parseSttPreference(
         box.get(PreferenceKeys.voiceSttPreference) as String?,
       ),
+      sttLanguageCode: normalizeSttLanguageCode(
+        box.get(_voiceSttLanguageCodeKey) as String?,
+      ),
       androidAssistantTrigger: _parseAndroidAssistantTrigger(
         box.get(_androidAssistantTriggerKey) as String?,
       ),
@@ -569,6 +618,7 @@ class AppSettings {
   final bool? chatImageGenerationEnabled;
   final bool sendOnEnter;
   final SttPreference sttPreference;
+  final String? sttLanguageCode;
   final String? ttsVoice;
   final double ttsSpeechRate;
   final double ttsPitch;
@@ -597,6 +647,7 @@ class AppSettings {
     this.chatImageGenerationEnabled,
     this.sendOnEnter = false,
     this.sttPreference = SttPreference.deviceOnly,
+    this.sttLanguageCode,
     this.ttsVoice,
     this.ttsSpeechRate = 0.5,
     this.ttsPitch = 1.0,
@@ -627,6 +678,7 @@ class AppSettings {
     bool? chatImageGenerationEnabled,
     bool? sendOnEnter,
     SttPreference? sttPreference,
+    Object? sttLanguageCode = const _DefaultValue(),
     Object? ttsVoice = const _DefaultValue(),
     double? ttsSpeechRate,
     double? ttsPitch,
@@ -662,6 +714,9 @@ class AppSettings {
           chatImageGenerationEnabled ?? this.chatImageGenerationEnabled,
       sendOnEnter: sendOnEnter ?? this.sendOnEnter,
       sttPreference: sttPreference ?? this.sttPreference,
+      sttLanguageCode: sttLanguageCode is _DefaultValue
+          ? this.sttLanguageCode
+          : sttLanguageCode as String?,
       ttsVoice: ttsVoice is _DefaultValue ? this.ttsVoice : ttsVoice as String?,
       ttsSpeechRate: ttsSpeechRate ?? this.ttsSpeechRate,
       ttsPitch: ttsPitch ?? this.ttsPitch,
@@ -699,6 +754,7 @@ class AppSettings {
         other.chatWebSearchEnabled == chatWebSearchEnabled &&
         other.chatImageGenerationEnabled == chatImageGenerationEnabled &&
         other.sttPreference == sttPreference &&
+        other.sttLanguageCode == sttLanguageCode &&
         other.sendOnEnter == sendOnEnter &&
         other.ttsVoice == ttsVoice &&
         other.ttsSpeechRate == ttsSpeechRate &&
@@ -731,6 +787,7 @@ class AppSettings {
       chatWebSearchEnabled,
       chatImageGenerationEnabled,
       sttPreference,
+      sttLanguageCode,
       sendOnEnter,
       ttsVoice,
       ttsSpeechRate,
@@ -909,6 +966,15 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
       return;
     }
     state = state.copyWith(sttPreference: preference);
+    await SettingsService.saveSettings(state);
+  }
+
+  Future<void> setSttLanguageCode(String? languageCode) async {
+    final normalized = SettingsService.normalizeSttLanguageCode(languageCode);
+    if (state.sttLanguageCode == normalized) {
+      return;
+    }
+    state = state.copyWith(sttLanguageCode: normalized);
     await SettingsService.saveSettings(state);
   }
 

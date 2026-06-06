@@ -91,6 +91,7 @@ class PersistenceMigrator {
     copyBool(PreferenceKeys.voiceHoldToTalk);
     copyBool(PreferenceKeys.voiceAutoSendFinal);
     copyString(PreferenceKeys.voiceSttPreference);
+    copyString(PreferenceKeys.voiceSttLanguageCode);
     copyString(PreferenceKeys.socketTransportMode);
     copyStringList(PreferenceKeys.quickPills);
     copyBool(PreferenceKeys.sendOnEnterKey);
@@ -213,6 +214,7 @@ class PersistenceMigrator {
       PreferenceKeys.voiceHoldToTalk,
       PreferenceKeys.voiceAutoSendFinal,
       PreferenceKeys.voiceSttPreference,
+      PreferenceKeys.voiceSttLanguageCode,
       PreferenceKeys.socketTransportMode,
       PreferenceKeys.quickPills,
       PreferenceKeys.sendOnEnterKey,

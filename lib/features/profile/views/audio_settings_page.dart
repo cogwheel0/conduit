@@ -16,6 +16,7 @@ import '../../chat/services/voice_input_service.dart';
 import '../widgets/adaptive_segmented_selector.dart';
 import '../widgets/customization_tile.dart';
 import '../widgets/settings_page_scaffold.dart';
+import '../widgets/stt_language_picker.dart';
 
 class AudioSettingsPage extends ConsumerWidget {
   const AudioSettingsPage({super.key});
@@ -114,6 +115,19 @@ class AudioSettingsPage extends ConsumerWidget {
           ),
         ),
         if (settings.sttPreference == SttPreference.serverOnly) ...[
+          const SizedBox(height: Spacing.sm),
+          CustomizationTile(
+            leading: SettingsIconBadge(
+              icon: UiUtils.platformIcon(
+                ios: CupertinoIcons.globe,
+                android: Icons.language,
+              ),
+              color: theme.buttonPrimary,
+            ),
+            title: l10n.sttTranscriptionLanguage,
+            subtitle: sttLanguageSubtitle(l10n, settings),
+            onTap: () => showSttLanguagePickerSheet(context, ref, settings),
+          ),
           const SizedBox(height: Spacing.sm),
           ConduitCard(
             child: Column(

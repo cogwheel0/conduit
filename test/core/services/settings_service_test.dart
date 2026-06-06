@@ -68,6 +68,10 @@ void main() {
         check(settings.sttPreference).equals(SttPreference.deviceOnly);
       });
 
+      test('sttLanguageCode defaults to null', () {
+        check(settings.sttLanguageCode).isNull();
+      });
+
       test('ttsVoice defaults to null', () {
         check(settings.ttsVoice).isNull();
       });
@@ -172,6 +176,7 @@ void main() {
         final modified = original.copyWith(
           defaultModel: 'gpt-4',
           voiceLocaleId: 'en_US',
+          sttLanguageCode: 'pl',
           ttsVoice: 'voice1',
           ttsServerVoiceId: 'server-voice-1',
           ttsServerVoiceName: 'Server Voice',
@@ -179,6 +184,7 @@ void main() {
 
         check(modified.defaultModel).equals('gpt-4');
         check(modified.voiceLocaleId).equals('en_US');
+        check(modified.sttLanguageCode).equals('pl');
         check(modified.ttsVoice).equals('voice1');
         check(modified.ttsServerVoiceId).equals('server-voice-1');
         check(modified.ttsServerVoiceName).equals('Server Voice');
@@ -188,6 +194,7 @@ void main() {
         final original = const AppSettings().copyWith(
           defaultModel: 'gpt-4',
           voiceLocaleId: 'en_US',
+          sttLanguageCode: 'pl',
           ttsVoice: 'voice1',
           ttsServerVoiceId: 'server-voice-1',
           ttsServerVoiceName: 'Server Voice',
@@ -196,6 +203,7 @@ void main() {
         final cleared = original.copyWith(
           defaultModel: null,
           voiceLocaleId: null,
+          sttLanguageCode: null,
           ttsVoice: null,
           ttsServerVoiceId: null,
           ttsServerVoiceName: null,
@@ -203,6 +211,7 @@ void main() {
 
         check(cleared.defaultModel).isNull();
         check(cleared.voiceLocaleId).isNull();
+        check(cleared.sttLanguageCode).isNull();
         check(cleared.ttsVoice).isNull();
         check(cleared.ttsServerVoiceId).isNull();
         check(cleared.ttsServerVoiceName).isNull();
@@ -212,12 +221,14 @@ void main() {
         final original = const AppSettings().copyWith(
           defaultModel: 'gpt-4',
           voiceLocaleId: 'en_US',
+          sttLanguageCode: 'pl',
         );
 
         final copy = original.copyWith(darkMode: false);
 
         check(copy.defaultModel).equals('gpt-4');
         check(copy.voiceLocaleId).equals('en_US');
+        check(copy.sttLanguageCode).equals('pl');
         check(copy.darkMode).equals(false);
       });
 
@@ -265,6 +276,12 @@ void main() {
       test('different quickPills yields inequality', () {
         final a = const AppSettings().copyWith(quickPills: ['web']);
         final b = const AppSettings().copyWith(quickPills: ['image']);
+        check(a).not((it) => it.equals(b));
+      });
+
+      test('different sttLanguageCode yields inequality', () {
+        final a = const AppSettings().copyWith(sttLanguageCode: 'pl');
+        const b = AppSettings();
         check(a).not((it) => it.equals(b));
       });
 
@@ -319,12 +336,39 @@ void main() {
 
       test('socketTransportMode is excluded from hashCode', () {
         final a = const AppSettings().copyWith(socketTransportMode: 'ws');
-        final b = const AppSettings().copyWith(
-          socketTransportMode: 'polling',
-        );
+        final b = const AppSettings().copyWith(socketTransportMode: 'polling');
         check(a).equals(b);
         check(a.hashCode).equals(b.hashCode);
       });
+    });
+  });
+
+  group('SettingsService.normalizeSttLanguageCode', () {
+    test('normalizes two-letter language codes', () {
+      check(SettingsService.normalizeSttLanguageCode('PL')).equals('pl');
+      check(SettingsService.normalizeSttLanguageCode('pl-PL')).equals('pl');
+      check(SettingsService.normalizeSttLanguageCode('en_US')).equals('en');
+    });
+
+    test('treats auto-like and blank values as no pinned language', () {
+      check(SettingsService.normalizeSttLanguageCode(null)).isNull();
+      check(SettingsService.normalizeSttLanguageCode('')).isNull();
+      check(SettingsService.normalizeSttLanguageCode('auto')).isNull();
+      check(SettingsService.normalizeSttLanguageCode('system')).isNull();
+    });
+
+    test('distinguishes auto-like values from invalid language codes', () {
+      check(SettingsService.isSttLanguageAutoInput(null)).isTrue();
+      check(SettingsService.isSttLanguageAutoInput('auto')).isTrue();
+      check(SettingsService.isSttLanguageAutoInput('default')).isTrue();
+      check(SettingsService.isSttLanguageAutoInput('eng')).isFalse();
+      check(SettingsService.isSttLanguageAutoInput('polish')).isFalse();
+    });
+
+    test('rejects non ISO-639-1 values', () {
+      check(SettingsService.normalizeSttLanguageCode('polish')).isNull();
+      check(SettingsService.normalizeSttLanguageCode('p')).isNull();
+      check(SettingsService.normalizeSttLanguageCode('eng')).isNull();
     });
   });
 

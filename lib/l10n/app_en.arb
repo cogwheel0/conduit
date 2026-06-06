@@ -1401,6 +1401,30 @@
   "@sttSilenceDurationDescription": {
     "description": "Description for the silence duration slider in server speech-to-text settings."
   },
+  "sttTranscriptionLanguage": "Transcription language",
+  "@sttTranscriptionLanguage": {
+    "description": "Title for the server speech-to-text language setting."
+  },
+  "sttTranscriptionLanguageDescription": "Use Auto to follow this device's language, or enter a code such as pl.",
+  "@sttTranscriptionLanguageDescription": {
+    "description": "Description for the server speech-to-text language setting."
+  },
+  "sttTranscriptionLanguageAuto": "Auto",
+  "@sttTranscriptionLanguageAuto": {
+    "description": "Option label for using the device language as the server speech-to-text language hint."
+  },
+  "sttTranscriptionLanguageCustom": "Custom language code",
+  "@sttTranscriptionLanguageCustom": {
+    "description": "Option label for entering an explicit speech-to-text language code."
+  },
+  "sttTranscriptionLanguagePlaceholder": "ISO-639-1 code, e.g. pl",
+  "@sttTranscriptionLanguagePlaceholder": {
+    "description": "Placeholder for entering a two-letter speech-to-text language code."
+  },
+  "sttTranscriptionLanguageInvalid": "Use a two-letter language code like pl.",
+  "@sttTranscriptionLanguageInvalid": {
+    "description": "Validation message for invalid speech-to-text language codes."
+  },
   "ttsEngineLabel": "Engine",
   "@ttsEngineLabel": {
     "description": "Label for selecting the text-to-speech engine."
