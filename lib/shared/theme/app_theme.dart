@@ -3,8 +3,8 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import '../../core/utils/system_ui_style.dart';
 import 'theme_extensions.dart';
 import 'tweakcn_themes.dart';
 import 'color_tokens.dart';
@@ -112,13 +112,7 @@ class AppTheme {
         elevation: Elevation.none,
         backgroundColor: surfaces.background,
         foregroundColor: tokens.neutralOnSurface,
-        systemOverlayStyle: SystemUiOverlayStyle(
-          statusBarBrightness: brightness,
-          statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
-          systemNavigationBarIconBrightness: isDark
-              ? Brightness.light
-              : Brightness.dark,
-        ),
+        systemOverlayStyle: systemUiOverlayStyleForBrightness(brightness),
       ),
       bottomSheetTheme: BottomSheetThemeData(
         backgroundColor: surfaces.card,

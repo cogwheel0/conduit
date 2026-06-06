@@ -19,6 +19,7 @@ import '../services/socket_service.dart';
 import '../services/connectivity_service.dart';
 import '../services/share_receiver_service.dart';
 import '../utils/debug_logger.dart';
+import '../utils/system_ui_style.dart';
 import '../models/server_config.dart';
 import '../../features/tools/providers/tools_providers.dart';
 
@@ -756,16 +757,14 @@ class AppStartupFlow extends _$AppStartupFlow {
         final platformBrightness =
             view?.platformDispatcher.platformBrightness ??
             dispatcher.platformBrightness;
-        final isDark = platformBrightness == Brightness.dark;
+        final themeMode = ref.read(appThemeModeProvider);
+        final brightness = switch (themeMode) {
+          ThemeMode.light => Brightness.light,
+          ThemeMode.dark => Brightness.dark,
+          ThemeMode.system => platformBrightness,
+        };
         SystemChrome.setSystemUIOverlayStyle(
-          SystemUiOverlayStyle(
-            statusBarIconBrightness: isDark
-                ? Brightness.light
-                : Brightness.dark,
-            systemNavigationBarIconBrightness: isDark
-                ? Brightness.light
-                : Brightness.dark,
-          ),
+          systemUiOverlayStyleForBrightness(brightness),
         );
       } catch (_) {}
     }, label: 'system-ui-polish');

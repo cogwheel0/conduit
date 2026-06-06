@@ -903,6 +903,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       channel,
       l10n,
     );
+    final overlayStyle = Theme.of(context).appBarTheme.systemOverlayStyle;
 
     return AdaptiveAppBar(
       useNativeToolbar: false,
@@ -911,6 +912,8 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         automaticallyImplyLeading: false,
         border: null,
         backgroundColor: Colors.transparent,
+        automaticBackgroundVisibility: false,
+        brightness: Theme.of(context).brightness,
         enableBackgroundFilterBlur: false,
         leading: leading,
         trailing: Row(mainAxisSize: MainAxisSize.min, children: actions),
@@ -923,6 +926,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         elevation: Elevation.none,
         scrolledUnderElevation: Elevation.none,
         toolbarHeight: kTextTabBarHeight,
+        systemOverlayStyle: overlayStyle,
         centerTitle: false,
         titleSpacing: Spacing.sm,
         leadingWidth: resolveConduitAdaptiveToolbarLeadingWidth(

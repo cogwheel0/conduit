@@ -2707,6 +2707,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       pillWidth: maxModelWidth,
       leadingGap: leadingGap,
     );
+    final overlayStyle = Theme.of(context).appBarTheme.systemOverlayStyle;
 
     return AdaptiveAppBar(
       useNativeToolbar: false,
@@ -2715,6 +2716,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         automaticallyImplyLeading: false,
         border: null,
         backgroundColor: Colors.transparent,
+        automaticBackgroundVisibility: false,
+        brightness: Theme.of(context).brightness,
         enableBackgroundFilterBlur: false,
         leading: leading,
         trailing: Row(mainAxisSize: MainAxisSize.min, children: actions),
@@ -2727,6 +2730,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         elevation: Elevation.none,
         scrolledUnderElevation: Elevation.none,
         toolbarHeight: kTextTabBarHeight,
+        systemOverlayStyle: overlayStyle,
         centerTitle: false,
         titleSpacing: Spacing.sm,
         leadingWidth: leadingWidth,
