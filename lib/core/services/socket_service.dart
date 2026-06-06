@@ -28,6 +28,17 @@ class SocketService with WidgetsBindingObserver {
   String? _authToken;
   bool _isConnecting = false;
   bool _isAppForeground = true;
+  // Tracks a REAL backgrounding (paused/hidden/detached), distinct from the
+  // transient `inactive` focus loss, so resume logic only fires on a genuine
+  // background→foreground return.
+  bool _wasBackgrounded = false;
+  // Re-entrancy guard so overlapping resume bounces cannot spawn concurrent
+  // forced reconnects (which would orphan socket.io engines).
+  bool _resumeReconnectInFlight = false;
+  // Set while a resume-triggered forced reconnect is pending, so the reconnect
+  // signal is emitted from _handleConnect (after the session id is available)
+  // rather than before the handshake completes.
+  bool _signalReconnectOnConnect = false;
   Timer? _heartbeatTimer;
   bool _forcePollingFallback = false;
 
@@ -231,7 +242,60 @@ class SocketService with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    _isAppForeground = state == AppLifecycleState.resumed;
+    // Only a REAL background→foreground transition should force-reconnect. The
+    // `inactive` state is a transient focus loss (notification shade, app
+    // switcher, permission/system dialog, PiP) — NOT a backgrounding — and must
+    // not tear down a healthy socket, or it churns the connection on every shade
+    // peek (and loops on some Samsung permission flows). Treat only
+    // paused/hidden/detached as background; keep `inactive` foreground for both
+    // reconnect and delivery semantics.
+    switch (state) {
+      case AppLifecycleState.paused:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.detached:
+        _isAppForeground = false;
+        _wasBackgrounded = true;
+      case AppLifecycleState.inactive:
+        break; // transient focus loss; keep foreground semantics
+      case AppLifecycleState.resumed:
+        _isAppForeground = true;
+        if (_wasBackgrounded) {
+          _wasBackgrounded = false;
+          // While backgrounded the OS suspends this isolate and tears down the
+          // TCP connection; socket.io never sees the disconnect, so the socket
+          // is a ZOMBIE on resume (connected==true but dead) and the server
+          // already emitted the streamed completion to it (OpenWebUI does not
+          // replay). Force a fresh socket + signal reconnect so streaming_helper
+          // polls the server for the missed completion.
+          unawaited(_reconnectAfterResume());
+        }
+    }
+  }
+
+  /// Force-recreates the socket after returning from background and notifies
+  /// reconnect listeners so any in-flight stream re-syncs the missed completion.
+  /// Re-entrancy-guarded so overlapping resume bounces cannot spawn multiple
+  /// concurrent forced connects.
+  Future<void> _reconnectAfterResume() async {
+    if (_resumeReconnectInFlight) return;
+    _resumeReconnectInFlight = true;
+    // A forced fresh connect fires 'connect', not 'reconnect', so onReconnect
+    // listeners (streaming_helper's missed-completion recovery) would not run on
+    // their own. Have _handleConnect emit the signal once the handshake has
+    // completed and the new session id is available; emitting here (right after
+    // connect() returns) would fire before the 'connect' event while sessionId is
+    // still null, so the recovery would skip the session-id update.
+    _signalReconnectOnConnect = true;
+    try {
+      // force: true disposes the (possibly zombie) socket and opens a fresh one.
+      await connect(force: true);
+    } catch (_) {
+      // Connection setup failed outright; clear the pending signal so it cannot
+      // later fire on an unrelated connect.
+      _signalReconnectOnConnect = false;
+    } finally {
+      _resumeReconnectInFlight = false;
+    }
   }
 
   String? get sessionId => _socket?.id;
@@ -631,6 +695,16 @@ class SocketService with WidgetsBindingObserver {
 
     // Emit health update
     _emitHealthUpdate();
+
+    // If this connect was triggered by a background→foreground resume, signal
+    // recovery now that the session id is available, so listeners refresh their
+    // handler session ids AND poll the server for a missed completion.
+    if (_signalReconnectOnConnect) {
+      _signalReconnectOnConnect = false;
+      if (!_reconnectController.isClosed) {
+        _reconnectController.add(null);
+      }
+    }
   }
 
   void _handleReconnectAttempt(dynamic attempt) {

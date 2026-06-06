@@ -1120,10 +1120,28 @@ class _ForegroundRefreshObserver extends WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       // Schedule to avoid side-effects during build frames
-      Future.microtask(() {
+      Future.microtask(() async {
         try {
           refreshConversationsCache(_ref);
           _resetConversationWarmup(_ref);
+          // Re-fetch the OPEN conversation from the server on resume so a reply
+          // that finished while the app was backgrounded appears immediately —
+          // independent of the socket (which is often dead/zombie after an Android
+          // background; OpenWebUI does not replay missed events). The server is the
+          // source of truth. Without this the user had to pull-to-refresh or restart
+          // the app to see the reply.
+          final api = _ref.read(apiServiceProvider);
+          final active = _ref.read(activeConversationProvider);
+          if (api != null && active != null) {
+            final requestedId = active.id;
+            final full = await api.getConversation(requestedId);
+            // Stale-write guard: only apply if the user hasn't switched to a
+            // different conversation during the network round-trip.
+            final stillActive = _ref.read(activeConversationProvider);
+            if (stillActive != null && stillActive.id == requestedId) {
+              _ref.read(activeConversationProvider.notifier).set(full);
+            }
+          }
         } catch (_) {}
         // Resume already kicked off a forced conversations refresh above; only
         // finish the warmup work that should run alongside it.
