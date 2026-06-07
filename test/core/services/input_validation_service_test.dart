@@ -18,6 +18,14 @@ void main() {
         ).isNull();
       });
 
+      test('returns null for email with localhost domain', () {
+        check(InputValidationService.validateEmail('user@localhost')).isNull();
+      });
+
+      test('returns null for email with mixed-case localhost domain', () {
+        check(InputValidationService.validateEmail('user@Localhost')).isNull();
+      });
+
       test('returns error for invalid email without domain', () {
         check(InputValidationService.validateEmail('user@')).isA<String>();
       });
