@@ -846,7 +846,7 @@
   "@deleteMessagesTitle": {
     "description": "Dialog title asking to confirm deletion of messages."
   },
-  "deleteMessagesMessage": "Smazat {count} zpráv?",
+  "deleteMessagesMessage": "{count, plural, one{Smazat 1 zprávu?} few{Smazat {count} zprávy?} other{Smazat {count} zpráv?}}",
   "@deleteMessagesMessage": {
     "description": "Confirmation prompt asking to delete a number of messages.",
     "placeholders": {
@@ -978,7 +978,7 @@
       }
     }
   },
-  "usageTokenCount": "{count} tokenů",
+  "usageTokenCount": "{count, plural, one{1 token} few{{count} tokeny} other{{count} tokenů}}",
   "@usageTokenCount": {
     "description": "Token count display format",
     "placeholders": {
@@ -1307,7 +1307,7 @@
   "@quickActionsDescription": {
     "description": "Helper text explaining quick action pill selection in customization."
   },
-  "quickActionsSelectedCount": "{count, plural, =0{Nejsou vybrány žádné akce} one{Vybrána 1 akce} other{Vybráno {count} akcí}}",
+  "quickActionsSelectedCount": "{count, plural, =0{Nejsou vybrány žádné akce} one{Vybrána 1 akce} few{Vybrány {count} akce} other{Vybráno {count} akcí}}",
   "@quickActionsSelectedCount": {
     "description": "Subtitle indicating how many quick actions are selected.",
     "placeholders": {
@@ -1899,7 +1899,7 @@
   "@older": {
     "description": "Time range label for items older than 30 days."
   },
-  "wordCount": "{count} slov",
+  "wordCount": "{count, plural, one{1 slovo} few{{count} slova} other{{count} slov}}",
   "@wordCount": {
     "description": "Status bar text showing word count.",
     "placeholders": {
@@ -1909,7 +1909,7 @@
       }
     }
   },
-  "charCount": "{count} znaků",
+  "charCount": "{count, plural, one{1 znak} few{{count} znaky} other{{count} znaků}}",
   "@charCount": {
     "description": "Status bar text showing character count.",
     "placeholders": {
@@ -2297,7 +2297,7 @@
   "@channelNoMessages": {
     "description": "Message shown when a channel has no messages"
   },
-  "channelMembers": "{count} {count, plural, =1{člen} other{členů}}",
+  "channelMembers": "{count} {count, plural, =1{člen} few{členové} other{členů}}",
   "@channelMembers": {
     "description": "Member count display in channel header",
     "placeholders": {
@@ -2428,7 +2428,7 @@
   "@openWebuiFolderSettings": {
     "description": "Subtitle for folder prompt settings before folders load."
   },
-  "accessibleModelsCount": "{count} dostupných modelů",
+  "accessibleModelsCount": "{count, plural, one{1 dostupný model} few{{count} dostupné modely} other{{count} dostupných modelů}}",
   "@accessibleModelsCount": {
     "description": "Subtitle showing how many accessible models are listed.",
     "placeholders": {
@@ -2438,7 +2438,7 @@
       }
     }
   },
-  "accessibleFoldersCount": "{count} dostupných složek",
+  "accessibleFoldersCount": "{count, plural, one{1 dostupná složka} few{{count} dostupné složky} other{{count} dostupných složek}}",
   "@accessibleFoldersCount": {
     "description": "Subtitle showing how many accessible folders are listed.",
     "placeholders": {
@@ -2572,7 +2572,7 @@
   "@manageMemoriesDescription": {
     "description": "Subtitle for the memories management card."
   },
-  "savedMemoriesCount": "{count} uložených pamětí",
+  "savedMemoriesCount": "{count, plural, one{1 uložená paměť} few{{count} uložené paměti} other{{count} uložených pamětí}}",
   "@savedMemoriesCount": {
     "description": "Shows how many memories are saved.",
     "placeholders": {
