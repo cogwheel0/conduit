@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 
 import '../../features/auth/providers/unified_auth_providers.dart';
 import '../../features/chat/providers/chat_providers.dart';
@@ -17,7 +18,9 @@ import 'share_staging_cleanup.dart';
 import '../utils/debug_logger.dart';
 // Server chat creation/title generation occur on first send via chat providers
 
+const int _maxSharedAttachmentCount = 6;
 const int _maxSharedAttachmentSizeMB = 20;
+const _androidShareTextChannel = MethodChannel('conduit/share_receiver_text');
 
 enum SharedPayloadProcessResult { processed, consumed, retry }
 
@@ -46,6 +49,63 @@ class SharedPayload {
     return SharedPayload(id: id, text: text, filePaths: filePaths);
   }
 
+  factory SharedPayload.fromSharedMediaFiles(
+    List<SharedMediaFile> files, {
+    String? extraText,
+  }) {
+    final textParts = <String>[];
+    final seenText = <String>{};
+    final filePaths = <String>[];
+    final seenFilePaths = <String>{};
+
+    void addText(String? value) {
+      final trimmed = value?.trim();
+      if (trimmed == null || trimmed.isEmpty || !seenText.add(trimmed)) {
+        return;
+      }
+      textParts.add(trimmed);
+    }
+
+    void addFilePath(String? value) {
+      final normalized = _normalizeSharedFilePath(value);
+      if (normalized == null || !seenFilePaths.add(normalized)) {
+        return;
+      }
+      filePaths.add(normalized);
+    }
+
+    void deleteIgnoredSidecar(String? value, String? mainPath) {
+      final normalized = _normalizeSharedFilePath(value);
+      if (normalized == null || normalized == mainPath) {
+        return;
+      }
+      unawaited(deleteIgnoredShareSidecarFile(normalized));
+    }
+
+    addText(extraText);
+    for (final file in files) {
+      addText(file.message);
+      final mainPath = _normalizeSharedFilePath(file.path);
+      deleteIgnoredSidecar(file.thumbnail, mainPath);
+      switch (file.type) {
+        case SharedMediaType.text:
+        case SharedMediaType.url:
+          addText(file.path);
+          break;
+        case SharedMediaType.image:
+        case SharedMediaType.video:
+        case SharedMediaType.file:
+          addFilePath(file.path);
+          break;
+      }
+    }
+
+    return SharedPayload(
+      text: textParts.isEmpty ? null : textParts.join('\n'),
+      filePaths: filePaths,
+    );
+  }
+
   Map<String, Object?> toMap() => {
     if (id != null) 'id': id,
     if (text != null) 'text': text,
@@ -54,44 +114,6 @@ class SharedPayload {
 
   bool get hasAnything =>
       (text != null && text!.trim().isNotEmpty) || filePaths.isNotEmpty;
-}
-
-final class NativeShareReceiver {
-  NativeShareReceiver._() {
-    _channel.setMethodCallHandler(_handleMethodCall);
-  }
-
-  static final NativeShareReceiver instance = NativeShareReceiver._();
-  static const MethodChannel _channel = MethodChannel('conduit/share_receiver');
-
-  final _payloadController = StreamController<SharedPayload>.broadcast();
-
-  Stream<SharedPayload> get sharedPayloadStream => _payloadController.stream;
-
-  Future<SharedPayload> getInitialSharedPayload() async {
-    final payload = await _channel.invokeMethod<dynamic>(
-      'getInitialSharedPayload',
-    );
-    return SharedPayload.fromMap(payload);
-  }
-
-  Future<void> ackSharedPayload(SharedPayload payload) {
-    return _channel.invokeMethod<void>('ackSharedPayload', payload.toMap());
-  }
-
-  Future<void> _handleMethodCall(MethodCall call) async {
-    switch (call.method) {
-      case 'sharedPayload':
-        final payload = SharedPayload.fromMap(call.arguments);
-        if (payload.hasAnything) {
-          _payloadController.add(payload);
-        }
-      default:
-        throw MissingPluginException(
-          'No native share receiver handler for ${call.method}',
-        );
-    }
-  }
 }
 
 /// Holds a pending shared payload until the app is ready (e.g., authed + model loaded)
@@ -126,6 +148,33 @@ final shareReceiverInitializerProvider = Provider<void>((ref) {
     });
   }
 
+  Future<void> resetSharedIntent() async {
+    try {
+      await ReceiveSharingIntent.instance.reset();
+    } catch (e) {
+      DebugLogger.log(
+        'ShareReceiver: failed to reset shared intent: $e',
+        scope: 'share',
+      );
+    }
+  }
+
+  Future<String?> takePendingAndroidMultipleShareText() async {
+    if (!Platform.isAndroid) return null;
+
+    try {
+      return await _androidShareTextChannel.invokeMethod<String>(
+        'takePendingMultipleShareText',
+      );
+    } catch (e) {
+      DebugLogger.log(
+        'ShareReceiver: failed to get Android share text: $e',
+        scope: 'share',
+      );
+      return null;
+    }
+  }
+
   // Listen for app readiness: authenticated, model available, and chat visible.
   maybeProcessPending = () async {
     if (isProcessingPending) return;
@@ -157,22 +206,32 @@ final shareReceiverInitializerProvider = Provider<void>((ref) {
       final latestPending = ref.read(pendingSharedPayloadProvider);
       if (identical(latestPending, pending)) {
         ref.read(pendingSharedPayloadProvider.notifier).set(null);
+        await resetSharedIntent();
       } else if (latestPending != null && latestPending.hasAnything) {
         scheduleProcessPending();
-      }
-
-      try {
-        await NativeShareReceiver.instance.ackSharedPayload(pending);
-      } catch (e) {
-        DebugLogger.log(
-          'ShareReceiver: failed to acknowledge shared payload: $e',
-          scope: 'share',
-        );
+      } else {
+        await resetSharedIntent();
       }
     } finally {
       isProcessingPending = false;
     }
   };
+
+  Future<void> setPendingFromSharedMedia(List<SharedMediaFile> media) async {
+    final extraText = await takePendingAndroidMultipleShareText();
+    final payload = SharedPayload.fromSharedMediaFiles(
+      media,
+      extraText: extraText,
+    );
+    if (!payload.hasAnything) {
+      if (media.isNotEmpty || (extraText?.trim().isNotEmpty ?? false)) {
+        unawaited(resetSharedIntent());
+      }
+      return;
+    }
+    ref.read(pendingSharedPayloadProvider.notifier).set(payload);
+    unawaited(maybeProcessPending());
+  }
 
   // React when auth/model changes to process a queued share
   ref.listen<AuthNavigationState>(
@@ -210,21 +269,16 @@ final shareReceiverInitializerProvider = Provider<void>((ref) {
     () => unawaited(maybeProcessPending()),
   );
 
-  // Hook into the native share bridge after a short defer to avoid startup
+  // Hook into the native share plugin after a short defer to avoid startup
   // contention while Flutter is settling its first frame.
   WidgetsBinding.instance.addPostFrameCallback((_) async {
     await Future.delayed(const Duration(milliseconds: 300));
 
-    final receiver = NativeShareReceiver.instance;
-
     // Handle initial share when app is cold-started via Share
     Future.microtask(() async {
       try {
-        final payload = await receiver.getInitialSharedPayload();
-        if (payload.hasAnything) {
-          ref.read(pendingSharedPayloadProvider.notifier).set(payload);
-          unawaited(maybeProcessPending());
-        }
+        final media = await ReceiveSharingIntent.instance.getInitialMedia();
+        await setPendingFromSharedMedia(media);
       } catch (e) {
         DebugLogger.log(
           'ShareReceiver: failed to get initial shared media: $e',
@@ -234,18 +288,21 @@ final shareReceiverInitializerProvider = Provider<void>((ref) {
     });
 
     // Handle subsequent shares while app is alive
-    final streamSub = receiver.sharedPayloadStream.listen((payload) {
-      try {
-        if (payload.hasAnything) {
-          ref.read(pendingSharedPayloadProvider.notifier).set(payload);
-          unawaited(maybeProcessPending());
-        }
-      } catch (e) {
-        DebugLogger.log(
-          'ShareReceiver: failed to parse shared media: $e',
-          scope: 'share',
-        );
-      }
+    final streamSub = ReceiveSharingIntent.instance.getMediaStream().listen((
+      media,
+    ) {
+      unawaited(
+        (() async {
+          try {
+            await setPendingFromSharedMedia(media);
+          } catch (e) {
+            DebugLogger.log(
+              'ShareReceiver: failed to parse shared media: $e',
+              scope: 'share',
+            );
+          }
+        })(),
+      );
     });
 
     // Ensure cleanup
@@ -254,6 +311,21 @@ final shareReceiverInitializerProvider = Provider<void>((ref) {
     });
   });
 });
+
+String? _normalizeSharedFilePath(String? value) {
+  final trimmed = value?.trim();
+  if (trimmed == null || trimmed.isEmpty) return null;
+
+  if (trimmed.startsWith('file://')) {
+    try {
+      return Uri.parse(trimmed).toFilePath();
+    } catch (_) {
+      return trimmed.replaceFirst('file://', '');
+    }
+  }
+
+  return trimmed;
+}
 
 Future<SharedPayloadProcessResult> _processPayload(
   dynamic ref,
@@ -338,13 +410,13 @@ Future<List<LocalAttachment>> _validSharedAttachments(
 ) async {
   final attachments = <LocalAttachment>[];
 
-  for (final filePath in filePaths) {
-    final file = File(filePath);
+  for (final filePath in filePaths.take(_maxSharedAttachmentCount)) {
+    final sourceFile = File(filePath);
     final displayName = path.basename(filePath);
 
     int fileSize;
     try {
-      fileSize = await file.length();
+      fileSize = await sourceFile.length();
     } catch (error) {
       DebugLogger.log(
         'ShareReceiver: failed to inspect shared file size: $error',
@@ -369,7 +441,28 @@ Future<List<LocalAttachment>> _validSharedAttachments(
       continue;
     }
 
-    attachments.add(LocalAttachment(file: file, displayName: displayName));
+    try {
+      final stagedFile = await stageIncomingSharedFile(filePath);
+      attachments.add(
+        LocalAttachment(file: stagedFile, displayName: displayName),
+      );
+    } catch (error) {
+      DebugLogger.log(
+        'ShareReceiver: failed to stage shared file: $error',
+        scope: 'share',
+        data: {'path': filePath},
+      );
+      await deleteShareStagingFile(filePath);
+    }
+  }
+
+  for (final extraPath in filePaths.skip(_maxSharedAttachmentCount)) {
+    DebugLogger.log(
+      'ShareReceiver: rejected shared file after count cap',
+      scope: 'share',
+      data: {'path': extraPath, 'maxCount': _maxSharedAttachmentCount},
+    );
+    await deleteShareStagingFile(extraPath);
   }
 
   return attachments;

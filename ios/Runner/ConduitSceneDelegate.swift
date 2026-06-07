@@ -1,4 +1,5 @@
 import Flutter
+import receive_sharing_intent
 import UIKit
 
 @objc class ConduitSceneDelegate: FlutterSceneDelegate {
@@ -15,15 +16,12 @@ import UIKit
       let flutterEngine = appDelegate.ensureSharedFlutterEngine()
     else {
       super.scene(scene, willConnectTo: session, options: connectionOptions)
-      handleUrlContexts(
-        connectionOptions.urlContexts,
-        scene: scene,
-        forwardsUnhandledToFlutter: false
-      )
+      handleInitialShareUrlContexts(connectionOptions.urlContexts)
       return
     }
 
     guard appDelegate.claimSharedFlutterWindowScene(windowScene) else {
+      handleInitialShareUrlContexts(connectionOptions.urlContexts)
       UIApplication.shared.requestSceneSessionDestruction(
         session,
         options: nil
@@ -48,11 +46,7 @@ import UIKit
     window.makeKeyAndVisible()
 
     super.scene(scene, willConnectTo: session, options: connectionOptions)
-    handleUrlContexts(
-      connectionOptions.urlContexts,
-      scene: scene,
-      forwardsUnhandledToFlutter: false
-    )
+    handleInitialShareUrlContexts(connectionOptions.urlContexts)
   }
 
   override func sceneDidDisconnect(_ scene: UIScene) {
@@ -73,24 +67,44 @@ import UIKit
     _ scene: UIScene,
     openURLContexts URLContexts: Set<UIOpenURLContext>
   ) {
-    handleUrlContexts(
-      URLContexts,
-      scene: scene,
-      forwardsUnhandledToFlutter: true
-    )
-  }
-
-  private func handleUrlContexts(
-    _ urlContexts: Set<UIOpenURLContext>,
-    scene: UIScene,
-    forwardsUnhandledToFlutter: Bool
-  ) {
-    let unhandledContexts = Set(urlContexts.filter { context in
-      !NativeShareReceiverBridge.shared.handleOpenUrl(context.url)
+    let unhandledContexts = Set(URLContexts.filter { context in
+      !handleShareUrl(context.url, setInitialData: false)
     })
 
-    if forwardsUnhandledToFlutter, !unhandledContexts.isEmpty {
+    if !unhandledContexts.isEmpty {
       super.scene(scene, openURLContexts: unhandledContexts)
     }
+  }
+
+  private func handleInitialShareUrlContexts(
+    _ urlContexts: Set<UIOpenURLContext>
+  ) {
+    for context in urlContexts where handleShareUrl(
+      context.url,
+      setInitialData: true
+    ) {
+      return
+    }
+  }
+
+  private func handleShareUrl(_ url: URL, setInitialData: Bool) -> Bool {
+    let plugin = SwiftReceiveSharingIntentPlugin.instance
+    guard plugin.hasMatchingSchemePrefix(url: url) else { return false }
+
+    if setInitialData {
+      let launchOptions: [AnyHashable: Any] = [
+        UIApplication.LaunchOptionsKey.url: url,
+      ]
+      return plugin.application(
+        UIApplication.shared,
+        didFinishLaunchingWithOptions: launchOptions
+      )
+    }
+
+    return plugin.application(
+      UIApplication.shared,
+      open: url,
+      options: [:]
+    )
   }
 }

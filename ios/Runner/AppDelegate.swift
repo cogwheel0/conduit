@@ -899,20 +899,7 @@ struct AppShortcuts: AppShortcutsProvider {
   ) -> Bool {
     backgroundStreamingHandler = BackgroundStreamingHandler()
     backgroundStreamingHandler?.registerBackgroundTasks()
-    NativeShareReceiverBridge.shared.captureLaunchOptions(launchOptions)
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
-  }
-
-  override func application(
-    _ application: UIApplication,
-    open url: URL,
-    options: [UIApplication.OpenURLOptionsKey: Any] = [:]
-  ) -> Bool {
-    if NativeShareReceiverBridge.shared.handleOpenUrl(url) {
-      return true
-    }
-
-    return super.application(application, open: url, options: options)
   }
 
   func didInitializeImplicitFlutterEngine(
@@ -985,7 +972,6 @@ struct AppShortcuts: AppShortcutsProvider {
     NativeKeyboardAttachmentBridge.shared.configure(messenger: messenger)
     NativeSheetBridge.shared.configure(messenger: messenger)
     NativeDropdownBridge.shared.configure(messenger: messenger)
-    NativeShareReceiverBridge.shared.configure(messenger: messenger)
     backgroundStreamingHandler?.setup(messenger: messenger)
 
     let cookieChannel = FlutterMethodChannel(

@@ -6,25 +6,17 @@
     <string>Ask Conduit</string>
     <key>AppGroupId</key>
     <string>$(APP_GROUP_ID)</string>
-    <key>AppURLScheme</key>
-    <string>$(APP_URL_SCHEME)</string>
-
     <key>CFBundleVersion</key>
     <string>$(CURRENT_PROJECT_VERSION)</string>
     <key>NSExtension</key>
     <dict>
         <key>NSExtensionAttributes</key>
         <dict>
-            <!-- Add supported message intent if you support sharing to a specific conversation - start -->
             <key>IntentsSupported</key>
             <array>
                 <string>INSendMessageIntent</string>
             </array>
-            <!-- Add supported message intent if you support sharing to a specific conversation (registered via the recordSentMessage api call) - end -->
             <key>NSExtensionActivationRule</key>
-            <!-- Comment or delete the TRUEPREDICATE NSExtensionActivationRule that only works in development mode -->
-            <!-- <string>TRUEPREDICATE</string> -->
-            <!-- Add a new NSExtensionActivationRule. The rule below will allow sharing one or more file of any type, url, or text content, You can modify these rules to your liking for which types of share content, as well as how many your app can handle -->
             <dict>
                 <key>NSExtensionActivationSupportsImageWithMaxCount</key>
                 <integer>6</integer>
