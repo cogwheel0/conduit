@@ -1,11 +1,13 @@
 import 'dart:io' show Platform;
 
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/utils/adaptive_glass.dart';
 import 'chat_voice_mode_controller.dart';
 
 class ChatVoiceModeOverlay extends ConsumerWidget {
@@ -89,15 +91,13 @@ class _ExpandedVoicePanel extends ConsumerWidget {
                     ],
                   ),
                 ),
-                IconButton(
+                _AdaptiveVoiceAction(
                   tooltip: 'Minimize',
                   onPressed: controller.collapse,
-                  icon: Icon(
-                    Platform.isIOS
-                        ? CupertinoIcons.chevron_down
-                        : Icons.keyboard_arrow_down_rounded,
-                    color: theme.textSecondary,
-                  ),
+                  icon: Platform.isIOS
+                      ? CupertinoIcons.chevron_down
+                      : Icons.keyboard_arrow_down_rounded,
+                  compact: true,
                 ),
               ],
             ),
@@ -202,25 +202,22 @@ class _CollapsedVoicePill extends ConsumerWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              IconButton(
+              _AdaptiveVoiceAction(
                 tooltip: 'Expand',
                 onPressed: controller.expand,
-                icon: Icon(
-                  Platform.isIOS
-                      ? CupertinoIcons.chevron_up
-                      : Icons.keyboard_arrow_up_rounded,
-                  color: theme.textSecondary,
-                ),
+                icon: Platform.isIOS
+                    ? CupertinoIcons.chevron_up
+                    : Icons.keyboard_arrow_up_rounded,
+                compact: true,
               ),
-              IconButton(
+              _AdaptiveVoiceAction(
                 tooltip: l10n.voiceCallEnd,
                 onPressed: controller.stop,
-                icon: Icon(
-                  Platform.isIOS
-                      ? CupertinoIcons.phone_down_fill
-                      : Icons.call_end_rounded,
-                  color: Theme.of(context).colorScheme.error,
-                ),
+                icon: Platform.isIOS
+                    ? CupertinoIcons.phone_down_fill
+                    : Icons.call_end_rounded,
+                destructive: true,
+                compact: true,
               ),
             ],
           ),
@@ -297,13 +294,74 @@ class _CircleAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = destructive
-        ? Theme.of(context).colorScheme.error
-        : context.conduitTheme.textPrimary;
-    return IconButton.filledTonal(
+    return _AdaptiveVoiceAction(
       tooltip: tooltip,
       onPressed: onPressed,
-      icon: Icon(icon, color: color),
+      icon: icon,
+      destructive: destructive,
+    );
+  }
+}
+
+class _AdaptiveVoiceAction extends StatelessWidget {
+  const _AdaptiveVoiceAction({
+    required this.tooltip,
+    required this.icon,
+    required this.onPressed,
+    this.destructive = false,
+    this.compact = false,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback? onPressed;
+  final bool destructive;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.conduitTheme;
+    final usesOpaqueFallback = conduitUsesOpaqueGlassFallback();
+    final size = compact ? TouchTarget.micro : TouchTarget.medium;
+    final color = destructive ? Theme.of(context).colorScheme.error : null;
+    final iconColor = onPressed == null
+        ? theme.iconDisabled
+        : destructive
+        ? Theme.of(context).colorScheme.onError
+        : theme.iconSecondary;
+
+    return AdaptiveTooltip(
+      message: tooltip,
+      child: Semantics(
+        button: true,
+        enabled: onPressed != null,
+        label: tooltip,
+        child: AdaptiveButton.child(
+          onPressed: onPressed,
+          enabled: onPressed != null,
+          style: usesOpaqueFallback
+              ? AdaptiveButtonStyle.filled
+              : destructive
+              ? AdaptiveButtonStyle.filled
+              : AdaptiveButtonStyle.glass,
+          color: destructive
+              ? Theme.of(context).colorScheme.error
+              : usesOpaqueFallback
+              ? theme.surfaceContainerHighest
+              : color,
+          size: compact ? AdaptiveButtonSize.small : AdaptiveButtonSize.medium,
+          minSize: Size(size, size),
+          padding: EdgeInsets.zero,
+          borderRadius: BorderRadius.circular(AppBorderRadius.circular),
+          useSmoothRectangleBorder: false,
+          child: Icon(
+            icon,
+            size: compact ? IconSize.sm : IconSize.medium,
+            color: iconColor,
+            semanticLabel: tooltip,
+          ),
+        ),
+      ),
     );
   }
 }
