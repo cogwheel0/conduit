@@ -4,8 +4,7 @@ import 'package:conduit/core/models/model.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/carplay_service.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
-import 'package:conduit/features/chat/voice_call/application/voice_call_controller.dart';
-import 'package:conduit/features/chat/voice_call/domain/voice_call_models.dart';
+import 'package:conduit/features/chat/voice_mode/chat_voice_mode_controller.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -91,7 +90,6 @@ void main() {
       expect(result['success'], isFalse);
       expect(result['error'], contains('disconnected'));
       expect(voice.stopCalls, 1);
-      expect(voice.stopReasons.single, CallEndReason.nativeSurface);
       expect(voice.startedByStartNewConversation.single, isTrue);
     });
 
@@ -121,11 +119,13 @@ void main() {
       await _flushMicrotasks(3);
       platformCalls.clear();
 
-      voice.setSnapshot(const VoiceCallSnapshot(phase: CallPhase.listening));
+      voice.setSnapshot(
+        const ChatVoiceModeSnapshot(phase: ChatVoiceModePhase.listening),
+      );
       await _flushMicrotasks(3);
       voice.setSnapshot(
-        const VoiceCallSnapshot(
-          phase: CallPhase.listening,
+        const ChatVoiceModeSnapshot(
+          phase: ChatVoiceModePhase.listening,
           transcript: 'payload-ignored-by-carplay',
         ),
       );
@@ -147,7 +147,7 @@ ProviderContainer _buildContainer({
 }) {
   final container = ProviderContainer(
     overrides: [
-      voiceCallControllerProvider.overrideWith(() => voice),
+      chatVoiceModeControllerProvider.overrideWith(() => voice),
       authNavigationStateProvider.overrideWithValue(authState),
       selectedModelProvider.overrideWithValue(selectedModel),
       defaultModelProvider.overrideWith((ref) => selectedModel),
@@ -188,51 +188,46 @@ Future<void> _until(bool Function() condition) async {
   throw StateError('Condition was not met.');
 }
 
-final class _FakeVoiceCallController extends VoiceCallController {
+final class _FakeVoiceCallController extends ChatVoiceModeController {
   _FakeVoiceCallController({this.startCompleter});
 
   final Completer<void>? startCompleter;
   final startedByStartNewConversation = <bool>[];
-  final stopReasons = <CallEndReason>[];
   int startCalls = 0;
   int stopCalls = 0;
   int pauseCalls = 0;
   int resumeCalls = 0;
 
   @override
-  VoiceCallSnapshot build() => const VoiceCallSnapshot();
+  ChatVoiceModeSnapshot build() => const ChatVoiceModeSnapshot();
 
   @override
   Future<void> start({required bool startNewConversation}) async {
     startCalls += 1;
     startedByStartNewConversation.add(startNewConversation);
     await startCompleter?.future;
-    state = const VoiceCallSnapshot(phase: CallPhase.listening);
+    state = const ChatVoiceModeSnapshot(phase: ChatVoiceModePhase.listening);
   }
 
   @override
-  Future<void> stop({CallEndReason reason = CallEndReason.user}) async {
+  Future<void> stop() async {
     stopCalls += 1;
-    stopReasons.add(reason);
-    state = const VoiceCallSnapshot(phase: CallPhase.ended);
+    state = const ChatVoiceModeSnapshot(phase: ChatVoiceModePhase.ended);
   }
 
   @override
-  Future<void> pause({CallPauseReason reason = CallPauseReason.user}) async {
+  Future<void> pause() async {
     pauseCalls += 1;
-    state = const VoiceCallSnapshot(
-      phase: CallPhase.paused,
-      pauseReasons: {CallPauseReason.user},
-    );
+    state = const ChatVoiceModeSnapshot(phase: ChatVoiceModePhase.paused);
   }
 
   @override
-  Future<void> resume({CallPauseReason reason = CallPauseReason.user}) async {
+  Future<void> resume() async {
     resumeCalls += 1;
-    state = const VoiceCallSnapshot(phase: CallPhase.listening);
+    state = const ChatVoiceModeSnapshot(phase: ChatVoiceModePhase.listening);
   }
 
-  void setSnapshot(VoiceCallSnapshot snapshot) {
+  void setSnapshot(ChatVoiceModeSnapshot snapshot) {
     state = snapshot;
   }
 }

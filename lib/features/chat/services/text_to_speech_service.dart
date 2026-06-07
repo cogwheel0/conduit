@@ -7,7 +7,18 @@ import '../../../core/services/api_service.dart';
 import '../../../core/services/settings_service.dart';
 import 'tts_manager.dart';
 
-export 'tts_manager.dart' show TtsEvent, TtsPlaybackSession;
+export 'tts_manager.dart'
+    show
+        TtsCancelled,
+        TtsChunkStarted,
+        TtsCompleted,
+        TtsError,
+        TtsEvent,
+        TtsPaused,
+        TtsPlaybackSession,
+        TtsResumed,
+        TtsStarted,
+        TtsWordProgress;
 
 /// Wrapper around [TtsManager] that provides a callback-based API.
 ///
@@ -65,6 +76,9 @@ class TextToSpeechService {
     return !TtsManager.instance.deviceAvailable &&
         TtsManager.instance.serverAvailable;
   }
+
+  /// Raw TTS lifecycle events for consumers that should not replace callbacks.
+  Stream<TtsEvent> get events => TtsManager.instance.events;
 
   /// Registers callbacks for TTS lifecycle events.
   void bindHandlers({
@@ -140,6 +154,32 @@ class TextToSpeechService {
     }
 
     await TtsManager.instance.speak(text);
+  }
+
+  /// Starts an incremental TTS session for streaming assistant responses.
+  Future<void> startStreamingTts() async {
+    if (!_initialized) {
+      await initialize();
+    }
+    await TtsManager.instance.startStreaming();
+  }
+
+  /// Feeds the accumulated assistant response into the active streaming TTS.
+  Future<void> feedStreamingText(String accumulatedText) async {
+    if (!_initialized) {
+      await initialize();
+    }
+    await TtsManager.instance.feedStreamingText(accumulatedText);
+  }
+
+  /// Finalizes the active streaming TTS session and flushes remaining text.
+  Future<void> finishStreamingTts({String? finalText}) async {
+    await TtsManager.instance.finishStreaming(finalText: finalText);
+  }
+
+  /// Cancels an active streaming TTS session.
+  Future<void> stopStreamingTts() async {
+    await TtsManager.instance.stopStreaming();
   }
 
   /// Pauses the current playback.

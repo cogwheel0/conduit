@@ -41,6 +41,8 @@ import '../widgets/server_file_picker_sheet.dart';
 import '../services/file_attachment_service.dart';
 import '../services/chat_transport_dispatch.dart';
 import '../services/historical_message_regeneration.dart';
+import '../voice_mode/chat_voice_mode_controller.dart';
+import '../voice_mode/chat_voice_mode_overlay.dart';
 import '../voice_call/presentation/voice_call_launcher.dart';
 import '../../../shared/services/tasks/task_queue.dart';
 import '../../tools/providers/tools_providers.dart';
@@ -1170,7 +1172,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     return contentScrollExtent > _scrollButtonShowThreshold;
   }
 
-  double _messageListBottomPadding() => Spacing.lg + _inputHeight;
+  double _messageListBottomPadding() {
+    final voice = ref.read(chatVoiceModeControllerProvider);
+    final voiceOverlayHeight = voice.isActive
+        ? (voice.isCollapsed ? 72.0 : 180.0)
+        : 0.0;
+    return Spacing.lg + _inputHeight + voiceOverlayHeight;
+  }
 
   double _pinToTopPhantomScrollExtent() {
     if (!_wantsPinToTop) {
@@ -2453,6 +2461,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final selectedModel = ref.watch(
       selectedModelProvider.select((model) => model),
     );
+    ref.watch(
+      chatVoiceModeControllerProvider.select(
+        (voice) => (voice.isActive, voice.isCollapsed),
+      ),
+    );
     final isLoadingConversation = ref.watch(isLoadingConversationProvider);
     final formattedModelName = selectedModel != null
         ? _formatModelDisplayName(selectedModel.name)
@@ -2631,6 +2644,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 bottom: 0,
                 child: _buildComposerSection(context),
               ),
+              ChatVoiceModeOverlay(bottomOffset: _inputHeight),
             ],
           ),
         ),

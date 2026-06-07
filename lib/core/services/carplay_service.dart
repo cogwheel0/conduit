@@ -6,8 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../features/auth/providers/unified_auth_providers.dart';
-import '../../features/chat/voice_call/application/voice_call_controller.dart';
-import '../../features/chat/voice_call/domain/voice_call_models.dart';
+import '../../features/chat/voice_mode/chat_voice_mode_controller.dart';
 import '../providers/app_providers.dart';
 import '../utils/debug_logger.dart';
 
@@ -34,8 +33,8 @@ final class CarPlayCoordinator {
   void initialize() {
     _carPlayChannel.setMethodCallHandler(_handleMethodCall);
     unawaited(_notifyNativeReady());
-    _ref.listen<VoiceCallSnapshot>(
-      voiceCallControllerProvider,
+    _ref.listen<ChatVoiceModeSnapshot>(
+      chatVoiceModeControllerProvider,
       (_, next) => unawaited(_sendSnapshot(next)),
       fireImmediately: true,
     );
@@ -75,14 +74,14 @@ final class CarPlayCoordinator {
       return {
         'success': false,
         'error': error.toString(),
-        'state': _snapshotPayload(_ref.read(voiceCallControllerProvider)),
+        'state': _snapshotPayload(_ref.read(chatVoiceModeControllerProvider)),
       };
     }
   }
 
   Future<Map<String, Object?>> _startVoiceConversation() async {
     final sceneGeneration = _markSceneConnected();
-    final current = _ref.read(voiceCallControllerProvider);
+    final current = _ref.read(chatVoiceModeControllerProvider);
     if (current.isActive) {
       return _success();
     }
@@ -105,24 +104,22 @@ final class CarPlayCoordinator {
 
     _startedByCarPlay = true;
     await _ref
-        .read(voiceCallControllerProvider.notifier)
+        .read(chatVoiceModeControllerProvider.notifier)
         .start(startNewConversation: true);
     if (!_isCurrentScene(sceneGeneration)) {
-      final snapshot = _ref.read(voiceCallControllerProvider);
-      if (snapshot.isActive || snapshot.phase == CallPhase.failed) {
-        await _ref
-            .read(voiceCallControllerProvider.notifier)
-            .stop(reason: CallEndReason.nativeSurface);
+      final snapshot = _ref.read(chatVoiceModeControllerProvider);
+      if (snapshot.isActive || snapshot.phase == ChatVoiceModePhase.error) {
+        await _ref.read(chatVoiceModeControllerProvider.notifier).stop();
       }
       _startedByCarPlay = false;
       return _failure('CarPlay disconnected.');
     }
 
-    final next = _ref.read(voiceCallControllerProvider);
-    if (next.phase == CallPhase.failed) {
+    final next = _ref.read(chatVoiceModeControllerProvider);
+    if (next.phase == ChatVoiceModePhase.error) {
       _startedByCarPlay = false;
       return _failure(
-        next.failure?.message ?? 'Unable to start Conduit voice conversation.',
+        next.errorMessage ?? 'Unable to start Conduit voice conversation.',
       );
     }
     if (!next.isActive) {
@@ -139,47 +136,39 @@ final class CarPlayCoordinator {
   }
 
   Future<Map<String, Object?>> _endVoiceConversation() async {
-    final snapshot = _ref.read(voiceCallControllerProvider);
-    if (snapshot.isActive || snapshot.phase == CallPhase.failed) {
-      await _ref
-          .read(voiceCallControllerProvider.notifier)
-          .stop(reason: CallEndReason.nativeSurface);
+    final snapshot = _ref.read(chatVoiceModeControllerProvider);
+    if (snapshot.isActive || snapshot.phase == ChatVoiceModePhase.error) {
+      await _ref.read(chatVoiceModeControllerProvider.notifier).stop();
     }
     _startedByCarPlay = false;
     return _success();
   }
 
   Future<Map<String, Object?>> _pauseVoiceConversation() async {
-    final snapshot = _ref.read(voiceCallControllerProvider);
+    final snapshot = _ref.read(chatVoiceModeControllerProvider);
     if (!snapshot.canPause) {
       return _failure('Conduit is not currently listening.');
     }
 
-    await _ref
-        .read(voiceCallControllerProvider.notifier)
-        .pause(reason: CallPauseReason.user);
+    await _ref.read(chatVoiceModeControllerProvider.notifier).pause();
     return _success();
   }
 
   Future<Map<String, Object?>> _resumeVoiceConversation() async {
-    final snapshot = _ref.read(voiceCallControllerProvider);
+    final snapshot = _ref.read(chatVoiceModeControllerProvider);
     if (!snapshot.canResume) {
       return _failure('No paused Conduit voice conversation.');
     }
 
-    await _ref
-        .read(voiceCallControllerProvider.notifier)
-        .resume(reason: CallPauseReason.user);
+    await _ref.read(chatVoiceModeControllerProvider.notifier).resume();
     return _success();
   }
 
   Future<Map<String, Object?>> _handleCarPlaySceneDisconnected() async {
     _markSceneDisconnected();
-    final snapshot = _ref.read(voiceCallControllerProvider);
+    final snapshot = _ref.read(chatVoiceModeControllerProvider);
     if (_startedByCarPlay && snapshot.isActive) {
-      await _ref
-          .read(voiceCallControllerProvider.notifier)
-          .stop(reason: CallEndReason.nativeSurface);
+      await _ref.read(chatVoiceModeControllerProvider.notifier).stop();
     }
     _startedByCarPlay = false;
     return _success();
@@ -209,7 +198,7 @@ final class CarPlayCoordinator {
       try {
         await _carPlayChannel.invokeMethod<void>('carPlayDartReady');
         _lastSentStateKey = null;
-        await _sendSnapshot(_ref.read(voiceCallControllerProvider));
+        await _sendSnapshot(_ref.read(chatVoiceModeControllerProvider));
         return;
       } on MissingPluginException {
         await Future<void>.delayed(const Duration(milliseconds: 100));
@@ -225,7 +214,7 @@ final class CarPlayCoordinator {
     }
   }
 
-  Future<void> _sendSnapshot(VoiceCallSnapshot snapshot) async {
+  Future<void> _sendSnapshot(ChatVoiceModeSnapshot snapshot) async {
     if (!snapshot.isActive) {
       _startedByCarPlay = false;
     }
@@ -292,11 +281,11 @@ final class CarPlayCoordinator {
     }
   }
 
-  Map<String, Object?> _success([VoiceCallSnapshot? snapshot]) {
+  Map<String, Object?> _success([ChatVoiceModeSnapshot? snapshot]) {
     return {
       'success': true,
       'state': _snapshotPayload(
-        snapshot ?? _ref.read(voiceCallControllerProvider),
+        snapshot ?? _ref.read(chatVoiceModeControllerProvider),
       ),
     };
   }
@@ -305,19 +294,27 @@ final class CarPlayCoordinator {
     return {
       'success': false,
       'error': message,
-      'state': _snapshotPayload(_ref.read(voiceCallControllerProvider)),
+      'state': _snapshotPayload(_ref.read(chatVoiceModeControllerProvider)),
     };
   }
 
-  Map<String, Object?> _snapshotPayload(VoiceCallSnapshot snapshot) {
+  Map<String, Object?> _snapshotPayload(ChatVoiceModeSnapshot snapshot) {
     return {
-      'phase': snapshot.phase.name,
+      'phase': _carPlayPhase(snapshot.phase),
       'isActive': snapshot.isActive,
       'canPause': snapshot.canPause,
       'canResume': snapshot.canResume,
       'isMuted': snapshot.isMuted,
-      'error': snapshot.failure?.message,
+      'error': snapshot.errorMessage,
       'modelName': _ref.read(selectedModelProvider)?.name,
+    };
+  }
+
+  String _carPlayPhase(ChatVoiceModePhase phase) {
+    return switch (phase) {
+      ChatVoiceModePhase.sending => 'thinking',
+      ChatVoiceModePhase.error => 'failed',
+      _ => phase.name,
     };
   }
 }

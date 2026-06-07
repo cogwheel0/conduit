@@ -1,11 +1,8 @@
 import 'dart:async';
 
-import 'package:riverpod_annotation/riverpod_annotation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../voice_call/application/voice_call_controller.dart';
-import '../voice_call/domain/voice_call_models.dart';
-
-part 'voice_call_service.g.dart';
+import '../voice_mode/chat_voice_mode_controller.dart';
 
 enum VoiceCallState {
   idle,
@@ -20,7 +17,7 @@ enum VoiceCallState {
 
 enum VoiceCallPauseReason { user, mute, system }
 
-/// Backward-compatible facade delegating to [VoiceCallController].
+/// Backward-compatible facade over chat-layered voice mode.
 class VoiceCallService {
   VoiceCallService({required Ref ref}) : _ref = ref;
 
@@ -43,40 +40,35 @@ class VoiceCallService {
   Stream<String> get responseStream => _responseController.stream;
   Stream<int> get intensityStream => _intensityController.stream;
 
-  Future<void> initialize() async {
-    // Initialization is owned by VoiceCallController.start().
-  }
+  Future<void> initialize() async {}
 
   Future<void> startCall(String? conversationId) {
     return _ref
-        .read(voiceCallControllerProvider.notifier)
+        .read(chatVoiceModeControllerProvider.notifier)
         .start(startNewConversation: false);
   }
 
   Future<void> pauseListening({
     VoiceCallPauseReason reason = VoiceCallPauseReason.user,
   }) {
-    return _ref
-        .read(voiceCallControllerProvider.notifier)
-        .pause(reason: _mapLegacyPauseReason(reason));
+    if (reason == VoiceCallPauseReason.mute) {
+      return _ref.read(chatVoiceModeControllerProvider.notifier).toggleMute();
+    }
+    return _ref.read(chatVoiceModeControllerProvider.notifier).pause();
   }
 
   Future<void> resumeListening({
     VoiceCallPauseReason reason = VoiceCallPauseReason.user,
   }) {
-    return _ref
-        .read(voiceCallControllerProvider.notifier)
-        .resume(reason: _mapLegacyPauseReason(reason));
+    return _ref.read(chatVoiceModeControllerProvider.notifier).resume();
   }
 
   Future<void> cancelSpeaking() {
-    return _ref
-        .read(voiceCallControllerProvider.notifier)
-        .cancelAssistantSpeech();
+    return _ref.read(chatVoiceModeControllerProvider.notifier).cancelSpeaking();
   }
 
   Future<void> stopCall() {
-    return _ref.read(voiceCallControllerProvider.notifier).stop();
+    return _ref.read(chatVoiceModeControllerProvider.notifier).stop();
   }
 
   Future<void> dispose() async {
@@ -86,7 +78,7 @@ class VoiceCallService {
     await _intensityController.close();
   }
 
-  void syncFromSnapshot(VoiceCallSnapshot snapshot) {
+  void syncFromSnapshot(ChatVoiceModeSnapshot snapshot) {
     final mappedState = _mapState(snapshot.phase);
     if (_state != mappedState) {
       _state = mappedState;
@@ -94,57 +86,36 @@ class VoiceCallService {
     }
 
     _transcriptController.add(snapshot.transcript);
-    _responseController.add(snapshot.response);
+    _responseController.add(snapshot.assistantPreview);
     _intensityController.add(snapshot.intensity);
   }
 
-  CallPauseReason _mapLegacyPauseReason(VoiceCallPauseReason reason) {
-    switch (reason) {
-      case VoiceCallPauseReason.user:
-        return CallPauseReason.user;
-      case VoiceCallPauseReason.mute:
-        return CallPauseReason.mute;
-      case VoiceCallPauseReason.system:
-        return CallPauseReason.system;
-    }
-  }
-
-  VoiceCallState _mapState(CallPhase phase) {
-    switch (phase) {
-      case CallPhase.idle:
-        return VoiceCallState.idle;
-      case CallPhase.starting:
-      case CallPhase.connecting:
-        return VoiceCallState.connecting;
-      case CallPhase.listening:
-        return VoiceCallState.listening;
-      case CallPhase.paused:
-      case CallPhase.muted:
-        return VoiceCallState.paused;
-      case CallPhase.thinking:
-        return VoiceCallState.processing;
-      case CallPhase.speaking:
-        return VoiceCallState.speaking;
-      case CallPhase.ending:
-      case CallPhase.ended:
-        return VoiceCallState.disconnected;
-      case CallPhase.failed:
-        return VoiceCallState.error;
-    }
+  VoiceCallState _mapState(ChatVoiceModePhase phase) {
+    return switch (phase) {
+      ChatVoiceModePhase.idle => VoiceCallState.idle,
+      ChatVoiceModePhase.starting => VoiceCallState.connecting,
+      ChatVoiceModePhase.listening => VoiceCallState.listening,
+      ChatVoiceModePhase.paused ||
+      ChatVoiceModePhase.muted => VoiceCallState.paused,
+      ChatVoiceModePhase.sending => VoiceCallState.processing,
+      ChatVoiceModePhase.speaking => VoiceCallState.speaking,
+      ChatVoiceModePhase.ending ||
+      ChatVoiceModePhase.ended => VoiceCallState.disconnected,
+      ChatVoiceModePhase.error => VoiceCallState.error,
+    };
   }
 }
 
-@riverpod
-VoiceCallService voiceCallService(Ref ref) {
+final voiceCallServiceProvider = Provider<VoiceCallService>((ref) {
   final service = VoiceCallService(ref: ref);
 
-  ref.listen<VoiceCallSnapshot>(voiceCallControllerProvider, (_, next) {
+  ref.listen<ChatVoiceModeSnapshot>(chatVoiceModeControllerProvider, (_, next) {
     service.syncFromSnapshot(next);
   });
 
   ref.onDispose(() {
-    service.dispose();
+    unawaited(service.dispose());
   });
 
   return service;
-}
+});

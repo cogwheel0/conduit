@@ -5,11 +5,7 @@ import 'package:audio_session/audio_session.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../domain/voice_call_interfaces.dart';
-
-/// Coordinates audio-session transitions between listening and speaking.
-class CallAudioSessionCoordinatorDefault
-    implements CallAudioSessionCoordinator {
+class ChatVoiceAudioSessionCoordinator {
   AudioSession? _session;
 
   Future<AudioSession> _ensureSession() async {
@@ -22,6 +18,67 @@ class CallAudioSessionCoordinatorDefault
     return created;
   }
 
+  Future<void> configureForListening() async {
+    final session = await _ensureSession();
+    await _configureSession(
+      session,
+      AudioSessionConfiguration(
+        avAudioSessionCategory: AVAudioSessionCategory.playAndRecord,
+        avAudioSessionCategoryOptions:
+            AVAudioSessionCategoryOptions.allowBluetooth |
+            AVAudioSessionCategoryOptions.defaultToSpeaker,
+        avAudioSessionMode: AVAudioSessionMode.voiceChat,
+        avAudioSessionRouteSharingPolicy:
+            AVAudioSessionRouteSharingPolicy.defaultPolicy,
+        avAudioSessionSetActiveOptions:
+            AVAudioSessionSetActiveOptions.notifyOthersOnDeactivation,
+        androidAudioAttributes: const AndroidAudioAttributes(
+          contentType: AndroidAudioContentType.speech,
+          usage: AndroidAudioUsage.voiceCommunication,
+        ),
+        androidAudioFocusGainType: AndroidAudioFocusGainType.gainTransient,
+        androidWillPauseWhenDucked: false,
+      ),
+      'listening',
+    );
+    await _setActive(session, active: true, phase: 'listening');
+  }
+
+  Future<void> configureForSpeaking() async {
+    final session = await _ensureSession();
+    await _configureSession(
+      session,
+      AudioSessionConfiguration(
+        avAudioSessionCategory: AVAudioSessionCategory.playAndRecord,
+        avAudioSessionCategoryOptions:
+            AVAudioSessionCategoryOptions.allowBluetooth |
+            AVAudioSessionCategoryOptions.defaultToSpeaker,
+        avAudioSessionMode: AVAudioSessionMode.spokenAudio,
+        avAudioSessionRouteSharingPolicy:
+            AVAudioSessionRouteSharingPolicy.defaultPolicy,
+        avAudioSessionSetActiveOptions:
+            AVAudioSessionSetActiveOptions.notifyOthersOnDeactivation,
+        androidAudioAttributes: const AndroidAudioAttributes(
+          contentType: AndroidAudioContentType.speech,
+          usage: AndroidAudioUsage.media,
+        ),
+        androidAudioFocusGainType:
+            AndroidAudioFocusGainType.gainTransientMayDuck,
+        androidWillPauseWhenDucked: false,
+      ),
+      'speaking',
+    );
+    await _setActive(session, active: true, phase: 'speaking');
+  }
+
+  Future<void> deactivate() async {
+    final session = _session;
+    if (session == null) {
+      return;
+    }
+    await _setActive(session, active: false, phase: 'deactivate');
+  }
+
   Future<void> _configureSession(
     AudioSession session,
     AudioSessionConfiguration configuration,
@@ -32,9 +89,8 @@ class CallAudioSessionCoordinatorDefault
     } catch (error, stackTrace) {
       if (_shouldIgnoreAudioSessionError(error)) {
         developer.log(
-          'Ignoring iOS audio session configure failure during $phase: '
-          '$error',
-          name: 'voice_call_audio_session',
+          'Ignoring iOS audio session configure failure during $phase: $error',
+          name: 'chat_voice_audio_session',
           level: 900,
           error: error,
           stackTrace: stackTrace,
@@ -57,7 +113,7 @@ class CallAudioSessionCoordinatorDefault
         developer.log(
           'Ignoring iOS audio session activation failure during $phase '
           '(active=$active): $error',
-          name: 'voice_call_audio_session',
+          name: 'chat_voice_audio_session',
           level: 900,
           error: error,
           stackTrace: stackTrace,
@@ -78,73 +134,9 @@ class CallAudioSessionCoordinatorDefault
         message.contains('session activation failed') ||
         message.contains('session deactivation failed');
   }
-
-  @override
-  Future<void> configureForListening() async {
-    final session = await _ensureSession();
-    await _configureSession(
-      session,
-      AudioSessionConfiguration(
-        avAudioSessionCategory: AVAudioSessionCategory.playAndRecord,
-        avAudioSessionCategoryOptions:
-            AVAudioSessionCategoryOptions.allowBluetooth |
-            AVAudioSessionCategoryOptions.defaultToSpeaker,
-        avAudioSessionMode: AVAudioSessionMode.voiceChat,
-        avAudioSessionRouteSharingPolicy:
-            AVAudioSessionRouteSharingPolicy.defaultPolicy,
-        avAudioSessionSetActiveOptions:
-            AVAudioSessionSetActiveOptions.notifyOthersOnDeactivation,
-        androidAudioAttributes: AndroidAudioAttributes(
-          contentType: AndroidAudioContentType.speech,
-          usage: AndroidAudioUsage.voiceCommunication,
-        ),
-        androidAudioFocusGainType: AndroidAudioFocusGainType.gainTransient,
-        androidWillPauseWhenDucked: false,
-      ),
-      'listening',
-    );
-    await _setActive(session, active: true, phase: 'listening');
-  }
-
-  @override
-  Future<void> configureForSpeaking() async {
-    final session = await _ensureSession();
-    await _configureSession(
-      session,
-      AudioSessionConfiguration(
-        avAudioSessionCategory: AVAudioSessionCategory.playAndRecord,
-        avAudioSessionCategoryOptions:
-            AVAudioSessionCategoryOptions.allowBluetooth |
-            AVAudioSessionCategoryOptions.defaultToSpeaker,
-        avAudioSessionMode: AVAudioSessionMode.spokenAudio,
-        avAudioSessionRouteSharingPolicy:
-            AVAudioSessionRouteSharingPolicy.defaultPolicy,
-        avAudioSessionSetActiveOptions:
-            AVAudioSessionSetActiveOptions.notifyOthersOnDeactivation,
-        androidAudioAttributes: AndroidAudioAttributes(
-          contentType: AndroidAudioContentType.speech,
-          usage: AndroidAudioUsage.media,
-        ),
-        androidAudioFocusGainType:
-            AndroidAudioFocusGainType.gainTransientMayDuck,
-        androidWillPauseWhenDucked: false,
-      ),
-      'speaking',
-    );
-    await _setActive(session, active: true, phase: 'speaking');
-  }
-
-  @override
-  Future<void> deactivate() async {
-    final session = _session;
-    if (session == null) {
-      return;
-    }
-    await _setActive(session, active: false, phase: 'deactivate');
-  }
 }
 
-final callAudioSessionCoordinatorProvider =
-    Provider<CallAudioSessionCoordinator>((ref) {
-      return CallAudioSessionCoordinatorDefault();
+final chatVoiceAudioSessionCoordinatorProvider =
+    Provider<ChatVoiceAudioSessionCoordinator>((ref) {
+      return ChatVoiceAudioSessionCoordinator();
     });

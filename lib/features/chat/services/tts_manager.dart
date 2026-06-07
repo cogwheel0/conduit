@@ -1,15 +1,17 @@
 import 'dart:async';
-import 'dart:io' show Platform;
+import 'dart:io' show Directory, File, Platform;
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 import '../../../core/models/backend_config.dart';
 import '../../../core/services/api_service.dart';
+import '../../../core/services/background_streaming_handler.dart';
 import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
-import '../../../shared/utils/bytes_audio_source.dart';
 
 // =============================================================================
 // TTS Events
@@ -84,6 +86,32 @@ class TtsPlaybackSession {
 
   /// Whether to use server TTS (true) or device TTS (false).
   final bool useServerTts;
+}
+
+@visibleForTesting
+bool isServerTtsPlaybackCompleteForTesting({
+  required ProcessingState processingState,
+  required int currentIndex,
+  required int lastChunkIndex,
+  required int lastEnqueuedIndex,
+}) {
+  return _isServerTtsPlaybackComplete(
+    processingState: processingState,
+    currentIndex: currentIndex,
+    lastChunkIndex: lastChunkIndex,
+    lastEnqueuedIndex: lastEnqueuedIndex,
+  );
+}
+
+bool _isServerTtsPlaybackComplete({
+  required ProcessingState processingState,
+  required int currentIndex,
+  required int lastChunkIndex,
+  required int lastEnqueuedIndex,
+}) {
+  return processingState == ProcessingState.completed &&
+      currentIndex >= lastChunkIndex &&
+      lastEnqueuedIndex >= lastChunkIndex;
 }
 
 // =============================================================================
@@ -195,6 +223,14 @@ class TtsManager {
   bool _serverRecoveringMissingChunk = false;
   String? _serverPlaybackVoice;
   Future<void> _serverPlaylistSerial = Future<void>.value();
+  bool _isStreamingSession = false;
+  bool _streamingFinalized = false;
+  int _streamingFedChunkCount = 0;
+  bool _deviceWaitingForStreamingChunk = false;
+  int _serverLastFetchScheduledIndex = -1;
+  final Set<int> _serverFetchingIndices = <int>{};
+  final List<File> _serverTempFiles = <File>[];
+  String? _serverBackgroundLeaseId;
 
   // Event stream
   final _eventController = StreamController<TtsEvent>.broadcast();
@@ -374,6 +410,89 @@ class TtsManager {
     }
   }
 
+  /// Starts a mutable TTS session that accepts accumulated assistant text.
+  Future<TtsPlaybackSession?> startStreaming({bool? useServer}) async {
+    await stop();
+    await _ensureTtsInitialized();
+
+    final shouldUseServer = useServer ?? _shouldUseServer();
+    _sessionCounter++;
+    final session = TtsPlaybackSession._(
+      id: _sessionCounter,
+      chunks: <String>[],
+      useServerTts: shouldUseServer,
+    );
+    _activeSession = session;
+    _isStreamingSession = true;
+    _streamingFinalized = false;
+    _streamingFedChunkCount = 0;
+    _deviceWaitingForStreamingChunk = false;
+    _serverLastFetchScheduledIndex = -1;
+    _serverFetchingIndices.clear();
+    _serverPlaybackVoice = shouldUseServer ? await _resolveServerVoice() : null;
+
+    if (shouldUseServer) {
+      await _startServerBackgroundLease(session.id);
+      await _player.stop();
+      await _player.clearAudioSources();
+    } else {
+      if (!_deviceEngineAvailable || _tts == null) {
+        throw StateError('Device TTS is not available');
+      }
+      if (!_voiceConfigured) {
+        await _configurePreferredVoice();
+      }
+    }
+    return session;
+  }
+
+  /// Feeds accumulated streaming response text and enqueues stable chunks.
+  Future<void> feedStreamingText(String accumulatedText) async {
+    final session = _activeSession;
+    if (session == null || !_isStreamingSession || _streamingFinalized) {
+      return;
+    }
+    await _enqueueStreamingText(session, accumulatedText, finalized: false);
+  }
+
+  /// Flushes any held trailing text and lets the active streaming session drain.
+  Future<void> finishStreaming({String? finalText}) async {
+    final session = _activeSession;
+    if (session == null || !_isStreamingSession) {
+      return;
+    }
+
+    _streamingFinalized = true;
+    await _enqueueStreamingText(session, finalText ?? '', finalized: true);
+    if (session.chunks.isEmpty) {
+      _activeSession = null;
+      _resetPlaybackState();
+      _emitEvent(const TtsCompleted());
+      return;
+    }
+
+    if (session.useServerTts) {
+      await _enqueueBufferedServerChunks(session);
+      final producerDone =
+          _serverLastEnqueuedIndex >= session.chunks.length - 1 &&
+          _serverFetchingIndices.isEmpty;
+      final playerDone = _player.processingState == ProcessingState.completed;
+      if (producerDone && playerDone) {
+        _onServerAudioComplete();
+      }
+    } else if (_deviceWaitingForStreamingChunk) {
+      _onDeviceChunkComplete();
+    }
+  }
+
+  /// Cancels a mutable streaming TTS session.
+  Future<void> stopStreaming() async {
+    if (!_isStreamingSession) {
+      return;
+    }
+    await stop();
+  }
+
   /// Pauses the current playback.
   Future<void> pause() async {
     final session = _activeSession;
@@ -413,7 +532,6 @@ class TtsManager {
     if (session == null) return;
 
     _activeSession = null;
-    _resetPlaybackState();
 
     try {
       if (session.useServerTts) {
@@ -421,8 +539,10 @@ class TtsManager {
       } else {
         await _tts?.stop();
       }
+      _resetPlaybackState();
       _emitEvent(const TtsCancelled());
     } catch (e) {
+      _resetPlaybackState();
       _emitEvent(TtsError(e.toString()));
     }
   }
@@ -615,6 +735,90 @@ class TtsManager {
     return (bytes: result.bytes, mimeType: result.mimeType);
   }
 
+  Future<void> _enqueueStreamingText(
+    TtsPlaybackSession session,
+    String accumulatedText, {
+    required bool finalized,
+  }) async {
+    if (_activeSession?.id != session.id) return;
+
+    final chunks = splitTextForSpeech(accumulatedText);
+    final speakableCount = finalized
+        ? chunks.length
+        : (chunks.length <= 1 ? 0 : chunks.length - 1);
+
+    while (_streamingFedChunkCount < speakableCount) {
+      final chunk = chunks[_streamingFedChunkCount].trim();
+      _streamingFedChunkCount++;
+      if (chunk.isEmpty) {
+        continue;
+      }
+      await _appendStreamingChunk(session, chunk);
+    }
+  }
+
+  Future<void> _appendStreamingChunk(
+    TtsPlaybackSession session,
+    String chunk,
+  ) async {
+    if (_activeSession?.id != session.id) return;
+
+    final index = session.chunks.length;
+    session.chunks.add(chunk);
+
+    if (session.useServerTts) {
+      _scheduleServerStreamingFetch(session, index);
+      return;
+    }
+
+    if (_currentChunkIndex < 0) {
+      _currentChunkIndex = 0;
+      _emitEvent(const TtsChunkStarted(0));
+      final result = await _tts!.speak(chunk);
+      if (result is int && result != 1) {
+        _emitEvent(TtsError('TTS engine returned error code $result'));
+      }
+      return;
+    }
+
+    if (_deviceWaitingForStreamingChunk) {
+      _deviceWaitingForStreamingChunk = false;
+      _onDeviceChunkComplete();
+    }
+  }
+
+  void _scheduleServerStreamingFetch(TtsPlaybackSession session, int index) {
+    if (_activeSession?.id != session.id) return;
+    if (index <= _serverLastFetchScheduledIndex ||
+        _serverFetchingIndices.contains(index)) {
+      return;
+    }
+
+    _serverLastFetchScheduledIndex = index;
+    _serverFetchingIndices.add(index);
+    final voice = _serverPlaybackVoice ?? _config.serverVoice;
+    unawaited(() async {
+      try {
+        final chunk = await _fetchServerAudioWithRetry(
+          session.chunks[index],
+          voice,
+        );
+        if (_activeSession?.id != session.id) return;
+        _setBufferedServerChunk(index, chunk);
+        await _enqueueBufferedServerChunks(session);
+      } catch (error) {
+        _emitEvent(TtsError(error.toString()));
+      } finally {
+        _serverFetchingIndices.remove(index);
+        if (_streamingFinalized &&
+            _serverFetchingIndices.isEmpty &&
+            _activeSession?.id == session.id) {
+          _onServerAudioComplete();
+        }
+      }
+    }());
+  }
+
   // ===========================================================================
   // Private: Initialization
   // ===========================================================================
@@ -765,6 +969,10 @@ class TtsManager {
 
     // Check if there are more chunks
     if (nextIndex >= session.chunks.length) {
+      if (_isStreamingSession && !_streamingFinalized) {
+        _deviceWaitingForStreamingChunk = true;
+        return;
+      }
       _activeSession = null;
       _resetPlaybackState();
       _emitEvent(const TtsCompleted());
@@ -798,6 +1006,7 @@ class TtsManager {
 
     final voice = await _resolveServerVoice();
     _serverPlaybackVoice = voice;
+    await _startServerBackgroundLease(session.id);
 
     // Fetch and play first chunk
     final firstChunk = await _fetchServerAudioWithRetry(
@@ -809,7 +1018,7 @@ class TtsManager {
     _setBufferedServerChunk(0, firstChunk);
     _serverLastEnqueuedIndex = 0;
     final initialSources = <AudioSource>[
-      BytesAudioSource(firstChunk.bytes, firstChunk.mimeType),
+      await _audioSourceForServerChunk(session.id, 0, firstChunk),
     ];
 
     // Opportunistically prebuffer the second chunk before first play.
@@ -826,7 +1035,7 @@ class TtsManager {
           _setBufferedServerChunk(1, secondChunk);
           _serverLastEnqueuedIndex = 1;
           initialSources.add(
-            BytesAudioSource(secondChunk.bytes, secondChunk.mimeType),
+            await _audioSourceForServerChunk(session.id, 1, secondChunk),
           );
           prefetchStartIndex = 2;
         }
@@ -964,9 +1173,19 @@ class TtsManager {
     final currentIndex = _player.currentIndex ?? _serverCurrentIndex;
     final lastChunkIndex = session.chunks.length - 1;
 
-    // Complete only when the final session chunk has been enqueued and played.
-    if (currentIndex >= lastChunkIndex &&
-        _serverLastEnqueuedIndex >= lastChunkIndex) {
+    // Complete only when the final session chunk has been enqueued and the
+    // player reports that playlist playback has actually finished.
+    if (_isServerTtsPlaybackComplete(
+      processingState: _player.processingState,
+      currentIndex: currentIndex,
+      lastChunkIndex: lastChunkIndex,
+      lastEnqueuedIndex: _serverLastEnqueuedIndex,
+    )) {
+      if (_isStreamingSession &&
+          (!_streamingFinalized || _serverFetchingIndices.isNotEmpty)) {
+        _serverWaitingForNext = true;
+        return;
+      }
       _activeSession = null;
       _resetPlaybackState();
       _emitEvent(const TtsCompleted());
@@ -1049,9 +1268,29 @@ class TtsManager {
             if (chunk == null) {
               break;
             }
-            await _player.addAudioSource(
-              BytesAudioSource(chunk.bytes, chunk.mimeType),
+            final source = await _audioSourceForServerChunk(
+              session.id,
+              nextIndex,
+              chunk,
             );
+            if (_isStreamingSession &&
+                nextIndex == 0 &&
+                _serverLastEnqueuedIndex < 0) {
+              _isTransitioningChunks = true;
+              try {
+                await _player.setAudioSources(
+                  [source],
+                  initialIndex: 0,
+                  initialPosition: Duration.zero,
+                );
+                await _player.play();
+              } catch (_) {
+                _isTransitioningChunks = false;
+                rethrow;
+              }
+            } else {
+              await _player.addAudioSource(source);
+            }
             _serverLastEnqueuedIndex = nextIndex;
           }
 
@@ -1077,6 +1316,73 @@ class TtsManager {
     }
     await _player.seek(Duration.zero, index: nextIndex);
     await _player.play();
+  }
+
+  Future<AudioSource> _audioSourceForServerChunk(
+    int sessionId,
+    int index,
+    _AudioChunk chunk,
+  ) async {
+    final tempDir = await getTemporaryDirectory();
+    final dir = Directory(p.join(tempDir.path, 'conduit_tts', '$sessionId'));
+    await dir.create(recursive: true);
+
+    final extension = _audioExtensionForMimeType(chunk.mimeType);
+    final file = File(p.join(dir.path, 'chunk_$index.$extension'));
+    await file.writeAsBytes(chunk.bytes, flush: true);
+    _serverTempFiles.add(file);
+    return AudioSource.uri(file.uri, tag: index);
+  }
+
+  String _audioExtensionForMimeType(String mimeType) {
+    final normalized = mimeType.toLowerCase();
+    if (normalized.contains('mpeg') || normalized.contains('mp3')) {
+      return 'mp3';
+    }
+    if (normalized.contains('wav')) {
+      return 'wav';
+    }
+    if (normalized.contains('ogg')) {
+      return 'ogg';
+    }
+    if (normalized.contains('aac')) {
+      return 'aac';
+    }
+    if (normalized.contains('mp4') || normalized.contains('m4a')) {
+      return 'm4a';
+    }
+    return 'audio';
+  }
+
+  Future<void> _startServerBackgroundLease(int sessionId) async {
+    final leaseId = 'tts-server-$sessionId';
+    _serverBackgroundLeaseId = leaseId;
+    try {
+      await BackgroundStreamingHandler.instance.startBackgroundExecution([
+        leaseId,
+      ]);
+    } catch (_) {}
+  }
+
+  Future<void> _stopServerBackgroundLease() async {
+    final leaseId = _serverBackgroundLeaseId;
+    _serverBackgroundLeaseId = null;
+    if (leaseId == null) return;
+    try {
+      await BackgroundStreamingHandler.instance.stopBackgroundExecution([
+        leaseId,
+      ]);
+    } catch (_) {}
+  }
+
+  Future<void> _cleanupServerTempFiles() async {
+    final files = List<File>.from(_serverTempFiles);
+    _serverTempFiles.clear();
+    for (final file in files) {
+      try {
+        await file.delete();
+      } catch (_) {}
+    }
   }
 
   Future<String?> _resolveServerVoice() async {
@@ -1119,6 +1425,14 @@ class TtsManager {
     _serverRecoveringMissingChunk = false;
     _serverPlaybackVoice = null;
     _serverPlaylistSerial = Future<void>.value();
+    _isStreamingSession = false;
+    _streamingFinalized = false;
+    _streamingFedChunkCount = 0;
+    _deviceWaitingForStreamingChunk = false;
+    _serverLastFetchScheduledIndex = -1;
+    _serverFetchingIndices.clear();
+    unawaited(_stopServerBackgroundLease());
+    unawaited(_cleanupServerTempFiles());
   }
 
   void _setBufferedServerChunk(int index, _AudioChunk chunk) {
