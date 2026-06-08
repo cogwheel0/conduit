@@ -303,6 +303,7 @@ private struct NativeModelSelectorOption {
     let subtitle: String?
     let sfSymbol: String?
     let avatarUrl: String?
+    let avatarData: Data?
     let avatarHeaders: [String: String]
     let tags: [String]
 
@@ -321,6 +322,7 @@ private struct NativeModelSelectorOption {
         subtitle = payload["subtitle"] as? String
         sfSymbol = payload["sfSymbol"] as? String
         avatarUrl = payload["avatarUrl"] as? String
+        avatarData = (payload["avatarBytes"] as? FlutterStandardTypedData)?.data
         avatarHeaders = payload["avatarHeaders"] as? [String: String] ?? [:]
         var seenTags = Set<String>()
         tags = (payload["tags"] as? [String] ?? []).compactMap { rawTag in
@@ -878,6 +880,7 @@ private extension PlatformNativeSheetModelOption {
         payload["subtitle"] = subtitle
         payload["sfSymbol"] = sfSymbol
         payload["avatarUrl"] = avatarUrl
+        payload["avatarBytes"] = avatarBytes
         payload["tags"] = tags
         return payload
     }
@@ -4593,6 +4596,7 @@ private final class NativeModelSelectorTableViewCell: UITableViewCell {
         avatarView.configure(
             name: model.name,
             avatarUrl: model.avatarUrl,
+            avatarData: model.avatarData,
             avatarHeaders: model.avatarHeaders,
             sfSymbol: model.sfSymbol
         )
@@ -4983,6 +4987,7 @@ private final class NativeModelAvatarView: UIView {
     func configure(
         name: String,
         avatarUrl: String?,
+        avatarData: Data?,
         avatarHeaders: [String: String],
         sfSymbol: String?
     ) {
@@ -5007,6 +5012,14 @@ private final class NativeModelAvatarView: UIView {
                 .uppercased()
             initialsLabel.textColor = accentColor
             initialsLabel.isHidden = false
+        }
+
+        if let avatarData, let image = UIImage(data: avatarData) {
+            imageView.image = image
+            imageView.isHidden = false
+            initialsLabel.isHidden = true
+            symbolView.isHidden = true
+            return
         }
 
         guard let avatarUrl, !avatarUrl.isEmpty else {

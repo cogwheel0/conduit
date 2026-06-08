@@ -1659,6 +1659,7 @@ data class PlatformNativeSheetModelOption (
   val subtitle: String? = null,
   val sfSymbol: String? = null,
   val avatarUrl: String? = null,
+  val avatarBytes: ByteArray? = null,
   val avatarHeaders: Map<String, String>,
   val tags: List<String>
 )
@@ -1670,9 +1671,10 @@ data class PlatformNativeSheetModelOption (
       val subtitle = pigeonVar_list[2] as String?
       val sfSymbol = pigeonVar_list[3] as String?
       val avatarUrl = pigeonVar_list[4] as String?
-      val avatarHeaders = pigeonVar_list[5] as Map<String, String>
-      val tags = pigeonVar_list[6] as List<String>
-      return PlatformNativeSheetModelOption(id, name, subtitle, sfSymbol, avatarUrl, avatarHeaders, tags)
+      val avatarBytes = pigeonVar_list[5] as ByteArray?
+      val avatarHeaders = pigeonVar_list[6] as Map<String, String>
+      val tags = pigeonVar_list[7] as List<String>
+      return PlatformNativeSheetModelOption(id, name, subtitle, sfSymbol, avatarUrl, avatarBytes, avatarHeaders, tags)
     }
   }
   fun toList(): List<Any?> {
@@ -1682,6 +1684,7 @@ data class PlatformNativeSheetModelOption (
       subtitle,
       sfSymbol,
       avatarUrl,
+      avatarBytes,
       avatarHeaders,
       tags,
     )
@@ -1694,7 +1697,7 @@ data class PlatformNativeSheetModelOption (
       return true
     }
     val other = other as PlatformNativeSheetModelOption
-    return ConduitPlatformApisPigeonUtils.deepEquals(this.id, other.id) && ConduitPlatformApisPigeonUtils.deepEquals(this.name, other.name) && ConduitPlatformApisPigeonUtils.deepEquals(this.subtitle, other.subtitle) && ConduitPlatformApisPigeonUtils.deepEquals(this.sfSymbol, other.sfSymbol) && ConduitPlatformApisPigeonUtils.deepEquals(this.avatarUrl, other.avatarUrl) && ConduitPlatformApisPigeonUtils.deepEquals(this.avatarHeaders, other.avatarHeaders) && ConduitPlatformApisPigeonUtils.deepEquals(this.tags, other.tags)
+    return ConduitPlatformApisPigeonUtils.deepEquals(this.id, other.id) && ConduitPlatformApisPigeonUtils.deepEquals(this.name, other.name) && ConduitPlatformApisPigeonUtils.deepEquals(this.subtitle, other.subtitle) && ConduitPlatformApisPigeonUtils.deepEquals(this.sfSymbol, other.sfSymbol) && ConduitPlatformApisPigeonUtils.deepEquals(this.avatarUrl, other.avatarUrl) && ConduitPlatformApisPigeonUtils.deepEquals(this.avatarBytes, other.avatarBytes) && ConduitPlatformApisPigeonUtils.deepEquals(this.avatarHeaders, other.avatarHeaders) && ConduitPlatformApisPigeonUtils.deepEquals(this.tags, other.tags)
   }
 
   override fun hashCode(): Int {
@@ -1704,6 +1707,7 @@ data class PlatformNativeSheetModelOption (
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.subtitle)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.sfSymbol)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.avatarUrl)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.avatarBytes)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.avatarHeaders)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.tags)
     return result

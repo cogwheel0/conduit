@@ -459,6 +459,7 @@ class PlatformNativeSheetModelOption {
     this.subtitle,
     this.sfSymbol,
     this.avatarUrl,
+    this.avatarBytes,
     required this.avatarHeaders,
     required this.tags,
   });
@@ -468,6 +469,7 @@ class PlatformNativeSheetModelOption {
   String? subtitle;
   String? sfSymbol;
   String? avatarUrl;
+  Uint8List? avatarBytes;
   Map<String, String> avatarHeaders;
   List<String> tags;
 }

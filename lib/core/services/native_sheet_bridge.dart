@@ -801,6 +801,7 @@ class NativeSheetModelOption {
     this.subtitle,
     this.sfSymbol,
     this.avatarUrl,
+    this.avatarBytes,
     this.avatarHeaders = const <String, String>{},
     this.tags = const <String>[],
   });
@@ -810,6 +811,7 @@ class NativeSheetModelOption {
   final String? subtitle;
   final String? sfSymbol;
   final String? avatarUrl;
+  final Uint8List? avatarBytes;
   final Map<String, String> avatarHeaders;
   final List<String> tags;
 
@@ -820,6 +822,7 @@ class NativeSheetModelOption {
       'subtitle': subtitle,
       'sfSymbol': sfSymbol,
       'avatarUrl': avatarUrl,
+      'avatarBytes': avatarBytes,
       'avatarHeaders': avatarHeaders,
       'tags': tags,
     };
@@ -1095,6 +1098,7 @@ extension on NativeSheetModelOption {
       subtitle: subtitle,
       sfSymbol: sfSymbol,
       avatarUrl: avatarUrl,
+      avatarBytes: avatarBytes,
       avatarHeaders: avatarHeaders,
       tags: tags,
     );

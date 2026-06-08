@@ -1655,6 +1655,7 @@ struct PlatformNativeSheetModelOption: Hashable {
   var subtitle: String? = nil
   var sfSymbol: String? = nil
   var avatarUrl: String? = nil
+  var avatarBytes: FlutterStandardTypedData? = nil
   var avatarHeaders: [String: String]
   var tags: [String]
 
@@ -1666,8 +1667,9 @@ struct PlatformNativeSheetModelOption: Hashable {
     let subtitle: String? = nilOrValue(pigeonVar_list[2])
     let sfSymbol: String? = nilOrValue(pigeonVar_list[3])
     let avatarUrl: String? = nilOrValue(pigeonVar_list[4])
-    let avatarHeaders = pigeonVar_list[5] as! [String: String]
-    let tags = pigeonVar_list[6] as! [String]
+    let avatarBytes: FlutterStandardTypedData? = nilOrValue(pigeonVar_list[5])
+    let avatarHeaders = pigeonVar_list[6] as! [String: String]
+    let tags = pigeonVar_list[7] as! [String]
 
     return PlatformNativeSheetModelOption(
       id: id,
@@ -1675,6 +1677,7 @@ struct PlatformNativeSheetModelOption: Hashable {
       subtitle: subtitle,
       sfSymbol: sfSymbol,
       avatarUrl: avatarUrl,
+      avatarBytes: avatarBytes,
       avatarHeaders: avatarHeaders,
       tags: tags
     )
@@ -1686,6 +1689,7 @@ struct PlatformNativeSheetModelOption: Hashable {
       subtitle,
       sfSymbol,
       avatarUrl,
+      avatarBytes,
       avatarHeaders,
       tags,
     ]
@@ -1694,7 +1698,7 @@ struct PlatformNativeSheetModelOption: Hashable {
     if Swift.type(of: lhs) != Swift.type(of: rhs) {
       return false
     }
-    return deepEqualsConduitPlatformApis(lhs.id, rhs.id) && deepEqualsConduitPlatformApis(lhs.name, rhs.name) && deepEqualsConduitPlatformApis(lhs.subtitle, rhs.subtitle) && deepEqualsConduitPlatformApis(lhs.sfSymbol, rhs.sfSymbol) && deepEqualsConduitPlatformApis(lhs.avatarUrl, rhs.avatarUrl) && deepEqualsConduitPlatformApis(lhs.avatarHeaders, rhs.avatarHeaders) && deepEqualsConduitPlatformApis(lhs.tags, rhs.tags)
+    return deepEqualsConduitPlatformApis(lhs.id, rhs.id) && deepEqualsConduitPlatformApis(lhs.name, rhs.name) && deepEqualsConduitPlatformApis(lhs.subtitle, rhs.subtitle) && deepEqualsConduitPlatformApis(lhs.sfSymbol, rhs.sfSymbol) && deepEqualsConduitPlatformApis(lhs.avatarUrl, rhs.avatarUrl) && deepEqualsConduitPlatformApis(lhs.avatarBytes, rhs.avatarBytes) && deepEqualsConduitPlatformApis(lhs.avatarHeaders, rhs.avatarHeaders) && deepEqualsConduitPlatformApis(lhs.tags, rhs.tags)
   }
 
   func hash(into hasher: inout Hasher) {
@@ -1704,6 +1708,7 @@ struct PlatformNativeSheetModelOption: Hashable {
     deepHashConduitPlatformApis(value: subtitle, hasher: &hasher)
     deepHashConduitPlatformApis(value: sfSymbol, hasher: &hasher)
     deepHashConduitPlatformApis(value: avatarUrl, hasher: &hasher)
+    deepHashConduitPlatformApis(value: avatarBytes, hasher: &hasher)
     deepHashConduitPlatformApis(value: avatarHeaders, hasher: &hasher)
     deepHashConduitPlatformApis(value: tags, hasher: &hasher)
   }

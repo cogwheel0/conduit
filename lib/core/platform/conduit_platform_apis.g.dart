@@ -1899,6 +1899,7 @@ class PlatformNativeSheetModelOption {
     this.subtitle,
     this.sfSymbol,
     this.avatarUrl,
+    this.avatarBytes,
     required this.avatarHeaders,
     required this.tags,
   });
@@ -1913,6 +1914,8 @@ class PlatformNativeSheetModelOption {
 
   String? avatarUrl;
 
+  Uint8List? avatarBytes;
+
   Map<String, String> avatarHeaders;
 
   List<String> tags;
@@ -1924,6 +1927,7 @@ class PlatformNativeSheetModelOption {
       subtitle,
       sfSymbol,
       avatarUrl,
+      avatarBytes,
       avatarHeaders,
       tags,
     ];
@@ -1941,9 +1945,10 @@ class PlatformNativeSheetModelOption {
       subtitle: result[2] as String?,
       sfSymbol: result[3] as String?,
       avatarUrl: result[4] as String?,
-      avatarHeaders: (result[5]! as Map<Object?, Object?>)
+      avatarBytes: result[5] as Uint8List?,
+      avatarHeaders: (result[6]! as Map<Object?, Object?>)
           .cast<String, String>(),
-      tags: (result[6]! as List<Object?>).cast<String>(),
+      tags: (result[7]! as List<Object?>).cast<String>(),
     );
   }
 
@@ -1962,6 +1967,7 @@ class PlatformNativeSheetModelOption {
         _deepEquals(subtitle, other.subtitle) &&
         _deepEquals(sfSymbol, other.sfSymbol) &&
         _deepEquals(avatarUrl, other.avatarUrl) &&
+        _deepEquals(avatarBytes, other.avatarBytes) &&
         _deepEquals(avatarHeaders, other.avatarHeaders) &&
         _deepEquals(tags, other.tags);
   }

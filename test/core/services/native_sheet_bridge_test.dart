@@ -44,6 +44,9 @@ void main() {
             presentCalls += 1;
             if (presentCalls == 1) {
               check(request.models.single.tags).deepEquals(['tag-a']);
+              check(
+                request.models.single.avatarBytes!.toList(),
+              ).deepEquals([1, 2, 3]);
               await firstPresentation.future;
               return wrapResponse(result: null);
             }
@@ -56,8 +59,13 @@ void main() {
 
         final firstFuture = NativeSheetBridge.instance.presentModelSelector(
           title: 'Models',
-          models: const [
-            NativeSheetModelOption(id: 'model-a', name: 'A', tags: ['tag-a']),
+          models: [
+            NativeSheetModelOption(
+              id: 'model-a',
+              name: 'A',
+              avatarBytes: Uint8List.fromList([1, 2, 3]),
+              tags: ['tag-a'],
+            ),
           ],
           onTogglePinned: (modelId) async {
             firstPins.add(modelId);

@@ -11,12 +11,18 @@ import '../utils/debug_logger.dart';
 import '../utils/model_icon_utils.dart';
 import '../utils/model_sort_utils.dart';
 import '../utils/native_sheet_utils.dart';
+import 'native_sheet_avatar_bytes_hydrator.dart';
 import 'native_sheet_bridge.dart';
 import 'navigation_service.dart';
 import 'settings_service.dart';
 
 final nativeSheetHydrationServiceProvider =
     Provider<NativeSheetHydrationService>(NativeSheetHydrationService.new);
+
+final nativeSheetAvatarBytesHydratorProvider =
+    Provider<NativeSheetAvatarBytesHydrator>(
+      (_) => NativeSheetAvatarBytesHydrator(),
+    );
 
 class NativeSheetHydrationService {
   NativeSheetHydrationService(this._ref);
@@ -43,7 +49,7 @@ class NativeSheetHydrationService {
         const <NativeSheetModelOption>[],
     bool allowsPinning = false,
     bool rethrowErrors = true,
-  }) {
+  }) async {
     final api = _ref.read(apiServiceProvider);
     final avatarHeaders =
         buildImageHeadersFromContainer(
@@ -60,6 +66,26 @@ class NativeSheetHydrationService {
     final canTogglePinnedModels =
         allowsPinning && _ref.read(canTogglePinnedModelsProvider);
 
+    final modelOptions = [
+      ...leadingOptions,
+      for (final model in orderedModels)
+        NativeSheetModelOption(
+          id: model.id,
+          name: model.name,
+          subtitle: model.description,
+          avatarUrl: resolveModelIconUrlForModel(api, model),
+          avatarHeaders: avatarHeaders,
+          tags: model.modelTags,
+        ),
+    ];
+
+    final hydratedModelOptions = await _ref
+        .read(nativeSheetAvatarBytesHydratorProvider)
+        .hydrateModelOptions(api: api, options: modelOptions);
+    if (!context.mounted) {
+      return null;
+    }
+
     return NativeSheetBridge.instance.presentModelSelector(
       title: title,
       selectedModelId: selectedModelId,
@@ -71,18 +97,7 @@ class NativeSheetHydrationService {
                 .read(personalizationSettingsProvider.notifier)
                 .togglePinnedModel(modelId)
           : null,
-      models: [
-        ...leadingOptions,
-        for (final model in orderedModels)
-          NativeSheetModelOption(
-            id: model.id,
-            name: model.name,
-            subtitle: model.description,
-            avatarUrl: resolveModelIconUrlForModel(api, model),
-            avatarHeaders: avatarHeaders,
-            tags: model.modelTags,
-          ),
-      ],
+      models: hydratedModelOptions,
       rethrowErrors: rethrowErrors,
     );
   }

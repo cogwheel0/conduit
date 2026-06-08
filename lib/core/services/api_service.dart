@@ -317,6 +317,26 @@ class ApiService {
     );
   }
 
+  Future<Uint8List> fetchImageBytes(String imageUrl) async {
+    final uri = Uri.parse(imageUrl);
+    final options = Options(
+      responseType: ResponseType.bytes,
+      receiveTimeout: const Duration(seconds: 10),
+      sendTimeout: const Duration(seconds: 10),
+    );
+    final Response<List<int>> response = uri.hasScheme
+        ? await _dio.getUri<List<int>>(uri, options: options)
+        : await _dio.get<List<int>>(imageUrl, options: options);
+    final data = response.data;
+    if (data == null || data.isEmpty) {
+      return Uint8List(0);
+    }
+    if (data is Uint8List) {
+      return data;
+    }
+    return Uint8List.fromList(data);
+  }
+
   void updateAuthToken(String? token) {
     _authInterceptor.updateAuthToken(token);
   }
