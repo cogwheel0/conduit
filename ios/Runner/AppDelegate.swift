@@ -10,8 +10,8 @@ private func appLocalized(_ key: String, _ fallback: String) -> String {
 }
 
 private let conduitShareChannelName = "conduit/share_receiver_text"
-private let conduitShareUserDefaultsKey = "ShareKey"
-private let conduitShareMessageKey = "ShareMessageKey"
+private let conduitShareUserDefaultsKey = "SharingKey"
+private let conduitShareMessageKey = "SharingMessageKey"
 private let conduitShareImportStatusKey = "ShareImportStatusKey"
 private let conduitShareAppGroupIdKey = "AppGroupId"
 
@@ -973,9 +973,9 @@ struct AppShortcuts: AppShortcutsProvider {
 
     addText(message)
     for item in rawItems {
-      let type = item["type"] as? String
+      let type = item["type"]
       let path = item["path"] as? String ?? item["value"] as? String
-      if type == "text" || type == "url" {
+      if isSharedTextType(type) {
         addText(path)
       } else {
         addFilePath(path)
@@ -998,6 +998,20 @@ struct AppShortcuts: AppShortcutsProvider {
       payload["text"] = textParts.joined(separator: "\n")
     }
     return payload
+  }
+
+  private func isSharedTextType(_ type: Any?) -> Bool {
+    if let type = type as? String {
+      return type == "text" || type == "url"
+    }
+    if let type = type as? Int {
+      return type == 0 || type == 1 || type == 5
+    }
+    if let type = type as? NSNumber {
+      let value = type.intValue
+      return value == 0 || value == 1 || value == 5
+    }
+    return false
   }
 
   func notifyShareImportEvent() {

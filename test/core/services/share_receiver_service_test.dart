@@ -2,8 +2,8 @@ import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_sharing_intent/model/sharing_file.dart';
 import 'package:path/path.dart' as p;
-import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 
 import 'package:conduit/core/services/share_receiver_service.dart';
 import 'package:conduit/core/services/share_staging_cleanup.dart';
@@ -37,15 +37,15 @@ void main() {
     });
 
     test('maps shared text and URLs into composer text', () {
-      final payload = SharedPayload.fromSharedMediaFiles([
-        SharedMediaFile(
-          path: '  hello from another app  ',
-          type: SharedMediaType.text,
+      final payload = SharedPayload.fromSharedFiles([
+        SharedFile(
+          value: '  hello from another app  ',
+          type: SharedMediaType.TEXT,
           mimeType: 'text/plain',
         ),
-        SharedMediaFile(
-          path: 'https://example.com/article',
-          type: SharedMediaType.url,
+        SharedFile(
+          value: 'https://example.com/article',
+          type: SharedMediaType.URL,
         ),
       ]);
 
@@ -57,20 +57,20 @@ void main() {
     });
 
     test('maps shared files, photos, and videos into file paths', () {
-      final payload = SharedPayload.fromSharedMediaFiles([
-        SharedMediaFile(
-          path: 'file:///tmp/shared%20photo.jpg',
-          type: SharedMediaType.image,
+      final payload = SharedPayload.fromSharedFiles([
+        SharedFile(
+          value: 'file:///tmp/shared%20photo.jpg',
+          type: SharedMediaType.IMAGE,
           mimeType: 'image/jpeg',
         ),
-        SharedMediaFile(
-          path: '/tmp/movie.mp4',
-          type: SharedMediaType.video,
+        SharedFile(
+          value: '/tmp/movie.mp4',
+          type: SharedMediaType.VIDEO,
           mimeType: 'video/mp4',
         ),
-        SharedMediaFile(
-          path: '/tmp/doc.pdf',
-          type: SharedMediaType.file,
+        SharedFile(
+          value: '/tmp/doc.pdf',
+          type: SharedMediaType.FILE,
           mimeType: 'application/pdf',
         ),
       ]);
@@ -84,15 +84,15 @@ void main() {
     });
 
     test('merges Android multi-file share text into composer text', () {
-      final payload = SharedPayload.fromSharedMediaFiles([
-        SharedMediaFile(
-          path: '/tmp/photo.jpg',
-          type: SharedMediaType.image,
+      final payload = SharedPayload.fromSharedFiles([
+        SharedFile(
+          value: '/tmp/photo.jpg',
+          type: SharedMediaType.IMAGE,
           mimeType: 'image/jpeg',
         ),
-        SharedMediaFile(
-          path: '/tmp/document.pdf',
-          type: SharedMediaType.file,
+        SharedFile(
+          value: '/tmp/document.pdf',
+          type: SharedMediaType.FILE,
           mimeType: 'application/pdf',
         ),
       ], extraText: '  shared caption  ');
@@ -102,20 +102,20 @@ void main() {
     });
 
     test('deduplicates iOS messages and malformed media values', () {
-      final payload = SharedPayload.fromSharedMediaFiles([
-        SharedMediaFile(
-          path: '/tmp/one.jpg',
-          type: SharedMediaType.image,
+      final payload = SharedPayload.fromSharedFiles([
+        SharedFile(
+          value: '/tmp/one.jpg',
+          type: SharedMediaType.IMAGE,
           message: 'caption',
         ),
-        SharedMediaFile(
-          path: '/tmp/two.jpg',
-          type: SharedMediaType.image,
+        SharedFile(
+          value: '/tmp/two.jpg',
+          type: SharedMediaType.IMAGE,
           message: 'caption',
         ),
-        SharedMediaFile(path: '', type: SharedMediaType.file),
-        SharedMediaFile(path: ' ', type: SharedMediaType.text),
-        SharedMediaFile(path: '/tmp/two.jpg', type: SharedMediaType.image),
+        SharedFile(value: '', type: SharedMediaType.FILE),
+        SharedFile(value: ' ', type: SharedMediaType.TEXT),
+        SharedFile(value: '/tmp/two.jpg', type: SharedMediaType.IMAGE),
       ]);
 
       expect(payload.text, 'caption');
@@ -136,11 +136,11 @@ void main() {
         }
       });
 
-      final payload = SharedPayload.fromSharedMediaFiles([
-        SharedMediaFile(
-          path: '/tmp/movie.mp4',
+      final payload = SharedPayload.fromSharedFiles([
+        SharedFile(
+          value: '/tmp/movie.mp4',
           thumbnail: thumbnail.path,
-          type: SharedMediaType.video,
+          type: SharedMediaType.VIDEO,
           mimeType: 'video/mp4',
         ),
       ]);

@@ -33,6 +33,8 @@ PODS:
   - flutter_secure_storage_darwin (10.0.0):
     - Flutter
     - FlutterMacOS
+  - flutter_sharing_intent (1.0.1):
+    - Flutter
   - flutter_tts (0.0.1):
     - Flutter
   - gaimon (0.0.1):
@@ -70,11 +72,12 @@ PODS:
   - OrderedSet (6.0.3)
   - package_info_plus (0.4.5):
     - Flutter
+  - pdfium_flutter (0.1.5):
+    - Flutter
+    - FlutterMacOS
   - permission_handler_apple (9.4.8):
     - Flutter
   - quick_actions_ios (0.0.1):
-    - Flutter
-  - receive_sharing_intent (1.8.1):
     - Flutter
   - record_ios (1.2.1):
     - Flutter
@@ -118,6 +121,7 @@ DEPENDENCIES:
   - flutter_inappwebview_ios (from `.symlinks/plugins/flutter_inappwebview_ios/ios`)
   - flutter_local_notifications (from `.symlinks/plugins/flutter_local_notifications/ios`)
   - flutter_secure_storage_darwin (from `.symlinks/plugins/flutter_secure_storage_darwin/darwin`)
+  - flutter_sharing_intent (from `.symlinks/plugins/flutter_sharing_intent/ios`)
   - flutter_tts (from `.symlinks/plugins/flutter_tts/ios`)
   - gaimon (from `.symlinks/plugins/gaimon/ios`)
   - geolocator_apple (from `.symlinks/plugins/geolocator_apple/darwin`)
@@ -125,9 +129,9 @@ DEPENDENCIES:
   - image_picker_ios (from `.symlinks/plugins/image_picker_ios/ios`)
   - just_audio (from `.symlinks/plugins/just_audio/darwin`)
   - package_info_plus (from `.symlinks/plugins/package_info_plus/ios`)
+  - pdfium_flutter (from `.symlinks/plugins/pdfium_flutter/darwin`)
   - permission_handler_apple (from `.symlinks/plugins/permission_handler_apple/ios`)
   - quick_actions_ios (from `.symlinks/plugins/quick_actions_ios/ios`)
-  - receive_sharing_intent (from `.symlinks/plugins/receive_sharing_intent/ios`)
   - record_ios (from `.symlinks/plugins/record_ios/ios`)
   - share_plus (from `.symlinks/plugins/share_plus/ios`)
   - shared_preferences_foundation (from `.symlinks/plugins/shared_preferences_foundation/darwin`)
@@ -172,6 +176,8 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/flutter_local_notifications/ios"
   flutter_secure_storage_darwin:
     :path: ".symlinks/plugins/flutter_secure_storage_darwin/darwin"
+  flutter_sharing_intent:
+    :path: ".symlinks/plugins/flutter_sharing_intent/ios"
   flutter_tts:
     :path: ".symlinks/plugins/flutter_tts/ios"
   gaimon:
@@ -186,12 +192,12 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/just_audio/darwin"
   package_info_plus:
     :path: ".symlinks/plugins/package_info_plus/ios"
+  pdfium_flutter:
+    :path: ".symlinks/plugins/pdfium_flutter/darwin"
   permission_handler_apple:
     :path: ".symlinks/plugins/permission_handler_apple/ios"
   quick_actions_ios:
     :path: ".symlinks/plugins/quick_actions_ios/ios"
-  receive_sharing_intent:
-    :path: ".symlinks/plugins/receive_sharing_intent/ios"
   record_ios:
     :path: ".symlinks/plugins/record_ios/ios"
   share_plus:
@@ -225,6 +231,7 @@ SPEC CHECKSUMS:
   flutter_inappwebview_ios: b89ba3482b96fb25e00c967aae065701b66e9b99
   flutter_local_notifications: 643a3eda1ce1c0599413ca31672536d423dee214
   flutter_secure_storage_darwin: acdb3f316ed05a3e68f856e0353b133eec373a23
+  flutter_sharing_intent: 0c1e53949f09fa8df8ac2268505687bde8ff264c
   flutter_tts: 35ac3c7d42412733e795ea96ad2d7e05d0a75113
   gaimon: 1979ed07cdcfd0bf0d208f255f550936a196cf5a
   geolocator_apple: ab36aa0e8b7d7a2d7639b3b4e48308394e8cef5e
@@ -237,9 +244,9 @@ SPEC CHECKSUMS:
   onnxruntime-objc: 83d28b87525bd971259a66e153ea32b5d023de19
   OrderedSet: e539b66b644ff081c73a262d24ad552a69be3a94
   package_info_plus: af8e2ca6888548050f16fa2f1938db7b5a5df499
+  pdfium_flutter: e5a6e881af0b182d5b0465ebad23a8a20caa28d4
   permission_handler_apple: 92d754bbaa7361d436db2d6c3c1c2a0fdcec462e
   quick_actions_ios: 500fcc11711d9f646739093395c4ae8eec25f779
-  receive_sharing_intent: 222384f00ffe7e952bbfabaa9e3967cb87e5fe00
   record_ios: 980fd386a97a35987d0fce3dfda4b26a38c90f4c
   SDWebImage: e9c98383c7572d713c1a0d7dd2783b10599b9838
   SDWebImageWebPCoder: 0e06e365080397465cc73a7a9b472d8a3bd0f377

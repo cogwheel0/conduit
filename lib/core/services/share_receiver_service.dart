@@ -5,7 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:receive_sharing_intent/receive_sharing_intent.dart';
+import 'package:flutter_sharing_intent/flutter_sharing_intent.dart';
+import 'package:flutter_sharing_intent/model/sharing_file.dart';
 
 import '../../features/auth/providers/unified_auth_providers.dart';
 import '../../features/chat/providers/chat_providers.dart';
@@ -24,6 +25,7 @@ const int _nativeShareImportMaxPollAttempts = 240;
 const String _nativeShareImportTimedOutMessage =
     'Could not finish importing shared attachments. Please try sharing again.';
 const _androidShareTextChannel = MethodChannel('conduit/share_receiver_text');
+const _sharingIntentChannel = MethodChannel('flutter_sharing_intent');
 
 enum SharedPayloadProcessResult { processed, consumed, retry }
 
@@ -52,8 +54,8 @@ class SharedPayload {
     return SharedPayload(id: id, text: text, filePaths: filePaths);
   }
 
-  factory SharedPayload.fromSharedMediaFiles(
-    List<SharedMediaFile> files, {
+  factory SharedPayload.fromSharedFiles(
+    List<SharedFile> files, {
     String? extraText,
   }) {
     final textParts = <String>[];
@@ -88,17 +90,14 @@ class SharedPayload {
     addText(extraText);
     for (final file in files) {
       addText(file.message);
-      final mainPath = _normalizeSharedFilePath(file.path);
+      final mainPath = _normalizeSharedFilePath(file.value);
       deleteIgnoredSidecar(file.thumbnail, mainPath);
-      switch (file.type) {
-        case SharedMediaType.text:
-        case SharedMediaType.url:
-          addText(file.path);
+      switch (_sharedFileKind(file)) {
+        case _SharedFileKind.text:
+          addText(file.value);
           break;
-        case SharedMediaType.image:
-        case SharedMediaType.video:
-        case SharedMediaType.file:
-          addFilePath(file.path);
+        case _SharedFileKind.file:
+          addFilePath(file.value);
           break;
       }
     }
@@ -255,7 +254,7 @@ final shareReceiverInitializerProvider = Provider<void>((ref) {
 
   Future<void> resetSharedIntent() async {
     try {
-      await ReceiveSharingIntent.instance.reset();
+      await _sharingIntentChannel.invokeMethod<void>('reset');
     } catch (e) {
       DebugLogger.log(
         'ShareReceiver: failed to reset shared intent: $e',
@@ -488,12 +487,9 @@ final shareReceiverInitializerProvider = Provider<void>((ref) {
     }
   };
 
-  Future<void> setPendingFromSharedMedia(List<SharedMediaFile> media) async {
+  Future<void> setPendingFromSharedMedia(List<SharedFile> media) async {
     final extraText = await takePendingAndroidMultipleShareText();
-    final payload = SharedPayload.fromSharedMediaFiles(
-      media,
-      extraText: extraText,
-    );
+    final payload = SharedPayload.fromSharedFiles(media, extraText: extraText);
     if (!payload.hasAnything) {
       if (media.isNotEmpty || (extraText?.trim().isNotEmpty ?? false)) {
         unawaited(resetSharedIntent());
@@ -523,9 +519,7 @@ final shareReceiverInitializerProvider = Provider<void>((ref) {
     if (!initialStatus.hasPlaceholders &&
         !initialStatus.hasErrors &&
         !hasPendingAndroidPayload) {
-      if (Platform.isAndroid) {
-        await setPendingFromNativeShareImportPayload();
-      }
+      await setPendingFromNativeShareImportPayload();
       return;
     }
 
@@ -645,8 +639,10 @@ final shareReceiverInitializerProvider = Provider<void>((ref) {
     Future.microtask(() async {
       try {
         await maybeStartNativeShareImportPolling();
-        final media = await ReceiveSharingIntent.instance.getInitialMedia();
-        await setPendingFromSharedMedia(media);
+        if (Platform.isAndroid) {
+          final media = await FlutterSharingIntent.instance.getInitialSharing();
+          await setPendingFromSharedMedia(media);
+        }
       } catch (e) {
         DebugLogger.log(
           'ShareReceiver: failed to get initial shared media: $e',
@@ -656,30 +652,54 @@ final shareReceiverInitializerProvider = Provider<void>((ref) {
     });
 
     // Handle subsequent shares while app is alive
-    final streamSub = ReceiveSharingIntent.instance.getMediaStream().listen((
-      media,
-    ) {
-      unawaited(
-        (() async {
-          try {
-            await maybeStartNativeShareImportPolling();
-            await setPendingFromSharedMedia(media);
-          } catch (e) {
-            DebugLogger.log(
-              'ShareReceiver: failed to parse shared media: $e',
-              scope: 'share',
+    final StreamSubscription<List<SharedFile>>? streamSub = Platform.isAndroid
+        ? FlutterSharingIntent.instance.getMediaStream().listen((media) {
+            unawaited(
+              (() async {
+                try {
+                  await maybeStartNativeShareImportPolling();
+                  await setPendingFromSharedMedia(media);
+                } catch (e) {
+                  DebugLogger.log(
+                    'ShareReceiver: failed to parse shared media: $e',
+                    scope: 'share',
+                  );
+                }
+              })(),
             );
-          }
-        })(),
-      );
-    });
+          })
+        : null;
 
     // Ensure cleanup
     ref.onDispose(() async {
-      await streamSub.cancel();
+      await streamSub?.cancel();
     });
   });
 });
+
+enum _SharedFileKind { text, file }
+
+_SharedFileKind _sharedFileKind(SharedFile file) {
+  switch (file.type) {
+    case SharedMediaType.TEXT:
+    case SharedMediaType.URL:
+    case SharedMediaType.WEB_SEARCH:
+      return _SharedFileKind.text;
+    case SharedMediaType.IMAGE:
+    case SharedMediaType.VIDEO:
+    case SharedMediaType.FILE:
+      return _SharedFileKind.file;
+    case SharedMediaType.OTHER:
+      final mimeType = file.mimeType?.toLowerCase();
+      final value = file.value?.trim();
+      if (mimeType?.startsWith('text/') == true ||
+          value?.startsWith('http://') == true ||
+          value?.startsWith('https://') == true) {
+        return _SharedFileKind.text;
+      }
+      return _SharedFileKind.file;
+  }
+}
 
 String? _normalizeSharedFilePath(String? value) {
   final trimmed = value?.trim();

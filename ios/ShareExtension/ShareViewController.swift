@@ -3,9 +3,9 @@ import MobileCoreServices
 import UniformTypeIdentifiers
 import UIKit
 
-private let shareSchemePrefix = "ShareMedia"
-private let shareUserDefaultsKey = "ShareKey"
-private let shareUserDefaultsMessageKey = "ShareMessageKey"
+private let shareSchemePrefix = "SharingMedia"
+private let shareUserDefaultsKey = "SharingKey"
+private let shareUserDefaultsMessageKey = "SharingMessageKey"
 private let shareImportStatusKey = "ShareImportStatusKey"
 private let shareAppGroupIdKey = "AppGroupId"
 private let shareStagingDirectoryName = "conduit-shared-intents"
@@ -13,7 +13,7 @@ private let maxSharedFileCount = 6
 private let maxSharedImageBytes: Int64 = 20 * 1024 * 1024
 
 private struct SharedMediaFile: Codable {
-  let path: String
+  let value: String
   let mimeType: String?
   let thumbnail: String?
   let duration: Double?
@@ -21,14 +21,14 @@ private struct SharedMediaFile: Codable {
   let type: SharedMediaType
 
   init(
-    path: String,
+    value: String,
     mimeType: String? = nil,
     thumbnail: String? = nil,
     duration: Double? = nil,
     message: String? = nil,
     type: SharedMediaType
   ) {
-    self.path = path
+    self.value = value
     self.mimeType = mimeType
     self.thumbnail = thumbnail
     self.duration = duration
@@ -37,12 +37,12 @@ private struct SharedMediaFile: Codable {
   }
 }
 
-private enum SharedMediaType: String, Codable, CaseIterable {
-  case image
-  case video
-  case text
-  case file
-  case url
+private enum SharedMediaType: Int, Codable, CaseIterable {
+  case image = 2
+  case video = 3
+  case text = 0
+  case file = 4
+  case url = 1
 
   var toUTTypeIdentifier: String {
     switch self {
@@ -189,21 +189,21 @@ final class ShareViewController: UIViewController {
     case .text:
       if let text = data as? String {
         appendMedia(
-          SharedMediaFile(path: text, mimeType: "text/plain", type: type),
+          SharedMediaFile(value: text, mimeType: "text/plain", type: type),
           ordinal: ordinal
         )
       } else if let textData = data as? Data,
                 let text = String(data: textData, encoding: .utf8) {
         appendMedia(
-          SharedMediaFile(path: text, mimeType: "text/plain", type: type),
+          SharedMediaFile(value: text, mimeType: "text/plain", type: type),
           ordinal: ordinal
         )
       }
     case .url:
       if let url = data as? URL {
-        appendMedia(SharedMediaFile(path: url.absoluteString, type: type), ordinal: ordinal)
+        appendMedia(SharedMediaFile(value: url.absoluteString, type: type), ordinal: ordinal)
       } else if let text = data as? String {
-        appendMedia(SharedMediaFile(path: text, type: type), ordinal: ordinal)
+        appendMedia(SharedMediaFile(value: text, type: type), ordinal: ordinal)
       }
     case .image:
       if let url = data as? URL {
@@ -258,7 +258,7 @@ final class ShareViewController: UIViewController {
     if type == .video {
       appendMedia(
         SharedMediaFile(
-          path: decodedPath,
+          value: decodedPath,
           mimeType: destinationURL.mimeType(),
           duration: videoDuration(from: sourceURL),
           type: type
@@ -270,7 +270,7 @@ final class ShareViewController: UIViewController {
 
     appendMedia(
       SharedMediaFile(
-        path: decodedPath,
+        value: decodedPath,
         mimeType: destinationURL.mimeType(),
         type: type
       ),
@@ -309,7 +309,7 @@ final class ShareViewController: UIViewController {
 
     appendMedia(
       SharedMediaFile(
-        path: destinationURL.absoluteString.removingPercentEncoding ?? destinationURL.absoluteString,
+        value: destinationURL.absoluteString.removingPercentEncoding ?? destinationURL.absoluteString,
         mimeType: destinationURL.mimeType(),
         type: type
       ),
@@ -349,7 +349,7 @@ final class ShareViewController: UIViewController {
     if media.isEmpty, let trimmedMessage, !trimmedMessage.isEmpty {
       media = [
         SharedMediaFile(
-          path: trimmedMessage,
+          value: trimmedMessage,
           mimeType: "text/plain",
           type: .text
         ),

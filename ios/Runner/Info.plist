@@ -49,7 +49,7 @@
 				<string>app.cogwheel.conduit.share</string>
 				<key>CFBundleURLSchemes</key>
 				<array>
-					<string>ShareMedia-$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+					<string>SharingMedia-$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 				</array>
 			</dict>
 			<dict>

@@ -1,5 +1,5 @@
 import Flutter
-import receive_sharing_intent
+import flutter_sharing_intent
 import UIKit
 
 @objc class ConduitSceneDelegate: FlutterSceneDelegate {
@@ -88,8 +88,8 @@ import UIKit
   }
 
   private func handleShareUrl(_ url: URL, setInitialData: Bool) -> Bool {
-    let plugin = SwiftReceiveSharingIntentPlugin.instance
-    guard plugin.hasMatchingSchemePrefix(url: url) else { return false }
+    let plugin = SwiftFlutterSharingIntentPlugin.instance
+    guard plugin.hasSameSchemePrefix(url: url) else { return false }
     defer {
       (UIApplication.shared.delegate as? AppDelegate)?.notifyShareImportEvent()
     }
