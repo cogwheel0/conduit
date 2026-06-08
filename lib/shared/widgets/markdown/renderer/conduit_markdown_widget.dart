@@ -297,6 +297,7 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView> {
         widget.sources,
         widget.onSourceTap,
         _latexStartupFuture,
+        widget.heavyBlockPolicy == MarkdownHeavyBlockPolicy.eager,
       );
 
       final blockRenderer = BlockRenderer(

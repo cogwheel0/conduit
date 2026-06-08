@@ -13,6 +13,7 @@ import 'details_group_widget.dart';
 import 'inline_renderer.dart';
 import 'latex_preprocessor.dart';
 import 'markdown_style.dart';
+import 'pdf_inline_view.dart';
 
 /// Signature for a builder that creates image widgets.
 typedef ImageBuilder = Widget Function(String src, String? alt, String? title);
@@ -304,6 +305,15 @@ class BlockRenderer {
       );
     }
 
+    final singlePdfLink = _extractSinglePdfLink(element);
+    if (singlePdfLink != null &&
+        heavyBlockPolicy == MarkdownHeavyBlockPolicy.eager) {
+      return Padding(
+        padding: EdgeInsets.only(bottom: style.paragraphSpacing),
+        child: _renderPdfLink(singlePdfLink),
+      );
+    }
+
     final children = element.children;
     if (children.isEmpty) {
       return const SizedBox.shrink();
@@ -337,6 +347,29 @@ class BlockRenderer {
       return child;
     }
     return null;
+  }
+
+  CompiledMarkdownElement? _extractSinglePdfLink(
+    CompiledMarkdownElement paragraph,
+  ) {
+    final children = paragraph.children;
+    if (children.length != 1) {
+      return null;
+    }
+    final child = children.first;
+    if (child is CompiledMarkdownElement &&
+        child.tag == 'a' &&
+        PdfInlineView.isPdfLink(child.attributes['href'] ?? '')) {
+      return child;
+    }
+    return null;
+  }
+
+  Widget _renderPdfLink(CompiledMarkdownElement element) {
+    return PdfInlineView(
+      url: element.attributes['href'] ?? '',
+      label: element.textContent,
+    );
   }
 
   Widget? _renderParagraphWithStandaloneImages(
