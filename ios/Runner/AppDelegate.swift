@@ -9,6 +9,12 @@ private func appLocalized(_ key: String, _ fallback: String) -> String {
     NSLocalizedString(key, tableName: nil, bundle: .main, value: fallback, comment: "")
 }
 
+private let conduitShareChannelName = "conduit/share_receiver_text"
+private let conduitShareUserDefaultsKey = "ShareKey"
+private let conduitShareMessageKey = "ShareMessageKey"
+private let conduitShareImportStatusKey = "ShareImportStatusKey"
+private let conduitShareAppGroupIdKey = "AppGroupId"
+
 /// Manages AVAudioSession for voice calls in the background.
 ///
 /// IMPORTANT: This manager is ONLY used for server-side STT (speech-to-text).
@@ -880,6 +886,7 @@ struct AppShortcuts: AppShortcutsProvider {
   private weak var sharedFlutterWindowScene: UIWindowScene?
   private var didConfigureSharedFlutterEngine = false
   private var cookieChannel: FlutterMethodChannel?
+  private var shareImportChannel: FlutterMethodChannel?
 
   /// Checks if a cookie matches a given URL based on domain.
   private func cookieMatchesUrl(cookie: HTTPCookie, url: URL) -> Bool {
@@ -891,6 +898,110 @@ struct AppShortcuts: AppShortcutsProvider {
 
     // Exact match or subdomain match
     return host == cleanDomain || host.hasSuffix(".\(cleanDomain)")
+  }
+
+  private func shareUserDefaults() -> UserDefaults? {
+    let appGroupId = Bundle.main.object(
+      forInfoDictionaryKey: conduitShareAppGroupIdKey
+    ) as? String
+    let defaultGroupId = Bundle.main.bundleIdentifier.map { "group.\($0)" }
+    guard let groupId = appGroupId ?? defaultGroupId else { return nil }
+    return UserDefaults(suiteName: groupId)
+  }
+
+  private func pendingShareImportStatus() -> [String: Any]? {
+    guard let data = shareUserDefaults()?.data(
+      forKey: conduitShareImportStatusKey
+    ) else {
+      return nil
+    }
+
+    return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+  }
+
+  private func clearShareImportStatus(id: String?) {
+    guard let defaults = shareUserDefaults() else { return }
+    if let id,
+       let current = pendingShareImportStatus(),
+       let currentId = current["id"] as? String,
+       !currentId.isEmpty,
+       currentId != id {
+      return
+    }
+
+    defaults.removeObject(forKey: conduitShareImportStatusKey)
+    defaults.synchronize()
+  }
+
+  private func takePendingShareImportPayload() -> [String: Any]? {
+    guard let defaults = shareUserDefaults(),
+          let data = defaults.data(forKey: conduitShareUserDefaultsKey),
+          let rawItems = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]]
+    else {
+      return nil
+    }
+
+    let status = pendingShareImportStatus()
+    let payloadId = status?["id"] as? String ?? UUID().uuidString
+    let message = defaults.string(forKey: conduitShareMessageKey)?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    var textParts: [String] = []
+    var seenText = Set<String>()
+    var filePaths: [String] = []
+    var seenFilePaths = Set<String>()
+
+    func addText(_ value: String?) {
+      let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard let trimmed, !trimmed.isEmpty, seenText.insert(trimmed).inserted else {
+        return
+      }
+      textParts.append(trimmed)
+    }
+
+    func addFilePath(_ value: String?) {
+      guard var path = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+            !path.isEmpty else {
+        return
+      }
+      if path.hasPrefix("file://"),
+         let url = URL(string: path) {
+        path = url.path
+      }
+      guard seenFilePaths.insert(path).inserted else { return }
+      filePaths.append(path)
+    }
+
+    addText(message)
+    for item in rawItems {
+      let type = item["type"] as? String
+      let path = item["path"] as? String ?? item["value"] as? String
+      if type == "text" || type == "url" {
+        addText(path)
+      } else {
+        addFilePath(path)
+      }
+    }
+
+    defaults.removeObject(forKey: conduitShareUserDefaultsKey)
+    defaults.removeObject(forKey: conduitShareMessageKey)
+    defaults.synchronize()
+
+    if textParts.isEmpty && filePaths.isEmpty {
+      return nil
+    }
+
+    var payload: [String: Any] = [
+      "id": payloadId,
+      "filePaths": filePaths,
+    ]
+    if !textParts.isEmpty {
+      payload["text"] = textParts.joined(separator: "\n")
+    }
+    return payload
+  }
+
+  func notifyShareImportEvent() {
+    shareImportChannel?.invokeMethod("stagedSharePayloadReady", arguments: nil)
   }
 
   override func application(
@@ -973,6 +1084,31 @@ struct AppShortcuts: AppShortcutsProvider {
     NativeSheetBridge.shared.configure(messenger: messenger)
     NativeDropdownBridge.shared.configure(messenger: messenger)
     backgroundStreamingHandler?.setup(messenger: messenger)
+
+    let shareImportChannel = FlutterMethodChannel(
+      name: conduitShareChannelName,
+      binaryMessenger: messenger
+    )
+    self.shareImportChannel = shareImportChannel
+    shareImportChannel.setMethodCallHandler { [weak self] call, result in
+      guard let self = self else {
+        result(nil)
+        return
+      }
+
+      switch call.method {
+      case "pendingShareImportStatus":
+        result(self.pendingShareImportStatus())
+      case "takePendingShareImportPayload":
+        result(self.takePendingShareImportPayload())
+      case "clearShareImportStatus":
+        let arguments = call.arguments as? [String: Any]
+        self.clearShareImportStatus(id: arguments?["id"] as? String)
+        result(nil)
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
 
     let cookieChannel = FlutterMethodChannel(
       name: "com.conduit.app/cookies",

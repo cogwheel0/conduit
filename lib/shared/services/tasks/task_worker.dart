@@ -119,12 +119,11 @@ class TaskWorker {
     // This mirrors OpenWebUI's approach: images are uploaded to /api/v1/files/
     // and the server resolves them when sending to LLM
     final uploader = AttachmentUploadQueue();
-    try {
-      final api = _ref.read(apiServiceProvider);
-      if (api != null) {
-        await uploader.initialize(onUpload: (p, n) => api.uploadFile(p, n));
-      }
-    } catch (_) {}
+    final api = _ref.read(apiServiceProvider);
+    if (api == null) {
+      throw Exception('API not available');
+    }
+    await uploader.initialize(onUpload: (p, n) => api.uploadFile(p, n));
 
     // For images: convert unsupported formats to JPEG for compatibility.
     String uploadPath = task.filePath;
@@ -248,47 +247,7 @@ class TaskWorker {
     });
 
     unawaited(uploader.processQueue());
-    await completer.future.timeout(
-      const Duration(minutes: 2),
-      onTimeout: () {
-        try {
-          sub.cancel();
-        } catch (_) {}
-
-        // Clean up temp file on timeout
-        if (tempFilePath != null) {
-          try {
-            File(tempFilePath).parent.deleteSync(recursive: true);
-          } catch (_) {}
-        }
-
-        unawaited(deleteShareStagingFile(task.filePath));
-
-        // Update state to failed on timeout
-        try {
-          final current = _ref.read(attachedFilesProvider);
-          final idx = current.indexWhere((f) => f.file.path == task.filePath);
-          if (idx != -1) {
-            final existing = current[idx];
-            final newState = FileUploadState(
-              file: File(task.filePath),
-              fileName: displayFileName,
-              fileSize: task.fileSize ?? existing.fileSize,
-              progress: 0.0,
-              status: FileUploadStatus.failed,
-              error: 'Upload timed out',
-              isImage: isImage,
-            );
-            _ref
-                .read(attachedFilesProvider.notifier)
-                .updateFileState(task.filePath, newState);
-          }
-        } catch (_) {}
-
-        DebugLogger.warning('UploadMediaTask timed out: ${task.fileName}');
-        return;
-      },
-    );
+    await completer.future;
   }
 
   /// Check if image should be converted to JPEG before upload.

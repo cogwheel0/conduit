@@ -36,12 +36,23 @@ import 'server_tls_http_client_factory.dart';
 const bool _traceApiLogs = false;
 const int _conversationWorkerByteThreshold = 50 * 1024;
 const int _conversationSummaryWorkerItemThreshold = 24;
+const int _fileUploadTimeoutBytesPerSecondFloor = 128 * 1024;
+const Duration _minimumFileUploadTimeout = Duration(minutes: 5);
 
 void _traceApi(String message) {
   if (!_traceApiLogs) {
     return;
   }
   DebugLogger.log(message, scope: 'api/trace');
+}
+
+Duration _fileUploadTimeoutForBytes(int bytes) {
+  final estimatedUploadSeconds =
+      (bytes / _fileUploadTimeoutBytesPerSecondFloor).ceil() + 120;
+  final timeout = Duration(seconds: estimatedUploadSeconds);
+  return timeout < _minimumFileUploadTimeout
+      ? _minimumFileUploadTimeout
+      : timeout;
 }
 
 @visibleForTesting
@@ -5216,6 +5227,8 @@ class ApiService {
       if (!await file.exists()) {
         throw Exception('File does not exist: $filePath');
       }
+      final fileSize = await file.length();
+      final uploadTimeout = _fileUploadTimeoutForBytes(fileSize);
 
       // Determine content type from file extension if not provided
       final mimeType = contentType ?? _getMimeType(fileName);
@@ -5231,7 +5244,14 @@ class ApiService {
       });
 
       _traceApi('Uploading to /api/v1/files/');
-      final response = await _dio.post('/api/v1/files/', data: formData);
+      final response = await _dio.post(
+        '/api/v1/files/',
+        data: formData,
+        options: Options(
+          sendTimeout: uploadTimeout,
+          receiveTimeout: uploadTimeout,
+        ),
+      );
 
       DebugLogger.log(
         'upload-status',

@@ -586,10 +586,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       final attachments = await fileService.pickFiles();
       if (attachments.isEmpty) return;
 
-      // Validate file sizes
+      // Keep the 20 MB guardrail for images; non-image uploads can be larger.
       for (final attachment in attachments) {
         final fileSize = await attachment.file.length();
-        if (!validateFileSize(fileSize, 20)) {
+        if (attachment.isImage && !validateFileSize(fileSize, 20)) {
           if (!mounted) return;
           return;
         }

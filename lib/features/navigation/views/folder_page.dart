@@ -492,7 +492,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
 
       for (final attachment in attachments) {
         final fileSize = await attachment.file.length();
-        if (!chat.validateFileSize(fileSize, 20)) {
+        if (attachment.isImage && !chat.validateFileSize(fileSize, 20)) {
           return;
         }
       }

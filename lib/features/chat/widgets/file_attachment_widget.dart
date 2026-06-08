@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:io' show File, Platform;
 import 'package:conduit/l10n/app_localizations.dart';
 import '../services/file_attachment_service.dart';
+import '../../../core/services/share_receiver_service.dart';
 import '../../../shared/services/tasks/task_queue.dart';
 import '../../../shared/widgets/conduit_loading.dart';
 
@@ -24,8 +25,14 @@ class FileAttachmentWidget extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final attachedFiles = ref.watch(attachedFilesProvider);
+    final importStatus = ref.watch(sharedAttachmentImportStatusProvider);
+    final placeholderCount = importStatus.hasPlaceholders
+        ? (importStatus.expectedFileCount - attachedFiles.length)
+              .clamp(0, importStatus.expectedFileCount)
+              .toInt()
+        : 0;
 
-    if (attachedFiles.isEmpty) {
+    if (attachedFiles.isEmpty && placeholderCount == 0) {
       return const SizedBox.shrink();
     }
 
@@ -45,14 +52,18 @@ class FileAttachmentWidget extends ConsumerWidget {
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
-              children: attachedFiles
-                  .map(
-                    (fileState) => Padding(
-                      padding: const EdgeInsets.only(right: Spacing.sm),
-                      child: _FileAttachmentCard(fileState: fileState),
-                    ),
-                  )
-                  .toList(),
+              children: [
+                for (var index = 0; index < placeholderCount; index++)
+                  const Padding(
+                    padding: EdgeInsets.only(right: Spacing.sm),
+                    child: _FileAttachmentSkeletonCard(),
+                  ),
+                for (final fileState in attachedFiles)
+                  Padding(
+                    padding: const EdgeInsets.only(right: Spacing.sm),
+                    child: _FileAttachmentCard(fileState: fileState),
+                  ),
+              ],
             ),
           ),
         ],
@@ -118,13 +129,17 @@ class _FileAttachmentCard extends ConsumerWidget {
             const SizedBox(height: Spacing.xs),
             _buildProgressBar(context),
           ],
-          if (fileState.error != null) ...[
+          if (fileState.status == FileUploadStatus.failed) ...[
             const SizedBox(height: Spacing.xs),
             Text(
-              'Failed to upload',
+              fileState.error?.trim().isNotEmpty == true
+                  ? fileState.error!.trim()
+                  : 'Upload failed',
               style: AppTypography.labelSmallStyle.copyWith(
                 color: context.conduitTheme.error,
               ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
             ),
           ],
         ],
@@ -323,6 +338,55 @@ class _FileAttachmentCard extends ConsumerWidget {
       color: context.conduitTheme.textPrimary.withValues(alpha: 0.08),
       alignment: Alignment.center,
       child: Text(fileState.fileIcon, style: const TextStyle(fontSize: 26)),
+    );
+  }
+}
+
+class _FileAttachmentSkeletonCard extends StatelessWidget {
+  const _FileAttachmentSkeletonCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 140,
+      padding: const EdgeInsets.all(Spacing.sm),
+      decoration: BoxDecoration(
+        color: context.conduitTheme.cardBackground,
+        borderRadius: BorderRadius.circular(AppBorderRadius.small),
+        border: Border.all(
+          color: context.conduitTheme.cardBorder.withValues(alpha: 0.5),
+          width: BorderWidth.standard,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AspectRatio(
+            aspectRatio: 4 / 3,
+            child: ConduitLoading.skeleton(
+              borderRadius: BorderRadius.circular(AppBorderRadius.xs),
+            ),
+          ),
+          const SizedBox(height: Spacing.sm),
+          ConduitLoading.skeleton(
+            width: 96,
+            height: 12,
+            borderRadius: BorderRadius.circular(AppBorderRadius.xs),
+          ),
+          const SizedBox(height: Spacing.xs),
+          ConduitLoading.skeleton(
+            width: 58,
+            height: 10,
+            borderRadius: BorderRadius.circular(AppBorderRadius.xs),
+          ),
+          const SizedBox(height: Spacing.xs),
+          ConduitLoading.skeleton(
+            width: double.infinity,
+            height: 4,
+            borderRadius: BorderRadius.circular(AppBorderRadius.xs),
+          ),
+        ],
+      ),
     );
   }
 }

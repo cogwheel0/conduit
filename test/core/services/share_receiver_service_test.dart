@@ -151,6 +151,51 @@ void main() {
     });
   });
 
+  group('SharedAttachmentImportStatusNotifier', () {
+    test('preserves prepared composer marker for the same native import', () {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+
+      final notifier = container.read(
+        sharedAttachmentImportStatusProvider.notifier,
+      );
+      notifier.set(
+        const SharedAttachmentImportStatus(
+          id: 'share-1',
+          expectedFileCount: 2,
+          isInProgress: true,
+        ),
+      );
+      notifier.markComposerPrepared('share-1');
+
+      notifier.set(
+        const SharedAttachmentImportStatus(
+          id: 'share-1',
+          expectedFileCount: 2,
+          isInProgress: false,
+        ),
+      );
+
+      expect(
+        container.read(sharedAttachmentImportStatusProvider).preparedComposer,
+        isTrue,
+      );
+
+      notifier.set(
+        const SharedAttachmentImportStatus(
+          id: 'share-2',
+          expectedFileCount: 1,
+          isInProgress: true,
+        ),
+      );
+
+      expect(
+        container.read(sharedAttachmentImportStatusProvider).preparedComposer,
+        isFalse,
+      );
+    });
+  });
+
   group('shared attachment validation', () {
     test('returns valid staged files', () async {
       final root = await Directory.systemTemp.createTemp(
@@ -180,7 +225,7 @@ void main() {
       expect(await file.exists(), isTrue);
     });
 
-    test('rejects and deletes oversized staged files', () async {
+    test('rejects and deletes oversized staged images', () async {
       final root = await Directory.systemTemp.createTemp(
         'conduit_share_receiver_oversized_',
       );
@@ -194,7 +239,7 @@ void main() {
         p.join(
           root.path,
           'shared-intents',
-          '123e4567-e89b-12d3-a456-426614174000-big.bin',
+          '123e4567-e89b-12d3-a456-426614174000-big.jpg',
         ),
       );
       await file.create(recursive: true);
@@ -206,6 +251,35 @@ void main() {
 
       expect(attachments, isEmpty);
       expect(await file.exists(), isFalse);
+    });
+
+    test('allows non-image staged files over the image size cap', () async {
+      final root = await Directory.systemTemp.createTemp(
+        'conduit_share_receiver_large_file_',
+      );
+      addTearDown(() async {
+        if (await root.exists()) {
+          await root.delete(recursive: true);
+        }
+      });
+
+      final file = File(
+        p.join(
+          root.path,
+          'shared-intents',
+          '123e4567-e89b-12d3-a456-426614174000-meeting.mp3',
+        ),
+      );
+      await file.create(recursive: true);
+      final handle = await file.open(mode: FileMode.write);
+      await handle.truncate(20 * 1024 * 1024 + 1);
+      await handle.close();
+
+      final attachments = await validSharedAttachmentsForTest([file.path]);
+
+      expect(attachments, hasLength(1));
+      expect(attachments.single.file.path, file.path);
+      expect(await file.exists(), isTrue);
     });
 
     test('rejects and deletes files over the share count cap', () async {

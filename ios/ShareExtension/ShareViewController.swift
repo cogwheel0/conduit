@@ -6,10 +6,11 @@ import UIKit
 private let shareSchemePrefix = "ShareMedia"
 private let shareUserDefaultsKey = "ShareKey"
 private let shareUserDefaultsMessageKey = "ShareMessageKey"
+private let shareImportStatusKey = "ShareImportStatusKey"
 private let shareAppGroupIdKey = "AppGroupId"
 private let shareStagingDirectoryName = "conduit-shared-intents"
 private let maxSharedFileCount = 6
-private let maxSharedFileBytes: Int64 = 20 * 1024 * 1024
+private let maxSharedImageBytes: Int64 = 20 * 1024 * 1024
 
 private struct SharedMediaFile: Codable {
   let path: String
@@ -77,7 +78,11 @@ final class ShareViewController: UIViewController {
   private var hostAppBundleIdentifier = ""
   private var appGroupId = ""
   private var didBeginLoading = false
-  private var didRedirect = false
+  private var didOpenHostApp = false
+  private var didFinishShare = false
+  private let shareImportId = UUID().uuidString
+  private var expectedImportFileCount = 0
+  private var importErrors: [String] = []
   private var sharedMedia: [(ordinal: Int, media: SharedMediaFile)] = []
   private let sharedMediaLock = NSLock()
 
@@ -102,6 +107,25 @@ final class ShareViewController: UIViewController {
     let inputItems = extensionContext?.inputItems.compactMap {
       $0 as? NSExtensionItem
     } ?? []
+    var expectedFileBackedCount = 0
+    for item in inputItems {
+      for attachment in item.attachments ?? [] {
+        guard let supportedType = supportedType(for: attachment),
+              supportedType.mediaType.isFileBacked else {
+          continue
+        }
+        expectedFileBackedCount += 1
+      }
+    }
+    expectedImportFileCount = min(expectedFileBackedCount, maxSharedFileCount)
+    if expectedFileBackedCount > maxSharedFileCount {
+      recordImportError("Only the first \(maxSharedFileCount) shared attachments were imported.")
+    }
+    if expectedImportFileCount > 0 {
+      storeShareImportStatus(isInProgress: true)
+      openHostApp()
+    }
+
     let group = DispatchGroup()
     var ordinal = 0
     var fileBackedCount = 0
@@ -121,7 +145,11 @@ final class ShareViewController: UIViewController {
         attachment.loadItem(forTypeIdentifier: supportedType.itemTypeIdentifier) {
           [weak self] data, error in
           defer { group.leave() }
-          guard let self, error == nil else { return }
+          guard let self else { return }
+          if let error {
+            recordImportError("Could not import shared attachment: \(error.localizedDescription)")
+            return
+          }
           handleLoadedItem(data, type: type, ordinal: currentOrdinal)
         }
       }
@@ -208,7 +236,11 @@ final class ShareViewController: UIViewController {
       }
     }
 
-    guard let size = fileSize(sourceURL), size <= maxSharedFileBytes else {
+    let maxBytes = maxSharedBytes(for: type, url: sourceURL)
+    if let maxBytes,
+       let size = fileSize(sourceURL),
+       size > maxBytes {
+      recordImportError("\(sourceURL.lastPathComponent) is larger than the 20 MB image limit.")
       return
     }
     guard let destinationURL = destinationURL(
@@ -216,7 +248,8 @@ final class ShareViewController: UIViewController {
       fallbackExtension: fallbackExtension(for: type),
       ordinal: ordinal
     ) else { return }
-    guard copyFile(at: sourceURL, to: destinationURL, maxBytes: maxSharedFileBytes) else {
+    guard copyFile(at: sourceURL, to: destinationURL, maxBytes: maxBytes) else {
+      recordImportError("Could not import \(sourceURL.lastPathComponent).")
       return
     }
 
@@ -256,7 +289,11 @@ final class ShareViewController: UIViewController {
     ordinal: Int,
     fallbackExtension: String
   ) {
-    guard data.count <= maxSharedFileBytes else { return }
+    if let maxBytes = maxSharedBytes(for: type),
+       Int64(data.count) > maxBytes {
+      recordImportError("Shared image is larger than the 20 MB image limit.")
+      return
+    }
     guard let destinationURL = destinationURL(
       originalName: nil,
       fallbackExtension: fallbackExtension,
@@ -266,6 +303,7 @@ final class ShareViewController: UIViewController {
     do {
       try data.write(to: destinationURL, options: .atomic)
     } catch {
+      recordImportError("Could not import shared attachment: \(error.localizedDescription)")
       return
     }
 
@@ -302,8 +340,8 @@ final class ShareViewController: UIViewController {
   }
 
   private func saveAndRedirect(message: String? = nil) {
-    guard !didRedirect else { return }
-    didRedirect = true
+    guard !didFinishShare else { return }
+    didFinishShare = true
 
     let trimmedMessage = message?.trimmingCharacters(in: .whitespacesAndNewlines)
     var media = sortedMedia()
@@ -320,6 +358,7 @@ final class ShareViewController: UIViewController {
     }
 
     guard !media.isEmpty else {
+      storeShareImportStatus(isInProgress: false)
       extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
       return
     }
@@ -331,6 +370,7 @@ final class ShareViewController: UIViewController {
     } else {
       userDefaults?.removeObject(forKey: shareUserDefaultsMessageKey)
     }
+    storeShareImportStatus(isInProgress: false, userDefaults: userDefaults)
     userDefaults?.synchronize()
     redirectToHostApp()
   }
@@ -342,10 +382,12 @@ final class ShareViewController: UIViewController {
     return media
   }
 
-  private func redirectToHostApp() {
+  private func openHostApp() {
+    guard !didOpenHostApp else { return }
+    didOpenHostApp = true
+
     loadIds()
     guard let url = URL(string: "\(shareSchemePrefix)-\(hostAppBundleIdentifier):share") else {
-      extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
       return
     }
     var responder = self as UIResponder?
@@ -367,8 +409,42 @@ final class ShareViewController: UIViewController {
         responder = responder?.next
       }
     }
+  }
 
+  private func redirectToHostApp() {
+    openHostApp()
     extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
+  }
+
+  private func recordImportError(_ message: String) {
+    sharedMediaLock.lock()
+    if !importErrors.contains(message) {
+      importErrors.append(message)
+    }
+    sharedMediaLock.unlock()
+  }
+
+  private func storeShareImportStatus(
+    isInProgress: Bool,
+    userDefaults: UserDefaults? = nil
+  ) {
+    guard expectedImportFileCount > 0 || !importErrors.isEmpty else { return }
+
+    let defaults = userDefaults ?? UserDefaults(suiteName: appGroupId)
+    let payload: [String: Any] = [
+      "id": shareImportId,
+      "expectedFileCount": expectedImportFileCount,
+      "isInProgress": isInProgress,
+      "errors": importErrors,
+    ]
+    guard JSONSerialization.isValidJSONObject(payload),
+          let data = try? JSONSerialization.data(withJSONObject: payload)
+    else {
+      return
+    }
+
+    defaults?.set(data, forKey: shareImportStatusKey)
+    defaults?.synchronize()
   }
 
   private func destinationURL(
@@ -420,7 +496,7 @@ final class ShareViewController: UIViewController {
     return size.int64Value
   }
 
-  private func copyFile(at srcURL: URL, to dstURL: URL, maxBytes: Int64) -> Bool {
+  private func copyFile(at srcURL: URL, to dstURL: URL, maxBytes: Int64?) -> Bool {
     do {
       if FileManager.default.fileExists(atPath: dstURL.path) {
         try FileManager.default.removeItem(at: dstURL)
@@ -438,7 +514,7 @@ final class ShareViewController: UIViewController {
         let chunk = try input.read(upToCount: 64 * 1024) ?? Data()
         if chunk.isEmpty { break }
         copiedBytes += Int64(chunk.count)
-        if copiedBytes > maxBytes {
+        if let maxBytes, copiedBytes > maxBytes {
           try? FileManager.default.removeItem(at: dstURL)
           return false
         }
@@ -455,6 +531,18 @@ final class ShareViewController: UIViewController {
     let asset = AVAsset(url: url)
     let duration = (CMTimeGetSeconds(asset.duration) * 1000).rounded()
     return duration.isFinite ? duration : nil
+  }
+
+  private func maxSharedBytes(for type: SharedMediaType, url: URL? = nil) -> Int64? {
+    if type == .image {
+      return maxSharedImageBytes
+    }
+    if type == .file,
+       let url,
+       UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true {
+      return maxSharedImageBytes
+    }
+    return nil
   }
 
   private func fallbackExtension(for type: SharedMediaType) -> String {

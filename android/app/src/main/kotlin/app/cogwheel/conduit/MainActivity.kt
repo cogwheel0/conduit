@@ -1,6 +1,5 @@
 package app.cogwheel.conduit
 
-import android.content.ClipData
 import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
@@ -20,6 +19,8 @@ import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
+import org.json.JSONArray
+import org.json.JSONObject
 
 class MainActivity : FlutterActivity() {
     private lateinit var backgroundStreamingHandler: BackgroundStreamingHandler
@@ -43,10 +44,23 @@ class MainActivity : FlutterActivity() {
     private val HOME_WIDGET_LAUNCH_ACTION = "es.antonborri.home_widget.action.LAUNCH"
     private val SHARE_TEXT_PREFS_NAME = "conduit_share_receiver_text"
     private val PENDING_MULTIPLE_SHARE_TEXT_KEY = "pending_multiple_share_text"
+    private val PENDING_STAGED_SHARE_PAYLOAD_KEY = "pending_staged_share_payload"
+    private val PENDING_SHARE_IMPORT_STATUS_KEY = "pending_share_import_status"
     private val SHARE_STAGING_DIRECTORY_NAME = "conduit-shared-intents"
     private val maxSharedFileCount = 6
-    private val maxSharedFileBytes = 20L * 1024L * 1024L
+    private val maxSharedImageBytes = 20L * 1024L * 1024L
     private var methodChannel: MethodChannel? = null
+    private var shareChannel: MethodChannel? = null
+    @Volatile
+    private var pendingStagedShareInProgress = false
+    @Volatile
+    private var activeShareImportId: String? = null
+
+    private data class PendingSharedUri(
+        val uri: Uri,
+        val mimeType: String?,
+        val ordinal: Int
+    )
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -56,13 +70,31 @@ class MainActivity : FlutterActivity() {
         backgroundStreamingHandler.setup(flutterEngine)
 
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, ASSISTANT_CHANNEL)
-        MethodChannel(
+        shareChannel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             SHARE_TEXT_CHANNEL
-        ).setMethodCallHandler { call, result ->
+        )
+        shareChannel?.setMethodCallHandler { call, result ->
             when (call.method) {
                 "takePendingMultipleShareText" -> {
                     result.success(takePendingMultipleShareText())
+                }
+                "hasPendingStagedSharePayload" -> {
+                    result.success(hasPendingStagedSharePayload())
+                }
+                "takePendingStagedSharePayload" -> {
+                    result.success(takePendingStagedSharePayload())
+                }
+                "takePendingShareImportPayload" -> {
+                    result.success(takePendingStagedSharePayload())
+                }
+                "pendingShareImportStatus" -> {
+                    result.success(pendingShareImportStatus())
+                }
+                "clearShareImportStatus" -> {
+                    val id = call.argument<String>("id")
+                    clearShareImportStatus(id)
+                    result.success(null)
                 }
                 else -> result.notImplemented()
             }
@@ -154,29 +186,24 @@ class MainActivity : FlutterActivity() {
             storePendingMultipleShareText(null)
             return intent
         }
-        if (!sharedUriWithinLimits(uri)) {
-            Log.w("MainActivity", "Rejected oversized or unknown-size shared URI: $uri")
+        val mimeType = mimeTypeAt(intent, 0)
+        if (!sharedUriWithinLimits(uri, mimeType)) {
+            Log.w("MainActivity", "Rejected oversized shared image URI: $uri")
             storePendingMultipleShareText(null)
-            return textOnlyShareIntent(intent, text)
-        }
-
-        val stagedUri = stageSharedUri(uri, intent.type, 0)
-        if (stagedUri == null) {
-            Log.w("MainActivity", "Failed to stage accepted shared URI: $uri")
-            storePendingMultipleShareText(null)
-            return textOnlyShareIntent(intent, text)
-        }
-
-        storePendingMultipleShareText(text)
-        return Intent(intent).apply {
-            putExtra(Intent.EXTRA_STREAM, stagedUri)
-            clipData = ClipData.newUri(
-                contentResolver,
-                intent.clipData?.description?.label ?: "shared file",
-                stagedUri
+            val importId = UUID.randomUUID().toString()
+            beginShareImport(importId)
+            storePendingShareImportStatus(
+                id = importId,
+                expectedFileCount = 1,
+                isInProgress = false,
+                errors = listOf(shareRejectionMessage(uri, mimeType))
             )
-            removeExtra(Intent.EXTRA_MIME_TYPES)
+            notifyStagedSharePayloadReady()
+            return textOnlyShareIntent(intent, text)
         }
+        storePendingMultipleShareText(null)
+        stageSharedUrisAsync(listOf(PendingSharedUri(uri, mimeType, 0)), text)
+        return textOnlyShareIntent(intent, null)
     }
 
     private fun sanitizeMultipleShareIntent(intent: Intent, text: String?): Intent {
@@ -186,42 +213,42 @@ class MainActivity : FlutterActivity() {
             return intent
         }
 
-        val acceptedUris = ArrayList<Uri>()
-        val acceptedMimeTypes = ArrayList<String>()
+        val pendingUris = ArrayList<PendingSharedUri>()
+        val importErrors = ArrayList<String>()
         originalUris.forEachIndexed { index, uri ->
-            if (acceptedUris.size >= maxSharedFileCount) {
+            if (pendingUris.size >= maxSharedFileCount) {
                 Log.w("MainActivity", "Rejected shared URI beyond count cap: $uri")
+                importErrors.add("Only the first $maxSharedFileCount shared attachments were imported.")
                 return@forEachIndexed
             }
             val mimeType = mimeTypeAt(intent, index)
-            if (sharedUriWithinLimits(uri)) {
-                val stagedUri = stageSharedUri(uri, mimeType, index)
-                if (stagedUri != null) {
-                    acceptedUris.add(stagedUri)
-                    mimeType?.let(acceptedMimeTypes::add)
-                } else {
-                    Log.w("MainActivity", "Failed to stage accepted shared URI: $uri")
-                }
+            if (sharedUriWithinLimits(uri, mimeType)) {
+                pendingUris.add(PendingSharedUri(uri, mimeType, index))
             } else {
-                Log.w("MainActivity", "Rejected oversized or unknown-size shared URI: $uri")
+                Log.w("MainActivity", "Rejected oversized shared image URI: $uri")
+                importErrors.add(shareRejectionMessage(uri, mimeType))
             }
         }
 
-        if (acceptedUris.isEmpty()) {
+        if (pendingUris.isEmpty()) {
             storePendingMultipleShareText(null)
+            if (importErrors.isNotEmpty()) {
+                val importId = UUID.randomUUID().toString()
+                beginShareImport(importId)
+                storePendingShareImportStatus(
+                    id = importId,
+                    expectedFileCount = originalUris.size.coerceAtMost(maxSharedFileCount),
+                    isInProgress = false,
+                    errors = importErrors
+                )
+                notifyStagedSharePayloadReady()
+            }
             return textOnlyShareIntent(intent, text)
         }
 
-        storePendingMultipleShareText(text)
-        return Intent(intent).apply {
-            putParcelableArrayListExtra(Intent.EXTRA_STREAM, acceptedUris)
-            clipData = clipDataForAcceptedUris(intent, acceptedUris)
-            if (acceptedMimeTypes.size == acceptedUris.size) {
-                putExtra(Intent.EXTRA_MIME_TYPES, acceptedMimeTypes.toTypedArray())
-            } else {
-                removeExtra(Intent.EXTRA_MIME_TYPES)
-            }
-        }
+        storePendingMultipleShareText(null)
+        stageSharedUrisAsync(pendingUris, text, importErrors)
+        return textOnlyShareIntent(intent, null)
     }
 
     private fun textOnlyShareIntent(intent: Intent, text: String?): Intent {
@@ -241,22 +268,11 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun clipDataForAcceptedUris(intent: Intent, acceptedUris: List<Uri>): ClipData? {
-        if (acceptedUris.isEmpty()) {
-            return null
-        }
-
-        val label = intent.clipData?.description?.label ?: "shared files"
-        val clipData = ClipData.newUri(contentResolver, label, acceptedUris.first())
-        acceptedUris.drop(1).forEach { uri ->
-            clipData.addItem(ClipData.Item(uri))
-        }
-        return clipData
-    }
-
     private fun stageSharedUri(uri: Uri, intentMimeType: String?, ordinal: Int): Uri? {
         val resolver = contentResolver
         val mimeType = resolver.getType(uri) ?: intentMimeType
+        val displayName = displayNameForUri(resolver, uri)
+        val maxBytes = if (sharedUriIsImage(mimeType, displayName)) maxSharedImageBytes else null
         val stagingDirectory = File(cacheDir, SHARE_STAGING_DIRECTORY_NAME).apply {
             if (!exists()) {
                 mkdirs()
@@ -268,7 +284,7 @@ class MainActivity : FlutterActivity() {
 
         val destination = File(
             stagingDirectory,
-            uniqueStagingFileName(displayNameForUri(resolver, uri), mimeType, ordinal)
+            uniqueStagingFileName(displayName, mimeType, ordinal)
         )
         var copiedBytes = 0L
         return try {
@@ -280,12 +296,12 @@ class MainActivity : FlutterActivity() {
                         if (bytesRead == -1) break
 
                         copiedBytes += bytesRead.toLong()
-                        if (copiedBytes > maxSharedFileBytes) {
+                        if (maxBytes != null && copiedBytes > maxBytes) {
                             destination.delete()
                             Log.w(
                                 "MainActivity",
-                                "Rejected shared URI during staging because it exceeded " +
-                                    "$maxSharedFileBytes bytes: $uri"
+                                "Rejected shared image URI during staging because it exceeded " +
+                                    "$maxBytes bytes: $uri"
                             )
                             return null
                         }
@@ -301,9 +317,108 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun sharedUriWithinLimits(uri: Uri): Boolean {
-        val sizeBytes = sharedUriSizeBytes(contentResolver, uri)
-        return sizeBytes != null && sizeBytes <= maxSharedFileBytes
+    private fun stageSharedUrisAsync(
+        uris: List<PendingSharedUri>,
+        text: String?,
+        initialErrors: List<String> = emptyList()
+    ) {
+        val importId = UUID.randomUUID().toString()
+        beginShareImport(importId)
+        storePendingShareImportStatus(
+            id = importId,
+            expectedFileCount = uris.size,
+            isInProgress = true,
+            errors = initialErrors
+        )
+        pendingStagedShareInProgress = true
+        notifyStagedSharePayloadReady()
+        Thread {
+            val stagedPaths = ArrayList<String>()
+            val errors = ArrayList(initialErrors)
+            try {
+                uris.forEach { pending ->
+                    if (!sharedUriWithinLimits(pending.uri, pending.mimeType)) {
+                        Log.w("MainActivity", "Rejected oversized shared image URI: ${pending.uri}")
+                        errors.add(shareRejectionMessage(pending.uri, pending.mimeType))
+                        return@forEach
+                    }
+
+                    val stagedUri = stageSharedUri(pending.uri, pending.mimeType, pending.ordinal)
+                    val stagedPath = stagedUri?.path
+                    if (!stagedPath.isNullOrEmpty()) {
+                        stagedPaths.add(stagedPath)
+                    } else {
+                        Log.w("MainActivity", "Failed to stage accepted shared URI: ${pending.uri}")
+                        errors.add("Could not import ${displayNameForUri(contentResolver, pending.uri) ?: "shared file"}.")
+                    }
+                }
+                if (isCurrentShareImport(importId)) {
+                    storePendingStagedSharePayload(importId, text, stagedPaths)
+                    storePendingShareImportStatus(
+                        id = importId,
+                        expectedFileCount = uris.size,
+                        isInProgress = false,
+                        errors = errors
+                    )
+                } else {
+                    deleteStagedPaths(stagedPaths)
+                }
+            } finally {
+                if (isCurrentShareImport(importId)) {
+                    pendingStagedShareInProgress = false
+                    notifyStagedSharePayloadReady()
+                }
+            }
+        }.start()
+    }
+
+    private fun notifyStagedSharePayloadReady() {
+        runOnUiThread {
+            shareChannel?.invokeMethod("stagedSharePayloadReady", null)
+        }
+    }
+
+    private fun beginShareImport(id: String) {
+        activeShareImportId = id
+        pendingStagedShareInProgress = false
+        getSharedPreferences(SHARE_TEXT_PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .remove(PENDING_STAGED_SHARE_PAYLOAD_KEY)
+            .apply()
+    }
+
+    private fun isCurrentShareImport(id: String): Boolean {
+        return activeShareImportId == id
+    }
+
+    private fun deleteStagedPaths(paths: List<String>) {
+        paths.forEach { path ->
+            try {
+                File(path).delete()
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    private fun sharedUriWithinLimits(uri: Uri, intentMimeType: String?): Boolean {
+        val resolver = contentResolver
+        val mimeType = resolver.getType(uri) ?: intentMimeType
+        if (!sharedUriIsImage(mimeType, displayNameForUri(resolver, uri))) {
+            return true
+        }
+
+        val sizeBytes = sharedUriSizeBytes(resolver, uri)
+        return sizeBytes == null || sizeBytes <= maxSharedImageBytes
+    }
+
+    private fun shareRejectionMessage(uri: Uri, intentMimeType: String?): String {
+        val displayName = displayNameForUri(contentResolver, uri) ?: "shared image"
+        val mimeType = contentResolver.getType(uri) ?: intentMimeType
+        return if (sharedUriIsImage(mimeType, displayName)) {
+            "$displayName is larger than the 20 MB image limit."
+        } else {
+            "Could not import $displayName."
+        }
     }
 
     private fun sharedUriSizeBytes(resolver: ContentResolver, uri: Uri): Long? {
@@ -381,6 +496,38 @@ class MainActivity : FlutterActivity() {
         } ?: uri.lastPathSegment
     }
 
+    private fun sharedUriIsImage(mimeType: String?, displayName: String?): Boolean {
+        return isImageMimeType(mimeType) || isImageFileName(displayName)
+    }
+
+    private fun isImageMimeType(mimeType: String?): Boolean {
+        return mimeType?.lowercase()?.startsWith("image/") == true
+    }
+
+    private fun isImageFileName(fileName: String?): Boolean {
+        val extension = fileName
+            ?.substringAfterLast('.', missingDelimiterValue = "")
+            ?.lowercase()
+            ?: return false
+        return extension in setOf(
+            "jpg",
+            "jpeg",
+            "png",
+            "gif",
+            "webp",
+            "heic",
+            "heif",
+            "dng",
+            "raw",
+            "cr2",
+            "nef",
+            "arw",
+            "orf",
+            "rw2",
+            "bmp"
+        )
+    }
+
     private fun uniqueStagingFileName(
         displayName: String?,
         mimeType: String?,
@@ -403,6 +550,124 @@ class MainActivity : FlutterActivity() {
     private fun sanitizeFileName(fileName: String?): String? {
         val trimmed = fileName?.trim()?.takeIf { it.isNotEmpty() } ?: return null
         return trimmed.replace(Regex("[/\\\\:?%*|\"<>\\p{Cntrl}]"), "-")
+    }
+
+    private fun storePendingStagedSharePayload(
+        id: String,
+        text: String?,
+        filePaths: List<String>
+    ) {
+        val trimmed = text?.trim()?.takeIf { it.isNotEmpty() }
+        val prefs = getSharedPreferences(SHARE_TEXT_PREFS_NAME, Context.MODE_PRIVATE)
+        if (trimmed == null && filePaths.isEmpty()) {
+            prefs.edit().remove(PENDING_STAGED_SHARE_PAYLOAD_KEY).apply()
+            return
+        }
+
+        val payload = JSONObject()
+            .put("id", id)
+            .put("filePaths", JSONArray(filePaths))
+        if (trimmed != null) {
+            payload.put("text", trimmed)
+        }
+
+        prefs.edit()
+            .putString(PENDING_STAGED_SHARE_PAYLOAD_KEY, payload.toString())
+            .apply()
+    }
+
+    private fun storePendingShareImportStatus(
+        id: String,
+        expectedFileCount: Int,
+        isInProgress: Boolean,
+        errors: List<String> = emptyList()
+    ) {
+        val payload = JSONObject()
+            .put("id", id)
+            .put("expectedFileCount", expectedFileCount)
+            .put("isInProgress", isInProgress)
+            .put("errors", JSONArray(errors.distinct()))
+
+        getSharedPreferences(SHARE_TEXT_PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(PENDING_SHARE_IMPORT_STATUS_KEY, payload.toString())
+            .apply()
+    }
+
+    private fun pendingShareImportStatus(): Map<String, Any>? {
+        val prefs = getSharedPreferences(SHARE_TEXT_PREFS_NAME, Context.MODE_PRIVATE)
+        val raw = prefs.getString(PENDING_SHARE_IMPORT_STATUS_KEY, null)
+            ?: return null
+
+        return try {
+            val json = JSONObject(raw)
+            val errors = ArrayList<String>()
+            val rawErrors = json.optJSONArray("errors")
+            if (rawErrors != null) {
+                for (index in 0 until rawErrors.length()) {
+                    rawErrors.optString(index).takeIf { it.isNotEmpty() }?.let(errors::add)
+                }
+            }
+
+            hashMapOf(
+                "id" to json.optString("id"),
+                "expectedFileCount" to json.optInt("expectedFileCount", 0),
+                "isInProgress" to json.optBoolean("isInProgress", pendingStagedShareInProgress),
+                "errors" to errors
+            )
+        } catch (error: Exception) {
+            Log.w("MainActivity", "Failed to parse pending share import status", error)
+            null
+        }
+    }
+
+    private fun clearShareImportStatus(id: String?) {
+        val prefs = getSharedPreferences(SHARE_TEXT_PREFS_NAME, Context.MODE_PRIVATE)
+        if (id != null) {
+            val raw = prefs.getString(PENDING_SHARE_IMPORT_STATUS_KEY, null)
+            val currentId = try {
+                raw?.let { JSONObject(it).optString("id").takeIf { value -> value.isNotEmpty() } }
+            } catch (_: Exception) {
+                null
+            }
+            if (currentId != null && currentId != id) {
+                return
+            }
+        }
+
+        prefs.edit().remove(PENDING_SHARE_IMPORT_STATUS_KEY).apply()
+    }
+
+    private fun hasPendingStagedSharePayload(): Boolean {
+        if (pendingStagedShareInProgress) return true
+        val prefs = getSharedPreferences(SHARE_TEXT_PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.contains(PENDING_STAGED_SHARE_PAYLOAD_KEY)
+    }
+
+    private fun takePendingStagedSharePayload(): Map<String, Any>? {
+        val prefs = getSharedPreferences(SHARE_TEXT_PREFS_NAME, Context.MODE_PRIVATE)
+        val raw = prefs.getString(PENDING_STAGED_SHARE_PAYLOAD_KEY, null)
+            ?: return null
+        prefs.edit().remove(PENDING_STAGED_SHARE_PAYLOAD_KEY).apply()
+
+        return try {
+            val json = JSONObject(raw)
+            val payload = HashMap<String, Any>()
+            val filePaths = ArrayList<String>()
+            val files = json.optJSONArray("filePaths")
+            if (files != null) {
+                for (index in 0 until files.length()) {
+                    files.optString(index).takeIf { it.isNotEmpty() }?.let(filePaths::add)
+                }
+            }
+            json.optString("id").takeIf { it.isNotEmpty() }?.let { payload["id"] = it }
+            json.optString("text").takeIf { it.isNotEmpty() }?.let { payload["text"] = it }
+            payload["filePaths"] = filePaths
+            payload
+        } catch (error: Exception) {
+            Log.w("MainActivity", "Failed to parse pending staged share payload", error)
+            null
+        }
     }
 
     private fun storePendingMultipleShareText(text: String?) {
