@@ -842,6 +842,14 @@
   "@japanese": {
     "description": "Language name: Japanese."
   },
+  "czech": "Čeština",
+  "@czech": {
+    "description": "Language name: Czech."
+  },
+  "slovak": "Slovenčina",
+  "@slovak": {
+    "description": "Language name: Slovak."
+  },
   "deleteMessagesTitle": "メッセージを削除",
   "@deleteMessagesTitle": {
     "description": "Dialog title asking to confirm deletion of messages."

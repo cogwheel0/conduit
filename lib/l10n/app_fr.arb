@@ -169,6 +169,8 @@
   "chineseTraditional": "Chinois (traditionnel)",
   "korean": "Coréen",
   "japanese": "日本語",
+  "czech": "Čeština",
+  "slovak": "Slovenčina",
   "deleteMessagesTitle": "Supprimer les messages",
   "deleteMessagesMessage": "Supprimer {count} messages ?",
   "@deleteMessagesMessage": {

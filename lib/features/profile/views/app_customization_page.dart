@@ -1824,6 +1824,10 @@ class AppCustomizationPage extends ConsumerWidget {
     switch (code) {
       case 'en':
         return AppLocalizations.of(context)!.english;
+      case 'cs':
+        return AppLocalizations.of(context)!.czech;
+      case 'sk':
+        return AppLocalizations.of(context)!.slovak;
       case 'de':
         return AppLocalizations.of(context)!.deutsch;
       case 'fr':
@@ -1856,6 +1860,12 @@ class AppCustomizationPage extends ConsumerWidget {
         }
         if (normalizedCode == 'ja') {
           return AppLocalizations.of(context)!.japanese;
+        }
+        if (normalizedCode == 'cs') {
+          return AppLocalizations.of(context)!.czech;
+        }
+        if (normalizedCode == 'sk') {
+          return AppLocalizations.of(context)!.slovak;
         }
         return AppLocalizations.of(context)!.system;
     }
@@ -2091,6 +2101,8 @@ class AppCustomizationPage extends ConsumerWidget {
     final options = <({String value, String label})>[
       (value: 'system', label: l10n.system),
       (value: 'en', label: l10n.english),
+      (value: 'cs', label: l10n.czech),
+      (value: 'sk', label: l10n.slovak),
       (value: 'de', label: l10n.deutsch),
       (value: 'es', label: l10n.espanol),
       (value: 'fr', label: l10n.francais),

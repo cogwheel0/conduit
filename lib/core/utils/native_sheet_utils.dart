@@ -404,6 +404,10 @@ String nativeLanguageLabel(AppLocalizations l10n, String code) {
       return l10n.system;
     case 'en':
       return l10n.english;
+    case 'cs':
+      return l10n.czech;
+    case 'sk':
+      return l10n.slovak;
     case 'de':
       return l10n.deutsch;
     case 'fr':
@@ -430,6 +434,8 @@ String nativeLanguageLabel(AppLocalizations l10n, String code) {
       if (normalized == 'zh') return l10n.chineseSimplified;
       if (normalized == 'ko') return l10n.korean;
       if (normalized == 'ja') return l10n.japanese;
+      if (normalized == 'cs') return l10n.czech;
+      if (normalized == 'sk') return l10n.slovak;
       return l10n.system;
   }
 }
@@ -440,6 +446,8 @@ List<NativeSheetOptionConfig> nativeLanguageDropdownOptions(
   return [
     NativeSheetOptionConfig(id: 'system', label: l10n.system),
     NativeSheetOptionConfig(id: 'en', label: l10n.english),
+    NativeSheetOptionConfig(id: 'cs', label: l10n.czech),
+    NativeSheetOptionConfig(id: 'sk', label: l10n.slovak),
     NativeSheetOptionConfig(id: 'de', label: l10n.deutsch),
     NativeSheetOptionConfig(id: 'es', label: l10n.espanol),
     NativeSheetOptionConfig(id: 'fr', label: l10n.francais),

@@ -1,46 +1,46 @@
 {
-  "@@locale": "en",
+  "@@locale": "cs",
   "appTitle": "Conduit",
   "@appTitle": {
     "description": "Application name displayed in the app and OS UI."
   },
-  "retry": "Retry",
+  "retry": "Zkusit znovu",
   "@retry": {
     "description": "Button label to try an action again."
   },
-  "back": "Back",
+  "back": "Zpět",
   "@back": {
     "description": "Back navigation label/tooltip."
   },
-  "you": "You",
+  "you": "Vy",
   "@you": {
     "description": "Profile tab title."
   },
-  "loadingProfile": "Loading profile...",
+  "loadingProfile": "Načítání profilu...",
   "@loadingProfile": {
     "description": "Progress message while fetching profile data."
   },
-  "pleaseCheckConnection": "Please check your connection and try again",
-  "connectionIssueTitle": "Can't reach your server",
+  "pleaseCheckConnection": "Zkontrolujte připojení a zkuste to znovu",
+  "connectionIssueTitle": "Server není dostupný",
   "@connectionIssueTitle": {
     "description": "Title shown when the configured server is unreachable"
   },
-  "connectionIssueSubtitle": "Reconnect to continue or sign out to choose a different server.",
+  "connectionIssueSubtitle": "Pro pokračování se znovu připojte nebo se odhlaste a vyberte jiný server.",
   "@connectionIssueSubtitle": {
     "description": "Subtitle explaining available actions when the server cannot be reached"
   },
   "@pleaseCheckConnection": {
     "description": "Generic connectivity hint after an error."
   },
-  "account": "Account",
+  "account": "Účet",
   "@account": {
     "description": "Section header for account-related options."
   },
-  "supportConduit": "Support Conduit",
+  "supportConduit": "Podpořit Conduit",
   "@supportConduit": {
     "description": "Section header inviting the user to financially support the project."
   },
-  "supportConduitSubtitle": "Keep Conduit independent by funding ongoing development.",
+  "supportConduitSubtitle": "Pomozte udržet Conduit nezávislý financováním dalšího vývoje.",
   "@supportConduitSubtitle": {
     "description": "Subtitle explaining why donations are helpful."
   },
@@ -48,7 +48,7 @@
   "@githubSponsorsTitle": {
     "description": "Tile title linking to the GitHub Sponsors page."
   },
-  "githubSponsorsSubtitle": "Become a recurring sponsor to fund roadmap items.",
+  "githubSponsorsSubtitle": "Staňte se pravidelným sponzorem a podpořte položky v plánu vývoje.",
   "@githubSponsorsSubtitle": {
     "description": "Subtitle explaining the impact of recurring sponsorship."
   },
@@ -56,79 +56,79 @@
   "@buyMeACoffeeTitle": {
     "description": "Tile title linking to the Buy Me a Coffee page."
   },
-  "buyMeACoffeeSubtitle": "Make a one-time donation to say thanks.",
+  "buyMeACoffeeSubtitle": "Pošlete jednorázový dar jako poděkování.",
   "@buyMeACoffeeSubtitle": {
     "description": "Subtitle encouraging one-time donations via Buy Me a Coffee."
   },
-  "signOut": "Sign Out",
+  "signOut": "Odhlásit se",
   "@signOut": {
     "description": "Button/title for signing out of the app."
   },
-  "endYourSession": "End your session",
+  "endYourSession": "Ukončit relaci",
   "@endYourSession": {
     "description": "Subtitle explaining the sign-out action."
   },
-  "defaultModel": "Default Model",
+  "defaultModel": "Výchozí model",
   "@defaultModel": {
     "description": "Label for choosing a default AI model."
   },
-  "autoSelect": "Server provided",
+  "autoSelect": "Poskytuje server",
   "@autoSelect": {
     "description": "Option to let the app pick a suitable model automatically."
   },
-  "loadingModels": "Loading models...",
+  "loadingModels": "Načítání modelů...",
   "@loadingModels": {
     "description": "Progress message while fetching model list."
   },
-  "failedToLoadModels": "Failed to load models",
+  "failedToLoadModels": "Modely se nepodařilo načíst",
   "@failedToLoadModels": {
     "description": "Error message shown when model list cannot be retrieved."
   },
-  "failedToLoadFiles": "Failed to load files",
+  "failedToLoadFiles": "Soubory se nepodařilo načíst",
   "@failedToLoadFiles": {
     "description": "Error message shown when the user file list cannot be retrieved."
   },
-  "availableModels": "Available Models",
+  "availableModels": "Dostupné modely",
   "@availableModels": {
     "description": "Header above a list of models to select from."
   },
-  "modelCapabilityMultimodal": "Multimodal",
+  "modelCapabilityMultimodal": "Multimodální",
   "@modelCapabilityMultimodal": {
     "description": "Capability chip label for models that support multimodal input."
   },
-  "modelCapabilityReasoning": "Reasoning",
+  "modelCapabilityReasoning": "Uvažování",
   "@modelCapabilityReasoning": {
     "description": "Capability chip label for models that support reasoning features."
   },
-  "noResults": "No results",
+  "noResults": "Žádné výsledky",
   "@noResults": {
     "description": "Shown when a search returns no matches."
   },
-  "searchModels": "Search models...",
+  "searchModels": "Hledat modely...",
   "@searchModels": {
     "description": "Hint text for model search input."
   },
-  "searchFiles": "Search files...",
+  "searchFiles": "Hledat soubory...",
   "@searchFiles": {
     "description": "Hint text for searching files already stored on the server."
   },
-  "errorMessage": "Something went wrong. Please try again.",
+  "errorMessage": "Něco se pokazilo. Zkuste to prosím znovu.",
   "@errorMessage": {
     "description": "Generic error message for unexpected failures."
   },
-  "closeButtonSemantic": "Close",
+  "closeButtonSemantic": "Zavřít",
   "@closeButtonSemantic": {
     "description": "Accessible label for a generic Close button."
   },
-  "loadingContent": "Loading content",
+  "loadingContent": "Načítání obsahu",
   "@loadingContent": {
     "description": "Shown while loading page content."
   },
-  "loadingShort": "Loading",
+  "loadingShort": "Načítání",
   "@loadingShort": {
     "description": "Short loading label used for accessibility."
   },
-  "loadingAnnouncement": "Loading: {message}",
+  "loadingAnnouncement": "Načítání: {message}",
   "@loadingAnnouncement": {
     "description": "Screen reader announcement when loading a resource.",
     "placeholders": {
@@ -138,7 +138,7 @@
       }
     }
   },
-  "errorAnnouncement": "Error: {error}",
+  "errorAnnouncement": "Chyba: {error}",
   "@errorAnnouncement": {
     "description": "Screen reader announcement for an error.",
     "placeholders": {
@@ -148,7 +148,7 @@
       }
     }
   },
-  "errorAnnouncementWithSuggestion": "Error: {error}. {suggestion}",
+  "errorAnnouncementWithSuggestion": "Chyba: {error}. {suggestion}",
   "@errorAnnouncementWithSuggestion": {
     "description": "Screen reader announcement for an error with a follow-up suggestion.",
     "placeholders": {
@@ -162,7 +162,7 @@
       }
     }
   },
-  "successAnnouncement": "Success: {message}",
+  "successAnnouncement": "Úspěch: {message}",
   "@successAnnouncement": {
     "description": "Screen reader announcement for successful actions.",
     "placeholders": {
@@ -172,55 +172,55 @@
       }
     }
   },
-  "noItems": "No items",
+  "noItems": "Žádné položky",
   "@noItems": {
     "description": "Placeholder text when a list is empty."
   },
-  "noItemsToDisplay": "No items to display",
+  "noItemsToDisplay": "Žádné položky k zobrazení",
   "@noItemsToDisplay": {
     "description": "Alternative empty-state description."
   },
-  "knowledgeBase": "Knowledge Base",
+  "knowledgeBase": "Znalostní báze",
   "@knowledgeBase": {
     "description": "Section for knowledge base content."
   },
-  "attachments": "Attachments",
+  "attachments": "Přílohy",
   "@attachments": {
     "description": "Header above list of attached files in compose area."
   },
-  "files": "Files",
+  "files": "Soubory",
   "@files": {
     "description": "Generic plural label for files."
   },
-  "takePhoto": "Take a photo",
+  "takePhoto": "Pořídit fotografii",
   "@takePhoto": {
     "description": "Action to open camera and capture a new photo."
   },
-  "document": "Document",
+  "document": "Dokument",
   "@document": {
     "description": "Generic document label used in UI."
   },
-  "backToServerSetup": "Back to server setup",
+  "backToServerSetup": "Zpět na nastavení serveru",
   "@backToServerSetup": {
     "description": "Button/back label to return to server configuration flow."
   },
-  "connectedToServer": "Connected to Server",
+  "connectedToServer": "Připojeno k serveru",
   "@connectedToServer": {
     "description": "Status label indicating a successful server connection."
   },
-  "signIn": "Sign In",
+  "signIn": "Přihlásit se",
   "@signIn": {
     "description": "Button/heading for sign-in flows."
   },
-  "enterCredentials": "Enter your credentials to access your AI conversations",
+  "enterCredentials": "Zadejte přihlašovací údaje pro přístup ke svým AI konverzacím",
   "@enterCredentials": {
     "description": "Instructional text on the sign-in screen."
   },
-  "credentials": "Credentials",
+  "credentials": "Přihlašovací údaje",
   "@credentials": {
     "description": "Header for credential input section."
   },
-  "apiKey": "API Key",
+  "apiKey": "Klíč API",
   "@apiKey": {
     "description": "Label for API key input field."
   },
@@ -228,27 +228,27 @@
   "@token": {
     "description": "Label for JWT token input field."
   },
-  "usernameOrEmail": "Username or Email",
+  "usernameOrEmail": "Uživatelské jméno nebo e-mail",
   "@usernameOrEmail": {
     "description": "Label for username/email input field."
   },
-  "password": "Password",
+  "password": "Heslo",
   "@password": {
     "description": "Label for password input field."
   },
-  "signInWithToken": "Sign in with Token",
+  "signInWithToken": "Přihlásit se tokenem",
   "@signInWithToken": {
     "description": "Alternative sign-in method using a JWT token."
   },
-  "connectToServer": "Connect to Server",
+  "connectToServer": "Připojit k serveru",
   "@connectToServer": {
     "description": "Call-to-action button for server connection."
   },
-  "enterServerAddress": "Enter your Open-WebUI server address to get started",
+  "enterServerAddress": "Začněte zadáním adresy serveru Open-WebUI",
   "@enterServerAddress": {
     "description": "Instruction telling user to provide server URL to begin."
   },
-  "serverUrl": "Server URL",
+  "serverUrl": "URL serveru",
   "@serverUrl": {
     "description": "Label for server URL field."
   },
@@ -256,51 +256,51 @@
   "@serverUrlHint": {
     "description": "Hint text showing example server URL format."
   },
-  "enterServerUrlSemantic": "Enter your server URL or IP address",
+  "enterServerUrlSemantic": "Zadejte URL nebo IP adresu serveru",
   "@enterServerUrlSemantic": {
     "description": "Semantic/ARIA label instructing to enter server URL or IP."
   },
-  "headerName": "Header Name",
+  "headerName": "Název hlavičky",
   "@headerName": {
     "description": "Label for custom header key."
   },
-  "headerValue": "Header Value",
+  "headerValue": "Hodnota hlavičky",
   "@headerValue": {
     "description": "Label for custom header value."
   },
-  "headerValueHint": "api-key-123 or Bearer token",
+  "headerValueHint": "api-key-123 nebo Bearer token",
   "@headerValueHint": {
     "description": "Hint text with example header values, including API key or Bearer token."
   },
-  "addHeader": "Add header",
+  "addHeader": "Přidat hlavičku",
   "@addHeader": {
     "description": "Button to add a new custom header row."
   },
-  "maximumHeadersReached": "Maximum headers reached",
+  "maximumHeadersReached": "Dosažen maximální počet hlaviček",
   "@maximumHeadersReached": {
     "description": "Warning when custom header limit is reached."
   },
-  "removeHeader": "Remove header",
+  "removeHeader": "Odebrat hlavičku",
   "@removeHeader": {
     "description": "Action to remove a custom header row."
   },
-  "connecting": "Connecting...",
+  "connecting": "Připojování...",
   "@connecting": {
     "description": "Status while attempting to connect to server."
   },
-  "connectToServerButton": "Connect to Server",
+  "connectToServerButton": "Připojit k serveru",
   "@connectToServerButton": {
     "description": "Primary action button to initiate server connection."
   },
-  "demoModeActive": "Demo Mode Active",
+  "demoModeActive": "Aktivní demo režim",
   "@demoModeActive": {
     "description": "Banner/text indicating the app runs in demo mode."
   },
-  "skipServerSetupTryDemo": "Skip server setup and try the demo",
+  "skipServerSetupTryDemo": "Přeskočit nastavení serveru a vyzkoušet demo",
   "@skipServerSetupTryDemo": {
     "description": "CTA to bypass server configuration and enter demo mode."
   },
-  "enterDemo": "Enter Demo",
+  "enterDemo": "Spustit demo",
   "@enterDemo": {
     "description": "Button to enter demo mode."
   },
@@ -308,75 +308,75 @@
   "@demoBadge": {
     "description": "Small badge label for demo content."
   },
-  "serverNotOpenWebUI": "This does not appear to be an Open-WebUI server.",
+  "serverNotOpenWebUI": "Toto zřejmě není server Open-WebUI.",
   "@serverNotOpenWebUI": {
     "description": "Validation error when the server does not resemble Open-WebUI."
   },
-  "serverUrlEmpty": "Server URL cannot be empty",
+  "serverUrlEmpty": "URL serveru nesmí být prázdná",
   "@serverUrlEmpty": {
     "description": "Validation message for empty server URL."
   },
-  "invalidUrlFormat": "Invalid URL format. Please check your input.",
+  "invalidUrlFormat": "Neplatný formát URL. Zkontrolujte zadání.",
   "@invalidUrlFormat": {
     "description": "Validation message when URL format is incorrect."
   },
-  "onlyHttpHttps": "Only HTTP and HTTPS protocols are supported.",
+  "onlyHttpHttps": "Podporovány jsou pouze protokoly HTTP a HTTPS.",
   "@onlyHttpHttps": {
     "description": "Validation note restricting protocols to HTTP/HTTPS."
   },
-  "serverAddressRequired": "Server address is required (e.g., 192.168.1.10 or example.com).",
+  "serverAddressRequired": "Adresa serveru je povinná (např. 192.168.1.10 nebo example.com).",
   "@serverAddressRequired": {
     "description": "Validation hint providing examples for server addresses."
   },
-  "portRange": "Port must be between 1 and 65535.",
+  "portRange": "Port musí být v rozsahu 1 až 65535.",
   "@portRange": {
     "description": "Validation message for allowed port range."
   },
-  "invalidIpFormat": "Invalid IP address format. Use format like 192.168.1.10.",
+  "invalidIpFormat": "Neplatný formát IP adresy. Použijte formát jako 192.168.1.10.",
   "@invalidIpFormat": {
     "description": "Validation message for IP addresses with example."
   },
-  "couldNotConnectGeneric": "Couldn't connect. Double-check the address and try again.",
+  "couldNotConnectGeneric": "Nepodařilo se připojit. Zkontrolujte adresu a zkuste to znovu.",
   "@couldNotConnectGeneric": {
     "description": "Generic failure when connecting to the server."
   },
-  "weCouldntReachServer": "We couldn't reach the server. Check your connection and that the server is running.",
+  "weCouldntReachServer": "Server není dostupný. Zkontrolujte připojení a ověřte, že server běží.",
   "@weCouldntReachServer": {
     "description": "Connectivity error with hints to verify server status."
   },
-  "connectionTimedOut": "Connection timed out. The server might be busy or blocked by a firewall.",
+  "connectionTimedOut": "Časový limit připojení vypršel. Server může být zaneprázdněný nebo blokovaný firewallem.",
   "@connectionTimedOut": {
     "description": "Timeout error while connecting to server."
   },
-  "useHttpOrHttpsOnly": "Use http:// or https:// only.",
+  "useHttpOrHttpsOnly": "Používejte pouze http:// nebo https://.",
   "@useHttpOrHttpsOnly": {
     "description": "Note instructing the user to include protocol in URL."
   },
-  "loginFailed": "Login failed",
+  "loginFailed": "Přihlášení se nezdařilo",
   "@loginFailed": {
     "description": "Title for failed login attempts."
   },
-  "invalidCredentials": "Invalid username or password. Please try again.",
+  "invalidCredentials": "Neplatné uživatelské jméno nebo heslo. Zkuste to znovu.",
   "@invalidCredentials": {
     "description": "Detailed message when authentication fails."
   },
-  "serverRedirectingHttps": "The server is redirecting requests. Check your server's HTTPS configuration.",
+  "serverRedirectingHttps": "Server přesměrovává požadavky. Zkontrolujte konfiguraci HTTPS serveru.",
   "@serverRedirectingHttps": {
     "description": "Warning about HTTP→HTTPS redirect issues."
   },
-  "unableToConnectServer": "Unable to connect to server. Please check your connection.",
+  "unableToConnectServer": "Nelze se připojit k serveru. Zkontrolujte připojení.",
   "@unableToConnectServer": {
     "description": "Generic server connection failure message."
   },
-  "requestTimedOut": "The request timed out. Please try again.",
+  "requestTimedOut": "Vypršel časový limit požadavku. Zkuste to znovu.",
   "@requestTimedOut": {
     "description": "Timeout while waiting for a server response."
   },
-  "genericSignInFailed": "We couldn't sign you in. Check your credentials and server settings.",
+  "genericSignInFailed": "Nepodařilo se vás přihlásit. Zkontrolujte přihlašovací údaje a nastavení serveru.",
   "@genericSignInFailed": {
     "description": "Fallback sign-in error when no specific cause is known."
   },
-  "greetingTitle": "Hello, {username}",
+  "greetingTitle": "Dobrý den, {username}",
   "@greetingTitle": {
     "description": "Greeting shown on the empty chat page.",
     "placeholders": {
@@ -386,187 +386,187 @@
       }
     }
   },
-  "attachmentLabel": "Attachment",
+  "attachmentLabel": "Příloha",
   "@attachmentLabel": {
     "description": "Label shown beside attachment chips in messages."
   },
-  "tools": "Tools",
+  "tools": "Nástroje",
   "@tools": {
     "description": "Header for a tools/actions section."
   },
-  "noToolsAvailable": "No tools available",
+  "noToolsAvailable": "Nejsou dostupné žádné nástroje",
   "@noToolsAvailable": {
     "description": "Empty state shown when no tools are available in the composer overflow menu."
   },
-  "failedToLoadTools": "Failed to load tools",
+  "failedToLoadTools": "Nástroje se nepodařilo načíst",
   "@failedToLoadTools": {
     "description": "Error shown when the composer overflow menu cannot load tools."
   },
-  "toolServer": "Tool Server",
+  "toolServer": "Server nástrojů",
   "@toolServer": {
     "description": "Singular label for a direct tool server integration."
   },
-  "toolServers": "Tool Servers",
+  "toolServers": "Servery nástrojů",
   "@toolServers": {
     "description": "Plural label for the direct tool server integrations section."
   },
-  "terminal": "Terminal",
+  "terminal": "Terminál",
   "@terminal": {
     "description": "Label for terminal integrations in the composer."
   },
-  "filters": "Filters",
+  "filters": "Filtry",
   "@filters": {
     "description": "Header for toggle filters section."
   },
-  "voiceInput": "Voice input",
+  "voiceInput": "Hlasový vstup",
   "@voiceInput": {
     "description": "Label for voice input feature."
   },
-  "voice": "Voice",
+  "voice": "Hlas",
   "@voice": {
     "description": "Title for the voice input bottom sheet."
   },
-  "voiceStatusListening": "Listening…",
+  "voiceStatusListening": "Poslouchám…",
   "@voiceStatusListening": {
     "description": "Indicates the app is actively listening during voice input."
   },
-  "voiceStatusRecording": "Recording…",
+  "voiceStatusRecording": "Nahrávání…",
   "@voiceStatusRecording": {
     "description": "Indicates the app is recording audio for speech recognition."
   },
-  "voiceHoldToTalk": "Hold to talk",
+  "voiceHoldToTalk": "Podržte pro mluvení",
   "@voiceHoldToTalk": {
     "description": "Toggle label for hold-to-talk mode in voice input."
   },
-  "voiceAutoSend": "Auto-send",
+  "voiceAutoSend": "Automaticky odeslat",
   "@voiceAutoSend": {
     "description": "Toggle label for automatically sending the final transcript."
   },
-  "voiceTranscript": "Transcript",
+  "voiceTranscript": "Přepis",
   "@voiceTranscript": {
     "description": "Label above the transcribed voice input text."
   },
-  "voicePromptSpeakNow": "Speak now…",
+  "voicePromptSpeakNow": "Mluvte nyní…",
   "@voicePromptSpeakNow": {
     "description": "Placeholder prompting the user to start speaking."
   },
-  "voicePromptTapStart": "Tap Start to begin",
+  "voicePromptTapStart": "Začněte klepnutím na Start",
   "@voicePromptTapStart": {
     "description": "Placeholder instructing the user to tap Start to begin recording."
   },
-  "voiceActionStop": "Stop",
+  "voiceActionStop": "Zastavit",
   "@voiceActionStop": {
     "description": "Button label to stop voice recording."
   },
-  "voiceActionStart": "Start",
+  "voiceActionStart": "Spustit",
   "@voiceActionStart": {
     "description": "Button label to start voice recording."
   },
-  "voiceCallTitle": "Voice Call",
+  "voiceCallTitle": "Hlasový hovor",
   "@voiceCallTitle": {
     "description": "Title displayed on the voice call screen."
   },
-  "voiceCallPause": "Pause",
+  "voiceCallPause": "Pozastavit",
   "@voiceCallPause": {
     "description": "Button label to pause a voice call."
   },
-  "voiceCallResume": "Resume",
+  "voiceCallResume": "Pokračovat",
   "@voiceCallResume": {
     "description": "Button label to resume a paused voice call."
   },
-  "voiceCallStop": "Stop",
+  "voiceCallStop": "Zastavit",
   "@voiceCallStop": {
     "description": "Button label to stop the active voice call."
   },
-  "voiceCallEnd": "End Call",
+  "voiceCallEnd": "Ukončit hovor",
   "@voiceCallEnd": {
     "description": "Button label to end the voice call session."
   },
-  "voiceCallReady": "Ready",
+  "voiceCallReady": "Připraveno",
   "@voiceCallReady": {
     "description": "Status label shown when the voice call is ready to start."
   },
-  "voiceCallConnecting": "Connecting...",
+  "voiceCallConnecting": "Připojování...",
   "@voiceCallConnecting": {
     "description": "Status label shown while the voice call is connecting."
   },
-  "voiceCallListening": "Listening",
+  "voiceCallListening": "Poslouchám",
   "@voiceCallListening": {
     "description": "Status label shown while the call is listening for input."
   },
-  "voiceCallPaused": "Paused",
+  "voiceCallPaused": "Pozastaveno",
   "@voiceCallPaused": {
     "description": "Status label shown when the call is paused."
   },
-  "voiceCallProcessing": "Thinking...",
+  "voiceCallProcessing": "Přemýšlím...",
   "@voiceCallProcessing": {
     "description": "Status label shown while the call processes a response."
   },
-  "voiceCallSpeaking": "Speaking",
+  "voiceCallSpeaking": "Mluvím",
   "@voiceCallSpeaking": {
     "description": "Status label shown while the assistant is speaking."
   },
-  "voiceCallDisconnected": "Disconnected",
+  "voiceCallDisconnected": "Odpojeno",
   "@voiceCallDisconnected": {
     "description": "Status label shown when the voice call has ended or disconnected."
   },
-  "voiceCallErrorHelp": "Please check:\n• Microphone permissions are granted\n• Speech recognition is available on your device\n• You are connected to the server",
+  "voiceCallErrorHelp": "Zkontrolujte prosím:\n• Je povolen přístup k mikrofonu\n• Rozpoznávání řeči je na vašem zařízení dostupné\n• Jste připojeni k serveru",
   "@voiceCallErrorHelp": {
     "description": "Guidance shown when the voice call encounters an error."
   },
-  "messageHintText": "Ask Conduit",
+  "messageHintText": "Zeptat se Conduitu",
   "@messageHintText": {
     "description": "Short placeholder text in the message input."
   },
-  "stopGenerating": "Stop generating",
+  "stopGenerating": "Zastavit generování",
   "@stopGenerating": {
     "description": "Action to stop the assistant's response generation."
   },
-  "send": "Send",
+  "send": "Odeslat",
   "@send": {
     "description": "Primary action to send a message."
   },
-  "codeCopiedToClipboard": "Code copied to clipboard.",
+  "codeCopiedToClipboard": "Kód zkopírován do schránky.",
   "@codeCopiedToClipboard": {
     "description": "Snack bar message confirming code was copied."
   },
-  "sendMessage": "Send message",
+  "sendMessage": "Odeslat zprávu",
   "@sendMessage": {
     "description": "Semantic label for sending a message."
   },
-  "file": "File",
+  "file": "Soubor",
   "@file": {
     "description": "A file item or attachment type label."
   },
-  "chooseDifferentFile": "Choose Different File",
+  "chooseDifferentFile": "Vybrat jiný soubor",
   "@chooseDifferentFile": {
     "description": "Action label prompting the user to pick another file."
   },
-  "photo": "Photo",
+  "photo": "Fotografie",
   "@photo": {
     "description": "A photo item or attachment type label."
   },
-  "camera": "Camera",
+  "camera": "Fotoaparát",
   "@camera": {
     "description": "Camera source label."
   },
-  "webPage": "Web Page",
+  "webPage": "Webová stránka",
   "@webPage": {
     "description": "Attach a web page label."
   },
-  "pasteImage": "Paste Image",
+  "pasteImage": "Vložit obrázek",
   "@pasteImage": {
     "description": "Context menu action to paste an image from the clipboard."
   },
-  "apiUnavailable": "API service not available",
+  "apiUnavailable": "Služba API není dostupná",
   "@apiUnavailable": {
     "description": "Shown when backend API service is unavailable."
   },
-  "unableToLoadImage": "Unable to load image",
+  "unableToLoadImage": "Obrázek nelze načíst",
   "@unableToLoadImage": {
     "description": "General failure to load an image."
   },
-  "notAnImageFile": "Not an image file: {fileName}",
+  "notAnImageFile": "Soubor není obrázek: {fileName}",
   "@notAnImageFile": {
     "description": "Error when a referenced file is not an image.",
     "placeholders": {
@@ -576,7 +576,7 @@
       }
     }
   },
-  "failedToLoadImage": "Failed to load image: {error}",
+  "failedToLoadImage": "Obrázek se nepodařilo načíst: {error}",
   "@failedToLoadImage": {
     "description": "Error including the underlying reason when image loading fails.",
     "placeholders": {
@@ -586,31 +586,31 @@
       }
     }
   },
-  "invalidDataUrl": "Invalid data URL format",
+  "invalidDataUrl": "Neplatný formát datové URL",
   "@invalidDataUrl": {
     "description": "Error for malformed data: URLs."
   },
-  "failedToDecodeImage": "Failed to decode image",
+  "failedToDecodeImage": "Obrázek se nepodařilo dekódovat",
   "@failedToDecodeImage": {
     "description": "Error when decoding image bytes/base64."
   },
-  "invalidImageFormat": "Invalid image format",
+  "invalidImageFormat": "Neplatný formát obrázku",
   "@invalidImageFormat": {
     "description": "Error when image type/format is not supported."
   },
-  "emptyImageData": "Empty image data",
+  "emptyImageData": "Prázdná data obrázku",
   "@emptyImageData": {
     "description": "Error when image data buffer is empty."
   },
-  "confirm": "Confirm",
+  "confirm": "Potvrdit",
   "@confirm": {
     "description": "Confirmation button label."
   },
-  "continueAction": "Continue",
+  "continueAction": "Pokračovat",
   "@continueAction": {
     "description": "Button label to continue an action or flow."
   },
-  "cancel": "Cancel",
+  "cancel": "Zrušit",
   "@cancel": {
     "description": "Cancel button label."
   },
@@ -618,31 +618,31 @@
   "@ok": {
     "description": "Generic OK button label."
   },
-  "previousLabel": "Prev",
+  "previousLabel": "Předchozí",
   "@previousLabel": {
     "description": "Label for navigating to the previous item."
   },
-  "nextLabel": "Next",
+  "nextLabel": "Další",
   "@nextLabel": {
     "description": "Label for navigating to the next item."
   },
-  "inputField": "Input field",
+  "inputField": "Vstupní pole",
   "@inputField": {
     "description": "Accessibility label describing an input field."
   },
-  "checkConnection": "Check Connection",
+  "checkConnection": "Zkontrolovat připojení",
   "@checkConnection": {
     "description": "CTA to verify network connectivity."
   },
-  "openSettings": "Open Settings",
+  "openSettings": "Otevřít nastavení",
   "@openSettings": {
     "description": "CTA to open device or app settings."
   },
-  "goBack": "Go Back",
+  "goBack": "Přejít zpět",
   "@goBack": {
     "description": "CTA to navigate back."
   },
-  "technicalDetails": "Technical Details",
+  "technicalDetails": "Technické podrobnosti",
   "@technicalDetails": {
     "description": "Expandable section label to show error details or logs."
   },
@@ -656,15 +656,15 @@
       }
     }
   },
-  "requiredFieldHelper": "Required field",
+  "requiredFieldHelper": "Povinné pole",
   "@requiredFieldHelper": {
     "description": "Helper text indicating that the field is required."
   },
-  "switchOnLabel": "On",
+  "switchOnLabel": "Zapnuto",
   "@switchOnLabel": {
     "description": "Semantic label when a switch is enabled."
   },
-  "switchOffLabel": "Off",
+  "switchOffLabel": "Vypnuto",
   "@switchOffLabel": {
     "description": "Semantic label when a switch is disabled."
   },
@@ -678,167 +678,167 @@
       }
     }
   },
-  "save": "Save",
+  "save": "Uložit",
   "@save": {
     "description": "Primary action to save changes."
   },
-  "chooseModel": "Choose Model",
+  "chooseModel": "Vybrat model",
   "@chooseModel": {
     "description": "Button/label to choose a model."
   },
-  "reviewerMode": "REVIEWER MODE",
+  "reviewerMode": "REŽIM RECENZENTA",
   "@reviewerMode": {
     "description": "Developer/reviewer mode indicator."
   },
-  "selectLanguage": "Select Language",
+  "selectLanguage": "Vybrat jazyk",
   "@selectLanguage": {
     "description": "Dialog title to pick application language."
   },
-  "newFolder": "New Folder",
+  "newFolder": "Nová složka",
   "@newFolder": {
     "description": "Action to create a new folder."
   },
-  "folderName": "Folder name",
+  "folderName": "Název složky",
   "@folderName": {
     "description": "Label for entering a folder's name."
   },
-  "newChat": "New Chat",
+  "newChat": "Nový chat",
   "@newChat": {
     "description": "Action to start a new chat."
   },
-  "more": "More",
+  "more": "Více",
   "@more": {
     "description": "Opens additional actions or content."
   },
-  "clear": "Clear",
+  "clear": "Vymazat",
   "@clear": {
     "description": "Action to clear input or selection."
   },
-  "searchConversations": "Search conversations...",
+  "searchConversations": "Hledat konverzace...",
   "@searchConversations": {
     "description": "Search input hint scoped to conversations."
   },
-  "create": "Create",
+  "create": "Vytvořit",
   "@create": {
     "description": "Primary action to create a resource."
   },
-  "failedToCreateFolder": "Failed to create folder",
+  "failedToCreateFolder": "Složku se nepodařilo vytvořit",
   "@failedToCreateFolder": {
     "description": "Error notice when folder creation fails."
   },
-  "failedToMoveChat": "Failed to move chat",
+  "failedToMoveChat": "Chat se nepodařilo přesunout",
   "@failedToMoveChat": {
     "description": "Error notice when moving a chat fails."
   },
-  "failedToLoadChats": "Failed to load chats",
+  "failedToLoadChats": "Chaty se nepodařilo načíst",
   "@failedToLoadChats": {
     "description": "Error notice when fetching chat list fails."
   },
-  "failedToUpdatePin": "Failed to update pin",
+  "failedToUpdatePin": "Připnutí se nepodařilo aktualizovat",
   "@failedToUpdatePin": {
     "description": "Error notice when updating pin star/flag fails."
   },
-  "failedToDeleteChat": "Failed to delete chat",
+  "failedToDeleteChat": "Chat se nepodařilo smazat",
   "@failedToDeleteChat": {
     "description": "Error notice when deleting a chat fails."
   },
-  "manage": "Manage",
+  "manage": "Spravovat",
   "@manage": {
     "description": "Context action to manage an item."
   },
-  "rename": "Rename",
+  "rename": "Přejmenovat",
   "@rename": {
     "description": "Context action to rename an item."
   },
-  "delete": "Delete",
+  "delete": "Smazat",
   "@delete": {
     "description": "Context action to delete an item."
   },
-  "renameChat": "Rename Chat",
+  "renameChat": "Přejmenovat chat",
   "@renameChat": {
     "description": "Dialog title to rename a chat."
   },
-  "enterChatName": "Enter chat name",
+  "enterChatName": "Zadejte název chatu",
   "@enterChatName": {
     "description": "Input hint/label for new chat name."
   },
-  "failedToRenameChat": "Failed to rename chat",
+  "failedToRenameChat": "Chat se nepodařilo přejmenovat",
   "@failedToRenameChat": {
     "description": "Error notice when renaming chat fails."
   },
-  "failedToUpdateArchive": "Failed to update archive",
+  "failedToUpdateArchive": "Archiv se nepodařilo aktualizovat",
   "@failedToUpdateArchive": {
     "description": "Error notice when archiving/unarchiving fails."
   },
-  "unarchive": "Unarchive",
+  "unarchive": "Obnovit z archivu",
   "@unarchive": {
     "description": "Action to unarchive an item."
   },
-  "archive": "Archive",
+  "archive": "Archivovat",
   "@archive": {
     "description": "Action to archive an item."
   },
-  "pin": "Pin",
+  "pin": "Připnout",
   "@pin": {
     "description": "Action to pin/star an item."
   },
-  "unpin": "Unpin",
+  "unpin": "Odepnout",
   "@unpin": {
     "description": "Action to remove pin from an item."
   },
-  "recent": "Recent",
+  "recent": "Nedávné",
   "@recent": {
     "description": "List filter for recently used items."
   },
-  "system": "System",
+  "system": "Systém",
   "@system": {
     "description": "Option indicating the device/system default."
   },
-  "english": "English",
+  "english": "Angličtina",
   "@english": {
     "description": "Language name: English."
   },
-  "deutsch": "Deutsch",
+  "deutsch": "Němčina",
   "@deutsch": {
     "description": "Language name: German."
   },
-  "francais": "Français",
+  "francais": "Francouzština",
   "@francais": {
     "description": "Language name: French."
   },
-  "italiano": "Italiano",
+  "italiano": "Italština",
   "@italiano": {
     "description": "Language name: Italian."
   },
-  "espanol": "Español",
+  "espanol": "Španělština",
   "@espanol": {
     "description": "Language name: Spanish."
   },
-  "nederlands": "Nederlands",
+  "nederlands": "Nizozemština",
   "@nederlands": {
     "description": "Language name: Dutch."
   },
-  "russian": "Русский",
+  "russian": "Ruština",
   "@russian": {
     "description": "Language name: Russian."
   },
-  "chinese": "中文",
+  "chinese": "Čínština",
   "@chinese": {
     "description": "Language name: Chinese."
   },
-  "chineseSimplified": "Chinese (Simplified)",
+  "chineseSimplified": "Čínština (zjednodušená)",
   "@chineseSimplified": {
     "description": "Language name: Chinese (Simplified)."
   },
-  "chineseTraditional": "Chinese (Traditional)",
+  "chineseTraditional": "Čínština (tradiční)",
   "@chineseTraditional": {
     "description": "Language name: Chinese (Traditional)."
   },
-  "korean": "한국어",
+  "korean": "Korejština",
   "@korean": {
     "description": "Language name: Korean."
   },
-  "japanese": "日本語",
+  "japanese": "Japonština",
   "@japanese": {
     "description": "Language name: Japanese."
   },
@@ -846,15 +846,15 @@
   "@czech": {
     "description": "Language name: Czech."
   },
-  "slovak": "Slovenčina",
+  "slovak": "Slovenština",
   "@slovak": {
     "description": "Language name: Slovak."
   },
-  "deleteMessagesTitle": "Delete Messages",
+  "deleteMessagesTitle": "Smazat zprávy",
   "@deleteMessagesTitle": {
     "description": "Dialog title asking to confirm deletion of messages."
   },
-  "deleteMessagesMessage": "Delete {count} messages?",
+  "deleteMessagesMessage": "{count, plural, one{Smazat 1 zprávu?} few{Smazat {count} zprávy?} other{Smazat {count} zpráv?}}",
   "@deleteMessagesMessage": {
     "description": "Confirmation prompt asking to delete a number of messages.",
     "placeholders": {
@@ -863,7 +863,7 @@
       }
     }
   },
-  "routeNotFound": "Route not found: {routeName}",
+  "routeNotFound": "Trasa nenalezena: {routeName}",
   "@routeNotFound": {
     "description": "Displayed when navigation fails to find a route name.",
     "placeholders": {
@@ -872,31 +872,31 @@
       }
     }
   },
-  "deleteChatTitle": "Delete Chat",
+  "deleteChatTitle": "Smazat chat",
   "@deleteChatTitle": {
     "description": "Dialog title asking to confirm deletion of a chat."
   },
-  "deleteChatMessage": "This chat will be permanently deleted.",
+  "deleteChatMessage": "Tento chat bude trvale smazán.",
   "@deleteChatMessage": {
     "description": "Warning that deleting a chat cannot be undone."
   },
-  "deleteFolderTitle": "Delete Folder",
+  "deleteFolderTitle": "Smazat složku",
   "@deleteFolderTitle": {
     "description": "Dialog title asking to confirm deletion of a folder."
   },
-  "deleteFolderMessage": "This folder and its assignment references will be removed.",
+  "deleteFolderMessage": "Tato složka a odkazy na její přiřazení budou odstraněny.",
   "@deleteFolderMessage": {
     "description": "Warning that deleting a folder will remove it and its associations."
   },
-  "failedToDeleteFolder": "Failed to delete folder",
+  "failedToDeleteFolder": "Složku se nepodařilo smazat",
   "@failedToDeleteFolder": {
     "description": "Error notice when deleting a folder fails."
   },
-  "aboutApp": "About",
+  "aboutApp": "O aplikaci",
   "@aboutApp": {
     "description": "Settings tile title to view app information."
   },
-  "aboutAppSubtitle": "Conduit information and links",
+  "aboutAppSubtitle": "Informace o Conduitu a odkazy",
   "@aboutAppSubtitle": {
     "description": "Subtitle/description for the About section."
   },
@@ -904,75 +904,75 @@
   "@web": {
     "description": "Tab/section label for web features."
   },
-  "imageGen": "Image Gen",
+  "imageGen": "Generování obrázků",
   "@imageGen": {
     "description": "Short label for image generation section/tab."
   },
-  "pinned": "Pinned",
+  "pinned": "Připnuté",
   "@pinned": {
     "description": "Filter/tab for pinned items."
   },
-  "folders": "Folders",
+  "folders": "Složky",
   "@folders": {
     "description": "Tab listing chat folders."
   },
-  "archived": "Archived",
+  "archived": "Archivováno",
   "@archived": {
     "description": "Filter/tab for archived chats."
   },
-  "appLanguage": "App Language",
+  "appLanguage": "Jazyk aplikace",
   "@appLanguage": {
     "description": "Label for choosing the app's display language."
   },
-  "darkMode": "Dark Mode",
+  "darkMode": "Tmavý režim",
   "@darkMode": {
     "description": "Label for toggling dark theme."
   },
-  "webSearch": "Web Search",
+  "webSearch": "Vyhledávání na webu",
   "@webSearch": {
     "description": "Feature toggle/section for web search."
   },
-  "webSearchDescription": "Search the web and cite sources in replies.",
+  "webSearchDescription": "Vyhledávat na webu a citovat zdroje v odpovědích.",
   "@webSearchDescription": {
     "description": "Explains that responses can include citations from the web."
   },
-  "imageGeneration": "Image Generation",
+  "imageGeneration": "Generování obrázků",
   "@imageGeneration": {
     "description": "Feature toggle/section for image generation."
   },
-  "imageGenerationDescription": "Create images from your prompts.",
+  "imageGenerationDescription": "Vytvářet obrázky z vašich promptů.",
   "@imageGenerationDescription": {
     "description": "Explains creating images via model prompts."
   },
-  "copy": "Copy",
+  "copy": "Kopírovat",
   "@copy": {
     "description": "Action to copy text to clipboard."
   },
-  "ttsListen": "Listen",
+  "ttsListen": "Poslechnout",
   "@ttsListen": {
     "description": "Action to play the assistant message using text to speech"
   },
-  "ttsStop": "Stop",
+  "ttsStop": "Zastavit",
   "@ttsStop": {
     "description": "Action to stop text to speech playback"
   },
-  "usageInfo": "Info",
+  "usageInfo": "Informace",
   "@usageInfo": {
     "description": "Action to show usage/performance statistics for a response"
   },
-  "usageInfoTitle": "Response Statistics",
+  "usageInfoTitle": "Statistiky odpovědi",
   "@usageInfoTitle": {
     "description": "Title for the usage statistics dialog/sheet"
   },
-  "usageTokenGeneration": "Token Generation",
+  "usageTokenGeneration": "Generování tokenů",
   "@usageTokenGeneration": {
     "description": "Label for token generation speed metric"
   },
-  "usagePromptEval": "Prompt Processing",
+  "usagePromptEval": "Zpracování promptu",
   "@usagePromptEval": {
     "description": "Label for prompt evaluation/pre-processing speed metric"
   },
-  "usageTotalDuration": "Total Duration",
+  "usageTotalDuration": "Celková doba",
   "@usageTotalDuration": {
     "description": "Label for total response generation duration"
   },
@@ -986,7 +986,7 @@
       }
     }
   },
-  "usageTokenCount": "{count} tokens",
+  "usageTokenCount": "{count, plural, one{1 token} few{{count} tokeny} other{{count} tokenů}}",
   "@usageTokenCount": {
     "description": "Token count display format",
     "placeholders": {
@@ -996,7 +996,7 @@
       }
     }
   },
-  "usageSecondsFormat": "{seconds}s",
+  "usageSecondsFormat": "{seconds} s",
   "@usageSecondsFormat": {
     "description": "Seconds duration format",
     "placeholders": {
@@ -1006,147 +1006,147 @@
       }
     }
   },
-  "usageLoadDuration": "Model Load Time",
+  "usageLoadDuration": "Čas načtení modelu",
   "@usageLoadDuration": {
     "description": "Label for model loading duration metric"
   },
-  "usageQueueTime": "Queue Time",
+  "usageQueueTime": "Čas ve frontě",
   "@usageQueueTime": {
     "description": "Label for queue waiting time metric"
   },
-  "usageReasoningTokens": "Reasoning Tokens",
+  "usageReasoningTokens": "Tokeny uvažování",
   "@usageReasoningTokens": {
     "description": "Label for reasoning/thinking tokens count"
   },
-  "usageTotalTokens": "Total Tokens",
+  "usageTotalTokens": "Celkem tokenů",
   "@usageTotalTokens": {
     "description": "Label for total token count"
   },
-  "edit": "Edit",
+  "edit": "Upravit",
   "@edit": {
     "description": "Action to edit an item/message."
   },
-  "regenerate": "Regenerate",
+  "regenerate": "Znovu vygenerovat",
   "@regenerate": {
     "description": "Action to request a new assistant response."
   },
-  "noConversationsYet": "No conversations yet",
+  "noConversationsYet": "Zatím žádné konverzace",
   "@noConversationsYet": {
     "description": "Empty state when the user has no chats."
   },
-  "usernameOrEmailHint": "Enter your username or email",
+  "usernameOrEmailHint": "Zadejte uživatelské jméno nebo e-mail",
   "@usernameOrEmailHint": {
     "description": "Hint text for username/email input."
   },
-  "passwordHint": "Enter your password",
+  "passwordHint": "Zadejte heslo",
   "@passwordHint": {
     "description": "Hint text for password input."
   },
-  "enterToken": "Enter your JWT token",
+  "enterToken": "Zadejte svůj token JWT",
   "@enterToken": {
     "description": "Hint text for JWT token input."
   },
-  "tokenHint": "Get the JWT token from OpenWebUI settings. API keys (sk-...) are not supported for streaming.",
+  "tokenHint": "Token JWT získáte v nastavení OpenWebUI. Klíče API (sk-...) nejsou pro streamování podporovány.",
   "@tokenHint": {
     "description": "Help text explaining what type of token to use."
   },
-  "apiKeyNotSupported": "API keys (sk-...) are not supported. Please use a JWT token instead.",
+  "apiKeyNotSupported": "Klíče API (sk-...) nejsou podporovány. Použijte místo toho token JWT.",
   "@apiKeyNotSupported": {
     "description": "Error message when user tries to use an API key instead of JWT token."
   },
-  "apiKeyNoLongerSupported": "You were logged out because API keys are no longer supported. Please sign in with a JWT token from OpenWebUI settings.",
+  "apiKeyNoLongerSupported": "Byli jste odhlášeni, protože klíče API už nejsou podporovány. Přihlaste se tokenem JWT z nastavení OpenWebUI.",
   "@apiKeyNoLongerSupported": {
     "description": "Error message shown when user is forced logged out due to using an API key."
   },
-  "tokenTooShort": "Token is too short",
+  "tokenTooShort": "Token je příliš krátký",
   "@tokenTooShort": {
     "description": "Error message when token is too short."
   },
-  "signingIn": "Signing in...",
+  "signingIn": "Přihlašování...",
   "@signingIn": {
     "description": "Status message shown while signing in."
   },
-  "advancedSettings": "Advanced Settings",
+  "advancedSettings": "Pokročilá nastavení",
   "@advancedSettings": {
     "description": "Section that contains additional/optional configuration."
   },
-  "customHeaders": "Custom Headers",
+  "customHeaders": "Vlastní hlavičky",
   "@customHeaders": {
     "description": "Section title for adding custom HTTP headers."
   },
-  "customHeadersDescription": "Add custom HTTP headers for authentication, API keys, or special server requirements.",
+  "customHeadersDescription": "Přidejte vlastní HTTP hlavičky pro ověřování, klíče API nebo speciální požadavky serveru.",
   "@customHeadersDescription": {
     "description": "Helper text explaining use-cases for custom headers."
   },
-  "allowSelfSignedCertificates": "Trust self-signed certificates",
+  "allowSelfSignedCertificates": "Důvěřovat certifikátům podepsaným vlastním podpisem",
   "@allowSelfSignedCertificates": {
     "description": "Toggle label that allows trusting self-signed TLS certificates for the configured server."
   },
-  "allowSelfSignedCertificatesDescription": "Accept this server's TLS certificate even if it is self-signed. Enable only for servers you trust.",
+  "allowSelfSignedCertificatesDescription": "Přijmout certifikát TLS tohoto serveru, i když je podepsaný vlastním podpisem. Zapínejte pouze u serverů, kterým důvěřujete.",
   "@allowSelfSignedCertificatesDescription": {
     "description": "Helper text clarifying the risks of enabling the self-signed certificate toggle."
   },
-  "mutualTlsSectionTitle": "mTLS client certificate",
+  "mutualTlsSectionTitle": "Klientský certifikát mTLS",
   "@mutualTlsSectionTitle": {
     "description": "Section title for configuring a client certificate and private key for mutual TLS."
   },
-  "mutualTlsSectionDescription": "Attach a PEM certificate chain and PEM private key when your server requires mutual TLS during connection setup.",
+  "mutualTlsSectionDescription": "Připojte řetězec certifikátů PEM a privátní klíč PEM, pokud váš server při nastavování připojení vyžaduje vzájemné TLS.",
   "@mutualTlsSectionDescription": {
     "description": "Helper text explaining when to use the mTLS configuration section."
   },
-  "mutualTlsSelectCertificate": "Select certificate",
+  "mutualTlsSelectCertificate": "Vybrat certifikát",
   "@mutualTlsSelectCertificate": {
     "description": "Button label for picking a PEM client certificate chain file."
   },
-  "mutualTlsSelectPrivateKey": "Select private key",
+  "mutualTlsSelectPrivateKey": "Vybrat privátní klíč",
   "@mutualTlsSelectPrivateKey": {
     "description": "Button label for picking a PEM private key file."
   },
-  "mutualTlsCertificateReady": "Certificate",
+  "mutualTlsCertificateReady": "Certifikát",
   "@mutualTlsCertificateReady": {
     "description": "Short label used in a badge once an mTLS certificate file has been selected."
   },
-  "mutualTlsPrivateKeyReady": "Private key",
+  "mutualTlsPrivateKeyReady": "Privátní klíč",
   "@mutualTlsPrivateKeyReady": {
     "description": "Short label used in a badge once an mTLS private key file has been selected."
   },
-  "mutualTlsPrivateKeyPasswordHint": "Private key password (optional)",
+  "mutualTlsPrivateKeyPasswordHint": "Heslo privátního klíče (volitelné)",
   "@mutualTlsPrivateKeyPasswordHint": {
     "description": "Placeholder for the optional password used to decrypt an mTLS private key."
   },
-  "mutualTlsClearCredentials": "Clear mTLS files",
+  "mutualTlsClearCredentials": "Vymazat soubory mTLS",
   "@mutualTlsClearCredentials": {
     "description": "Button label that removes selected mTLS certificate material from the form."
   },
-  "mutualTlsMissingCredentialPair": "Select both a client certificate and private key to use mTLS.",
+  "mutualTlsMissingCredentialPair": "Pro použití mTLS vyberte klientský certifikát i privátní klíč.",
   "@mutualTlsMissingCredentialPair": {
     "description": "Validation message shown when only one half of the mTLS credential pair is configured."
   },
-  "mutualTlsCertificatePemRequired": "The selected certificate file must contain a PEM certificate chain.",
+  "mutualTlsCertificatePemRequired": "Vybraný soubor certifikátu musí obsahovat řetězec certifikátů PEM.",
   "@mutualTlsCertificatePemRequired": {
     "description": "Error shown when the selected mTLS certificate file does not look like PEM certificate content."
   },
-  "mutualTlsPrivateKeyPemRequired": "The selected private key file must contain a PEM private key.",
+  "mutualTlsPrivateKeyPemRequired": "Vybraný soubor privátního klíče musí obsahovat privátní klíč PEM.",
   "@mutualTlsPrivateKeyPemRequired": {
     "description": "Error shown when the selected mTLS private key file does not look like PEM private key content."
   },
-  "mutualTlsFileReadFailed": "Could not read the selected mTLS file.",
+  "mutualTlsFileReadFailed": "Vybraný soubor mTLS se nepodařilo přečíst.",
   "@mutualTlsFileReadFailed": {
     "description": "Error shown when a picked certificate or key file cannot be read as text."
   },
-  "mutualTlsHandshakeFailed": "The server rejected the mTLS credentials. Confirm that the certificate, private key, and password are correct.",
+  "mutualTlsHandshakeFailed": "Server odmítl přihlašovací údaje mTLS. Ověřte, že certifikát, privátní klíč a heslo jsou správné.",
   "@mutualTlsHandshakeFailed": {
     "description": "Connection error shown when the TLS handshake fails while mTLS credentials are configured."
   },
-  "headerNameTooLong": "Header name too long (max 64 characters)",
+  "headerNameTooLong": "Název hlavičky je příliš dlouhý (max. 64 znaků)",
   "@headerNameTooLong": {
     "description": "Validation message for header name length."
   },
-  "headerNameInvalidChars": "Invalid header name. Use only letters, numbers, and these symbols: !#$&-^_`|~",
+  "headerNameInvalidChars": "Neplatný název hlavičky. Používejte pouze písmena, číslice a tyto symboly: !#$&-^_`|~",
   "@headerNameInvalidChars": {
     "description": "Validation message for invalid characters in header name."
   },
-  "headerNameReserved": "Cannot override reserved header \"{key}\"",
+  "headerNameReserved": "Vyhrazenou hlavičku „{key}“ nelze přepsat",
   "@headerNameReserved": {
     "description": "Error when attempting to override a reserved HTTP header {key}.",
     "placeholders": {
@@ -1155,19 +1155,19 @@
       }
     }
   },
-  "headerValueTooLong": "Header value too long (max 1024 characters)",
+  "headerValueTooLong": "Hodnota hlavičky je příliš dlouhá (max. 1024 znaků)",
   "@headerValueTooLong": {
     "description": "Validation message for header value length."
   },
-  "headerValueInvalidChars": "Header value contains invalid characters. Use only printable ASCII.",
+  "headerValueInvalidChars": "Hodnota hlavičky obsahuje neplatné znaky. Používejte pouze tisknutelné ASCII.",
   "@headerValueInvalidChars": {
     "description": "Validation message for invalid characters in header value."
   },
-  "headerValueUnsafe": "Header value appears to contain potentially unsafe content",
+  "headerValueUnsafe": "Hodnota hlavičky zřejmě obsahuje potenciálně nebezpečný obsah",
   "@headerValueUnsafe": {
     "description": "Security warning for suspicious header values."
   },
-  "headerAlreadyExists": "Header \"{key}\" already exists. Remove it first to update.",
+  "headerAlreadyExists": "Hlavička „{key}“ už existuje. Pokud ji chcete aktualizovat, nejprve ji odeberte.",
   "@headerAlreadyExists": {
     "description": "Error when a custom header with key {key} already exists.",
     "placeholders": {
@@ -1176,15 +1176,15 @@
       }
     }
   },
-  "maxHeadersReachedDetail": "Maximum of 10 custom headers allowed. Remove some to add more.",
+  "maxHeadersReachedDetail": "Je povoleno maximálně 10 vlastních hlaviček. Chcete-li přidat další, některé odeberte.",
   "@maxHeadersReachedDetail": {
     "description": "Explains the upper limit of custom headers."
   },
-  "noModelsAvailable": "No models available",
+  "noModelsAvailable": "Nejsou dostupné žádné modely",
   "@noModelsAvailable": {
     "description": "Shown when model list is empty or failed to load."
   },
-  "followingSystem": "Following system: {theme}",
+  "followingSystem": "Podle systému: {theme}",
   "@followingSystem": {
     "description": "Indicates the app is following the system theme (\"Dark\"/\"Light\").",
     "placeholders": {
@@ -1193,11 +1193,11 @@
       }
     }
   },
-  "themeDark": "Dark",
+  "themeDark": "Tmavý",
   "@themeDark": {
     "description": "Theme label for dark appearance."
   },
-  "themePalette": "Accent palette",
+  "themePalette": "Paleta akcentů",
   "@themePalette": {
     "description": "Title for selecting the app color palette."
   },
@@ -1205,7 +1205,7 @@
   "@themePaletteConduitLabel": {
     "description": "Palette name for the default Conduit theme."
   },
-  "themePaletteConduitDescription": "Clean neutral theme designed for Conduit.",
+  "themePaletteConduitDescription": "Čistý neutrální motiv navržený pro Conduit.",
   "@themePaletteConduitDescription": {
     "description": "Description of the Conduit palette."
   },
@@ -1213,7 +1213,7 @@
   "@themePaletteClaudeLabel": {
     "description": "Palette name inspired by the Claude web client."
   },
-  "themePaletteClaudeDescription": "Warm, tactile palette lifted from the Claude web client.",
+  "themePaletteClaudeDescription": "Teplá hmatová paleta převzatá z webového klienta Claude.",
   "@themePaletteClaudeDescription": {
     "description": "Description of the Claude palette."
   },
@@ -1221,7 +1221,7 @@
   "@themePaletteT3ChatLabel": {
     "description": "Palette name inspired by the T3 Stack brand."
   },
-  "themePaletteT3ChatDescription": "Playful gradients inspired by the T3 Stack brand.",
+  "themePaletteT3ChatDescription": "Hravé přechody inspirované značkou T3 Stack.",
   "@themePaletteT3ChatDescription": {
     "description": "Description of the T3 Chat palette."
   },
@@ -1229,7 +1229,7 @@
   "@themePaletteCatppuccinLabel": {
     "description": "Palette name for Catppuccin colors."
   },
-  "themePaletteCatppuccinDescription": "Soft pastel palette.",
+  "themePaletteCatppuccinDescription": "Jemná pastelová paleta.",
   "@themePaletteCatppuccinDescription": {
     "description": "Description of the Catppuccin palette."
   },
@@ -1237,27 +1237,27 @@
   "@themePaletteTangerineLabel": {
     "description": "Palette name for Tangerine colors."
   },
-  "themePaletteTangerineDescription": "Warm orange-and-slate palette.",
+  "themePaletteTangerineDescription": "Teplá oranžovo-břidlicová paleta.",
   "@themePaletteTangerineDescription": {
     "description": "Description of the Tangerine palette."
   },
-  "themeLight": "Light",
+  "themeLight": "Světlý",
   "@themeLight": {
     "description": "Theme label for light appearance."
   },
-  "currentlyUsingDarkTheme": "Currently using Dark theme",
+  "currentlyUsingDarkTheme": "Aktuálně používáte tmavý motiv",
   "@currentlyUsingDarkTheme": {
     "description": "Status text indicating dark theme is active."
   },
-  "currentlyUsingLightTheme": "Currently using Light theme",
+  "currentlyUsingLightTheme": "Aktuálně používáte světlý motiv",
   "@currentlyUsingLightTheme": {
     "description": "Status text indicating light theme is active."
   },
-  "aboutConduit": "About Conduit",
+  "aboutConduit": "O Conduitu",
   "@aboutConduit": {
     "description": "Dialog title for app information."
   },
-  "versionLabel": "Version: {version} ({build})",
+  "versionLabel": "Verze: {version} ({build})",
   "@versionLabel": {
     "description": "Displays version and build number in the About dialog.",
     "placeholders": {
@@ -1269,23 +1269,23 @@
       }
     }
   },
-  "githubRepository": "GitHub Repository",
+  "githubRepository": "Repozitář GitHub",
   "@githubRepository": {
     "description": "Link label pointing to the app repository."
   },
-  "unableToLoadAppInfo": "Unable to load app info",
+  "unableToLoadAppInfo": "Informace o aplikaci nelze načíst",
   "@unableToLoadAppInfo": {
     "description": "Error text when package info cannot be retrieved."
   },
-  "thinking": "Thinking…",
+  "thinking": "Přemýšlím…",
   "@thinking": {
     "description": "Label shown while the assistant is reasoning."
   },
-  "thoughts": "Thoughts",
+  "thoughts": "Myšlenky",
   "@thoughts": {
     "description": "Section title for showing reasoning content."
   },
-  "thoughtForDuration": "Thought for {duration}",
+  "thoughtForDuration": "Přemýšlení trvalo {duration}",
   "@thoughtForDuration": {
     "description": "Shows how long the assistant thought before replying.",
     "placeholders": {
@@ -1295,27 +1295,27 @@
       }
     }
   },
-  "analyzing": "Analyzing…",
+  "analyzing": "Analyzuji…",
   "@analyzing": {
     "description": "Label shown while code interpreter is processing."
   },
-  "analyzed": "Analyzed",
+  "analyzed": "Analyzováno",
   "@analyzed": {
     "description": "Label shown after code interpreter has finished."
   },
-  "appCustomization": "Customization",
+  "appCustomization": "Přizpůsobení",
   "@appCustomization": {
     "description": "Title of the customization settings page."
   },
-  "appCustomizationSubtitle": "Theme, language, voice, and quickpills",
+  "appCustomizationSubtitle": "Motiv, jazyk, hlas a rychlé volby",
   "@appCustomizationSubtitle": {
     "description": "Subtitle shown under App Customization tile and page header."
   },
-  "quickActionsDescription": "Quickpills in chat",
+  "quickActionsDescription": "Rychlé volby v chatu",
   "@quickActionsDescription": {
     "description": "Helper text explaining quick action pill selection in customization."
   },
-  "quickActionsSelectedCount": "{count, plural, =0{No actions selected} one{1 action selected} other{{count} actions selected}}",
+  "quickActionsSelectedCount": "{count, plural, =0{Nejsou vybrány žádné akce} one{Vybrána 1 akce} few{Vybrány {count} akce} other{Vybráno {count} akcí}}",
   "@quickActionsSelectedCount": {
     "description": "Subtitle indicating how many quick actions are selected.",
     "placeholders": {
@@ -1325,7 +1325,7 @@
       }
     }
   },
-  "autoSelectDescription": "Use the default model configured on the server",
+  "autoSelectDescription": "Použít výchozí model nastavený na serveru",
   "@autoSelectDescription": {
     "description": "Explains what the server-provided model setting does."
   },
@@ -1333,51 +1333,51 @@
   "@chatSettings": {
     "description": "Section header for chat-related customization options."
   },
-  "sendOnEnter": "Send on Enter",
+  "sendOnEnter": "Odeslat klávesou Enter",
   "@sendOnEnter": {
     "description": "Toggle title for sending messages when pressing Enter."
   },
-  "sendOnEnterDescription": "Enter sends (soft keyboard). Cmd/Ctrl+Enter also available",
+  "sendOnEnterDescription": "Enter odešle zprávu (softwarová klávesnice). K dispozici je také Cmd/Ctrl+Enter",
   "@sendOnEnterDescription": {
     "description": "Explanation of how the Send on Enter toggle behaves."
   },
-  "disableHapticsWhileStreaming": "Disable haptics while streaming",
+  "disableHapticsWhileStreaming": "Vypnout haptiku při streamování",
   "@disableHapticsWhileStreaming": {
     "description": "Title for the setting that suppresses assistant response streaming haptics."
   },
-  "disableHapticsWhileStreamingDescription": "Mute live response haptics without affecting the rest of the app",
+  "disableHapticsWhileStreamingDescription": "Ztlumit haptickou odezvu živých odpovědí bez ovlivnění zbytku aplikace",
   "@disableHapticsWhileStreamingDescription": {
     "description": "Subtitle for the setting that suppresses assistant response streaming haptics."
   },
-  "androidAssistantTitle": "Android digital assistant",
+  "androidAssistantTitle": "Digitální asistent Androidu",
   "@androidAssistantTitle": {
     "description": "Tile title for configuring the Android digital assistant trigger."
   },
-  "androidAssistantDescription": "Choose what happens when you trigger the Android digital assistant.",
+  "androidAssistantDescription": "Vyberte, co se stane při spuštění digitálního asistenta Androidu.",
   "@androidAssistantDescription": {
     "description": "Helper text describing the Android digital assistant trigger setting."
   },
-  "androidAssistantOverlayOption": "Show quick overlay (default)",
+  "androidAssistantOverlayOption": "Zobrazit rychlý překryv (výchozí)",
   "@androidAssistantOverlayOption": {
     "description": "Option label for keeping the current assistant overlay."
   },
-  "androidAssistantNewChatOption": "Open Conduit with a new chat",
+  "androidAssistantNewChatOption": "Otevřít Conduit s novým chatem",
   "@androidAssistantNewChatOption": {
     "description": "Option label for opening the app to a fresh chat from the assistant trigger."
   },
-  "androidAssistantVoiceCallOption": "Start a voice call",
+  "androidAssistantVoiceCallOption": "Zahájit hlasový hovor",
   "@androidAssistantVoiceCallOption": {
     "description": "Option label for jumping straight into voice call from assistant trigger."
   },
-  "sttSettings": "Speech to Text",
+  "sttSettings": "Řeč na text",
   "@sttSettings": {
     "description": "Section header for speech-to-text settings."
   },
-  "sttEngineLabel": "Recognition engine",
+  "sttEngineLabel": "Modul rozpoznávání",
   "@sttEngineLabel": {
     "description": "Label shown above the speech-to-text engine chips."
   },
-  "sttEngineDevice": "On device",
+  "sttEngineDevice": "V zařízení",
   "@sttEngineDevice": {
     "description": "Chip label for on-device speech recognition."
   },
@@ -1385,59 +1385,59 @@
   "@sttEngineServer": {
     "description": "Chip label for server speech recognition."
   },
-  "sttEngineDeviceDescription": "Keep audio on this device. Voice input stops working if on-device speech recognition isn’t supported.",
+  "sttEngineDeviceDescription": "Zvuk zůstane v tomto zařízení. Hlasový vstup přestane fungovat, pokud zařízení nepodporuje rozpoznávání řeči.",
   "@sttEngineDeviceDescription": {
     "description": "Description shown when on-device speech-to-text preference is active."
   },
-  "sttEngineServerDescription": "Always send recordings to your OpenWebUI server for transcription.",
+  "sttEngineServerDescription": "Vždy odesílat nahrávky na váš server OpenWebUI k přepisu.",
   "@sttEngineServerDescription": {
     "description": "Description shown when server speech-to-text preference is active."
   },
-  "sttDeviceUnavailableWarning": "On-device speech recognition isn’t available on this device.",
+  "sttDeviceUnavailableWarning": "Rozpoznávání řeči v zařízení není na tomto zařízení dostupné.",
   "@sttDeviceUnavailableWarning": {
     "description": "Warning shown when the user selects on-device speech recognition but it is unavailable."
   },
-  "sttServerUnavailableWarning": "Connect to a server with transcription enabled to use this option.",
+  "sttServerUnavailableWarning": "Chcete-li použít tuto možnost, připojte se k serveru se zapnutým přepisem.",
   "@sttServerUnavailableWarning": {
     "description": "Warning shown when the user selects server speech recognition but no server is available."
   },
-  "sttSilenceDuration": "Silence Duration",
+  "sttSilenceDuration": "Doba ticha",
   "@sttSilenceDuration": {
     "description": "Label for the silence duration setting in server speech-to-text."
   },
-  "sttSilenceDurationDescription": "Time to wait after silence before auto-stopping recording",
+  "sttSilenceDurationDescription": "Doba čekání po tichu před automatickým zastavením nahrávání",
   "@sttSilenceDurationDescription": {
     "description": "Description for the silence duration slider in server speech-to-text settings."
   },
-  "sttTranscriptionLanguage": "Transcription language",
+  "sttTranscriptionLanguage": "Jazyk přepisu",
   "@sttTranscriptionLanguage": {
     "description": "Title for the server speech-to-text language setting."
   },
-  "sttTranscriptionLanguageDescription": "Use Auto to follow this device's language, or enter a code such as pl.",
+  "sttTranscriptionLanguageDescription": "Použijte Automaticky pro jazyk tohoto zařízení, nebo zadejte kód, například pl.",
   "@sttTranscriptionLanguageDescription": {
     "description": "Description for the server speech-to-text language setting."
   },
-  "sttTranscriptionLanguageAuto": "Auto",
+  "sttTranscriptionLanguageAuto": "Automaticky",
   "@sttTranscriptionLanguageAuto": {
     "description": "Option label for using the device language as the server speech-to-text language hint."
   },
-  "sttTranscriptionLanguageCustom": "Custom language code",
+  "sttTranscriptionLanguageCustom": "Vlastní kód jazyka",
   "@sttTranscriptionLanguageCustom": {
     "description": "Option label for entering an explicit speech-to-text language code."
   },
-  "sttTranscriptionLanguagePlaceholder": "ISO-639-1 code, e.g. pl",
+  "sttTranscriptionLanguagePlaceholder": "Kód ISO-639-1, např. pl",
   "@sttTranscriptionLanguagePlaceholder": {
     "description": "Placeholder for entering a two-letter speech-to-text language code."
   },
-  "sttTranscriptionLanguageInvalid": "Use a two-letter language code like pl.",
+  "sttTranscriptionLanguageInvalid": "Použijte dvoupísmenný kód jazyka jako pl.",
   "@sttTranscriptionLanguageInvalid": {
     "description": "Validation message for invalid speech-to-text language codes."
   },
-  "ttsEngineLabel": "Engine",
+  "ttsEngineLabel": "Modul",
   "@ttsEngineLabel": {
     "description": "Label for selecting the text-to-speech engine."
   },
-  "ttsEngineDevice": "On device",
+  "ttsEngineDevice": "V zařízení",
   "@ttsEngineDevice": {
     "description": "Chip label for using on-device text-to-speech."
   },
@@ -1445,63 +1445,63 @@
   "@ttsEngineServer": {
     "description": "Chip label for using server-side text-to-speech."
   },
-  "ttsEngineDeviceDescription": "Keep synthesis on this device. Voice playback stops working if on-device TTS isn’t supported.",
+  "ttsEngineDeviceDescription": "Syntéza zůstane v tomto zařízení. Přehrávání hlasu přestane fungovat, pokud zařízení nepodporuje TTS.",
   "@ttsEngineDeviceDescription": {
     "description": "Description shown when on-device text-to-speech preference is active."
   },
-  "ttsEngineServerDescription": "Always request audio from your OpenWebUI server.",
+  "ttsEngineServerDescription": "Vždy vyžadovat zvuk z vašeho serveru OpenWebUI.",
   "@ttsEngineServerDescription": {
     "description": "Description shown when server text-to-speech preference is active."
   },
-  "ttsDeviceUnavailableWarning": "On-device text-to-speech isn’t available on this device.",
+  "ttsDeviceUnavailableWarning": "Převod textu na řeč v zařízení není na tomto zařízení dostupný.",
   "@ttsDeviceUnavailableWarning": {
     "description": "Warning shown when on-device text-to-speech is unavailable."
   },
-  "ttsServerUnavailableWarning": "Connect to a server with text-to-speech enabled to use this option.",
+  "ttsServerUnavailableWarning": "Chcete-li použít tuto možnost, připojte se k serveru se zapnutým převodem textu na řeč.",
   "@ttsServerUnavailableWarning": {
     "description": "Warning shown when server text-to-speech is unavailable."
   },
-  "ttsSettings": "Text to Speech",
+  "ttsSettings": "Text na řeč",
   "@ttsSettings": {
     "description": "Section header for TTS-related customization options."
   },
-  "ttsVoice": "Voice",
+  "ttsVoice": "Hlas",
   "@ttsVoice": {
     "description": "Title for voice selection tile."
   },
-  "ttsSpeechRate": "Speech Rate",
+  "ttsSpeechRate": "Rychlost řeči",
   "@ttsSpeechRate": {
     "description": "Title for speech rate slider."
   },
-  "ttsPitch": "Pitch",
+  "ttsPitch": "Výška hlasu",
   "@ttsPitch": {
     "description": "Title for pitch slider."
   },
-  "ttsVolume": "Volume",
+  "ttsVolume": "Hlasitost",
   "@ttsVolume": {
     "description": "Title for volume slider."
   },
-  "ttsPreview": "Preview Voice",
+  "ttsPreview": "Náhled hlasu",
   "@ttsPreview": {
     "description": "Title for preview button."
   },
-  "ttsSystemDefault": "System Default",
+  "ttsSystemDefault": "Výchozí systémový",
   "@ttsSystemDefault": {
     "description": "Label for system default voice option."
   },
-  "ttsSelectVoice": "Select Voice",
+  "ttsSelectVoice": "Vybrat hlas",
   "@ttsSelectVoice": {
     "description": "Title for voice picker bottom sheet."
   },
-  "ttsPreviewText": "This is a preview of the selected voice.",
+  "ttsPreviewText": "Toto je náhled vybraného hlasu.",
   "@ttsPreviewText": {
     "description": "Sample text spoken during voice preview."
   },
-  "ttsNoVoicesAvailable": "No voices available",
+  "ttsNoVoicesAvailable": "Nejsou dostupné žádné hlasy",
   "@ttsNoVoicesAvailable": {
     "description": "Error message when no TTS voices can be found."
   },
-  "ttsVoicesForLanguage": "{language} Voices",
+  "ttsVoicesForLanguage": "Hlasy pro jazyk {language}",
   "@ttsVoicesForLanguage": {
     "description": "Section header for voices matching the app language",
     "placeholders": {
@@ -1511,15 +1511,15 @@
       }
     }
   },
-  "ttsOtherVoices": "Other Languages",
+  "ttsOtherVoices": "Další jazyky",
   "@ttsOtherVoices": {
     "description": "Section header for voices in other languages."
   },
-  "error": "Error",
+  "error": "Chyba",
   "@error": {
     "description": "Generic error label."
   },
-  "errorWithMessage": "Error: {message}",
+  "errorWithMessage": "Chyba: {message}",
   "@errorWithMessage": {
     "description": "Error label with appended message text.",
     "placeholders": {
@@ -1529,219 +1529,219 @@
       }
     }
   },
-  "networkTimeoutError": "Connection timed out. Please check your internet connection and try again.",
+  "networkTimeoutError": "Časový limit připojení vypršel. Zkontrolujte internetové připojení a zkuste to znovu.",
   "@networkTimeoutError": {
     "description": "User-facing message when a network request times out."
   },
-  "networkUnreachableError": "Cannot reach the server. Please check your server URL and internet connection.",
+  "networkUnreachableError": "Server není dostupný. Zkontrolujte URL serveru a internetové připojení.",
   "@networkUnreachableError": {
     "description": "User-facing message when the server cannot be reached."
   },
-  "networkServerNotResponding": "Server is not responding. Please verify the server is running and accessible.",
+  "networkServerNotResponding": "Server neodpovídá. Ověřte, že server běží a je dostupný.",
   "@networkServerNotResponding": {
     "description": "User-facing message when the server does not respond to a request."
   },
-  "networkGenericError": "Network connection problem. Please check your internet connection.",
+  "networkGenericError": "Problém se síťovým připojením. Zkontrolujte internetové připojení.",
   "@networkGenericError": {
     "description": "Fallback message for generic network errors."
   },
-  "serverError500": "Server is experiencing issues. This is usually temporary.",
+  "serverError500": "Server má potíže. Obvykle jde o dočasný stav.",
   "@serverError500": {
     "description": "Message when a 500 error is encountered."
   },
-  "serverErrorUnavailable": "Server is temporarily unavailable. Please try again in a moment.",
+  "serverErrorUnavailable": "Server je dočasně nedostupný. Zkuste to za chvíli znovu.",
   "@serverErrorUnavailable": {
     "description": "Message when a 502/503 error is encountered."
   },
-  "serverErrorTimeout": "Server took too long to respond. Please try again.",
+  "serverErrorTimeout": "Serveru trvala odpověď příliš dlouho. Zkuste to znovu.",
   "@serverErrorTimeout": {
     "description": "Message when the server times out."
   },
-  "serverErrorGeneric": "Server is having problems. Please try again later.",
+  "serverErrorGeneric": "Server má potíže. Zkuste to později znovu.",
   "@serverErrorGeneric": {
     "description": "Fallback server error message."
   },
-  "authSessionExpired": "Your session has expired. Please sign in again.",
+  "authSessionExpired": "Platnost relace vypršela. Přihlaste se znovu.",
   "@authSessionExpired": {
     "description": "Message when an authentication session expires."
   },
-  "authForbidden": "You don't have permission to perform this action.",
+  "authForbidden": "K provedení této akce nemáte oprávnění.",
   "@authForbidden": {
     "description": "Message when the user lacks required permissions."
   },
-  "authInvalidToken": "Authentication token is invalid. Please sign in again.",
+  "authInvalidToken": "Ověřovací token je neplatný. Přihlaste se znovu.",
   "@authInvalidToken": {
     "description": "Message when the authentication token is invalid."
   },
-  "authGenericError": "Authentication problem. Please sign in again.",
+  "authGenericError": "Problém s ověřením. Přihlaste se znovu.",
   "@authGenericError": {
     "description": "Fallback authentication error message."
   },
-  "validationInvalidEmail": "Please enter a valid email address.",
+  "validationInvalidEmail": "Zadejte platnou e-mailovou adresu.",
   "@validationInvalidEmail": {
     "description": "Validation message for invalid email input."
   },
-  "validationWeakPassword": "Password doesn't meet requirements. Please check and try again.",
+  "validationWeakPassword": "Heslo nesplňuje požadavky. Zkontrolujte ho a zkuste to znovu.",
   "@validationWeakPassword": {
     "description": "Validation message for weak passwords."
   },
-  "validationMissingRequired": "Please fill in all required fields.",
+  "validationMissingRequired": "Vyplňte všechna povinná pole.",
   "@validationMissingRequired": {
     "description": "Validation message when required fields are missing."
   },
-  "validationFormatError": "Some information is in the wrong format. Please check and try again.",
+  "validationFormatError": "Některé údaje jsou ve špatném formátu. Zkontrolujte je a zkuste to znovu.",
   "@validationFormatError": {
     "description": "Validation message for generic formatting issues."
   },
-  "validationGenericError": "Please check your input and try again.",
+  "validationGenericError": "Zkontrolujte zadání a zkuste to znovu.",
   "@validationGenericError": {
     "description": "Fallback validation message."
   },
-  "fileNotFound": "File not found. It may have been moved or deleted.",
+  "fileNotFound": "Soubor nebyl nalezen. Možná byl přesunut nebo smazán.",
   "@fileNotFound": {
     "description": "Message when a file cannot be located."
   },
-  "fileAccessDenied": "Cannot access the file. Please check permissions.",
+  "fileAccessDenied": "K souboru nelze přistupovat. Zkontrolujte oprávnění.",
   "@fileAccessDenied": {
     "description": "Message when file access is denied."
   },
-  "fileTooLarge": "File is too large. Please choose a smaller file.",
+  "fileTooLarge": "Soubor je příliš velký. Vyberte menší soubor.",
   "@fileTooLarge": {
     "description": "Message when a file exceeds size limits."
   },
-  "fileGenericError": "Problem with the file. Please try a different file.",
+  "fileGenericError": "Problém se souborem. Zkuste jiný soubor.",
   "@fileGenericError": {
     "description": "Fallback file error message."
   },
-  "permissionCameraRequired": "Camera permission is required. Please enable it in settings.",
+  "permissionCameraRequired": "Je vyžadováno oprávnění k fotoaparátu. Povolte ho v nastavení.",
   "@permissionCameraRequired": {
     "description": "Message when camera permission is missing."
   },
-  "permissionStorageRequired": "Storage permission is required. Please enable it in settings.",
+  "permissionStorageRequired": "Je vyžadováno oprávnění k úložišti. Povolte ho v nastavení.",
   "@permissionStorageRequired": {
     "description": "Message when storage permission is missing."
   },
-  "permissionMicrophoneRequired": "Microphone permission is required. Please enable it in settings.",
+  "permissionMicrophoneRequired": "Je vyžadováno oprávnění k mikrofonu. Povolte ho v nastavení.",
   "@permissionMicrophoneRequired": {
     "description": "Message when microphone permission is missing."
   },
-  "permissionGenericError": "Permission required. Please check app permissions in settings.",
+  "permissionGenericError": "Je vyžadováno oprávnění. Zkontrolujte oprávnění aplikace v nastavení.",
   "@permissionGenericError": {
     "description": "Fallback permission error message."
   },
-  "actionRetryRequest": "Try the request again.",
+  "actionRetryRequest": "Zopakovat požadavek.",
   "@actionRetryRequest": {
     "description": "Description for retrying a failed request."
   },
-  "actionVerifyConnection": "Verify your internet connection.",
+  "actionVerifyConnection": "Ověřte internetové připojení.",
   "@actionVerifyConnection": {
     "description": "Description for checking internet connectivity."
   },
-  "actionRetryOperation": "Retry the operation.",
+  "actionRetryOperation": "Zkusit operaci znovu.",
   "@actionRetryOperation": {
     "description": "Description for retrying the same operation."
   },
-  "actionRetryAfterDelay": "Wait a moment then try again.",
+  "actionRetryAfterDelay": "Chvíli počkejte a zkuste to znovu.",
   "@actionRetryAfterDelay": {
     "description": "Description suggesting a short delay before retrying."
   },
-  "actionSignInToAccount": "Sign in to your account.",
+  "actionSignInToAccount": "Přihlaste se ke svému účtu.",
   "@actionSignInToAccount": {
     "description": "Description for signing back into the app."
   },
-  "actionSelectAnotherFile": "Select another file.",
+  "actionSelectAnotherFile": "Vyberte jiný soubor.",
   "@actionSelectAnotherFile": {
     "description": "Description for choosing a different file."
   },
-  "actionOpenAppSettings": "Open app settings to grant permissions.",
+  "actionOpenAppSettings": "Otevřete nastavení aplikace a udělte oprávnění.",
   "@actionOpenAppSettings": {
     "description": "Description for opening system or app settings."
   },
-  "actionRetryAfterPermission": "Retry after granting permission.",
+  "actionRetryAfterPermission": "Po udělení oprávnění to zkuste znovu.",
   "@actionRetryAfterPermission": {
     "description": "Description for retrying once permissions are granted."
   },
-  "actionReturnToPrevious": "Return to previous screen.",
+  "actionReturnToPrevious": "Vraťte se na předchozí obrazovku.",
   "@actionReturnToPrevious": {
     "description": "Description for navigating back to the prior screen."
   },
-  "display": "Display",
+  "display": "Zobrazení",
   "@display": {
     "description": "Section header for visual and layout related settings."
   },
-  "realtime": "Realtime",
+  "realtime": "Reálný čas",
   "@realtime": {
     "description": "Section header for realtime/transport settings."
   },
-  "transportMode": "Transport mode",
+  "transportMode": "Režim přenosu",
   "@transportMode": {
     "description": "Title for selecting the networking transport used for realtime."
   },
-  "mode": "Mode",
+  "mode": "Režim",
   "@mode": {
     "description": "Form field label for transport mode dropdown."
   },
-  "transportModePolling": "Polling fallback",
+  "transportModePolling": "Záložní polling",
   "@transportModePolling": {
     "description": "Dropdown option label for HTTP polling fallback transport."
   },
-  "transportModeWs": "WebSocket only",
+  "transportModeWs": "Pouze WebSocket",
   "@transportModeWs": {
     "description": "Dropdown option label for WebSocket-only transport."
   },
-  "transportModePollingInfo": "Falls back to HTTP polling when WebSocket is blocked. Upgrades to WebSocket when possible.",
+  "transportModePollingInfo": "Při blokování WebSocketu se použije HTTP polling. Pokud je to možné, přepne se na WebSocket.",
   "@transportModePollingInfo": {
     "description": "Footnote text for the polling fallback transport mode."
   },
-  "transportModeWsInfo": "Lower overhead, but may fail behind strict proxies/firewalls.",
+  "transportModeWsInfo": "Nižší režie, ale může selhat za přísnými proxy/firewally.",
   "@transportModeWsInfo": {
     "description": "Footnote text for the WebSocket-only transport mode."
   },
-  "notes": "Notes",
+  "notes": "Poznámky",
   "@notes": {
     "description": "Navigation item and page title for notes feature."
   },
-  "searchNotes": "Search notes...",
+  "searchNotes": "Hledat poznámky...",
   "@searchNotes": {
     "description": "Placeholder text for notes search field."
   },
-  "createNote": "Create Note",
+  "createNote": "Vytvořit poznámku",
   "@createNote": {
     "description": "Tooltip/button label for creating a new note."
   },
-  "noNotesYet": "No notes yet",
+  "noNotesYet": "Zatím žádné poznámky",
   "@noNotesYet": {
     "description": "Empty state title when user has no notes."
   },
-  "noNotesFound": "No notes found",
+  "noNotesFound": "Nebyly nalezeny žádné poznámky",
   "@noNotesFound": {
     "description": "Empty state title when search returns no results."
   },
-  "createFirstNoteHint": "Tap the + button to create your first note.",
+  "createFirstNoteHint": "Klepnutím na tlačítko + vytvoříte první poznámku.",
   "@createFirstNoteHint": {
     "description": "Hint text encouraging user to create their first note."
   },
-  "tryDifferentSearch": "Try a different search term.",
+  "tryDifferentSearch": "Zkuste jiný hledaný výraz.",
   "@tryDifferentSearch": {
     "description": "Hint text when note search returns no results."
   },
-  "loadingNotes": "Loading notes...",
+  "loadingNotes": "Načítání poznámek...",
   "@loadingNotes": {
     "description": "Progress message while fetching notes list."
   },
-  "loadingNote": "Loading note...",
+  "loadingNote": "Načítání poznámky...",
   "@loadingNote": {
     "description": "Progress message while fetching a single note."
   },
-  "failedToLoadNotes": "Failed to load notes",
+  "failedToLoadNotes": "Poznámky se nepodařilo načíst",
   "@failedToLoadNotes": {
     "description": "Error message when notes list cannot be retrieved."
   },
-  "deleteNoteTitle": "Delete Note",
+  "deleteNoteTitle": "Smazat poznámku",
   "@deleteNoteTitle": {
     "description": "Dialog title for confirming note deletion."
   },
-  "deleteNoteMessage": "Delete \"{title}\"? This cannot be undone.",
+  "deleteNoteMessage": "Smazat „{title}“? Tuto akci nelze vrátit zpět.",
   "@deleteNoteMessage": {
     "description": "Confirmation message for deleting a note.",
     "placeholders": {
@@ -1751,163 +1751,163 @@
       }
     }
   },
-  "writeNote": "Write something...",
+  "writeNote": "Napište něco...",
   "@writeNote": {
     "description": "Hint text for note content input field."
   },
-  "saving": "Saving...",
+  "saving": "Ukládání...",
   "@saving": {
     "description": "Status text while saving."
   },
-  "saved": "Saved",
+  "saved": "Uloženo",
   "@saved": {
     "description": "Status text when content is saved."
   },
-  "noteCopiedToClipboard": "Note copied to clipboard",
+  "noteCopiedToClipboard": "Poznámka zkopírována do schránky",
   "@noteCopiedToClipboard": {
     "description": "Confirmation message when note content is copied to clipboard."
   },
-  "generateTitle": "Generate Title",
+  "generateTitle": "Vygenerovat název",
   "@generateTitle": {
     "description": "Tooltip for generating a title with AI."
   },
-  "generatingTitle": "Generating title...",
+  "generatingTitle": "Generování názvu...",
   "@generatingTitle": {
     "description": "Placeholder while AI generates a title."
   },
-  "noContentToGenerateTitle": "Add some content first to generate a title",
+  "noContentToGenerateTitle": "Pro vygenerování názvu nejprve přidejte obsah",
   "@noContentToGenerateTitle": {
     "description": "Error when trying to generate title with empty content."
   },
-  "failedToGenerateTitle": "Failed to generate title",
+  "failedToGenerateTitle": "Název se nepodařilo vygenerovat",
   "@failedToGenerateTitle": {
     "description": "Error message when title generation fails."
   },
-  "noContentToEnhance": "Add some content first to enhance",
+  "noContentToEnhance": "Pro vylepšení nejprve přidejte obsah",
   "@noContentToEnhance": {
     "description": "Error when trying to enhance empty content."
   },
-  "noteEnhanced": "Note enhanced with AI",
+  "noteEnhanced": "Poznámka vylepšena pomocí AI",
   "@noteEnhanced": {
     "description": "Success message after AI enhancement."
   },
-  "failedToEnhanceNote": "Failed to enhance note",
+  "failedToEnhanceNote": "Poznámku se nepodařilo vylepšit",
   "@failedToEnhanceNote": {
     "description": "Error message when enhancement fails."
   },
-  "noModelSelected": "Please select a model first",
+  "noModelSelected": "Nejprve vyberte model",
   "@noModelSelected": {
     "description": "Error message when no AI model is selected."
   },
-  "enhanceWithAI": "Enhance with AI",
+  "enhanceWithAI": "Vylepšit pomocí AI",
   "@enhanceWithAI": {
     "description": "Tooltip for AI enhance button."
   },
-  "enhanceNote": "Enhance Note",
+  "enhanceNote": "Vylepšit poznámku",
   "@enhanceNote": {
     "description": "Menu item to enhance note content."
   },
-  "startDictation": "Start dictation",
+  "startDictation": "Spustit diktování",
   "@startDictation": {
     "description": "Tooltip for dictation button."
   },
-  "stopRecording": "Stop recording",
+  "stopRecording": "Zastavit nahrávání",
   "@stopRecording": {
     "description": "Tooltip for stop recording button."
   },
-  "voiceInputUnavailable": "Voice input is not available",
+  "voiceInputUnavailable": "Hlasový vstup není dostupný",
   "@voiceInputUnavailable": {
     "description": "Error when voice input is not available."
   },
-  "failedToStartDictation": "Failed to start dictation",
+  "failedToStartDictation": "Diktování se nepodařilo spustit",
   "@failedToStartDictation": {
     "description": "Error when starting dictation fails."
   },
-  "voiceOptions": "Voice options",
+  "voiceOptions": "Možnosti hlasu",
   "@voiceOptions": {
     "description": "Tooltip for voice/recording options button."
   },
-  "dictation": "Dictation",
+  "dictation": "Diktování",
   "@dictation": {
     "description": "Option for real-time speech to text."
   },
-  "dictationDescription": "Speak and convert to text in real-time",
+  "dictationDescription": "Mluvte a převádějte řeč na text v reálném čase",
   "@dictationDescription": {
     "description": "Description for dictation option."
   },
-  "recordAudio": "Record Audio",
+  "recordAudio": "Nahrát zvuk",
   "@recordAudio": {
     "description": "Option for recording audio files."
   },
-  "recordAudioDescription": "Save audio for later transcription",
+  "recordAudioDescription": "Uložit zvuk pro pozdější přepis",
   "@recordAudioDescription": {
     "description": "Description for audio recording option."
   },
-  "recordingAudio": "Recording...",
+  "recordingAudio": "Nahrávání...",
   "@recordingAudio": {
     "description": "Status text while recording audio."
   },
-  "preparingRecording": "Preparing...",
+  "preparingRecording": "Příprava...",
   "@preparingRecording": {
     "description": "Status text while preparing to record."
   },
-  "recordingHint": "Tap stop when finished",
+  "recordingHint": "Po dokončení klepněte na zastavit",
   "@recordingHint": {
     "description": "Hint shown during audio recording."
   },
-  "stopAndSaveRecording": "Stop & Save",
+  "stopAndSaveRecording": "Zastavit a uložit",
   "@stopAndSaveRecording": {
     "description": "Button to stop and save an audio recording."
   },
-  "processingRecording": "Processing...",
+  "processingRecording": "Zpracování...",
   "@processingRecording": {
     "description": "Status while processing a recording."
   },
-  "audioRecordingSaved": "Audio recording saved",
+  "audioRecordingSaved": "Zvuková nahrávka uložena",
   "@audioRecordingSaved": {
     "description": "Success message after saving audio recording."
   },
-  "failedToUploadAudio": "Failed to upload audio",
+  "failedToUploadAudio": "Zvuk se nepodařilo nahrát",
   "@failedToUploadAudio": {
     "description": "Error when audio upload fails."
   },
-  "microphonePermissionDenied": "Microphone permission denied",
+  "microphonePermissionDenied": "Přístup k mikrofonu byl odepřen",
   "@microphonePermissionDenied": {
     "description": "Error when microphone access is denied."
   },
-  "recordingFailed": "Recording failed",
+  "recordingFailed": "Nahrávání selhalo",
   "@recordingFailed": {
     "description": "Error when audio recording fails."
   },
-  "noteNotFound": "Note not found",
+  "noteNotFound": "Poznámka nebyla nalezena",
   "@noteNotFound": {
     "description": "Error message when a note cannot be found."
   },
-  "untitled": "Untitled",
+  "untitled": "Bez názvu",
   "@untitled": {
     "description": "Default title for notes without a title."
   },
-  "today": "Today",
+  "today": "Dnes",
   "@today": {
     "description": "Time range label for items from today."
   },
-  "yesterday": "Yesterday",
+  "yesterday": "Včera",
   "@yesterday": {
     "description": "Time range label for items from yesterday."
   },
-  "previous7Days": "Previous 7 Days",
+  "previous7Days": "Posledních 7 dní",
   "@previous7Days": {
     "description": "Time range label for items from the last week."
   },
-  "previous30Days": "Previous 30 Days",
+  "previous30Days": "Posledních 30 dní",
   "@previous30Days": {
     "description": "Time range label for items from the last month."
   },
-  "older": "Older",
+  "older": "Starší",
   "@older": {
     "description": "Time range label for items older than 30 days."
   },
-  "wordCount": "{count} words",
+  "wordCount": "{count, plural, one{1 slovo} few{{count} slova} other{{count} slov}}",
   "@wordCount": {
     "description": "Status bar text showing word count.",
     "placeholders": {
@@ -1917,7 +1917,7 @@
       }
     }
   },
-  "charCount": "{count} characters",
+  "charCount": "{count, plural, one{1 znak} few{{count} znaky} other{{count} znaků}}",
   "@charCount": {
     "description": "Status bar text showing character count.",
     "placeholders": {
@@ -1927,23 +1927,23 @@
       }
     }
   },
-  "mermaidPreviewUnavailable": "Mermaid preview is not available on this platform.",
+  "mermaidPreviewUnavailable": "Náhled Mermaid není na této platformě dostupný.",
   "@mermaidPreviewUnavailable": {
     "description": "Shown when Mermaid diagrams cannot be rendered on the current platform."
   },
-  "chartPreviewUnavailable": "Chart preview is not available on this platform.",
+  "chartPreviewUnavailable": "Náhled grafu není na této platformě dostupný.",
   "@chartPreviewUnavailable": {
     "description": "Shown when Chart.js charts cannot be rendered on the current platform."
   },
-  "promptVariablesTitle": "Fill in Details",
+  "promptVariablesTitle": "Vyplňte podrobnosti",
   "@promptVariablesTitle": {
     "description": "Default title for the prompt variables dialog."
   },
-  "promptVariablesDescription": "Complete the fields below to customize this prompt.",
+  "promptVariablesDescription": "Vyplňte níže uvedená pole a přizpůsobte tento prompt.",
   "@promptVariablesDescription": {
     "description": "Description shown in the prompt variables dialog."
   },
-  "promptVariableNumberMin": "Minimum value is {min}",
+  "promptVariableNumberMin": "Minimální hodnota je {min}",
   "@promptVariableNumberMin": {
     "description": "Validation message when a number is below the minimum.",
     "placeholders": {
@@ -1953,7 +1953,7 @@
       }
     }
   },
-  "promptVariableNumberMax": "Maximum value is {max}",
+  "promptVariableNumberMax": "Maximální hodnota je {max}",
   "@promptVariableNumberMax": {
     "description": "Validation message when a number is above the maximum.",
     "placeholders": {
@@ -1967,23 +1967,23 @@
   "@sso": {
     "description": "Label for Single Sign-On authentication option."
   },
-  "ssoDescription": "Sign in with your organization's identity provider",
+  "ssoDescription": "Přihlášení přes poskytovatele identity vaší organizace",
   "@ssoDescription": {
     "description": "Description text explaining SSO authentication."
   },
-  "signInWithSso": "Sign in with SSO",
+  "signInWithSso": "Přihlásit se přes SSO",
   "@signInWithSso": {
     "description": "Button text for SSO sign-in."
   },
-  "ssoAuthenticating": "Authenticating...",
+  "ssoAuthenticating": "Ověřování...",
   "@ssoAuthenticating": {
     "description": "Loading message during SSO authentication."
   },
-  "ssoAuthFailed": "SSO authentication failed",
+  "ssoAuthFailed": "Ověření SSO selhalo",
   "@ssoAuthFailed": {
     "description": "Error message when SSO authentication fails."
   },
-  "ssoLoadingLogin": "Loading login page...",
+  "ssoLoadingLogin": "Načítání přihlašovací stránky...",
   "@ssoLoadingLogin": {
     "description": "Loading message while SSO login page loads."
   },
@@ -1991,75 +1991,75 @@
   "@ldap": {
     "description": "Label for LDAP authentication option."
   },
-  "ldapDescription": "Sign in with your LDAP directory credentials",
+  "ldapDescription": "Přihlášení pomocí přihlašovacích údajů z adresáře LDAP",
   "@ldapDescription": {
     "description": "Description text explaining LDAP authentication."
   },
-  "signInWithLdap": "Sign in with LDAP",
+  "signInWithLdap": "Přihlásit se přes LDAP",
   "@signInWithLdap": {
     "description": "Button text for LDAP sign-in."
   },
-  "ldapUsername": "Username",
+  "ldapUsername": "Uživatelské jméno",
   "@ldapUsername": {
     "description": "Label for LDAP username field."
   },
-  "ldapUsernameHint": "Enter your LDAP username",
+  "ldapUsernameHint": "Zadejte uživatelské jméno LDAP",
   "@ldapUsernameHint": {
     "description": "Hint text for LDAP username field."
   },
-  "moreSignInOptions": "More sign-in options",
+  "moreSignInOptions": "Další možnosti přihlášení",
   "@moreSignInOptions": {
     "description": "Section header for additional authentication methods."
   },
-  "ldapNotEnabled": "LDAP authentication is not enabled on this server",
+  "ldapNotEnabled": "Ověřování LDAP není na tomto serveru povoleno",
   "@ldapNotEnabled": {
     "description": "Error message when LDAP is not configured on the server."
   },
-  "ssoPlatformNotSupported": "SSO authentication is not supported on this platform. Please use credentials or LDAP authentication instead.",
+  "ssoPlatformNotSupported": "Ověřování SSO není na této platformě podporováno. Použijte místo toho přihlašovací údaje nebo LDAP.",
   "@ssoPlatformNotSupported": {
     "description": "Error message when SSO is attempted on an unsupported platform (desktop/web)."
   },
-  "proxyAuthentication": "Proxy Authentication",
+  "proxyAuthentication": "Ověření přes proxy",
   "@proxyAuthentication": {
     "description": "Title for the proxy authentication page."
   },
-  "proxyAuthPlatformNotSupported": "Proxy authentication requires a mobile device. Please authenticate through a browser first.",
+  "proxyAuthPlatformNotSupported": "Ověření přes proxy vyžaduje mobilní zařízení. Nejprve se prosím ověřte v prohlížeči.",
   "@proxyAuthPlatformNotSupported": {
     "description": "Error message when proxy auth is attempted on an unsupported platform."
   },
-  "proxyAuthLoading": "Loading authentication page...",
+  "proxyAuthLoading": "Načítání ověřovací stránky...",
   "@proxyAuthLoading": {
     "description": "Loading message while the proxy login page loads."
   },
-  "proxyAuthFailed": "Proxy authentication failed",
+  "proxyAuthFailed": "Ověření přes proxy selhalo",
   "@proxyAuthFailed": {
     "description": "Error message when proxy authentication fails."
   },
-  "proxyAuthHelpText": "Complete sign-in through your organization's proxy, then sign in to Open WebUI. You'll be redirected automatically.",
+  "proxyAuthHelpText": "Dokončete přihlášení přes proxy vaší organizace a poté se přihlaste do Open WebUI. Budete automaticky přesměrováni.",
   "@proxyAuthHelpText": {
     "description": "Help text explaining how to complete proxy authentication."
   },
-  "proxyAuthHelpTextSimple": "Sign in through your proxy. Once authenticated, tap Continue to proceed to sign in.",
+  "proxyAuthHelpTextSimple": "Přihlaste se přes proxy. Po ověření pokračujte klepnutím na Pokračovat.",
   "@proxyAuthHelpTextSimple": {
     "description": "Simplified help text for proxy-only authentication flow."
   },
-  "continueButton": "Continue",
+  "continueButton": "Pokračovat",
   "@continueButton": {
     "description": "Generic continue button text."
   },
-  "proxyAuthRequired": "This server requires proxy authentication",
+  "proxyAuthRequired": "Tento server vyžaduje ověření přes proxy",
   "@proxyAuthRequired": {
     "description": "Message when server is behind an authentication proxy."
   },
-  "proxyAuthRequiredDescription": "Your server appears to be behind an authentication proxy (like oauth2-proxy). You'll need to sign in through the proxy first.",
+  "proxyAuthRequiredDescription": "Server je zřejmě za ověřovací proxy (např. oauth2-proxy). Nejprve se musíte přihlásit přes proxy.",
   "@proxyAuthRequiredDescription": {
     "description": "Detailed explanation of proxy authentication requirement."
   },
-  "authenticateThroughProxy": "Authenticate",
+  "authenticateThroughProxy": "Ověřit",
   "@authenticateThroughProxy": {
     "description": "Button text to start proxy authentication."
   },
-  "continueWithProvider": "Continue with {provider}",
+  "continueWithProvider": "Pokračovat přes {provider}",
   "@continueWithProvider": {
     "description": "Button text for OAuth provider sign-in.",
     "placeholders": {
@@ -2069,243 +2069,243 @@
       }
     }
   },
-  "or": "or",
+  "or": "nebo",
   "@or": {
     "description": "Separator text between authentication options."
   },
-  "audioAttachment": "Audio Attachment",
+  "audioAttachment": "Zvuková příloha",
   "@audioAttachment": {
     "description": "Label for audio file attachments in notes."
   },
-  "loadingAudio": "Loading audio...",
+  "loadingAudio": "Načítání zvuku...",
   "@loadingAudio": {
     "description": "Loading message while audio file loads."
   },
-  "failedToLoadAudio": "Failed to load audio",
+  "failedToLoadAudio": "Zvuk se nepodařilo načíst",
   "@failedToLoadAudio": {
     "description": "Error message when audio file fails to load."
   },
-  "removeFileConfirm": "Remove this file from the note?",
+  "removeFileConfirm": "Odebrat tento soubor z poznámky?",
   "@removeFileConfirm": {
     "description": "Confirmation message when removing a file attachment."
   },
-  "fileRemoved": "File removed",
+  "fileRemoved": "Soubor odebrán",
   "@fileRemoved": {
     "description": "Success message after removing a file attachment."
   },
-  "playAudio": "Play audio",
+  "playAudio": "Přehrát zvuk",
   "@playAudio": {
     "description": "Tooltip for audio play button."
   },
-  "removeFile": "Remove file",
+  "removeFile": "Odebrat soubor",
   "@removeFile": {
     "description": "Tooltip for remove file button."
   },
-  "audioFileType": "Audio",
+  "audioFileType": "Zvuk",
   "@audioFileType": {
     "description": "Label for audio file type."
   },
-  "imageFileType": "Image",
+  "imageFileType": "Obrázek",
   "@imageFileType": {
     "description": "Label for image file type."
   },
-  "temporaryChat": "Temporary Chat",
+  "temporaryChat": "Dočasný chat",
   "@temporaryChat": {
     "description": "Label for the temporary chat toggle."
   },
-  "temporaryChatTooltip": "This chat won't appear in history",
+  "temporaryChatTooltip": "Tento chat se nezobrazí v historii",
   "@temporaryChatTooltip": {
     "description": "Tooltip shown when temporary chat is enabled."
   },
-  "saveChat": "Save Chat",
+  "saveChat": "Uložit chat",
   "@saveChat": {
     "description": "Action to save a temporary chat to history."
   },
-  "temporaryChatByDefault": "Temporary Chat by Default",
+  "temporaryChatByDefault": "Dočasný chat jako výchozí",
   "@temporaryChatByDefault": {
     "description": "Setting to make all new chats temporary by default."
   },
-  "temporaryChatByDefaultDescription": "New chats won't be saved to history unless you choose to save them",
+  "temporaryChatByDefaultDescription": "Nové chaty se nebudou ukládat do historie, pokud je sami neuložíte",
   "@temporaryChatByDefaultDescription": {
     "description": "Description for the temporary chat by default setting."
   },
-  "chatSaved": "Chat saved to history",
+  "chatSaved": "Chat uložen do historie",
   "@chatSaved": {
     "description": "Snackbar message shown after saving a temporary chat."
   },
-  "chatSaveFailed": "Failed to save chat",
+  "chatSaveFailed": "Chat se nepodařilo uložit",
   "@chatSaveFailed": {
     "description": "Snackbar message shown when saving a temporary chat fails."
   },
-  "sidebarChatsTab": "Chats",
+  "sidebarChatsTab": "Chaty",
   "@sidebarChatsTab": {
     "description": "Label for the Chats tab in the sidebar"
   },
-  "sidebarTerminalTab": "Terminal",
+  "sidebarTerminalTab": "Terminál",
   "@sidebarTerminalTab": {
     "description": "Label for the Terminal tab in the sidebar"
   },
-  "sidebarNotesTab": "Notes",
+  "sidebarNotesTab": "Poznámky",
   "@sidebarNotesTab": {
     "description": "Label for the Notes tab in the sidebar"
   },
-  "sidebarChannelsTab": "Channels",
+  "sidebarChannelsTab": "Kanály",
   "@sidebarChannelsTab": {
     "description": "Label for the Channels tab in the sidebar"
   },
-  "terminalSelectServer": "Select a terminal server",
+  "terminalSelectServer": "Vyberte terminálový server",
   "@terminalSelectServer": {
     "description": "Prompt shown when the user needs to choose a terminal server."
   },
-  "terminalNoServersConfigured": "No terminal servers available.",
+  "terminalNoServersConfigured": "Nejsou dostupné žádné terminálové servery.",
   "@terminalNoServersConfigured": {
     "description": "Empty state shown when there are no terminal servers configured."
   },
-  "terminalConnectAction": "Connect",
+  "terminalConnectAction": "Připojit",
   "@terminalConnectAction": {
     "description": "Button label used to connect to a terminal session."
   },
-  "terminalDisconnectAction": "Disconnect",
+  "terminalDisconnectAction": "Odpojit",
   "@terminalDisconnectAction": {
     "description": "Button label used to disconnect from a terminal session."
   },
-  "terminalConnectedStatus": "Connected",
+  "terminalConnectedStatus": "Připojeno",
   "@terminalConnectedStatus": {
     "description": "Status label shown when the terminal is connected."
   },
-  "terminalDisconnectedStatus": "Disconnected",
+  "terminalDisconnectedStatus": "Odpojeno",
   "@terminalDisconnectedStatus": {
     "description": "Status label shown when the terminal is disconnected."
   },
-  "terminalConnectingStatus": "Connecting...",
+  "terminalConnectingStatus": "Připojování...",
   "@terminalConnectingStatus": {
     "description": "Status label shown while the terminal connection is being established."
   },
-  "terminalUploadAction": "Upload",
+  "terminalUploadAction": "Nahrát",
   "@terminalUploadAction": {
     "description": "Action label for uploading a file into the terminal workspace."
   },
-  "terminalOpenInBrowserAction": "Open in browser",
+  "terminalOpenInBrowserAction": "Otevřít v prohlížeči",
   "@terminalOpenInBrowserAction": {
     "description": "Action label for opening a forwarded port in the browser."
   },
-  "terminalHomeAction": "Home directory",
+  "terminalHomeAction": "Domovský adresář",
   "@terminalHomeAction": {
     "description": "Tooltip for navigating back to the terminal home directory."
   },
-  "terminalCurrentPathLabel": "Current path",
+  "terminalCurrentPathLabel": "Aktuální cesta",
   "@terminalCurrentPathLabel": {
     "description": "Label displayed above the current terminal working directory."
   },
-  "terminalPortsSectionLabel": "Listening ports",
+  "terminalPortsSectionLabel": "Naslouchající porty",
   "@terminalPortsSectionLabel": {
     "description": "Section title for ports discovered in the terminal environment."
   },
-  "terminalNoFiles": "No files in this directory.",
+  "terminalNoFiles": "V tomto adresáři nejsou žádné soubory.",
   "@terminalNoFiles": {
     "description": "Empty state shown when the current terminal directory has no files."
   },
-  "terminalNoPorts": "No listening ports detected.",
+  "terminalNoPorts": "Nebyly zjištěny žádné naslouchající porty.",
   "@terminalNoPorts": {
     "description": "Empty state shown when the terminal server reports no listening ports."
   },
-  "terminalPreviewUnavailable": "Preview unavailable. Use Download instead.",
+  "terminalPreviewUnavailable": "Náhled není dostupný. Použijte místo toho stažení.",
   "@terminalPreviewUnavailable": {
     "description": "Message shown when a terminal file cannot be previewed inline."
   },
-  "terminalFeatureDisabled": "This terminal server does not expose an interactive shell.",
+  "terminalFeatureDisabled": "Tento terminálový server nezpřístupňuje interaktivní shell.",
   "@terminalFeatureDisabled": {
     "description": "Message shown when the selected terminal server disables interactive terminal sessions."
   },
-  "terminalFolderNameHint": "Folder name",
+  "terminalFolderNameHint": "Název složky",
   "@terminalFolderNameHint": {
     "description": "Hint text used when creating a new folder in the terminal workspace."
   },
-  "terminalFailedToLoadFiles": "Unable to load terminal files.",
+  "terminalFailedToLoadFiles": "Soubory terminálu nelze načíst.",
   "@terminalFailedToLoadFiles": {
     "description": "Error message shown when the terminal file list cannot be loaded."
   },
-  "terminalFailedToLoadPorts": "Unable to load listening ports.",
+  "terminalFailedToLoadPorts": "Naslouchající porty nelze načíst.",
   "@terminalFailedToLoadPorts": {
     "description": "Error message shown when terminal port discovery fails."
   },
-  "terminalFailedToConnect": "Unable to connect to the terminal.",
+  "terminalFailedToConnect": "K terminálu se nelze připojit.",
   "@terminalFailedToConnect": {
     "description": "Error message shown when the terminal websocket session cannot be opened."
   },
-  "terminalDownloadFailed": "Unable to download the selected file.",
+  "terminalDownloadFailed": "Vybraný soubor nelze stáhnout.",
   "@terminalDownloadFailed": {
     "description": "Error message shown when downloading a terminal file fails."
   },
-  "terminalUploadFailed": "Unable to upload the selected file.",
+  "terminalUploadFailed": "Vybraný soubor nelze nahrát.",
   "@terminalUploadFailed": {
     "description": "Error message shown when uploading a terminal file fails."
   },
-  "terminalRenameFailed": "Unable to rename the selected item.",
+  "terminalRenameFailed": "Vybranou položku nelze přejmenovat.",
   "@terminalRenameFailed": {
     "description": "Error message shown when renaming a file or folder in the terminal workspace fails."
   },
-  "terminalDeleteFailed": "Unable to delete the selected item.",
+  "terminalDeleteFailed": "Vybranou položku nelze smazat.",
   "@terminalDeleteFailed": {
     "description": "Error message shown when deleting a file or folder in the terminal workspace fails."
   },
-  "terminalFolderCreateFailed": "Unable to create the folder.",
+  "terminalFolderCreateFailed": "Složku nelze vytvořit.",
   "@terminalFolderCreateFailed": {
     "description": "Error message shown when creating a new terminal folder fails."
   },
-  "closeSidebar": "Close sidebar",
+  "closeSidebar": "Zavřít postranní panel",
   "@closeSidebar": {
     "description": "Tooltip for the sidebar close button"
   },
-  "channelCreateTitle": "Create Channel",
+  "channelCreateTitle": "Vytvořit kanál",
   "@channelCreateTitle": {
     "description": "Title for the create channel dialog"
   },
-  "channelName": "Channel Name",
+  "channelName": "Název kanálu",
   "@channelName": {
     "description": "Label for channel name input field"
   },
-  "channelDescription": "Description",
+  "channelDescription": "Popis",
   "@channelDescription": {
     "description": "Label for channel description input field"
   },
-  "channelPrivate": "Private Channel",
+  "channelPrivate": "Soukromý kanál",
   "@channelPrivate": {
     "description": "Label for the private channel toggle"
   },
-  "channelJoin": "Join Channel",
+  "channelJoin": "Připojit se ke kanálu",
   "@channelJoin": {
     "description": "Button label to join a channel"
   },
-  "channelLeave": "Leave Channel",
+  "channelLeave": "Opustit kanál",
   "@channelLeave": {
     "description": "Button label to leave a channel"
   },
-  "channelDelete": "Delete Channel",
+  "channelDelete": "Smazat kanál",
   "@channelDelete": {
     "description": "Button label to delete a channel"
   },
-  "channelEdit": "Edit Channel",
+  "channelEdit": "Upravit kanál",
   "@channelEdit": {
     "description": "Button label to edit channel details"
   },
-  "channelDeleteConfirm": "Delete this channel? This cannot be undone.",
+  "channelDeleteConfirm": "Smazat tento kanál? Tuto akci nelze vrátit zpět.",
   "@channelDeleteConfirm": {
     "description": "Confirmation message when deleting a channel"
   },
-  "channelLeaveConfirm": "Leave this channel?",
+  "channelLeaveConfirm": "Opustit tento kanál?",
   "@channelLeaveConfirm": {
     "description": "Confirmation message when leaving a channel"
   },
-  "channelEmptyState": "No channels yet",
+  "channelEmptyState": "Zatím žádné kanály",
   "@channelEmptyState": {
     "description": "Message shown when there are no channels"
   },
-  "channelNoMessages": "No messages yet. Start the conversation!",
+  "channelNoMessages": "Zatím žádné zprávy. Zahajte konverzaci!",
   "@channelNoMessages": {
     "description": "Message shown when a channel has no messages"
   },
-  "channelMembers": "{count} {count, plural, =1{member} other{members}}",
+  "channelMembers": "{count} {count, plural, =1{člen} few{členové} other{členů}}",
   "@channelMembers": {
     "description": "Member count display in channel header",
     "placeholders": {
@@ -2314,47 +2314,47 @@
       }
     }
   },
-  "channelMessageReply": "Reply",
+  "channelMessageReply": "Odpovědět",
   "@channelMessageReply": {
     "description": "Context menu option to reply to a message"
   },
-  "channelMessageReact": "React",
+  "channelMessageReact": "Reagovat",
   "@channelMessageReact": {
     "description": "Context menu option to add a reaction"
   },
-  "channelMessageEdit": "Edit",
+  "channelMessageEdit": "Upravit",
   "@channelMessageEdit": {
     "description": "Context menu option to edit own message"
   },
-  "channelMessageDelete": "Delete",
+  "channelMessageDelete": "Smazat",
   "@channelMessageDelete": {
     "description": "Context menu option to delete own message"
   },
-  "channelLoadError": "Failed to load channels",
+  "channelLoadError": "Kanály se nepodařilo načíst",
   "@channelLoadError": {
     "description": "Error message when channels fail to load"
   },
-  "channelSendError": "Failed to send message",
+  "channelSendError": "Zprávu se nepodařilo odeslat",
   "@channelSendError": {
     "description": "Error message when a channel message fails to send"
   },
-  "channelDeleted": "This channel has been deleted",
+  "channelDeleted": "Tento kanál byl smazán",
   "@channelDeleted": {
     "description": "Snackbar message when a viewed channel is deleted"
   },
-  "searchChannels": "Search channels...",
+  "searchChannels": "Hledat kanály...",
   "@searchChannels": {
     "description": "Hint text for the channel search field"
   },
-  "channelCreateError": "Failed to create channel",
+  "channelCreateError": "Kanál se nepodařilo vytvořit",
   "@channelCreateError": {
     "description": "Snackbar message when channel creation fails"
   },
-  "channelMessageHint": "Message...",
+  "channelMessageHint": "Zpráva...",
   "@channelMessageHint": {
     "description": "Hint text for the channel message input field"
   },
-  "audioUploadError": "Failed to upload audio: {error}",
+  "audioUploadError": "Zvuk se nepodařilo nahrát: {error}",
   "@audioUploadError": {
     "description": "Error message when audio upload fails",
     "placeholders": {
@@ -2364,79 +2364,79 @@
       }
     }
   },
-  "shareChat": "Share Chat",
+  "shareChat": "Sdílet chat",
   "@shareChat": {
     "description": "Dialog title and action label for sharing a chat."
   },
-  "shareChatDescription": "Messages you send after creating your link won't be shared. Users with the URL will be able to view the shared chat.",
+  "shareChatDescription": "Zprávy odeslané po vytvoření odkazu nebudou sdíleny. Uživatelé s URL si budou moci sdílený chat zobrazit.",
   "@shareChatDescription": {
     "description": "Explains that a shared chat link is a snapshot."
   },
-  "shareChatExisting": "You have shared this chat before.",
+  "shareChatExisting": "Tento chat jste už dříve sdíleli.",
   "@shareChatExisting": {
     "description": "Explains that the chat already has an existing shared link."
   },
-  "shareChatDeleteLink": "Delete this link",
+  "shareChatDeleteLink": "Smazat tento odkaz",
   "@shareChatDeleteLink": {
     "description": "Action label to delete the current shared chat link."
   },
-  "shareChatDeleteAndCreate": "and create a new shared link.",
+  "shareChatDeleteAndCreate": "a vytvořit nový sdílený odkaz.",
   "@shareChatDeleteAndCreate": {
     "description": "Continuation text after the delete shared link action."
   },
-  "copyLink": "Copy Link",
+  "copyLink": "Kopírovat odkaz",
   "@copyLink": {
     "description": "Button label to copy a newly created shared chat URL."
   },
-  "updateAndCopyLink": "Update and Copy Link",
+  "updateAndCopyLink": "Aktualizovat a zkopírovat odkaz",
   "@updateAndCopyLink": {
     "description": "Button label to refresh a shared chat snapshot and copy the URL."
   },
-  "sharedChatCopied": "Copied shared chat URL to clipboard!",
+  "sharedChatCopied": "URL sdíleného chatu zkopírována do schránky!",
   "@sharedChatCopied": {
     "description": "Snackbar shown after copying a shared chat URL."
   },
-  "shareSystemSheet": "Share...",
+  "shareSystemSheet": "Sdílet...",
   "@shareSystemSheet": {
     "description": "Button label to open the platform share sheet."
   },
-  "chatShareFailed": "Failed to share chat",
+  "chatShareFailed": "Chat se nepodařilo sdílet",
   "@chatShareFailed": {
     "description": "Snackbar shown when chat sharing fails."
   },
-  "sharedLinkDeleted": "Shared chat link deleted",
+  "sharedLinkDeleted": "Odkaz na sdílený chat smazán",
   "@sharedLinkDeleted": {
     "description": "Snackbar shown after deleting a shared chat link."
   },
-  "deleteSharedLinkFailed": "Failed to delete shared link",
+  "deleteSharedLinkFailed": "Sdílený odkaz se nepodařilo smazat",
   "@deleteSharedLinkFailed": {
     "description": "Snackbar shown when deleting a shared chat link fails."
   },
-  "systemPrompts": "System Prompts",
+  "systemPrompts": "Systémové prompty",
   "@systemPrompts": {
     "description": "Section title for server-backed system prompt settings."
   },
-  "globalSystemPrompt": "Global system prompt",
+  "globalSystemPrompt": "Globální systémový prompt",
   "@globalSystemPrompt": {
     "description": "Title for the OpenWebUI user-level system prompt setting."
   },
-  "modelSystemPrompts": "Model system prompts",
+  "modelSystemPrompts": "Systémové prompty modelů",
   "@modelSystemPrompts": {
     "description": "Title for the OpenWebUI model-level system prompts list."
   },
-  "folderSystemPrompts": "Folder system prompts",
+  "folderSystemPrompts": "Systémové prompty složek",
   "@folderSystemPrompts": {
     "description": "Title for the OpenWebUI folder-level system prompts list."
   },
-  "openWebuiModelSettings": "OpenWebUI model settings",
+  "openWebuiModelSettings": "Nastavení modelů OpenWebUI",
   "@openWebuiModelSettings": {
     "description": "Subtitle for model prompt settings before models load."
   },
-  "openWebuiFolderSettings": "OpenWebUI folder settings",
+  "openWebuiFolderSettings": "Nastavení složek OpenWebUI",
   "@openWebuiFolderSettings": {
     "description": "Subtitle for folder prompt settings before folders load."
   },
-  "accessibleModelsCount": "{count} accessible models",
+  "accessibleModelsCount": "{count, plural, one{1 dostupný model} few{{count} dostupné modely} other{{count} dostupných modelů}}",
   "@accessibleModelsCount": {
     "description": "Subtitle showing how many accessible models are listed.",
     "placeholders": {
@@ -2446,7 +2446,7 @@
       }
     }
   },
-  "accessibleFoldersCount": "{count} accessible folders",
+  "accessibleFoldersCount": "{count, plural, one{1 dostupná složka} few{{count} dostupné složky} other{{count} dostupných složek}}",
   "@accessibleFoldersCount": {
     "description": "Subtitle showing how many accessible folders are listed.",
     "placeholders": {
@@ -2456,43 +2456,43 @@
       }
     }
   },
-  "unableToLoadOpenWebuiSettings": "Unable to load OpenWebUI settings.",
+  "unableToLoadOpenWebuiSettings": "Nastavení OpenWebUI nelze načíst.",
   "@unableToLoadOpenWebuiSettings": {
     "description": "Error shown when user settings cannot be loaded from OpenWebUI."
   },
-  "unableToLoadModels": "Unable to load models.",
+  "unableToLoadModels": "Modely nelze načíst.",
   "@unableToLoadModels": {
     "description": "Error shown when server models cannot be loaded."
   },
-  "unableToLoadFolders": "Unable to load folders.",
+  "unableToLoadFolders": "Složky nelze načíst.",
   "@unableToLoadFolders": {
     "description": "Error shown when server folders cannot be loaded."
   },
-  "noAccessibleModelsFound": "No accessible models found.",
+  "noAccessibleModelsFound": "Nebyly nalezeny žádné dostupné modely.",
   "@noAccessibleModelsFound": {
     "description": "Empty state for model system prompt settings."
   },
-  "noAccessibleFoldersFound": "No accessible folders found.",
+  "noAccessibleFoldersFound": "Nebyly nalezeny žádné dostupné složky.",
   "@noAccessibleFoldersFound": {
     "description": "Empty state for folder system prompt settings."
   },
-  "tapToLoadServerPromptSettings": "Tap to load server prompt settings.",
+  "tapToLoadServerPromptSettings": "Klepnutím načtete nastavení promptů serveru.",
   "@tapToLoadServerPromptSettings": {
     "description": "Subtitle for model rows whose prompt details are loaded on demand."
   },
-  "loadingFromOpenWebui": "Loading from OpenWebUI...",
+  "loadingFromOpenWebui": "Načítání z OpenWebUI...",
   "@loadingFromOpenWebui": {
     "description": "Loading subtitle for server-backed settings."
   },
-  "globalSystemPromptEditorDescription": "Saved to your OpenWebUI user settings and used as the default chat system prompt.",
+  "globalSystemPromptEditorDescription": "Uloženo do uživatelského nastavení OpenWebUI a použito jako výchozí systémový prompt chatu.",
   "@globalSystemPromptEditorDescription": {
     "description": "Description in the global system prompt editor."
   },
-  "modelNoEditableServerRecord": "This model has no editable server record.",
+  "modelNoEditableServerRecord": "Tento model nemá upravitelný záznam na serveru.",
   "@modelNoEditableServerRecord": {
     "description": "Snackbar shown when a model cannot be edited on the server."
   },
-  "modelSystemPromptTitle": "{modelName} system prompt",
+  "modelSystemPromptTitle": "Systémový prompt modelu {modelName}",
   "@modelSystemPromptTitle": {
     "description": "Title for a model system prompt editor.",
     "placeholders": {
@@ -2502,19 +2502,19 @@
       }
     }
   },
-  "modelSystemPromptEditorDescription": "Saved to OpenWebUI model params.system.",
+  "modelSystemPromptEditorDescription": "Uloženo do OpenWebUI model params.system.",
   "@modelSystemPromptEditorDescription": {
     "description": "Description for editable model system prompts."
   },
-  "modelNoWriteAccessDescription": "You do not have write access to this model.",
+  "modelNoWriteAccessDescription": "K tomuto modelu nemáte oprávnění k zápisu.",
   "@modelNoWriteAccessDescription": {
     "description": "Description shown for read-only model prompt editors."
   },
-  "unableToLoadFolder": "Unable to load this folder.",
+  "unableToLoadFolder": "Tuto složku nelze načíst.",
   "@unableToLoadFolder": {
     "description": "Snackbar shown when a folder detail cannot be loaded."
   },
-  "folderSystemPromptTitle": "{folderName} system prompt",
+  "folderSystemPromptTitle": "Systémový prompt složky {folderName}",
   "@folderSystemPromptTitle": {
     "description": "Title for a folder system prompt editor.",
     "placeholders": {
@@ -2524,63 +2524,63 @@
       }
     }
   },
-  "folderSystemPromptEditorDescription": "Saved to OpenWebUI folder data.system_prompt.",
+  "folderSystemPromptEditorDescription": "Uloženo do OpenWebUI folder data.system_prompt.",
   "@folderSystemPromptEditorDescription": {
     "description": "Description for folder system prompt editors."
   },
-  "notSet": "Not set",
+  "notSet": "Nenastaveno",
   "@notSet": {
     "description": "Value label when a setting has no value."
   },
-  "enterSystemPrompt": "Enter system prompt",
+  "enterSystemPrompt": "Zadejte systémový prompt",
   "@enterSystemPrompt": {
     "description": "Hint text for system prompt text fields."
   },
-  "close": "Close",
+  "close": "Zavřít",
   "@close": {
     "description": "Button label to close a dialog or sheet."
   },
-  "connectionHealth": "Connection Health",
+  "connectionHealth": "Stav připojení",
   "@connectionHealth": {
     "description": "Section title for connection health information."
   },
-  "personalization": "Personalization",
+  "personalization": "Personalizace",
   "@personalization": {
     "description": "Title for the personalization settings page."
   },
-  "personalizationSubtitle": "Default model, personal prompt, and memories",
+  "personalizationSubtitle": "Výchozí model, osobní prompt a paměti",
   "@personalizationSubtitle": {
     "description": "Subtitle for the personalization hub tile."
   },
-  "yourSystemPrompt": "Your system prompt",
+  "yourSystemPrompt": "Váš systémový prompt",
   "@yourSystemPrompt": {
     "description": "Label for the user's server-backed system prompt."
   },
-  "yourSystemPromptDescription": "Set a personal system prompt that OpenWebUI will apply to your chats.",
+  "yourSystemPromptDescription": "Nastavte osobní systémový prompt, který OpenWebUI použije pro vaše chaty.",
   "@yourSystemPromptDescription": {
     "description": "Helper text for editing the user's system prompt."
   },
-  "memoryTitle": "Memory",
+  "memoryTitle": "Paměť",
   "@memoryTitle": {
     "description": "Section title for memory settings."
   },
-  "memoryEnabledDescription": "Allow the server to use your saved memories in future chats.",
+  "memoryEnabledDescription": "Povolit serveru používat vaše uložené paměti v budoucích chatech.",
   "@memoryEnabledDescription": {
     "description": "Description shown when memory is enabled."
   },
-  "memoryDisabledDescription": "Saved memories stay on the server, but they will not be injected into chats.",
+  "memoryDisabledDescription": "Uložené paměti zůstanou na serveru, ale nebudou vkládány do chatů.",
   "@memoryDisabledDescription": {
     "description": "Description shown when memory is disabled."
   },
-  "manageMemories": "Manage memories",
+  "manageMemories": "Spravovat paměti",
   "@manageMemories": {
     "description": "Title for the memories management card."
   },
-  "manageMemoriesDescription": "Add, edit, and remove the facts the server remembers about you.",
+  "manageMemoriesDescription": "Přidávat, upravovat a odebírat fakta, která si server o vás pamatuje.",
   "@manageMemoriesDescription": {
     "description": "Subtitle for the memories management card."
   },
-  "savedMemoriesCount": "{count} saved memories",
+  "savedMemoriesCount": "{count, plural, one{1 uložená paměť} few{{count} uložené paměti} other{{count} uložených pamětí}}",
   "@savedMemoriesCount": {
     "description": "Shows how many memories are saved.",
     "placeholders": {
@@ -2589,90 +2589,90 @@
       }
     }
   },
-  "memoryEditorDescription": "Keep memories short and specific so the server can apply them consistently.",
+  "memoryEditorDescription": "Udržujte paměti krátké a konkrétní, aby je server mohl používat konzistentně.",
   "@memoryEditorDescription": {
     "description": "Helper text for the memory editor sheet."
   },
-  "memoryHint": "Example: I prefer concise answers with code samples.",
+  "memoryHint": "Příklad: Preferuji stručné odpovědi s ukázkami kódu.",
   "@memoryHint": {
     "description": "Hint text for the memory editor."
   },
-  "addMemory": "Add memory",
+  "addMemory": "Přidat paměť",
   "@addMemory": {
     "description": "Button label for creating a memory."
   },
-  "editMemory": "Edit memory",
+  "editMemory": "Upravit paměť",
   "@editMemory": {
     "description": "Button label for editing a memory."
   },
-  "deleteMemory": "Delete memory",
+  "deleteMemory": "Smazat paměť",
   "@deleteMemory": {
     "description": "Button label for deleting a memory."
   },
-  "deleteMemoryConfirm": "Delete this saved memory from the server?",
+  "deleteMemoryConfirm": "Smazat tuto uloženou paměť ze serveru?",
   "@deleteMemoryConfirm": {
     "description": "Confirmation message for deleting a memory."
   },
-  "clearAllMemories": "Clear all memories",
+  "clearAllMemories": "Vymazat všechny paměti",
   "@clearAllMemories": {
     "description": "Button label for clearing every saved memory."
   },
-  "clearAllMemoriesDescription": "This permanently deletes every saved memory for your account.",
+  "clearAllMemoriesDescription": "Tím trvale smažete všechny uložené paměti pro svůj účet.",
   "@clearAllMemoriesDescription": {
     "description": "Confirmation message for clearing all memories."
   },
-  "noMemoriesSaved": "No memories saved yet.",
+  "noMemoriesSaved": "Zatím nejsou uloženy žádné paměti.",
   "@noMemoriesSaved": {
     "description": "Empty state message for the memories list."
   },
-  "memoryUpdatedAt": "Updated {formattedTime}",
+  "memoryUpdatedAt": "Aktualizováno {formattedTime}",
   "@memoryUpdatedAt": {
     "description": "Shows when a memory was last updated.",
     "placeholders": {
       "formattedTime": {}
     }
   },
-  "advancedPromptOverrides": "Advanced prompt overrides",
+  "advancedPromptOverrides": "Pokročilá přepsání promptů",
   "@advancedPromptOverrides": {
     "description": "Title for advanced model/folder prompt override settings."
   },
-  "advancedPromptOverridesDescription": "Model-level prompt overrides live in App & Chat.",
+  "advancedPromptOverridesDescription": "Přepsání promptů na úrovni modelu jsou v části Aplikace a chat.",
   "@advancedPromptOverridesDescription": {
     "description": "Subtitle for the advanced prompt overrides shortcut."
   },
-  "audioSettingsTitle": "Audio",
+  "audioSettingsTitle": "Zvuk",
   "@audioSettingsTitle": {
     "description": "Title for the audio settings page."
   },
-  "audioSettingsSubtitle": "Speech to text and text to speech",
+  "audioSettingsSubtitle": "Řeč na text a text na řeč",
   "@audioSettingsSubtitle": {
     "description": "Subtitle for the audio settings hub tile."
   },
-  "appAndChat": "App & Chat",
+  "appAndChat": "Aplikace a chat",
   "@appAndChat": {
     "description": "Title for the app and chat settings page."
   },
-  "appAndChatSubtitle": "Theme, language, chat behavior, and advanced overrides",
+  "appAndChatSubtitle": "Motiv, jazyk, chování chatu a pokročilá přepsání",
   "@appAndChatSubtitle": {
     "description": "Subtitle for the app and chat settings hub tile."
   },
-  "accountSettingsTitle": "Account",
+  "accountSettingsTitle": "Účet",
   "@accountSettingsTitle": {
     "description": "Title for the account settings page."
   },
-  "accountSettingsSubtitle": "Profile details and password management",
+  "accountSettingsSubtitle": "Údaje profilu a správa hesla",
   "@accountSettingsSubtitle": {
     "description": "Subtitle for the account settings hub tile."
   },
-  "accountDetails": "Account details",
+  "accountDetails": "Údaje účtu",
   "@accountDetails": {
     "description": "Heading for read-only account identity details."
   },
-  "signInToManageAccount": "Sign in to manage account details.",
+  "signInToManageAccount": "Přihlaste se, abyste mohli spravovat údaje účtu.",
   "@signInToManageAccount": {
     "description": "Message shown when account details are unavailable."
   },
-  "emailLabel": "Email",
+  "emailLabel": "E-mail",
   "@emailLabel": {
     "description": "Label for the account email row."
   },
@@ -2680,19 +2680,19 @@
   "@roleLabel": {
     "description": "Label for the account role row."
   },
-  "accountStatus": "Status",
+  "accountStatus": "Stav",
   "@accountStatus": {
     "description": "Label for the account status row."
   },
-  "profileDetails": "Profile details",
+  "profileDetails": "Údaje profilu",
   "@profileDetails": {
     "description": "Heading for editable profile fields."
   },
-  "name": "Name",
+  "name": "Jméno",
   "@name": {
     "description": "Label for a person's name."
   },
-  "avatarUrl": "Avatar URL",
+  "avatarUrl": "URL avataru",
   "@avatarUrl": {
     "description": "Label for the avatar URL field."
   },
@@ -2704,251 +2704,251 @@
   "@bioLabel": {
     "description": "Label for the bio field."
   },
-  "bioHint": "A short description about you.",
+  "bioHint": "Krátký popis o vás.",
   "@bioHint": {
     "description": "Hint text for the bio field."
   },
-  "genderLabel": "Gender",
+  "genderLabel": "Pohlaví",
   "@genderLabel": {
     "description": "Label for the gender field."
   },
-  "genderPreferNotToSay": "Prefer not to say",
+  "genderPreferNotToSay": "Nechci uvádět",
   "@genderPreferNotToSay": {
     "description": "Option for not sharing gender."
   },
-  "genderMale": "Male",
+  "genderMale": "Muž",
   "@genderMale": {
     "description": "Option for male gender."
   },
-  "genderFemale": "Female",
+  "genderFemale": "Žena",
   "@genderFemale": {
     "description": "Option for female gender."
   },
-  "genderCustom": "Custom",
+  "genderCustom": "Vlastní",
   "@genderCustom": {
     "description": "Option for a custom gender value."
   },
-  "customGenderLabel": "Custom gender",
+  "customGenderLabel": "Vlastní pohlaví",
   "@customGenderLabel": {
     "description": "Label for the custom gender field."
   },
-  "customGenderHint": "Enter your gender",
+  "customGenderHint": "Zadejte své pohlaví",
   "@customGenderHint": {
     "description": "Hint for the custom gender field."
   },
-  "customGenderRequired": "Enter a custom gender or choose another option.",
+  "customGenderRequired": "Zadejte vlastní pohlaví nebo vyberte jinou možnost.",
   "@customGenderRequired": {
     "description": "Validation message when custom gender is selected but left empty."
   },
-  "birthDateLabel": "Date of birth",
+  "birthDateLabel": "Datum narození",
   "@birthDateLabel": {
     "description": "Label for the birth date field."
   },
-  "selectBirthDate": "Select a date",
+  "selectBirthDate": "Vyberte datum",
   "@selectBirthDate": {
     "description": "Placeholder for picking a birth date."
   },
-  "birthDateHint": "YYYY-MM-DD",
+  "birthDateHint": "RRRR-MM-DD",
   "@birthDateHint": {
     "description": "Hint text for the birth date field."
   },
-  "currentAvatar": "Current avatar",
+  "currentAvatar": "Aktuální avatar",
   "@currentAvatar": {
     "description": "Label shown above the current avatar preview."
   },
-  "uploadFromDevice": "Upload from device",
+  "uploadFromDevice": "Nahrát ze zařízení",
   "@uploadFromDevice": {
     "description": "Action to upload an avatar from the device."
   },
-  "useInitials": "Initials",
+  "useInitials": "Iniciály",
   "@useInitials": {
     "description": "Action to use initials as the avatar."
   },
-  "removeAvatar": "Remove",
+  "removeAvatar": "Odebrat",
   "@removeAvatar": {
     "description": "Action to remove the current avatar."
   },
-  "avatarUploadFailed": "Unable to update the avatar.",
+  "avatarUploadFailed": "Avatar se nepodařilo aktualizovat.",
   "@avatarUploadFailed": {
     "description": "Error shown when avatar selection or conversion fails."
   },
-  "timezoneLabel": "Timezone",
+  "timezoneLabel": "Časové pásmo",
   "@timezoneLabel": {
     "description": "Label for the timezone field."
   },
-  "timezoneHint": "Asia/Kolkata",
+  "timezoneHint": "Europe/Prague",
   "@timezoneHint": {
     "description": "Hint text for the timezone field."
   },
-  "saveProfile": "Save profile",
+  "saveProfile": "Uložit profil",
   "@saveProfile": {
     "description": "Button label for saving profile details."
   },
-  "changePasswordTitle": "Change password",
+  "changePasswordTitle": "Změnit heslo",
   "@changePasswordTitle": {
     "description": "Heading and button label for password changes."
   },
-  "passwordChangeUnavailable": "Password changes are disabled on this server.",
+  "passwordChangeUnavailable": "Změny hesla jsou na tomto serveru vypnuté.",
   "@passwordChangeUnavailable": {
     "description": "Message shown when password changes are disabled."
   },
-  "currentPassword": "Current password",
+  "currentPassword": "Aktuální heslo",
   "@currentPassword": {
     "description": "Label for the current password field."
   },
-  "newPassword": "New password",
+  "newPassword": "Nové heslo",
   "@newPassword": {
     "description": "Label for the new password field."
   },
-  "confirmNewPassword": "Confirm new password",
+  "confirmNewPassword": "Potvrdit nové heslo",
   "@confirmNewPassword": {
     "description": "Label for confirming the new password."
   },
-  "nameRequired": "Enter a name before saving.",
+  "nameRequired": "Před uložením zadejte jméno.",
   "@nameRequired": {
     "description": "Validation message shown when the name field is empty."
   },
-  "profileUpdated": "Profile updated.",
+  "profileUpdated": "Profil aktualizován.",
   "@profileUpdated": {
     "description": "Success message after saving account metadata."
   },
-  "passwordFieldsRequired": "Enter your current and new password.",
+  "passwordFieldsRequired": "Zadejte aktuální a nové heslo.",
   "@passwordFieldsRequired": {
     "description": "Validation message shown when password fields are missing."
   },
-  "passwordsDoNotMatch": "The new passwords do not match.",
+  "passwordsDoNotMatch": "Nová hesla se neshodují.",
   "@passwordsDoNotMatch": {
     "description": "Validation message shown when password confirmation fails."
   },
-  "passwordUpdated": "Password updated.",
+  "passwordUpdated": "Heslo aktualizováno.",
   "@passwordUpdated": {
     "description": "Success message after changing the password."
   },
-  "activeStatus": "Active",
+  "activeStatus": "Aktivní",
   "@activeStatus": {
     "description": "Label for an active account status."
   },
-  "inactiveStatus": "Inactive",
+  "inactiveStatus": "Neaktivní",
   "@inactiveStatus": {
     "description": "Label for an inactive account status."
   },
-  "appInformation": "Conduit app",
+  "appInformation": "Aplikace Conduit",
   "@appInformation": {
     "description": "Heading for local app information."
   },
-  "appVersion": "Version",
+  "appVersion": "Verze",
   "@appVersion": {
     "description": "Label for the current app version."
   },
-  "serverInformation": "Server information",
+  "serverInformation": "Informace o serveru",
   "@serverInformation": {
     "description": "Heading for server metadata in the about page."
   },
-  "serverInfoUnavailable": "Server information is unavailable right now.",
+  "serverInfoUnavailable": "Informace o serveru nejsou momentálně dostupné.",
   "@serverInfoUnavailable": {
     "description": "Message shown when server about data cannot be loaded."
   },
-  "serverNameLabel": "Server name",
+  "serverNameLabel": "Název serveru",
   "@serverNameLabel": {
     "description": "Label for the server name row."
   },
-  "serverVersionLabel": "Server version",
+  "serverVersionLabel": "Verze serveru",
   "@serverVersionLabel": {
     "description": "Label for the server version row."
   },
-  "latestVersionLabel": "Latest version",
+  "latestVersionLabel": "Nejnovější verze",
   "@latestVersionLabel": {
     "description": "Label for the latest available version row."
   },
-  "deploymentIdLabel": "Deployment ID",
+  "deploymentIdLabel": "ID nasazení",
   "@deploymentIdLabel": {
     "description": "Label for the deployment identifier row."
   },
-  "defaultLocaleLabel": "Default locale",
+  "defaultLocaleLabel": "Výchozí lokalizace",
   "@defaultLocaleLabel": {
     "description": "Label for the server default locale row."
   },
-  "userCountLabel": "User count",
+  "userCountLabel": "Počet uživatelů",
   "@userCountLabel": {
     "description": "Label for the server user count row."
   },
-  "serverDefaultModelsLabel": "Default models",
+  "serverDefaultModelsLabel": "Výchozí modely",
   "@serverDefaultModelsLabel": {
     "description": "Label for the server default models row."
   },
-  "loginFormLabel": "Login form",
+  "loginFormLabel": "Přihlašovací formulář",
   "@loginFormLabel": {
     "description": "Label for whether the login form is enabled."
   },
-  "passwordChangesLabel": "Password changes",
+  "passwordChangesLabel": "Změny hesla",
   "@passwordChangesLabel": {
     "description": "Label for whether password changes are enabled."
   },
-  "apiKeysLabel": "API keys",
+  "apiKeysLabel": "Klíče API",
   "@apiKeysLabel": {
     "description": "Label for whether API keys are enabled."
   },
-  "audioInputLabel": "Audio input",
+  "audioInputLabel": "Zvukový vstup",
   "@audioInputLabel": {
     "description": "Label for whether speech-to-text is enabled on the server."
   },
-  "audioOutputLabel": "Audio output",
+  "audioOutputLabel": "Zvukový výstup",
   "@audioOutputLabel": {
     "description": "Label for whether text-to-speech is enabled on the server."
   },
-  "speechToTextEngineLabel": "Speech-to-text engine",
+  "speechToTextEngineLabel": "Modul řeči na text",
   "@speechToTextEngineLabel": {
     "description": "Label for the server speech-to-text engine."
   },
-  "textToSpeechEngineLabel": "Text-to-speech engine",
+  "textToSpeechEngineLabel": "Modul textu na řeč",
   "@textToSpeechEngineLabel": {
     "description": "Label for the server text-to-speech engine."
   },
-  "licenseMetadataLabel": "License metadata",
+  "licenseMetadataLabel": "Metadata licence",
   "@licenseMetadataLabel": {
     "description": "Heading for server license metadata."
   },
-  "enabledLabel": "Enabled",
+  "enabledLabel": "Povoleno",
   "@enabledLabel": {
     "description": "Label for an enabled boolean value."
   },
-  "disabledLabel": "Disabled",
+  "disabledLabel": "Zakázáno",
   "@disabledLabel": {
     "description": "Label for a disabled boolean value."
   },
-  "noEmailLabel": "No email",
+  "noEmailLabel": "Žádný e-mail",
   "@noEmailLabel": {
     "description": "Fallback label when the user has no email address."
   },
-  "userFallbackName": "User",
+  "userFallbackName": "Uživatel",
   "@userFallbackName": {
     "description": "Fallback display name when no user name is available."
   },
-  "unknownLabel": "Unknown",
+  "unknownLabel": "Neznámé",
   "@unknownLabel": {
     "description": "Generic fallback label when a server-provided value has no name."
   },
-  "socketNotConnected": "Not connected",
+  "socketNotConnected": "Nepřipojeno",
   "@socketNotConnected": {
     "description": "Socket health status when there is no connection state yet."
   },
-  "socketConnected": "Connected",
+  "socketConnected": "Připojeno",
   "@socketConnected": {
     "description": "Socket health status when connected."
   },
-  "socketDisconnected": "Disconnected",
+  "socketDisconnected": "Odpojeno",
   "@socketDisconnected": {
     "description": "Socket health status when disconnected."
   },
-  "socketLatencyLabel": "Latency",
+  "socketLatencyLabel": "Latence",
   "@socketLatencyLabel": {
     "description": "Metric label for socket latency."
   },
-  "socketReconnectsLabel": "Reconnects",
+  "socketReconnectsLabel": "Opětovná připojení",
   "@socketReconnectsLabel": {
     "description": "Metric label for socket reconnect count."
   },
-  "socketLastHeartbeat": "Last heartbeat: {time}",
+  "socketLastHeartbeat": "Poslední heartbeat: {time}",
   "@socketLastHeartbeat": {
     "description": "Shows when the socket last received a heartbeat.",
     "placeholders": {
@@ -2958,39 +2958,39 @@
       }
     }
   },
-  "socketTransportWebSocket": "WebSocket transport",
+  "socketTransportWebSocket": "Přenos WebSocket",
   "@socketTransportWebSocket": {
     "description": "Label for WebSocket socket transport."
   },
-  "socketTransportPolling": "HTTP polling transport",
+  "socketTransportPolling": "Přenos HTTP polling",
   "@socketTransportPolling": {
     "description": "Label for HTTP polling socket transport."
   },
-  "socketTransportUnknown": "Unknown transport",
+  "socketTransportUnknown": "Neznámý přenos",
   "@socketTransportUnknown": {
     "description": "Fallback label for an unknown socket transport."
   },
-  "socketQualityExcellent": "Excellent",
+  "socketQualityExcellent": "Výborná",
   "@socketQualityExcellent": {
     "description": "Socket quality label for excellent quality."
   },
-  "socketQualityGood": "Good",
+  "socketQualityGood": "Dobrá",
   "@socketQualityGood": {
     "description": "Socket quality label for good quality."
   },
-  "socketQualityFair": "Fair",
+  "socketQualityFair": "Uspokojivá",
   "@socketQualityFair": {
     "description": "Socket quality label for fair quality."
   },
-  "socketQualityPoor": "Poor",
+  "socketQualityPoor": "Slabá",
   "@socketQualityPoor": {
     "description": "Socket quality label for poor quality."
   },
-  "timeJustNow": "just now",
+  "timeJustNow": "právě teď",
   "@timeJustNow": {
     "description": "Relative time label for a moment that just happened."
   },
-  "timeSecondsAgo": "{count}s ago",
+  "timeSecondsAgo": "před {count} s",
   "@timeSecondsAgo": {
     "description": "Compact relative time label for seconds ago.",
     "placeholders": {
@@ -3000,7 +3000,7 @@
       }
     }
   },
-  "timeMinutesAgo": "{count}m ago",
+  "timeMinutesAgo": "před {count} min",
   "@timeMinutesAgo": {
     "description": "Compact relative time label for minutes ago.",
     "placeholders": {
@@ -3010,7 +3010,7 @@
       }
     }
   },
-  "timeHoursAgo": "{count}h ago",
+  "timeHoursAgo": "před {count} h",
   "@timeHoursAgo": {
     "description": "Compact relative time label for hours ago.",
     "placeholders": {
@@ -3020,107 +3020,107 @@
       }
     }
   },
-  "attach": "Attach",
+  "attach": "Připojit",
   "@attach": {
     "description": "Button label to attach content to the current chat or folder chat."
   },
-  "attachWebpageDescription": "Paste a URL to ingest its content into the chat.",
+  "attachWebpageDescription": "Vložte URL a načtěte její obsah do chatu.",
   "@attachWebpageDescription": {
     "description": "Description shown in the web page attachment dialog."
   },
-  "webpageUrlLabel": "Webpage URL",
+  "webpageUrlLabel": "URL webové stránky",
   "@webpageUrlLabel": {
     "description": "Label for the URL field in the web page attachment dialog."
   },
-  "invalidHttpUrl": "Enter a valid http(s) URL.",
+  "invalidHttpUrl": "Zadejte platnou URL http(s).",
   "@invalidHttpUrl": {
     "description": "Validation message when a URL is missing or not HTTP/HTTPS."
   },
-  "youtubeTranscriptFetchFailed": "Could not fetch YouTube transcript.",
+  "youtubeTranscriptFetchFailed": "Přepis YouTube se nepodařilo načíst.",
   "@youtubeTranscriptFetchFailed": {
     "description": "Error shown when a YouTube transcript cannot be fetched."
   },
-  "webpageNoReadableContent": "The page had no readable content.",
+  "webpageNoReadableContent": "Stránka neměla žádný čitelný obsah.",
   "@webpageNoReadableContent": {
     "description": "Error shown when a fetched webpage has no readable text content."
   },
-  "failedToAttachContent": "Failed to attach content.",
+  "failedToAttachContent": "Obsah se nepodařilo připojit.",
   "@failedToAttachContent": {
     "description": "Generic error shown when attaching web content fails."
   },
-  "scrollToBottom": "Scroll to bottom",
+  "scrollToBottom": "Posunout dolů",
   "@scrollToBottom": {
     "description": "Tooltip for the button that scrolls a chat to the newest message."
   },
-  "editFolder": "Edit Folder",
+  "editFolder": "Upravit složku",
   "@editFolder": {
     "description": "Title and menu label for editing a folder."
   },
-  "editFolderDescription": "Update the folder name and icon on the server.",
+  "editFolderDescription": "Aktualizujte název a ikonu složky na serveru.",
   "@editFolderDescription": {
     "description": "Description shown in the folder edit sheet."
   },
-  "icon": "Icon",
+  "icon": "Ikona",
   "@icon": {
     "description": "Label for selecting an icon."
   },
-  "folderIconDescription": "Choose the folder icon.",
+  "folderIconDescription": "Vyberte ikonu složky.",
   "@folderIconDescription": {
     "description": "Subtitle for the folder icon picker."
   },
-  "defaultLabel": "Default",
+  "defaultLabel": "Výchozí",
   "@defaultLabel": {
     "description": "Generic label for the default option."
   },
-  "systemPrompt": "System Prompt",
+  "systemPrompt": "Systémový prompt",
   "@systemPrompt": {
     "description": "Singular label for a system prompt field or menu item."
   },
-  "move": "Move",
+  "move": "Přesunout",
   "@move": {
     "description": "Context action to move an item."
   },
-  "moveToFolder": "Move to folder",
+  "moveToFolder": "Přesunout do složky",
   "@moveToFolder": {
     "description": "Title for choosing a destination folder for a chat."
   },
-  "moveFolder": "Move folder",
+  "moveFolder": "Přesunout složku",
   "@moveFolder": {
     "description": "Title for choosing a destination parent for a folder."
   },
-  "noFolder": "No folder",
+  "noFolder": "Žádná složka",
   "@noFolder": {
     "description": "Option to remove a chat from any folder."
   },
-  "topLevel": "Top level",
+  "topLevel": "Nejvyšší úroveň",
   "@topLevel": {
     "description": "Option to move a folder to the top level."
   },
-  "failedToMoveFolder": "Failed to move folder",
+  "failedToMoveFolder": "Složku se nepodařilo přesunout",
   "@failedToMoveFolder": {
     "description": "Error shown when moving a folder fails."
   },
-  "failedToRenameFolder": "Failed to rename folder",
+  "failedToRenameFolder": "Složku se nepodařilo přejmenovat",
   "@failedToRenameFolder": {
     "description": "Error shown when renaming a folder fails."
   },
-  "browseKnowledgeBase": "Browse knowledge base",
+  "browseKnowledgeBase": "Procházet znalostní bázi",
   "@browseKnowledgeBase": {
     "description": "Title for opening the knowledge base picker."
   },
-  "knowledgePickerHint": "Press Enter to pick a document",
+  "knowledgePickerHint": "Dokument vyberete stisknutím Enter",
   "@knowledgePickerHint": {
     "description": "Hint shown for keyboard selection in the knowledge base picker."
   },
-  "execution": "Execution",
+  "execution": "Spuštění",
   "@execution": {
     "description": "Fallback label for an unnamed code execution."
   },
-  "codeExecutionTitle": "Code execution",
+  "codeExecutionTitle": "Spuštění kódu",
   "@codeExecutionTitle": {
     "description": "Fallback title for a code execution details sheet."
   },
-  "codeExecutionFailed": "{label} failed",
+  "codeExecutionFailed": "{label} selhalo",
   "@codeExecutionFailed": {
     "description": "Title shown when a named code execution fails.",
     "placeholders": {
@@ -3140,23 +3140,23 @@
       }
     }
   },
-  "language": "Language",
+  "language": "Jazyk",
   "@language": {
     "description": "Label for a programming language field."
   },
-  "code": "Code",
+  "code": "Kód",
   "@code": {
     "description": "Label for source code content."
   },
-  "output": "Output",
+  "output": "Výstup",
   "@output": {
     "description": "Label for execution output."
   },
-  "download": "Download",
+  "download": "Stáhnout",
   "@download": {
     "description": "Fallback label for a downloadable file."
   },
-  "languageWithValue": "Language: {language}",
+  "languageWithValue": "Jazyk: {language}",
   "@languageWithValue": {
     "description": "Label and value for a programming language.",
     "placeholders": {
@@ -3166,19 +3166,19 @@
       }
     }
   },
-  "previewDeferredLargeContent": "Preview deferred for large content.",
+  "previewDeferredLargeContent": "Náhled byl u velkého obsahu odložen.",
   "@previewDeferredLargeContent": {
     "description": "Message shown when an inline preview is delayed because content is large."
   },
-  "openPreview": "Open preview",
+  "openPreview": "Otevřít náhled",
   "@openPreview": {
     "description": "Button to open a deferred preview."
   },
-  "copiedToClipboard": "Copied to clipboard",
+  "copiedToClipboard": "Zkopírováno do schránky",
   "@copiedToClipboard": {
     "description": "Snackbar message after copying content to the clipboard."
   },
-  "preview": "Preview",
+  "preview": "Náhled",
   "@preview": {
     "description": "Button label for opening a preview."
   },
@@ -3186,23 +3186,23 @@
   "@alertTip": {
     "description": "Fallback label for a tip markdown alert."
   },
-  "alertImportant": "Important",
+  "alertImportant": "Důležité",
   "@alertImportant": {
     "description": "Fallback label for an important markdown alert."
   },
-  "alertWarning": "Warning",
+  "alertWarning": "Varování",
   "@alertWarning": {
     "description": "Fallback label for a warning markdown alert."
   },
-  "alertCaution": "Caution",
+  "alertCaution": "Výstraha",
   "@alertCaution": {
     "description": "Fallback label for a caution markdown alert."
   },
-  "alertNote": "Note",
+  "alertNote": "Poznámka",
   "@alertNote": {
     "description": "Fallback label for a note markdown alert."
   },
-  "markdownDetailsGroupPendingTitle": "Exploring {summary}",
+  "markdownDetailsGroupPendingTitle": "Zkoumám {summary}",
   "@markdownDetailsGroupPendingTitle": {
     "description": "Title shown for a pending grouped tool-call details block.",
     "placeholders": {
@@ -3211,7 +3211,7 @@
       }
     }
   },
-  "markdownDetailsGroupCompleteTitle": "Explored {summary}",
+  "markdownDetailsGroupCompleteTitle": "Prozkoumáno {summary}",
   "@markdownDetailsGroupCompleteTitle": {
     "description": "Title shown for a completed grouped tool-call details block.",
     "placeholders": {
@@ -3220,67 +3220,67 @@
       }
     }
   },
-  "markdownDetailsGroupUnnamedTool": "tool",
+  "markdownDetailsGroupUnnamedTool": "nástroj",
   "@markdownDetailsGroupUnnamedTool": {
     "description": "Fallback label used when a grouped tool call has no tool name."
   },
-  "folderIconFolder": "Folder",
+  "folderIconFolder": "Složka",
   "@folderIconFolder": {
     "description": "Accessibility label for the folder icon option."
   },
-  "folderIconOpenFolder": "Open folder",
+  "folderIconOpenFolder": "Otevřená složka",
   "@folderIconOpenFolder": {
     "description": "Accessibility label for the open folder icon option."
   },
-  "folderIconBriefcase": "Briefcase",
+  "folderIconBriefcase": "Aktovka",
   "@folderIconBriefcase": {
     "description": "Accessibility label for the briefcase folder icon option."
   },
-  "folderIconBooks": "Books",
+  "folderIconBooks": "Knihy",
   "@folderIconBooks": {
     "description": "Accessibility label for the books folder icon option."
   },
-  "folderIconMemo": "Memo",
+  "folderIconMemo": "Poznámka",
   "@folderIconMemo": {
     "description": "Accessibility label for the memo folder icon option."
   },
-  "folderIconDividers": "Dividers",
+  "folderIconDividers": "Rozdělovače",
   "@folderIconDividers": {
     "description": "Accessibility label for the dividers folder icon option."
   },
-  "folderIconTools": "Tools",
+  "folderIconTools": "Nástroje",
   "@folderIconTools": {
     "description": "Accessibility label for the tools folder icon option."
   },
-  "folderIconToolbox": "Toolbox",
+  "folderIconToolbox": "Sada nástrojů",
   "@folderIconToolbox": {
     "description": "Accessibility label for the toolbox folder icon option."
   },
-  "folderIconSparkles": "Sparkles",
+  "folderIconSparkles": "Jiskry",
   "@folderIconSparkles": {
     "description": "Accessibility label for the sparkles folder icon option."
   },
-  "folderIconBrain": "Brain",
+  "folderIconBrain": "Mozek",
   "@folderIconBrain": {
     "description": "Accessibility label for the brain folder icon option."
   },
-  "folderIconRocket": "Rocket",
+  "folderIconRocket": "Raketa",
   "@folderIconRocket": {
     "description": "Accessibility label for the rocket folder icon option."
   },
-  "folderIconTarget": "Target",
+  "folderIconTarget": "Cíl",
   "@folderIconTarget": {
     "description": "Accessibility label for the target folder icon option."
   },
-  "folderIconGeneric": "Folder icon",
+  "folderIconGeneric": "Ikona složky",
   "@folderIconGeneric": {
     "description": "Generic accessibility label for a custom folder icon."
   },
-  "thread": "Thread",
+  "thread": "Vlákno",
   "@thread": {
     "description": "Title and context action for a message thread."
   },
-  "threadWithCount": "Thread ({count})",
+  "threadWithCount": "Vlákno ({count})",
   "@threadWithCount": {
     "description": "Thread action label with reply count.",
     "placeholders": {
@@ -3290,7 +3290,7 @@
       }
     }
   },
-  "channelMembersTitle": "Members ({count})",
+  "channelMembersTitle": "Členové ({count})",
   "@channelMembersTitle": {
     "description": "Title for the channel members sheet.",
     "placeholders": {
@@ -3300,23 +3300,23 @@
       }
     }
   },
-  "channelInputPlaceholder": "Type here...",
+  "channelInputPlaceholder": "Pište sem...",
   "@channelInputPlaceholder": {
     "description": "Placeholder for the channel message composer."
   },
-  "channelUnknownMember": "Unknown",
+  "channelUnknownMember": "Neznámý",
   "@channelUnknownMember": {
     "description": "Fallback name for a channel member with no display name."
   },
-  "replyInputPlaceholder": "Reply...",
+  "replyInputPlaceholder": "Odpovědět...",
   "@replyInputPlaceholder": {
     "description": "Placeholder for the thread reply composer."
   },
-  "editPhoto": "Edit Photo",
+  "editPhoto": "Upravit fotografii",
   "@editPhoto": {
     "description": "Action to edit the profile photo."
   },
-  "replyingToUser": "Replying to {name}",
+  "replyingToUser": "Odpovídáte uživateli {name}",
   "@replyingToUser": {
     "description": "Label shown above the channel composer when replying to a user.",
     "placeholders": {
@@ -3326,7 +3326,7 @@
       }
     }
   },
-  "voiceCallWithModel": "Voice Call with {modelName}",
+  "voiceCallWithModel": "Hlasový hovor s modelem {modelName}",
   "@voiceCallWithModel": {
     "description": "Notification title for an ongoing voice call with a model.",
     "placeholders": {
@@ -3336,71 +3336,71 @@
       }
     }
   },
-  "notificationPermissionTitle": "Notification permission",
+  "notificationPermissionTitle": "Oprávnění k oznámením",
   "@notificationPermissionTitle": {
     "description": "Title for the system notification permission prompt."
   },
-  "callNotificationPermissionRationale": "Call alerts need notification permission.",
+  "callNotificationPermissionRationale": "Upozornění na hovory vyžadují oprávnění k oznámením.",
   "@callNotificationPermissionRationale": {
     "description": "Rationale shown when requesting notification permission for call alerts."
   },
-  "callNotificationPermissionPost": "Allow notifications to show incoming calls.",
+  "callNotificationPermissionPost": "Povolte oznámení pro zobrazení příchozích hovorů.",
   "@callNotificationPermissionPost": {
     "description": "Instruction shown when requesting notification permission for incoming calls."
   },
-  "acceptCall": "Accept",
+  "acceptCall": "Přijmout",
   "@acceptCall": {
     "description": "Call action to accept an incoming call."
   },
-  "declineCall": "Decline",
+  "declineCall": "Odmítnout",
   "@declineCall": {
     "description": "Call action to decline an incoming call."
   },
-  "missedCall": "Missed call",
+  "missedCall": "Zmeškaný hovor",
   "@missedCall": {
     "description": "Notification subtitle for a missed call."
   },
-  "callBack": "Call back",
+  "callBack": "Zavolat zpět",
   "@callBack": {
     "description": "Notification action to call back after a missed call."
   },
-  "calling": "Calling...",
+  "calling": "Volání...",
   "@calling": {
     "description": "Notification subtitle while starting a call."
   },
-  "hangUp": "Hang up",
+  "hangUp": "Zavěsit",
   "@hangUp": {
     "description": "Notification action to hang up a call."
   },
-  "incomingCallChannelName": "Incoming Call",
+  "incomingCallChannelName": "Příchozí hovor",
   "@incomingCallChannelName": {
     "description": "Android notification channel name for incoming calls."
   },
-  "missedCallChannelName": "Missed Call",
+  "missedCallChannelName": "Zmeškaný hovor",
   "@missedCallChannelName": {
     "description": "Android notification channel name for missed calls."
   },
-  "mute": "Mute",
+  "mute": "Ztlumit",
   "@mute": {
     "description": "Notification action to mute a call."
   },
-  "unmute": "Unmute",
+  "unmute": "Zapnout zvuk",
   "@unmute": {
     "description": "Notification action to unmute a call."
   },
-  "voiceCallMuted": "Muted",
+  "voiceCallMuted": "Ztlumeno",
   "@voiceCallMuted": {
     "description": "Status label when a voice call is muted."
   },
-  "voiceCallChannelDescription": "Ongoing voice call notifications",
+  "voiceCallChannelDescription": "Oznámení o probíhajícím hlasovém hovoru",
   "@voiceCallChannelDescription": {
     "description": "Android notification channel description for ongoing voice calls."
   },
-  "rateLimitExceeded": "Too many requests. Please wait before trying again.",
+  "rateLimitExceeded": "Příliš mnoho požadavků. Před dalším pokusem chvíli počkejte.",
   "@rateLimitExceeded": {
     "description": "Error shown when the server rejects a request due to rate limiting."
   },
-  "rateLimitRetryAfter": "Please wait {duration} before trying again.",
+  "rateLimitRetryAfter": "Před dalším pokusem počkejte {duration}.",
   "@rateLimitRetryAfter": {
     "description": "Advice shown when a rate limit response includes a retry delay.",
     "placeholders": {
@@ -3410,11 +3410,11 @@
       }
     }
   },
-  "rateLimitRetrySoon": "Please wait a moment before trying again.",
+  "rateLimitRetrySoon": "Před dalším pokusem chvíli počkejte.",
   "@rateLimitRetrySoon": {
     "description": "Advice shown when a rate limit response does not include an exact retry delay."
   },
-  "securityCertificateError": "Security certificate error. Unable to verify the server identity.",
+  "securityCertificateError": "Chyba bezpečnostního certifikátu. Identitu serveru nelze ověřit.",
   "@securityCertificateError": {
     "description": "Error shown when the server TLS certificate cannot be trusted or verified."
   }

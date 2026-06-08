@@ -169,6 +169,8 @@
   "chineseTraditional": "繁體中文",
   "korean": "한국어",
   "japanese": "日本語",
+  "czech": "Čeština",
+  "slovak": "Slovenčina",
   "deleteMessagesTitle": "刪除消息",
   "deleteMessagesMessage": "刪除 {count} 條消息？",
   "@deleteMessagesMessage": {
