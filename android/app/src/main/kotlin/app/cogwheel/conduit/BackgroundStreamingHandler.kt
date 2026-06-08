@@ -554,8 +554,12 @@ class BackgroundStreamingHandler(private val activity: MainActivity) : Backgroun
 
             isActivityForeground = false
 
-            if (activeLeases.isNotEmpty() && !isServiceRequested) {
-                startForegroundService()
+            if (activeLeases.isNotEmpty()) {
+                if (!isServiceRequested) {
+                    startForegroundService()
+                } else {
+                    updateForegroundServiceLeases()
+                }
             }
         }
     }
