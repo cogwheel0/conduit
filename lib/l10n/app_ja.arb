@@ -3102,5 +3102,17 @@
   "securityCertificateError": "セキュリティ証明書エラーです。サーバーの識別情報を確認できません。",
   "@securityCertificateError": {
     "description": "Error shown when the server TLS certificate cannot be trusted or verified."
-  }
+  },
+  "terminalExpandAction": "全画面",
+  "terminalReopenFullscreen": "全画面で開いています - タップして再度開く",
+  "terminalKeyTab": "Tab",
+  "terminalKeyUp": "上",
+  "terminalKeyDown": "下",
+  "terminalKeyCtrlC": "Ctrl-C",
+  "terminalCopyAction": "コピー",
+  "terminalPasteAction": "ペースト",
+  "terminalNothingToCopy": "コピーする選択範囲がありません",
+  "terminalCopied": "クリップボードにコピーしました",
+  "terminalPasteWhileDisconnected": "ペーストするには接続してください",
+  "terminalPortsToggle": "待ち受けポート"
 }

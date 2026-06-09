@@ -3417,5 +3417,17 @@
   "securityCertificateError": "Chyba bezpečnostního certifikátu. Identitu serveru nelze ověřit.",
   "@securityCertificateError": {
     "description": "Error shown when the server TLS certificate cannot be trusted or verified."
-  }
+  },
+  "terminalExpandAction": "Celá obrazovka",
+  "terminalReopenFullscreen": "Otevřeno na celou obrazovku - klepnutím znovu otevřete",
+  "terminalKeyTab": "Tab",
+  "terminalKeyUp": "Nahoru",
+  "terminalKeyDown": "Dolů",
+  "terminalKeyCtrlC": "Ctrl-C",
+  "terminalCopyAction": "Kopírovat",
+  "terminalPasteAction": "Vložit",
+  "terminalNothingToCopy": "Není vybrán žádný text ke zkopírování",
+  "terminalCopied": "Zkopírováno do schránky",
+  "terminalPasteWhileDisconnected": "Pro vložení se připojte",
+  "terminalPortsToggle": "Naslouchající porty"
 }

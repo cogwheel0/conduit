@@ -1783,5 +1783,17 @@
   "failedToLoadTools": "Impossibile caricare gli strumenti",
   "@failedToLoadTools": {
     "description": "Error shown when the composer overflow menu cannot load tools."
-  }
+  },
+  "terminalExpandAction": "Schermo intero",
+  "terminalReopenFullscreen": "Aperto a schermo intero - tocca per riaprire",
+  "terminalKeyTab": "Tab",
+  "terminalKeyUp": "Su",
+  "terminalKeyDown": "Giù",
+  "terminalKeyCtrlC": "Ctrl-C",
+  "terminalCopyAction": "Copia",
+  "terminalPasteAction": "Incolla",
+  "terminalNothingToCopy": "Nessuna selezione da copiare",
+  "terminalCopied": "Copiato negli appunti",
+  "terminalPasteWhileDisconnected": "Connettiti per incollare",
+  "terminalPortsToggle": "Porte in ascolto"
 }

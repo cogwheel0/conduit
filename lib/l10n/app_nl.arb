@@ -1783,5 +1783,17 @@
   "failedToLoadTools": "Kan tools niet laden",
   "@failedToLoadTools": {
     "description": "Error shown when the composer overflow menu cannot load tools."
-  }
+  },
+  "terminalExpandAction": "Volledig scherm",
+  "terminalReopenFullscreen": "Geopend op volledig scherm - tik om opnieuw te openen",
+  "terminalKeyTab": "Tab",
+  "terminalKeyUp": "Omhoog",
+  "terminalKeyDown": "Omlaag",
+  "terminalKeyCtrlC": "Ctrl-C",
+  "terminalCopyAction": "Kopiëren",
+  "terminalPasteAction": "Plakken",
+  "terminalNothingToCopy": "Niets geselecteerd om te kopiëren",
+  "terminalCopied": "Gekopieerd naar klembord",
+  "terminalPasteWhileDisconnected": "Maak verbinding om te plakken",
+  "terminalPortsToggle": "Luisterende poorten"
 }

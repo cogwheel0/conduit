@@ -1561,5 +1561,17 @@
   "failedToLoadTools": "도구를 불러올 수 없습니다",
   "@failedToLoadTools": {
     "description": "Error shown when the composer overflow menu cannot load tools."
-  }
+  },
+  "terminalExpandAction": "전체 화면",
+  "terminalReopenFullscreen": "전체 화면으로 열림 - 다시 열려면 탭하세요",
+  "terminalKeyTab": "Tab",
+  "terminalKeyUp": "위",
+  "terminalKeyDown": "아래",
+  "terminalKeyCtrlC": "Ctrl-C",
+  "terminalCopyAction": "복사",
+  "terminalPasteAction": "붙여넣기",
+  "terminalNothingToCopy": "복사할 항목이 선택되지 않았습니다",
+  "terminalCopied": "클립보드에 복사됨",
+  "terminalPasteWhileDisconnected": "붙여넣으려면 연결하세요",
+  "terminalPortsToggle": "수신 대기 포트"
 }

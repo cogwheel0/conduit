@@ -3417,5 +3417,17 @@
   "securityCertificateError": "Chyba bezpečnostného certifikátu. Identitu servera nie je možné overiť.",
   "@securityCertificateError": {
     "description": "Error shown when the server TLS certificate cannot be trusted or verified."
-  }
+  },
+  "terminalExpandAction": "Celá obrazovka",
+  "terminalReopenFullscreen": "Otvorené na celú obrazovku - ťuknutím znova otvoríte",
+  "terminalKeyTab": "Tab",
+  "terminalKeyUp": "Nahor",
+  "terminalKeyDown": "Nadol",
+  "terminalKeyCtrlC": "Ctrl-C",
+  "terminalCopyAction": "Kopírovať",
+  "terminalPasteAction": "Prilepiť",
+  "terminalNothingToCopy": "Nie je vybratý žiadny text na kopírovanie",
+  "terminalCopied": "Skopírované do schránky",
+  "terminalPasteWhileDisconnected": "Na prilepenie sa pripojte",
+  "terminalPortsToggle": "Počúvajúce porty"
 }

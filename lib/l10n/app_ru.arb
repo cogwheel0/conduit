@@ -1783,5 +1783,17 @@
   "failedToLoadTools": "Не удалось загрузить инструменты",
   "@failedToLoadTools": {
     "description": "Error shown when the composer overflow menu cannot load tools."
-  }
+  },
+  "terminalExpandAction": "Полный экран",
+  "terminalReopenFullscreen": "Открыто в полноэкранном режиме - нажмите, чтобы открыть снова",
+  "terminalKeyTab": "Tab",
+  "terminalKeyUp": "Вверх",
+  "terminalKeyDown": "Вниз",
+  "terminalKeyCtrlC": "Ctrl-C",
+  "terminalCopyAction": "Копировать",
+  "terminalPasteAction": "Вставить",
+  "terminalNothingToCopy": "Ничего не выбрано для копирования",
+  "terminalCopied": "Скопировано в буфер обмена",
+  "terminalPasteWhileDisconnected": "Подключитесь, чтобы вставить",
+  "terminalPortsToggle": "Прослушиваемые порты"
 }

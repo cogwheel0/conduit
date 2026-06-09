@@ -303,8 +303,12 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Listening ports'), findsOneWidget);
-      expect(find.text('localhost:3000'), findsOneWidget);
       expect(find.text('alpha.txt'), findsNothing);
+
+      expect(find.text('localhost:3000'), findsNothing);
+      await tester.tap(find.text('Listening ports'));
+      await tester.pumpAndSettle();
+      expect(find.text('localhost:3000'), findsOneWidget);
     });
 
     testWidgets('ignores stale file loads after switching terminal servers', (

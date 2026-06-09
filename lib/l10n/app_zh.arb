@@ -1783,5 +1783,17 @@
   "failedToLoadTools": "无法加载工具",
   "@failedToLoadTools": {
     "description": "Error shown when the composer overflow menu cannot load tools."
-  }
+  },
+  "terminalExpandAction": "全屏",
+  "terminalReopenFullscreen": "已在全屏中打开 - 点按以重新打开",
+  "terminalKeyTab": "Tab",
+  "terminalKeyUp": "上",
+  "terminalKeyDown": "下",
+  "terminalKeyCtrlC": "Ctrl-C",
+  "terminalCopyAction": "复制",
+  "terminalPasteAction": "粘贴",
+  "terminalNothingToCopy": "没有选择要复制的内容",
+  "terminalCopied": "已复制到剪贴板",
+  "terminalPasteWhileDisconnected": "连接后粘贴",
+  "terminalPortsToggle": "监听端口"
 }
