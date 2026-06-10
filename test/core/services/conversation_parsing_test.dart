@@ -65,6 +65,22 @@ void main() {
         check(created.millisecondsSinceEpoch).equals(1700000000000);
       });
 
+      test('parses last_read_at when present', () {
+        final result = parseConversationSummary({
+          'id': '1',
+          'last_read_at': 1700000200,
+        });
+
+        final lastReadAt = DateTime.parse(result['lastReadAt'] as String);
+        check(lastReadAt.millisecondsSinceEpoch).equals(1700000200000);
+      });
+
+      test('keeps missing lastReadAt null', () {
+        final result = parseConversationSummary({'id': '1'});
+
+        check(result['lastReadAt']).isNull();
+      });
+
       test('null timestamp defaults to now-ish', () {
         final before = DateTime.now();
         final result = parseConversationSummary({'id': '1'});
@@ -153,6 +169,24 @@ void main() {
   });
 
   group('parseFullConversation', () {
+    group('parses read state', () {
+      test('from snake_case last_read_at', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'last_read_at': 1700000300,
+        });
+
+        final lastReadAt = DateTime.parse(result['lastReadAt'] as String);
+        check(lastReadAt.millisecondsSinceEpoch).equals(1700000300000);
+      });
+
+      test('keeps missing lastReadAt null', () {
+        final result = parseFullConversation({'id': 'conv-1'});
+
+        check(result['lastReadAt']).isNull();
+      });
+    });
+
     group('returns messages array', () {
       test('from chat.messages list', () {
         final result = parseFullConversation({

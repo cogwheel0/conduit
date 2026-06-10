@@ -21,6 +21,9 @@ Map<String, dynamic> parseConversationSummary(Map<String, dynamic> chatData) {
 
   final updatedAtRaw = chatData['updated_at'] ?? chatData['updatedAt'];
   final createdAtRaw = chatData['created_at'] ?? chatData['createdAt'];
+  final lastReadAt = _parseOptionalTimestamp(
+    chatData['last_read_at'] ?? chatData['lastReadAt'],
+  );
 
   final pinned = _safeBool(chatData['pinned']) ?? false;
   final archived = _safeBool(chatData['archived']) ?? false;
@@ -44,6 +47,7 @@ Map<String, dynamic> parseConversationSummary(Map<String, dynamic> chatData) {
     'title': title,
     'createdAt': _parseTimestamp(createdAtRaw).toIso8601String(),
     'updatedAt': _parseTimestamp(updatedAtRaw).toIso8601String(),
+    'lastReadAt': lastReadAt?.toIso8601String(),
     'model': chatData['model']?.toString(),
     'systemPrompt': systemPrompt,
     'messages': const <Map<String, dynamic>>[],
@@ -65,6 +69,9 @@ Map<String, dynamic> parseFullConversation(Map<String, dynamic> chatData) {
   );
   final createdAt = _parseTimestamp(
     chatData['created_at'] ?? chatData['createdAt'],
+  );
+  final lastReadAt = _parseOptionalTimestamp(
+    chatData['last_read_at'] ?? chatData['lastReadAt'],
   );
   final pinned = _safeBool(chatData['pinned']) ?? false;
   final archived = _safeBool(chatData['archived']) ?? false;
@@ -178,6 +185,7 @@ Map<String, dynamic> parseFullConversation(Map<String, dynamic> chatData) {
     'title': title,
     'createdAt': createdAt.toIso8601String(),
     'updatedAt': updatedAt.toIso8601String(),
+    'lastReadAt': lastReadAt?.toIso8601String(),
     'model': model,
     'systemPrompt': systemPrompt,
     'messages': messages,
@@ -655,6 +663,12 @@ DateTime _parseTimestamp(dynamic timestamp) {
     return DateTime.fromMillisecondsSinceEpoch(ts);
   }
   return DateTime.now();
+}
+
+DateTime? _parseOptionalTimestamp(dynamic timestamp) {
+  if (timestamp == null) return null;
+  if (timestamp is String && timestamp.trim().isEmpty) return null;
+  return _parseTimestamp(timestamp);
 }
 
 List<Map<String, dynamic>> _parseStatusHistoryField(dynamic raw) {

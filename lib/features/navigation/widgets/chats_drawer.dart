@@ -1505,12 +1505,19 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         (_pendingConversationId == conv.id) &&
         (ref.watch(chat.isLoadingConversationProvider) == true);
     final bool isPinned = conv.pinned == true;
+    final activeChatIds = ref.watch(activeChatIdsProvider);
+    final bool unread = _conversationUnread(
+      conv,
+      selected: isActive,
+      activeChatIds: activeChatIds,
+    );
 
     final tileWidget = ConversationTile(
       key: ValueKey<String>('drawer-chat-${conv.id}'),
       title: title,
       pinned: isPinned,
       selected: isActive,
+      unread: unread,
       isLoading: isLoadingSelected,
       onTap: _isLoadingConversation
           ? null
@@ -1625,6 +1632,12 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
 
     // Selecting a real conversation exits temporary mode
     container.read(temporaryChatEnabledProvider.notifier).set(false);
+    final outgoingId = container.read(activeConversationProvider)?.id;
+    if (outgoingId != id) {
+      markConversationRead(container, outgoingId);
+    }
+    final selectedReadAt = DateTime.now();
+    markConversationRead(container, id, readAt: selectedReadAt);
 
     try {
       // Mark global loading to show skeletons in chat
@@ -1657,16 +1670,25 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       final api = container.read(apiServiceProvider);
       if (api != null) {
         final full = await api.getConversation(id);
-        container.read(activeConversationProvider.notifier).set(full);
+        final fullReadAt = full.lastReadAt;
+        final optimisticFull =
+            fullReadAt == null || selectedReadAt.isAfter(fullReadAt)
+            ? full.copyWith(lastReadAt: selectedReadAt)
+            : full;
+        container.read(activeConversationProvider.notifier).set(optimisticFull);
       } else {
         // Fallback: use the lightweight item to update the active conversation
+        final fallback = (await container.read(
+          conversationsProvider.future,
+        )).firstWhere((c) => c.id == id);
+        final fallbackReadAt = fallback.lastReadAt;
+        final optimisticFallback =
+            fallbackReadAt == null || selectedReadAt.isAfter(fallbackReadAt)
+            ? fallback.copyWith(lastReadAt: selectedReadAt)
+            : fallback;
         container
             .read(activeConversationProvider.notifier)
-            .set(
-              (await container.read(
-                conversationsProvider.future,
-              )).firstWhere((c) => c.id == id),
-            );
+            .set(optimisticFallback);
       }
 
       // Clear loading after data is ready
@@ -1678,6 +1700,22 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     } finally {
       if (mounted) setState(() => _isLoadingConversation = false);
     }
+  }
+
+  bool _conversationUnread(
+    dynamic conversation, {
+    required bool selected,
+    required Set<String> activeChatIds,
+  }) {
+    final id = conversation.id?.toString();
+    if (id == null || id.isEmpty || selected || activeChatIds.contains(id)) {
+      return false;
+    }
+    final updatedAt = conversation.updatedAt;
+    if (updatedAt is! DateTime) return false;
+    final lastReadAt = conversation.lastReadAt;
+    if (lastReadAt is! DateTime) return true;
+    return updatedAt.isAfter(lastReadAt);
   }
 }
 

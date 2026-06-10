@@ -14,6 +14,7 @@ sealed class Conversation with _$Conversation {
     required String title,
     required DateTime createdAt,
     required DateTime updatedAt,
+    DateTime? lastReadAt,
     String? model,
     String? systemPrompt,
     @JsonKey(toJson: _messagesToJson) @Default([]) List<ChatMessage> messages,

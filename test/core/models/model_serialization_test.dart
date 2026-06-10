@@ -813,6 +813,7 @@ void main() {
         'title': 'Test',
         'createdAt': '2024-06-15T12:00:00.000Z',
         'updatedAt': '2024-06-15T13:00:00.000Z',
+        'lastReadAt': '2024-06-15T13:30:00.000Z',
         'model': 'gpt-4',
         'pinned': true,
         'archived': true,
@@ -822,11 +823,26 @@ void main() {
       });
 
       check(conv.model).equals('gpt-4');
+      check(conv.lastReadAt).equals(DateTime.utc(2024, 6, 15, 13, 30));
       check(conv.pinned).isTrue();
       check(conv.archived).isTrue();
       check(conv.shareId).equals('share1');
       check(conv.folderId).equals('folder1');
       check(conv.tags).deepEquals(['important', 'work']);
+    });
+
+    test('lastReadAt round-trips through json', () {
+      final conv = Conversation(
+        id: 'conv-read',
+        title: 'Read state',
+        createdAt: DateTime.utc(2024, 6, 15, 12),
+        updatedAt: DateTime.utc(2024, 6, 15, 13),
+        lastReadAt: DateTime.utc(2024, 6, 15, 13, 30),
+      );
+
+      final restored = Conversation.fromJson(conv.toJson());
+
+      check(restored.lastReadAt).equals(DateTime.utc(2024, 6, 15, 13, 30));
     });
 
     test('toJson encodes messages as json maps', () {

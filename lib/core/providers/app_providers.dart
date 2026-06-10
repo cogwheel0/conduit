@@ -1214,6 +1214,12 @@ typedef _TrackedScopedLoad<T> = ({
 typedef _UpdatedItem<T> = ({List<T> items, T item});
 typedef _RemovedItems<T> = ({List<T> items, bool didRemove});
 
+DateTime? _latestDateTime(DateTime? left, DateTime? right) {
+  if (left == null) return right;
+  if (right == null) return left;
+  return right.isAfter(left) ? right : left;
+}
+
 void _clearTrackedScopedLoadWhenSettled<T>({
   required Future<T> future,
   required Future<T>? Function() currentFuture,
@@ -1394,7 +1400,10 @@ class Conversations extends _$Conversations {
   _ScopedLoad<List<Conversation>>? _latestInitialLoad;
   _ServerScopedRequestKey? _currentConversationStateKey;
   _ServerScopedRequestKey? _trustedFolderConversationStateKey;
+  _ServerScopedRequestKey? _localReadStateKey;
   final Set<String> _trustedFolderConversationIds = <String>{};
+  final Map<String, DateTime> _localReadAtByConversationId =
+      <String, DateTime>{};
 
   bool hasMoreRegularChats() => !_allRegularChatsLoaded;
   bool isLoadingMoreRegularChats() => _isLoadingMoreRegularChats;
@@ -1477,14 +1486,32 @@ class Conversations extends _$Conversations {
     }
 
     final requestKey = _currentSyncedInitialLoadKey();
+    final preserveTrustedReadState =
+        state.asData?.value != null &&
+        _hasCurrentConversationStateFor(requestKey);
     final result = await AsyncValue.guard(() async {
       return _loadAndRecordInitialConversations(reuseInFlight: !forceFresh);
     });
     if (!ref.mounted) return;
     result.when(
       data: (conversations) {
-        state = AsyncData<List<Conversation>>(conversations);
-        _persistConversationsAsync(conversations);
+        final resolvedKey = _currentConversationStateKey;
+        final canPreserveTrustedReadState =
+            resolvedKey != null &&
+            preserveTrustedReadState &&
+            resolvedKey.matches(requestKey);
+        final canPreserveLocalReadState =
+            resolvedKey != null && _hasLocalReadStateFor(resolvedKey);
+        final nextConversations =
+            canPreserveTrustedReadState || canPreserveLocalReadState
+            ? _preserveLocalReadState(
+                conversations,
+                includeCurrentState: canPreserveTrustedReadState,
+                requestKey: resolvedKey,
+              )
+            : conversations;
+        state = AsyncData<List<Conversation>>(nextConversations);
+        _persistConversationsAsync(nextConversations);
       },
       error: (error, stackTrace) {
         final preservedCurrentScope = _shouldPreserveConversationStateOnError(
@@ -1619,15 +1646,27 @@ class Conversations extends _$Conversations {
     bool trustFolderConversation = false,
   }) {
     final current = state.asData?.value ?? const <Conversation>[];
+    final existingIndex = current.indexWhere(
+      (item) => item.id == conversation.id,
+    );
+    final existing = existingIndex >= 0 ? current[existingIndex] : null;
+    final preparedConversation = existing == null
+        ? conversation
+        : conversation.copyWith(
+            lastReadAt: _latestDateTime(
+              existing.lastReadAt,
+              conversation.lastReadAt,
+            ),
+          );
     final updated = _upsertItemById(
       current,
-      conversation,
+      preparedConversation,
       idOf: (item) => item.id,
     );
     _replaceState(
       updated,
       trustedFolderConversations: trustFolderConversation
-          ? <Conversation>[conversation]
+          ? <Conversation>[preparedConversation]
           : const <Conversation>[],
     );
   }
@@ -1668,6 +1707,18 @@ class Conversations extends _$Conversations {
           ? <Conversation>[update.item]
           : const <Conversation>[],
     );
+  }
+
+  void markConversationRead(String id, DateTime readAt) {
+    if (id.isEmpty) return;
+    _recordLocalReadState(id, readAt);
+    updateConversation(id, (conversation) {
+      final current = conversation.lastReadAt;
+      if (current != null && !readAt.isAfter(current)) {
+        return conversation;
+      }
+      return conversation.copyWith(lastReadAt: readAt);
+    });
   }
 
   /// Applies a server-confirmed conversation summary mutation.
@@ -1745,6 +1796,7 @@ class Conversations extends _$Conversations {
     _currentConversationStateKey = null;
     _trustedFolderConversationStateKey = null;
     _trustedFolderConversationIds.clear();
+    _clearLocalReadState();
   }
 
   void _recordRemoteConversationScope(List<Conversation> conversations) {
@@ -1762,6 +1814,10 @@ class Conversations extends _$Conversations {
 
   bool _hasTrustedFolderConversationStateFor(_ServerScopedRequestKey key) =>
       _trustedFolderConversationStateKey?.matches(key) ?? false;
+
+  bool _hasLocalReadStateFor(_ServerScopedRequestKey key) =>
+      (_localReadStateKey?.matches(key) ?? false) &&
+      _localReadAtByConversationId.isNotEmpty;
 
   bool _canPreserveCurrentConversationStateOnError(
     _ServerScopedRequestKey requestKey,
@@ -1864,6 +1920,72 @@ class Conversations extends _$Conversations {
     return _sortByUpdatedAt(merged.values.toList(growable: false));
   }
 
+  void _recordLocalReadState(String id, DateTime readAt) {
+    final currentKey = _currentSyncedInitialLoadKey();
+    if (!(_localReadStateKey?.matches(currentKey) ?? false)) {
+      _localReadStateKey = currentKey;
+      _localReadAtByConversationId.clear();
+    }
+    final current = _localReadAtByConversationId[id];
+    if (current == null || readAt.isAfter(current)) {
+      _localReadAtByConversationId[id] = readAt;
+    }
+  }
+
+  void _clearLocalReadState() {
+    _localReadStateKey = null;
+    _localReadAtByConversationId.clear();
+  }
+
+  List<Conversation> _preserveLocalReadState(
+    Iterable<Conversation> incoming, {
+    required bool includeCurrentState,
+    required _ServerScopedRequestKey requestKey,
+  }) {
+    final current = state.asData?.value;
+    final incomingList = incoming.toList(growable: false);
+    if (incomingList.isEmpty) {
+      return incomingList;
+    }
+
+    final localReadAtById = <String, DateTime>{};
+    if (includeCurrentState && current != null) {
+      for (final conversation in current) {
+        final lastReadAt = conversation.lastReadAt;
+        if (lastReadAt != null) {
+          localReadAtById[conversation.id] = lastReadAt;
+        }
+      }
+    }
+    if (_localReadStateKey?.matches(requestKey) ?? false) {
+      for (final entry in _localReadAtByConversationId.entries) {
+        localReadAtById[entry.key] =
+            _latestDateTime(localReadAtById[entry.key], entry.value) ??
+            entry.value;
+      }
+    }
+    if (localReadAtById.isEmpty) {
+      return incomingList;
+    }
+
+    return incomingList
+        .map((conversation) {
+          final localReadAt = localReadAtById[conversation.id];
+          if (localReadAt == null) {
+            return conversation;
+          }
+          final latestReadAt = _latestDateTime(
+            localReadAt,
+            conversation.lastReadAt,
+          );
+          if (latestReadAt == conversation.lastReadAt) {
+            return conversation;
+          }
+          return conversation.copyWith(lastReadAt: latestReadAt);
+        })
+        .toList(growable: false);
+  }
+
   bool _isFolderConversation(Conversation conversation) {
     final folderId = conversation.folderId;
     return folderId != null &&
@@ -1916,6 +2038,7 @@ class Conversations extends _$Conversations {
           : (incoming.updatedAt.isAfter(existing.updatedAt)
                 ? incoming.updatedAt
                 : existing.updatedAt),
+      lastReadAt: _latestDateTime(existing.lastReadAt, incoming.lastReadAt),
       model: incoming.model ?? existing.model,
       systemPrompt: incoming.systemPrompt ?? existing.systemPrompt,
       messages: incoming.messages.isNotEmpty
@@ -2278,6 +2401,43 @@ class TemporaryChatEnabled extends _$TemporaryChatEnabled {
 
 /// Returns true if the given conversation ID represents a temporary chat.
 bool isTemporaryChat(String? id) => id != null && id.startsWith('local:');
+
+void markConversationRead(
+  dynamic ref,
+  String? conversationId, {
+  DateTime? readAt,
+}) {
+  final id = conversationId?.trim();
+  if (id == null || id.isEmpty || isTemporaryChat(id)) {
+    return;
+  }
+
+  final timestamp = readAt ?? DateTime.now();
+  try {
+    ref
+        .read(conversationsProvider.notifier)
+        .markConversationRead(id, timestamp);
+  } catch (_) {}
+
+  try {
+    final active = ref.read(activeConversationProvider);
+    if (active?.id == id) {
+      final current = active!.lastReadAt;
+      if (current == null || timestamp.isAfter(current)) {
+        ref
+            .read(activeConversationProvider.notifier)
+            .set(active.copyWith(lastReadAt: timestamp));
+      }
+    }
+  } catch (_) {}
+
+  try {
+    ref.read(socketServiceProvider)?.emit('events:chat', {
+      'chat_id': id,
+      'data': {'type': 'last_read_at'},
+    });
+  } catch (_) {}
+}
 
 final activeConversationProvider =
     NotifierProvider<ActiveConversationNotifier, Conversation?>(

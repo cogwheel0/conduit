@@ -7,6 +7,7 @@ import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/optimized_storage_service.dart';
+import 'package:conduit/core/services/socket_service.dart';
 import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 import 'package:flutter_riverpod/misc.dart';
@@ -20,6 +21,8 @@ Future<void> _flushMicrotasks([int count = 1]) async {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   group('Conversations', () {
     test('passive refresh reuses an in-flight initial load', () async {
       final api = _SequencedConversationsApiService();
@@ -117,6 +120,181 @@ void main() {
         ).deepEquals(['fresh-root-chat']);
       },
     );
+
+    test(
+      'read markers made while cache-backed survive the first remote refresh',
+      () async {
+        final api = _SequencedConversationsApiService();
+        final storage = _FakeOptimizedStorageService(
+          localConversations: [
+            _conversation(
+              'cached-chat',
+              folderId: 'folder-old',
+              updatedAt: DateTime.utc(2026, 1, 1, 2),
+              lastReadAt: DateTime.utc(2026, 1, 1),
+            ),
+          ],
+        );
+        final container = _container(api: api, storage: storage);
+        addTearDown(container.dispose);
+
+        final initial = await container.read(conversationsProvider.future);
+        check(initial.single.folderId).equals('folder-old');
+
+        await _flushMicrotasks();
+        check(api.requestedPages).deepEquals([1]);
+
+        final localReadAt = DateTime.utc(2026, 1, 1, 3);
+        markConversationRead(container, 'cached-chat', readAt: localReadAt);
+
+        api.completePage(0, [
+          _conversation(
+            'cached-chat',
+            updatedAt: DateTime.utc(2026, 1, 1, 2),
+            lastReadAt: DateTime.utc(2026, 1, 1),
+          ),
+        ]);
+        await _flushMicrotasks(2);
+
+        final current = container.read(conversationsProvider).requireValue;
+        check(current).has((it) => it.length, 'length').equals(1);
+        check(current.single.id).equals('cached-chat');
+        check(current.single.folderId).isNull();
+        check(current.single.lastReadAt).equals(localReadAt);
+      },
+    );
+
+    test(
+      'markConversationRead updates local state without regressing',
+      () async {
+        final api = _SequencedConversationsApiService();
+        final storage = _FakeOptimizedStorageService();
+        final container = _container(api: api, storage: storage);
+        addTearDown(container.dispose);
+
+        final initialLoad = container.read(conversationsProvider.future);
+        await _flushMicrotasks();
+        api.completePage(0, [_conversation('chat-1')]);
+        await initialLoad;
+
+        final readAt = DateTime.utc(2026, 1, 1, 1);
+        markConversationRead(container, 'chat-1', readAt: readAt);
+
+        var current = container.read(conversationsProvider).requireValue.single;
+        check(current.lastReadAt).equals(readAt);
+
+        container
+            .read(conversationsProvider.notifier)
+            .upsertConversation(
+              _conversation(
+                'chat-1',
+                lastReadAt: DateTime.utc(2025, 12, 31, 23),
+              ),
+            );
+
+        current = container.read(conversationsProvider).requireValue.single;
+        check(current.lastReadAt).equals(readAt);
+      },
+    );
+
+    test(
+      'refresh preserves newer local read timestamps from stale summaries',
+      () async {
+        final api = _SequencedConversationsApiService();
+        final storage = _FakeOptimizedStorageService();
+        final container = _container(api: api, storage: storage);
+        addTearDown(container.dispose);
+
+        final staleReadAt = DateTime.utc(2026, 1, 1);
+        final updatedAt = DateTime.utc(2026, 1, 1, 2);
+        final initialLoad = container.read(conversationsProvider.future);
+        await _flushMicrotasks();
+        api.completePage(0, [
+          _conversation(
+            'chat-1',
+            updatedAt: updatedAt,
+            lastReadAt: staleReadAt,
+          ),
+        ]);
+        await initialLoad;
+
+        final localReadAt = DateTime.utc(2026, 1, 1, 3);
+        markConversationRead(container, 'chat-1', readAt: localReadAt);
+
+        final refreshFuture = container
+            .read(conversationsProvider.notifier)
+            .refresh(forceFresh: true);
+        await _flushMicrotasks();
+        api.completePage(1, [
+          _conversation(
+            'chat-1',
+            updatedAt: updatedAt,
+            lastReadAt: staleReadAt,
+          ),
+        ]);
+
+        await refreshFuture;
+
+        final current = container
+            .read(conversationsProvider)
+            .requireValue
+            .single;
+        check(current.lastReadAt).equals(localReadAt);
+      },
+    );
+
+    test(
+      'markConversationRead updates active conversation and emits socket event',
+      () async {
+        final api = _SequencedConversationsApiService();
+        final socket = _RecordingSocketService();
+        final storage = _FakeOptimizedStorageService();
+        final container = _container(
+          api: api,
+          storage: storage,
+          extraOverrides: [socketServiceProvider.overrideWithValue(socket)],
+        );
+        addTearDown(container.dispose);
+
+        final initialLoad = container.read(conversationsProvider.future);
+        await _flushMicrotasks();
+        api.completePage(0, [_conversation('chat-1')]);
+        await initialLoad;
+        container
+            .read(activeConversationProvider.notifier)
+            .set(_conversation('chat-1'));
+
+        final readAt = DateTime.utc(2026, 1, 1, 1);
+        markConversationRead(container, 'chat-1', readAt: readAt);
+
+        check(
+          container.read(activeConversationProvider)?.lastReadAt,
+        ).equals(readAt);
+        check(socket.emits).length.equals(1);
+        check(socket.emits.single.event).equals('events:chat');
+        check(socket.emits.single.data as Map<String, dynamic>).deepEquals({
+          'chat_id': 'chat-1',
+          'data': {'type': 'last_read_at'},
+        });
+      },
+    );
+
+    test('markConversationRead ignores temporary chats', () {
+      final api = _SequencedConversationsApiService();
+      final socket = _RecordingSocketService();
+      final storage = _FakeOptimizedStorageService();
+      final container = _container(
+        api: api,
+        storage: storage,
+        extraOverrides: [socketServiceProvider.overrideWithValue(socket)],
+      );
+      addTearDown(container.dispose);
+
+      markConversationRead(container, 'local:socket-id');
+
+      check(api.requestedPages).isEmpty();
+      check(socket.emits).isEmpty();
+    });
 
     test(
       'server-confirmed mutations re-trust cache-hydrated folder conversations before the first refresh',
@@ -516,6 +694,54 @@ void main() {
     );
 
     test(
+      'refresh does not preserve local read timestamps across auth scopes',
+      () async {
+        final api = _SequencedConversationsApiService();
+        final storage = _FakeOptimizedStorageService();
+        var authToken = 'old-token';
+        final container = _container(
+          api: api,
+          storage: storage,
+          authTokenOverride: authTokenProvider3.overrideWith(
+            (ref) => authToken,
+          ),
+        );
+        addTearDown(container.dispose);
+
+        final initialLoad = container.read(conversationsProvider.future);
+        await _flushMicrotasks();
+        api.completePage(0, [_conversation('shared-chat')]);
+        await initialLoad;
+
+        markConversationRead(
+          container,
+          'shared-chat',
+          readAt: DateTime.utc(2026, 1, 1, 3),
+        );
+
+        authToken = 'new-token';
+        container.invalidate(authTokenProvider3);
+        final refreshFuture = container
+            .read(conversationsProvider.notifier)
+            .refresh();
+        await _flushMicrotasks();
+
+        check(
+          api.requestedPageAuthTokens,
+        ).deepEquals(['old-token', 'new-token']);
+
+        api.completePage(1, [_conversation('shared-chat')]);
+
+        await refreshFuture;
+
+        final current = container.read(conversationsProvider).requireValue;
+        check(current).has((it) => it.length, 'length').equals(1);
+        check(current.single.id).equals('shared-chat');
+        check(current.single.lastReadAt).isNull();
+      },
+    );
+
+    test(
       'refresh clears a trusted folder assignment when the server returns the chat at root',
       () async {
         final api = _SequencedConversationsApiService();
@@ -839,6 +1065,7 @@ ProviderContainer _container({
   ApiService? api,
   Override? apiOverride,
   Override? authTokenOverride,
+  List<Override> extraOverrides = const <Override>[],
 }) {
   assert(api != null || apiOverride != null);
   return ProviderContainer(
@@ -848,19 +1075,44 @@ ProviderContainer _container({
       authTokenOverride ?? authTokenProvider3.overrideWithValue('test-token'),
       apiOverride ?? apiServiceProvider.overrideWithValue(api!),
       optimizedStorageServiceProvider.overrideWithValue(storage),
+      ...extraOverrides,
     ],
   );
 }
 
-Conversation _conversation(String id, {String? folderId}) {
+Conversation _conversation(
+  String id, {
+  String? folderId,
+  DateTime? updatedAt,
+  DateTime? lastReadAt,
+}) {
   final timestamp = DateTime.utc(2026, 1, 1);
   return Conversation(
     id: id,
     title: id,
     createdAt: timestamp,
-    updatedAt: timestamp,
+    updatedAt: updatedAt ?? timestamp,
+    lastReadAt: lastReadAt,
     folderId: folderId,
   );
+}
+
+class _RecordingSocketService extends SocketService {
+  _RecordingSocketService()
+    : super(
+        serverConfig: const ServerConfig(
+          id: 'test-server',
+          name: 'Test Server',
+          url: 'https://example.com',
+        ),
+      );
+
+  final emits = <({String event, dynamic data})>[];
+
+  @override
+  void emit(String event, dynamic data) {
+    emits.add((event: event, data: data));
+  }
 }
 
 class _FakeOptimizedStorageService extends Fake

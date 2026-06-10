@@ -477,6 +477,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   @override
   void dispose() {
+    markConversationRead(ref, _lastConversationId);
     _screenContextSub?.close();
     _reviewerModeSub?.close();
     _conversationIdSub?.close();
@@ -1284,6 +1285,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if (conversationId == _lastConversationId) return;
 
     final outgoingId = _lastConversationId;
+    markConversationRead(ref, outgoingId);
+    markConversationRead(ref, conversationId);
     if (outgoingId != null && _scrollController.hasClients) {
       _savedScrollOffsets[outgoingId] = _scrollController.position.pixels;
     }

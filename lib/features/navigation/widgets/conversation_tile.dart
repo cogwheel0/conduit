@@ -51,6 +51,7 @@ class ConversationDragFeedback extends StatelessWidget {
         title: title,
         pinned: pinned,
         selected: false,
+        unread: false,
         isLoading: false,
         shrinkWrap: true,
       ),
@@ -69,6 +70,9 @@ class ConversationTileContent extends StatelessWidget {
   /// Whether this tile is currently selected.
   final bool selected;
 
+  /// Whether this conversation has unread updates.
+  final bool unread;
+
   /// Whether the conversation is loading.
   final bool isLoading;
 
@@ -81,6 +85,7 @@ class ConversationTileContent extends StatelessWidget {
     required this.title,
     required this.pinned,
     required this.selected,
+    this.unread = false,
     required this.isLoading,
     this.shrinkWrap = false,
   });
@@ -91,8 +96,8 @@ class ConversationTileContent extends StatelessWidget {
 
     // Enhanced typography with better visual hierarchy
     final textStyle = AppTypography.sidebarTitleStyle.copyWith(
-      color: selected ? theme.textPrimary : theme.textSecondary,
-      fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+      color: (selected || unread) ? theme.textPrimary : theme.textSecondary,
+      fontWeight: (selected || unread) ? FontWeight.w600 : FontWeight.w400,
       height: 1.4,
     );
 
@@ -141,6 +146,18 @@ class ConversationTileContent extends StatelessWidget {
     return Row(
       mainAxisSize: shrinkWrap ? MainAxisSize.min : MainAxisSize.max,
       children: [
+        if (unread) ...[
+          Container(
+            key: const ValueKey<String>('conversation-unread-indicator'),
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(
+              color: theme.buttonPrimary,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: Spacing.sm),
+        ],
         if (shrinkWrap)
           Flexible(fit: FlexFit.loose, child: titleWidget)
         else
@@ -162,6 +179,9 @@ class ConversationTile extends StatelessWidget {
   /// Whether this tile is currently selected.
   final bool selected;
 
+  /// Whether this conversation has unread updates.
+  final bool unread;
+
   /// Whether the conversation is loading.
   final bool isLoading;
 
@@ -174,6 +194,7 @@ class ConversationTile extends StatelessWidget {
     required this.title,
     required this.pinned,
     required this.selected,
+    this.unread = false,
     required this.isLoading,
     required this.onTap,
   });
@@ -222,6 +243,7 @@ class ConversationTile extends StatelessWidget {
                 title: title,
                 pinned: pinned,
                 selected: selected,
+                unread: unread,
                 isLoading: isLoading,
               ),
             ),
