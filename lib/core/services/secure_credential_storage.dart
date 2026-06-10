@@ -1,10 +1,11 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:crypto/crypto.dart';
 import '../utils/debug_logger.dart';
 
-/// Enhanced secure credential storage with platform-specific optimizations
+/// Secure credential storage with platform-specific options.
+///
+/// Values are protected by the platform keychain/keystore via
+/// FlutterSecureStorage; no additional app-level encryption is applied.
 class SecureCredentialStorage {
   late final FlutterSecureStorage _secureStorage;
 
@@ -25,7 +26,7 @@ class SecureCredentialStorage {
   AndroidOptions _getAndroidOptions() {
     return const AndroidOptions(
       // Keep legacy Android storage readable until a storageNamespace migration
-      // can move both encrypted data and wrapped keys.
+      // can move both stored data and wrapped keys.
       // ignore: deprecated_member_use
       sharedPreferencesName: 'conduit_secure_prefs',
       preferencesKeyPrefix: 'conduit_',
@@ -68,12 +69,11 @@ class SecureCredentialStorage {
         'password': password,
         'authType': authType,
         'savedAt': DateTime.now().toIso8601String(),
-        'deviceId': await _getDeviceFingerprint(),
         'version': '2.1', // Version for migration purposes
       };
 
-      final encryptedData = await _encryptData(jsonEncode(credentials));
-      await _secureStorage.write(key: _credentialsKey, value: encryptedData);
+      final payload = jsonEncode(credentials);
+      await _secureStorage.write(key: _credentialsKey, value: payload);
 
       // Verify the save was successful by attempting to read it back
       final verifyData = await _secureStorage.read(key: _credentialsKey);
@@ -97,34 +97,18 @@ class SecureCredentialStorage {
   /// Retrieve saved credentials
   Future<Map<String, String>?> getSavedCredentials() async {
     try {
-      final encryptedData = await _secureStorage.read(key: _credentialsKey);
-      if (encryptedData == null || encryptedData.isEmpty) {
+      final storedData = await _secureStorage.read(key: _credentialsKey);
+      if (storedData == null || storedData.isEmpty) {
         return null;
       }
 
-      final jsonString = await _decryptData(encryptedData);
+      final jsonString = storedData;
       final decoded = jsonDecode(jsonString);
 
       if (decoded is! Map<String, dynamic>) {
         DebugLogger.warning('invalid-format', scope: 'credentials');
         await deleteSavedCredentials();
         return null;
-      }
-
-      // Validate device fingerprint for additional security, but be more lenient
-      final savedDeviceId = decoded['deviceId']?.toString();
-      if (savedDeviceId != null) {
-        final currentDeviceId = await _getDeviceFingerprint();
-
-        if (savedDeviceId != currentDeviceId) {
-          DebugLogger.info(
-            'fingerprint-mismatch-allowed',
-            scope: 'credentials',
-            data: {'previous': savedDeviceId, 'current': currentDeviceId},
-          );
-          // Don't clear credentials immediately - allow the user to continue
-          // They can re-login if needed, which will update the fingerprint
-        }
       }
 
       // Validate required fields
@@ -189,8 +173,7 @@ class SecureCredentialStorage {
   /// Save auth token securely
   Future<void> saveAuthToken(String token) async {
     try {
-      final encryptedToken = await _encryptData(token);
-      await _secureStorage.write(key: _authTokenKey, value: encryptedToken);
+      await _secureStorage.write(key: _authTokenKey, value: token);
     } catch (e) {
       DebugLogger.error(
         'save-token-failed',
@@ -204,10 +187,10 @@ class SecureCredentialStorage {
   /// Get auth token
   Future<String?> getAuthToken() async {
     try {
-      final encryptedToken = await _secureStorage.read(key: _authTokenKey);
-      if (encryptedToken == null) return null;
+      final storedToken = await _secureStorage.read(key: _authTokenKey);
+      if (storedToken == null) return null;
 
-      return await _decryptData(encryptedToken);
+      return storedToken;
     } catch (e) {
       DebugLogger.error(
         'read-token-failed',
@@ -235,11 +218,7 @@ class SecureCredentialStorage {
   /// Save server configurations securely
   Future<void> saveServerConfigs(String configsJson) async {
     try {
-      final encryptedConfigs = await _encryptData(configsJson);
-      await _secureStorage.write(
-        key: _serverConfigsKey,
-        value: encryptedConfigs,
-      );
+      await _secureStorage.write(key: _serverConfigsKey, value: configsJson);
     } catch (e) {
       DebugLogger.error(
         'save-configs-failed',
@@ -253,12 +232,10 @@ class SecureCredentialStorage {
   /// Get server configurations
   Future<String?> getServerConfigs() async {
     try {
-      final encryptedConfigs = await _secureStorage.read(
-        key: _serverConfigsKey,
-      );
-      if (encryptedConfigs == null) return null;
+      final storedConfigs = await _secureStorage.read(key: _serverConfigsKey);
+      if (storedConfigs == null) return null;
 
-      return await _decryptData(encryptedConfigs);
+      return storedConfigs;
     } catch (e) {
       DebugLogger.error(
         'read-configs-failed',
@@ -302,67 +279,6 @@ class SecureCredentialStorage {
       );
     } catch (e) {
       DebugLogger.error('clear-failed', scope: 'credentials', error: e);
-    }
-  }
-
-  /// Encrypt data using additional layer of encryption
-  Future<String> _encryptData(String data) async {
-    try {
-      // For now, return the data as-is since FlutterSecureStorage already provides encryption
-      // In a more advanced implementation, you could add an additional layer of AES encryption
-      return data;
-    } catch (e) {
-      DebugLogger.error(
-        'encrypt-failed',
-        scope: 'credentials/crypto',
-        error: e,
-      );
-      rethrow;
-    }
-  }
-
-  /// Decrypt data
-  Future<String> _decryptData(String encryptedData) async {
-    try {
-      // For now, return the data as-is since FlutterSecureStorage handles decryption
-      // This matches the encryption method above
-      return encryptedData;
-    } catch (e) {
-      DebugLogger.error(
-        'decrypt-failed',
-        scope: 'credentials/crypto',
-        error: e,
-      );
-      rethrow;
-    }
-  }
-
-  /// Generate a device fingerprint for additional security
-  Future<String> _getDeviceFingerprint() async {
-    try {
-      // Create a more stable device fingerprint
-      final platformInfo = {
-        'platform': Platform.operatingSystem,
-        // Use only major version to avoid fingerprint changes on minor updates
-        'majorVersion': Platform.operatingSystemVersion.split('.').first,
-        'isPhysicalDevice': true, // In a real implementation, you'd detect this
-        // Add a static component to ensure consistency
-        'appId': 'conduit_app_v1',
-      };
-
-      final fingerprintData = jsonEncode(platformInfo);
-      final bytes = utf8.encode(fingerprintData);
-      final digest = sha256.convert(bytes);
-
-      return digest.toString();
-    } catch (e) {
-      DebugLogger.warning(
-        'fingerprint-failed',
-        scope: 'credentials',
-        data: {'error': e.toString()},
-      );
-      // Return a consistent fallback fingerprint
-      return 'stable_fallback_device_id';
     }
   }
 
