@@ -583,42 +583,42 @@ packages:
     dependency: "direct main"
     description:
       name: flutter_local_notifications
-      sha256: "3c7aeaded67100c7eecaac46e40097952f1afb8562a3e8b974515ea9cdc5439a"
+      sha256: be38e3854d2baabcda8e16966a5fe8748cebb655bb94701494da0f052c2fc352
       url: "https://pub.dev"
     source: hosted
-    version: "22.0.0-dev.3"
+    version: "22.0.0"
   flutter_local_notifications_linux:
     dependency: transitive
     description:
       name: flutter_local_notifications_linux
-      sha256: ad8c60755a783d632ac17e42f03053dabbddfe5766f48b5340b1dac159f94d46
+      sha256: "9ca97e63776f29ab1b955725c09999fc2c150523269db150c39274f2a43c5a8b"
       url: "https://pub.dev"
     source: hosted
-    version: "8.0.1-dev.1"
+    version: "8.0.1"
   flutter_local_notifications_platform_interface:
     dependency: transitive
     description:
       name: flutter_local_notifications_platform_interface
-      sha256: "21d45c421e4069d26fccfdd7934a5a5155f2ff352e1fbec0f9efbab3eb243646"
+      sha256: ff0013eae795e8dc8fad4a8992a209e64d3ba2fbd8bf5e43c36bf448f95bd814
       url: "https://pub.dev"
     source: hosted
-    version: "12.0.0-dev.1"
+    version: "12.0.0"
   flutter_local_notifications_web:
     dependency: transitive
     description:
       name: flutter_local_notifications_web
-      sha256: "8868c009ed125ab2990fe7b5cf84c26b9f25132da40303cfa8a0682efb01922c"
+      sha256: "516afaf97a2d1e67a036c6617321b00d205d72f7a67b6eccf936cd565f985878"
       url: "https://pub.dev"
     source: hosted
-    version: "1.0.0-dev.2"
+    version: "1.0.0"
   flutter_local_notifications_windows:
     dependency: transitive
     description:
       name: flutter_local_notifications_windows
-      sha256: "2ec0b816f25b5cd59e7a40f88925dbf0fff30944736b71b6920bdd7a421b145e"
+      sha256: "5aeed973a0c1480706784fad05c5c3a911335ebb561b2274b47fe80b375201e1"
       url: "https://pub.dev"
     source: hosted
-    version: "3.1.0-dev.2"
+    version: "3.1.0"
   flutter_localizations:
     dependency: "direct main"
     description: flutter
