@@ -105,7 +105,7 @@ enough for daily use.
 | Productivity | Notes with autosave, pinning, AI-generated titles, AI enhancement, audio attachments, channels with threads and reactions when enabled by the server, and sharing from other apps |
 | Rendering | Syntax-highlighted code, LaTeX, Mermaid, Chart.js, citations, follow-up suggestions, reasoning blocks, tool-call details, and code execution rendering |
 | Mobile UX | Voice input, full voice-call mode, home screen widgets, app quick actions, clipboard image paste, haptics, and adaptive Material/Cupertino UI |
-| Personalization | Light, dark, and system themes plus a localized interface across 10 supported locales |
+| Personalization | Light, dark, and system themes plus a localized interface across 13 supported locales |
 | Privacy | Native secure storage, no third-party analytics or ads, and no developer-operated backend relaying your data |
 
 ## Built for Self-Hosted Reality
@@ -211,8 +211,8 @@ flutter build ios --release
 ## Localization
 
 Conduit currently ships localized UI strings for English, German, Spanish,
-French, Italian, Korean, Dutch, Russian, Simplified Chinese, and Traditional
-Chinese.
+French, Italian, Japanese, Korean, Dutch, Russian, Simplified Chinese,
+Traditional Chinese, Czech, and Slovak.
 
 ## Architecture
 
