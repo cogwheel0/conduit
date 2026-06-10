@@ -338,7 +338,14 @@ class SocketService with WidgetsBindingObserver {
         _unbindCoreSocketHandlers(existing);
         existing.dispose();
       }
-    } catch (_) {}
+    } catch (e, st) {
+      DebugLogger.error(
+        'failed disposing previous socket on reconnect',
+        error: e,
+        stackTrace: st,
+        scope: 'socket',
+      );
+    }
 
     String base = serverConfig.url.replaceFirst(RegExp(r'/+$'), '');
     // Normalize accidental ":0" ports or invalid port values in stored URL
@@ -474,7 +481,14 @@ class SocketService with WidgetsBindingObserver {
         for (final (map, ackFn) in buffered) {
           try {
             handler(map, ackFn);
-          } catch (_) {}
+          } catch (e, st) {
+            DebugLogger.error(
+              'buffered socket event handler threw during replay',
+              error: e,
+              stackTrace: st,
+              scope: 'socket/dispatch',
+            );
+          }
         }
       }
     }

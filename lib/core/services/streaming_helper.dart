@@ -2089,7 +2089,14 @@ ActiveChatStream attachUnifiedChunkedStreaming({
               });
             }
           }
-        } catch (_) {}
+        } catch (e, st) {
+          DebugLogger.error(
+            'chat completion sync failed',
+            error: e,
+            stackTrace: st,
+            scope: 'chat/streaming',
+          );
+        }
       }),
     );
   }
