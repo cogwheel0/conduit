@@ -31,6 +31,8 @@ import '../../tools/providers/tools_providers.dart';
 import '../services/chat_transport_dispatch.dart';
 import '../services/reviewer_mode_service.dart';
 
+part 'chat_capability_providers.dart';
+part 'chat_composer_providers.dart';
 part 'chat_providers.g.dart';
 
 // Chat messages for current conversation
@@ -283,94 +285,6 @@ Duration _streamingContentUpdateIntervalForTarget(
 class IsLoadingConversation extends _$IsLoadingConversation {
   @override
   bool build() => false;
-
-  void set(bool value) => state = value;
-}
-
-// Prefilled input text (e.g., when sharing text from other apps)
-@Riverpod(keepAlive: true)
-class PrefilledInputText extends _$PrefilledInputText {
-  @override
-  String? build() => null;
-
-  void set(String? value) => state = value;
-
-  void clear() => state = null;
-}
-
-const String chatComposerTextInsertionTargetId = 'chat-composer';
-
-class ComposerTextInsertion {
-  const ComposerTextInsertion({
-    required this.id,
-    required this.targetId,
-    required this.text,
-  });
-
-  final int id;
-  final String targetId;
-  final String text;
-}
-
-final composerTextInsertionProvider =
-    NotifierProvider<ComposerTextInsertionNotifier, ComposerTextInsertion?>(
-      ComposerTextInsertionNotifier.new,
-    );
-
-class ComposerTextInsertionNotifier extends Notifier<ComposerTextInsertion?> {
-  int _nextId = 0;
-
-  @override
-  ComposerTextInsertion? build() => null;
-
-  void insert({required String targetId, required String text}) {
-    if (text.trim().isEmpty) {
-      return;
-    }
-    state = ComposerTextInsertion(
-      id: ++_nextId,
-      targetId: targetId,
-      text: text,
-    );
-  }
-
-  void clear(int id) {
-    if (state?.id == id) {
-      state = null;
-    }
-  }
-}
-
-// Trigger to request focus on the chat input (increment to signal)
-@Riverpod(keepAlive: true)
-class InputFocusTrigger extends _$InputFocusTrigger {
-  @override
-  int build() => 0;
-
-  void set(int value) => state = value;
-
-  int increment() {
-    final next = state + 1;
-    state = next;
-    return next;
-  }
-}
-
-// Whether the chat composer currently has focus
-@Riverpod(keepAlive: true)
-class ComposerHasFocus extends _$ComposerHasFocus {
-  @override
-  bool build() => false;
-
-  void set(bool value) => state = value;
-}
-
-// Whether the chat composer is allowed to auto-focus.
-// When false, the composer will remain unfocused until the user taps it.
-@Riverpod(keepAlive: true)
-class ComposerAutofocusEnabled extends _$ComposerAutofocusEnabled {
-  @override
-  bool build() => true;
 
   void set(bool value) => state = value;
 }
@@ -2840,100 +2754,6 @@ final _chatFeatureDefaultsProvider = Provider<_ChatFeatureDefaults>((ref) {
     model: selectedModel,
   );
 });
-
-// Available tools provider
-final availableToolsProvider =
-    NotifierProvider<AvailableToolsNotifier, List<String>>(
-      AvailableToolsNotifier.new,
-    );
-
-// Web search enabled state for API-based web search
-final webSearchEnabledProvider =
-    NotifierProvider<WebSearchEnabledNotifier, bool>(
-      WebSearchEnabledNotifier.new,
-    );
-
-// Image generation enabled state - behaves like web search
-final imageGenerationEnabledProvider =
-    NotifierProvider<ImageGenerationEnabledNotifier, bool>(
-      ImageGenerationEnabledNotifier.new,
-    );
-
-// Vision capable models provider
-final visionCapableModelsProvider =
-    NotifierProvider<VisionCapableModelsNotifier, List<String>>(
-      VisionCapableModelsNotifier.new,
-    );
-
-// File upload capable models provider
-final fileUploadCapableModelsProvider =
-    NotifierProvider<FileUploadCapableModelsNotifier, List<String>>(
-      FileUploadCapableModelsNotifier.new,
-    );
-
-class AvailableToolsNotifier extends Notifier<List<String>> {
-  @override
-  List<String> build() => [];
-
-  void set(List<String> tools) => state = List<String>.from(tools);
-}
-
-class WebSearchEnabledNotifier extends Notifier<bool> {
-  @override
-  bool build() => ref.watch(_chatFeatureDefaultsProvider).webSearchEnabled;
-
-  void set(bool value) {
-    state = value;
-    unawaited(
-      ref.read(appSettingsProvider.notifier).setChatWebSearchEnabled(value),
-    );
-  }
-}
-
-class ImageGenerationEnabledNotifier extends Notifier<bool> {
-  @override
-  bool build() =>
-      ref.watch(_chatFeatureDefaultsProvider).imageGenerationEnabled;
-
-  void set(bool value) {
-    state = value;
-    unawaited(
-      ref
-          .read(appSettingsProvider.notifier)
-          .setChatImageGenerationEnabled(value),
-    );
-  }
-}
-
-class VisionCapableModelsNotifier extends Notifier<List<String>> {
-  @override
-  List<String> build() {
-    final selectedModel = ref.watch(selectedModelProvider);
-    if (selectedModel == null) {
-      return [];
-    }
-
-    if (selectedModel.isMultimodal == true) {
-      return [selectedModel.id];
-    }
-
-    // For now, assume all models support vision unless explicitly marked
-    return [selectedModel.id];
-  }
-}
-
-class FileUploadCapableModelsNotifier extends Notifier<List<String>> {
-  @override
-  List<String> build() {
-    final selectedModel = ref.watch(selectedModelProvider);
-    if (selectedModel == null) {
-      return [];
-    }
-
-    // For now, assume all models support file upload
-    return [selectedModel.id];
-  }
-}
 
 // Helper function to validate file size
 bool validateFileSize(int fileSize, int? maxSizeMB) {
