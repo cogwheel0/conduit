@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../utils/debug_logger.dart';
@@ -12,6 +13,11 @@ class PersistenceMigrator {
 
   static const int _targetVersion = 1;
   static bool _migrationComplete = false;
+
+  @visibleForTesting
+  static void debugResetMigrationComplete() {
+    _migrationComplete = false;
+  }
 
   final HiveBoxes _boxes;
 
