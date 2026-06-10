@@ -1,9 +1,7 @@
-import 'dart:developer' as developer;
-
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher_string.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/utils/external_link_launcher.dart';
 import '../../../shared/widgets/markdown/markdown_config.dart';
 import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
 import '../../../shared/widgets/markdown/renderer/conduit_markdown_widget.dart';
@@ -41,7 +39,8 @@ class ChannelMessageContent extends StatelessWidget {
       data: normalized,
       dataIsPrepared: true,
       stateScopeId: stateScopeId,
-      onLinkTap: onTapLink ?? (url, _) => _launchChannelLink(url),
+      onLinkTap: onTapLink ??
+          (url, _) => launchExternalLink(url, scope: 'channels/markdown'),
     );
   }
 }
@@ -96,20 +95,6 @@ class ChannelMessageAttachments extends StatelessWidget {
       attachmentId: attachmentId,
       isMarkdownFormat: true,
       constraints: constraints,
-    );
-  }
-}
-
-Future<void> _launchChannelLink(String url) async {
-  if (url.isEmpty) return;
-  try {
-    await launchUrlString(url, mode: LaunchMode.externalApplication);
-  } catch (error, stackTrace) {
-    developer.log(
-      'Unable to open channel message link',
-      name: 'channels.markdown',
-      error: error,
-      stackTrace: stackTrace,
     );
   }
 }

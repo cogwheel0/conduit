@@ -20,13 +20,13 @@ import '../../../shared/widgets/model_avatar.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
 import '../../../shared/widgets/web_content_embed.dart';
-import 'package:url_launcher/url_launcher_string.dart';
 import '../providers/chat_providers.dart'
     show
         chatComposerTextInsertionTargetId,
         isChatStreamingProvider,
         sendMessageWithContainer,
         streamingContentProvider;
+import '../../../shared/utils/external_link_launcher.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../core/services/platform_service.dart';
 import '../../../core/services/settings_service.dart';
@@ -1134,7 +1134,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         isStreaming: bodyTreatsAsStreaming,
         askConduitComposerTargetId: chatComposerTextInsertionTargetId,
         stateScopeId: _markdownStateScopeId(),
-        onTapLink: (url, _) => _launchUri(url),
+        onTapLink: (url, _) =>
+            launchExternalLink(url, scope: 'chat/assistant'),
         sources: activeSources,
         imageBuilderOverride: (uri, title, alt) {
           // Route markdown images through the enhanced image widget so they
@@ -1974,13 +1975,4 @@ String _buildTtsPlainTextFromRaw(String raw) {
   final sanitized = ConduitMarkdownPreprocessor.sanitize(raw);
   final withoutDetails = sanitized.replaceAll(_ttsDetailsPattern, '');
   return ConduitMarkdownPreprocessor.cleanText(withoutDetails).trim();
-}
-
-Future<void> _launchUri(String url) async {
-  if (url.isEmpty) return;
-  try {
-    await launchUrlString(url, mode: LaunchMode.externalApplication);
-  } catch (err) {
-    DebugLogger.log('Unable to open url $url: $err', scope: 'chat/assistant');
-  }
 }

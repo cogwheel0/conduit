@@ -1,20 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/models/chat_message.dart';
 import '../../theme/theme_extensions.dart';
+import '../../utils/external_link_launcher.dart';
 import 'source_reference_helper.dart';
-
-Future<void> _launchSourceUrl(String url) async {
-  try {
-    final uri = Uri.parse(url);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    }
-  } catch (_) {
-    // Ignore source launch failures.
-  }
-}
 
 TextStyle _badgeLabelTextStyle(BuildContext context, Color color) {
   final textTheme = Theme.of(context).textTheme;
@@ -92,7 +81,7 @@ class CitationBadge extends StatelessWidget {
           if (onTap != null) {
             onTap!();
           } else if (url != null) {
-            _launchSourceUrl(url);
+            launchExternalLink(url, scope: 'markdown/citation');
           }
         },
         child: Container(
@@ -211,7 +200,7 @@ class CitationBadgeGroup extends StatelessWidget {
           if (index >= 0 && index < sources.length) {
             final url = SourceReferenceHelper.getSourceUrl(sources[index]);
             if (url != null) {
-              _launchSourceUrl(url);
+              launchExternalLink(url, scope: 'markdown/citation');
             }
           }
         },

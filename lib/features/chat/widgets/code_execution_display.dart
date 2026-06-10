@@ -3,12 +3,11 @@ import 'dart:io' show Platform;
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher_string.dart';
 
 import '../../../core/models/chat_message.dart';
 import '../../../core/services/native_sheet_bridge.dart';
-import '../../../core/utils/debug_logger.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/utils/external_link_launcher.dart';
 import '../../../shared/widgets/themed_sheets.dart';
 import 'assistant_detail_header.dart';
 
@@ -242,7 +241,10 @@ class CodeExecutionListView extends StatelessWidget {
                         leading: const Icon(Icons.insert_drive_file_outlined),
                         title: Text(name),
                         onTap: file.url != null
-                            ? () => _launchUri(file.url!)
+                            ? () => launchExternalLink(
+                                file.url!,
+                                scope: 'chat/assistant',
+                              )
                             : null,
                         trailing: file.url != null
                             ? const Icon(Icons.open_in_new)
@@ -257,14 +259,5 @@ class CodeExecutionListView extends StatelessWidget {
         );
       },
     );
-  }
-}
-
-Future<void> _launchUri(String url) async {
-  if (url.isEmpty) return;
-  try {
-    await launchUrlString(url, mode: LaunchMode.externalApplication);
-  } catch (err) {
-    DebugLogger.log('Unable to open url $url: $err', scope: 'chat/assistant');
   }
 }

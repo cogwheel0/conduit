@@ -3,12 +3,12 @@ import 'dart:io' show Platform;
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:cached_network_image_ce/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../core/models/chat_message.dart';
 import '../../../../core/services/native_sheet_bridge.dart';
 import '../../../../shared/theme/theme_extensions.dart';
 import '../../../../shared/utils/adaptive_glass.dart';
+import '../../../../shared/utils/external_link_launcher.dart';
 import '../../../../shared/widgets/markdown/source_reference_helper.dart';
 import '../../../../shared/widgets/sheet_handle.dart';
 import '../../../../shared/widgets/themed_sheets.dart';
@@ -254,7 +254,9 @@ class OpenWebUISourcesWidget extends StatelessWidget {
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: url == null ? null : () => _launchUrl(url),
+      onTap: url == null
+          ? null
+          : () => launchExternalLink(url, scope: 'chat/sources'),
       child: Container(
         padding: const EdgeInsets.all(Spacing.md),
         decoration: BoxDecoration(
@@ -452,16 +454,6 @@ class OpenWebUISourcesWidget extends StatelessWidget {
     return 'https://www.google.com/s2/favicons?sz=32&domain=$domain';
   }
 
-  Future<void> _launchUrl(String url) async {
-    try {
-      final uri = Uri.parse(url);
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-      }
-    } catch (_) {
-      // Ignore source launch failures.
-    }
-  }
 }
 
 class _SourceIndexBadge extends StatelessWidget {

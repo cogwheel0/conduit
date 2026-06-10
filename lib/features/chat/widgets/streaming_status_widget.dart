@@ -2,12 +2,11 @@ import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import 'package:url_launcher/url_launcher_string.dart';
 
 import '../../../core/models/chat_message.dart';
 import '../../../core/services/native_sheet_bridge.dart';
-import '../../../core/utils/debug_logger.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/utils/external_link_launcher.dart';
 import '../../../shared/widgets/themed_sheets.dart';
 import 'assistant_detail_header.dart';
 
@@ -476,11 +475,7 @@ class _MinimalQueryChips extends StatelessWidget {
 
   void _launchSearch(String query) async {
     final url = 'https://www.google.com/search?q=${Uri.encodeComponent(query)}';
-    try {
-      await launchUrlString(url, mode: LaunchMode.externalApplication);
-    } catch (e) {
-      DebugLogger.log('Failed to launch search: $e', scope: 'status');
-    }
+    await launchExternalLink(url, scope: 'status');
   }
 }
 
@@ -506,7 +501,7 @@ class _MinimalSourceLinks extends StatelessWidget {
           final domain = _extractDomain(link.url);
 
           return GestureDetector(
-            onTap: () => _launchUrl(link.url),
+            onTap: () => launchExternalLink(link.url, scope: 'status'),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
               decoration: BoxDecoration(
@@ -558,14 +553,6 @@ class _MinimalSourceLinks extends StatelessWidget {
           ),
       ],
     );
-  }
-
-  void _launchUrl(String url) async {
-    try {
-      await launchUrlString(url, mode: LaunchMode.externalApplication);
-    } catch (e) {
-      DebugLogger.log('Failed to launch URL: $e', scope: 'status');
-    }
   }
 
   String _extractDomain(String url) {
