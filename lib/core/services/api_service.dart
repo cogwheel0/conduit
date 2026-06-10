@@ -845,13 +845,14 @@ class ApiService {
       } catch (_) {}
     }
 
+    final payloadMap = _coerceJsonMap(payload);
     List<dynamic>? rawModels;
-    if (payload is Map && payload['data'] is List) {
-      rawModels = payload['data'] as List;
-    } else if (payload is Map && payload['models'] is List) {
-      rawModels = payload['models'] as List;
-    } else if (payload is List) {
-      rawModels = payload;
+    if (payloadMap != null) {
+      rawModels =
+          _asListOrNull(payloadMap['data']) ??
+          _asListOrNull(payloadMap['models']);
+    } else {
+      rawModels = _asListOrNull(payload);
     }
 
     if (rawModels == null) {
@@ -1652,6 +1653,8 @@ class ApiService {
     return null;
   }
 
+  List<dynamic>? _asListOrNull(Object? value) => value is List ? value : null;
+
   Map<String, dynamic>? _coerceResponseMap(dynamic value) {
     if (value is String && value.isNotEmpty) {
       try {
@@ -1936,8 +1939,25 @@ class ApiService {
   Future<String?> shareConversation(String id) async {
     _traceApi('Sharing conversation: $id');
     final response = await _dio.post('/api/v1/chats/$id/share');
-    final data = response.data as Map<String, dynamic>;
-    return data['share_id'] as String?;
+    final data = _coerceJsonMap(response.data);
+    if (data == null) {
+      DebugLogger.error(
+        'share-format',
+        scope: 'api/conversation',
+        data: {'type': response.data.runtimeType},
+      );
+      return null;
+    }
+    final shareId = data['share_id'];
+    if (shareId == null || shareId is String) {
+      return shareId;
+    }
+    DebugLogger.error(
+      'share-id-format',
+      scope: 'api/conversation',
+      data: {'type': shareId.runtimeType},
+    );
+    return null;
   }
 
   Future<void> deleteSharedConversation(String id) async {
@@ -4850,7 +4870,20 @@ class ApiService {
       'status=${resp.statusCode}',
     );
 
-    final bodyStream = resp.data!.stream;
+    final body = resp.data;
+    if (body == null) {
+      DebugLogger.error(
+        'chat completion returned an empty body',
+        scope: 'api/chat',
+        data: {'status': resp.statusCode},
+      );
+      throw DioException(
+        requestOptions: resp.requestOptions,
+        response: resp,
+        message: 'Empty chat completion response body',
+      );
+    }
+    final bodyStream = body.stream;
 
     // ------------------------------------------------------------------
     // 1. Explicit application/json → buffer fully and classify
