@@ -1526,8 +1526,12 @@ $fallbackShim
   } catch (e) {
     console.error('Error creating chart:', e);
     const container = document.getElementById('chart-container') || document.body;
-    container.innerHTML =
-      '<p style="color: red; padding: 16px;">Error rendering chart: ' + e.message + '</p>';
+    container.textContent = '';
+    const p = document.createElement('p');
+    p.style.color = 'red';
+    p.style.padding = '16px';
+    p.textContent = 'Error rendering chart: ' + (e && e.message ? e.message : 'unknown error');
+    container.appendChild(p);
   }
 })();
 </script>
@@ -1948,7 +1952,7 @@ class _MermaidDiagramState extends State<MermaidDiagram> {
   mermaid.initialize({
     startOnLoad: false,
     theme: '$theme',
-    securityLevel: 'loose'
+    securityLevel: 'strict'
   });
 
   var diagramCode = ${jsonEncode(code)};
