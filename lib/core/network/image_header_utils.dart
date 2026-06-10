@@ -30,6 +30,28 @@ Map<String, String>? buildImageHeadersFromContainer(
   return _build(api, token);
 }
 
+bool imageUrlIsServerOrigin(String? serverBaseUrl, String imageUrl) {
+  if (serverBaseUrl == null || serverBaseUrl.isEmpty) return false;
+  final serverHost = Uri.tryParse(serverBaseUrl)?.host.toLowerCase();
+  if (serverHost == null || serverHost.isEmpty) return false;
+  final imageUri = Uri.tryParse(imageUrl);
+  if (imageUri == null) return false;
+  if (!imageUri.hasScheme && imageUri.host.isEmpty) return true;
+  return imageUri.host.toLowerCase() == serverHost;
+}
+
+Map<String, String>? buildImageHeadersForUrlFromContainer(
+  ProviderContainer container,
+  String url,
+) {
+  final api = container.read(apiServiceProvider);
+  if (!imageUrlIsServerOrigin(api?.serverConfig.url, url)) {
+    return null;
+  }
+  final token = container.read(authTokenProvider3);
+  return _build(api, token);
+}
+
 Map<String, String>? _build(ApiService? api, String? token) {
   final headers = <String, String>{};
 

@@ -360,7 +360,7 @@ class ConduitMarkdown {
   ) {
     // Read headers and optional self-signed cache manager from Riverpod
     final container = ProviderScope.containerOf(context, listen: false);
-    final headers = buildImageHeadersFromContainer(container);
+    final headers = buildImageHeadersForUrlFromContainer(container, url);
     final cacheManager = container.read(selfSignedImageCacheManagerProvider);
 
     return CachedNetworkImage(

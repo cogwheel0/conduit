@@ -541,9 +541,12 @@ class _PdfInlineViewState extends ConsumerState<PdfInlineView> {
     _PdfCacheManagerLease? cacheLease;
     try {
       final container = ProviderScope.containerOf(context, listen: false);
-      final headers = buildImageHeadersFromContainer(container);
       final api = container.read(apiServiceProvider);
       final requestUrl = _resolvePdfRequestUrl(loadingUrl, api?.baseUrl);
+      final headers = buildImageHeadersForUrlFromContainer(
+        container,
+        requestUrl,
+      );
       cacheLease = await _leasePdfCacheManagerForContext(
         server: api?.serverConfig,
         headers: headers,
