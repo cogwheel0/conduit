@@ -20,6 +20,30 @@ Map<String, String>? buildImageHeadersFromWidgetRef(WidgetRef ref) {
   return _build(api, token);
 }
 
+Map<String, String>? buildImageHeadersForUrlFromWidgetRef(
+  WidgetRef ref,
+  String url,
+) {
+  final api = ref.watch(apiServiceProvider);
+  if (!imageUrlIsServerOrigin(api?.serverConfig.url, url)) {
+    return null;
+  }
+  final token = ref.watch(authTokenProvider3);
+  return _build(api, token);
+}
+
+Map<String, String>? readImageHeadersForUrlFromWidgetRef(
+  WidgetRef ref,
+  String url,
+) {
+  final api = ref.read(apiServiceProvider);
+  if (!imageUrlIsServerOrigin(api?.serverConfig.url, url)) {
+    return null;
+  }
+  final token = ref.read(authTokenProvider3);
+  return _build(api, token);
+}
+
 /// Same as [buildImageHeadersFromRef] but using a [ProviderContainer], useful
 /// when you don't have a `Ref` (e.g., in non-Consumer widgets/utilities).
 Map<String, String>? buildImageHeadersFromContainer(

@@ -951,8 +951,11 @@ class _EnhancedImageAttachmentState
   }
 
   Widget _buildNetworkImage() {
-    // Get authentication headers if available
-    final defaultHeaders = buildImageHeadersFromWidgetRef(ref);
+    // Only attach credentials for images served by the configured server.
+    final defaultHeaders = buildImageHeadersForUrlFromWidgetRef(
+      ref,
+      _cachedImageData!,
+    );
     final headers = _mergeHeaders(defaultHeaders, widget.httpHeaders);
     final dimensions = _cacheDimensions(context);
 
@@ -984,8 +987,10 @@ class _EnhancedImageAttachmentState
   }
 
   Widget _buildNetworkSvg() {
-    // Get authentication headers if available
-    final defaultHeaders = buildImageHeadersFromWidgetRef(ref);
+    final defaultHeaders = buildImageHeadersForUrlFromWidgetRef(
+      ref,
+      _cachedImageData!,
+    );
     final headers = _mergeHeaders(defaultHeaders, widget.httpHeaders);
 
     final svgWidget = JovialSvgImage.network(
@@ -1170,8 +1175,10 @@ class FullScreenImageViewer extends ConsumerWidget {
         imageWidget = Image.memory(imageBytes!, fit: BoxFit.contain);
       }
     } else if (imageData != null && imageData!.startsWith('http')) {
-      // Get authentication headers if available
-      final defaultHeaders = buildImageHeadersFromWidgetRef(ref);
+      final defaultHeaders = buildImageHeadersForUrlFromWidgetRef(
+        ref,
+        imageData!,
+      );
       final headers = _mergeHeaders(defaultHeaders, customHeaders);
 
       if (isSvg || _isSvgUrl(imageData!)) {
@@ -1320,19 +1327,11 @@ class FullScreenImageViewer extends ConsumerWidget {
         fileExtension = isSvg ? 'svg' : 'png';
       } else if (imageData!.startsWith('http')) {
         final api = ref.read(apiServiceProvider);
-        final authToken = ref.read(authTokenProvider3);
-        final headers = <String, String>{};
-
-        if (authToken != null && authToken.isNotEmpty) {
-          headers['Authorization'] = 'Bearer $authToken';
-        } else if (api?.serverConfig.apiKey != null &&
-            api!.serverConfig.apiKey!.isNotEmpty) {
-          headers['Authorization'] = 'Bearer ${api.serverConfig.apiKey}';
-        }
-        if (api != null && api.serverConfig.customHeaders.isNotEmpty) {
-          headers.addAll(api.serverConfig.customHeaders);
-        }
-        final mergedHeaders = _mergeHeaders(headers, customHeaders);
+        final defaultHeaders = readImageHeadersForUrlFromWidgetRef(
+          ref,
+          imageData!,
+        );
+        final mergedHeaders = _mergeHeaders(defaultHeaders, customHeaders);
 
         final client = api?.dio ?? dio.Dio();
         final response = await client.get<List<int>>(
