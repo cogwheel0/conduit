@@ -13,13 +13,31 @@ void main() {
       ).isTrue();
     });
 
-    test('returns true for same host with different port', () {
+    test('returns false for same host with different port', () {
       check(
         imageUrlIsServerOrigin(
           'https://openwebui.example.com:443',
           'https://openwebui.example.com:8443/static/image.png',
         ),
+      ).isFalse();
+    });
+
+    test('returns true for same origin with implicit default port', () {
+      check(
+        imageUrlIsServerOrigin(
+          'https://openwebui.example.com:443',
+          'https://openwebui.example.com/static/image.png',
+        ),
       ).isTrue();
+    });
+
+    test('returns false for same host with different scheme', () {
+      check(
+        imageUrlIsServerOrigin(
+          'https://openwebui.example.com',
+          'http://openwebui.example.com/static/image.png',
+        ),
+      ).isFalse();
     });
 
     test('returns false for cross-origin absolute URL', () {

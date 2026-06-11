@@ -1355,7 +1355,9 @@ class _ChartJsDiagramState extends State<ChartJsDiagram> {
         baseUrl: baseUrl,
         historyUrl: baseUrl,
       );
-      if (!mounted || controller != _controller || requestId != _loadRequestId) {
+      if (!mounted ||
+          controller != _controller ||
+          requestId != _loadRequestId) {
         return;
       }
       await _scheduleHeightUpdates(requestId);
@@ -1824,7 +1826,9 @@ class _MermaidDiagramState extends State<MermaidDiagram> {
         baseUrl: baseUrl,
         historyUrl: baseUrl,
       );
-      if (!mounted || controller != _controller || requestId != _loadRequestId) {
+      if (!mounted ||
+          controller != _controller ||
+          requestId != _loadRequestId) {
         return;
       }
       await _scheduleHeightUpdates(requestId);
@@ -1977,8 +1981,13 @@ class _MermaidDiagramState extends State<MermaidDiagram> {
     document.getElementById('mermaid-diagram').innerHTML = result.svg;
   }).catch(function(err) {
     var message = err.message || String(err);
-    document.getElementById('mermaid-diagram').innerHTML =
-      '<pre style="color:red;padding:16px;">' + message + '</pre>';
+    var container = document.getElementById('mermaid-diagram');
+    container.textContent = '';
+    var pre = document.createElement('pre');
+    pre.style.color = 'red';
+    pre.style.padding = '16px';
+    pre.textContent = message;
+    container.appendChild(pre);
   });
 </script>
 </body>
