@@ -1,0 +1,50 @@
+{
+  "description": "Minimal brand-new chat exactly as the backend writes it on first turn (openwebui-src backend/open_webui/main.py:1874-1897): blob top-level keys id/title/models/history/messages/files/tags/timestamp, legacy messages list holds only the backend-written {role, content} user entry, blob timestamp is epoch milliseconds while message timestamps are epoch seconds.",
+  "envelope": {
+    "id": "9f1c2a34-5b6d-4e7f-8a90-1b2c3d4e5f60",
+    "title": "New Chat",
+    "folder_id": null,
+    "pinned": false,
+    "archived": false,
+    "created_at": 1749700000,
+    "updated_at": 1749700004
+  },
+  "chat": {
+    "id": "9f1c2a34-5b6d-4e7f-8a90-1b2c3d4e5f60",
+    "title": "New Chat",
+    "models": ["llama3.1:8b"],
+    "history": {
+      "currentId": "4d0a6c1e-92f7-4b3a-bb1d-7c5e8f2a9d01",
+      "messages": {
+        "e8a3b1c2-6f4d-49e0-a2b7-3c1d5e9f8a72": {
+          "id": "e8a3b1c2-6f4d-49e0-a2b7-3c1d5e9f8a72",
+          "parentId": null,
+          "childrenIds": ["4d0a6c1e-92f7-4b3a-bb1d-7c5e8f2a9d01"],
+          "role": "user",
+          "content": "Hello there!",
+          "timestamp": 1749700000,
+          "models": ["llama3.1:8b"]
+        },
+        "4d0a6c1e-92f7-4b3a-bb1d-7c5e8f2a9d01": {
+          "id": "4d0a6c1e-92f7-4b3a-bb1d-7c5e8f2a9d01",
+          "parentId": "e8a3b1c2-6f4d-49e0-a2b7-3c1d5e9f8a72",
+          "childrenIds": [],
+          "role": "assistant",
+          "content": "Hi! How can I help you today?",
+          "model": "llama3.1:8b",
+          "timestamp": 1749700001,
+          "done": true
+        }
+      }
+    },
+    "messages": [
+      {
+        "role": "user",
+        "content": "Hello there!"
+      }
+    ],
+    "files": [],
+    "tags": [],
+    "timestamp": 1749700000123
+  }
+}

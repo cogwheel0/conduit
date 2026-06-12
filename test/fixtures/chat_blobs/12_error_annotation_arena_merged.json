@@ -1,0 +1,174 @@
+{
+  "description": "Upstream-written message keys not covered elsewhere. 'error' in both wild shapes typed by ResponseMessage.svelte:90 (boolean | {content}): a0 carries the legacy boolean form, a2 the {'content': ...} object the backend persists on provider failure (middleware.py:3450-3460) and the frontend stores on chat:message:error (Chat.svelte:538-539). a1 carries 'annotation' (rating/reason/comment/tags saved by ResponseMessage.svelte:456-475 and persisted by the subsequent updateChatById), 'originalContent' written by the outlet-filter path alongside the rewritten content (middleware.py:3408), and 'merged' — the multi-model merge response object set by mergeResponses (Chat.svelte:2746-2752, message.merged = mergedResponse). a3 carries 'selectedModelId' + 'arena': true as written by the frontend for arena models (Chat.svelte:1852-1853); the backend also writes selectedModelId (middleware.py:3466-3471).",
+  "envelope": {
+    "id": "8a9b0c1d-2e3f-4051-8b6c-7d8e9f0a1b2c",
+    "title": "Model comparison and arena",
+    "folder_id": null,
+    "pinned": false,
+    "archived": false,
+    "created_at": 1749709000,
+    "updated_at": 1749709200
+  },
+  "chat": {
+    "id": "8a9b0c1d-2e3f-4051-8b6c-7d8e9f0a1b2c",
+    "title": "Model comparison and arena",
+    "models": ["gpt-4o", "llama3.1:8b"],
+    "params": {},
+    "history": {
+      "currentId": "a3b3c3d3-4444-4444-8444-333333333333",
+      "messages": {
+        "e0e0e0e0-1111-4222-8333-444455556666": {
+          "id": "e0e0e0e0-1111-4222-8333-444455556666",
+          "parentId": null,
+          "childrenIds": [
+            "a0a0a0a0-5555-4555-8555-000000000000",
+            "a1b1c1d1-1111-4111-8111-111111111111",
+            "a2b2c2d2-2222-4222-8222-222222222222"
+          ],
+          "role": "user",
+          "content": "Compare the tradeoffs of SQLite WAL mode for mobile apps.",
+          "timestamp": 1749709000,
+          "models": ["gpt-4o", "llama3.1:8b"]
+        },
+        "a0a0a0a0-5555-4555-8555-000000000000": {
+          "id": "a0a0a0a0-5555-4555-8555-000000000000",
+          "parentId": "e0e0e0e0-1111-4222-8333-444455556666",
+          "childrenIds": [],
+          "role": "assistant",
+          "content": "",
+          "model": "gpt-4o",
+          "modelName": "GPT-4o",
+          "modelIdx": 0,
+          "timestamp": 1749709005,
+          "done": false,
+          "error": true
+        },
+        "a1b1c1d1-1111-4111-8111-111111111111": {
+          "id": "a1b1c1d1-1111-4111-8111-111111111111",
+          "parentId": "e0e0e0e0-1111-4222-8333-444455556666",
+          "childrenIds": ["e1e1e1e1-3333-4333-8333-777788889999"],
+          "role": "assistant",
+          "content": "WAL mode gives concurrent readers during writes and fewer fsyncs, at the cost of extra -wal/-shm files and checkpointing you must manage.\n\n-- footer appended by outlet filter --",
+          "originalContent": "WAL mode gives concurrent readers during writes and fewer fsyncs, at the cost of extra -wal/-shm files and checkpointing you must manage.",
+          "model": "gpt-4o",
+          "modelName": "GPT-4o",
+          "modelIdx": 0,
+          "timestamp": 1749709010,
+          "done": true,
+          "annotation": {
+            "rating": 1,
+            "reason": "accurate_information",
+            "comment": "Clear and correct.",
+            "tags": ["accurate", "concise"]
+          },
+          "merged": {
+            "status": true,
+            "content": "Both models agree: WAL trades extra sidecar files and checkpoint management for concurrent reads and better write throughput on mobile."
+          }
+        },
+        "a2b2c2d2-2222-4222-8222-222222222222": {
+          "id": "a2b2c2d2-2222-4222-8222-222222222222",
+          "parentId": "e0e0e0e0-1111-4222-8333-444455556666",
+          "childrenIds": [],
+          "role": "assistant",
+          "content": "",
+          "model": "llama3.1:8b",
+          "modelName": "llama3.1:8b",
+          "modelIdx": 1,
+          "timestamp": 1749709012,
+          "done": false,
+          "error": {
+            "content": "Ollama: 500, message='Internal Server Error', url='http://ollama:11434/api/chat'"
+          }
+        },
+        "e1e1e1e1-3333-4333-8333-777788889999": {
+          "id": "e1e1e1e1-3333-4333-8333-777788889999",
+          "parentId": "a1b1c1d1-1111-4111-8111-111111111111",
+          "childrenIds": ["a3b3c3d3-4444-4444-8444-333333333333"],
+          "role": "user",
+          "content": "Now answer the same question with a random arena model.",
+          "timestamp": 1749709100,
+          "models": ["arena-model"]
+        },
+        "a3b3c3d3-4444-4444-8444-333333333333": {
+          "id": "a3b3c3d3-4444-4444-8444-333333333333",
+          "parentId": "e1e1e1e1-3333-4333-8333-777788889999",
+          "childrenIds": [],
+          "role": "assistant",
+          "content": "WAL is usually the right default on mobile: readers never block on the writer, and small transactions amortize well across checkpoints.",
+          "model": "arena-model",
+          "modelName": "Arena Model",
+          "modelIdx": 0,
+          "timestamp": 1749709150,
+          "done": true,
+          "selectedModelId": "gpt-4o",
+          "arena": true
+        }
+      }
+    },
+    "messages": [
+      {
+        "id": "e0e0e0e0-1111-4222-8333-444455556666",
+        "parentId": null,
+        "childrenIds": [
+          "a0a0a0a0-5555-4555-8555-000000000000",
+          "a1b1c1d1-1111-4111-8111-111111111111",
+          "a2b2c2d2-2222-4222-8222-222222222222"
+        ],
+        "role": "user",
+        "content": "Compare the tradeoffs of SQLite WAL mode for mobile apps.",
+        "timestamp": 1749709000,
+        "models": ["gpt-4o", "llama3.1:8b"]
+      },
+      {
+        "id": "a1b1c1d1-1111-4111-8111-111111111111",
+        "parentId": "e0e0e0e0-1111-4222-8333-444455556666",
+        "childrenIds": ["e1e1e1e1-3333-4333-8333-777788889999"],
+        "role": "assistant",
+        "content": "WAL mode gives concurrent readers during writes and fewer fsyncs, at the cost of extra -wal/-shm files and checkpointing you must manage.\n\n-- footer appended by outlet filter --",
+        "originalContent": "WAL mode gives concurrent readers during writes and fewer fsyncs, at the cost of extra -wal/-shm files and checkpointing you must manage.",
+        "model": "gpt-4o",
+        "modelName": "GPT-4o",
+        "modelIdx": 0,
+        "timestamp": 1749709010,
+        "done": true,
+        "annotation": {
+          "rating": 1,
+          "reason": "accurate_information",
+          "comment": "Clear and correct.",
+          "tags": ["accurate", "concise"]
+        },
+        "merged": {
+          "status": true,
+          "content": "Both models agree: WAL trades extra sidecar files and checkpoint management for concurrent reads and better write throughput on mobile."
+        }
+      },
+      {
+        "id": "e1e1e1e1-3333-4333-8333-777788889999",
+        "parentId": "a1b1c1d1-1111-4111-8111-111111111111",
+        "childrenIds": ["a3b3c3d3-4444-4444-8444-333333333333"],
+        "role": "user",
+        "content": "Now answer the same question with a random arena model.",
+        "timestamp": 1749709100,
+        "models": ["arena-model"]
+      },
+      {
+        "id": "a3b3c3d3-4444-4444-8444-333333333333",
+        "parentId": "e1e1e1e1-3333-4333-8333-777788889999",
+        "childrenIds": [],
+        "role": "assistant",
+        "content": "WAL is usually the right default on mobile: readers never block on the writer, and small transactions amortize well across checkpoints.",
+        "model": "arena-model",
+        "modelName": "Arena Model",
+        "modelIdx": 0,
+        "timestamp": 1749709150,
+        "done": true,
+        "selectedModelId": "gpt-4o",
+        "arena": true
+      }
+    ],
+    "tags": [],
+    "timestamp": 1749709000444,
+    "files": []
+  }
+}

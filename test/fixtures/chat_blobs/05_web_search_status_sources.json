@@ -1,0 +1,231 @@
+{
+  "description": "Assistant message with web-search statusHistory entries, including the always-present 'items' key of the successful 'Searched {{count}} sites' status (middleware.py:1622-1633, persisted verbatim via add_message_status_to_chat_by_id_and_message_id). The first source's 'source' object is the web_search file item passed through verbatim by retrieval/utils.py:1437 — {collection_name, name, type, urls, queries} as built at middleware.py:1596-1606 — and the second is a url_citation-style source (middleware.py:4015-4032); chat-level files mirrors the same web_search collection entry. Chat is pinned.",
+  "envelope": {
+    "id": "1a2b3c4d-5e6f-4708-9a1b-2c3d4e5f6a7b",
+    "title": "Latest Flutter release",
+    "folder_id": null,
+    "pinned": true,
+    "archived": false,
+    "created_at": 1749704000,
+    "updated_at": 1749704090
+  },
+  "chat": {
+    "id": "1a2b3c4d-5e6f-4708-9a1b-2c3d4e5f6a7b",
+    "title": "Latest Flutter release",
+    "models": ["gpt-4o-mini"],
+    "params": {},
+    "history": {
+      "currentId": "77665544-3322-4110-8ffe-eeddccbbaa99",
+      "messages": {
+        "99887766-5544-4332-8110-ffeeddccbbaa": {
+          "id": "99887766-5544-4332-8110-ffeeddccbbaa",
+          "parentId": null,
+          "childrenIds": ["77665544-3322-4110-8ffe-eeddccbbaa99"],
+          "role": "user",
+          "content": "What is new in the latest stable Flutter release?",
+          "timestamp": 1749704000,
+          "models": ["gpt-4o-mini"]
+        },
+        "77665544-3322-4110-8ffe-eeddccbbaa99": {
+          "id": "77665544-3322-4110-8ffe-eeddccbbaa99",
+          "parentId": "99887766-5544-4332-8110-ffeeddccbbaa",
+          "childrenIds": [],
+          "role": "assistant",
+          "content": "The latest stable release focuses on web performance, with WebAssembly compilation now on by default and faster shader precompilation on iOS [1].",
+          "model": "gpt-4o-mini",
+          "modelName": "GPT-4o mini",
+          "modelIdx": 0,
+          "timestamp": 1749704015,
+          "done": true,
+          "statusHistory": [
+            {
+              "action": "web_search_queries_generated",
+              "queries": ["latest stable Flutter release notes"],
+              "done": false
+            },
+            {
+              "action": "web_search",
+              "description": "Searched {{count}} sites",
+              "urls": [
+                "https://docs.flutter.dev/release/release-notes",
+                "https://medium.com/flutter/whats-new-in-flutter"
+              ],
+              "items": [
+                {
+                  "title": "Flutter release notes",
+                  "link": "https://docs.flutter.dev/release/release-notes",
+                  "snippet": "Release notes for the latest stable Flutter release."
+                },
+                {
+                  "title": "What's new in Flutter",
+                  "link": "https://medium.com/flutter/whats-new-in-flutter",
+                  "snippet": "Web performance improvements and tooling updates."
+                }
+              ],
+              "done": true
+            },
+            {
+              "action": "sources_retrieved",
+              "count": 2,
+              "done": true
+            }
+          ],
+          "sources": [
+            {
+              "source": {
+                "collection_name": "web-search-collection-4f8a",
+                "name": "latest stable Flutter release notes",
+                "type": "web_search",
+                "urls": [
+                  "https://docs.flutter.dev/release/release-notes",
+                  "https://medium.com/flutter/whats-new-in-flutter"
+                ],
+                "queries": ["latest stable Flutter release notes"]
+              },
+              "document": [
+                "Flutter release notes: the latest stable enables WebAssembly by default and improves impeller shader precompilation.",
+                "What's new in Flutter: web performance improvements and tooling updates."
+              ],
+              "metadata": [
+                {
+                  "source": "https://docs.flutter.dev/release/release-notes",
+                  "name": "Flutter release notes"
+                },
+                {
+                  "source": "https://medium.com/flutter/whats-new-in-flutter",
+                  "name": "What's new in Flutter"
+                }
+              ],
+              "distances": [0.18, 0.27]
+            },
+            {
+              "source": {
+                "name": "Flutter release notes",
+                "url": "https://docs.flutter.dev/release/release-notes"
+              },
+              "document": ["Flutter release notes"],
+              "metadata": [
+                {
+                  "source": "https://docs.flutter.dev/release/release-notes",
+                  "name": "Flutter release notes"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "messages": [
+      {
+        "id": "99887766-5544-4332-8110-ffeeddccbbaa",
+        "parentId": null,
+        "childrenIds": ["77665544-3322-4110-8ffe-eeddccbbaa99"],
+        "role": "user",
+        "content": "What is new in the latest stable Flutter release?",
+        "timestamp": 1749704000,
+        "models": ["gpt-4o-mini"]
+      },
+      {
+        "id": "77665544-3322-4110-8ffe-eeddccbbaa99",
+        "parentId": "99887766-5544-4332-8110-ffeeddccbbaa",
+        "childrenIds": [],
+        "role": "assistant",
+        "content": "The latest stable release focuses on web performance, with WebAssembly compilation now on by default and faster shader precompilation on iOS [1].",
+        "model": "gpt-4o-mini",
+        "modelName": "GPT-4o mini",
+        "modelIdx": 0,
+        "timestamp": 1749704015,
+        "done": true,
+        "statusHistory": [
+          {
+            "action": "web_search_queries_generated",
+            "queries": ["latest stable Flutter release notes"],
+            "done": false
+          },
+          {
+            "action": "web_search",
+            "description": "Searched {{count}} sites",
+            "urls": [
+              "https://docs.flutter.dev/release/release-notes",
+              "https://medium.com/flutter/whats-new-in-flutter"
+            ],
+            "items": [
+              {
+                "title": "Flutter release notes",
+                "link": "https://docs.flutter.dev/release/release-notes",
+                "snippet": "Release notes for the latest stable Flutter release."
+              },
+              {
+                "title": "What's new in Flutter",
+                "link": "https://medium.com/flutter/whats-new-in-flutter",
+                "snippet": "Web performance improvements and tooling updates."
+              }
+            ],
+            "done": true
+          },
+          {
+            "action": "sources_retrieved",
+            "count": 2,
+            "done": true
+          }
+        ],
+        "sources": [
+          {
+            "source": {
+              "collection_name": "web-search-collection-4f8a",
+              "name": "latest stable Flutter release notes",
+              "type": "web_search",
+              "urls": [
+                "https://docs.flutter.dev/release/release-notes",
+                "https://medium.com/flutter/whats-new-in-flutter"
+              ],
+              "queries": ["latest stable Flutter release notes"]
+            },
+            "document": [
+              "Flutter release notes: the latest stable enables WebAssembly by default and improves impeller shader precompilation.",
+              "What's new in Flutter: web performance improvements and tooling updates."
+            ],
+            "metadata": [
+              {
+                "source": "https://docs.flutter.dev/release/release-notes",
+                "name": "Flutter release notes"
+              },
+              {
+                "source": "https://medium.com/flutter/whats-new-in-flutter",
+                "name": "What's new in Flutter"
+              }
+            ],
+            "distances": [0.18, 0.27]
+          },
+          {
+            "source": {
+              "name": "Flutter release notes",
+              "url": "https://docs.flutter.dev/release/release-notes"
+            },
+            "document": ["Flutter release notes"],
+            "metadata": [
+              {
+                "source": "https://docs.flutter.dev/release/release-notes",
+                "name": "Flutter release notes"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "tags": [],
+    "timestamp": 1749704000111,
+    "files": [
+      {
+        "collection_name": "web-search-collection-4f8a",
+        "name": "latest stable Flutter release notes",
+        "type": "web_search",
+        "urls": [
+          "https://docs.flutter.dev/release/release-notes",
+          "https://medium.com/flutter/whats-new-in-flutter"
+        ],
+        "queries": ["latest stable Flutter release notes"]
+      }
+    ]
+  }
+}

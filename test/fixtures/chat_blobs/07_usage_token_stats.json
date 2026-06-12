@@ -1,0 +1,178 @@
+{
+  "description": "Usage/token stats: one assistant with OpenAI-style usage and one with Ollama-style usage. The Ollama usage carries every key convert_ollama_usage_to_openai always emits (utils/response.py: input/output/total_tokens, prompt_tokens, completion_tokens, numeric response_token/s and prompt_token/s computed from the non-zero eval durations, the raw Ollama duration/count metrics, approximate_total, and the zeroed completion_tokens_details), plus the input/output/total_tokens normalize_usage guarantees.",
+  "envelope": {
+    "id": "4d5e6f70-8192-4a3b-8c4d-5e6f708192a3",
+    "title": "Token accounting",
+    "folder_id": null,
+    "pinned": false,
+    "archived": false,
+    "created_at": 1749706000,
+    "updated_at": 1749706200
+  },
+  "chat": {
+    "id": "4d5e6f70-8192-4a3b-8c4d-5e6f708192a3",
+    "title": "Token accounting",
+    "models": ["gpt-4o", "llama3.1:8b"],
+    "params": {},
+    "history": {
+      "currentId": "aaaa2222-bbbb-4ccc-8ddd-eeee2222ffff",
+      "messages": {
+        "uuuu1111-aaaa-4bbb-8ccc-dddd1111eeee": {
+          "id": "uuuu1111-aaaa-4bbb-8ccc-dddd1111eeee",
+          "parentId": null,
+          "childrenIds": ["aaaa1111-bbbb-4ccc-8ddd-eeee1111ffff"],
+          "role": "user",
+          "content": "Explain entropy in one sentence.",
+          "timestamp": 1749706000,
+          "models": ["gpt-4o"]
+        },
+        "aaaa1111-bbbb-4ccc-8ddd-eeee1111ffff": {
+          "id": "aaaa1111-bbbb-4ccc-8ddd-eeee1111ffff",
+          "parentId": "uuuu1111-aaaa-4bbb-8ccc-dddd1111eeee",
+          "childrenIds": ["uuuu2222-aaaa-4bbb-8ccc-dddd2222eeee"],
+          "role": "assistant",
+          "content": "Entropy measures how many microscopic arrangements correspond to a system's macroscopic state.",
+          "model": "gpt-4o",
+          "modelName": "GPT-4o",
+          "modelIdx": 0,
+          "timestamp": 1749706010,
+          "done": true,
+          "usage": {
+            "prompt_tokens": 14,
+            "completion_tokens": 21,
+            "total_tokens": 35,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "accepted_prediction_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "input_tokens": 14,
+            "output_tokens": 21
+          }
+        },
+        "uuuu2222-aaaa-4bbb-8ccc-dddd2222eeee": {
+          "id": "uuuu2222-aaaa-4bbb-8ccc-dddd2222eeee",
+          "parentId": "aaaa1111-bbbb-4ccc-8ddd-eeee1111ffff",
+          "childrenIds": ["aaaa2222-bbbb-4ccc-8ddd-eeee2222ffff"],
+          "role": "user",
+          "content": "Now in the style of a pirate.",
+          "timestamp": 1749706100,
+          "models": ["llama3.1:8b"]
+        },
+        "aaaa2222-bbbb-4ccc-8ddd-eeee2222ffff": {
+          "id": "aaaa2222-bbbb-4ccc-8ddd-eeee2222ffff",
+          "parentId": "uuuu2222-aaaa-4bbb-8ccc-dddd2222eeee",
+          "childrenIds": [],
+          "role": "assistant",
+          "content": "Arr, entropy be the count o' ways yer ship's cargo can be stowed an' still look the same from the deck!",
+          "model": "llama3.1:8b",
+          "modelName": "llama3.1:8b",
+          "modelIdx": 0,
+          "timestamp": 1749706150,
+          "done": true,
+          "usage": {
+            "input_tokens": 42,
+            "output_tokens": 31,
+            "total_tokens": 73,
+            "prompt_tokens": 42,
+            "completion_tokens": 31,
+            "response_token/s": 16.82,
+            "prompt_token/s": 190.91,
+            "total_duration": 4012000000,
+            "load_duration": 950000000,
+            "prompt_eval_count": 42,
+            "prompt_eval_duration": 220000000,
+            "eval_count": 31,
+            "eval_duration": 1843000000,
+            "approximate_total": "0h0m4s",
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "accepted_prediction_tokens": 0,
+              "rejected_prediction_tokens": 0
+            }
+          }
+        }
+      }
+    },
+    "messages": [
+      {
+        "id": "uuuu1111-aaaa-4bbb-8ccc-dddd1111eeee",
+        "parentId": null,
+        "childrenIds": ["aaaa1111-bbbb-4ccc-8ddd-eeee1111ffff"],
+        "role": "user",
+        "content": "Explain entropy in one sentence.",
+        "timestamp": 1749706000,
+        "models": ["gpt-4o"]
+      },
+      {
+        "id": "aaaa1111-bbbb-4ccc-8ddd-eeee1111ffff",
+        "parentId": "uuuu1111-aaaa-4bbb-8ccc-dddd1111eeee",
+        "childrenIds": ["uuuu2222-aaaa-4bbb-8ccc-dddd2222eeee"],
+        "role": "assistant",
+        "content": "Entropy measures how many microscopic arrangements correspond to a system's macroscopic state.",
+        "model": "gpt-4o",
+        "modelName": "GPT-4o",
+        "modelIdx": 0,
+        "timestamp": 1749706010,
+        "done": true,
+        "usage": {
+          "prompt_tokens": 14,
+          "completion_tokens": 21,
+          "total_tokens": 35,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "accepted_prediction_tokens": 0,
+            "rejected_prediction_tokens": 0
+          },
+          "input_tokens": 14,
+          "output_tokens": 21
+        }
+      },
+      {
+        "id": "uuuu2222-aaaa-4bbb-8ccc-dddd2222eeee",
+        "parentId": "aaaa1111-bbbb-4ccc-8ddd-eeee1111ffff",
+        "childrenIds": ["aaaa2222-bbbb-4ccc-8ddd-eeee2222ffff"],
+        "role": "user",
+        "content": "Now in the style of a pirate.",
+        "timestamp": 1749706100,
+        "models": ["llama3.1:8b"]
+      },
+      {
+        "id": "aaaa2222-bbbb-4ccc-8ddd-eeee2222ffff",
+        "parentId": "uuuu2222-aaaa-4bbb-8ccc-dddd2222eeee",
+        "childrenIds": [],
+        "role": "assistant",
+        "content": "Arr, entropy be the count o' ways yer ship's cargo can be stowed an' still look the same from the deck!",
+        "model": "llama3.1:8b",
+        "modelName": "llama3.1:8b",
+        "modelIdx": 0,
+        "timestamp": 1749706150,
+        "done": true,
+        "usage": {
+          "input_tokens": 42,
+          "output_tokens": 31,
+          "total_tokens": 73,
+          "prompt_tokens": 42,
+          "completion_tokens": 31,
+          "response_token/s": 16.82,
+          "prompt_token/s": 190.91,
+          "total_duration": 4012000000,
+          "load_duration": 950000000,
+          "prompt_eval_count": 42,
+          "prompt_eval_duration": 220000000,
+          "eval_count": 31,
+          "eval_duration": 1843000000,
+          "approximate_total": "0h0m4s",
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "accepted_prediction_tokens": 0,
+            "rejected_prediction_tokens": 0
+          }
+        }
+      }
+    ],
+    "tags": [],
+    "timestamp": 1749706000555,
+    "files": []
+  }
+}

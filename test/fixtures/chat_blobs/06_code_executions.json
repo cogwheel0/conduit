@@ -1,0 +1,120 @@
+{
+  "description": "Assistant message with code_executions written by the frontend on code_execution citation events (Chat.svelte:573-590, ResponseMessage.svelte:92-102), including a result with output and generated files, plus a knowledge_search statusHistory entry.",
+  "envelope": {
+    "id": "2b3c4d5e-6f70-4812-93a4-b5c6d7e8f901",
+    "title": "Plot sine wave",
+    "folder_id": null,
+    "pinned": false,
+    "archived": false,
+    "created_at": 1749705000,
+    "updated_at": 1749705100
+  },
+  "chat": {
+    "id": "2b3c4d5e-6f70-4812-93a4-b5c6d7e8f901",
+    "title": "Plot sine wave",
+    "models": ["qwen2.5-coder:32b"],
+    "params": {},
+    "history": {
+      "currentId": "0f1e2d3c-4b5a-4697-8877-665544332211",
+      "messages": {
+        "deadbeef-0001-4001-8001-000000000001": {
+          "id": "deadbeef-0001-4001-8001-000000000001",
+          "parentId": null,
+          "childrenIds": ["0f1e2d3c-4b5a-4697-8877-665544332211"],
+          "role": "user",
+          "content": "Plot one period of a sine wave with matplotlib.",
+          "timestamp": 1749705000,
+          "models": ["qwen2.5-coder:32b"]
+        },
+        "0f1e2d3c-4b5a-4697-8877-665544332211": {
+          "id": "0f1e2d3c-4b5a-4697-8877-665544332211",
+          "parentId": "deadbeef-0001-4001-8001-000000000001",
+          "childrenIds": [],
+          "role": "assistant",
+          "content": "Here is the plot of one full period of sin(x).",
+          "model": "qwen2.5-coder:32b",
+          "modelName": "Qwen2.5 Coder 32B",
+          "modelIdx": 0,
+          "timestamp": 1749705020,
+          "done": true,
+          "statusHistory": [
+            {
+              "action": "knowledge_search",
+              "query": "matplotlib sine wave",
+              "done": true,
+              "hidden": true
+            }
+          ],
+          "code_executions": [
+            {
+              "id": "ce-4a5b6c7d-8e9f-4012-a3b4-c5d6e7f8a9b0",
+              "name": "Code Interpreter",
+              "code": "import numpy as np\nimport matplotlib.pyplot as plt\nx = np.linspace(0, 2 * np.pi, 200)\nplt.plot(x, np.sin(x))\nplt.savefig('sine.png')\nprint('saved')",
+              "language": "python",
+              "result": {
+                "output": "saved\n",
+                "files": [
+                  {
+                    "name": "sine.png",
+                    "url": "/cache/code/executions/ce-4a5b6c7d/sine.png"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "messages": [
+      {
+        "id": "deadbeef-0001-4001-8001-000000000001",
+        "parentId": null,
+        "childrenIds": ["0f1e2d3c-4b5a-4697-8877-665544332211"],
+        "role": "user",
+        "content": "Plot one period of a sine wave with matplotlib.",
+        "timestamp": 1749705000,
+        "models": ["qwen2.5-coder:32b"]
+      },
+      {
+        "id": "0f1e2d3c-4b5a-4697-8877-665544332211",
+        "parentId": "deadbeef-0001-4001-8001-000000000001",
+        "childrenIds": [],
+        "role": "assistant",
+        "content": "Here is the plot of one full period of sin(x).",
+        "model": "qwen2.5-coder:32b",
+        "modelName": "Qwen2.5 Coder 32B",
+        "modelIdx": 0,
+        "timestamp": 1749705020,
+        "done": true,
+        "statusHistory": [
+          {
+            "action": "knowledge_search",
+            "query": "matplotlib sine wave",
+            "done": true,
+            "hidden": true
+          }
+        ],
+        "code_executions": [
+          {
+            "id": "ce-4a5b6c7d-8e9f-4012-a3b4-c5d6e7f8a9b0",
+            "name": "Code Interpreter",
+            "code": "import numpy as np\nimport matplotlib.pyplot as plt\nx = np.linspace(0, 2 * np.pi, 200)\nplt.plot(x, np.sin(x))\nplt.savefig('sine.png')\nprint('saved')",
+            "language": "python",
+            "result": {
+              "output": "saved\n",
+              "files": [
+                {
+                  "name": "sine.png",
+                  "url": "/cache/code/executions/ce-4a5b6c7d/sine.png"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "tags": [],
+    "timestamp": 1749705000333,
+    "files": []
+  }
+}

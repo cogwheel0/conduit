@@ -1,0 +1,116 @@
+{
+  "description": "Linear multi-turn conversation as saved by the web client (src/lib/components/chat/Chat.svelte:2799-2851): blob carries system/params, the top-level messages list contains the FULL message objects of the active branch root-to-leaf, assistant messages carry model/modelName/modelIdx/done.",
+  "envelope": {
+    "id": "7b8c9d0e-1f2a-43b4-95c6-d7e8f9a0b1c2",
+    "title": "Rust borrow checker help",
+    "folder_id": null,
+    "pinned": false,
+    "archived": false,
+    "created_at": 1749701000,
+    "updated_at": 1749701260
+  },
+  "chat": {
+    "id": "7b8c9d0e-1f2a-43b4-95c6-d7e8f9a0b1c2",
+    "title": "Rust borrow checker help",
+    "models": ["gpt-4o"],
+    "system": "You are a concise programming assistant.",
+    "params": {
+      "temperature": 0.7,
+      "stream_response": true
+    },
+    "history": {
+      "currentId": "a4f5e6d7-c8b9-4a0b-91c2-d3e4f5a6b7c8",
+      "messages": {
+        "11aa22bb-33cc-44dd-85ee-66ff77a088b1": {
+          "id": "11aa22bb-33cc-44dd-85ee-66ff77a088b1",
+          "parentId": null,
+          "childrenIds": ["21aa22bb-33cc-44dd-85ee-66ff77a088b2"],
+          "role": "user",
+          "content": "Why does the borrow checker reject my code when I mutate a Vec while iterating?",
+          "timestamp": 1749701000,
+          "models": ["gpt-4o"]
+        },
+        "21aa22bb-33cc-44dd-85ee-66ff77a088b2": {
+          "id": "21aa22bb-33cc-44dd-85ee-66ff77a088b2",
+          "parentId": "11aa22bb-33cc-44dd-85ee-66ff77a088b1",
+          "childrenIds": ["31aa22bb-33cc-44dd-85ee-66ff77a088b3"],
+          "role": "assistant",
+          "content": "Because iterating borrows the Vec immutably while push needs a mutable borrow. Collect the changes first, or iterate over indices.",
+          "model": "gpt-4o",
+          "modelName": "GPT-4o",
+          "modelIdx": 0,
+          "timestamp": 1749701010,
+          "done": true
+        },
+        "31aa22bb-33cc-44dd-85ee-66ff77a088b3": {
+          "id": "31aa22bb-33cc-44dd-85ee-66ff77a088b3",
+          "parentId": "21aa22bb-33cc-44dd-85ee-66ff77a088b2",
+          "childrenIds": ["a4f5e6d7-c8b9-4a0b-91c2-d3e4f5a6b7c8"],
+          "role": "user",
+          "content": "Can you show the index-based version?",
+          "timestamp": 1749701200,
+          "models": ["gpt-4o"]
+        },
+        "a4f5e6d7-c8b9-4a0b-91c2-d3e4f5a6b7c8": {
+          "id": "a4f5e6d7-c8b9-4a0b-91c2-d3e4f5a6b7c8",
+          "parentId": "31aa22bb-33cc-44dd-85ee-66ff77a088b3",
+          "childrenIds": [],
+          "role": "assistant",
+          "content": "```rust\nfor i in 0..v.len() {\n    if v[i] % 2 == 0 {\n        v[i] *= 2;\n    }\n}\n```",
+          "model": "gpt-4o",
+          "modelName": "GPT-4o",
+          "modelIdx": 0,
+          "timestamp": 1749701255,
+          "done": true
+        }
+      }
+    },
+    "messages": [
+      {
+        "id": "11aa22bb-33cc-44dd-85ee-66ff77a088b1",
+        "parentId": null,
+        "childrenIds": ["21aa22bb-33cc-44dd-85ee-66ff77a088b2"],
+        "role": "user",
+        "content": "Why does the borrow checker reject my code when I mutate a Vec while iterating?",
+        "timestamp": 1749701000,
+        "models": ["gpt-4o"]
+      },
+      {
+        "id": "21aa22bb-33cc-44dd-85ee-66ff77a088b2",
+        "parentId": "11aa22bb-33cc-44dd-85ee-66ff77a088b1",
+        "childrenIds": ["31aa22bb-33cc-44dd-85ee-66ff77a088b3"],
+        "role": "assistant",
+        "content": "Because iterating borrows the Vec immutably while push needs a mutable borrow. Collect the changes first, or iterate over indices.",
+        "model": "gpt-4o",
+        "modelName": "GPT-4o",
+        "modelIdx": 0,
+        "timestamp": 1749701010,
+        "done": true
+      },
+      {
+        "id": "31aa22bb-33cc-44dd-85ee-66ff77a088b3",
+        "parentId": "21aa22bb-33cc-44dd-85ee-66ff77a088b2",
+        "childrenIds": ["a4f5e6d7-c8b9-4a0b-91c2-d3e4f5a6b7c8"],
+        "role": "user",
+        "content": "Can you show the index-based version?",
+        "timestamp": 1749701200,
+        "models": ["gpt-4o"]
+      },
+      {
+        "id": "a4f5e6d7-c8b9-4a0b-91c2-d3e4f5a6b7c8",
+        "parentId": "31aa22bb-33cc-44dd-85ee-66ff77a088b3",
+        "childrenIds": [],
+        "role": "assistant",
+        "content": "```rust\nfor i in 0..v.len() {\n    if v[i] % 2 == 0 {\n        v[i] *= 2;\n    }\n}\n```",
+        "model": "gpt-4o",
+        "modelName": "GPT-4o",
+        "modelIdx": 0,
+        "timestamp": 1749701255,
+        "done": true
+      }
+    ],
+    "tags": [],
+    "timestamp": 1749701000456,
+    "files": []
+  }
+}

@@ -1,0 +1,78 @@
+{
+  "description": "Embeds fixture (Phase 0 Section 11 coverage): assistant message carries a message-level 'embeds' array as persisted by the frontend. Upstream builds tool_result_embeds from inline HTMLResponse bodies (middleware.py:1018), inline text/html external-tool responses (middleware.py:1086), or Location headers (middleware.py:1101), emits them via the 'embeds' event (middleware.py:1401-1409), and the frontend stores them on the message verbatim — message.embeds = data.embeds (Chat.svelte:527-528) — before persisting through updateChatById. One entry is a raw HTML document string, the other a location URL.",
+  "envelope": {
+    "id": "7f8a9b0c-1d2e-4f30-8a4b-5c6d7e8f9a0b",
+    "title": "Interactive revenue chart",
+    "folder_id": null,
+    "pinned": false,
+    "archived": false,
+    "created_at": 1749708000,
+    "updated_at": 1749708060
+  },
+  "chat": {
+    "id": "7f8a9b0c-1d2e-4f30-8a4b-5c6d7e8f9a0b",
+    "title": "Interactive revenue chart",
+    "models": ["gpt-4o"],
+    "params": {},
+    "history": {
+      "currentId": "be1be1be-2222-4333-8444-555566667777",
+      "messages": {
+        "ce0ce0ce-1111-4222-8333-444455556666": {
+          "id": "ce0ce0ce-1111-4222-8333-444455556666",
+          "parentId": null,
+          "childrenIds": ["be1be1be-2222-4333-8444-555566667777"],
+          "role": "user",
+          "content": "Render an interactive chart of quarterly revenue.",
+          "timestamp": 1749708000,
+          "models": ["gpt-4o"]
+        },
+        "be1be1be-2222-4333-8444-555566667777": {
+          "id": "be1be1be-2222-4333-8444-555566667777",
+          "parentId": "ce0ce0ce-1111-4222-8333-444455556666",
+          "childrenIds": [],
+          "role": "assistant",
+          "content": "Here is the interactive quarterly revenue chart, rendered below.",
+          "model": "gpt-4o",
+          "modelName": "GPT-4o",
+          "modelIdx": 0,
+          "timestamp": 1749708030,
+          "done": true,
+          "embeds": [
+            "<html><head><title>Quarterly revenue</title></head><body><canvas id=\"chart\"></canvas><script>renderChart([120, 134, 150, 162]);</script></body></html>",
+            "https://tools.example.com/embed/revenue-dashboard?range=4q"
+          ]
+        }
+      }
+    },
+    "messages": [
+      {
+        "id": "ce0ce0ce-1111-4222-8333-444455556666",
+        "parentId": null,
+        "childrenIds": ["be1be1be-2222-4333-8444-555566667777"],
+        "role": "user",
+        "content": "Render an interactive chart of quarterly revenue.",
+        "timestamp": 1749708000,
+        "models": ["gpt-4o"]
+      },
+      {
+        "id": "be1be1be-2222-4333-8444-555566667777",
+        "parentId": "ce0ce0ce-1111-4222-8333-444455556666",
+        "childrenIds": [],
+        "role": "assistant",
+        "content": "Here is the interactive quarterly revenue chart, rendered below.",
+        "model": "gpt-4o",
+        "modelName": "GPT-4o",
+        "modelIdx": 0,
+        "timestamp": 1749708030,
+        "done": true,
+        "embeds": [
+          "<html><head><title>Quarterly revenue</title></head><body><canvas id=\"chart\"></canvas><script>renderChart([120, 134, 150, 162]);</script></body></html>",
+          "https://tools.example.com/embed/revenue-dashboard?range=4q"
+        ]
+      }
+    ],
+    "tags": [],
+    "timestamp": 1749708000333,
+    "files": []
+  }
+}

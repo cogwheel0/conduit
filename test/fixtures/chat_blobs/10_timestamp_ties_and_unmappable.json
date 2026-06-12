@@ -1,0 +1,111 @@
+{
+  "description": "Edge cases: three regenerated assistant siblings sharing the SAME timestamp second (createdAt ties for deriveChildrenIds), a null value under a message id (models/chats.py:324-325 guards against exactly this), and a partial ghost node lacking id/role/parentId/childrenIds created by upsert_message_to_chat_by_id_and_message_id (models/chats.py:610-616) — both must be preserved verbatim via unmappableMessages.",
+  "envelope": {
+    "id": "92a3b4c5-d6e7-4f80-91a2-b3c4d5e6f708",
+    "title": "Tie breaker",
+    "folder_id": null,
+    "pinned": false,
+    "archived": false,
+    "created_at": 1749712300,
+    "updated_at": 1749712400
+  },
+  "chat": {
+    "id": "92a3b4c5-d6e7-4f80-91a2-b3c4d5e6f708",
+    "title": "Tie breaker",
+    "models": ["llama3.1:8b"],
+    "params": {},
+    "history": {
+      "currentId": "a3333333-cccc-4ccc-8ccc-cccccccccccc",
+      "messages": {
+        "u0000000-aaaa-4aaa-8aaa-aaaaaaaaaaaa": {
+          "id": "u0000000-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "parentId": null,
+          "childrenIds": [
+            "a1111111-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "a2222222-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            "a3333333-cccc-4ccc-8ccc-cccccccccccc"
+          ],
+          "role": "user",
+          "content": "Give me a haiku about rain.",
+          "timestamp": 1749712345,
+          "models": ["llama3.1:8b"]
+        },
+        "a1111111-aaaa-4aaa-8aaa-aaaaaaaaaaaa": {
+          "id": "a1111111-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "parentId": "u0000000-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "childrenIds": [],
+          "role": "assistant",
+          "content": "Soft drops on tin roofs\nthe gutters hum their old song\nstreetlights blur and swim",
+          "model": "llama3.1:8b",
+          "modelName": "llama3.1:8b",
+          "modelIdx": 0,
+          "timestamp": 1749712345,
+          "done": true
+        },
+        "a2222222-bbbb-4bbb-8bbb-bbbbbbbbbbbb": {
+          "id": "a2222222-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          "parentId": "u0000000-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "childrenIds": [],
+          "role": "assistant",
+          "content": "Clouds wring out their grief\npuddles collect the sky's face\nworms applaud below",
+          "model": "llama3.1:8b",
+          "modelName": "llama3.1:8b",
+          "modelIdx": 0,
+          "timestamp": 1749712345,
+          "done": true
+        },
+        "a3333333-cccc-4ccc-8ccc-cccccccccccc": {
+          "id": "a3333333-cccc-4ccc-8ccc-cccccccccccc",
+          "parentId": "u0000000-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "childrenIds": [],
+          "role": "assistant",
+          "content": "Rain taps the window\na metronome for the night\nsleep keeps its own time",
+          "model": "llama3.1:8b",
+          "modelName": "llama3.1:8b",
+          "modelIdx": 0,
+          "timestamp": 1749712345,
+          "done": true
+        },
+        "00dead00-beef-4bad-8bad-000000000000": null,
+        "9host123-4567-4890-8abc-def012345678": {
+          "content": "Would you like haikus about other weather?",
+          "done": true,
+          "followUps": [
+            "Write one about snow",
+            "Write one about wind"
+          ]
+        }
+      }
+    },
+    "messages": [
+      {
+        "id": "u0000000-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "parentId": null,
+        "childrenIds": [
+          "a1111111-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "a2222222-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          "a3333333-cccc-4ccc-8ccc-cccccccccccc"
+        ],
+        "role": "user",
+        "content": "Give me a haiku about rain.",
+        "timestamp": 1749712345,
+        "models": ["llama3.1:8b"]
+      },
+      {
+        "id": "a3333333-cccc-4ccc-8ccc-cccccccccccc",
+        "parentId": "u0000000-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "childrenIds": [],
+        "role": "assistant",
+        "content": "Rain taps the window\na metronome for the night\nsleep keeps its own time",
+        "model": "llama3.1:8b",
+        "modelName": "llama3.1:8b",
+        "modelIdx": 0,
+        "timestamp": 1749712345,
+        "done": true
+      }
+    ],
+    "tags": [],
+    "timestamp": 1749712345000,
+    "files": []
+  }
+}
