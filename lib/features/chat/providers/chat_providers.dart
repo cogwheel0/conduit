@@ -3817,6 +3817,194 @@ Future<void> runQueuedCompletion(
   }
 }
 
+/// HEADLESS completion (CDT-RFC-001 Option B). Drives a queued
+/// `requestCompletion` for a chat the user is NOT looking at WITHOUT touching
+/// the global UI providers (no active-conversation switch, no
+/// chatMessagesProvider mutation).
+///
+/// This is feasible because Open WebUI persists the assistant message
+/// SERVER-SIDE during the completion (`upsert_message_to_chat_by_id...` in the
+/// server's `utils/middleware.py`; the outlet handler "replaces the POST
+/// /api/chat/completed round-trip"). Verified live: firing the completion and
+/// DISCARDING every stream chunk still leaves the full reply persisted on the
+/// chat. So the client only has to: build the request from the DB rows, fire
+/// it, drain the stream to EOF so the server runs to completion, then PULL the
+/// chat to merge the server-persisted reply into the local DB (Phase 3 merge).
+///
+/// No second streaming implementation; the rich-field accumulation lives on the
+/// server. [messages] is the target chat's history (DB-derived), NOT
+/// `chatMessagesProvider` (which holds whatever chat the user is viewing).
+Future<void> runHeadlessCompletion(
+  dynamic ref, {
+  required String chatId,
+  required String assistantMessageId,
+  required List<ChatMessage> messages,
+  required Conversation conversation,
+  required String model,
+  List<String> toolIds = const <String>[],
+  List<String> filterIds = const <String>[],
+  String? sessionIdOverride,
+}) async {
+  final api = ref.read(apiServiceProvider);
+  if (api == null) {
+    throw StateError('runHeadlessCompletion requires an API service');
+  }
+  final selectedModel = ref.read(selectedModelProvider);
+  final effectiveModelId = model.isNotEmpty ? model : (selectedModel?.id ?? '');
+  if (effectiveModelId.isEmpty) {
+    throw StateError('runHeadlessCompletion has no model to send');
+  }
+  if (isTemporaryChat(chatId)) {
+    // Temp chats are not persisted server-side, so headless persistence does
+    // not apply; the caller never queues completions for them.
+    return;
+  }
+
+  Map<String, dynamic>? userSettingsData;
+  String? userSystemPrompt;
+  try {
+    userSettingsData = await api.getUserSettings();
+    userSystemPrompt = _extractSystemPromptFromSettings(userSettingsData);
+  } catch (_) {}
+
+  final toolIdsForApi = _extractToolIdsForApi(toolIds);
+
+  // Build the request history from the PASSED messages (the target chat's DB
+  // rows), never the globally-active chat's provider state.
+  final conversationMessages = <Map<String, dynamic>>[];
+  for (final msg in messages) {
+    if (_isArchivedAssistantVariant(msg)) continue;
+    if (!_shouldIncludeConversationHistoryMessage(msg)) continue;
+    final cleaned = ToolCallsParser.sanitizeForApi(msg.content);
+    final attachments = msg.attachmentIds ?? const <String>[];
+    if (attachments.isNotEmpty) {
+      final messageMap = await _buildMessagePayloadWithAttachments(
+        api: api,
+        role: msg.role,
+        cleanedText: cleaned,
+        attachmentIds: attachments,
+      );
+      if (msg.files != null && msg.files!.isNotEmpty) {
+        final raw = messageMap['files'];
+        final existing = raw is List
+            ? raw.whereType<Map<String, dynamic>>().toList()
+            : <Map<String, dynamic>>[];
+        messageMap['files'] = [...existing, ...msg.files!];
+      }
+      if (msg.output != null && msg.output!.isNotEmpty) {
+        messageMap['output'] = msg.output;
+      }
+      conversationMessages.add(messageMap);
+    } else {
+      conversationMessages.add({
+        'role': msg.role,
+        'content': cleaned,
+        'files': ?msg.files,
+        'output': ?msg.output,
+      });
+    }
+  }
+
+  final convSystemPrompt = conversation.systemPrompt?.trim();
+  final effectiveSystemPrompt =
+      (convSystemPrompt != null && convSystemPrompt.isNotEmpty)
+      ? convSystemPrompt
+      : userSystemPrompt;
+  if (effectiveSystemPrompt != null && effectiveSystemPrompt.isNotEmpty) {
+    final hasSystem = conversationMessages.any(
+      (m) => (m['role']?.toString().toLowerCase() ?? '') == 'system',
+    );
+    if (!hasSystem) {
+      conversationMessages.insert(0, {
+        'role': 'system',
+        'content': effectiveSystemPrompt,
+      });
+    }
+  }
+
+  final requestMessages = _buildChatCompletionMessages(
+    conversationMessages: conversationMessages,
+    isTemporary: false,
+  );
+
+  final modelItem = (selectedModel != null && selectedModel.id == effectiveModelId)
+      ? _buildLocalModelItem(selectedModel)
+      : <String, dynamic>{'id': effectiveModelId, 'name': effectiveModelId};
+
+  final socketService = ref.read(socketServiceProvider);
+  final socketSessionId =
+      sessionIdOverride ?? await _ensureConnectedSocketSessionId(socketService);
+
+  String? lastUserMessageId;
+  for (int i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role == 'user') {
+      lastUserMessageId = messages[i].id;
+      break;
+    }
+  }
+  Map<String, dynamic>? parentMsgMap;
+  try {
+    parentMsgMap = _buildOpenWebUiUserMessage(
+      messages: messages,
+      userMessageId: lastUserMessageId,
+      modelId: effectiveModelId,
+      assistantChildMessageId: assistantMessageId,
+    );
+  } catch (_) {}
+
+  final session = await api.sendMessageSession(
+    messages: requestMessages,
+    model: effectiveModelId,
+    conversationId: chatId,
+    toolIds: toolIdsForApi.isNotEmpty ? toolIdsForApi : null,
+    filterIds: filterIds.isNotEmpty ? filterIds : null,
+    modelItem: modelItem,
+    sessionIdOverride: socketSessionId,
+    responseMessageId: assistantMessageId,
+    userSettings: userSettingsData,
+    parentId: parentMsgMap?['parentId']?.toString(),
+    userMessage: parentMsgMap,
+  );
+
+  // Drain the HTTP byte stream to EOF (discarding chunks) so the server runs to
+  // completion + persists. The socket/task flow has no byteStream — the server
+  // generates it as a background task; the subsequent pull(s) collect it.
+  final byteStream = session.byteStream;
+  if (byteStream != null) {
+    try {
+      await byteStream.drain<void>();
+    } catch (error) {
+      DebugLogger.error(
+        'headless-stream-drain-failed',
+        scope: 'chat/completion',
+        error: error,
+        data: {'chatId': chatId},
+      );
+    }
+  }
+
+  // Pull the chat (bounded) until the server-persisted assistant reply lands
+  // locally. The Phase 3 merge applies it under the chat lock.
+  final engine = ref.read(syncEngineProvider.notifier);
+  for (var attempt = 0; attempt < 6; attempt++) {
+    final convo = await engine.pullChatNow(chatId);
+    final asst = convo?.messages
+        .where((m) => m.id == assistantMessageId)
+        .cast<ChatMessage?>()
+        .firstWhere((_) => true, orElse: () => null);
+    if (asst != null && asst.content.trim().isNotEmpty) {
+      DebugLogger.log(
+        'headless-completion-landed',
+        scope: 'chat/completion',
+        data: {'chatId': chatId, 'attempt': attempt},
+      );
+      return;
+    }
+    if (byteStream != null) break; // stream already drained → one pull suffices
+    await Future<void>.delayed(const Duration(seconds: 2));
+  }
+}
+
 /// Durable send (CDT-RFC-001 §7.2 write path; Group 1 of the task_queue
 /// retirement). Replaces the legacy `taskQueueProvider.enqueueSendText` path.
 ///

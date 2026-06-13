@@ -46,6 +46,11 @@ void main() {
         activeConversationProvider.overrideWith(
           () => _SeededActive(active),
         ),
+        // No api/socket stack here: the headless/live drive both short-circuit
+        // on the null-api guard, letting these tests assert the PATH choice
+        // (headless vs live vs defer) without a real transport.
+        apiServiceProvider.overrideWithValue(null),
+        socketServiceProvider.overrideWithValue(null),
       ],
     );
     addTearDown(container.dispose);
@@ -153,43 +158,41 @@ void main() {
     check(rows).isEmpty();
   });
 
-  test('Option B: defers (never yanks the user) when a DIFFERENT chat is '
-      'foregrounded', () async {
+  test('Option B: runs HEADLESS (never switches the active chat) when a '
+      'DIFFERENT chat is foregrounded', () async {
     const chatId = 'chat-bg';
     await seedChat(chatId);
     await seedMessage(chatId, 'asst-4', '');
 
-    // The user is viewing a different chat: the completion must NOT activate
-    // chat-bg under them — it defers and runs later when chat-bg is opened.
+    // The user is viewing a different chat: the completion must NOT switch the
+    // active conversation to chat-bg — it runs headless. With no api stack the
+    // headless drive fails downstream, but it is NOT a deferral and NOT a
+    // switch (proving the headless, non-disruptive path).
     final (:container, :runner) = makeRunner(
       isStreaming: false,
       active: conv('a-different-chat'),
     );
-    container;
 
     await check(
       runner.run(chatId: chatId, payload: payload('asst-4')),
-    ).throws<CompletionBusyException>();
+    ).throws<StateError>(); // "runHeadlessCompletion requires an API service"
 
-    // It did NOT switch the active conversation.
+    // The user's active conversation is untouched (Option B: no yank).
     check(container.read(activeConversationProvider)?.id)
         .equals('a-different-chat');
   });
 
-  test('drives (activates) when no chat is being viewed', () async {
-    // active == null → safe to activate + drive (no user is yanked). With no
-    // api/socket the drive will fail downstream, but the runner must get PAST
-    // the deferral guards and into activation (proving it does not defer).
+  test('runs HEADLESS (does not activate) when no chat is being viewed',
+      () async {
     const chatId = 'chat-idle';
     await seedChat(chatId);
     await seedMessage(chatId, 'asst-5', '');
     final (:container, :runner) = makeRunner(isStreaming: false, active: null);
 
-    // Not a CompletionBusyException (it did not defer); it proceeds to activate
-    // and then fails on the missing api stack.
     await check(runner.run(chatId: chatId, payload: payload('asst-5')))
-        .throws<Object>();
-    check(container.read(activeConversationProvider)?.id).equals(chatId);
+        .throws<StateError>();
+    // Headless never sets an active conversation.
+    check(container.read(activeConversationProvider)).isNull();
   });
 }
 

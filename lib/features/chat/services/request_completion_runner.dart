@@ -69,23 +69,6 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
       throw CompletionBusyException(chatId);
     }
 
-    // 1b. Non-disruptive policy (Option B): the streaming pipeline is
-    //     single-active-conversation scoped, so driving a completion for a
-    //     chat that is NOT the active one would visibly yank the user to it.
-    //     When a DIFFERENT chat is foregrounded, DEFER (throw-transient): the
-    //     op stays pending and runs live the moment its own chat becomes active
-    //     (chat-open fires a drain, see SyncTriggers), or when no chat is
-    //     active. We only ever drive in the UI for the chat the user is looking
-    //     at — never a surprise switch.
-    if (activeId != null && activeId != chatId) {
-      DebugLogger.log(
-        'completion-deferred-other-chat-active',
-        scope: 'chat/completion',
-        data: {'chatId': chatId, 'activeId': activeId},
-      );
-      throw CompletionBusyException(chatId);
-    }
-
     // 2. Idempotency / already-completed guard (R3): a completed turn leaves the
     //    placeholder row present with non-empty content. The common path is
     //    "row present, empty content" (the drainer enqueues ONE requestCompletion
@@ -107,33 +90,48 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
       return;
     }
 
-    // 3. Activate the chat (Option A) if it is not already the active one. Build
-    //    a Conversation from the chat row + its message rows and set it active;
-    //    the ChatMessagesNotifier loads `conversation.messages` into state. The
-    //    DB-watch then re-binds under chatId.
-    if (activeId != chatId) {
-      final chatRow = await db.chatsDao.getChat(chatId);
-      if (chatRow == null) {
-        // Chat row vanished (e.g. a delete won the race): nothing to complete.
-        DebugLogger.log(
-          'completion-chat-absent',
-          scope: 'chat/completion',
-          data: {'chatId': chatId},
-        );
-        return;
-      }
-      final conversation = assembleConversation(chatRow, rows);
-      _ref.read(activeConversationProvider.notifier).set(conversation);
+    // 3. Path choice (Option B):
+    //    - The target chat IS the one the user is viewing → drive the LIVE
+    //      streaming pipeline so they watch their reply stream in (Option A).
+    //    - Otherwise (a different chat is foregrounded, or none is) → run
+    //      HEADLESS: fire the completion, let the server persist it, pull it
+    //      into the local DB — WITHOUT switching the user's active conversation.
+    final chatRow = await db.chatsDao.getChat(chatId);
+    if (chatRow == null) {
+      // Chat row vanished (e.g. a delete won the race): nothing to complete.
+      DebugLogger.log(
+        'completion-chat-absent',
+        scope: 'chat/completion',
+        data: {'chatId': chatId},
+      );
+      return;
     }
 
-    // 4. Drive the EXISTING streaming pipeline. The placeholder is loaded +
-    //    marked streaming inside runQueuedCompletion via
-    //    _preseedAssistantAndPersist(existingAssistantId: assistantMessageId).
-    //    The stream final + D-07 echo land on the SAME assistantMessageId row.
-    await runQueuedCompletion(
+    if (activeId == chatId) {
+      // Live drive — the placeholder is loaded + marked streaming inside
+      // runQueuedCompletion; the stream final + D-07 echo land on the SAME
+      // assistantMessageId row (R8 one-row-per-turn).
+      await runQueuedCompletion(
+        _ref,
+        chatId: chatId,
+        assistantMessageId: assistantMessageId,
+        model: decoded.model,
+        toolIds: decoded.toolIds,
+        filterIds: decoded.filterIds,
+        sessionIdOverride: decoded.sessionIdOverride,
+      );
+      return;
+    }
+
+    // Headless drive — no active-conversation switch, no chatMessagesProvider
+    // mutation. Builds the request from this chat's DB rows.
+    final conversation = assembleConversation(chatRow, rows);
+    await runHeadlessCompletion(
       _ref,
       chatId: chatId,
       assistantMessageId: assistantMessageId,
+      messages: conversation.messages,
+      conversation: conversation,
       model: decoded.model,
       toolIds: decoded.toolIds,
       filterIds: decoded.filterIds,
