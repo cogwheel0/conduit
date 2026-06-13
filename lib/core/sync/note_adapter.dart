@@ -37,8 +37,14 @@ class NoteAdapter implements SyncEntityAdapter {
   @override
   ChatLocks get locks => _locks;
 
+  /// Notes are fetched in a SINGLE unpaged call ([getListPageRaw] returns an
+  /// empty list for any page > 1 without a network call), so a sentinel larger
+  /// than any realistic note count keeps `runPullFor` from ever requesting a
+  /// page 2 — making the single-page contract explicit rather than relying on
+  /// the driver's `items.length < listPageSize` escape hatch (which would do one
+  /// extra no-op Dart loop when a user has ≥ 60 notes).
   @override
-  int get listPageSize => kOpenWebUiNoteListPageSize;
+  int get listPageSize => 1 << 30;
 
   @override
   bool ownsKind(OutboxKind kind) => kind.isNoteKind;

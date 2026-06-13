@@ -136,7 +136,14 @@ NoteMergeDecision resolveNoteMerge({
   final base = local.serverUpdatedAt!;
   final anyDirty = local.dirtyTitle || local.dirtyData || local.dirtyPinned;
 
-  // Overlap-window no-op: server has not advanced past our base.
+  // Overlap-window no-op: server has not advanced past our base. A base that
+  // LEADS the server clock should never happen (parity with chat_merger.dart);
+  // surface it in tests rather than silently skipping the update.
+  assert(
+    serverUpdatedAt >= base,
+    'resolveNoteMerge: serverUpdatedAt ($serverUpdatedAt) < base ($base) — '
+    'a merge base must never lead the server clock (R-09).',
+  );
   if (serverUpdatedAt <= base) {
     return NoteMergeDecision(
       kind: NoteMergeKind.noRemoteChange,

@@ -151,6 +151,13 @@ class NoteDeletionReconcile {
           // SWALLOWS 401/403 and signals it via featureEnabled=false (it never
           // throws on auth failure), so a thrown error OR a (_, false) result
           // both mean the session is dead — abort with no purge.
+          //
+          // KNOWN TRADE-OFF: featureEnabled=false ALSO fires if the Notes
+          // feature is toggled off mid-reconcile (vs the chat side, where
+          // getChatListPage throws on auth failure and can't conflate the two).
+          // Treating a mid-run feature-disable as "session dead" is deliberately
+          // conservative: it skips this run's purges (no data loss) and the next
+          // reconcile re-runs cleanly once the feature is back.
           bool alive;
           try {
             final (_, enabled) = await _client.getNoteListRaw();
