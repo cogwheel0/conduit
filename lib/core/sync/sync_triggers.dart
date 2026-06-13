@@ -5,6 +5,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../features/auth/providers/unified_auth_providers.dart';
 import '../database/database_provider.dart';
+import '../providers/app_providers.dart';
 import '../services/connectivity_service.dart';
 import '../utils/debug_logger.dart';
 import 'sync_api_client.dart';
@@ -52,6 +53,18 @@ class SyncTriggers extends _$SyncTriggers {
         _request('online');
         unawaited(ref.read(syncEngineProvider.notifier).drainNow());
       }
+    });
+
+    // Active-conversation change: drain the outbox so a completion deferred
+    // because a different chat was foregrounded (request_completion_runner
+    // Option B) runs live the moment the user opens its chat. Plain drain (no
+    // backoff reset), single-flight in the engine; a no-op when the outbox is
+    // empty. Only fires for a real chat (non-null, non-temporary).
+    ref.listen(activeConversationProvider, (previous, next) {
+      final id = next?.id;
+      if (id == null || id.isEmpty || isTemporaryChat(id)) return;
+      if (previous?.id == id) return;
+      unawaited(ref.read(syncEngineProvider.notifier).drainOutbox());
     });
 
     // Foreground/background lifecycle + periodic timer.

@@ -69,6 +69,23 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
       throw CompletionBusyException(chatId);
     }
 
+    // 1b. Non-disruptive policy (Option B): the streaming pipeline is
+    //     single-active-conversation scoped, so driving a completion for a
+    //     chat that is NOT the active one would visibly yank the user to it.
+    //     When a DIFFERENT chat is foregrounded, DEFER (throw-transient): the
+    //     op stays pending and runs live the moment its own chat becomes active
+    //     (chat-open fires a drain, see SyncTriggers), or when no chat is
+    //     active. We only ever drive in the UI for the chat the user is looking
+    //     at — never a surprise switch.
+    if (activeId != null && activeId != chatId) {
+      DebugLogger.log(
+        'completion-deferred-other-chat-active',
+        scope: 'chat/completion',
+        data: {'chatId': chatId, 'activeId': activeId},
+      );
+      throw CompletionBusyException(chatId);
+    }
+
     // 2. Idempotency / already-completed guard (R3): a completed turn leaves the
     //    placeholder row present with non-empty content. The common path is
     //    "row present, empty content" (the drainer enqueues ONE requestCompletion

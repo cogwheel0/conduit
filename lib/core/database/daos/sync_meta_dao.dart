@@ -75,4 +75,17 @@ class SyncMetaDao extends DatabaseAccessor<AppDatabase> with _$SyncMetaDaoMixin 
   Future<void> setNotesPullWatermark(int nanoseconds) {
     return setValue(kNotesPullWatermarkKey, '$nanoseconds');
   }
+
+  /// Last note deletion-reconcile time (§7.5 throttle), SECONDS device clock —
+  /// a SCHEDULING gate only, distinct from the chat reconcile gate and from the
+  /// nanosecond note watermark (it never feeds merge math, so the unit here is
+  /// device-wall-clock seconds, matching [getLastFullReconcileAt]).
+  Future<int> getNotesLastFullReconcileAt() async {
+    final raw = await getValue('notes_last_full_reconcile_at');
+    return int.tryParse(raw ?? '') ?? 0;
+  }
+
+  Future<void> setNotesLastFullReconcileAt(int epochSeconds) {
+    return setValue('notes_last_full_reconcile_at', '$epochSeconds');
+  }
 }

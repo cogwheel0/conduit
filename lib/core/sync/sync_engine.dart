@@ -17,6 +17,7 @@ import 'clock.dart';
 import 'deletion_reconcile.dart';
 import 'id_remapper.dart';
 import 'note_adapter.dart';
+import 'note_deletion_reconcile.dart';
 import 'note_sync.dart';
 import 'outbox_drainer.dart';
 import 'outbox_task_queue_migrator.dart';
@@ -147,6 +148,15 @@ class SyncEngine extends _$SyncEngine {
   Future<void> drainNow() async {
     if (_inert) return;
     await _ensureDrainer()?.onConnectivityRegained();
+  }
+
+  /// Plain outbox drain (no backoff reset). Used by the active-conversation
+  /// trigger so a completion deferred because a DIFFERENT chat was foregrounded
+  /// (request_completion_runner Option B) runs promptly once the user opens its
+  /// chat. Single-flight via the shared drainer's `_draining` guard.
+  Future<void> drainOutbox() async {
+    if (_inert) return;
+    await _ensureDrainer()?.drain();
   }
 
   /// Single debounced entry point (RFC §7.6). 300 ms debounce; single-flight:
@@ -353,12 +363,27 @@ class SyncEngine extends _$SyncEngine {
     );
   }
 
-  /// Manual pull-to-refresh deletion reconcile (bypasses the 24h throttle).
-  /// Safe to call ad hoc; no-op until db/client are ready.
+  /// Engine-internal: the §7.5 NOTE deletion reconcile (own throttle key + note
+  /// list/probe endpoints + note lock domain). Mirrors [_buildReconcile].
+  NoteDeletionReconcile? _buildNoteReconcile() {
+    final db = ref.read(appDatabaseProvider);
+    final client = ref.read(syncApiClientProvider);
+    if (db == null || client == null) return null;
+    return NoteDeletionReconcile(
+      client: client,
+      db: db,
+      locks: ref.read(noteLocksProvider),
+      clock: ref.read(syncClockProvider),
+    );
+  }
+
+  /// Manual pull-to-refresh deletion reconcile (bypasses the 24h throttle) for
+  /// both chats and notes. Safe to call ad hoc; no-op until db/client are ready.
   Future<void> reconcileNow() async {
     if (_inert) return;
     try {
       await _buildReconcile()?.run(ReconcileReason.manualRefresh);
+      await _buildNoteReconcile()?.run(ReconcileReason.manualRefresh);
     } catch (error, stackTrace) {
       DebugLogger.error(
         'reconcile-manual-failed',
@@ -495,6 +520,7 @@ class SyncEngine extends _$SyncEngine {
     // cycle — it self-throttles and retries on a later cycle.
     try {
       await _buildReconcile()?.run(ReconcileReason.background);
+      await _buildNoteReconcile()?.run(ReconcileReason.background);
     } catch (error, stackTrace) {
       DebugLogger.error(
         'reconcile-background-failed',

@@ -137,11 +137,12 @@ void main() {
   test('returns early when the chat row vanished (delete won the race)',
       () async {
     const chatId = 'chat-absent';
-    // Active is a DIFFERENT chat so the runner takes the activate branch,
-    // finds no row, and returns.
+    // No active conversation, so the runner takes the activate branch, finds no
+    // row, and returns. (A DIFFERENT active chat would now defer first — see the
+    // Option B test below.)
     final (:container, :runner) = makeRunner(
       isStreaming: false,
-      active: conv('other-chat'),
+      active: null,
     );
     container;
 
@@ -150,6 +151,45 @@ void main() {
 
     final rows = await db.messagesDao.getForChat(chatId);
     check(rows).isEmpty();
+  });
+
+  test('Option B: defers (never yanks the user) when a DIFFERENT chat is '
+      'foregrounded', () async {
+    const chatId = 'chat-bg';
+    await seedChat(chatId);
+    await seedMessage(chatId, 'asst-4', '');
+
+    // The user is viewing a different chat: the completion must NOT activate
+    // chat-bg under them — it defers and runs later when chat-bg is opened.
+    final (:container, :runner) = makeRunner(
+      isStreaming: false,
+      active: conv('a-different-chat'),
+    );
+    container;
+
+    await check(
+      runner.run(chatId: chatId, payload: payload('asst-4')),
+    ).throws<CompletionBusyException>();
+
+    // It did NOT switch the active conversation.
+    check(container.read(activeConversationProvider)?.id)
+        .equals('a-different-chat');
+  });
+
+  test('drives (activates) when no chat is being viewed', () async {
+    // active == null → safe to activate + drive (no user is yanked). With no
+    // api/socket the drive will fail downstream, but the runner must get PAST
+    // the deferral guards and into activation (proving it does not defer).
+    const chatId = 'chat-idle';
+    await seedChat(chatId);
+    await seedMessage(chatId, 'asst-5', '');
+    final (:container, :runner) = makeRunner(isStreaming: false, active: null);
+
+    // Not a CompletionBusyException (it did not defer); it proceeds to activate
+    // and then fails on the missing api stack.
+    await check(runner.run(chatId: chatId, payload: payload('asst-5')))
+        .throws<Object>();
+    check(container.read(activeConversationProvider)?.id).equals(chatId);
   });
 }
 
