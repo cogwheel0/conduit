@@ -168,6 +168,7 @@ void main() {
             title: 'T',
             createdAt: 1,
             updatedAt: 1,
+            currentMessageId: const Value('srv-asst'), // active-branch tip
             bodySynced: const Value(true),
           ));
       await db.into(db.messages).insert(MessagesCompanion.insert(

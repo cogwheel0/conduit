@@ -168,29 +168,31 @@ class PushSync {
       // never changes them. Derive both deltas from this same ChatResponse and
       // issue at most one toggle each (Phase 2 acceptable simplification).
       final serverPinned = resp['pinned'] == true;
-      if (chat.pinned != serverPinned) {
-        // Confirm against /pinned in case the ChatResponse pinned is stale,
-        // then flip on a real delta.
-        final live = await _client.getChatPinned(chatId);
-        if (live != chat.pinned) {
-          await _client.togglePin(chatId);
-        }
-      }
       final serverArchived = resp['archived'] == true;
-      if (chat.archived != serverArchived) {
-        // Symmetric with the pin path: re-read the live archived state (the
-        // ChatResponse value can be stale relative to a concurrent toggle by
-        // another client) and flip only on a real delta, so a racing client
-        // can't make this blindly toggle archive back to the wrong state. If
-        // the probe 404s (the chat was deleted in the window between the
-        // updateChat response and now), skip the toggle entirely — toggling a
-        // gone chat would throw a terminal error and park an op whose
-        // updateChat already succeeded; reconcile will purge the local row.
+      final needsPinCheck = chat.pinned != serverPinned;
+      final needsArchiveCheck = chat.archived != serverArchived;
+      if (needsPinCheck || needsArchiveCheck) {
+        // ONE liveness fetch guards BOTH toggles: the ChatResponse pin/archive
+        // can be stale relative to a concurrent toggle by another client, so we
+        // re-read before flipping. A 404 here means the chat was deleted in the
+        // window after updateChat succeeded — skip both toggles (reconcile
+        // purges the local row); toggling a gone chat would throw a terminal
+        // error and park an op whose updateChat already succeeded.
         final liveRaw = await _client.getChatRaw(chatId);
         if (liveRaw != null) {
-          final liveArchived = liveRaw['archived'] == true;
-          if (liveArchived != chat.archived) {
-            await _client.toggleArchive(chatId);
+          if (needsPinCheck) {
+            // Pin lives in a join table; confirm against /pinned (authoritative)
+            // rather than the ChatResponse copy, then flip on a real delta.
+            final livePinned = await _client.getChatPinned(chatId);
+            if (livePinned != chat.pinned) {
+              await _client.togglePin(chatId);
+            }
+          }
+          if (needsArchiveCheck) {
+            final liveArchived = liveRaw['archived'] == true;
+            if (liveArchived != chat.archived) {
+              await _client.toggleArchive(chatId);
+            }
           }
         }
       }

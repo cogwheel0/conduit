@@ -326,34 +326,37 @@ class OutboxTaskQueueMigrator {
     return rows.isNotEmpty;
   }
 
-  /// True when [chatId]'s most-recent user message has content == [userText]
-  /// and already carries a non-empty assistant reply — i.e. this legacy send's
-  /// turn already completed server-side (and was pulled in before migration).
-  /// Returns false for empty [userText] (no meaningful content to match on).
+  /// True when the chat's ACTIVE-BRANCH latest turn is a completed assistant
+  /// reply whose user message has content == [userText] — i.e. this legacy
+  /// send's turn already completed server-side (and was pulled in before
+  /// migration). Follows `currentMessageId` (the active-branch tip) rather than
+  /// `orderIndex`, which a regeneration branch could lead, so an off-branch
+  /// message with coincidentally-matching text can never trigger a false-skip.
+  /// Returns false for empty [userText].
   Future<bool> _latestTurnAlreadyCompleted(
     String chatId,
     String userText,
   ) async {
     if (userText.isEmpty) return false;
+    final chat = await _db.chatsDao.getChat(chatId);
+    final currentId = chat?.currentMessageId;
+    if (currentId == null) return false;
     final rows = await (_db.select(_db.messages)
-          ..where((t) => t.chatId.equals(chatId))
-          ..orderBy([(t) => OrderingTerm.desc(t.orderIndex)]))
+          ..where((t) => t.chatId.equals(chatId)))
         .get();
-    // The most-recent user message (rows are newest-first).
-    MessageRow? lastUser;
-    for (final r in rows) {
-      if (r.role == 'user') {
-        lastUser = r;
-        break;
-      }
+    final byId = {for (final r in rows) r.id: r};
+    // The active-branch tip must be a COMPLETED assistant reply.
+    final tip = byId[currentId];
+    if (tip == null ||
+        tip.role != 'assistant' ||
+        tip.content.trim().isEmpty) {
+      return false;
     }
-    if (lastUser == null || lastUser.content != userText) return false;
-    return rows.any(
-      (a) =>
-          a.role == 'assistant' &&
-          a.parentId == lastUser!.id &&
-          a.content.trim().isNotEmpty,
-    );
+    // Its parent is the active turn's user message.
+    final parent = tip.parentId == null ? null : byId[tip.parentId];
+    return parent != null &&
+        parent.role == 'user' &&
+        parent.content == userText;
   }
 
   /// Whether any outbox op (pending or otherwise) carries [contentHash] —
