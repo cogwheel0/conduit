@@ -8,6 +8,7 @@ import 'package:conduit/core/persistence/hive_boxes.dart';
 import 'package:conduit/core/sync/chat_locks.dart';
 import 'package:conduit/core/sync/clock.dart';
 import 'package:conduit/core/sync/outbox_task_queue_migrator.dart';
+import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_ce/hive.dart';
@@ -156,6 +157,52 @@ void main() {
           .deepEquals(['updateChat', 'requestCompletion']);
       // A stub row was materialized for the unpulled server id.
       check(await db.chatsDao.getChat('srv-1')).isNotNull();
+    });
+
+    test('a "running" task whose turn ALREADY completed server-side is skipped '
+        '(no duplicate turn, no second completion)', () async {
+      // _runOnce pulls BEFORE migration; the completed turn is already stored
+      // under the SERVER's own message ids (not the v5-derived ids).
+      await db.into(db.chats).insert(ChatsCompanion.insert(
+            id: 'srv-2',
+            title: 'T',
+            createdAt: 1,
+            updatedAt: 1,
+            bodySynced: const Value(true),
+          ));
+      await db.into(db.messages).insert(MessagesCompanion.insert(
+            id: 'srv-user',
+            chatId: 'srv-2',
+            role: 'user',
+            content: 'hi',
+            createdAt: 1,
+            orderIndex: 0,
+            payload: '{}',
+          ));
+      await db.into(db.messages).insert(MessagesCompanion.insert(
+            id: 'srv-asst',
+            chatId: 'srv-2',
+            role: 'assistant',
+            content: 'hello there',
+            parentId: const Value('srv-user'),
+            createdAt: 2,
+            orderIndex: 1,
+            payload: '{}',
+          ));
+
+      await caches.put('outbound_task_queue_v1', [
+        sendTextTask(
+            id: 't1',
+            conversationId: 'srv-2',
+            text: 'hi',
+            status: 'running'),
+      ]);
+      await migrator().migrateIfNeeded();
+
+      // Nothing enqueued — no duplicate updateChat, no unwanted requestCompletion.
+      check(await db.outboxDao.pendingForChat('srv-2')).isEmpty();
+      // Still exactly the two original messages (no duplicate turn appended).
+      check((await db.messagesDao.getForChat('srv-2')).length).equals(2);
     });
   });
 

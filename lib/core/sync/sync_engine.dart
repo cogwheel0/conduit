@@ -377,12 +377,23 @@ class SyncEngine extends _$SyncEngine {
   /// both chats and notes. Safe to call ad hoc; no-op until db/client are ready.
   Future<void> reconcileNow() async {
     if (_inert) return;
+    // Independent try/catch per entity: an unexpected error from the chat
+    // reconcile must NOT skip the note reconcile (and vice versa).
     try {
       await _buildReconcile()?.run(ReconcileReason.manualRefresh);
-      await _buildNoteReconcile()?.run(ReconcileReason.manualRefresh);
     } catch (error, stackTrace) {
       DebugLogger.error(
         'reconcile-manual-failed',
+        scope: 'sync/engine',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+    try {
+      await _buildNoteReconcile()?.run(ReconcileReason.manualRefresh);
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'note-reconcile-manual-failed',
         scope: 'sync/engine',
         error: error,
         stackTrace: stackTrace,
@@ -527,13 +538,23 @@ class SyncEngine extends _$SyncEngine {
 
     // §7.5 deletion reconcile (background reason; its own 24h throttle gates
     // how often it actually enumerates). A failure here must not abort the
-    // cycle — it self-throttles and retries on a later cycle.
+    // cycle — it self-throttles and retries on a later cycle. Independent
+    // try/catch per entity so a chat-reconcile error can't skip the note one.
     try {
       await _buildReconcile()?.run(ReconcileReason.background);
-      await _buildNoteReconcile()?.run(ReconcileReason.background);
     } catch (error, stackTrace) {
       DebugLogger.error(
         'reconcile-background-failed',
+        scope: 'sync/engine',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+    try {
+      await _buildNoteReconcile()?.run(ReconcileReason.background);
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'note-reconcile-background-failed',
         scope: 'sync/engine',
         error: error,
         stackTrace: stackTrace,
@@ -584,7 +605,10 @@ class SyncEngine extends _$SyncEngine {
             // harmless (the flag stays unset → the next active db rebuilds);
             // log it at debug, not error, so it isn't mistaken for a real
             // FTS failure.
-            if (error.toString().contains('closed')) {
+            final msg = error.toString();
+            if (msg.contains('closed') ||
+                msg.contains('closing') ||
+                msg.contains('re-open')) {
               DebugLogger.log(
                 'fts-build-skipped-db-closed',
                 scope: 'sync/fts',

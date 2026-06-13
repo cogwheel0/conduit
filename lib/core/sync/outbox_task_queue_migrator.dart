@@ -264,6 +264,19 @@ class OutboxTaskQueueMigrator {
       return _ConvertOutcome.skippedDuplicate;
     }
 
+    // Server-completed guard: a legacy "running" task's completion may have
+    // finished SERVER-SIDE before the crash, and `_runOnce` pulls BEFORE this
+    // migration runs — so the chat may already hold that turn under the
+    // server's OWN message ids (which never match our v5-derived [asstId]).
+    // Re-appending here would duplicate the turn AND fire an unwanted second
+    // generation. Detect it by content: if the chat's LATEST user message
+    // matches this task's text and already has a non-empty assistant reply,
+    // the turn is done — skip. (Matching the latest turn, not any historical
+    // message, avoids false-skipping legitimately-repeated text.)
+    if (await _latestTurnAlreadyCompleted(conversationId, text)) {
+      return _ConvertOutcome.skippedDuplicate;
+    }
+
     final existing = await _db.chatsDao.getChat(conversationId);
 
     await _chatLocks.runExclusive(conversationId, () async {
@@ -311,6 +324,36 @@ class OutboxTaskQueueMigrator {
           ..limit(1))
         .get();
     return rows.isNotEmpty;
+  }
+
+  /// True when [chatId]'s most-recent user message has content == [userText]
+  /// and already carries a non-empty assistant reply — i.e. this legacy send's
+  /// turn already completed server-side (and was pulled in before migration).
+  /// Returns false for empty [userText] (no meaningful content to match on).
+  Future<bool> _latestTurnAlreadyCompleted(
+    String chatId,
+    String userText,
+  ) async {
+    if (userText.isEmpty) return false;
+    final rows = await (_db.select(_db.messages)
+          ..where((t) => t.chatId.equals(chatId))
+          ..orderBy([(t) => OrderingTerm.desc(t.orderIndex)]))
+        .get();
+    // The most-recent user message (rows are newest-first).
+    MessageRow? lastUser;
+    for (final r in rows) {
+      if (r.role == 'user') {
+        lastUser = r;
+        break;
+      }
+    }
+    if (lastUser == null || lastUser.content != userText) return false;
+    return rows.any(
+      (a) =>
+          a.role == 'assistant' &&
+          a.parentId == lastUser!.id &&
+          a.content.trim().isNotEmpty,
+    );
   }
 
   /// Whether any outbox op (pending or otherwise) carries [contentHash] —
