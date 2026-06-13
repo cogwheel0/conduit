@@ -181,11 +181,17 @@ class PushSync {
         // Symmetric with the pin path: re-read the live archived state (the
         // ChatResponse value can be stale relative to a concurrent toggle by
         // another client) and flip only on a real delta, so a racing client
-        // can't make this blindly toggle archive back to the wrong state.
+        // can't make this blindly toggle archive back to the wrong state. If
+        // the probe 404s (the chat was deleted in the window between the
+        // updateChat response and now), skip the toggle entirely — toggling a
+        // gone chat would throw a terminal error and park an op whose
+        // updateChat already succeeded; reconcile will purge the local row.
         final liveRaw = await _client.getChatRaw(chatId);
-        final liveArchived = liveRaw?['archived'] == true;
-        if (liveArchived != chat.archived) {
-          await _client.toggleArchive(chatId);
+        if (liveRaw != null) {
+          final liveArchived = liveRaw['archived'] == true;
+          if (liveArchived != chat.archived) {
+            await _client.toggleArchive(chatId);
+          }
         }
       }
 

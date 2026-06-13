@@ -137,6 +137,45 @@ void main() {
     check(copy.id.startsWith('local:')).isTrue();
   });
 
+  test('pushNotePin PROBES live state and toggles only on a real delta '
+      '(no blind toggle-first flip)', () async {
+    // Note exists locally + on the server; server pin = false.
+    server.seedNote(
+      id: 'p1',
+      title: 'P',
+      data: {'content': {'md': 'x'}},
+      createdAt: kT1,
+      updatedAt: kT1,
+      pinned: false,
+    );
+    await db.notesDao.upsertServerNote(<String, dynamic>{
+      'id': 'p1',
+      'title': 'P',
+      'data': {'content': {'md': 'x'}},
+      'meta': <String, dynamic>{},
+      'is_pinned': false,
+      'created_at': kT1,
+      'updated_at': kT1,
+    });
+    final remapper = IdRemapper(db);
+    addTearDown(remapper.dispose);
+    final push = NotePushSync(
+      client: client,
+      db: db,
+      noteLocks: locks,
+      remapper: remapper,
+    );
+
+    // desired == live (false) → NO toggle (the old toggle-first code would have
+    // flipped the server and flipped back, leaving a transient wrong state).
+    await push.pushNotePin('p1', desired: false);
+    check(client.togglePinNoteCalls).equals(0);
+
+    // desired != live → exactly one toggle.
+    await push.pushNotePin('p1', desired: true);
+    check(client.togglePinNoteCalls).equals(1);
+  });
+
   test('updateNoteWithOutbox writes the row AND a noteUpdate op in one tx',
       () async {
     server.seedNote(

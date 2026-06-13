@@ -248,13 +248,16 @@ class NotePushSync {
 
   // ---- notePin (dedicated axis) ----
 
-  /// Drives the per-user pin to [desired] via the stateless toggle endpoint,
-  /// confirming the live state first so a re-run never double-flips. Clears the
-  /// pin dirty axis on success. Does NOT touch the title/data/updated_at axes.
+  /// Drives the per-user pin to [desired] via the stateless toggle endpoint.
+  /// PROBES the live state first (symmetric with the chat pin/archive paths)
+  /// and toggles ONLY on a real delta, so a re-run never double-flips and no
+  /// transient wrong-state window exists for a concurrent client to win. Clears
+  /// the pin dirty axis on success. Does NOT touch the title/data/updated_at
+  /// axes.
   Future<void> pushNotePin(String noteId, {required bool desired}) async {
     await _noteLocks.runExclusive(noteId, () async {
-      final resp = await _client.togglePinNote(noteId);
-      if (resp == null) {
+      final raw = await _client.getNoteRaw(noteId);
+      if (raw == null) {
         // 404: gone server-side; nothing to pin.
         DebugLogger.warning(
           'pin-404',
@@ -266,10 +269,8 @@ class NotePushSync {
         await _clearNotePinDirty(noteId);
         return;
       }
-      // The endpoint TOGGLES; if the flip overshot the desired state (the
-      // server was already at `desired`), flip once more to land on it.
-      final nowPinned = resp['is_pinned'] == true;
-      if (nowPinned != desired) {
+      final livePinned = raw['is_pinned'] == true;
+      if (livePinned != desired) {
         await _client.togglePinNote(noteId);
       }
       await _clearNotePinDirty(noteId);

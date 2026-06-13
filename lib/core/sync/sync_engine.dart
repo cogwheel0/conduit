@@ -316,9 +316,11 @@ class SyncEngine extends _$SyncEngine {
     final existing = _drainer;
     if (existing != null) return existing;
     final db = ref.read(appDatabaseProvider);
-    final push = _buildPushSync();
+    // The drainer pushes through the PushSync instances embedded in adapters;
+    // _buildAdapters() already builds (and null-guards on) PushSync internally,
+    // so a separate _buildPushSync() here would be a discarded duplicate.
     final adapters = _buildAdapters();
-    if (db == null || push == null || adapters == null) return null;
+    if (db == null || adapters == null) return null;
     return _drainer = OutboxDrainer(
       db: db,
       clock: ref.read(syncClockProvider),
@@ -484,9 +486,13 @@ class SyncEngine extends _$SyncEngine {
     // background reconcile waits a full interval instead of redundantly
     // re-enumerating every page on the very first cycle (§7.5).
     if (result.success && previousWatermark == 0) {
-      await db.syncMetaDao.setLastFullReconcileAt(
-        ref.read(syncClockProvider).nowEpochSeconds(),
-      );
+      final nowSeconds = ref.read(syncClockProvider).nowEpochSeconds();
+      await db.syncMetaDao.setLastFullReconcileAt(nowSeconds);
+      // Same for the NOTE reconcile gate: the first cycle's note pull already
+      // enumerated every note, so pre-advance its gate too (it otherwise reads
+      // 0 and runs a redundant getNoteListRaw + full-ID diff right after the
+      // first full pull).
+      await db.syncMetaDao.setNotesLastFullReconcileAt(nowSeconds);
     }
 
     // §9 step 2 / §11: convert the legacy Hive task queue into rows+ops EXACTLY
