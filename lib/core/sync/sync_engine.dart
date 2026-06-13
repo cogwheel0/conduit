@@ -331,7 +331,7 @@ class SyncEngine extends _$SyncEngine {
   /// Engine-internal: the one-time legacy Hive task-queue migrator. Built
   /// lazily so it sees the current db/clock/default-model. Internally idempotent
   /// + per-server flag-gated; the engine's [_migrated] guard limits it to a
-  /// single ATTEMPT per process.
+  /// single successful attempt per process.
   OutboxTaskQueueMigrator? _buildMigrator() {
     final db = ref.read(appDatabaseProvider);
     if (db == null) return null;
@@ -517,12 +517,13 @@ class SyncEngine extends _$SyncEngine {
     // ONCE per process, BEFORE the first drain, so converted ops are visible to
     // it (the migrator is also internally idempotent + per-server flag-gated).
     if (!_migrated) {
-      _migrated = true;
       try {
         await _buildMigrator()?.migrateIfNeeded();
+        _migrated = true;
       } catch (error, stackTrace) {
         // A migration abort/error must not abort the pull cycle; it retries
-        // next process (the flag is only set after a full conversion pass).
+        // next cycle (the process guard is set only after the migrator returns,
+        // and the durable flag is set only after a full conversion pass).
         DebugLogger.error(
           'task-queue-migrate-failed',
           scope: 'sync/engine',

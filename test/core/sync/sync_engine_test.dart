@@ -4,6 +4,7 @@ import 'package:checks/checks.dart';
 import 'package:conduit/core/database/app_database.dart';
 import 'package:conduit/core/database/database_provider.dart';
 import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
+import 'package:conduit/core/persistence/persistence_providers.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/connectivity_service.dart';
 import 'package:conduit/core/sync/sync_api_client.dart';
@@ -36,6 +37,7 @@ void main() {
   ProviderContainer makeContainer({
     bool authenticated = true,
     bool online = true,
+    void Function()? onHiveBoxesRead,
   }) {
     final container = ProviderContainer(
       overrides: [
@@ -48,6 +50,11 @@ void main() {
             purgeCalls++;
           },
         ),
+        if (onHiveBoxesRead != null)
+          hiveBoxesProvider.overrideWith((ref) {
+            onHiveBoxesRead();
+            throw StateError('transient hive read');
+          }),
       ],
     );
     addTearDown(container.dispose);
@@ -228,6 +235,25 @@ void main() {
       final healed = await engine.requestPull(reason: 'healing-pull');
       check(healed!.success).isTrue();
       check(purgeCalls).equals(1);
+    });
+
+    test('task queue migration failure retries on the next cycle', () async {
+      seedChat('chat-1', 100);
+      var migrationBuildAttempts = 0;
+      final container = makeContainer(
+        onHiveBoxesRead: () => migrationBuildAttempts++,
+      );
+      final engine = container.read(syncEngineProvider.notifier);
+
+      final first = await engine.requestPull(reason: 'migration-fails-once');
+      check(first!.success).isTrue();
+      container.invalidate(hiveBoxesProvider);
+
+      seedChat('chat-2', 200);
+      final second = await engine.requestPull(reason: 'migration-retries');
+      check(second!.success).isTrue();
+
+      check(migrationBuildAttempts).equals(2);
     });
 
     test('folders 403 result flips foldersFeatureEnabledProvider', () async {
