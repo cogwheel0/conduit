@@ -88,24 +88,51 @@ Conversation assembleConversation(ChatRow chat, List<MessageRow> messages) {
   return parseFullConversationModel(buildChatResponseEnvelope(chat, messages));
 }
 
-/// List-summary mapper: identical shape to today's server summaries
-/// (messages/tags/metadata empty).
-Conversation conversationFromListEntry(ChatListEntry e) {
+/// Shared body-less summary builder. Timestamps are epoch SECONDS (scaled to
+/// millis), matching `_parseTimestamp` (local tz). Used by both the list-entry
+/// and chat-search-hit mappers, whose envelopes are identical apart from field
+/// names. NOTE: SearchHit note-kind hits carry NANOSECOND timestamps (R-09);
+/// this builder must only be fed seconds-scale inputs (today only chat hits
+/// reach [conversationFromSearchHit]).
+Conversation _summaryConversation({
+  required String id,
+  required String title,
+  required int createdAtSec,
+  required int updatedAtSec,
+  required int? lastReadAtSec,
+  required bool pinned,
+  required bool archived,
+  required String? folderId,
+}) {
   return Conversation(
-    id: e.id,
-    title: e.title,
-    // Local tz, matching _parseTimestamp behavior.
-    createdAt: DateTime.fromMillisecondsSinceEpoch(e.createdAt * 1000),
-    updatedAt: DateTime.fromMillisecondsSinceEpoch(e.updatedAt * 1000),
-    lastReadAt: e.lastReadAt == null
+    id: id,
+    title: title,
+    createdAt: DateTime.fromMillisecondsSinceEpoch(createdAtSec * 1000),
+    updatedAt: DateTime.fromMillisecondsSinceEpoch(updatedAtSec * 1000),
+    lastReadAt: lastReadAtSec == null
         ? null
-        : DateTime.fromMillisecondsSinceEpoch(e.lastReadAt! * 1000),
-    pinned: e.pinned,
-    archived: e.archived,
-    folderId: e.folderId,
+        : DateTime.fromMillisecondsSinceEpoch(lastReadAtSec * 1000),
+    pinned: pinned,
+    archived: archived,
+    folderId: folderId,
     messages: const [],
     tags: const [],
     metadata: const {},
+  );
+}
+
+/// List-summary mapper: identical shape to today's server summaries
+/// (messages/tags/metadata empty).
+Conversation conversationFromListEntry(ChatListEntry e) {
+  return _summaryConversation(
+    id: e.id,
+    title: e.title,
+    createdAtSec: e.createdAt,
+    updatedAtSec: e.updatedAt,
+    lastReadAtSec: e.lastReadAt,
+    pinned: e.pinned,
+    archived: e.archived,
+    folderId: e.folderId,
   );
 }
 
@@ -118,20 +145,15 @@ Conversation conversationFromListEntry(ChatListEntry e) {
 /// surfaced on [Conversation]; ordering is preserved by the list order the
 /// caller hands in (already bm25-ascending).
 Conversation conversationFromSearchHit(SearchHit hit) {
-  return Conversation(
+  return _summaryConversation(
     id: hit.chatId,
     title: hit.title,
-    createdAt: DateTime.fromMillisecondsSinceEpoch(hit.createdAt * 1000),
-    updatedAt: DateTime.fromMillisecondsSinceEpoch(hit.updatedAt * 1000),
-    lastReadAt: hit.lastReadAt == null
-        ? null
-        : DateTime.fromMillisecondsSinceEpoch(hit.lastReadAt! * 1000),
+    createdAtSec: hit.createdAt,
+    updatedAtSec: hit.updatedAt,
+    lastReadAtSec: hit.lastReadAt,
     pinned: hit.pinned,
     archived: hit.archived,
     folderId: hit.folderId,
-    messages: const [],
-    tags: const [],
-    metadata: const {},
   );
 }
 

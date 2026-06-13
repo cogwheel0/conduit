@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:drift/drift.dart';
 import 'package:uuid/uuid.dart';
 
@@ -375,22 +373,9 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
     );
   }
 
-  static int? _asNs(Object? value) {
-    if (value is int) return value;
-    if (value is num) return value.toInt();
-    return null;
-  }
+  static int? _asNs(Object? value) => asNs(value);
 }
 
 /// Decodes an outbox `noteUpdate` patch payload (used by the push handler /
 /// coalescer). Tolerant of corrupt JSON.
-Map<String, dynamic> decodeNotePatch(String raw) {
-  try {
-    final decoded = jsonDecode(raw);
-    if (decoded is Map<String, dynamic>) return decoded;
-    if (decoded is Map) return Map<String, dynamic>.from(decoded);
-  } catch (_) {
-    // fall through
-  }
-  return <String, dynamic>{};
-}
+Map<String, dynamic> decodeNotePatch(String raw) => decodeJsonMap(raw);

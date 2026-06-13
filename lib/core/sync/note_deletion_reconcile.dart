@@ -133,10 +133,19 @@ class NoteDeletionReconcile {
           return;
         }
         if (!sessionVerified) {
+          // getNoteRaw's null is ambiguous with an expired token, so confirm
+          // the session is still alive before trusting any purge. getNoteListRaw
+          // SWALLOWS 401/403 and signals it via featureEnabled=false (it never
+          // throws on auth failure), so a thrown error OR a (_, false) result
+          // both mean the session is dead — abort with no purge.
+          bool alive;
           try {
-            await _client.getNoteListRaw();
-            sessionVerified = true;
+            final (_, enabled) = await _client.getNoteListRaw();
+            alive = enabled;
           } catch (_) {
+            alive = false;
+          }
+          if (!alive) {
             DebugLogger.warning(
               'note-reconcile-aborted-session-dead',
               scope: 'sync/reconcile',
@@ -146,6 +155,7 @@ class NoteDeletionReconcile {
             skipped++;
             return;
           }
+          sessionVerified = true;
         }
         await _db.notesDao.purgeReconciledNote(id);
         purged++;

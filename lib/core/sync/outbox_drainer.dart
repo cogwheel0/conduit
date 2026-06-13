@@ -1,13 +1,10 @@
 import 'dart:async';
-import 'dart:convert';
 
 import '../database/app_database.dart';
 import '../database/daos/outbox_dao.dart';
 import '../utils/debug_logger.dart';
 import 'backoff.dart';
-import 'chat_locks.dart';
 import 'clock.dart';
-import 'push_sync.dart';
 import 'sync_api_client.dart';
 import 'sync_entity_adapter.dart';
 
@@ -40,9 +37,6 @@ typedef TerminalErrorClassifier = int? Function(Object error);
 class OutboxDrainer {
   OutboxDrainer({
     required AppDatabase db,
-    required ChatLocks chatLocks,
-    required ChatLocks folderLocks,
-    required PushSync push,
     required SyncClock clock,
     required Backoff backoff,
     required bool Function() isOnline,
@@ -50,9 +44,6 @@ class OutboxDrainer {
     required List<SyncEntityAdapter> adapters,
     TerminalErrorClassifier? terminalClassifier,
   })  : _db = db,
-        _chatLocks = chatLocks,
-        _folderLocks = folderLocks,
-        _push = push,
         _clock = clock,
         _backoff = backoff,
         _isOnline = isOnline,
@@ -71,12 +62,6 @@ class OutboxDrainer {
   static const int _offlineRetrySeconds = 5;
 
   final AppDatabase _db;
-  // ignore: unused_field
-  final ChatLocks _chatLocks;
-  // ignore: unused_field
-  final ChatLocks _folderLocks;
-  // ignore: unused_field
-  final PushSync _push;
 
   /// Entity adapters that own outbox kinds (chat + note). The drainer routes
   /// each op to `adapters.firstWhere((a) => a.ownsKind(kind))` instead of a
@@ -220,7 +205,7 @@ class OutboxDrainer {
     if (kind == OutboxKind.requestCompletion) {
       await _completion.run(
         chatId: op.chatId!,
-        payload: _decodePayload(op.payload),
+        payload: decodeOutboxPayload(op.payload),
       );
       return;
     }
@@ -300,16 +285,11 @@ class OutboxDrainer {
     int status,
     String message,
   ) async {
-    if (kind == OutboxKind.deleteChat && status == 404) {
-      await _db.outboxDao.markDone(op.seq);
-      return;
-    }
-    if (kind == OutboxKind.folderDelete && status == 404) {
-      await _db.outboxDao.markDone(op.seq);
-      return;
-    }
-    if (kind == OutboxKind.noteDelete && status == 404) {
-      // Already gone server-side: success (parity with deleteChat 404).
+    // 404 on any delete kind ⇒ already gone server-side ⇒ success (markDone).
+    if (status == 404 &&
+        (kind == OutboxKind.deleteChat ||
+            kind == OutboxKind.folderDelete ||
+            kind == OutboxKind.noteDelete)) {
       await _db.outboxDao.markDone(op.seq);
       return;
     }
@@ -319,12 +299,5 @@ class OutboxDrainer {
       data: {'seq': op.seq, 'kind': kind.name, 'status': status},
     );
     await _db.outboxDao.markParked(op.seq, error: message);
-  }
-
-  static Map<String, dynamic> _decodePayload(String raw) {
-    final decoded = jsonDecode(raw);
-    if (decoded is Map<String, dynamic>) return decoded;
-    if (decoded is Map) return decoded.cast<String, dynamic>();
-    return <String, dynamic>{};
   }
 }

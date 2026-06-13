@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:drift/drift.dart';
 
@@ -52,15 +53,23 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   /// Includes archived rows (filtered/archived split happens in existing
   /// derived providers).
   Stream<List<ChatListEntry>> watchChatList() {
-    final query = _listProjection()
+    final query = _activeChatsListQuery();
+    return query.watch().map(
+      (rows) => rows.map(_entryFromProjection).toList(growable: false),
+    );
+  }
+
+  /// Shared WHERE + ORDER BY for the active-chats list. Both [watchChatList]
+  /// and [getChatPage] start from this so the deleted-filter and ordering stay
+  /// structurally identical (the page must compose seamlessly with the watch
+  /// stream; see [getChatPage]).
+  JoinedSelectStatement<HasResultSet, dynamic> _activeChatsListQuery() {
+    return _listProjection()
       ..where(chats.deleted.equals(false))
       ..orderBy([
         OrderingTerm.desc(chats.updatedAt),
         OrderingTerm.asc(chats.id),
       ]);
-    return query.watch().map(
-      (rows) => rows.map(_entryFromProjection).toList(growable: false),
-    );
   }
 
   /// Internal first-page fast-path (CDT-RFC-001 §10 LIST CONTRACT). Same NARROW
@@ -75,13 +84,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     required int limit,
     required int offset,
   }) async {
-    final query = _listProjection()
-      ..where(chats.deleted.equals(false))
-      ..orderBy([
-        OrderingTerm.desc(chats.updatedAt),
-        OrderingTerm.asc(chats.id),
-      ])
-      ..limit(limit, offset: offset);
+    final query = _activeChatsListQuery()..limit(limit, offset: offset);
     final rows = await query.get();
     return rows.map(_entryFromProjection).toList(growable: false);
   }
@@ -133,52 +136,15 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     final chat = rows.chat;
     return transaction(() async {
       final existing = await getChat(chat.id);
-      final mergedLastReadAt = _maxLastReadAt(
-        existing?.lastReadAt,
-        listLastReadAt,
+      await _writeChatRows(
+        rows: rows,
+        shareId: shareId,
+        meta: meta,
+        listLastReadAt: listLastReadAt,
+        existingLastReadAt: existing?.lastReadAt,
+        serverUpdatedAt: chat.updatedAt,
+        chatDirty: false,
       );
-
-      await into(chats).insertOnConflictUpdate(
-        ChatsCompanion.insert(
-          id: chat.id,
-          title: chat.title,
-          folderId: Value(chat.folderId),
-          pinned: Value(chat.pinned),
-          archived: Value(chat.archived),
-          currentMessageId: Value(chat.currentMessageId),
-          createdAt: chat.createdAt,
-          updatedAt: chat.updatedAt,
-          serverUpdatedAt: Value(chat.updatedAt),
-          dirty: const Value(false),
-          deleted: const Value(false),
-          bodySynced: const Value(true),
-          rawExtra: Value(jsonEncode(chat.rawExtra)),
-          blobMeta: Value(jsonEncode(blobMetaJson(rows))),
-          shareId: Value(shareId),
-          meta: Value(jsonEncode(meta)),
-          lastReadAt: Value(mergedLastReadAt),
-        ),
-      );
-
-      await (delete(messages)..where((t) => t.chatId.equals(chat.id))).go();
-
-      await batch((b) {
-        b.insertAll(messages, [
-          for (final message in rows.messages)
-            MessagesCompanion.insert(
-              id: message.id,
-              chatId: message.chatId,
-              parentId: Value(message.parentId),
-              role: message.role,
-              content: message.content,
-              model: Value(message.model),
-              createdAt: message.createdAt,
-              orderIndex: message.orderIndex,
-              payload: jsonEncode(message.payload),
-              dirty: const Value(false),
-            ),
-        ]);
-      });
     });
   }
 
@@ -228,13 +194,14 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
             mustPush: false,
           );
         }
-        await _writeServerRows(
+        await _writeChatRows(
           rows: server,
           shareId: shareId,
           meta: meta,
           listLastReadAt: listLastReadAt,
           existingLastReadAt: existing?.lastReadAt,
           serverUpdatedAt: serverChat.updatedAt,
+          chatDirty: false,
         );
         return const ChatMergeWriteResult(
           outcome: MergeOutcome.fastForward,
@@ -278,26 +245,28 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
             mustPush: result.mustPush,
           );
         case MergeOutcome.fastForward:
-          await _writeServerRows(
+          await _writeChatRows(
             rows: result.merged,
             shareId: shareId,
             meta: meta,
             listLastReadAt: listLastReadAt,
             existingLastReadAt: existing.lastReadAt,
             serverUpdatedAt: result.newServerUpdatedAt,
+            chatDirty: false,
           );
           return ChatMergeWriteResult(
             outcome: result.outcome,
             mustPush: result.mustPush,
           );
         case MergeOutcome.threeWay:
-          await _writeMergedRows(
+          await _writeChatRows(
             rows: result.merged,
             shareId: shareId,
             meta: meta,
             listLastReadAt: listLastReadAt,
             existingLastReadAt: existing.lastReadAt,
             serverUpdatedAt: result.newServerUpdatedAt,
+            chatDirty: true,
             dirtyMessageIds: result.dirtyMessageIds,
           );
           return ChatMergeWriteResult(
@@ -308,15 +277,22 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     });
   }
 
-  /// Fast-forward / first-sync writer: chat row + messages all `dirty=false`,
-  /// `deleted=false`, `bodySynced=true`. Mirrors [upsertServerChat]'s body.
-  Future<void> _writeServerRows({
+  /// Shared chat-body writer. The fast-forward / first-sync callers pass
+  /// `chatDirty: false` (chat row + messages all `dirty=false`); the three-way
+  /// caller passes `chatDirty: true` with the surviving [dirtyMessageIds] so
+  /// those message rows stay dirty. Always `deleted=false`, `bodySynced=true`,
+  /// and the delete+reinsert of message rows. `serverUpdatedAt` is the caller's
+  /// contract (fast-forward advances it to today's body; three-way keeps it at
+  /// `base` so the push advances it).
+  Future<void> _writeChatRows({
     required ChatRows rows,
     required String? shareId,
     required Map<String, dynamic> meta,
     required int? listLastReadAt,
     required int? existingLastReadAt,
     required int serverUpdatedAt,
+    required bool chatDirty,
+    Set<String> dirtyMessageIds = const {},
   }) async {
     final chat = rows.chat;
     final mergedLastReadAt = _maxLastReadAt(existingLastReadAt, listLastReadAt);
@@ -332,7 +308,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
         createdAt: chat.createdAt,
         updatedAt: chat.updatedAt,
         serverUpdatedAt: Value(serverUpdatedAt),
-        dirty: const Value(false),
+        dirty: Value(chatDirty),
         deleted: const Value(false),
         bodySynced: const Value(true),
         rawExtra: Value(jsonEncode(chat.rawExtra)),
@@ -345,68 +321,21 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
 
     await (delete(messages)..where((t) => t.chatId.equals(chat.id))).go();
 
-    await batch((b) {
-      b.insertAll(messages, [
-        for (final message in rows.messages)
-          MessagesCompanion.insert(
-            id: message.id,
-            chatId: message.chatId,
-            parentId: Value(message.parentId),
-            role: message.role,
-            content: message.content,
-            model: Value(message.model),
-            createdAt: message.createdAt,
-            orderIndex: message.orderIndex,
-            payload: jsonEncode(message.payload),
-            dirty: const Value(false),
-          ),
-      ]);
-    });
+    await _insertMessages(rows.messages, dirtyIds: dirtyMessageIds);
   }
 
-  /// Three-way writer: merged envelope stays `dirty=true`, `serverUpdatedAt`
-  /// stays at `base` (UNCHANGED — the push advances it), and message rows are
-  /// reinserted with `dirty` set for ids in [dirtyMessageIds] (survived from
-  /// the dirty-local side), `dirty=false` for the rest.
-  Future<void> _writeMergedRows({
-    required ChatRows rows,
-    required String? shareId,
-    required Map<String, dynamic> meta,
-    required int? listLastReadAt,
-    required int? existingLastReadAt,
-    required int serverUpdatedAt,
-    required Set<String> dirtyMessageIds,
+  /// Batch-inserts message rows for a chat (caller owns the preceding
+  /// `delete(messages)` and the enclosing transaction). `dirty` is set per
+  /// [dirtyIds]; when [allDirty] is true every row is dirty (local-create
+  /// path). The `payload` column feeds the `chat_fts` insert trigger.
+  Future<void> _insertMessages(
+    List<MessageRowData> rows, {
+    Set<String> dirtyIds = const {},
+    bool allDirty = false,
   }) async {
-    final chat = rows.chat;
-    final mergedLastReadAt = _maxLastReadAt(existingLastReadAt, listLastReadAt);
-
-    await into(chats).insertOnConflictUpdate(
-      ChatsCompanion.insert(
-        id: chat.id,
-        title: chat.title,
-        folderId: Value(chat.folderId),
-        pinned: Value(chat.pinned),
-        archived: Value(chat.archived),
-        currentMessageId: Value(chat.currentMessageId),
-        createdAt: chat.createdAt,
-        updatedAt: chat.updatedAt,
-        serverUpdatedAt: Value(serverUpdatedAt),
-        dirty: const Value(true),
-        deleted: const Value(false),
-        bodySynced: const Value(true),
-        rawExtra: Value(jsonEncode(chat.rawExtra)),
-        blobMeta: Value(jsonEncode(blobMetaJson(rows))),
-        shareId: Value(shareId),
-        meta: Value(jsonEncode(meta)),
-        lastReadAt: Value(mergedLastReadAt),
-      ),
-    );
-
-    await (delete(messages)..where((t) => t.chatId.equals(chat.id))).go();
-
     await batch((b) {
       b.insertAll(messages, [
-        for (final message in rows.messages)
+        for (final message in rows)
           MessagesCompanion.insert(
             id: message.id,
             chatId: message.chatId,
@@ -417,7 +346,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
             createdAt: message.createdAt,
             orderIndex: message.orderIndex,
             payload: jsonEncode(message.payload),
-            dirty: Value(dirtyMessageIds.contains(message.id)),
+            dirty: Value(allDirty || dirtyIds.contains(message.id)),
           ),
       ]);
     });
@@ -613,23 +542,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
           blobMeta: Value(jsonEncode(blobMetaJson(blobRows))),
         ),
       );
-      await batch((b) {
-        b.insertAll(this.messages, [
-          for (final message in messages)
-            MessagesCompanion.insert(
-              id: message.id,
-              chatId: message.chatId,
-              parentId: Value(message.parentId),
-              role: message.role,
-              content: message.content,
-              model: Value(message.model),
-              createdAt: message.createdAt,
-              orderIndex: message.orderIndex,
-              payload: jsonEncode(message.payload),
-              dirty: const Value(true),
-            ),
-        ]);
-      });
+      await _insertMessages(messages, allDirty: true);
       await _outboxDao.enqueue(
         kind: OutboxKind.createChat,
         chatId: chat.id,
@@ -773,8 +686,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
 
   static int? _maxLastReadAt(int? local, int? server) {
     if (local == null && server == null) return null;
-    final merged = (local ?? 0) > (server ?? 0) ? (local ?? 0) : (server ?? 0);
-    return merged;
+    return math.max(local ?? 0, server ?? 0);
   }
 
   JoinedSelectStatement<HasResultSet, dynamic> _listProjection() {

@@ -1640,6 +1640,15 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     final selectedReadAt = DateTime.now();
     markConversationRead(container, id, readAt: selectedReadAt);
 
+    // Overlay the just-selected read time when it is newer than the source's
+    // own lastReadAt, so the active conversation reflects the optimistic read.
+    Conversation withOptimisticReadAt(Conversation c) {
+      final readAt = c.lastReadAt;
+      return readAt == null || selectedReadAt.isAfter(readAt)
+          ? c.copyWith(lastReadAt: selectedReadAt)
+          : c;
+    }
+
     try {
       // Mark global loading to show skeletons in chat
       container.read(chat.isLoadingConversationProvider.notifier).set(true);
@@ -1671,28 +1680,18 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       // instantly — offline included — and a background pull freshens it.
       final local = await loadLocalConversation(container, id);
       if (local != null) {
-        final localReadAt = local.lastReadAt;
-        final optimisticLocal =
-            localReadAt == null || selectedReadAt.isAfter(localReadAt)
-            ? local.copyWith(lastReadAt: selectedReadAt)
-            : local;
         container
             .read(activeConversationProvider.notifier)
-            .set(optimisticLocal);
+            .set(withOptimisticReadAt(local));
         schedulePullChatNow(container, id);
       } else {
         // No row / envelope stub / reviewer mode: load from the server.
         final api = container.read(apiServiceProvider);
         if (api != null) {
           final full = await api.getConversation(id);
-          final fullReadAt = full.lastReadAt;
-          final optimisticFull =
-              fullReadAt == null || selectedReadAt.isAfter(fullReadAt)
-              ? full.copyWith(lastReadAt: selectedReadAt)
-              : full;
           container
               .read(activeConversationProvider.notifier)
-              .set(optimisticFull);
+              .set(withOptimisticReadAt(full));
           // Materialize the local row so the next open is DB-first.
           schedulePullChatNow(container, id);
         } else {
@@ -1701,14 +1700,9 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           final fallback = (await container.read(
             conversationsProvider.future,
           )).firstWhere((c) => c.id == id);
-          final fallbackReadAt = fallback.lastReadAt;
-          final optimisticFallback =
-              fallbackReadAt == null || selectedReadAt.isAfter(fallbackReadAt)
-              ? fallback.copyWith(lastReadAt: selectedReadAt)
-              : fallback;
           container
               .read(activeConversationProvider.notifier)
-              .set(optimisticFallback);
+              .set(withOptimisticReadAt(fallback));
         }
       }
 

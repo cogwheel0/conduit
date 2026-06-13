@@ -150,12 +150,7 @@ class MediaUploadController {
 
     late final StreamSubscription<List<QueuedAttachment>> sub;
     sub = uploader.queueStream.listen((items) {
-      QueuedAttachment? entry;
-      try {
-        entry = items.firstWhere((e) => e.id == id);
-      } catch (_) {
-        entry = null;
-      }
+      final entry = items.where((e) => e.id == id).firstOrNull;
       if (entry == null) return;
 
       try {

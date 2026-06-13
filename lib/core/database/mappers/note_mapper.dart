@@ -110,7 +110,13 @@ Map<String, dynamic> _asMap(Object? value) {
   return <String, dynamic>{};
 }
 
-Map<String, dynamic> _decodeMap(String raw) {
+Map<String, dynamic> _decodeMap(String raw) => decodeJsonMap(raw);
+
+/// Decodes a JSON string into a `Map<String, dynamic>`, tolerant of corrupt
+/// JSON (returns an empty map rather than throwing) and of `Map`s whose static
+/// type is not already `Map<String, dynamic>`. Shared across the database
+/// mappers/DAOs so the decode contract stays in one place.
+Map<String, dynamic> decodeJsonMap(String raw) {
   try {
     final decoded = jsonDecode(raw);
     if (decoded is Map<String, dynamic>) return decoded;
@@ -122,9 +128,11 @@ Map<String, dynamic> _decodeMap(String raw) {
 }
 
 /// Raw int64 nanoseconds — NO unit conversion (R-09). Tolerates a `num` that
-/// arrived as double from JSON.
-int? _asNs(Object? value) {
+/// arrived as double from JSON. Shared with the notes DAO.
+int? asNs(Object? value) {
   if (value is int) return value;
   if (value is num) return value.toInt();
   return null;
 }
+
+int? _asNs(Object? value) => asNs(value);

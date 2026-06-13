@@ -29,6 +29,13 @@ const int kOpenWebUiNoteListPageSize = 60;
 /// `kPullFetchConcurrency`).
 const int kNotePullFetchConcurrency = 4;
 
+/// Raw int64 NANOSECONDS — NO unit conversion (R-09).
+int? _asNs(Object? value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return null;
+}
+
 /// Outcome of one note pull cycle (diagnostics + tests).
 class NotePullResult {
   const NotePullResult({
@@ -266,13 +273,6 @@ class NotePullSync {
     }
     return _ChangedNote(id: id, updatedAt: updatedAt);
   }
-
-  /// Raw int64 NANOSECONDS — NO unit conversion (R-09).
-  static int? _asNs(Object? value) {
-    if (value is int) return value;
-    if (value is num) return value.toInt();
-    return null;
-  }
 }
 
 /// Per-kind note outbox push handlers (CDT-RFC-001 D-11). Each acquires the
@@ -454,12 +454,6 @@ class NotePushSync {
   Future<void> _clearNotePinDirty(String noteId) {
     return (_db.update(_db.notes)..where((t) => t.id.equals(noteId)))
         .write(const NotesCompanion(dirtyPinned: Value(false)));
-  }
-
-  static int? _asNs(Object? value) {
-    if (value is int) return value;
-    if (value is num) return value.toInt();
-    return null;
   }
 }
 

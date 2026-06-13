@@ -235,7 +235,7 @@ ChatMergeResult _threeWay({
       currentId = serverCurrent;
       currentFromLocal = false;
     } else {
-      currentId = _deepestLeaf(merged, fallbackFrom: currentId);
+      currentId = _deepestLeaf(merged);
       currentFromLocal = false;
     }
   }
@@ -365,15 +365,12 @@ MessageRowData _withDerivedChildren(
 /// last-resort currentId when neither side's choice survived. Walks the active
 /// branch by always taking the last (newest) child; falls back to any survivor
 /// when no root exists.
-String? _deepestLeaf(
-  List<MessageRowData> messages, {
-  String? fallbackFrom,
-}) {
+String? _deepestLeaf(List<MessageRowData> messages) {
   if (messages.isEmpty) return null;
   final byId = {for (final m in messages) m.id: m};
 
-  // Find a starting node: prefer walking up from fallbackFrom's lineage root;
-  // otherwise pick the first root (parentId null or absent in the set).
+  // Find a starting node: the first root (parentId null or absent in the set),
+  // falling back to any survivor when no root exists.
   MessageRowData? start;
   for (final m in messages) {
     if (m.parentId == null || !byId.containsKey(m.parentId)) {

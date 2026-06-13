@@ -931,23 +931,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     try {
       // Pull through the sync engine: the raw fetch persists via
       // upsertServerChat under the chat lock, then returns the assembled
-      // conversation (CDT-RFC-001 Phase 1).
-      Conversation? refreshed;
-      try {
-        refreshed = await ref
-            .read(syncEngineProvider.notifier)
-            .pullChatNow(conversationId);
-      } catch (_) {
-        refreshed = null;
-      }
+      // conversation (CDT-RFC-001 Phase 1). Falls back to a direct fetch when
+      // the engine is inert/unavailable (no database, reviewer mode).
+      final refreshed = await pullChatOrFetch(ref, conversationId);
       if (refreshed == null) {
-        // Engine inert/unavailable (no database, reviewer mode): legacy
-        // direct fetch keeps passive sync alive.
-        final api = ref.read(apiServiceProvider);
-        if (api == null) {
-          return;
-        }
-        refreshed = await api.getConversation(conversationId);
+        return;
       }
       if (!ref.mounted) {
         return;
@@ -2768,6 +2756,98 @@ Future<List<Map<String, dynamic>>?> _resolveToolServersForRequest({
   return resolved.isEmpty ? null : resolved;
 }
 
+/// Builds the chat-completion request `messages` for both the foreground
+/// ([runQueuedCompletion]) and headless ([runHeadlessCompletion]) paths:
+/// rebuild the live conversation history (skip archived/non-history rows,
+/// sanitize content, merge attachment/file/output payloads), prepend the
+/// effective system message (conversation prompt, falling back to the user
+/// prompt) when one is absent, then apply [_buildChatCompletionMessages].
+Future<List<Map<String, dynamic>>> _buildCompletionRequestMessages({
+  required dynamic api,
+  required List<ChatMessage> messages,
+  required String? conversationSystemPrompt,
+  required String? userSystemPrompt,
+  required bool isTemporary,
+}) async {
+  final conversationMessages = <Map<String, dynamic>>[];
+  for (final msg in messages) {
+    if (_isArchivedAssistantVariant(msg)) continue;
+    if (!_shouldIncludeConversationHistoryMessage(msg)) continue;
+    final cleaned = ToolCallsParser.sanitizeForApi(msg.content);
+    final attachments = msg.attachmentIds ?? const <String>[];
+    if (attachments.isNotEmpty) {
+      final messageMap = await _buildMessagePayloadWithAttachments(
+        api: api,
+        role: msg.role,
+        cleanedText: cleaned,
+        attachmentIds: attachments,
+      );
+      if (msg.files != null && msg.files!.isNotEmpty) {
+        final raw = messageMap['files'];
+        final existing = raw is List
+            ? raw.whereType<Map<String, dynamic>>().toList()
+            : <Map<String, dynamic>>[];
+        messageMap['files'] = [...existing, ...msg.files!];
+      }
+      if (msg.output != null && msg.output!.isNotEmpty) {
+        messageMap['output'] = msg.output;
+      }
+      conversationMessages.add(messageMap);
+    } else {
+      conversationMessages.add({
+        'role': msg.role,
+        'content': cleaned,
+        'files': ?msg.files,
+        'output': ?msg.output,
+      });
+    }
+  }
+
+  final convSystemPrompt = conversationSystemPrompt?.trim();
+  final effectiveSystemPrompt =
+      (convSystemPrompt != null && convSystemPrompt.isNotEmpty)
+      ? convSystemPrompt
+      : userSystemPrompt;
+  if (effectiveSystemPrompt != null && effectiveSystemPrompt.isNotEmpty) {
+    final hasSystem = conversationMessages.any(
+      (m) => (m['role']?.toString().toLowerCase() ?? '') == 'system',
+    );
+    if (!hasSystem) {
+      conversationMessages.insert(0, {
+        'role': 'system',
+        'content': effectiveSystemPrompt,
+      });
+    }
+  }
+
+  return _buildChatCompletionMessages(
+    conversationMessages: conversationMessages,
+    isTemporary: isTemporary,
+  );
+}
+
+/// Last `user`-role message id in [messages], scanning newest-first; `null`
+/// when none exists.
+String? _lastUserMessageId(List<ChatMessage> messages) {
+  for (int i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role == 'user') {
+      return messages[i].id;
+    }
+  }
+  return null;
+}
+
+/// Whether [modelId] looks like a reasoning model, based on common naming
+/// patterns (o1/o3/deepseek-r1/reasoning/think).
+bool _modelUsesReasoning(String modelId) {
+  final m = modelId.toLowerCase();
+  return m.contains('o1') ||
+      m.contains('o3') ||
+      m.contains('deepseek-r1') ||
+      m.contains('reasoning') ||
+      m.contains('think');
+}
+
 List<Map<String, dynamic>> _buildChatCompletionMessages({
   required List<Map<String, dynamic>> conversationMessages,
   required bool isTemporary,
@@ -3505,14 +3585,7 @@ Future<void> regenerateMessage(
         files: _extractTopLevelRequestFiles(parentMsgMap),
       );
 
-      // Check if model uses reasoning based on common naming patterns
-      final modelLower = selectedModel.id.toLowerCase();
-      final modelUsesReasoning =
-          modelLower.contains('o1') ||
-          modelLower.contains('o3') ||
-          modelLower.contains('deepseek-r1') ||
-          modelLower.contains('reasoning') ||
-          modelLower.contains('think');
+      final modelUsesReasoning = _modelUsesReasoning(selectedModel.id);
 
       final bool isBackgroundFlow =
           isBackgroundToolsFlowPre ||
@@ -3609,70 +3682,14 @@ Future<void> runQueuedCompletion(
 
   // Rebuild the conversation history LIVE from the loaded rows (§3.iii).
   final List<ChatMessage> messages = ref.read(chatMessagesProvider);
-  final List<Map<String, dynamic>> conversationMessages =
-      <Map<String, dynamic>>[];
-  for (int i = 0; i < messages.length; i++) {
-    final msg = messages[i];
-    if (_isArchivedAssistantVariant(msg)) {
-      continue;
-    }
-    if (_shouldIncludeConversationHistoryMessage(msg)) {
-      final cleaned = ToolCallsParser.sanitizeForApi(msg.content);
-      final List<String> messageAttachments = msg.attachmentIds ?? const [];
-      if (messageAttachments.isNotEmpty) {
-        final messageMap = await _buildMessagePayloadWithAttachments(
-          api: api,
-          role: msg.role,
-          cleanedText: cleaned,
-          attachmentIds: messageAttachments,
-        );
-        if (msg.files != null && msg.files!.isNotEmpty) {
-          final rawFiles = messageMap['files'];
-          final existingFiles = rawFiles is List
-              ? rawFiles.whereType<Map<String, dynamic>>().toList()
-              : <Map<String, dynamic>>[];
-          messageMap['files'] = <Map<String, dynamic>>[
-            ...existingFiles,
-            ...msg.files!,
-          ];
-        }
-        if (msg.output != null && msg.output!.isNotEmpty) {
-          messageMap['output'] = msg.output;
-        }
-        conversationMessages.add(messageMap);
-      } else {
-        conversationMessages.add({
-          'role': msg.role,
-          'content': cleaned,
-          'files': ?msg.files,
-          'output': ?msg.output,
-        });
-      }
-    }
-  }
-
-  final conversationSystemPrompt = activeConversation.systemPrompt?.trim();
-  final effectiveSystemPrompt =
-      (conversationSystemPrompt != null && conversationSystemPrompt.isNotEmpty)
-      ? conversationSystemPrompt
-      : userSystemPrompt;
-  if (effectiveSystemPrompt != null && effectiveSystemPrompt.isNotEmpty) {
-    final hasSystemMessage = conversationMessages.any(
-      (m) => (m['role']?.toString().toLowerCase() ?? '') == 'system',
-    );
-    if (!hasSystemMessage) {
-      conversationMessages.insert(0, {
-        'role': 'system',
-        'content': effectiveSystemPrompt,
-      });
-    }
-  }
-
   final isTemporary =
       isTemporaryChat(activeConversation.id) ||
       ref.read(temporaryChatEnabledProvider);
-  final requestMessages = _buildChatCompletionMessages(
-    conversationMessages: conversationMessages,
+  final requestMessages = await _buildCompletionRequestMessages(
+    api: api,
+    messages: messages,
+    conversationSystemPrompt: activeConversation.systemPrompt,
+    userSystemPrompt: userSystemPrompt,
     isTemporary: isTemporary,
   );
 
@@ -3720,13 +3737,7 @@ Future<void> runQueuedCompletion(
       toolIdsForApi.isNotEmpty ||
       (toolServers != null && toolServers.isNotEmpty);
 
-  String? lastUserMessageId;
-  for (int i = messages.length - 1; i >= 0; i--) {
-    if (messages[i].role == 'user') {
-      lastUserMessageId = messages[i].id;
-      break;
-    }
-  }
+  final lastUserMessageId = _lastUserMessageId(messages);
 
   Map<String, dynamic>? promptVars2;
   Map<String, dynamic>? parentMsgMap;
@@ -3773,13 +3784,7 @@ Future<void> runQueuedCompletion(
       files: _extractTopLevelRequestFiles(parentMsgMap),
     );
 
-    final modelLower = effectiveModelId.toLowerCase();
-    final modelUsesReasoning =
-        modelLower.contains('o1') ||
-        modelLower.contains('o3') ||
-        modelLower.contains('deepseek-r1') ||
-        modelLower.contains('reasoning') ||
-        modelLower.contains('think');
+    final modelUsesReasoning = _modelUsesReasoning(effectiveModelId);
 
     final bool isBackgroundFlow =
         isBackgroundToolsFlowPre ||
@@ -3871,59 +3876,11 @@ Future<void> runHeadlessCompletion(
 
   // Build the request history from the PASSED messages (the target chat's DB
   // rows), never the globally-active chat's provider state.
-  final conversationMessages = <Map<String, dynamic>>[];
-  for (final msg in messages) {
-    if (_isArchivedAssistantVariant(msg)) continue;
-    if (!_shouldIncludeConversationHistoryMessage(msg)) continue;
-    final cleaned = ToolCallsParser.sanitizeForApi(msg.content);
-    final attachments = msg.attachmentIds ?? const <String>[];
-    if (attachments.isNotEmpty) {
-      final messageMap = await _buildMessagePayloadWithAttachments(
-        api: api,
-        role: msg.role,
-        cleanedText: cleaned,
-        attachmentIds: attachments,
-      );
-      if (msg.files != null && msg.files!.isNotEmpty) {
-        final raw = messageMap['files'];
-        final existing = raw is List
-            ? raw.whereType<Map<String, dynamic>>().toList()
-            : <Map<String, dynamic>>[];
-        messageMap['files'] = [...existing, ...msg.files!];
-      }
-      if (msg.output != null && msg.output!.isNotEmpty) {
-        messageMap['output'] = msg.output;
-      }
-      conversationMessages.add(messageMap);
-    } else {
-      conversationMessages.add({
-        'role': msg.role,
-        'content': cleaned,
-        'files': ?msg.files,
-        'output': ?msg.output,
-      });
-    }
-  }
-
-  final convSystemPrompt = conversation.systemPrompt?.trim();
-  final effectiveSystemPrompt =
-      (convSystemPrompt != null && convSystemPrompt.isNotEmpty)
-      ? convSystemPrompt
-      : userSystemPrompt;
-  if (effectiveSystemPrompt != null && effectiveSystemPrompt.isNotEmpty) {
-    final hasSystem = conversationMessages.any(
-      (m) => (m['role']?.toString().toLowerCase() ?? '') == 'system',
-    );
-    if (!hasSystem) {
-      conversationMessages.insert(0, {
-        'role': 'system',
-        'content': effectiveSystemPrompt,
-      });
-    }
-  }
-
-  final requestMessages = _buildChatCompletionMessages(
-    conversationMessages: conversationMessages,
+  final requestMessages = await _buildCompletionRequestMessages(
+    api: api,
+    messages: messages,
+    conversationSystemPrompt: conversation.systemPrompt,
+    userSystemPrompt: userSystemPrompt,
     isTemporary: false,
   );
 
@@ -3935,13 +3892,7 @@ Future<void> runHeadlessCompletion(
   final socketSessionId =
       sessionIdOverride ?? await _ensureConnectedSocketSessionId(socketService);
 
-  String? lastUserMessageId;
-  for (int i = messages.length - 1; i >= 0; i--) {
-    if (messages[i].role == 'user') {
-      lastUserMessageId = messages[i].id;
-      break;
-    }
-  }
+  final lastUserMessageId = _lastUserMessageId(messages);
   Map<String, dynamic>? parentMsgMap;
   try {
     parentMsgMap = _buildOpenWebUiUserMessage(
@@ -3984,14 +3935,20 @@ Future<void> runHeadlessCompletion(
   }
 
   // Pull the chat (bounded) until the server-persisted assistant reply lands
-  // locally. The Phase 3 merge applies it under the chat lock.
+  // locally. The Phase 3 merge applies it under the chat lock. Both transport
+  // flows persist the assistant message ASYNCHRONOUSLY (the server defaults
+  // ENABLE_REALTIME_CHAT_SAVE=False, so even after the HTTP byte stream drains
+  // to EOF the final upsert can trail the stream close), so BOTH paths poll
+  // with a short backoff rather than trusting a single immediate pull. If it
+  // still hasn't landed within the window the content is safe on the server and
+  // the next sync cycle collects it — this only tightens the latency.
   final engine = ref.read(syncEngineProvider.notifier);
   for (var attempt = 0; attempt < 6; attempt++) {
+    if (attempt > 0) await Future<void>.delayed(const Duration(seconds: 2));
     final convo = await engine.pullChatNow(chatId);
     final asst = convo?.messages
         .where((m) => m.id == assistantMessageId)
-        .cast<ChatMessage?>()
-        .firstWhere((_) => true, orElse: () => null);
+        .firstOrNull;
     if (asst != null && asst.content.trim().isNotEmpty) {
       DebugLogger.log(
         'headless-completion-landed',
@@ -4000,9 +3957,12 @@ Future<void> runHeadlessCompletion(
       );
       return;
     }
-    if (byteStream != null) break; // stream already drained → one pull suffices
-    await Future<void>.delayed(const Duration(seconds: 2));
   }
+  DebugLogger.log(
+    'headless-completion-not-yet-landed',
+    scope: 'chat/completion',
+    data: {'chatId': chatId},
+  );
 }
 
 /// Durable send (CDT-RFC-001 §7.2 write path; Group 1 of the task_queue
@@ -4751,13 +4711,7 @@ Future<void> _sendMessageInternal(
     final bool isBackgroundWebSearchPre = webSearchEnabled;
 
     // Find the last user message ID for proper parent linking
-    String? lastUserMessageId;
-    for (int i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].role == 'user') {
-        lastUserMessageId = messages[i].id;
-        break;
-      }
-    }
+    final lastUserMessageId = _lastUserMessageId(messages);
 
     // Use transport-aware session dispatch
     // Build template variables for prompt substitution (matches OpenWebUI's
@@ -4825,14 +4779,7 @@ Future<void> _sendMessageInternal(
         files: _extractTopLevelRequestFiles(userMessageMap),
       );
 
-      // Check if model uses reasoning based on common naming patterns
-      final modelLower2 = selectedModel.id.toLowerCase();
-      final modelUsesReasoning2 =
-          modelLower2.contains('o1') ||
-          modelLower2.contains('o3') ||
-          modelLower2.contains('deepseek-r1') ||
-          modelLower2.contains('reasoning') ||
-          modelLower2.contains('think');
+      final modelUsesReasoning2 = _modelUsesReasoning(selectedModel.id);
 
       final bool isBackgroundFlow =
           isBackgroundToolsFlowPre ||

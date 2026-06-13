@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import '../database/app_database.dart';
 import '../database/daos/outbox_dao.dart';
 import 'chat_locks.dart';
@@ -82,10 +80,10 @@ class ChatAdapter implements SyncEntityAdapter {
       case OutboxKind.deleteChat:
         await _push.pushDeleteChat(op.chatId!);
       case OutboxKind.folderUpsert:
-        await _push.pushFolderUpsert(_decodePayload(op.payload));
+        await _push.pushFolderUpsert(decodeOutboxPayload(op.payload));
       case OutboxKind.folderDelete:
         await _push.pushFolderDelete(
-          _decodePayload(op.payload)['folderId'] as String,
+          decodeOutboxPayload(op.payload)['folderId'] as String,
         );
       // requestCompletion is chat-only but has NO push handler here — the
       // drainer runs it via its RequestCompletionRunner seam, not pushOp. Note
@@ -98,12 +96,5 @@ class ChatAdapter implements SyncEntityAdapter {
       case null:
         return;
     }
-  }
-
-  static Map<String, dynamic> _decodePayload(String raw) {
-    final decoded = jsonDecode(raw);
-    if (decoded is Map<String, dynamic>) return decoded;
-    if (decoded is Map) return decoded.cast<String, dynamic>();
-    return <String, dynamic>{};
   }
 }

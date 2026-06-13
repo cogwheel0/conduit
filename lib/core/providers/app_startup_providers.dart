@@ -6,8 +6,8 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../database/local_conversation_loader.dart';
 import '../providers/app_providers.dart';
-import '../sync/sync_engine.dart';
 import '../sync/sync_triggers.dart';
 import '../../features/auth/providers/unified_auth_providers.dart';
 import '../services/navigation_service.dart';
@@ -1188,23 +1188,11 @@ Future<void> _refreshActiveConversationOnResume(Ref ref) async {
     conversationId = active.id;
     // Pull through the sync engine: persists via upsertServerChat under the
     // chat lock, then returns the assembled conversation (CDT-RFC-001
-    // Phase 1).
-    Conversation? refreshed;
-    try {
-      refreshed = await ref
-          .read(syncEngineProvider.notifier)
-          .pullChatNow(conversationId);
-    } catch (_) {
-      refreshed = null;
-    }
+    // Phase 1). Falls back to a direct fetch when the engine is
+    // inert/unavailable (no database, reviewer mode).
+    final refreshed = await pullChatOrFetch(ref, conversationId);
     if (refreshed == null) {
-      // Engine inert/unavailable (no database, reviewer mode): legacy direct
-      // fetch keeps the resume refresh alive.
-      final api = ref.read(apiServiceProvider);
-      if (api == null) {
-        return;
-      }
-      refreshed = await api.getConversation(conversationId);
+      return;
     }
     if (!ref.mounted) {
       return;

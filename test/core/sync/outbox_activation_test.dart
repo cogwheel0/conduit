@@ -146,9 +146,6 @@ void main() {
 
   OutboxDrainer buildDrainer() => OutboxDrainer(
     db: db,
-    chatLocks: chatLocks,
-    folderLocks: folderLocks,
-    push: push,
     clock: clock,
     backoff: Backoff(jitter: () => 0.0),
     isOnline: () => online,

@@ -101,37 +101,11 @@ NoteMergeDecision resolveNoteMerge({
   required int serverUpdatedAt,
   required NoteMergeLocal? local,
 }) {
-  // First sync, or a never-synced row: plain server write (fast-forward).
-  if (local == null || local.serverUpdatedAt == null) {
-    // A dirty tombstone with a null base must still be protected.
-    if (local != null &&
-        local.deleted &&
-        (local.dirtyTitle || local.dirtyData || local.dirtyPinned)) {
-      return const NoteMergeDecision(
-        kind: NoteMergeKind.skipDirtyTombstone,
-        takeServerTitle: false,
-        takeServerData: false,
-        spawnConflictCopy: false,
-        canonicalDirtyTitle: false,
-        canonicalDirtyData: false,
-        advanceServerUpdatedAt: false,
-        mustPush: false,
-      );
-    }
-    return const NoteMergeDecision(
-      kind: NoteMergeKind.fastForward,
-      takeServerTitle: true,
-      takeServerData: true,
-      spawnConflictCopy: false,
-      canonicalDirtyTitle: false,
-      canonicalDirtyData: false,
-      advanceServerUpdatedAt: true,
-      mustPush: false,
-    );
-  }
-
-  // Dirty tombstone: the pending noteDelete wins; never resurrect.
-  if (local.deleted &&
+  // Dirty tombstone: the pending noteDelete wins; never resurrect. Hoisted
+  // ahead of the null-base branch — it fires for any dirty local tombstone,
+  // whether or not a merge base exists.
+  if (local != null &&
+      local.deleted &&
       (local.dirtyTitle || local.dirtyData || local.dirtyPinned)) {
     return const NoteMergeDecision(
       kind: NoteMergeKind.skipDirtyTombstone,
@@ -141,6 +115,20 @@ NoteMergeDecision resolveNoteMerge({
       canonicalDirtyTitle: false,
       canonicalDirtyData: false,
       advanceServerUpdatedAt: false,
+      mustPush: false,
+    );
+  }
+
+  // First sync, or a never-synced row: plain server write (fast-forward).
+  if (local == null || local.serverUpdatedAt == null) {
+    return const NoteMergeDecision(
+      kind: NoteMergeKind.fastForward,
+      takeServerTitle: true,
+      takeServerData: true,
+      spawnConflictCopy: false,
+      canonicalDirtyTitle: false,
+      canonicalDirtyData: false,
+      advanceServerUpdatedAt: true,
       mustPush: false,
     );
   }

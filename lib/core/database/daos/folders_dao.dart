@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:drift/drift.dart';
 
 import '../app_database.dart';
+import '../mappers/note_mapper.dart';
 import '../tables/folders.dart';
 import 'outbox_dao.dart';
 
@@ -233,14 +234,5 @@ class FoldersDao extends DatabaseAccessor<AppDatabase> with _$FoldersDaoMixin {
     );
   }
 
-  static Map<String, dynamic> _decodeMap(String raw) {
-    try {
-      final decoded = jsonDecode(raw);
-      if (decoded is Map<String, dynamic>) return decoded;
-      if (decoded is Map) return Map<String, dynamic>.from(decoded);
-    } catch (_) {
-      // Corrupt rawExtra: start fresh rather than crash a local edit.
-    }
-    return <String, dynamic>{};
-  }
+  static Map<String, dynamic> _decodeMap(String raw) => decodeJsonMap(raw);
 }

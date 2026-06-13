@@ -373,7 +373,24 @@ class IdRemapper {
   /// [localId] to [serverId] on the standalone `chat_fts` vtable. Used on the
   /// merge-collision branches where the local row is dropped without trigger
   /// #7 re-indexing under the server id. Tolerant of a not-yet-built index.
-  Future<void> _remapNoteFtsRows(String localId, String serverId) async {
+  Future<void> _remapNoteFtsRows(String localId, String serverId) {
+    return _remapFtsRowsWhere(
+      localId,
+      serverId,
+      "kind IN ('note_title', 'note_text')",
+    );
+  }
+
+  /// Repoints `chat_fts` rows matching [kindClause] from [localId] to
+  /// [serverId]. Tolerant of a not-yet-built index (the vtable may not exist
+  /// before the post-first-sync [AppDatabase.buildFtsIfNeeded] gate fires); in
+  /// that case there are no rows to move and the backfill later indexes them
+  /// under serverId, so this is a safe no-op.
+  Future<void> _remapFtsRowsWhere(
+    String localId,
+    String serverId,
+    String kindClause,
+  ) async {
     final exists = await _db
         .customSelect(
           "SELECT 1 FROM sqlite_master WHERE name = 'chat_fts' LIMIT 1",
@@ -381,8 +398,7 @@ class IdRemapper {
         .get();
     if (exists.isEmpty) return;
     await _db.customUpdate(
-      "UPDATE chat_fts SET chat_id = ? "
-      "WHERE chat_id = ? AND kind IN ('note_title', 'note_text')",
+      "UPDATE chat_fts SET chat_id = ? WHERE chat_id = ? AND $kindClause",
       variables: [Variable.withString(serverId), Variable.withString(localId)],
     );
   }
@@ -531,16 +547,7 @@ class IdRemapper {
   /// exist (remap can run before the post-first-sync [AppDatabase.buildFtsIfNeeded]
   /// gate fires), there are no msg FTS rows to move and the backfill will later
   /// index the rows under serverId, so this is a safe no-op.
-  Future<void> _remapFtsRows(String localId, String serverId) async {
-    final exists = await _db
-        .customSelect(
-          "SELECT 1 FROM sqlite_master WHERE name = 'chat_fts' LIMIT 1",
-        )
-        .get();
-    if (exists.isEmpty) return;
-    await _db.customUpdate(
-      "UPDATE chat_fts SET chat_id = ? WHERE chat_id = ? AND kind = 'msg'",
-      variables: [Variable.withString(serverId), Variable.withString(localId)],
-    );
+  Future<void> _remapFtsRows(String localId, String serverId) {
+    return _remapFtsRowsWhere(localId, serverId, "kind = 'msg'");
   }
 }

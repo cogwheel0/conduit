@@ -173,16 +173,12 @@ class DeletionReconcile {
           gone = !await _client.probeChatExists(id);
         } catch (error, stackTrace) {
           // Transient (network/5xx): skip this candidate this run.
-          DebugLogger.warning(
-            'reconcile-probe-skip',
-            scope: 'sync/reconcile',
-            data: {'chatId': id, 'error': error.toString()},
-          );
           DebugLogger.error(
             'reconcile-probe-error',
             scope: 'sync/reconcile',
             error: error,
             stackTrace: stackTrace,
+            data: {'chatId': id},
           );
           skipped++;
           return;

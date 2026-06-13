@@ -1,9 +1,20 @@
+import 'dart:convert';
 import 'dart:math' as math;
 
 import '../database/app_database.dart';
 import '../database/daos/outbox_dao.dart';
 import '../utils/debug_logger.dart';
 import 'chat_locks.dart';
+
+/// Decodes a JSON outbox-op `payload` string to a `Map<String, dynamic>`,
+/// returning an empty map when the payload is absent or not a JSON object.
+/// Shared by the sync-package adapters/drainer (CDT-RFC-001 Phase 5).
+Map<String, dynamic> decodeOutboxPayload(String raw) {
+  final decoded = jsonDecode(raw);
+  if (decoded is Map<String, dynamic>) return decoded;
+  if (decoded is Map) return decoded.cast<String, dynamic>();
+  return <String, dynamic>{};
+}
 
 /// One changed list item in an entity's OWN clock unit (CDT-RFC-001 Phase 5
 /// seam). Deliberately MINIMAL: `{id, updatedAt int64}` plus an opaque

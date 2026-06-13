@@ -1,6 +1,7 @@
 import '../database/app_database.dart';
 import '../database/daos/notes_dao.dart' show decodeNotePatch;
 import '../database/daos/outbox_dao.dart';
+import '../database/mappers/note_mapper.dart' show asNs;
 import '../database/daos/sync_meta_dao.dart';
 import 'chat_locks.dart';
 import 'note_sync.dart';
@@ -52,11 +53,8 @@ class NoteAdapter implements SyncEntityAdapter {
 
   SyncListItem? _listItem(Map<String, dynamic> item) {
     final id = item['id'];
-    final updatedAt = item['updated_at'];
     if (id is! String || id.isEmpty) return null;
-    final ns = updatedAt is int
-        ? updatedAt
-        : (updatedAt is num ? updatedAt.toInt() : null);
+    final ns = asNs(item['updated_at']);
     if (ns == null) return null;
     return SyncListItem(id: id, updatedAt: ns, envelope: item);
   }

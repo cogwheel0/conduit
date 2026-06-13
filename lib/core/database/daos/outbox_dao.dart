@@ -519,24 +519,11 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
         return const _CoalesceDecision(insert: true);
 
       case OutboxKind.folderDelete:
-        // A pending folderUpsert that is a brand-new local create means the
-        // folder never reached the server ⇒ drop both, emit nothing.
-        final createUpsert = pending.firstWhere(
-          (op) => _isLocalFolderCreate(op),
-          orElse: () => _missingOp,
-        );
-        if (!identical(createUpsert, _missingOp)) {
-          return _CoalesceDecision(
-            insert: false,
-            deletions: [
-              for (final op in pending)
-                if (OutboxKind.fromName(op.kind) == OutboxKind.folderUpsert)
-                  op.seq,
-            ],
-          );
-        }
+        final hasLocalCreate = pending.any(_isLocalFolderCreate);
         return _CoalesceDecision(
-          insert: true,
+          // A brand-new local folderUpsert means the folder never reached the
+          // server ⇒ drop both, emit nothing. Otherwise emit the delete.
+          insert: !hasLocalCreate,
           deletions: [
             for (final op in pending)
               if (OutboxKind.fromName(op.kind) == OutboxKind.folderUpsert)
@@ -608,14 +595,6 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
     }
   }
 
-  static final OutboxOp _missingOp = OutboxOp(
-    seq: -1,
-    kind: '',
-    status: OutboxStatus.pending,
-    attempts: 0,
-    payload: '{}',
-  );
-
   /// A pending folderUpsert that creates a brand-new local folder
   /// (`createIfAbsent` true AND a `local:` folderId): never created remotely,
   /// so a folderDelete should annihilate it locally (A3).
@@ -630,9 +609,9 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
 
   static Map<String, dynamic> _decodePayload(String raw) {
     final decoded = jsonDecode(raw);
-    return decoded is Map<String, dynamic>
-        ? decoded
-        : <String, dynamic>{...?(decoded as Map?)?.cast<String, dynamic>()};
+    if (decoded is Map<String, dynamic>) return decoded;
+    if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    return <String, dynamic>{};
   }
 
   // --- payload validation (A1) ---------------------------------------------

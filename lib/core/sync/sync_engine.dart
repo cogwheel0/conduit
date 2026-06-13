@@ -321,9 +321,6 @@ class SyncEngine extends _$SyncEngine {
     if (db == null || push == null || adapters == null) return null;
     return _drainer = OutboxDrainer(
       db: db,
-      chatLocks: ref.read(chatLocksProvider),
-      folderLocks: ref.read(folderLocksProvider),
-      push: push,
       clock: ref.read(syncClockProvider),
       backoff: ref.read(backoffProvider),
       isOnline: () => ref.read(isOnlineProvider),

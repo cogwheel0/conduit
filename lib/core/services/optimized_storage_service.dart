@@ -736,123 +736,33 @@ class OptimizedStorageService {
     return {'data': data, 'serverId': _normalizeServerId(serverId)};
   }
 
-  Future<void> _maybeMigrateLegacyServerScopedCache({
-    required String key,
-    required Object? stored,
-    required Object? payload,
-    required String? activeServerId,
-  }) async {
-    if (_isServerScopedPayload(stored)) {
-      return;
-    }
-
-    try {
-      await _cachesBox.put(
-        key,
-        _wrapServerScopedForServerId(
-          _normalizeLegacyCachePayload(payload),
-          activeServerId,
-        ),
-      );
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'Failed to migrate legacy server-scoped cache',
-        scope: 'storage/optimized',
-        error: error,
-        stackTrace: stackTrace,
-        data: {'key': key, 'serverId': _normalizeServerId(activeServerId)},
-      );
-    }
-  }
-
-  Object? _normalizeLegacyCachePayload(Object? payload) {
-    if (payload is String) {
-      try {
-        final decoded = jsonDecode(payload);
-        if (decoded is List) {
-          return decoded
-              .whereType<Map>()
-              .map((item) => Map<String, dynamic>.from(item))
-              .toList(growable: false);
-        }
-        if (decoded is Map) {
-          return Map<String, dynamic>.from(decoded);
-        }
-      } catch (_) {
-        return payload;
-      }
-    }
-    if (payload is List) {
-      return payload
-          .whereType<Map>()
-          .map((item) => Map<String, dynamic>.from(item))
-          .toList(growable: false);
-    }
-    if (payload is Map) {
-      return Map<String, dynamic>.from(payload);
-    }
-    return payload;
-  }
-
   Object? _resolveServerScopedPayload(
     Object? stored, {
     required String? activeServerId,
-    bool allowLegacyPayload = false,
   }) {
     if (stored == null) {
       return null;
     }
 
-    final isLegacyPayload = !_isServerScopedPayload(stored);
     final (payload, ownerServerId) = _unwrapServerScoped(stored);
-    final shouldEnforceScope = !isLegacyPayload || !allowLegacyPayload;
-    if (shouldEnforceScope &&
-        !_matchesActiveServer(activeServerId, ownerServerId)) {
+    if (!_matchesActiveServer(activeServerId, ownerServerId)) {
       return null;
     }
     return payload;
   }
 
-  Future<Object?> _getServerScopedPayload({
-    required String key,
-    bool allowLegacyPayload = false,
-    bool migrateLegacy = false,
-  }) async {
+  Future<Object?> _getServerScopedPayload({required String key}) async {
     final stored = _cachesBox.get(key);
     final activeServerId = await getActiveServerId();
-    final payload = _resolveServerScopedPayload(
-      stored,
-      activeServerId: activeServerId,
-      allowLegacyPayload: allowLegacyPayload,
-    );
-    if (payload == null) {
-      return null;
-    }
-
-    if (migrateLegacy) {
-      await _maybeMigrateLegacyServerScopedCache(
-        key: key,
-        stored: stored,
-        payload: payload,
-        activeServerId: activeServerId,
-      );
-    }
-
-    return payload;
+    return _resolveServerScopedPayload(stored, activeServerId: activeServerId);
   }
 
   Future<List<T>> _readServerScopedJsonList<T>({
     required String key,
     required String decodeDebugLabel,
     required T Function(Map<String, dynamic> json) fromJson,
-    bool allowLegacyPayload = false,
-    bool migrateLegacy = false,
   }) async {
-    final payload = await _getServerScopedPayload(
-      key: key,
-      allowLegacyPayload: allowLegacyPayload,
-      migrateLegacy: migrateLegacy,
-    );
+    final payload = await _getServerScopedPayload(key: key);
     if (payload == null) {
       return List<T>.empty(growable: false);
     }

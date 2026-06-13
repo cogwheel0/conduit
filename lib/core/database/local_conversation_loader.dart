@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import '../models/conversation.dart';
+import '../providers/app_providers.dart';
 import '../services/conversation_parsing.dart';
 import '../services/worker_manager.dart';
 import '../sync/sync_engine.dart';
@@ -47,6 +48,27 @@ void schedulePullChatNow(dynamic ref, String id) {
       data: {'id': id},
     );
   }
+}
+
+/// Freshen one chat through the sync engine, falling back to a direct API
+/// fetch when the engine is inert/unavailable (no database, reviewer mode).
+///
+/// Returns the assembled [Conversation], or `null` when the engine yielded
+/// nothing AND no API service is available. Shared by the passive/resume
+/// refresh paths (CDT-RFC-001 Phase 1).
+Future<Conversation?> pullChatOrFetch(dynamic ref, String id) async {
+  Conversation? refreshed;
+  try {
+    refreshed = await ref.read(syncEngineProvider.notifier).pullChatNow(id);
+  } catch (_) {
+    refreshed = null;
+  }
+  if (refreshed == null) {
+    final api = ref.read(apiServiceProvider);
+    if (api == null) return null;
+    refreshed = await api.getConversation(id);
+  }
+  return refreshed;
 }
 
 Future<Conversation?> loadLocalConversation(dynamic ref, String id) async {

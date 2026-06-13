@@ -51,7 +51,6 @@ class _ChangedItem {
     required this.id,
     required this.updatedAt,
     this.lastReadAt,
-    required this.fromArchivedList,
     this.title,
     this.createdAt,
   });
@@ -59,7 +58,6 @@ class _ChangedItem {
   final String id;
   final int updatedAt;
   final int? lastReadAt;
-  final bool fromArchivedList;
   final String? title;
   final int? createdAt;
 }
@@ -110,7 +108,7 @@ class PullSync {
       while (!stop) {
         final items = await _client.getChatListPage(page);
         for (final item in items) {
-          final parsed = _parseListItem(item, fromArchivedList: false);
+          final parsed = _parseListItem(item);
           if (parsed == null) continue;
           if (parsed.updatedAt > threshold) {
             changed.putIfAbsent(parsed.id, () => parsed);
@@ -144,7 +142,7 @@ class PullSync {
       while (!stop) {
         final items = await _client.getArchivedChatListPage(page);
         for (final item in items) {
-          final parsed = _parseListItem(item, fromArchivedList: true);
+          final parsed = _parseListItem(item);
           if (parsed == null) continue;
           if (parsed.updatedAt > threshold) {
             if (!changed.containsKey(parsed.id)) {
@@ -299,7 +297,7 @@ class PullSync {
     final items = await _client.getChatListPage(page);
     return [
       for (final item in items)
-        if (_parseListItem(item, fromArchivedList: false) case final p?)
+        if (_parseListItem(item) case final p?)
           SyncListItem(id: p.id, updatedAt: p.updatedAt, envelope: item),
     ];
   }
@@ -336,7 +334,7 @@ class PullSync {
     if (resp == null) return null;
     final id = resp['id'] is String ? resp['id'] as String : chatId;
     return _locks.runExclusive(id, () async {
-      await _upsertServerChatUnlocked(resp, listLastReadAt: null);
+      await _upsertServerChatUnlockedReturningPush(resp, listLastReadAt: null);
       final chat = await _db.chatsDao.getChat(id);
       if (chat == null) return null;
       final messages = await _db.messagesDao.getForChat(id);
@@ -354,24 +352,17 @@ class PullSync {
       throw const FormatException('ChatResponse without a string id');
     }
     return _locks.runExclusive(id, () {
-      return _upsertServerChatUnlocked(resp, listLastReadAt: listLastReadAt);
+      return _upsertServerChatUnlockedReturningPush(
+        resp,
+        listLastReadAt: listLastReadAt,
+      );
     });
   }
 
-  /// Caller must hold the chat lock. ONE drift transaction per chat inside
-  /// the DAO (REQ 1), so the list stream emits once per chat merge.
-  Future<void> _upsertServerChatUnlocked(
-    Map<String, dynamic> resp, {
-    required int? listLastReadAt,
-  }) {
-    return _upsertServerChatUnlockedReturningPush(
-      resp,
-      listLastReadAt: listLastReadAt,
-    );
-  }
-
-  /// As [_upsertServerChatUnlocked] but returns whether the merge owed a push
-  /// (REQ 4) — used by the [ChatAdapter] seam's `mergeServer`.
+  /// Caller must hold the chat lock. ONE drift transaction per chat inside the
+  /// DAO (REQ 1), so the list stream emits once per chat merge. Returns whether
+  /// the merge owed a push (REQ 4) — used by the [ChatAdapter] seam's
+  /// `mergeServer`; the pull paths ignore the result.
   Future<bool> _upsertServerChatUnlockedReturningPush(
     Map<String, dynamic> resp, {
     required int? listLastReadAt,
@@ -496,10 +487,7 @@ class PullSync {
     return true;
   }
 
-  _ChangedItem? _parseListItem(
-    Map<String, dynamic> item, {
-    required bool fromArchivedList,
-  }) {
+  _ChangedItem? _parseListItem(Map<String, dynamic> item) {
     final id = item['id'];
     final updatedAt = _asEpochSeconds(item['updated_at']);
     if (id is! String || id.isEmpty || updatedAt == null) {
@@ -514,7 +502,6 @@ class PullSync {
       id: id,
       updatedAt: updatedAt,
       lastReadAt: _asEpochSeconds(item['last_read_at']),
-      fromArchivedList: fromArchivedList,
       title: item['title'] is String ? item['title'] as String : null,
       createdAt: _asEpochSeconds(item['created_at']),
     );
