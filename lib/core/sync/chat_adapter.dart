@@ -78,10 +78,18 @@ class ChatAdapter implements SyncEntityAdapter {
         await _push.pushFolderDelete(
           decodeOutboxPayload(op.payload)['folderId'] as String,
         );
-      // requestCompletion is chat-only but has NO push handler here — the
-      // drainer runs it via its RequestCompletionRunner seam, not pushOp. Note
-      // kinds are not owned. null is an unknown/legacy kind.
+      // requestCompletion is chat-only and IS in [ownsKind], but it has no push
+      // handler here — the drainer dispatches it via its RequestCompletionRunner
+      // seam BEFORE the adapter loop, so pushOp must never be reached for it.
+      // Throw (rather than a silent no-op) so a future reorder that lets it fall
+      // through surfaces loudly instead of silently consuming the op as "done"
+      // (which would drop the completion with no log).
       case OutboxKind.requestCompletion:
+        throw StateError(
+          'ChatAdapter.pushOp reached requestCompletion — the drainer must '
+          'dispatch it via RequestCompletionRunner before the adapter loop.',
+        );
+      // Note kinds are not owned by ChatAdapter; null is an unknown/legacy kind.
       case OutboxKind.noteCreate:
       case OutboxKind.noteUpdate:
       case OutboxKind.noteDelete:

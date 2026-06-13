@@ -110,6 +110,21 @@ ChatMergeResult mergeChat({
     'a merge base must never lead the server clock (REQ 5).',
   );
 
+  // Defensive release-mode fallback for serverUpdatedAt < base (should be
+  // impossible; the assert above surfaces it in tests). Mirrors
+  // resolveNoteMerge's `<= base` handling: leave local rows UNTOUCHED rather
+  // than fast-forwarding with a stale server snapshot, which would also regress
+  // the merge base below its previous value.
+  if (serverUpdatedAt < base) {
+    return ChatMergeResult(
+      merged: local,
+      mustPush: dirty,
+      outcome: MergeOutcome.noRemoteChange,
+      newServerUpdatedAt: base,
+      dirtyMessageIds: dirtyMessageIds,
+    );
+  }
+
   // Case 2 — fast-forward: remote changed, nothing local is dirty. Replace
   // local rows wholesale with the server blob.
   if (!dirty) {
