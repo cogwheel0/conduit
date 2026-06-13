@@ -396,7 +396,9 @@ String? _deepestLeaf(List<MessageRowData> messages) {
   start ??= messages.first;
 
   var current = start;
+  final seen = <String>{};
   while (true) {
+    if (!seen.add(current.id)) return current.id;
     final children = ChatBlobMapper.deriveChildrenIds(current.id, messages);
     if (children.isEmpty) return current.id;
     final next = byId[children.last];

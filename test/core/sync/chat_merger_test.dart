@@ -492,6 +492,38 @@ void main() {
       check(idsOf(result.merged)).unorderedEquals(['m1', 'mDirty']);
       check(result.merged.chat.currentMessageId).equals('m1');
     });
+
+    test('currentId deepest-leaf fallback is cycle guarded', () {
+      final server = rowsFor(
+        chatId: 'c',
+        messages: {
+          'a': {'parentId': 'b'},
+          'b': {'parentId': 'a'},
+        },
+        currentId: 'missing-server-current',
+        updatedAt: 300,
+      );
+      final local = rowsFor(
+        chatId: 'c',
+        messages: {
+          'a': {'parentId': 'b', 'content': 'dirty local'},
+          'b': {'parentId': 'a'},
+        },
+        currentId: 'missing-local-current',
+        updatedAt: 250,
+      );
+
+      final result = mergeChat(
+        server: server,
+        local: local,
+        base: 200,
+        chatEnvelopeDirty: false,
+        dirtyMessageIds: const {'a'},
+      );
+
+      check(idsOf(result.merged)).unorderedEquals(['a', 'b']);
+      check(result.merged.chat.currentMessageId).equals('a');
+    });
   });
 
   group('metadata LWW (§7.4 d)', () {
