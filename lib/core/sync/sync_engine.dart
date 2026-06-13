@@ -13,6 +13,7 @@ import '../utils/debug_logger.dart';
 import 'backoff.dart';
 import 'chat_locks.dart';
 import 'clock.dart';
+import 'deletion_reconcile.dart';
 import 'id_remapper.dart';
 import 'outbox_drainer.dart';
 import 'outbox_task_queue_migrator.dart';
@@ -254,6 +255,37 @@ class SyncEngine extends _$SyncEngine {
     );
   }
 
+  /// Engine-internal: the §7.5 deletion reconcile, sharing the engine's
+  /// db/client/chatLocks/clock. Its own 24h throttle gates the [background]
+  /// reason; [reconcileNow] drives [ReconcileReason.manualRefresh].
+  DeletionReconcile? _buildReconcile() {
+    final db = ref.read(appDatabaseProvider);
+    final client = ref.read(syncApiClientProvider);
+    if (db == null || client == null) return null;
+    return DeletionReconcile(
+      client: client,
+      db: db,
+      locks: ref.read(chatLocksProvider),
+      clock: ref.read(syncClockProvider),
+    );
+  }
+
+  /// Manual pull-to-refresh deletion reconcile (bypasses the 24h throttle).
+  /// Safe to call ad hoc; no-op until db/client are ready.
+  Future<void> reconcileNow() async {
+    if (_inert) return;
+    try {
+      await _buildReconcile()?.run(ReconcileReason.manualRefresh);
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'reconcile-manual-failed',
+        scope: 'sync/engine',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
   Future<void> _startCycle() async {
     final joined = _joinable;
     _joinable = null;
@@ -321,6 +353,18 @@ class SyncEngine extends _$SyncEngine {
     final previousWatermark = await db.syncMetaDao.getPullWatermark();
     final result = await pull.run();
 
+    // A watermark-0 pull is itself a COMPLETE enumeration of the server set,
+    // and a watermark-0 DB starts empty (fresh install / post-§9.3 cold pull),
+    // so there are no pre-existing local chats for the deletion reconcile to
+    // purge right after it. Record it as the last full reconcile so the
+    // background reconcile waits a full interval instead of redundantly
+    // re-enumerating every page on the very first cycle (§7.5).
+    if (result.success && previousWatermark == 0) {
+      await db.syncMetaDao.setLastFullReconcileAt(
+        ref.read(syncClockProvider).nowEpochSeconds(),
+      );
+    }
+
     // §9 step 2 / §11: convert the legacy Hive task queue into rows+ops EXACTLY
     // ONCE per process, BEFORE the first drain, so converted ops are visible to
     // it (the migrator is also internally idempotent + per-server flag-gated).
@@ -343,6 +387,20 @@ class SyncEngine extends _$SyncEngine {
     // Drain the outbox AFTER pull (W: pull-then-push ordering). Errors are
     // caught + logged by the enclosing `_startCycle` try.
     await _ensureDrainer()?.drain();
+
+    // §7.5 deletion reconcile (background reason; its own 24h throttle gates
+    // how often it actually enumerates). A failure here must not abort the
+    // cycle — it self-throttles and retries on a later cycle.
+    try {
+      await _buildReconcile()?.run(ReconcileReason.background);
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'reconcile-background-failed',
+        scope: 'sync/engine',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
 
     final foldersEnabled = result.foldersFeatureEnabled;
     if (foldersEnabled != null && ref.mounted) {

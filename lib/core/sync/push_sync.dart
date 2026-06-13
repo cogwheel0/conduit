@@ -1,6 +1,7 @@
 import 'package:drift/drift.dart';
 
 import '../database/app_database.dart';
+import '../database/daos/outbox_dao.dart';
 import '../database/mappers/chat_blob_mapper.dart';
 import '../database/mappers/conversation_assembler.dart';
 import '../utils/debug_logger.dart';
@@ -182,8 +183,34 @@ class PushSync {
 
       // folder-move delta: update_chat IGNORES folder_id, so a changed folder
       // must go through the dedicated /folder endpoint.
+      //
+      // FOLDER-BEFORE-CHAT ORDERING (§7.6, non-negotiable 6): never send a
+      // `local:`-prefixed folder id — the folder's createChat hasn't been
+      // drained+remapped yet, so the server would 400/404 the move (or store
+      // the bogus local id verbatim). Skip the move this attempt and leave the
+      // chat dirty (do NOT clear dirty) so a later drain — after IdRemapper
+      // rewrites chats.folderId to the real server id — re-runs this op and
+      // sends the move. This makes ordering self-healing without a cross-entity
+      // dependency graph.
       final serverFolderId =
           resp['folder_id'] is String ? resp['folder_id'] as String : null;
+      final localFolderPending =
+          chat.folderId != null && chat.folderId!.startsWith('local:');
+      if (localFolderPending) {
+        DebugLogger.log(
+          'update-defer-local-folder',
+          scope: 'sync/push',
+          data: {'chatId': chatId, 'folderId': chat.folderId},
+        );
+        // Leave the chat dirty; a later drain (post folder remap) completes it.
+        // Still advance serverUpdatedAt for the blob/toggles already pushed so
+        // the conflict gate sees the server ack; dirty stays true.
+        await _storeServerUpdatedAtKeepDirty(
+          chatId: chatId,
+          serverUpdatedAt: serverUpdatedAt,
+        );
+        return;
+      }
       if (chat.folderId != serverFolderId) {
         await _client.moveChatToFolder(chatId, chat.folderId);
       }
@@ -302,6 +329,32 @@ class PushSync {
       await (_db.update(_db.messages)
             ..where((t) => t.chatId.equals(chatId) & t.id.isIn(messageIds)))
           .write(const MessagesCompanion(dirty: Value(false)));
+    });
+  }
+
+  /// Folder-before-chat deferral (§7.6): the chat still references a `local:`
+  /// folder whose create has not been remapped, so the folder-move half of
+  /// this update cannot run yet. Advance `server_updated_at` for the blob +
+  /// toggles already pushed, KEEP `dirty=true`, and re-enqueue a fresh
+  /// `updateChat` op (coalesces against any later edit) so a subsequent drain —
+  /// after `IdRemapper.remapFolder` rewrites `chats.folderId` to the server id
+  /// — re-runs and issues the move. One transaction (REQ §10). Caller holds the
+  /// chat lock.
+  Future<void> _storeServerUpdatedAtKeepDirty({
+    required String chatId,
+    required int serverUpdatedAt,
+  }) {
+    return _db.transaction(() async {
+      await _db.customUpdate(
+        'UPDATE chats SET server_updated_at = ? WHERE id = ?',
+        variables: [
+          Variable.withInt(serverUpdatedAt),
+          Variable.withString(chatId),
+        ],
+        updates: {_db.chats},
+        updateKind: UpdateKind.update,
+      );
+      await _db.outboxDao.enqueue(kind: OutboxKind.updateChat, chatId: chatId);
     });
   }
 

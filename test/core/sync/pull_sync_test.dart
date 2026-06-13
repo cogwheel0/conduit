@@ -4,6 +4,7 @@ import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit/core/sync/chat_locks.dart';
 import 'package:conduit/core/sync/id_remapper.dart';
 import 'package:conduit/core/sync/pull_sync.dart';
+import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -485,6 +486,168 @@ void main() {
       await pull.pullChat('chat-1');
 
       check((await db.chatsDao.getChat('chat-1'))!.lastReadAt).equals(140);
+    });
+  });
+
+  group('three-way merge on pull (§7.4)', () {
+    // Helper: first pull lands chat-1 clean (serverUpdatedAt set), returning
+    // the assembled server id ('chat-1' since we seed it).
+    Future<void> seedAndPull(String id, {int messageCount = 2}) async {
+      server.seedChat(
+        id: id,
+        blob: blobFor(id, messageCount: messageCount),
+        createdAt: 100,
+        updatedAt: 100,
+      );
+      final result = await pull.run();
+      check(result.success).isTrue();
+    }
+
+    test('fast-forward when local is NOT dirty: server rows replace local',
+        () async {
+      await seedAndPull('chat-1');
+      // Server adds a message and bumps updated_at.
+      server.seedChat(
+        id: 'chat-1',
+        blob: blobFor('chat-1', messageCount: 3),
+        createdAt: 100,
+        updatedAt: 200,
+      );
+
+      final second = await pull.run();
+      check(second.success).isTrue();
+
+      final row = (await db.chatsDao.getChat('chat-1'))!;
+      check(row.dirty).isFalse();
+      check(row.serverUpdatedAt).equals(200);
+      check((await db.messagesDao.getForChat('chat-1')).length).equals(3);
+      // Fast-forward never enqueues a push.
+      check(await db.outboxDao.pendingForChat('chat-1')).isEmpty();
+    });
+
+    test(
+        'three-way keeps a locally-dirty new message and enqueues an '
+        'updateChat push', () async {
+      await seedAndPull('chat-1');
+
+      // Local edit: append a dirty assistant message + enqueue updateChat.
+      await locks.runExclusive('chat-1', () async {
+        await db.chatsDao.appendMessagesWithUpdateOp(
+          chatId: 'chat-1',
+          messages: [
+            MessageRowData(
+              id: 'chat-1-local',
+              chatId: 'chat-1',
+              parentId: 'chat-1-m2',
+              role: 'user',
+              content: 'local follow-up',
+              createdAt: 1500,
+              orderIndex: 99,
+              payload: {
+                'id': 'chat-1-local',
+                'parentId': 'chat-1-m2',
+                'childrenIds': <String>[],
+                'role': 'user',
+                'content': 'local follow-up',
+                'timestamp': 1500,
+              },
+            ),
+          ],
+          currentMessageId: 'chat-1-local',
+          updatedAt: 150,
+          enqueueCompletion: false,
+        );
+      });
+      check((await db.chatsDao.getChat('chat-1'))!.dirty).isTrue();
+
+      // Server independently advances (adds its own m3) past the merge base.
+      server.seedChat(
+        id: 'chat-1',
+        blob: blobFor('chat-1', messageCount: 3),
+        createdAt: 100,
+        updatedAt: 200,
+      );
+
+      final second = await pull.run();
+      check(second.success).isTrue();
+
+      final row = (await db.chatsDao.getChat('chat-1'))!;
+      // Three-way: row stays dirty, serverUpdatedAt UNCHANGED at base (100).
+      check(row.dirty).isTrue();
+      check(row.serverUpdatedAt).equals(100);
+
+      final ids = (await db.messagesDao.getForChat('chat-1'))
+          .map((m) => m.id)
+          .toList();
+      // Server's m3 inserted AND the dirty local message kept.
+      check(ids).contains('chat-1-local');
+      check(ids).contains('chat-1-m3');
+
+      // The local message row stays dirty; server-origin rows are clean.
+      final localMsg = (await db.messagesDao.getForChat('chat-1'))
+          .firstWhere((m) => m.id == 'chat-1-local');
+      check(localMsg.dirty).isTrue();
+
+      // REQ 4: the divergent merge enqueued exactly one updateChat push.
+      final pending = await db.outboxDao.pendingForChat('chat-1');
+      check(pending.length).equals(1);
+      check(pending.single.kind).equals('updateChat');
+    });
+
+    test('a dirty tombstone is NOT resurrected by a fast-forward', () async {
+      await seedAndPull('chat-1');
+
+      // Local delete → dirty tombstone + pending deleteChat.
+      await locks.runExclusive('chat-1', () async {
+        await db.chatsDao.tombstoneWithOutbox('chat-1');
+      });
+
+      // Server edits the chat (it still exists server-side).
+      server.seedChat(
+        id: 'chat-1',
+        blob: blobFor('chat-1', messageCount: 4),
+        createdAt: 100,
+        updatedAt: 300,
+      );
+
+      final second = await pull.run();
+      check(second.success).isTrue();
+
+      final row = (await db.chatsDao.getChat('chat-1'))!;
+      // Still tombstoned; merge skipped entirely so deleted stays true.
+      check(row.deleted).isTrue();
+      check(row.dirty).isTrue();
+      // The pending deleteChat survives — it will purge on confirm.
+      final pending = await db.outboxDao.pendingForChat('chat-1');
+      check(pending.single.kind).equals('deleteChat');
+    });
+
+    test('5s-overlap re-merge of a dirty chat is a no-op (idempotent)',
+        () async {
+      await seedAndPull('chat-1');
+      // Make the chat dirty without changing serverUpdatedAt's relationship.
+      await locks.runExclusive('chat-1', () async {
+        await db.chatsDao.updateEnvelopeWithOutbox(
+          'chat-1',
+          title: const Value('Locally Renamed'),
+          updatedAt: const Value(150),
+          enqueue: true,
+        );
+      });
+      // Server's updated_at stays at 100 (== base): a re-pull within the
+      // overlap window hits the no-remote-change branch.
+      final before = (await db.chatsDao.getChat('chat-1'))!;
+      final msgsBefore = await db.messagesDao.getForChat('chat-1');
+
+      final second = await pull.run();
+      check(second.success).isTrue();
+
+      final after = (await db.chatsDao.getChat('chat-1'))!;
+      // Row untouched: title, dirty, serverUpdatedAt all preserved.
+      check(after.title).equals('Locally Renamed');
+      check(after.dirty).isTrue();
+      check(after.serverUpdatedAt).equals(before.serverUpdatedAt);
+      check(await db.messagesDao.getForChat('chat-1')).deepEquals(msgsBefore);
     });
   });
 

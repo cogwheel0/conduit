@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import '../database/app_database.dart';
+import '../database/daos/outbox_dao.dart';
 import '../database/mappers/chat_blob_mapper.dart';
 import '../database/mappers/conversation_assembler.dart';
 import '../models/conversation.dart';
@@ -348,14 +349,39 @@ class PullSync {
       return;
     }
 
-    await _db.chatsDao.upsertServerChat(
-      rows: rows,
+    // §7.4 three-way merge runs inside ONE drift transaction in the DAO
+    // (REQ §10.1); the dirty read + decision + write are atomic under the chat
+    // lock we already hold.
+    final write = await _db.chatsDao.mergeServerChat(
+      server: rows,
       shareId: resp['share_id'] is String ? resp['share_id'] as String : null,
       meta: meta is Map<String, dynamic>
           ? meta
           : (meta is Map ? Map<String, dynamic>.from(meta) : const {}),
       listLastReadAt: listLastReadAt,
     );
+
+    // REQ 4: a merge that retained local-dirty content diverges from the
+    // server, so it must be pushed. Enqueue an updateChat op if none is
+    // already pending (the drainer coalesces, so a redundant enqueue is
+    // harmless; the same pull cycle's drain then pushes the merged blob).
+    if (write.mustPush) {
+      await _enqueueUpdateIfMissing(id);
+    }
+  }
+
+  /// Enqueues an `updateChat` op for [chatId] unless one (or a createChat that
+  /// would carry the merged state) is already pending. Runs under the chat
+  /// lock the caller holds; the enqueue is the only write so a standalone
+  /// transaction is unnecessary (coalescing reads inside [OutboxDao.enqueue]).
+  Future<void> _enqueueUpdateIfMissing(String chatId) async {
+    final pending = await _db.outboxDao.pendingForChat(chatId);
+    final hasUpdateOrCreate = pending.any((op) {
+      final kind = OutboxKind.fromName(op.kind);
+      return kind == OutboxKind.updateChat || kind == OutboxKind.createChat;
+    });
+    if (hasUpdateOrCreate) return;
+    await _db.outboxDao.enqueue(kind: OutboxKind.updateChat, chatId: chatId);
   }
 
   /// Attempts the §7.3 content-hash crash-heal. Returns true when it ran the

@@ -2,8 +2,10 @@ import 'dart:convert';
 
 import 'package:drift/drift.dart';
 
+import '../../sync/chat_merger.dart';
 import '../app_database.dart';
 import '../mappers/chat_blob_mapper.dart';
+import '../mappers/conversation_assembler.dart';
 import '../tables/chats.dart';
 import '../tables/messages.dart';
 import 'outbox_dao.dart';
@@ -82,6 +84,18 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     return (select(chats)..where((t) => t.id.equals(chatId))).getSingleOrNull();
   }
 
+  /// NARROW id-only projection (REQ §10.2) of every non-tombstoned chat that
+  /// carries a SERVER id (`id NOT LIKE 'local:%'`). Used by the §7.5 full-ID
+  /// deletion reconcile to diff local server-keyed chats against the complete
+  /// server id set. `local:` rows (never reached the server) are excluded.
+  Future<List<String>> allServerChatIds() async {
+    final query = selectOnly(chats)
+      ..addColumns([chats.id])
+      ..where(chats.deleted.equals(false) & chats.id.like('local:%').not());
+    final rows = await query.get();
+    return rows.map((row) => row.read(chats.id)!).toList(growable: false);
+  }
+
   /// Transactional server write (fast-forward replace, RFC §7.4 line 2 — no
   /// dirty rows exist in Phase 1). Caller MUST hold ChatLocks for
   /// `rows.chat.id`; the DAO does NOT lock. Entire body runs inside ONE
@@ -141,6 +155,247 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
             ),
         ]);
       });
+    });
+  }
+
+  /// Three-way pull merge (CDT-RFC-001 §7.4) in ONE transaction (REQ §10.1).
+  /// Caller MUST hold ChatLocks for `server.chat.id`.
+  ///
+  /// Reads the existing chat + message rows (and their dirty flags) and:
+  ///  * no existing row → plain server insert (first sync; == fast-forward);
+  ///  * existing dirty tombstone (deleted && dirty) → SKIP entirely (the
+  ///    pending `deleteChat` wins; the drainer purges on confirm) so the
+  ///    fast-forward never resurrects a locally-deleted chat;
+  ///  * otherwise → pure [mergeChat] then write per [MergeOutcome]:
+  ///    - noRemoteChange: rows untouched (only `mustPush` is reported);
+  ///    - fastForward: delete+reinsert messages `dirty=false`,
+  ///      `serverUpdatedAt = S.updatedAt`, `dirty=false` (today's body);
+  ///    - threeWay: upsert the merged envelope `dirty=true`,
+  ///      `serverUpdatedAt = base` (UNCHANGED), delete+reinsert merged messages
+  ///      with `dirty` set per the merged dirty-id set.
+  ///
+  /// Returns the [MergeOutcome] and `mustPush` so `PullSync` can enqueue an
+  /// `updateChat` op when the merged result diverges from the server (REQ 4).
+  /// This method NEVER enqueues — the pull path owns op scheduling.
+  Future<ChatMergeWriteResult> mergeServerChat({
+    required ChatRows server,
+    String? shareId,
+    Map<String, dynamic> meta = const {},
+    int? listLastReadAt,
+  }) {
+    final serverChat = server.chat;
+    return transaction(() async {
+      final existing = await getChat(serverChat.id);
+
+      // First sync for this id, OR a never-synced envelope stub
+      // (serverUpdatedAt == null): plain server write == fast-forward. A stub
+      // has no merge base and no dirty body to protect, so the full server blob
+      // overwrites it wholesale — entering the three-way path would coerce the
+      // null base to S.updatedAt and resolve to noRemoteChange, silently
+      // dropping the server body and leaving the row bodySynced=false with zero
+      // message rows. (The dirty-tombstone skip below still wins first; a stub
+      // is never dirty so this ordering is safe either way.)
+      if (existing == null || existing.serverUpdatedAt == null) {
+        // A dirty tombstone with a null serverUpdatedAt should still be
+        // protected (never resurrect a locally-deleted chat).
+        if (existing != null && existing.deleted && existing.dirty) {
+          return const ChatMergeWriteResult(
+            outcome: MergeOutcome.noRemoteChange,
+            mustPush: false,
+          );
+        }
+        await _writeServerRows(
+          rows: server,
+          shareId: shareId,
+          meta: meta,
+          listLastReadAt: listLastReadAt,
+          existingLastReadAt: existing?.lastReadAt,
+          serverUpdatedAt: serverChat.updatedAt,
+        );
+        return const ChatMergeWriteResult(
+          outcome: MergeOutcome.fastForward,
+          mustPush: false,
+        );
+      }
+
+      // Dirty tombstone: the pending deleteChat wins. Do not touch rows; the
+      // drainer purges on server confirm (§7.5). Never clear `deleted` here.
+      if (existing.deleted && existing.dirty) {
+        return const ChatMergeWriteResult(
+          outcome: MergeOutcome.noRemoteChange,
+          mustPush: false,
+        );
+      }
+
+      final base = existing.serverUpdatedAt!;
+
+      final localMessages = await (select(messages)
+            ..where((t) => t.chatId.equals(serverChat.id)))
+          .get();
+      final local = chatRowsFromDb(existing, localMessages);
+      final dirtyMessageIds = <String>{
+        for (final m in localMessages)
+          if (m.dirty) m.id,
+      };
+
+      final result = mergeChat(
+        server: server,
+        local: local,
+        base: base,
+        chatEnvelopeDirty: existing.dirty,
+        dirtyMessageIds: dirtyMessageIds,
+      );
+
+      switch (result.outcome) {
+        case MergeOutcome.noRemoteChange:
+          // Rows untouched; only re-assert push (caller enqueues if needed).
+          return ChatMergeWriteResult(
+            outcome: result.outcome,
+            mustPush: result.mustPush,
+          );
+        case MergeOutcome.fastForward:
+          await _writeServerRows(
+            rows: result.merged,
+            shareId: shareId,
+            meta: meta,
+            listLastReadAt: listLastReadAt,
+            existingLastReadAt: existing.lastReadAt,
+            serverUpdatedAt: result.newServerUpdatedAt,
+          );
+          return ChatMergeWriteResult(
+            outcome: result.outcome,
+            mustPush: result.mustPush,
+          );
+        case MergeOutcome.threeWay:
+          await _writeMergedRows(
+            rows: result.merged,
+            shareId: shareId,
+            meta: meta,
+            listLastReadAt: listLastReadAt,
+            existingLastReadAt: existing.lastReadAt,
+            serverUpdatedAt: result.newServerUpdatedAt,
+            dirtyMessageIds: result.dirtyMessageIds,
+          );
+          return ChatMergeWriteResult(
+            outcome: result.outcome,
+            mustPush: result.mustPush,
+          );
+      }
+    });
+  }
+
+  /// Fast-forward / first-sync writer: chat row + messages all `dirty=false`,
+  /// `deleted=false`, `bodySynced=true`. Mirrors [upsertServerChat]'s body.
+  Future<void> _writeServerRows({
+    required ChatRows rows,
+    required String? shareId,
+    required Map<String, dynamic> meta,
+    required int? listLastReadAt,
+    required int? existingLastReadAt,
+    required int serverUpdatedAt,
+  }) async {
+    final chat = rows.chat;
+    final mergedLastReadAt = _maxLastReadAt(existingLastReadAt, listLastReadAt);
+
+    await into(chats).insertOnConflictUpdate(
+      ChatsCompanion.insert(
+        id: chat.id,
+        title: chat.title,
+        folderId: Value(chat.folderId),
+        pinned: Value(chat.pinned),
+        archived: Value(chat.archived),
+        currentMessageId: Value(chat.currentMessageId),
+        createdAt: chat.createdAt,
+        updatedAt: chat.updatedAt,
+        serverUpdatedAt: Value(serverUpdatedAt),
+        dirty: const Value(false),
+        deleted: const Value(false),
+        bodySynced: const Value(true),
+        rawExtra: Value(jsonEncode(chat.rawExtra)),
+        blobMeta: Value(jsonEncode(blobMetaJson(rows))),
+        shareId: Value(shareId),
+        meta: Value(jsonEncode(meta)),
+        lastReadAt: Value(mergedLastReadAt),
+      ),
+    );
+
+    await (delete(messages)..where((t) => t.chatId.equals(chat.id))).go();
+
+    await batch((b) {
+      b.insertAll(messages, [
+        for (final message in rows.messages)
+          MessagesCompanion.insert(
+            id: message.id,
+            chatId: message.chatId,
+            parentId: Value(message.parentId),
+            role: message.role,
+            content: message.content,
+            model: Value(message.model),
+            createdAt: message.createdAt,
+            orderIndex: message.orderIndex,
+            payload: jsonEncode(message.payload),
+            dirty: const Value(false),
+          ),
+      ]);
+    });
+  }
+
+  /// Three-way writer: merged envelope stays `dirty=true`, `serverUpdatedAt`
+  /// stays at `base` (UNCHANGED — the push advances it), and message rows are
+  /// reinserted with `dirty` set for ids in [dirtyMessageIds] (survived from
+  /// the dirty-local side), `dirty=false` for the rest.
+  Future<void> _writeMergedRows({
+    required ChatRows rows,
+    required String? shareId,
+    required Map<String, dynamic> meta,
+    required int? listLastReadAt,
+    required int? existingLastReadAt,
+    required int serverUpdatedAt,
+    required Set<String> dirtyMessageIds,
+  }) async {
+    final chat = rows.chat;
+    final mergedLastReadAt = _maxLastReadAt(existingLastReadAt, listLastReadAt);
+
+    await into(chats).insertOnConflictUpdate(
+      ChatsCompanion.insert(
+        id: chat.id,
+        title: chat.title,
+        folderId: Value(chat.folderId),
+        pinned: Value(chat.pinned),
+        archived: Value(chat.archived),
+        currentMessageId: Value(chat.currentMessageId),
+        createdAt: chat.createdAt,
+        updatedAt: chat.updatedAt,
+        serverUpdatedAt: Value(serverUpdatedAt),
+        dirty: const Value(true),
+        deleted: const Value(false),
+        bodySynced: const Value(true),
+        rawExtra: Value(jsonEncode(chat.rawExtra)),
+        blobMeta: Value(jsonEncode(blobMetaJson(rows))),
+        shareId: Value(shareId),
+        meta: Value(jsonEncode(meta)),
+        lastReadAt: Value(mergedLastReadAt),
+      ),
+    );
+
+    await (delete(messages)..where((t) => t.chatId.equals(chat.id))).go();
+
+    await batch((b) {
+      b.insertAll(messages, [
+        for (final message in rows.messages)
+          MessagesCompanion.insert(
+            id: message.id,
+            chatId: message.chatId,
+            parentId: Value(message.parentId),
+            role: message.role,
+            content: message.content,
+            model: Value(message.model),
+            createdAt: message.createdAt,
+            orderIndex: message.orderIndex,
+            payload: jsonEncode(message.payload),
+            dirty: Value(dirtyMessageIds.contains(message.id)),
+          ),
+      ]);
     });
   }
 
@@ -285,6 +540,20 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
             ..where((t) => t.chatId.equals(localId)))
           .go();
       await (delete(chats)..where((t) => t.id.equals(localId))).go();
+    });
+  }
+
+  /// §7.5 reconcile purge of a CONFIRMED server-side delete: hard-deletes the
+  /// chat row (FK cascades messages) AND drops every pending outbox op for it
+  /// (mirrors [dropLocalChat]'s op cleanup) in one transaction. Caller holds
+  /// the chat lock. Unlike [dropLocalChat] this is for a SERVER-keyed chat the
+  /// reconcile proved gone (404/401), so any pending op for it is moot.
+  Future<void> purgeReconciledChat(String chatId) {
+    return transaction(() async {
+      await (delete(_outboxDao.outboxOps)
+            ..where((t) => t.chatId.equals(chatId)))
+          .go();
+      await (delete(chats)..where((t) => t.id.equals(chatId))).go();
     });
   }
 

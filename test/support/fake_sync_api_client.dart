@@ -28,6 +28,30 @@ class FakeSyncApiClient implements SyncApiClient {
   /// between the list fetch and the body fetch — a 404 in production).
   final Set<String> nullChatIds = <String>{};
 
+  /// §7.5 reconcile probe: ids whose [probeChatExists] reports "gone" via the
+  /// vendored normal-user 401 NOT_FOUND (rather than a 404). The reconcile
+  /// treats both 404 and 401 as gone.
+  final Set<String> probe401GoneIds = <String>{};
+
+  /// §7.5 reconcile probe: ids whose [probeChatExists] throws a transient
+  /// (network/5xx) error, so the reconcile must SKIP (not purge) them.
+  final Set<String> probeThrowIds = <String>{};
+
+  int probeChatExistsCalls = 0;
+
+  /// §7.5 reconcile: ids hidden from BOTH list enumerations (main + archived)
+  /// to model a pagination gap/race — the chat is still on the server (probe
+  /// finds it) but missing from the page set, so the reconcile must NOT purge.
+  final Set<String> hideFromListIds = <String>{};
+
+  List<Map<String, dynamic>> _hide(List<Map<String, dynamic>> items) {
+    if (hideFromListIds.isEmpty) return items;
+    return [
+      for (final item in items)
+        if (!hideFromListIds.contains(item['id'])) item,
+    ];
+  }
+
   /// When set, [getFoldersRaw] throws.
   bool failFolders = false;
 
@@ -57,10 +81,12 @@ class FakeSyncApiClient implements SyncApiClient {
     if (failChatListPages.contains(page)) {
       throw StateError('injected main list failure (page $page)');
     }
-    return server.getChatList(
-      page: page,
-      includePinned: true,
-      includeFolders: true,
+    return _hide(
+      server.getChatList(
+        page: page,
+        includePinned: true,
+        includeFolders: true,
+      ),
     );
   }
 
@@ -70,7 +96,7 @@ class FakeSyncApiClient implements SyncApiClient {
     if (failArchivedListPages.contains(page)) {
       throw StateError('injected archived list failure (page $page)');
     }
-    return server.getArchivedChatList(page: page);
+    return _hide(server.getArchivedChatList(page: page));
   }
 
   @override
@@ -102,6 +128,22 @@ class FakeSyncApiClient implements SyncApiClient {
     } finally {
       _activeChatFetches--;
     }
+  }
+
+  @override
+  Future<bool> probeChatExists(String id) async {
+    probeChatExistsCalls++;
+    await Future<void>.delayed(Duration.zero);
+    if (probeThrowIds.contains(id)) {
+      throw StateError('injected probe transient failure ($id)');
+    }
+    if (probe401GoneIds.contains(id)) {
+      // Vendored normal-user not-ours 401 NOT_FOUND -> gone.
+      return false;
+    }
+    // null (404) -> gone; a present record -> still exists.
+    if (nullChatIds.contains(id)) return false;
+    return server.getChatById(id) != null;
   }
 
   @override

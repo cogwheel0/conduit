@@ -107,6 +107,9 @@ class RecordingSyncApiClient implements SyncApiClient {
   Future<Map<String, dynamic>?> getChatRaw(String id) async =>
       throw UnimplementedError();
   @override
+  Future<bool> probeChatExists(String id) async =>
+      throw UnimplementedError();
+  @override
   Future<(List<Map<String, dynamic>>, bool)> getFoldersRaw() async =>
       throw UnimplementedError();
   @override

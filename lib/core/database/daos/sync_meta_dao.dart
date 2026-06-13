@@ -37,4 +37,16 @@ class SyncMetaDao extends DatabaseAccessor<AppDatabase> with _$SyncMetaDaoMixin 
   Future<void> setPullWatermark(int epochSeconds) {
     return setValue('pull_watermark', '$epochSeconds');
   }
+
+  /// Last full-ID deletion reconcile time (§7.5 throttle). `0` when never run.
+  /// This is a SCHEDULING gate (device clock acceptable per the reconcile
+  /// contract); it never feeds `serverUpdatedAt` or any merge timestamp.
+  Future<int> getLastFullReconcileAt() async {
+    final raw = await getValue('last_full_reconcile_at');
+    return int.tryParse(raw ?? '') ?? 0;
+  }
+
+  Future<void> setLastFullReconcileAt(int epochSeconds) {
+    return setValue('last_full_reconcile_at', '$epochSeconds');
+  }
 }

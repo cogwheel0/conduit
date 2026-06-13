@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../providers/app_providers.dart';
@@ -40,6 +41,19 @@ abstract interface class SyncApiClient {
 
   /// GET `/api/v1/chats/{id}` — raw `ChatResponse` map; null on 404.
   Future<Map<String, dynamic>?> getChatRaw(String id);
+
+  /// Reconcile-only existence probe (CDT-RFC-001 §7.5). Returns:
+  ///   * `true`  — the chat still exists (it was merely absent from a
+  ///     pagination page; do NOT purge).
+  ///   * `false` — confirmed gone (HTTP 404 OR the vendored normal-user
+  ///     not-ours 401 `ERROR_MESSAGES.NOT_FOUND`, `routers/chats.py`).
+  ///   * throws — any OTHER error (network/5xx); the caller skips this
+  ///     candidate this run (best-effort, re-runs).
+  ///
+  /// BINDING: the 401-means-gone interpretation lives ONLY here, never in the
+  /// shared pull path (`getChatRaw` keeps 401 as an error so an expired token
+  /// never reads as a mass delete on the pull side).
+  Future<bool> probeChatExists(String id);
 
   /// GET `/api/v1/folders/` — (raw folder maps, featureEnabled=false on 403).
   Future<(List<Map<String, dynamic>>, bool)> getFoldersRaw();
@@ -143,6 +157,23 @@ class ApiSyncApiClient implements SyncApiClient {
   @override
   Future<Map<String, dynamic>?> getChatRaw(String id) {
     return api.getChatRaw(id);
+  }
+
+  @override
+  Future<bool> probeChatExists(String id) async {
+    // §7.5 reconcile-only: 404 (getChatRaw -> null) AND the vendored
+    // normal-user 401 NOT_FOUND both mean "gone". Any other failure rethrows
+    // so the reconcile loop skips (does NOT purge) this candidate this run.
+    try {
+      final resp = await api.getChatRaw(id);
+      return resp != null;
+    } on DioException catch (e) {
+      final status = e.response?.statusCode;
+      if (status == 404 || status == 401) {
+        return false;
+      }
+      rethrow;
+    }
   }
 
   @override
