@@ -1,6 +1,5 @@
 import '../database/app_database.dart';
 import '../database/daos/outbox_dao.dart';
-import 'chat_locks.dart';
 import 'pull_sync.dart';
 import 'push_sync.dart';
 import 'sync_entity_adapter.dart';
@@ -29,14 +28,11 @@ class ChatAdapter implements SyncEntityAdapter {
   ChatAdapter({
     required PullSync pull,
     required PushSync push,
-    required ChatLocks chatLocks,
   })  : _pull = pull,
-        _push = push,
-        _locks = chatLocks;
+        _push = push;
 
   final PullSync _pull;
   final PushSync _push;
-  final ChatLocks _locks;
 
   @override
   String get watermarkKey => kChatPullWatermarkKey;
@@ -44,9 +40,6 @@ class ChatAdapter implements SyncEntityAdapter {
   /// SECONDS overlap (R-09). NEVER compared to the note overlap.
   @override
   int get pullOverlap => kPullOverlapSeconds;
-
-  @override
-  ChatLocks get locks => _locks;
 
   @override
   int get listPageSize => kOpenWebUiChatListPageSize;

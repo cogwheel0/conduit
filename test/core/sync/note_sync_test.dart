@@ -49,7 +49,6 @@ void main() {
         noteLocks: locks,
         remapper: remapper,
       ),
-      noteLocks: locks,
     );
     return runPullFor(adapter, db: db);
   }

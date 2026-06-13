@@ -273,7 +273,6 @@ class SyncEngine extends _$SyncEngine {
     return NoteAdapter(
       pull: notePull,
       push: notePush,
-      noteLocks: ref.read(noteLocksProvider),
     );
   }
 
@@ -296,12 +295,10 @@ class SyncEngine extends _$SyncEngine {
       ChatAdapter(
         pull: pull,
         push: push,
-        chatLocks: ref.read(chatLocksProvider),
       ),
       NoteAdapter(
         pull: notePull,
         push: notePush,
-        noteLocks: ref.read(noteLocksProvider),
       ),
     ];
   }
@@ -468,7 +465,17 @@ class SyncEngine extends _$SyncEngine {
     final noteAdapter = _buildNoteAdapterForPull();
     if (noteAdapter != null) {
       try {
-        await runPullFor(noteAdapter, db: db);
+        final noteResult = await runPullFor(noteAdapter, db: db);
+        DebugLogger.log(
+          'note-cycle-done',
+          scope: 'sync/notes',
+          data: {
+            'success': noteResult.success,
+            'changed': noteResult.changed,
+            'failedFetches': noteResult.failedFetches,
+            'watermarkAdvanced': noteResult.watermarkAdvanced,
+          },
+        );
       } catch (error, stackTrace) {
         DebugLogger.error(
           'note-pull-failed',

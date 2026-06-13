@@ -102,7 +102,6 @@ void main() {
               remapper: remapper,
             ),
             push: push,
-            chatLocks: chatLocks,
           ),
         ],
       );

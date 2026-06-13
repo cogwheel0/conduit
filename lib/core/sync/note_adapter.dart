@@ -3,7 +3,6 @@ import '../database/daos/notes_dao.dart' show decodeNotePatch;
 import '../database/daos/outbox_dao.dart';
 import '../database/mappers/note_mapper.dart' show asNs;
 import '../database/daos/sync_meta_dao.dart';
-import 'chat_locks.dart';
 import 'note_sync.dart';
 import 'sync_entity_adapter.dart';
 
@@ -18,14 +17,11 @@ class NoteAdapter implements SyncEntityAdapter {
   NoteAdapter({
     required NotePullSync pull,
     required NotePushSync push,
-    required ChatLocks noteLocks,
   })  : _pull = pull,
-        _push = push,
-        _locks = noteLocks;
+        _push = push;
 
   final NotePullSync _pull;
   final NotePushSync _push;
-  final ChatLocks _locks;
 
   @override
   String get watermarkKey => SyncMetaDao.kNotesPullWatermarkKey;
@@ -33,9 +29,6 @@ class NoteAdapter implements SyncEntityAdapter {
   /// NANOSECONDS overlap (R-09). NEVER compared to the chat overlap.
   @override
   int get pullOverlap => kNotePullOverlapNs;
-
-  @override
-  ChatLocks get locks => _locks;
 
   /// Notes are fetched in a SINGLE unpaged call ([getListPageRaw] returns an
   /// empty list for any page > 1 without a network call), so a sentinel larger

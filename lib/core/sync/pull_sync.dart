@@ -16,8 +16,10 @@ import 'sync_entity_adapter.dart';
 /// never a correctness cost.
 const int kPullOverlapSeconds = 5;
 
-/// Worker pool size for changed-chat fetches (CDT-RFC-001 §10 REQ 4).
-const int kPullFetchConcurrency = 4;
+/// Worker pool size for changed-chat fetches (CDT-RFC-001 §10 REQ 4). Derived
+/// from the generic [kAdapterPullFetchConcurrency] (single source of truth) so
+/// chat and note pull concurrency can never silently diverge.
+const int kPullFetchConcurrency = kAdapterPullFetchConcurrency;
 
 /// Server page size for `/api/v1/chats/?page=N` and `/api/v1/chats/archived`
 /// (verified: `routers/chats.py` `get_session_user_chat_list` /

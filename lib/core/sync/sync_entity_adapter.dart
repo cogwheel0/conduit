@@ -4,7 +4,6 @@ import 'dart:math' as math;
 import '../database/app_database.dart';
 import '../database/daos/outbox_dao.dart';
 import '../utils/debug_logger.dart';
-import 'chat_locks.dart';
 
 /// Decodes a JSON outbox-op `payload` string to a `Map<String, dynamic>`,
 /// returning an empty map when the payload is absent or not a JSON object.
@@ -64,10 +63,6 @@ abstract interface class SyncEntityAdapter {
   /// note: kNotePullOverlapNs). The unit lives ENTIRELY here.
   int get pullOverlap;
 
-  /// THIS entity's lock domain (chatLocks | noteLocks). Separate instances so a
-  /// note op never contends a chat op.
-  ChatLocks get locks;
-
   /// True when [kind] is one this adapter executes. The drainer routes by
   /// ownership instead of a hardcoded switch.
   bool ownsKind(OutboxKind kind);
@@ -112,8 +107,9 @@ class AdapterPullResult {
   final int maxSeen;
 }
 
-/// Worker-pool fan-out for the generic pull (parity with the chat
-/// `kPullFetchConcurrency`).
+/// Worker-pool fan-out for pull fetches — the SINGLE source of truth for both
+/// the generic note driver here and the chat [kPullFetchConcurrency] (which
+/// derives from this), so the two can never silently diverge.
 const int kAdapterPullFetchConcurrency = 4;
 
 /// The GENERIC watermark-delta pull driver, lifted verbatim from
