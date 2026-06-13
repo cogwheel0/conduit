@@ -301,6 +301,9 @@ class OutboxTaskQueueMigrator {
           text: text,
           attachments: attachments,
           now: now,
+          // Link into the prior conversation tip so the migrated turn isn't an
+          // orphaned root (existing == null → a fresh stub → null root).
+          parentId: existing?.currentMessageId,
         ),
         currentMessageId: asstId,
         updatedAt: now,
@@ -414,19 +417,23 @@ class OutboxTaskQueueMigrator {
     required String text,
     required List<String> attachments,
     required int now,
+    // The prior active-branch tip (existing.currentMessageId) so the migrated
+    // turn LINKS into the conversation tree. Null only for a fresh stub (no
+    // prior messages), where the user message is correctly a root.
+    required String? parentId,
   }) {
     return <MessageRowData>[
       MessageRowData(
         id: userMsgId,
         chatId: chatId,
-        parentId: null,
+        parentId: parentId,
         role: 'user',
         content: text,
         createdAt: now,
         orderIndex: 0,
         payload: <String, dynamic>{
           'id': userMsgId,
-          'parentId': null,
+          'parentId': parentId,
           'childrenIds': <String>[asstId],
           'role': 'user',
           'content': text,

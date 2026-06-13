@@ -205,6 +205,49 @@ void main() {
       // Still exactly the two original messages (no duplicate turn appended).
       check((await db.messagesDao.getForChat('srv-2')).length).equals(2);
     });
+
+    test('a migrated turn LINKS to the prior conversation tip (not an orphan '
+        'root) when the chat was already pulled', () async {
+      // A pulled chat with a prior completed turn; current tip = prior-asst.
+      await db.into(db.chats).insert(ChatsCompanion.insert(
+            id: 'srv-3',
+            title: 'T',
+            createdAt: 1,
+            updatedAt: 1,
+            currentMessageId: const Value('prior-asst'),
+            bodySynced: const Value(true),
+          ));
+      await db.into(db.messages).insert(MessagesCompanion.insert(
+            id: 'prior-user',
+            chatId: 'srv-3',
+            role: 'user',
+            content: 'old question',
+            createdAt: 1,
+            orderIndex: 0,
+            payload: '{}',
+          ));
+      await db.into(db.messages).insert(MessagesCompanion.insert(
+            id: 'prior-asst',
+            chatId: 'srv-3',
+            role: 'assistant',
+            content: 'old answer',
+            parentId: const Value('prior-user'),
+            createdAt: 2,
+            orderIndex: 1,
+            payload: '{}',
+          ));
+
+      await caches.put('outbound_task_queue_v1', [
+        sendTextTask(id: 't1', conversationId: 'srv-3', text: 'new question'),
+      ]);
+      await migrator().migrateIfNeeded();
+
+      // The migrated user message hangs off the prior tip, not null.
+      final msgs = await db.messagesDao.getForChat('srv-3');
+      final migratedUser =
+          msgs.firstWhere((m) => m.role == 'user' && m.content == 'new question');
+      check(migratedUser.parentId).equals('prior-asst');
+    });
   });
 
   group('dead/upload task variants', () {
