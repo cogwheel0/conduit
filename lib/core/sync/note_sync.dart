@@ -77,18 +77,20 @@ class NotePullSync {
     });
   }
 
-  /// Enqueues a `noteUpdate` for [noteId] unless a noteUpdate/noteCreate is
-  /// already pending (the patch is rebuilt from the row). Runs under the note
-  /// lock the caller holds.
+  /// Enqueues a `noteUpdate` for [noteId] when title/data still need pushing,
+  /// unless a noteUpdate/noteCreate is already pending (the patch is rebuilt from
+  /// the row). Runs under the note lock the caller holds.
   Future<void> _enqueueUpdateIfMissing(String noteId) async {
+    final row = await _db.notesDao.getNote(noteId);
+    if (row == null) return;
+    if (!row.dirtyTitle && !row.dirtyData) return;
+
     final pending = await _db.outboxDao.pendingForChat(noteId);
     final hasUpdateOrCreate = pending.any((op) {
       final kind = OutboxKind.fromName(op.kind);
       return kind == OutboxKind.noteUpdate || kind == OutboxKind.noteCreate;
     });
     if (hasUpdateOrCreate) return;
-    final row = await _db.notesDao.getNote(noteId);
-    if (row == null) return;
     // Include data only when the data axis is still dirty (title is always
     // sent — WARNING B).
     final patch = noteRowToPatch(row, includeData: row.dirtyData);

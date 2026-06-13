@@ -303,6 +303,23 @@ void main() {
       check(pending.single.seq).equals(firstDelete);
       check(pending.single.kind).equals('folderDelete');
     });
+
+    test('noteDelete collapses into an existing pending noteDelete', () async {
+      await enqueue(
+        kind: OutboxKind.noteUpdate,
+        chatId: 'n1',
+        payload: {'title': 'draft'},
+      );
+      final firstDelete = await enqueue(kind: OutboxKind.noteDelete, chatId: 'n1');
+      final secondDelete =
+          await enqueue(kind: OutboxKind.noteDelete, chatId: 'n1');
+
+      check(secondDelete).equals(firstDelete);
+      final pending = await dao.pendingForChat('n1');
+      check(pending).length.equals(1);
+      check(pending.single.seq).equals(firstDelete);
+      check(pending.single.kind).equals('noteDelete');
+    });
   });
 
   group('claimNextRunnable (A2)', () {

@@ -595,6 +595,7 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
 
       case OutboxKind.noteDelete:
         // Annihilates EVERY earlier pending op for this note.
+        final priorDelete = newestOfKind(OutboxKind.noteDelete);
         if (pendingKinds.contains(OutboxKind.noteCreate)) {
           // Never reached the server ⇒ pure local drop: delete all pending,
           // emit no noteDelete op (the row drop is the caller's dropLocalNote).
@@ -604,7 +605,8 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
           );
         }
         return _CoalesceDecision(
-          insert: true,
+          insert: priorDelete == null,
+          survivorSeq: priorDelete?.seq,
           deletions: [
             for (final op in pending)
               if (OutboxKind.fromName(op.kind) != OutboxKind.noteDelete) op.seq,

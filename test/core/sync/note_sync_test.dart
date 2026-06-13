@@ -177,6 +177,43 @@ void main() {
     check(client.togglePinNoteCalls).equals(1);
   });
 
+  test('pull does not enqueue noteUpdate for pin-only dirty notes', () async {
+    server.seedNote(
+      id: 'p1',
+      title: 'Pinned',
+      data: {'content': {'md': 'server v1'}},
+      createdAt: kT1,
+      updatedAt: kT1,
+      pinned: false,
+    );
+    await pull();
+
+    await locks.runExclusive('p1', () async {
+      await db.notesDao.pinNoteWithOutbox('p1', desiredPinned: true);
+    });
+
+    server.seedNote(
+      id: 'p1',
+      title: 'Server rename',
+      data: {'content': {'md': 'server v2'}},
+      createdAt: kT1,
+      updatedAt: kT2,
+      pinned: false,
+    );
+    await pull();
+
+    final row = await db.notesDao.getNote('p1');
+    check(row).isNotNull();
+    check(row!.title).equals('Server rename');
+    check(row.dirtyTitle).isFalse();
+    check(row.dirtyData).isFalse();
+    check(row.dirtyPinned).isTrue();
+
+    final pending = await db.outboxDao.pendingForChat('p1');
+    check(pending.map((op) => op.kind).toList())
+        .unorderedEquals([OutboxKind.notePin.name]);
+  });
+
   test('updateNoteWithOutbox writes the row AND a noteUpdate op in one tx',
       () async {
     server.seedNote(
