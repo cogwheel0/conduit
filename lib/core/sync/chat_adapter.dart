@@ -2,6 +2,7 @@ import '../database/app_database.dart';
 import '../database/daos/outbox_dao.dart';
 import 'pull_sync.dart';
 import 'push_sync.dart';
+import 'sync_api_client.dart';
 import 'sync_entity_adapter.dart';
 
 /// `sync_meta` key for the chat pull watermark (epoch SECONDS). R-09: NEVER
@@ -75,9 +76,14 @@ class ChatAdapter implements SyncEntityAdapter {
       case OutboxKind.folderUpsert:
         await _push.pushFolderUpsert(decodeOutboxPayload(op.payload));
       case OutboxKind.folderDelete:
-        await _push.pushFolderDelete(
-          decodeOutboxPayload(op.payload)['folderId'] as String,
-        );
+        final folderId = decodeOutboxPayload(op.payload)['folderId'];
+        if (folderId is! String || folderId.isEmpty) {
+          throw const SyncTerminalException(
+            statusCode: 400,
+            message: 'malformed folderDelete payload: folderId',
+          );
+        }
+        await _push.pushFolderDelete(folderId);
       // requestCompletion is chat-only and IS in [ownsKind], but it has no push
       // handler here — the drainer dispatches it via its RequestCompletionRunner
       // seam BEFORE the adapter loop, so pushOp must never be reached for it.

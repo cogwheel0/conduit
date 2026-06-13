@@ -11,6 +11,7 @@ import 'package:conduit/core/sync/chat_adapter.dart';
 import 'package:conduit/core/sync/pull_sync.dart';
 import 'package:conduit/core/sync/push_sync.dart';
 import 'package:conduit/core/sync/sync_api_client.dart';
+import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -529,6 +530,26 @@ void main() {
       await drainer.drain();
       check(await dao.pendingForChat('c1')).isEmpty();
       check(await dao.watchParkedForChat('c1').first).isEmpty();
+    });
+
+    test('malformed folderDelete payload parks without retrying', () async {
+      final seq = await db.into(db.outboxOps).insert(
+            OutboxOpsCompanion.insert(
+              kind: OutboxKind.folderDelete.name,
+              chatId: const Value('folder-bad'),
+              payload: const Value('{}'),
+            ),
+          );
+      final drainer = buildDrainer();
+
+      await drainer.drain();
+
+      check(await dao.pendingForChat('folder-bad')).isEmpty();
+      final parked = await dao.watchParkedForChat('folder-bad').first;
+      check(parked).length.equals(1);
+      check(parked.single.seq).equals(seq);
+      check(parked.single.lastError!)
+          .contains('malformed folderDelete payload');
     });
   });
 

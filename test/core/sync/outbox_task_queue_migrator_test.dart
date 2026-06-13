@@ -335,14 +335,13 @@ void main() {
       check(await db.select(db.outboxOps).get()).isEmpty();
     });
 
-    test('absent key: no-op, flag NOT set (awaits a later prefs migration)',
-        () async {
+    test('absent key: no-op and sets the migrated flag', () async {
       final report = await migrator().migrateIfNeeded();
       check(report.converted).equals(0);
       check(report.alreadyMigrated).isFalse();
       check(await db.syncMetaDao
               .getValue(OutboxTaskQueueMigrator.migratedFlagKey))
-          .isNull();
+          .equals('1');
     });
 
     test('existing-chat re-run is idempotent (Finding 6: no duplicate rows/ops)',

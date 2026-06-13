@@ -73,12 +73,19 @@ class OutboxTaskQueueMigrator {
       return const TaskQueueMigrationReport(alreadyMigrated: true);
     }
 
+    final taskQueueKeyPresent = _boxes.caches.containsKey(
+      HiveStoreKeys.taskQueue,
+    );
     final raw = _readRawTasks();
     if (raw == null) {
-      // No persisted queue at all: nothing to migrate, but DO NOT set the flag
-      // yet — a later SharedPrefs→Hive migration on a future startup could
-      // still land tasks before this migrator runs. The flag is set only after
-      // an actual conversion pass over a present key.
+      // Clean install: no persisted queue exists after the app-level
+      // SharedPreferences→Hive migration has already run, so mark this per-server
+      // migration done and avoid probing every launch. If the key is present but
+      // unreadable, leave the flag unset so a future startup can retry after
+      // repair/replacement.
+      if (!taskQueueKeyPresent) {
+        await _db.syncMetaDao.setValue(migratedFlagKey, '1');
+      }
       return const TaskQueueMigrationReport();
     }
 
