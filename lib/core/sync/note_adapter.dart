@@ -40,6 +40,9 @@ class NoteAdapter implements SyncEntityAdapter {
   int get listPageSize => 1 << 30;
 
   @override
+  bool get listEnvelopeIsFullRaw => true;
+
+  @override
   bool ownsKind(OutboxKind kind) => kind.isNoteKind;
 
   @override

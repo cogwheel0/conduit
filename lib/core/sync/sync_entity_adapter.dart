@@ -34,7 +34,8 @@ class SyncListItem {
   final int updatedAt;
 
   /// Opaque per-entity passthrough (e.g. the raw chat list map). The generic
-  /// driver never inspects it; only the owning adapter does.
+  /// driver only passes it through to [mergeServer] when the adapter explicitly
+  /// declares [SyncEntityAdapter.listEnvelopeIsFullRaw].
   final Map<String, dynamic>? envelope;
 }
 
@@ -72,6 +73,12 @@ abstract interface class SyncEntityAdapter {
 
   /// The list page size; the driver stops paging when a page returns fewer.
   int get listPageSize;
+
+  /// True when [SyncListItem.envelope] is already a full raw entity response
+  /// suitable for [mergeServer]. Chats return only metadata in list pages, so
+  /// they keep this false and still call [fetchRaw]; notes return full NoteModel
+  /// maps, so they set it true and avoid N redundant GETs.
+  bool get listEnvelopeIsFullRaw;
 
   /// Full fetch of one entity; null on 404 (or not-ours, treated as gone).
   Future<Map<String, dynamic>?> fetchRaw(String id);
@@ -176,7 +183,9 @@ Future<AdapterPullResult> runPullFor(
       if (nextIndex >= toFetch.length) return;
       final item = toFetch[nextIndex++];
       try {
-        final resp = await adapter.fetchRaw(item.id);
+        final resp = adapter.listEnvelopeIsFullRaw && item.envelope != null
+            ? item.envelope
+            : await adapter.fetchRaw(item.id);
         if (resp == null) continue; // server-deleted: reconcile handles purge.
         await adapter.mergeServer(resp);
       } catch (error, stackTrace) {

@@ -528,6 +528,18 @@ void main() {
       await dao.claimNextRunnable(nowEpochSeconds: 1, busyChatIds: {});
       check(await dao.pendingCreateForHash('hash-A')).isNull();
     });
+
+    test('hasPendingCreateContentHashes is a cheap preflight', () async {
+      check(await dao.hasPendingCreateContentHashes()).isFalse();
+      await enqueue(
+        kind: OutboxKind.createChat,
+        chatId: 'local:c',
+        contentHash: 'hash-A',
+      );
+      check(await dao.hasPendingCreateContentHashes()).isTrue();
+      await dao.claimNextRunnable(nowEpochSeconds: 1, busyChatIds: {});
+      check(await dao.hasPendingCreateContentHashes()).isFalse();
+    });
   });
 
   group('markOfflineDeferred (Finding 7)', () {

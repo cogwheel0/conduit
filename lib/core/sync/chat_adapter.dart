@@ -46,6 +46,9 @@ class ChatAdapter implements SyncEntityAdapter {
   int get listPageSize => kOpenWebUiChatListPageSize;
 
   @override
+  bool get listEnvelopeIsFullRaw => false;
+
+  @override
   bool ownsKind(OutboxKind kind) =>
       kind == OutboxKind.createChat ||
       kind == OutboxKind.updateChat ||

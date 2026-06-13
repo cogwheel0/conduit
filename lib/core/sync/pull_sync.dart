@@ -223,6 +223,9 @@ class PullSync {
     // 5. Chat fetches: newest-first (list order already is), worker pool of
     // exactly kPullFetchConcurrency sharing one queue index.
     final toFetch = changed.values.toList(growable: false);
+    final hasPendingCreateHashes = _remapper == null
+        ? false
+        : await _db.outboxDao.hasPendingCreateContentHashes();
     var nextIndex = 0;
     Future<void> worker() async {
       while (true) {
@@ -235,7 +238,11 @@ class PullSync {
             // (deletion reconcile is Phase 3).
             continue;
           }
-          await _mergeChatResponse(resp, listLastReadAt: item.lastReadAt);
+          await _mergeChatResponse(
+            resp,
+            listLastReadAt: item.lastReadAt,
+            hasPendingCreateHashes: hasPendingCreateHashes,
+          );
         } catch (error, stackTrace) {
           failedFetches++;
           DebugLogger.error(
@@ -348,6 +355,7 @@ class PullSync {
   Future<void> _mergeChatResponse(
     Map<String, dynamic> resp, {
     required int? listLastReadAt,
+    bool? hasPendingCreateHashes,
   }) {
     final id = resp['id'] is String ? resp['id'] as String : '';
     if (id.isEmpty) {
@@ -357,6 +365,7 @@ class PullSync {
       return _upsertServerChatUnlockedReturningPush(
         resp,
         listLastReadAt: listLastReadAt,
+        hasPendingCreateHashes: hasPendingCreateHashes,
       );
     });
   }
@@ -368,6 +377,7 @@ class PullSync {
   Future<bool> _upsertServerChatUnlockedReturningPush(
     Map<String, dynamic> resp, {
     required int? listLastReadAt,
+    bool? hasPendingCreateHashes,
   }) async {
     final id = resp['id'] as String;
     final createdAt = _asEpochSeconds(resp['created_at']) ?? 0;
@@ -397,7 +407,13 @@ class PullSync {
     // (local:) chat id. Complete the remap (folding the local row into this
     // server id) and drop the op instead of inserting a duplicate row that would
     // then be re-POSTed on the next drain.
-    if (await _tryHealCreate(rows: rows, serverId: id, serverCreatedAt: createdAt, serverUpdatedAt: updatedAt)) {
+    if (await _tryHealCreate(
+      rows: rows,
+      serverId: id,
+      serverCreatedAt: createdAt,
+      serverUpdatedAt: updatedAt,
+      hasPendingCreateHashes: hasPendingCreateHashes,
+    )) {
       return false;
     }
 
@@ -447,9 +463,14 @@ class PullSync {
     required String serverId,
     required int serverCreatedAt,
     required int serverUpdatedAt,
+    bool? hasPendingCreateHashes,
   }) async {
     final remapper = _remapper;
     if (remapper == null) return false;
+
+    final hasPendingCreate = hasPendingCreateHashes ??
+        await _db.outboxDao.hasPendingCreateContentHashes();
+    if (!hasPendingCreate) return false;
 
     // Hash the server-arrived rows under the SERVER id; createChatContentHash
     // excludes the volatile id/timestamp, so this equals the digest recorded on

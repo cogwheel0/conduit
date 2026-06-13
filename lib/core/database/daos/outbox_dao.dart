@@ -355,6 +355,21 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
         .getSingleOrNull();
   }
 
+  /// Cheap preflight for the §7.3 crash-heal path. Lets pull skip the expensive
+  /// createChatContentHash(rows) computation when no pending create could match.
+  Future<bool> hasPendingCreateContentHashes() async {
+    final row = await (select(outboxOps)
+          ..where(
+            (t) =>
+                t.kind.equals(OutboxKind.createChat.name) &
+                t.contentHash.isNotNull() &
+                t.status.equals(OutboxStatus.pending),
+          )
+          ..limit(1))
+        .getSingleOrNull();
+    return row != null;
+  }
+
   /// Manual-retry affordance (A2): re-arms a parked op for an immediate
   /// attempt. attempts is reset to 0 so the user gets a fresh N=5 budget;
   /// lastError is cleared.

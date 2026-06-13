@@ -73,6 +73,8 @@ void main() {
 
     final result = await pull();
     check(result.success).isTrue();
+    check(client.noteListRequests).equals(1);
+    check(client.noteFetchStarts).isEmpty();
 
     final notes = await allNotes();
     check(notes.map((n) => n.id).toList()).unorderedEquals(['n1', 'n2']);
