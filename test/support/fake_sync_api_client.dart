@@ -277,8 +277,8 @@ class FakeSyncApiClient implements SyncApiClient {
   }
 
   @override
-  Future<void> deleteFolder(String id, {bool deleteContents = false}) async {
-    server.deleteFolder(id, deleteContents: deleteContents);
+  Future<bool> deleteFolder(String id, {bool deleteContents = false}) async {
+    return server.deleteFolder(id, deleteContents: deleteContents);
   }
 
   // ---- Phase 5 NOTES (CDT-RFC-001 D-11, R-09) ----

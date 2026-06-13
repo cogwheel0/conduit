@@ -492,6 +492,24 @@ void main() {
       check((await db.select(db.folders).get()).where((f) => f.id == id))
           .isEmpty();
     });
+
+    test('folder delete treats an already-gone server folder as success',
+        () async {
+      await db.into(db.folders).insert(
+            FoldersCompanion.insert(
+              id: 'missing-folder',
+              name: 'Missing',
+              createdAt: 1,
+              updatedAt: 2,
+              deleted: const Value(true),
+              dirty: const Value(true),
+            ),
+          );
+
+      await push.pushFolderDelete('missing-folder');
+
+      check(await db.foldersDao.getFolder('missing-folder')).isNull();
+    });
   });
 }
 

@@ -126,12 +126,14 @@ abstract interface class SyncApiClient {
   /// POST `/api/v1/folders/{id}/update/parent`.
   Future<void> updateFolderParent(String id, String? parentId);
 
-  /// DELETE `/api/v1/folders/{id}?delete_contents=false`.
+  /// DELETE `/api/v1/folders/{id}?delete_contents=false`. `true` on success;
+  /// 404 (already-gone) -> `false` WITHOUT throwing. 401/403 throws
+  /// [SyncTerminalException].
   ///
   /// BINDING: sync-driven deletes pass `delete_contents=false` — the server
   /// default is `true`, which ALSO deletes every contained chat (verified
   /// `routers/folders.py:delete_folder_by_id`).
-  Future<void> deleteFolder(String id, {bool deleteContents = false});
+  Future<bool> deleteFolder(String id, {bool deleteContents = false});
 
   // ---- Phase 5 NOTES (CDT-RFC-001 D-11) ----
   //
@@ -297,7 +299,7 @@ class ApiSyncApiClient implements SyncApiClient {
   }
 
   @override
-  Future<void> deleteFolder(String id, {bool deleteContents = false}) {
+  Future<bool> deleteFolder(String id, {bool deleteContents = false}) {
     return api.deleteFolderRaw(id, deleteContents: deleteContents);
   }
 

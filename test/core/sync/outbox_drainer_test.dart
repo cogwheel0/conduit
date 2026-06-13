@@ -157,7 +157,7 @@ class RecordingSyncApiClient implements SyncApiClient {
   Future<void> updateFolderParent(String id, String? parentId) async =>
       throw UnimplementedError();
   @override
-  Future<void> deleteFolder(String id, {bool deleteContents = false}) async =>
+  Future<bool> deleteFolder(String id, {bool deleteContents = false}) async =>
       throw UnimplementedError();
 }
 

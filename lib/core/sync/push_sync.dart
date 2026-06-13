@@ -314,7 +314,7 @@ class PushSync {
 
   /// Deletes the folder server-side with `delete_contents=false` (BINDING: the
   /// server default `true` would also delete contained chats), then purges the
-  /// local folder row.
+  /// local folder row. A 404 already-gone response is still a successful delete.
   Future<void> pushFolderDelete(String folderId) async {
     await _folderLocks.runExclusive(folderId, () async {
       await _client.deleteFolder(folderId, deleteContents: false);

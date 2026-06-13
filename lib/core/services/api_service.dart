@@ -1488,14 +1488,29 @@ class ApiService {
   /// DESTRUCTIVE server default `true`). Sync-driven deletes pass `false` so
   /// contained chats are re-parented to root, not deleted (verified
   /// `routers/folders.py:delete_folder_by_id`).
-  Future<void> deleteFolderRaw(
+  /// Returns `true` on success; `false` on 404 (already gone); 401/403 ->
+  /// [SyncTerminalException].
+  Future<bool> deleteFolderRaw(
     String id, {
     bool deleteContents = false,
   }) async {
-    await _dio.delete(
-      '/api/v1/folders/$id',
-      queryParameters: {'delete_contents': deleteContents},
-    );
+    try {
+      await _dio.delete(
+        '/api/v1/folders/$id',
+        queryParameters: {'delete_contents': deleteContents},
+      );
+      return true;
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if (code == 404) return false;
+      if (code == 401 || code == 403) {
+        throw SyncTerminalException(
+          statusCode: code,
+          message: 'deleteFolder $id forbidden',
+        );
+      }
+      rethrow;
+    }
   }
 
   static List<Map<String, dynamic>> _coerceRawMapList(Object? data) {
