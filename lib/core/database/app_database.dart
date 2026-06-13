@@ -6,7 +6,9 @@ import 'daos/chats_dao.dart';
 import 'daos/folders_dao.dart';
 import 'daos/messages_dao.dart';
 import 'daos/outbox_dao.dart';
+import 'daos/search_dao.dart';
 import 'daos/sync_meta_dao.dart';
+import 'fts/fts_ddl.dart';
 import 'tables/chats.dart';
 import 'tables/folders.dart';
 import 'tables/messages.dart';
@@ -24,7 +26,7 @@ part 'app_database.g.dart';
 /// on server switch or removal) is owned by the Phase 1 DatabaseManager.
 @DriftDatabase(
   tables: [SyncMeta, Chats, Messages, Folders, OutboxOps],
-  daos: [ChatsDao, MessagesDao, FoldersDao, SyncMetaDao, OutboxDao],
+  daos: [ChatsDao, MessagesDao, FoldersDao, SyncMetaDao, OutboxDao, SearchDao],
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase(super.e);
@@ -45,7 +47,7 @@ class AppDatabase extends _$AppDatabase {
   }
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -73,6 +75,16 @@ class AppDatabase extends _$AppDatabase {
           'CREATE INDEX IF NOT EXISTS idx_outbox_chat_seq '
           'ON outbox_ops (chat_id, seq);',
         );
+      }
+      if (from < 4) {
+        // Phase 4 FTS5 search (CDT-RFC-001 §10). Create the vtable + triggers
+        // on existing installs, then backfill IMMEDIATELY for installs already
+        // past their first sync (their post-first-sync population gate already
+        // fired and won't re-fire). All idempotent.
+        await _createFts();
+        await customStatement(kBackfillMessages);
+        await customStatement(kBackfillTitles);
+        await syncMetaDao.setValue(kFtsBuiltKey, '1');
       }
     },
     beforeOpen: (details) async {
@@ -105,5 +117,38 @@ class AppDatabase extends _$AppDatabase {
       'CREATE INDEX IF NOT EXISTS idx_outbox_chat_seq '
       'ON outbox_ops (chat_id, seq);',
     );
+  }
+
+  /// Creates the FTS5 vtable + the six maintenance triggers (CDT-RFC-001
+  /// Phase 4 §A/§C). All DDL uses IF NOT EXISTS, so this is safe to call on
+  /// every open and cheap. Idempotent.
+  Future<void> _createFts() async {
+    await customStatement(kCreateChatFts);
+    for (final trigger in kChatFtsTriggers) {
+      await customStatement(trigger);
+    }
+  }
+
+  /// Post-first-sync FTS population (CDT-RFC-001 Phase 4 §E): gated,
+  /// idempotent, and safe to re-run on failure.
+  ///
+  ///  1. ensures the vtable + triggers exist (idempotent [_createFts]);
+  ///  2. returns immediately if the dedicated `fts_built` flag is already set;
+  ///  3. otherwise backfills BOTH sources (message content + non-deleted chat
+  ///     titles) in ONE transaction, then sets the flag.
+  ///
+  /// The flag is dedicated (separate from `hive_cache_purged`) so a failed
+  /// backfill leaves it unset and retries on the next sync cycle. This method
+  /// MUST be invoked off the first-interactive-render path (the conversation
+  /// list already streams from `watchChatList` before this runs — §10.6).
+  Future<void> buildFtsIfNeeded() async {
+    await _createFts();
+    final built = await syncMetaDao.getValue(kFtsBuiltKey);
+    if (built == '1') return;
+    await transaction(() async {
+      await customStatement(kBackfillMessages);
+      await customStatement(kBackfillTitles);
+      await syncMetaDao.setValue(kFtsBuiltKey, '1');
+    });
   }
 }

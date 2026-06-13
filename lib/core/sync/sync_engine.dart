@@ -427,6 +427,41 @@ class SyncEngine extends _$SyncEngine {
           );
         }
       }
+
+      // Phase 4 FTS5 population (CDT-RFC-001 §10/§E): build the search index
+      // AFTER the first full sync has written chat/message rows. The
+      // conversation list already streams from `watchChatList` (it emitted the
+      // moment chats landed, before this post-pull step), so populating here is
+      // off the first-interactive-render path. Run it unawaited so a large
+      // backfill never blocks the cycle's completion / render; `buildFtsIfNeeded`
+      // is idempotent + flag-gated, so it retries next cycle on failure (the
+      // flag stays unset on error). Errors must NOT abort the cycle.
+      unawaited(
+        Future.microtask(() async {
+          try {
+            await db.buildFtsIfNeeded();
+          } catch (error, stackTrace) {
+            // A server switch / logout can dispose this db while the
+            // fire-and-forget build is in flight. That race is expected and
+            // harmless (the flag stays unset → the next active db rebuilds);
+            // log it at debug, not error, so it isn't mistaken for a real
+            // FTS failure.
+            if (error.toString().contains('closed')) {
+              DebugLogger.log(
+                'fts-build-skipped-db-closed',
+                scope: 'sync/fts',
+              );
+            } else {
+              DebugLogger.error(
+                'fts-build-failed',
+                scope: 'sync/fts',
+                error: error,
+                stackTrace: stackTrace,
+              );
+            }
+          }
+        }),
+      );
     }
     return result;
   }

@@ -296,6 +296,86 @@ void main() {
       check(chat!.updatedAt).equals(200);
     });
 
+    test('repoints message FTS rows to serverId (search finds remapped '
+        'message content)', () async {
+      const localId = 'local:fts';
+      const serverId = 'srv-fts';
+      // Build the FTS vtable + triggers so seeding messages indexes them.
+      await db.buildFtsIfNeeded();
+      // Seed a local chat whose message bodies are 'message N of local:fts'.
+      await seedLocalChat(db, id: localId, messageCount: 2);
+
+      // Pre-remap: content is searchable under the local id.
+      final before = await db.searchDao.search('message');
+      check(before.map((h) => h.chatId).toSet()).deepEquals({localId});
+
+      await remapper.remapChat(
+        localId: localId,
+        serverId: serverId,
+        serverCreatedAt: 500,
+        serverUpdatedAt: 600,
+      );
+
+      // Post-remap: the SAME message content is searchable, now under the
+      // serverId (the message FTS rows were repointed, not dropped). This is
+      // the core regression: before the fix, trigger #6 ate the orphaned msg
+      // FTS rows on _deleteChatRow(localId) and this returned [].
+      final after = await db.searchDao.search('message');
+      check(after.map((h) => h.chatId).toSet()).deepEquals({serverId});
+      // The snippet (a message hit, not a title) confirms it is a body match.
+      check(after.single.messageId).isNotNull();
+
+      // No stale FTS rows linger at the local id.
+      final orphaned = await db
+          .customSelect(
+            "SELECT COUNT(*) AS c FROM chat_fts WHERE chat_id = 'local:fts'",
+          )
+          .getSingle();
+      check(orphaned.read<int>('c')).equals(0);
+
+      // Exactly one title row + two msg rows survive at serverId (no dup
+      // title from over-eager repointing).
+      final srvRows = await db
+          .customSelect(
+            "SELECT kind, COUNT(*) AS c FROM chat_fts "
+            "WHERE chat_id = 'srv-fts' GROUP BY kind ORDER BY kind",
+          )
+          .get();
+      check(srvRows.map((r) => '${r.read<String>('kind')}:${r.read<int>('c')}')
+              .toList())
+          .deepEquals(['msg:2', 'title:1']);
+    });
+
+    test('crash-heal stub branch repoints message FTS rows to serverId',
+        () async {
+      const localId = 'local:fts-stub';
+      const serverId = 'srv-fts-stub';
+      await db.buildFtsIfNeeded();
+      // A prior pull inserted a bodiless stub at serverId (trigger #4 indexed
+      // its title). The local chat carries the message body.
+      await db.into(db.chats).insert(
+            ChatsCompanion.insert(
+              id: serverId,
+              title: 'stub',
+              createdAt: 10,
+              updatedAt: 20,
+              bodySynced: const Value(false),
+            ),
+          );
+      await seedLocalChat(db, id: localId, messageCount: 1);
+
+      await remapper.remapChat(
+        localId: localId,
+        serverId: serverId,
+        serverCreatedAt: 500,
+        serverUpdatedAt: 600,
+      );
+
+      final after = await db.searchDao.search('message');
+      check(after.map((h) => h.chatId).toSet()).deepEquals({serverId});
+      check(after.single.messageId).isNotNull();
+    });
+
     test('does not repoint terminal (failed) outbox ops', () async {
       const localId = 'local:term';
       const serverId = 'srv-term';

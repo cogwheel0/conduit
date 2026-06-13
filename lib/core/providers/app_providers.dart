@@ -1246,12 +1246,25 @@ class Conversations extends _$Conversations {
     }
 
     final completer = Completer<List<Conversation>>();
+    // Cold-start instrumentation (CDT-RFC-001 §10 Budget 1): time from build()
+    // start to the FIRST narrow-projection emission. Numeric-only data (no chat
+    // content) so nothing untrusted is logged.
+    final coldStart = Stopwatch()..start();
     final subscription = db.chatsDao.watchChatList().listen(
       (entries) {
         final conversations = List<Conversation>.unmodifiable(
           entries.map(conversationFromListEntry),
         );
         if (!completer.isCompleted) {
+          coldStart.stop();
+          DebugLogger.log(
+            'cold-start-ms',
+            scope: 'perf/list',
+            data: {
+              'ms': coldStart.elapsedMilliseconds,
+              'rows': entries.length,
+            },
+          );
           completer.complete(conversations);
           return;
         }
@@ -1896,7 +1909,27 @@ class SearchQuery extends _$SearchQuery {
   void set(String query) => state = query;
 }
 
-// Server-side search provider for chats
+/// Offline full-text search over the synced Drift history (CDT-RFC-001 Phase 4).
+///
+/// Runs ranked FTS5 search via [SearchDao.search] and maps the hits to the same
+/// list-summary [Conversation] shape the server search returns, so callers can
+/// treat online and offline results identically. Returns `[]` when there is no
+/// active database (no server / reviewer mode) or before the index is built
+/// (the DAO short-circuits on the `fts_built` gate). Results are already bm25
+/// ascending (most relevant first); order is preserved.
+Future<List<Conversation>> _offlineSearch(Ref ref, String query) async {
+  final db = ref.read(appDatabaseProvider);
+  if (db == null) return const [];
+  try {
+    final hits = await db.searchDao.search(query, limit: 50);
+    return hits.map(conversationFromSearchHit).toList(growable: false);
+  } catch (e) {
+    DebugLogger.error('offline-search-failed', scope: 'search', error: e);
+    return const [];
+  }
+}
+
+// Server-side search provider for chats, with an offline FTS5 fallback.
 @riverpod
 Future<List<Conversation>> serverSearch(Ref ref, String query) async {
   if (query.trim().isEmpty) {
@@ -1905,7 +1938,12 @@ Future<List<Conversation>> serverSearch(Ref ref, String query) async {
   }
 
   final api = ref.watch(apiServiceProvider);
-  if (api == null) return [];
+  if (api == null) {
+    // Offline / reviewer mode: serve ranked results straight from the local
+    // FTS index over synced history (CDT-RFC-001 Phase 4 acceptance).
+    DebugLogger.log('offline-search', scope: 'search');
+    return _offlineSearch(ref, query);
+  }
 
   try {
     final trimmedQuery = query.trim();
@@ -1994,17 +2032,11 @@ Future<List<Conversation>> serverSearch(Ref ref, String query) async {
   } catch (e) {
     DebugLogger.error('server-search-failed', scope: 'search', error: e);
 
-    // Fallback to local search if server search fails
-    final allConversations = await ref.read(conversationsProvider.future);
-    DebugLogger.log('fallback-local', scope: 'search');
-    return allConversations.where((conv) {
-      return !conv.archived &&
-          (conv.title.toLowerCase().contains(query.toLowerCase()) ||
-              conv.messages.any(
-                (msg) =>
-                    msg.content.toLowerCase().contains(query.toLowerCase()),
-              ));
-    }).toList();
+    // Fallback to the offline FTS index when the server search fails. This is a
+    // ranked search across ALL synced history (not just the in-memory page),
+    // matching the offline path (CDT-RFC-001 Phase 4).
+    DebugLogger.log('fallback-offline', scope: 'search');
+    return _offlineSearch(ref, query);
   }
 }
 

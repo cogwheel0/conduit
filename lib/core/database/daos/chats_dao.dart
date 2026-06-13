@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:drift/drift.dart';
 
+import '../../utils/debug_logger.dart';
 import '../../sync/chat_merger.dart';
 import '../app_database.dart';
 import '../mappers/chat_blob_mapper.dart';
@@ -60,6 +61,29 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     return query.watch().map(
       (rows) => rows.map(_entryFromProjection).toList(growable: false),
     );
+  }
+
+  /// Internal first-page fast-path (CDT-RFC-001 §10 LIST CONTRACT). Same NARROW
+  /// [_listProjection] as [watchChatList] (REQ §10.2/§10.5 — never message
+  /// bodies), WHERE deleted = false, ORDER BY updatedAt DESC, id ASC, with
+  /// LIMIT/OFFSET. The ordering is byte-for-byte identical to [watchChatList],
+  /// so a paged read composes seamlessly with the watch stream that takes over
+  /// after first paint — the page is a render-fast hydrate, not a new source of
+  /// truth. The Conversations provider's PUBLIC API is unchanged: this stays an
+  /// internal optimization and `hasMore`/`loadMore` remain no-ops.
+  Future<List<ChatListEntry>> getChatPage({
+    required int limit,
+    required int offset,
+  }) async {
+    final query = _listProjection()
+      ..where(chats.deleted.equals(false))
+      ..orderBy([
+        OrderingTerm.desc(chats.updatedAt),
+        OrderingTerm.asc(chats.id),
+      ])
+      ..limit(limit, offset: offset);
+    final rows = await query.get();
+    return rows.map(_entryFromProjection).toList(growable: false);
   }
 
   /// Same projection, WHERE id = ?.
@@ -636,8 +660,12 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     int? updatedAt,
     required bool enqueueCompletion,
     RequestCompletionPayload? completion,
-  }) {
-    return transaction(() async {
+  }) async {
+    // Append hot-path instrumentation (CDT-RFC-001 §10 Budget 2): the §10 hot
+    // path must stay ≤10ms even with the chat_fts INSERT trigger live. Numeric-
+    // only data (no message content) so nothing untrusted is logged.
+    final sw = Stopwatch()..start();
+    await transaction(() async {
       final maxExpr = this.messages.orderIndex.max();
       final maxQuery = selectOnly(this.messages)
         ..addColumns([maxExpr])
@@ -687,6 +715,12 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
         );
       }
     });
+    sw.stop();
+    DebugLogger.log(
+      'append-ms',
+      scope: 'perf/append',
+      data: {'ms': sw.elapsedMilliseconds, 'count': messages.length},
+    );
   }
 
   /// Stop-streaming abort (W14): deletes PENDING `requestCompletion` ops for

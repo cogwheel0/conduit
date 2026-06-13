@@ -134,8 +134,11 @@ class IdRemapper {
       if (local == null) {
         // The local row is already gone (a prior pull may have merged the
         // server chat and a previous remap completed). Still repoint any
-        // pending ops + leftover messages defensively, then return.
+        // pending ops + leftover messages defensively, then return. The
+        // chat_id-only message UPDATE fires no FTS trigger, so repoint any
+        // leftover msg FTS rows to match.
         await _rewriteMessagesChatId(localId, serverId);
+        await _remapFtsRows(localId, serverId);
         await _rewriteOutboxChatId(localId, serverId);
         return;
       }
@@ -153,10 +156,14 @@ class IdRemapper {
         } else {
           // Server row already has the body (the authoritative copy). Discard
           // the local duplicate: repoint its ops, drop its messages + row.
+          // _deleteMessagesForChat is a DIRECT delete on `messages`, so trigger
+          // #2 already purges the local msg FTS rows; the subsequent
+          // _deleteChatRow fires trigger #6 (purges the local title row). No
+          // surviving local FTS rows remain to repoint, so the FTS remap is a
+          // safe no-op on this branch.
           await _rewriteOutboxChatId(localId, serverId);
           await _deleteMessagesForChat(localId);
           await _deleteChatRow(localId);
-          await _remapFtsRows(localId, serverId);
           return;
         }
       }
@@ -172,13 +179,21 @@ class IdRemapper {
       );
       // (b) Repoint children to the new id.
       await _rewriteMessagesChatId(localId, serverId);
-      // (c) The local row now has no children: delete it cleanly.
+      // (c) Repoint the message FTS rows to serverId. This MUST run BEFORE
+      // _deleteChatRow(localId): _rewriteMessagesChatId is an UPDATE of
+      // `chat_id` only, which fires NO FTS trigger (trigger #3 is AFTER UPDATE
+      // OF content), so the msg FTS rows still key localId. If the local chat
+      // row were deleted first, trigger #6 (`DELETE FROM chat_fts WHERE
+      // chat_id = old.id`) would eat those orphaned msg rows and permanently
+      // drop the content from the index.
+      await _remapFtsRows(localId, serverId);
+      // (d) The local row now has no children: delete it cleanly. Trigger #6
+      // purges only the local title FTS row (msg rows now key serverId; the
+      // serverId title row was already created by trigger #4 in step (a)).
       await _deleteChatRow(localId);
-      // (d) Repoint pending|inFlight outbox ops (the running createChat op is
+      // (e) Repoint pending|inFlight outbox ops (the running createChat op is
       // inFlight; after remap the drainer markDone()s it — harmless).
       await _rewriteOutboxChatId(localId, serverId);
-      // (e) FTS seam (Phase 4).
-      await _remapFtsRows(localId, serverId);
     });
 
     DebugLogger.log(
@@ -359,9 +374,37 @@ class IdRemapper {
     );
   }
 
-  /// Phase 4 introduces FTS; Phase 2 has none. No-op hook so the §7.3 FTS
-  /// rewrite (`local:<uuid>` -> serverId) has a single seam to fill later.
+  /// Repoints the message FTS rows from [localId] to [serverId] (CDT-RFC-001
+  /// §7.3 + Phase 4 FTS).
+  ///
+  /// Why this is needed: [_rewriteMessagesChatId] is an `UPDATE messages SET
+  /// chat_id = ?`. The FTS maintenance trigger on messages (#3) fires only
+  /// `AFTER UPDATE OF content`, so a chat_id-only update leaves the standalone
+  /// `chat_fts` message rows still keyed to `localId`. Those orphaned rows would
+  /// then be eaten by trigger #6 (`chats AFTER DELETE` -> `DELETE FROM chat_fts
+  /// WHERE chat_id = old.id`) when [_deleteChatRow] purges the local chat,
+  /// permanently dropping the chat's message content from the index. Repoint
+  /// them directly on the vtable instead.
+  ///
+  /// Restricted to `kind = 'msg'`: the serverId title row is (re)created by
+  /// trigger #4 in [_insertChatCopy], and the stale local title row is purged by
+  /// trigger #6 on [_deleteChatRow]. Repointing the title here would leave a
+  /// duplicate title row at serverId.
+  ///
+  /// Tolerant of a not-yet-built index: when the `chat_fts` vtable does not
+  /// exist (remap can run before the post-first-sync [AppDatabase.buildFtsIfNeeded]
+  /// gate fires), there are no msg FTS rows to move and the backfill will later
+  /// index the rows under serverId, so this is a safe no-op.
   Future<void> _remapFtsRows(String localId, String serverId) async {
-    // TODO(phase4): rewrite FTS doc ids local:<uuid> -> serverId here.
+    final exists = await _db
+        .customSelect(
+          "SELECT 1 FROM sqlite_master WHERE name = 'chat_fts' LIMIT 1",
+        )
+        .get();
+    if (exists.isEmpty) return;
+    await _db.customUpdate(
+      "UPDATE chat_fts SET chat_id = ? WHERE chat_id = ? AND kind = 'msg'",
+      variables: [Variable.withString(serverId), Variable.withString(localId)],
+    );
   }
 }

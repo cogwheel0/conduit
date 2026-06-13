@@ -13,6 +13,7 @@ import '../../models/folder.dart';
 import '../../services/conversation_parsing.dart';
 import '../app_database.dart';
 import '../daos/chats_dao.dart';
+import '../daos/search_dao.dart';
 import 'chat_blob_mapper.dart';
 
 /// Inverse of `ChatsDao.upsertServerChat`'s decomposition: rebuilds
@@ -102,6 +103,32 @@ Conversation conversationFromListEntry(ChatListEntry e) {
     pinned: e.pinned,
     archived: e.archived,
     folderId: e.folderId,
+    messages: const [],
+    tags: const [],
+    metadata: const {},
+  );
+}
+
+/// Offline full-text search hit -> list-summary model (CDT-RFC-001 Phase 4).
+///
+/// [SearchHit] carries the SAME narrow envelope as [ChatListEntry] (no message
+/// bodies — REQ §10.2), so the resulting [Conversation] is shape-identical to a
+/// server search summary and slots straight into the existing search results
+/// UI. The bm25 [SearchHit.rank] / [SearchHit.snippet] are intentionally NOT
+/// surfaced on [Conversation]; ordering is preserved by the list order the
+/// caller hands in (already bm25-ascending).
+Conversation conversationFromSearchHit(SearchHit hit) {
+  return Conversation(
+    id: hit.chatId,
+    title: hit.title,
+    createdAt: DateTime.fromMillisecondsSinceEpoch(hit.createdAt * 1000),
+    updatedAt: DateTime.fromMillisecondsSinceEpoch(hit.updatedAt * 1000),
+    lastReadAt: hit.lastReadAt == null
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(hit.lastReadAt! * 1000),
+    pinned: hit.pinned,
+    archived: hit.archived,
+    folderId: hit.folderId,
     messages: const [],
     tags: const [],
     metadata: const {},
