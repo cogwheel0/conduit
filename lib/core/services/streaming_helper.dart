@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/models/chat_message.dart';
+import '../../core/models/conversation.dart';
 import '../../core/providers/app_providers.dart' show isTemporaryChat;
 import '../../core/services/socket_service.dart';
 import '../../core/utils/tool_calls_parser.dart';
@@ -441,6 +442,12 @@ ActiveChatStream attachUnifiedChunkedStreaming({
 
   /// Whether tools are enabled (needs longer watchdog window).
   bool toolsEnabled = false,
+
+  /// Pull-through snapshot fetch (CDT-RFC-001 Phase 1): persists the chat via
+  /// `upsertServerChat` under the chat lock and returns the assembled
+  /// conversation. When null or when it yields null (engine inert), the
+  /// legacy direct `api.getConversation` fetch is used instead.
+  Future<Conversation?> Function(String chatId)? pullChatSnapshot,
 }) {
   // Track if streaming has been finished to avoid duplicate cleanup
   bool hasFinished = false;
@@ -1502,7 +1509,18 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     }
     refreshingSnapshot = true;
     try {
-      final conversation = await api.getConversation(chatId);
+      // The server save already happened via POST /api/chat/completed; the
+      // pull persists the resulting blob locally (under the chat lock) and
+      // returns it for the followUps/sources/usage patch below.
+      Conversation? pulled;
+      if (pullChatSnapshot != null) {
+        try {
+          pulled = await pullChatSnapshot(chatId);
+        } catch (_) {
+          pulled = null;
+        }
+      }
+      final conversation = pulled ?? await api.getConversation(chatId);
       if (isObsoleteStream) {
         return;
       }

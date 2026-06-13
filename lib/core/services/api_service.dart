@@ -1265,6 +1265,115 @@ class ApiService {
     );
   }
 
+  // ---- CDT-RFC-001 Phase 1: raw sync-engine reads ----------------------
+  // These exist because every legacy chat method parses to `Conversation`
+  // and discards the blob/epoch ints the sync engine needs. All three are
+  // read-only GETs through the existing Dio instance, so ApiAuthInterceptor
+  // bearer/custom-header behavior applies unchanged.
+  //
+  // TODO(CDT-RFC-001 §7.2, §3.iii): Phase 2 push needs a generic
+  // `updateChat(id, blob)` that always sends the complete `rowsToBlob`
+  // reconstruction, never a partial dict (the server shallow-merges
+  // top-level keys).
+
+  /// GET `/api/v1/chats/?page={page}&include_pinned={..}&include_folders={..}`
+  ///
+  /// Raw `ChatTitleIdResponse` maps: `{id, title, updated_at, created_at,
+  /// last_read_at}`. No model parsing; epoch-second ints preserved. Server
+  /// page size is 60 (`routers/chats.py` `get_session_user_chat_list`,
+  /// `limit = 60`); the legacy `expectedPageSize: 50` path above is
+  /// untouched (it goes dead in Stage C).
+  Future<List<Map<String, dynamic>>> getChatListPageRaw({
+    required int page,
+    bool includePinned = true,
+    bool includeFolders = true,
+  }) async {
+    final response = await _dio.get(
+      '/api/v1/chats/',
+      queryParameters: {
+        'page': page,
+        'include_pinned': includePinned,
+        'include_folders': includeFolders,
+      },
+    );
+    return _coerceRawMapList(response.data);
+  }
+
+  /// GET `/api/v1/chats/archived?page={page}&order_by=updated_at&direction=desc`
+  ///
+  /// Raw `ChatTitleIdResponse` maps; fixed server limit 60
+  /// (`get_archived_session_user_chat_list`). The existing
+  /// [getArchivedChats] sends limit/offset params the server ignores; it is
+  /// left alone and goes dead in Stage C.
+  Future<List<Map<String, dynamic>>> getArchivedChatListPageRaw({
+    required int page,
+  }) async {
+    final response = await _dio.get(
+      '/api/v1/chats/archived',
+      queryParameters: {
+        'page': page,
+        'order_by': 'updated_at',
+        'direction': 'desc',
+      },
+    );
+    return _coerceRawMapList(response.data);
+  }
+
+  /// GET `/api/v1/chats/{id}` — the raw `ChatResponse` map (id, user_id,
+  /// title, chat, updated_at, created_at, share_id, archived, pinned, meta,
+  /// folder_id).
+  ///
+  /// Returns null on 404; rethrows other errors. NOTE: the vendored route
+  /// signals a missing/unowned chat with HTTP 401 (`ERROR_MESSAGES.NOT_FOUND`),
+  /// which intentionally surfaces here as an error so an expired token can
+  /// never read as a mass delete; Phase 3 deletion reconcile handles 404/401
+  /// explicitly. Large payloads are decoded off the UI isolate, mirroring
+  /// the bytes->worker path of [_parseConversationPayload], but stop at the
+  /// decoded map — no `Conversation` parsing.
+  Future<Map<String, dynamic>?> getChatRaw(String id) async {
+    DebugLogger.log('fetch-raw', scope: 'api/chat', data: {'id': id});
+    try {
+      final response = await _dio.get(
+        '/api/v1/chats/$id',
+        options: Options(responseType: ResponseType.bytes),
+      );
+      final data = response.data;
+      final bytes = data is Uint8List
+          ? data
+          : (data is List<int> ? Uint8List.fromList(data) : null);
+      if (bytes == null) {
+        // Defensive: some adapters may have decoded already.
+        if (data is Map<String, dynamic>) return data;
+        if (data is Map) return Map<String, dynamic>.from(data);
+        return null;
+      }
+      if (bytes.lengthInBytes >= _conversationWorkerByteThreshold) {
+        return _workerManager.schedule<Uint8List, Map<String, dynamic>?>(
+          decodeChatResponseEnvelopeWorker,
+          bytes,
+          debugLabel: 'decode_chat_raw',
+        );
+      }
+      return decodeChatResponseEnvelopeWorker(bytes);
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404) {
+        return null;
+      }
+      rethrow;
+    }
+  }
+
+  static List<Map<String, dynamic>> _coerceRawMapList(Object? data) {
+    if (data is! List) return const [];
+    return [
+      for (final item in data)
+        if (item is Map<String, dynamic>)
+          item
+        else if (item is Map)
+          Map<String, dynamic>.from(item),
+    ];
+  }
+
   // Parse full OpenWebUI chat with messages
   // Parse OpenWebUI message format to our ChatMessage format
   // Build ordered messages list from Open‑WebUI history using parent chain to currentId
@@ -5854,4 +5963,16 @@ List<Map<String, dynamic>> _normalizeMapListWorker(
     }
   }
   return normalized;
+}
+
+/// Top-level worker entrypoint (CDT-RFC-001 Phase 1): decodes a raw
+/// `ChatResponse` byte payload into its JSON map form WITHOUT any
+/// `Conversation` parsing, so the sync engine keeps the blob and the
+/// epoch-second ints intact. Returns null when the body is JSON `null`
+/// (the route's `response_model` allows `None`).
+Map<String, dynamic>? decodeChatResponseEnvelopeWorker(Uint8List bytes) {
+  final decoded = jsonDecode(utf8.decode(bytes));
+  if (decoded is Map<String, dynamic>) return decoded;
+  if (decoded is Map) return Map<String, dynamic>.from(decoded);
+  return null;
 }

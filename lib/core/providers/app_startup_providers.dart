@@ -7,6 +7,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../providers/app_providers.dart';
+import '../sync/sync_engine.dart';
+import '../sync/sync_triggers.dart';
 import '../../features/auth/providers/unified_auth_providers.dart';
 import '../services/navigation_service.dart';
 import '../services/app_intents_service.dart';
@@ -965,6 +967,10 @@ class AppStartupFlow extends _$AppStartupFlow {
   void _installStartupListeners({
     Duration apiWaitTimeout = const Duration(seconds: 1),
   }) {
+    // Install the sync engine's pull triggers (CDT-RFC-001 §7.6): app start,
+    // auth, foreground, connectivity-regained, and the periodic timer.
+    ref.watch(syncTriggersProvider);
+
     // Retry authenticated startup work if the API becomes available after the
     // initial startup/auth transition request.
     ref.listen<ApiService?>(apiServiceProvider, (previous, next) {
@@ -1131,6 +1137,31 @@ class _ForegroundRefreshObserver extends WidgetsBindingObserver {
         // finish the warmup work that should run alongside it.
         _scheduleForcedConversationWarmup(_ref, refreshConversations: false);
       });
+    } else if (state == AppLifecycleState.paused) {
+      // D-07 pause checkpoint: echo an in-flight streaming turn to the local
+      // database so a background kill cannot lose it.
+      try {
+        unawaited(
+          _ref
+              .read(chatMessagesProvider.notifier)
+              .persistPauseCheckpoint()
+              .catchError((Object error, StackTrace stackTrace) {
+                DebugLogger.error(
+                  'pause-checkpoint-failed',
+                  scope: 'chat/pause-checkpoint',
+                  error: error,
+                  stackTrace: stackTrace,
+                );
+              }),
+        );
+      } catch (error, stackTrace) {
+        DebugLogger.error(
+          'pause-checkpoint-unavailable',
+          scope: 'chat/pause-checkpoint',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
     }
   }
 }
@@ -1142,17 +1173,34 @@ Future<void> _refreshActiveConversationOnResume(Ref ref) async {
       return;
     }
 
-    final api = ref.read(apiServiceProvider);
     final active = ref.read(activeConversationProvider);
-    if (api == null ||
-        active == null ||
+    if (active == null ||
         isTemporaryChat(active.id) ||
         ref.read(shouldProtectLocalStreamingStateProvider)) {
       return;
     }
 
     conversationId = active.id;
-    final refreshed = await api.getConversation(conversationId);
+    // Pull through the sync engine: persists via upsertServerChat under the
+    // chat lock, then returns the assembled conversation (CDT-RFC-001
+    // Phase 1).
+    Conversation? refreshed;
+    try {
+      refreshed = await ref
+          .read(syncEngineProvider.notifier)
+          .pullChatNow(conversationId);
+    } catch (_) {
+      refreshed = null;
+    }
+    if (refreshed == null) {
+      // Engine inert/unavailable (no database, reviewer mode): legacy direct
+      // fetch keeps the resume refresh alive.
+      final api = ref.read(apiServiceProvider);
+      if (api == null) {
+        return;
+      }
+      refreshed = await api.getConversation(conversationId);
+    }
     if (!ref.mounted) {
       return;
     }

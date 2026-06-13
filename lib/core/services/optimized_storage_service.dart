@@ -4,8 +4,6 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:hive_ce/hive.dart';
 
 import '../models/backend_config.dart';
-import '../models/conversation.dart';
-import '../models/folder.dart';
 import '../models/model.dart';
 import '../models/server_config.dart';
 import '../models/user.dart';
@@ -396,55 +394,20 @@ class OptimizedStorageService {
     );
   }
 
-  Future<List<Conversation>> getLocalConversations() {
-    return _readSafely(
-      errorMessage: 'Failed to retrieve local conversations',
-      fallback: List<Conversation>.empty(growable: false),
-      read: () => _readServerScopedJsonList(
-        key: _localConversationsKey,
-        decodeDebugLabel: 'decode_local_conversations',
-        fromJson: Conversation.fromJson,
-        allowLegacyPayload: true,
-        migrateLegacy: true,
-      ),
-    );
-  }
-
-  Future<void> saveLocalConversations(List<Conversation> conversations) {
+  /// CDT-RFC-001 §9.3: deletes the legacy Hive conversation/folder caches.
+  /// The Drift database is the only conversation/folder read substrate in
+  /// Phase 1; the SyncEngine calls this exactly once after the first
+  /// fully-successful full pull (guarded by the `hive_cache_purged`
+  /// sync_meta flag). Idempotent.
+  Future<void> deleteLegacyConversationCaches() {
     return _writeSafely(
-      errorMessage: 'Failed to save local conversations',
-      write: () => _saveServerScopedJsonList(
-        _localConversationsKey,
-        items: conversations,
-        toJson: (conversation) => conversation.toJson(),
-        encodeDebugLabel: 'encode_local_conversations',
-      ),
-    );
-  }
-
-  Future<List<Folder>> getLocalFolders() {
-    return _readSafely(
-      errorMessage: 'Failed to retrieve local folders',
-      fallback: List<Folder>.empty(growable: false),
-      read: () => _readServerScopedJsonList(
-        key: _localFoldersKey,
-        decodeDebugLabel: 'decode_local_folders',
-        fromJson: Folder.fromJson,
-        allowLegacyPayload: true,
-        migrateLegacy: true,
-      ),
-    );
-  }
-
-  Future<void> saveLocalFolders(List<Folder> folders) {
-    return _writeSafely(
-      errorMessage: 'Failed to save local folders',
-      write: () => _saveServerScopedJsonList(
-        _localFoldersKey,
-        items: folders,
-        toJson: (folder) => folder.toJson(),
-        encodeDebugLabel: 'encode_local_folders',
-      ),
+      errorMessage: 'Failed to delete legacy conversation caches',
+      write: () async {
+        await Future.wait([
+          _cachesBox.delete(_localConversationsKey),
+          _cachesBox.delete(_localFoldersKey),
+        ]);
+      },
     );
   }
 

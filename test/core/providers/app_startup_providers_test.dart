@@ -283,11 +283,11 @@ void main() {
 
     final notifiers = _readWarmupNotifiers(container);
 
-    _expectForcedWarmup(
-      notifiers.conversations,
-      notifiers.folders,
-      warmIfNeededCalls: 1,
-    );
+    // CDT-RFC-001 Phase 1: the resume refresh flows through the sync
+    // engine (refreshConversationsCache -> requestPull), so the notifier's
+    // own refresh is NOT re-invoked; the warmup pass only warms folders.
+    expect(notifiers.conversations.refreshCalls, 0);
+    expect(notifiers.folders.warmIfNeededCalls, 1);
   });
 
   test('resume refreshes the active conversation from the server', () async {

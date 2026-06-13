@@ -94,7 +94,8 @@ class FakeOpenWebUiServer {
   int _internalClock = 0;
   final Uuid _uuid = const Uuid();
   final Map<String, _ChatRecord> _chats = <String, _ChatRecord>{};
-  final Set<String> _folders = <String>{};
+  final Map<String, Map<String, dynamic>> _folders =
+      <String, Map<String, dynamic>>{};
 
   static const DeepCollectionEquality _deepEq = DeepCollectionEquality();
 
@@ -105,9 +106,35 @@ class FakeOpenWebUiServer {
   }
 
   /// Test helper: registers [id] as an existing folder owned by the fake
-  /// user, so [createChat] accepts it as a `folderId`.
+  /// user, so [createChat] accepts it as a `folderId`. A minimal raw folder
+  /// map is synthesized for [getFolders].
   void seedFolder(String id) {
-    _folders.add(id);
+    _folders.putIfAbsent(
+      id,
+      () => <String, dynamic>{
+        'id': id,
+        'name': id,
+        'parent_id': null,
+        'created_at': _now(),
+        'updated_at': _now(),
+      },
+    );
+  }
+
+  /// Test helper: registers a verbatim raw folder map (must carry a String
+  /// `id`), mirroring what `GET /api/v1/folders/` would return.
+  void seedFolderRaw(Map<String, dynamic> raw) {
+    final id = raw['id'];
+    if (id is! String || id.isEmpty) {
+      throw ArgumentError.value(raw, 'raw', 'folder map needs a String id');
+    }
+    _folders[id] = _deepCopy(raw);
+  }
+
+  /// Mirrors `GET /api/v1/folders/`: every folder owned by the fake user as
+  /// raw maps.
+  List<Map<String, dynamic>> getFolders() {
+    return [for (final raw in _folders.values) _deepCopy(raw)];
   }
 
   int _now() => _externalClock?.call() ?? _internalClock;
@@ -158,6 +185,46 @@ class FakeOpenWebUiServer {
         .toList();
   }
 
+  /// Mirrors `GET /api/v1/chats/archived` semantics from
+  /// `get_archived_session_user_chat_list` ->
+  /// `get_archived_chat_list_by_user_id` (`routers/chats.py` /
+  /// `models/chats.py`): archived-only, default ordering
+  /// `updated_at DESC, id ASC` (the sync client always sends
+  /// `order_by=updated_at&direction=desc`, which matches), page size exactly
+  /// 60 with `skip = (page - 1) * 60` (a missing page defaults to 1
+  /// upstream), `ChatTitleIdResponse` shape. The upstream archived query
+  /// selects no `last_read_at`, so the validated model carries its `null`
+  /// default.
+  List<Map<String, dynamic>> getArchivedChatList({int? page}) {
+    var records = _chats.values.where((c) => c.archived).toList();
+
+    // `order_by(Chat.updated_at.desc(), Chat.id)`.
+    records.sort((a, b) {
+      final byUpdated = b.updatedAt.compareTo(a.updatedAt);
+      if (byUpdated != 0) return byUpdated;
+      return a.id.compareTo(b.id);
+    });
+
+    final skip = ((page ?? 1) - 1) * pageSize;
+    if (skip >= records.length || skip < 0) {
+      records = <_ChatRecord>[];
+    } else {
+      records = records.sublist(skip).take(pageSize).toList();
+    }
+
+    return records
+        .map(
+          (c) => <String, dynamic>{
+            'id': c.id,
+            'title': c.title,
+            'updated_at': c.updatedAt,
+            'created_at': c.createdAt,
+            'last_read_at': null,
+          },
+        )
+        .toList();
+  }
+
   /// Mirrors `POST /api/v1/chats/new`. The id is always server-generated.
   ///
   /// Throws [FakeOpenWebUiHttpException] (404) when [folderId] is non-null
@@ -168,7 +235,7 @@ class FakeOpenWebUiServer {
     Map<String, dynamic> chatBlob, {
     String? folderId,
   }) {
-    if (folderId != null && !_folders.contains(folderId)) {
+    if (folderId != null && !_folders.containsKey(folderId)) {
       throw FakeOpenWebUiHttpException(404, 'Not found');
     }
     final blob = _cleanNullBytes(_deepCopy(chatBlob)) as Map<String, dynamic>;
@@ -270,7 +337,7 @@ class FakeOpenWebUiServer {
     bool archived = false,
   }) {
     if (folderId != null) {
-      _folders.add(folderId);
+      seedFolder(folderId);
     }
     final copy = _cleanNullBytes(_deepCopy(blob)) as Map<String, dynamic>;
     _chats[id] = _ChatRecord(

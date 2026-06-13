@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/database/local_conversation_loader.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../shared/theme/theme_extensions.dart';
@@ -1666,29 +1667,49 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         }
       }
 
-      // Load the full conversation details in the background
-      final api = container.read(apiServiceProvider);
-      if (api != null) {
-        final full = await api.getConversation(id);
-        final fullReadAt = full.lastReadAt;
-        final optimisticFull =
-            fullReadAt == null || selectedReadAt.isAfter(fullReadAt)
-            ? full.copyWith(lastReadAt: selectedReadAt)
-            : full;
-        container.read(activeConversationProvider.notifier).set(optimisticFull);
-      } else {
-        // Fallback: use the lightweight item to update the active conversation
-        final fallback = (await container.read(
-          conversationsProvider.future,
-        )).firstWhere((c) => c.id == id);
-        final fallbackReadAt = fallback.lastReadAt;
-        final optimisticFallback =
-            fallbackReadAt == null || selectedReadAt.isAfter(fallbackReadAt)
-            ? fallback.copyWith(lastReadAt: selectedReadAt)
-            : fallback;
+      // DB-first open (CDT-RFC-001 Phase 1): a synced local row renders
+      // instantly — offline included — and a background pull freshens it.
+      final local = await loadLocalConversation(container, id);
+      if (local != null) {
+        final localReadAt = local.lastReadAt;
+        final optimisticLocal =
+            localReadAt == null || selectedReadAt.isAfter(localReadAt)
+            ? local.copyWith(lastReadAt: selectedReadAt)
+            : local;
         container
             .read(activeConversationProvider.notifier)
-            .set(optimisticFallback);
+            .set(optimisticLocal);
+        schedulePullChatNow(container, id);
+      } else {
+        // No row / envelope stub / reviewer mode: load from the server.
+        final api = container.read(apiServiceProvider);
+        if (api != null) {
+          final full = await api.getConversation(id);
+          final fullReadAt = full.lastReadAt;
+          final optimisticFull =
+              fullReadAt == null || selectedReadAt.isAfter(fullReadAt)
+              ? full.copyWith(lastReadAt: selectedReadAt)
+              : full;
+          container
+              .read(activeConversationProvider.notifier)
+              .set(optimisticFull);
+          // Materialize the local row so the next open is DB-first.
+          schedulePullChatNow(container, id);
+        } else {
+          // Fallback: use the lightweight item to update the active
+          // conversation
+          final fallback = (await container.read(
+            conversationsProvider.future,
+          )).firstWhere((c) => c.id == id);
+          final fallbackReadAt = fallback.lastReadAt;
+          final optimisticFallback =
+              fallbackReadAt == null || selectedReadAt.isAfter(fallbackReadAt)
+              ? fallback.copyWith(lastReadAt: selectedReadAt)
+              : fallback;
+          container
+              .read(activeConversationProvider.notifier)
+              .set(optimisticFallback);
+        }
       }
 
       // Clear loading after data is ready

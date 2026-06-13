@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/models/socket_transport_availability.dart';
 import 'package:conduit/core/persistence/hive_boxes.dart';
@@ -37,12 +36,6 @@ void main() {
 
   Future<void> seedLegacyJsonCache(String key, Object payload) {
     return caches.put(key, jsonEncode(payload));
-  }
-
-  void expectScopedStructuredCache(String key, {required String? serverId}) {
-    final migrated = caches.get(key) as Map;
-    expect(migrated['serverId'], serverId);
-    expect(migrated['data'], isA<List>());
   }
 
   setUp(() async {
@@ -122,136 +115,6 @@ void main() {
   });
 
   test(
-    'legacy conversation cache stays readable and migrates to the active server scope',
-    () async {
-      await saveServerConfigs(['server-a', 'server-b']);
-      await storage.setActiveServerId('server-a');
-      await seedLegacyJsonCache(HiveStoreKeys.localConversations, [
-        _conversationJson('legacy-chat'),
-      ]);
-
-      final conversations = await storage.getLocalConversations();
-      expect(conversations.map((conversation) => conversation.id), [
-        'legacy-chat',
-      ]);
-
-      expectScopedStructuredCache(
-        HiveStoreKeys.localConversations,
-        serverId: 'server-a',
-      );
-
-      await storage.setActiveServerId('server-b');
-      expect(await storage.getLocalConversations(), isEmpty);
-    },
-  );
-
-  test(
-    'legacy conversation cache read without an active server is quarantined from later server scopes',
-    () async {
-      await saveServerConfigs(['server-a']);
-      await seedLegacyJsonCache(HiveStoreKeys.localConversations, [
-        _conversationJson('legacy-chat'),
-      ]);
-
-      final conversations = await storage.getLocalConversations();
-      expect(conversations.map((conversation) => conversation.id), [
-        'legacy-chat',
-      ]);
-
-      expectScopedStructuredCache(
-        HiveStoreKeys.localConversations,
-        serverId: null,
-      );
-
-      await storage.setActiveServerId('server-a');
-      expect(await storage.getLocalConversations(), isEmpty);
-    },
-  );
-
-  test(
-    'legacy conversation cache with a stale active server id is quarantined instead of rebound',
-    () async {
-      await saveServerConfigs(['server-a']);
-      await storage.setActiveServerId('removed-server');
-      await seedLegacyJsonCache(HiveStoreKeys.localConversations, [
-        _conversationJson('legacy-chat'),
-      ]);
-
-      final conversations = await storage.getLocalConversations();
-      expect(conversations.map((conversation) => conversation.id), [
-        'legacy-chat',
-      ]);
-
-      expectScopedStructuredCache(
-        HiveStoreKeys.localConversations,
-        serverId: null,
-      );
-
-      await storage.setActiveServerId('server-a');
-      expect(await storage.getLocalConversations(), isEmpty);
-    },
-  );
-
-  test(
-    'legacy folder cache stays readable and migrates to the active server scope',
-    () async {
-      await saveServerConfigs(['server-a', 'server-b']);
-      await storage.setActiveServerId('server-a');
-      await seedLegacyJsonCache(HiveStoreKeys.localFolders, [
-        {'id': 'legacy-folder', 'name': 'Legacy Folder'},
-      ]);
-
-      final folders = await storage.getLocalFolders();
-      expect(folders.map((folder) => folder.id), ['legacy-folder']);
-
-      expectScopedStructuredCache(
-        HiveStoreKeys.localFolders,
-        serverId: 'server-a',
-      );
-
-      await storage.setActiveServerId('server-b');
-      expect(await storage.getLocalFolders(), isEmpty);
-    },
-  );
-
-  test(
-    'legacy folder cache read without an active server is quarantined from later server scopes',
-    () async {
-      await saveServerConfigs(['server-a']);
-      await seedLegacyJsonCache(HiveStoreKeys.localFolders, [
-        {'id': 'legacy-folder', 'name': 'Legacy Folder'},
-      ]);
-
-      final folders = await storage.getLocalFolders();
-      expect(folders.map((folder) => folder.id), ['legacy-folder']);
-
-      expectScopedStructuredCache(HiveStoreKeys.localFolders, serverId: null);
-
-      await storage.setActiveServerId('server-a');
-      expect(await storage.getLocalFolders(), isEmpty);
-    },
-  );
-
-  test(
-    'legacy folder cache with a stale active server id is quarantined instead of rebound',
-    () async {
-      await saveServerConfigs(['server-a']);
-      await storage.setActiveServerId('removed-server');
-      await seedLegacyJsonCache(HiveStoreKeys.localFolders, [
-        {'id': 'legacy-folder', 'name': 'Legacy Folder'},
-      ]);
-
-      final folders = await storage.getLocalFolders();
-      expect(folders.map((folder) => folder.id), ['legacy-folder']);
-
-      expectScopedStructuredCache(HiveStoreKeys.localFolders, serverId: null);
-
-      await storage.setActiveServerId('server-a');
-      expect(await storage.getLocalFolders(), isEmpty);
-    },
-  );
-
-  test(
     'validated active server id reuses cached server configs across repeated lookups',
     () async {
       await saveServerConfigs(['server-a']);
@@ -311,25 +174,6 @@ void main() {
     },
   );
 
-  test(
-    'fresh scoped cache writes with a stale active server id are quarantined',
-    () async {
-      await saveServerConfigs(['server-a']);
-      await storage.setActiveServerId('removed-server');
-
-      await storage.saveLocalConversations([
-        Conversation.fromJson(_conversationJson('fresh-chat')),
-      ]);
-
-      final stored = caches.get(HiveStoreKeys.localConversations) as Map;
-      expect(stored['serverId'], isNull);
-      expect(stored['data'], isA<List>());
-
-      await storage.setActiveServerId('server-a');
-      expect(await storage.getLocalConversations(), isEmpty);
-    },
-  );
-
   test('transport options are stored as structured scoped objects', () async {
     await saveServerConfigs(['server-a']);
     await storage.setActiveServerId('server-a');
@@ -361,15 +205,43 @@ void main() {
         username: 'user@example.com',
         password: 'password',
       );
-      await storage.saveLocalConversations([
-        Conversation.fromJson(_conversationJson('cached-chat')),
+      await seedLegacyJsonCache(HiveStoreKeys.localConversations, [
+        _conversationJson('cached-chat'),
       ]);
 
       await storage.clearUserScopedAuthData();
 
       expect(await storage.getAuthToken(), 'token-a');
       expect(await storage.getSavedCredentials(), isNotNull);
-      expect(await storage.getLocalConversations(), isEmpty);
+      expect(caches.containsKey(HiveStoreKeys.localConversations), isFalse);
+    },
+  );
+
+  test(
+    'deleteLegacyConversationCaches removes exactly the legacy keys '
+    '(CDT-RFC-001 §9.3) and is idempotent',
+    () async {
+      await seedLegacyJsonCache(HiveStoreKeys.localConversations, [
+        _conversationJson('legacy-chat'),
+      ]);
+      await seedLegacyJsonCache(HiveStoreKeys.localFolders, [
+        {'id': 'legacy-folder', 'name': 'Legacy Folder'},
+      ]);
+      await seedLegacyJsonCache(HiveStoreKeys.localTools, [
+        {'id': 'tool-1'},
+      ]);
+
+      await storage.deleteLegacyConversationCaches();
+
+      expect(caches.containsKey(HiveStoreKeys.localConversations), isFalse);
+      expect(caches.containsKey(HiveStoreKeys.localFolders), isFalse);
+      // Unrelated cache entries stay untouched.
+      expect(caches.containsKey(HiveStoreKeys.localTools), isTrue);
+
+      // Idempotent: a second pass is a no-op.
+      await storage.deleteLegacyConversationCaches();
+      expect(caches.containsKey(HiveStoreKeys.localConversations), isFalse);
+      expect(caches.containsKey(HiveStoreKeys.localFolders), isFalse);
     },
   );
 

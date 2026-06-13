@@ -1,3 +1,5 @@
+import 'package:conduit/core/database/app_database.dart';
+import 'package:conduit/core/database/database_provider.dart';
 import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/core/models/folder.dart';
@@ -20,6 +22,7 @@ import 'package:conduit/shared/utils/conversation_context_menu.dart';
 import 'package:conduit/shared/services/tasks/task_queue.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
+import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -344,11 +347,23 @@ void main() {
       updatedAt: timestamp,
       folderId: 'work',
     );
+    // Folder summaries render from the local database now (CDT-RFC-001
+    // Phase 1): seed the chats row instead of stubbing a server endpoint.
+    final db = AppDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+    await db.chatsDao.upsertEnvelopeStub(
+      id: 'folder-chat-1',
+      title: 'Folder Chat',
+      createdAt: timestamp.millisecondsSinceEpoch ~/ 1000,
+      updatedAt: timestamp.millisecondsSinceEpoch ~/ 1000,
+      folderId: 'work',
+    );
     final container = _createContainer(
-      api: _FakeFolderApiService(conversationSummaries: [conversation]),
+      api: _FakeFolderApiService(),
       folders: const [Folder(id: 'work', name: 'Work')],
       conversations: [conversation],
       isAuthenticated: true,
+      database: db,
     );
     addTearDown(container.dispose);
 
@@ -403,6 +418,7 @@ ProviderContainer _createContainer({
   Conversation? activeConversation,
   List<ChatMessage> initialMessages = const <ChatMessage>[],
   TaskQueueNotifier? taskQueueNotifier,
+  AppDatabase? database,
 }) {
   final resolvedSelectedModel =
       selectedModel ?? const Model(id: 'model-1', name: 'Model 1');
@@ -411,6 +427,7 @@ ProviderContainer _createContainer({
     overrides: [
       appSettingsProvider.overrideWithValue(settings),
       apiServiceProvider.overrideWithValue(api),
+      appDatabaseProvider.overrideWith((ref) => database),
       isAuthenticatedProvider2.overrideWithValue(isAuthenticated),
       if (isAuthenticated) authTokenProvider3.overrideWithValue('test-token'),
       reviewerModeProvider.overrideWithValue(reviewerMode),
@@ -557,19 +574,12 @@ class _RecordingTaskQueueNotifier extends TaskQueueNotifier {
 class _FakeOptimizedStorageService extends Fake
     implements OptimizedStorageService {
   @override
-  Future<void> saveLocalFolders(List<Folder> folders) async {}
-
-  @override
-  Future<void> saveLocalConversations(List<Conversation> conversations) async {}
-
-  @override
   Future<void> saveLocalDefaultModel(Model? model) async {}
 }
 
 class _FakeFolderApiService extends Fake implements ApiService {
-  _FakeFolderApiService({this.conversationSummaries = const <Conversation>[]});
+  _FakeFolderApiService();
 
-  final List<Conversation> conversationSummaries;
   String? lastUpdatedName;
   Map<String, dynamic>? lastUpdatedMeta;
   Map<String, dynamic>? lastUpdatedData;
@@ -596,15 +606,6 @@ class _FakeFolderApiService extends Fake implements ApiService {
   @override
   Future<Map<String, dynamic>> getUserPermissions() async =>
       <String, dynamic>{};
-
-  @override
-  Future<List<Conversation>> getFolderConversationSummaries(
-    String folderId,
-  ) async {
-    return conversationSummaries
-        .where((conversation) => conversation.folderId == folderId)
-        .toList(growable: false);
-  }
 
   @override
   Future<Map<String, dynamic>?> updateFolder(

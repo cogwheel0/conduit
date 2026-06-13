@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/database/local_conversation_loader.dart';
 import '../../../core/models/conversation.dart';
 import '../../../core/models/folder.dart';
 import '../../../core/models/model.dart';
@@ -1082,17 +1083,27 @@ class _FolderPageState extends ConsumerState<FolderPage> {
 
       NavigationService.router.go(Routes.chat);
 
-      final api = container.read(apiServiceProvider);
-      if (api != null) {
-        final fullConversation = await api.getConversation(conversationId);
-        container
-            .read(activeConversationProvider.notifier)
-            .set(fullConversation);
+      // DB-first open (CDT-RFC-001 Phase 1): a synced local row renders
+      // instantly — offline included — and a background pull freshens it.
+      final local = await loadLocalConversation(container, conversationId);
+      if (local != null) {
+        container.read(activeConversationProvider.notifier).set(local);
+        schedulePullChatNow(container, conversationId);
       } else {
-        final conversation = (await container.read(
-          conversationsProvider.future,
-        )).firstWhere((item) => item.id == conversationId);
-        container.read(activeConversationProvider.notifier).set(conversation);
+        final api = container.read(apiServiceProvider);
+        if (api != null) {
+          final fullConversation = await api.getConversation(conversationId);
+          container
+              .read(activeConversationProvider.notifier)
+              .set(fullConversation);
+          // Materialize the local row so the next open is DB-first.
+          schedulePullChatNow(container, conversationId);
+        } else {
+          final conversation = (await container.read(
+            conversationsProvider.future,
+          )).firstWhere((item) => item.id == conversationId);
+          container.read(activeConversationProvider.notifier).set(conversation);
+        }
       }
 
       container.read(chat.isLoadingConversationProvider.notifier).set(false);

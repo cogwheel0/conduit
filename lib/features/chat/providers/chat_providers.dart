@@ -12,7 +12,14 @@ import '../../../core/auth/auth_state_manager.dart';
 import '../../../core/models/chat_message.dart';
 import '../../../core/models/model.dart';
 import '../../../core/models/conversation.dart';
+import '../../../core/database/app_database.dart';
+import '../../../core/database/database_provider.dart';
+import '../../../core/database/local_conversation_loader.dart';
+import '../../../core/database/mappers/chat_blob_mapper.dart';
+import '../../../core/database/mappers/conversation_assembler.dart';
 import '../../../core/providers/app_providers.dart';
+import '../../../core/sync/chat_locks.dart';
+import '../../../core/sync/sync_engine.dart';
 
 import '../../../core/services/location_service.dart';
 import '../../../core/services/settings_service.dart';
@@ -299,6 +306,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   final List<VoidCallback> _socketSubscriptions = [];
   VoidCallback? _socketTeardown;
   SocketEventSubscription? _passiveConversationSocketSubscription;
+  StreamSubscription<List<MessageRow>>? _dbMessagesSubscription;
+  String? _dbWatchedChatId;
   DateTime? _lastStreamingActivity;
   StringBuffer? _streamingBuffer;
   Timer? _streamingSyncTimer;
@@ -338,6 +347,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         );
 
         _configurePassiveConversationSync(next);
+        _configureDbMessagesWatch(next?.id);
 
         // Only react when the conversation actually changes
         if (previous?.id == next?.id) {
@@ -380,6 +390,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         _subscriptions.clear();
 
         _teardownPassiveConversationSync();
+        _cancelDbMessagesWatch();
         _cancelMessageStream(clearStreamingContent: false);
         _stopRemoteTaskMonitor();
         _streamingSyncTimer?.cancel();
@@ -394,7 +405,101 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
     final activeConversation = ref.read(activeConversationProvider);
     _configurePassiveConversationSync(activeConversation);
+    _configureDbMessagesWatch(activeConversation?.id);
     return activeConversation?.messages ?? const [];
+  }
+
+  /// One narrow Drift watch over the active chat's message rows
+  /// (CDT-RFC-001 §10.2: always `WHERE chatId = ?`). Resubscribed on
+  /// conversation change, cancelled on null/dispose.
+  void _configureDbMessagesWatch(String? conversationId) {
+    if (conversationId == null ||
+        conversationId.isEmpty ||
+        isTemporaryChat(conversationId)) {
+      _cancelDbMessagesWatch();
+      return;
+    }
+    if (_dbWatchedChatId == conversationId && _dbMessagesSubscription != null) {
+      return;
+    }
+    _cancelDbMessagesWatch();
+    final db = _maybeDatabase();
+    if (db == null) {
+      return;
+    }
+    _dbWatchedChatId = conversationId;
+    _dbMessagesSubscription = db.messagesDao
+        .watchForChat(conversationId)
+        .listen(
+          (rows) => unawaited(_onDbMessagesChanged(conversationId, rows)),
+          onError: (Object error, StackTrace stackTrace) {
+            DebugLogger.error(
+              'db-watch-failed',
+              scope: 'chat/providers',
+              error: error,
+              stackTrace: stackTrace,
+              data: {'conversationId': conversationId},
+            );
+          },
+        );
+  }
+
+  void _cancelDbMessagesWatch() {
+    _dbMessagesSubscription?.cancel();
+    _dbMessagesSubscription = null;
+    _dbWatchedChatId = null;
+  }
+
+  /// Database emissions adopt through the exact same protected path as
+  /// server snapshots: streaming state is never touched while
+  /// [_shouldProtectLocalStreamingState] holds, and all dedupe/protection
+  /// lives in [_adoptServerMessages].
+  Future<void> _onDbMessagesChanged(
+    String conversationId,
+    List<MessageRow> rows,
+  ) async {
+    if (_disposed || _shouldProtectLocalStreamingState) {
+      return;
+    }
+    if (ref.read(activeConversationProvider)?.id != conversationId) {
+      return;
+    }
+    final db = _maybeDatabase();
+    if (db == null) {
+      return;
+    }
+    try {
+      final chat = await db.chatsDao.getChat(conversationId);
+      if (chat == null || !chat.bodySynced) {
+        return;
+      }
+      final conversation = assembleConversation(chat, rows);
+      if (_disposed || !ref.mounted || _shouldProtectLocalStreamingState) {
+        return;
+      }
+      if (ref.read(activeConversationProvider)?.id != conversationId) {
+        return;
+      }
+      _adoptServerMessages(conversation.messages, source: 'database watch');
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'db-adopt-failed',
+        scope: 'chat/providers',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'conversationId': conversationId},
+      );
+    }
+  }
+
+  AppDatabase? _maybeDatabase() {
+    try {
+      return ref.read(appDatabaseProvider);
+    } catch (_) {
+      // Database dependencies unavailable (e.g. teardown or test harness
+      // without an active server).
+      return null;
+    }
   }
 
   bool _shouldAdoptServerMessages(List<ChatMessage> serverMessages) {
@@ -814,17 +919,34 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       return;
     }
 
-    final api = ref.read(apiServiceProvider);
     final activeConversation = ref.read(activeConversationProvider);
-    if (api == null ||
-        activeConversation == null ||
+    if (activeConversation == null ||
         activeConversation.id != conversationId) {
       return;
     }
 
     _passiveConversationRefreshInFlight = true;
     try {
-      final refreshed = await api.getConversation(conversationId);
+      // Pull through the sync engine: the raw fetch persists via
+      // upsertServerChat under the chat lock, then returns the assembled
+      // conversation (CDT-RFC-001 Phase 1).
+      Conversation? refreshed;
+      try {
+        refreshed = await ref
+            .read(syncEngineProvider.notifier)
+            .pullChatNow(conversationId);
+      } catch (_) {
+        refreshed = null;
+      }
+      if (refreshed == null) {
+        // Engine inert/unavailable (no database, reviewer mode): legacy
+        // direct fetch keeps passive sync alive.
+        final api = ref.read(apiServiceProvider);
+        if (api == null) {
+          return;
+        }
+        refreshed = await api.getConversation(conversationId);
+      }
       if (!ref.mounted) {
         return;
       }
@@ -1964,6 +2086,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
 
     _syncConversationStateAfterStreamingUpdate();
+    _persistCompletedTurn();
   }
 
   void completeStreamingUi() {
@@ -1972,6 +2095,159 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
   void finishStreaming() {
     _completeStreamingMessage(releaseTransport: true);
+  }
+
+  /// D-07 local echo: after a stream lands, write the trailing user message
+  /// and the completed assistant message to the local database under the
+  /// chat lock. The rows are plain local echoes the next pull fast-forwards
+  /// over (no dirty flag in Phase 1; outbox semantics arrive in Phase 2).
+  /// Silently no-ops for temporary chats and when the chats row is absent
+  /// (`upsertLocalEcho` returns false).
+  void _persistCompletedTurn() {
+    final activeId = ref.read(activeConversationProvider)?.id;
+    if (activeId == null || activeId.isEmpty || isTemporaryChat(activeId)) {
+      return;
+    }
+    final db = _maybeDatabase();
+    if (db == null) {
+      return;
+    }
+    final messages = state;
+    if (messages.isEmpty) {
+      return;
+    }
+    final assistant = messages.last;
+    if (assistant.role != 'assistant' || assistant.isStreaming) {
+      return;
+    }
+    final trailingUser = _trailingUserMessage(messages);
+    final ChatLocks locks;
+    try {
+      locks = ref.read(chatLocksProvider);
+    } catch (_) {
+      return;
+    }
+    unawaited(
+      _writeTurnEcho(
+        db: db,
+        locks: locks,
+        chatId: activeId,
+        trailingUser: trailingUser,
+        assistant: assistant,
+      ),
+    );
+  }
+
+  /// D-07 pause checkpoint: when the app backgrounds mid-stream, flush the
+  /// streaming buffer into state and echo the in-flight turn so a process
+  /// kill cannot lose it. No-op unless a stream is active; silently no-ops
+  /// when the chats row is absent.
+  Future<void> persistPauseCheckpoint() async {
+    if (!_hasStreamingAssistant) {
+      return;
+    }
+    final activeId = ref.read(activeConversationProvider)?.id;
+    if (activeId == null || activeId.isEmpty || isTemporaryChat(activeId)) {
+      return;
+    }
+    final db = _maybeDatabase();
+    if (db == null) {
+      return;
+    }
+    syncStreamingBuffer();
+    final messages = state;
+    if (messages.isEmpty) {
+      return;
+    }
+    final assistant = messages.last;
+    if (assistant.role != 'assistant') {
+      return;
+    }
+    final trailingUser = _trailingUserMessage(messages);
+    final ChatLocks locks;
+    try {
+      locks = ref.read(chatLocksProvider);
+    } catch (_) {
+      return;
+    }
+    await _writeTurnEcho(
+      db: db,
+      locks: locks,
+      chatId: activeId,
+      trailingUser: trailingUser,
+      assistant: assistant,
+    );
+  }
+
+  Future<void> _writeTurnEcho({
+    required AppDatabase db,
+    required ChatLocks locks,
+    required String chatId,
+    required ChatMessage? trailingUser,
+    required ChatMessage assistant,
+  }) async {
+    try {
+      await locks.runExclusive(chatId, () async {
+        if (trailingUser != null) {
+          final wrote = await db.messagesDao.upsertLocalEcho(
+            _localEchoRow(chatId, trailingUser),
+          );
+          if (!wrote) {
+            return;
+          }
+        }
+        await db.messagesDao.upsertLocalEcho(
+          _localEchoRow(chatId, assistant, parentId: trailingUser?.id),
+        );
+      });
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'turn-echo-failed',
+        scope: 'chat/providers',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'chatId': chatId},
+      );
+    }
+  }
+
+  ChatMessage? _trailingUserMessage(List<ChatMessage> messages) {
+    for (var index = messages.length - 1; index >= 0; index -= 1) {
+      if (messages[index].role == 'user') {
+        return messages[index];
+      }
+    }
+    return null;
+  }
+
+  /// Minimal history-message shape (`{id, parentId, childrenIds, role,
+  /// content, timestamp, model?}`) — explicitly a local echo.
+  MessageRowData _localEchoRow(
+    String chatId,
+    ChatMessage message, {
+    String? parentId,
+  }) {
+    final timestamp = message.timestamp.millisecondsSinceEpoch ~/ 1000;
+    return MessageRowData(
+      id: message.id,
+      chatId: chatId,
+      parentId: parentId,
+      role: message.role,
+      content: message.content,
+      model: message.model,
+      createdAt: timestamp,
+      // Recomputed by upsertLocalEcho for new rows.
+      orderIndex: 0,
+      payload: <String, dynamic>{
+        'id': message.id,
+        'parentId': parentId,
+        'childrenIds': const <String>[],
+        'role': message.role,
+        'content': message.content,
+        'timestamp': timestamp,
+        if (message.model != null) 'model': message.model,
+      },
+    );
   }
 }
 
@@ -3556,6 +3832,10 @@ Future<void> _sendMessageInternal(
                     updatedConversation.folderId!.isNotEmpty,
               );
 
+          // CDT-RFC-001 Phase 1 (E4): materialize the chats row so the
+          // stream-completion echo and pause checkpoint have a parent row.
+          schedulePullChatNow(ref, serverConversation.id);
+
           // Invalidate conversations provider to refresh the list
           // Adding a small delay to prevent rapid invalidations that could cause duplicates
           Future.delayed(const Duration(milliseconds: 100), () {
@@ -3964,7 +4244,6 @@ String _errorContentForException(Object e) {
 // Fallback: Save current conversation to local storage
 Future<void> _saveConversationLocally(dynamic ref) async {
   try {
-    final storage = ref.read(optimizedStorageServiceProvider);
     final messages = ref.read(chatMessagesProvider);
     final activeConversation = ref.read(activeConversationProvider);
 
@@ -3986,18 +4265,29 @@ Future<void> _saveConversationLocally(dynamic ref) async {
       updatedAt: DateTime.now(),
     );
 
-    final conversations = await storage.getLocalConversations();
-    final updatedConversations = conversations.toList(growable: true);
-    final existingIndex = updatedConversations.indexWhere(
-      (conversation) => conversation.id == updatedConversation.id,
-    );
-    if (existingIndex >= 0) {
-      updatedConversations[existingIndex] = updatedConversation;
-    } else {
-      updatedConversations.add(updatedConversation);
+    final db = ref.read(appDatabaseProvider);
+    if (db != null && !isTemporaryChat(updatedConversation.id)) {
+      final lastReadAt = updatedConversation.lastReadAt;
+      // ChatLocks discipline: serialize with pull merges / turn echoes so a
+      // stale optimistic stub can never overwrite a just-merged server row.
+      final ChatLocks locks = ref.read(chatLocksProvider);
+      await locks.runExclusive(updatedConversation.id, () async {
+        await db.chatsDao.upsertEnvelopeStub(
+          id: updatedConversation.id,
+          title: updatedConversation.title,
+          createdAt:
+              updatedConversation.createdAt.millisecondsSinceEpoch ~/ 1000,
+          updatedAt:
+              updatedConversation.updatedAt.millisecondsSinceEpoch ~/ 1000,
+          pinned: updatedConversation.pinned,
+          archived: updatedConversation.archived,
+          folderId: updatedConversation.folderId,
+          lastReadAt: lastReadAt == null
+              ? null
+              : lastReadAt.millisecondsSinceEpoch ~/ 1000,
+        );
+      });
     }
-
-    await storage.saveLocalConversations(updatedConversations);
     ref.read(activeConversationProvider.notifier).set(updatedConversation);
     refreshConversationsCache(ref);
   } catch (e) {
