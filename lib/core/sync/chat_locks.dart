@@ -78,3 +78,14 @@ ChatLocks folderLocks(Ref ref) {
   ref.watch(appDatabaseProvider);
   return ChatLocks();
 }
+
+/// Note ops own a SEPARATE lock domain from chats and folders
+/// (`OutboxDao.isNoteKind`): the Phase 5 notes write path + push take this as
+/// their `noteLocks`. A distinct [ChatLocks] instance so a note op never
+/// contends a chat/folder op (and vice versa). Recreated per database identity
+/// so locks never leak across servers. The per-key id is the NOTE id.
+@Riverpod(keepAlive: true)
+ChatLocks noteLocks(Ref ref) {
+  ref.watch(appDatabaseProvider);
+  return ChatLocks();
+}

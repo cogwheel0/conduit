@@ -79,6 +79,37 @@ class _ChatRecord {
   bool archived;
 }
 
+/// Internal mutable note row, shaped like the vendored `Note` table
+/// (`models/notes.py`). `pinned` models the per-user `PinnedNote` join (the
+/// fake has a single user). All timestamps are NANOSECONDS (R-09).
+class _NoteRecord {
+  _NoteRecord({
+    required this.id,
+    required this.title,
+    required this.data,
+    required this.meta,
+    required this.createdAt,
+    required this.updatedAt,
+    this.pinned = false,
+    Map<String, dynamic>? extra,
+  }) : extra = extra ?? <String, dynamic>{};
+
+  final String id;
+  String title;
+  Map<String, dynamic> data;
+  Map<String, dynamic> meta;
+
+  /// NANOSECONDS.
+  final int createdAt;
+  int updatedAt;
+  bool pinned;
+
+  /// Round-trip carrier for unknown top-level keys the server preserves but
+  /// the sync client never touches (e.g. `access_grants`, `access_control`).
+  /// Mirrors the note mapper's `rawExtra` (non-neg 2).
+  final Map<String, dynamic> extra;
+}
+
 class FakeOpenWebUiServer {
   /// [nowEpochSeconds] injects an external clock. When omitted, an internal
   /// monotonic counter is used, advanced explicitly via [tick].
@@ -90,20 +121,38 @@ class FakeOpenWebUiServer {
   /// Page size used by `get_session_user_chat_list` when `page` is provided.
   static const int pageSize = 60;
 
+  /// Page size used by `get_notes` (vendored `routers/notes.py`, `limit = 60`).
+  static const int notePageSize = 60;
+
   final int Function()? _externalClock;
   int _internalClock = 0;
   final Uuid _uuid = const Uuid();
   final Map<String, _ChatRecord> _chats = <String, _ChatRecord>{};
   final Map<String, Map<String, dynamic>> _folders =
       <String, Map<String, dynamic>>{};
+  final Map<String, _NoteRecord> _notes = <String, _NoteRecord>{};
+
+  // ---- Notes clock (CDT-RFC-001 R-09: NANOSECONDS, a SEPARATE clock domain
+  // from the chat seconds clock above — the two are NEVER unit-converted nor
+  // compared). `time.time_ns()` in the vendored `models/notes.py`. ----
+  int _noteClockNs = 0;
 
   static const DeepCollectionEquality _deepEq = DeepCollectionEquality();
 
-  /// Advances the internal clock. Only meaningful when no external clock
-  /// was injected.
+  /// Advances the internal chat clock (SECONDS). Only meaningful when no
+  /// external clock was injected.
   void tick([int seconds = 1]) {
     _internalClock += seconds;
   }
+
+  /// Advances the note clock (NANOSECONDS). Independent of [tick] / the chat
+  /// clock so a test can prove the two domains never touch (R-09). Defaults to
+  /// a 1-second step expressed in ns.
+  void tickNoteNs([int nanoseconds = 1000 * 1000 * 1000]) {
+    _noteClockNs += nanoseconds;
+  }
+
+  int _nowNoteNs() => _noteClockNs;
 
   /// Test helper: registers [id] as an existing folder owned by the fake
   /// user, so [createChat] accepts it as a `folderId`. A minimal raw folder
@@ -432,6 +481,186 @@ class FakeOpenWebUiServer {
     }
     _folders.remove(id);
     return true;
+  }
+
+  // ---- Notes (CDT-RFC-001 Phase 5, D-11, R-09) ----
+  //
+  // Semantics mirrored from `openwebui-src/backend/open_webui/routers/notes.py`
+  // + `models/notes.py`. ALL timestamps are NANOSECONDS (`time.time_ns()`);
+  // they are NEVER seconds and NEVER reconciled with the chat clock above.
+
+  /// Test helper: seeds a note row with explicit NANOSECOND timestamps,
+  /// bypassing the note clock. [extra] folds in unknown top-level keys
+  /// (`access_grants` etc.) the server preserves verbatim.
+  void seedNote({
+    required String id,
+    required String title,
+    Map<String, dynamic>? data,
+    Map<String, dynamic>? meta,
+    required int createdAt,
+    required int updatedAt,
+    bool pinned = false,
+    Map<String, dynamic>? extra,
+  }) {
+    _notes[id] = _NoteRecord(
+      id: id,
+      title: title,
+      data: data == null
+          ? <String, dynamic>{}
+          : _deepCopy(data),
+      meta: meta == null
+          ? <String, dynamic>{}
+          : _deepCopy(meta),
+      createdAt: createdAt,
+      updatedAt: updatedAt,
+      pinned: pinned,
+      extra: extra == null ? null : _deepCopy(extra),
+    );
+  }
+
+  /// Mirrors `GET /api/v1/notes/` (`get_notes` -> `Notes.get_notes`): the full
+  /// note list ordered `updated_at DESC`, page size 60 with
+  /// `skip = (page - 1) * 60` when [page] is given (a missing page returns the
+  /// whole ordered list, matching the unpaged route default).
+  ///
+  /// `NoteUserResponse` shape, with `data` TRUNCATED to
+  /// `{'content': {'md': md[:1000]}}` (`_truncate_note_data`) so list `data` is
+  /// NOT authoritative — the sync client full-fetches each changed note.
+  List<Map<String, dynamic>> getNotes({int? page}) {
+    var records = _notes.values.toList();
+    records.sort((a, b) {
+      final byUpdated = b.updatedAt.compareTo(a.updatedAt);
+      if (byUpdated != 0) return byUpdated;
+      return a.id.compareTo(b.id);
+    });
+    if (page != null) {
+      final skip = (page - 1) * notePageSize;
+      if (skip >= records.length || skip < 0) {
+        records = <_NoteRecord>[];
+      } else {
+        records = records.sublist(skip).take(notePageSize).toList();
+      }
+    }
+    return [for (final record in records) _toNoteListItem(record)];
+  }
+
+  /// Mirrors `GET /api/v1/notes/{id}` (`get_note_by_id`): the FULL (untruncated)
+  /// `NoteResponse` map; null when missing/deleted.
+  Map<String, dynamic>? getNoteById(String id) {
+    final record = _notes[id];
+    if (record == null) return null;
+    return _toNoteResponse(record);
+  }
+
+  /// Mirrors `POST /api/v1/notes/create` (`create_new_note` ->
+  /// `insert_new_note`): the server mints the id (uuid4) and BOTH ns
+  /// timestamps. `title`/`data`/`meta` come from the form; `is_pinned` starts
+  /// false; `access_grants` starts empty. Returns the full `NoteModel` map.
+  Map<String, dynamic> createNote({
+    required String title,
+    Map<String, dynamic>? data,
+    Map<String, dynamic>? meta,
+  }) {
+    final now = _nowNoteNs();
+    final record = _NoteRecord(
+      id: _uuid.v4(),
+      title: title,
+      data: data == null ? <String, dynamic>{} : _deepCopy(data),
+      meta: meta == null ? <String, dynamic>{} : _deepCopy(meta),
+      createdAt: now,
+      updatedAt: now,
+    );
+    _notes[record.id] = record;
+    return _toNoteResponse(record);
+  }
+
+  /// Mirrors `POST /api/v1/notes/{id}/update` (`update_note_by_id` ->
+  /// `Notes.update_note_by_id`): `title` is replaced when present; `data`/`meta`
+  /// are SHALLOW-MERGED (`{**existing, **incoming}`); `updated_at` is restamped
+  /// from the note (ns) clock. Returns the updated `NoteModel`; null on a
+  /// missing id (the route returns `None` -> a 404 surfaces as null).
+  Map<String, dynamic>? updateNote(String id, Map<String, dynamic> patch) {
+    final record = _notes[id];
+    if (record == null) return null;
+    if (patch.containsKey('title')) {
+      record.title = patch['title'] is String ? patch['title'] as String : '';
+    }
+    if (patch.containsKey('data')) {
+      final incoming = patch['data'];
+      record.data = <String, dynamic>{
+        ...record.data,
+        if (incoming is Map) ..._deepCopy(Map<String, dynamic>.from(incoming)),
+      };
+    }
+    if (patch.containsKey('meta')) {
+      final incoming = patch['meta'];
+      record.meta = <String, dynamic>{
+        ...record.meta,
+        if (incoming is Map) ..._deepCopy(Map<String, dynamic>.from(incoming)),
+      };
+    }
+    record.updatedAt = _nowNoteNs();
+    return _toNoteResponse(record);
+  }
+
+  /// Mirrors `DELETE /api/v1/notes/{id}/delete` (`delete_note_by_id`): false
+  /// when the id does not exist, true after removal.
+  bool deleteNote(String id) => _notes.remove(id) != null;
+
+  /// Mirrors `POST /api/v1/notes/{id}/pin` (`pin_note_by_id` ->
+  /// `toggle_note_pinned_by_id`): a STATELESS per-user TOGGLE that IGNORES the
+  /// body and does NOT restamp `updated_at`. Returns the `NoteModel` after the
+  /// flip (`is_pinned` reflects the new state); null on a missing id.
+  Map<String, dynamic>? togglePinNote(String id) {
+    final record = _notes[id];
+    if (record == null) return null;
+    record.pinned = !record.pinned;
+    return _toNoteResponse(record);
+  }
+
+  /// `NoteUserResponse` list-item shape with `data` truncated to 1000 chars of
+  /// `content.md` (`_truncate_note_data`).
+  Map<String, dynamic> _toNoteListItem(_NoteRecord record) => <String, dynamic>{
+    'id': record.id,
+    'user_id': userId,
+    'title': record.title,
+    'data': _truncateNoteData(record.data),
+    'meta': _deepCopy(record.meta),
+    'is_pinned': record.pinned,
+    'access_grants': record.extra['access_grants'] ?? <dynamic>[],
+    'created_at': record.createdAt,
+    'updated_at': record.updatedAt,
+    'user': null,
+  };
+
+  /// Full (untruncated) `NoteResponse` map, with `access_grants` and any other
+  /// unknown keys spread back from [_NoteRecord.extra] (round-trip, non-neg 2).
+  Map<String, dynamic> _toNoteResponse(_NoteRecord record) => <String, dynamic>{
+    ..._deepCopy(record.extra),
+    'id': record.id,
+    'user_id': userId,
+    'title': record.title,
+    'data': _deepCopy(record.data),
+    'meta': _deepCopy(record.meta),
+    'is_pinned': record.pinned,
+    'access_grants': record.extra['access_grants'] ?? <dynamic>[],
+    'created_at': record.createdAt,
+    'updated_at': record.updatedAt,
+  };
+
+  /// Dart port of `_truncate_note_data` (`routers/notes.py`): when
+  /// `data['content']['md']` is a string, replace `data` with
+  /// `{'content': {'md': md[:1000]}}`; otherwise pass `data` through unchanged.
+  static Map<String, dynamic> _truncateNoteData(Map<String, dynamic> data) {
+    final content = data['content'];
+    final md = content is Map ? content['md'] : null;
+    if (md is String) {
+      final truncated = md.length > 1000 ? md.substring(0, 1000) : md;
+      return <String, dynamic>{
+        'content': <String, dynamic>{'md': truncated},
+      };
+    }
+    return _deepCopy(data);
   }
 
   /// Test helper: seeds a chat row with explicit timestamps and flags,

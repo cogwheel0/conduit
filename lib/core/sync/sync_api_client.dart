@@ -132,6 +132,57 @@ abstract interface class SyncApiClient {
   /// default is `true`, which ALSO deletes every contained chat (verified
   /// `routers/folders.py:delete_folder_by_id`).
   Future<void> deleteFolder(String id, {bool deleteContents = false});
+
+  // ---- Phase 5 NOTES (CDT-RFC-001 D-11) ----
+  //
+  // All note timestamps in these payloads are server NANOSECONDS (R-09); this
+  // seam copies them verbatim and never converts units.
+
+  /// GET `/api/v1/notes/` — the note list ordered `updated_at` DESC (vendored
+  /// `routers/notes.py:get_notes`). Raw `NoteUserResponse` maps
+  /// `{id, title, data, is_pinned, updated_at, created_at, user}`.
+  ///
+  /// WARNING: the list endpoint TRUNCATES `data['content']['md']` to 1000 chars
+  /// (`_truncate_note_data`), so list `data` is NOT authoritative — the pull
+  /// uses the list only for `{id, updated_at}` and full-fetches each changed
+  /// note via [getNoteRaw]. The bool is featureEnabled (false on 401/403, the
+  /// vendored "notes feature disabled / no permission" response).
+  Future<(List<Map<String, dynamic>>, bool)> getNoteListRaw();
+
+  /// GET `/api/v1/notes/{id}` — the FULL (untruncated) `NoteResponse` map;
+  /// null on 404. 401/403 (not owner / no read) surfaces as null too (treated
+  /// as gone for the own-notes pull, matching the chat probe contract).
+  Future<Map<String, dynamic>?> getNoteRaw(String id);
+
+  /// POST `/api/v1/notes/create` body `{title, data, meta?}`. The server mints
+  /// the id + the ns timestamps. Returns the full `NoteModel` map. Own-notes
+  /// sync NEVER sends `access_grants`/`access_control` (D-11). 401/403 throws
+  /// [SyncTerminalException].
+  Future<Map<String, dynamic>> createNote({
+    required String title,
+    required Map<String, dynamic> data,
+    Map<String, dynamic>? meta,
+  });
+
+  /// POST `/api/v1/notes/{id}/update` body = the patch map ([patch] ALWAYS
+  /// carries `title`; `data` only when the data axis changed — WARNING B).
+  /// Returns the updated `NoteModel` map; null on 404 (gone). 401/403 throws
+  /// [SyncTerminalException].
+  Future<Map<String, dynamic>?> updateNote(
+    String id,
+    Map<String, dynamic> patch,
+  );
+
+  /// DELETE `/api/v1/notes/{id}/delete` -> bool. `true` on success; 404
+  /// (already-gone) -> `false` WITHOUT throwing. 401/403 throws
+  /// [SyncTerminalException].
+  Future<bool> deleteNote(String id);
+
+  /// POST `/api/v1/notes/{id}/pin` — a stateless TOGGLE (vendored
+  /// `pin_note_by_id` flips the per-user pinned state, IGNORING the body).
+  /// Returns the `NoteModel` after the flip (`is_pinned` reflects the new
+  /// state); null on 404. 401/403 throws [SyncTerminalException].
+  Future<Map<String, dynamic>?> togglePinNote(String id);
 }
 
 /// Production implementation over [ApiService].
@@ -248,6 +299,45 @@ class ApiSyncApiClient implements SyncApiClient {
   @override
   Future<void> deleteFolder(String id, {bool deleteContents = false}) {
     return api.deleteFolderRaw(id, deleteContents: deleteContents);
+  }
+
+  // ---- Phase 5 NOTES ----
+
+  @override
+  Future<(List<Map<String, dynamic>>, bool)> getNoteListRaw() {
+    return api.getNotes();
+  }
+
+  @override
+  Future<Map<String, dynamic>?> getNoteRaw(String id) {
+    return api.getNoteRaw(id);
+  }
+
+  @override
+  Future<Map<String, dynamic>> createNote({
+    required String title,
+    required Map<String, dynamic> data,
+    Map<String, dynamic>? meta,
+  }) {
+    return api.createNoteRaw(title: title, data: data, meta: meta);
+  }
+
+  @override
+  Future<Map<String, dynamic>?> updateNote(
+    String id,
+    Map<String, dynamic> patch,
+  ) {
+    return api.updateNoteRaw(id, patch);
+  }
+
+  @override
+  Future<bool> deleteNote(String id) {
+    return api.deleteNoteRaw(id);
+  }
+
+  @override
+  Future<Map<String, dynamic>?> togglePinNote(String id) {
+    return api.togglePinNoteRaw(id);
   }
 }
 

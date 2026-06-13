@@ -11,16 +11,20 @@ import '../providers/app_providers.dart';
 import '../services/connectivity_service.dart';
 import '../utils/debug_logger.dart';
 import 'backoff.dart';
+import 'chat_adapter.dart';
 import 'chat_locks.dart';
 import 'clock.dart';
 import 'deletion_reconcile.dart';
 import 'id_remapper.dart';
+import 'note_adapter.dart';
+import 'note_sync.dart';
 import 'outbox_drainer.dart';
 import 'outbox_task_queue_migrator.dart';
 import 'pull_sync.dart';
 import 'push_sync.dart';
 import 'request_completion_runner_provider.dart';
 import 'sync_api_client.dart';
+import 'sync_entity_adapter.dart';
 
 part 'sync_engine.g.dart';
 
@@ -215,6 +219,83 @@ class SyncEngine extends _$SyncEngine {
     );
   }
 
+  /// Engine-internal: the note pull driver (Phase 5, D-11). Shares the engine's
+  /// IdRemapper (the §7.3 remap stream is single) + the SEPARATE noteLocks
+  /// domain. Null until db/client/remapper are ready.
+  NotePullSync? _buildNotePullSync() {
+    final db = ref.read(appDatabaseProvider);
+    final client = ref.read(syncApiClientProvider);
+    if (db == null || client == null) return null;
+    final remapper = _ensureRemapper();
+    if (remapper == null) return null;
+    return NotePullSync(
+      client: client,
+      db: db,
+      locks: ref.read(noteLocksProvider),
+      remapper: remapper,
+    );
+  }
+
+  /// Engine-internal: the note push handlers (Phase 5). Shares the engine's
+  /// IdRemapper + the noteLocks domain.
+  NotePushSync? _buildNotePushSync() {
+    final db = ref.read(appDatabaseProvider);
+    final client = ref.read(syncApiClientProvider);
+    if (db == null || client == null) return null;
+    final remapper = _ensureRemapper();
+    if (remapper == null) return null;
+    return NotePushSync(
+      client: client,
+      db: db,
+      noteLocks: ref.read(noteLocksProvider),
+      remapper: remapper,
+    );
+  }
+
+  /// Engine-internal: a [NoteAdapter] for the generic note PULL driver
+  /// (`runPullFor`). A fresh instance per cycle is fine — the adapter is
+  /// stateless over its injected pull/push/locks; the locks + remapper that
+  /// carry cross-cycle state are the shared engine-owned singletons.
+  NoteAdapter? _buildNoteAdapterForPull() {
+    final notePull = _buildNotePullSync();
+    final notePush = _buildNotePushSync();
+    if (notePull == null || notePush == null) return null;
+    return NoteAdapter(
+      pull: notePull,
+      push: notePush,
+      noteLocks: ref.read(noteLocksProvider),
+    );
+  }
+
+  /// Engine-internal: the entity adapters that partition the outbox kinds
+  /// (CDT-RFC-001 Phase 5 seam). `[ChatAdapter, NoteAdapter]` — the drainer
+  /// routes each op to its owning adapter's `pushOp`. Returns null when any
+  /// dependency is missing.
+  List<SyncEntityAdapter>? _buildAdapters() {
+    final pull = _buildPullSync();
+    final push = _buildPushSync();
+    final notePull = _buildNotePullSync();
+    final notePush = _buildNotePushSync();
+    if (pull == null ||
+        push == null ||
+        notePull == null ||
+        notePush == null) {
+      return null;
+    }
+    return [
+      ChatAdapter(
+        pull: pull,
+        push: push,
+        chatLocks: ref.read(chatLocksProvider),
+      ),
+      NoteAdapter(
+        pull: notePull,
+        push: notePush,
+        noteLocks: ref.read(noteLocksProvider),
+      ),
+    ];
+  }
+
   /// Engine-internal: the engine's SINGLE outbox drainer, cached per notifier
   /// instance (db identity, like [_remapper]) so both drain entry points share
   /// one `_draining` mutex and one once-per-process `_recovered` guard. Built
@@ -226,7 +307,8 @@ class SyncEngine extends _$SyncEngine {
     if (existing != null) return existing;
     final db = ref.read(appDatabaseProvider);
     final push = _buildPushSync();
-    if (db == null || push == null) return null;
+    final adapters = _buildAdapters();
+    if (db == null || push == null || adapters == null) return null;
     return _drainer = OutboxDrainer(
       db: db,
       chatLocks: ref.read(chatLocksProvider),
@@ -236,6 +318,7 @@ class SyncEngine extends _$SyncEngine {
       backoff: ref.read(backoffProvider),
       isOnline: () => ref.read(isOnlineProvider),
       completion: ref.read(requestCompletionRunnerProvider),
+      adapters: adapters,
     );
   }
 
@@ -352,6 +435,25 @@ class SyncEngine extends _$SyncEngine {
 
     final previousWatermark = await db.syncMetaDao.getPullWatermark();
     final result = await pull.run();
+
+    // Phase 5 (D-11): pull NOTES through the generic adapter driver, on the
+    // SEPARATE nanosecond `notes_pull_watermark` (R-09 — never compared to the
+    // chat seconds watermark; runPullFor reads the adapter's OWN key). A note
+    // pull failure must NOT freeze the chat watermark or abort the cycle; it is
+    // logged and the idempotent field-LWW merge self-heals next cycle.
+    final noteAdapter = _buildNoteAdapterForPull();
+    if (noteAdapter != null) {
+      try {
+        await runPullFor(noteAdapter, db: db);
+      } catch (error, stackTrace) {
+        DebugLogger.error(
+          'note-pull-failed',
+          scope: 'sync/engine',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
+    }
 
     // A watermark-0 pull is itself a COMPLETE enumeration of the server set,
     // and a watermark-0 DB starts empty (fresh install / post-§9.3 cold pull),

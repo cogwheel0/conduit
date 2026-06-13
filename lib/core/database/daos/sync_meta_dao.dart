@@ -49,4 +49,30 @@ class SyncMetaDao extends DatabaseAccessor<AppDatabase> with _$SyncMetaDaoMixin 
   Future<void> setLastFullReconcileAt(int epochSeconds) {
     return setValue('last_full_reconcile_at', '$epochSeconds');
   }
+
+  // ---- Phase 5 NOTES watermark (CDT-RFC-001 D-11, R-09) ----
+  //
+  // The note watermark is stored under a DEDICATED key and is in NANOSECONDS
+  // (`time.time_ns()`, vendored `models/notes.py`), NEVER seconds. It is a
+  // SEPARATE clock domain from [getPullWatermark] (chats, seconds): the two are
+  // never read against each other and never unit-converted (R-09). These typed
+  // accessors are the only sanctioned way to touch the note watermark so a
+  // caller cannot accidentally feed it the chat watermark.
+
+  /// Reserved `sync_meta` key for the note pull watermark (nanoseconds). Public
+  /// so a test can assert it differs from the chat `pull_watermark` key (R-09:
+  /// per-entity-type watermarks, never cross-compared).
+  static const String kNotesPullWatermarkKey = 'notes_pull_watermark';
+
+  /// `int.tryParse(sync_meta['notes_pull_watermark']) ?? 0` — server
+  /// NANOSECONDS. NEVER comparable to [getPullWatermark] (seconds).
+  Future<int> getNotesPullWatermark() async {
+    final raw = await getValue(kNotesPullWatermarkKey);
+    return int.tryParse(raw ?? '') ?? 0;
+  }
+
+  /// Stores the note pull watermark in NANOSECONDS (R-09: no unit conversion).
+  Future<void> setNotesPullWatermark(int nanoseconds) {
+    return setValue(kNotesPullWatermarkKey, '$nanoseconds');
+  }
 }

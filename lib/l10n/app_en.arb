@@ -1717,6 +1717,14 @@
   "@noNotesFound": {
     "description": "Empty state title when search returns no results."
   },
+  "noteConflictCopySuffix": " (conflict copy)",
+  "@noteConflictCopySuffix": {
+    "description": "Title suffix appended to a note created when a concurrent edit could not be merged; both copies are kept so no local edit is lost."
+  },
+  "noteConflictCopyBadge": "Conflict copy",
+  "@noteConflictCopyBadge": {
+    "description": "Badge label shown on a conflict-copy note in the list and editor so the user understands two copies of the note exist."
+  },
   "createFirstNoteHint": "Tap the + button to create your first note.",
   "@createFirstNoteHint": {
     "description": "Hint text encouraging user to create their first note."

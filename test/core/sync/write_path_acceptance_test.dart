@@ -5,11 +5,13 @@ import 'package:conduit/core/database/app_database.dart';
 import 'package:conduit/core/database/daos/outbox_dao.dart';
 import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit/core/sync/backoff.dart';
+import 'package:conduit/core/sync/chat_adapter.dart';
 import 'package:conduit/core/sync/chat_locks.dart';
 import 'package:conduit/core/sync/clock.dart';
 import 'package:conduit/core/sync/id_remapper.dart';
 import 'package:conduit/core/sync/outbox_drainer.dart';
 import 'package:conduit/core/sync/outbox_task_queue_migrator.dart';
+import 'package:conduit/core/sync/pull_sync.dart';
 import 'package:conduit/core/sync/push_sync.dart';
 import 'package:conduit/core/persistence/hive_boxes.dart';
 import 'package:drift/native.dart';
@@ -94,6 +96,18 @@ void main() {
         backoff: Backoff(jitter: () => 0.0),
         isOnline: () => true,
         completion: completion,
+        adapters: [
+          ChatAdapter(
+            pull: PullSync(
+              client: client,
+              db: db,
+              locks: chatLocks,
+              remapper: remapper,
+            ),
+            push: push,
+            chatLocks: chatLocks,
+          ),
+        ],
       );
 
   void wire() {

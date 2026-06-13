@@ -280,4 +280,119 @@ class FakeSyncApiClient implements SyncApiClient {
   Future<void> deleteFolder(String id, {bool deleteContents = false}) async {
     server.deleteFolder(id, deleteContents: deleteContents);
   }
+
+  // ---- Phase 5 NOTES (CDT-RFC-001 D-11, R-09) ----
+  //
+  // Thin pass-throughs over the fake server's note endpoints. Every emitted
+  // `updated_at`/`created_at` is a raw server NANOSECOND value (the fake's note
+  // clock), so note sync tests exercise the real ns path end-to-end and never
+  // touch the chat (seconds) clock.
+
+  /// Mirrors a server-side 401/403: ([], false) — notes feature disabled / no
+  /// permission.
+  bool notesFeatureEnabled = true;
+
+  /// When set, [getNoteListRaw] throws (transient list failure -> pull aborts,
+  /// note watermark stays frozen).
+  bool failNoteList = false;
+
+  /// Note ids whose [getNoteRaw] throws (transient fetch failure).
+  final Set<String> failNoteIds = <String>{};
+
+  /// Note ids whose [getNoteRaw] returns null (server-deleted / not-ours -> a
+  /// 404 in production).
+  final Set<String> nullNoteIds = <String>{};
+
+  /// Note ids whose write (create/update/delete/pin) throws a retryable
+  /// transport error.
+  final Set<String> failNoteWriteIds = <String>{};
+
+  /// Note ids whose write throws a terminal [SyncTerminalException] (403).
+  final Set<String> terminalNoteWriteIds = <String>{};
+
+  int noteListRequests = 0;
+  int createNoteCalls = 0;
+  int updateNoteCalls = 0;
+  int deleteNoteCalls = 0;
+  int togglePinNoteCalls = 0;
+
+  /// Note ids in the order [getNoteRaw] calls STARTED.
+  final List<String> noteFetchStarts = <String>[];
+
+  /// Patch maps passed to [updateNote], keyed by note id (last write wins).
+  final Map<String, Map<String, dynamic>> lastNotePatch =
+      <String, Map<String, dynamic>>{};
+
+  void _maybeThrowNote(String id) {
+    if (failNoteWriteIds.contains(id)) {
+      throw StateError('injected note write failure ($id)');
+    }
+    if (terminalNoteWriteIds.contains(id)) {
+      throw const SyncTerminalException(statusCode: 403, message: 'forbidden');
+    }
+  }
+
+  @override
+  Future<(List<Map<String, dynamic>>, bool)> getNoteListRaw() async {
+    noteListRequests++;
+    if (failNoteList) {
+      throw StateError('injected note list failure');
+    }
+    if (!notesFeatureEnabled) {
+      return (const <Map<String, dynamic>>[], false);
+    }
+    return (server.getNotes(), true);
+  }
+
+  @override
+  Future<Map<String, dynamic>?> getNoteRaw(String id) async {
+    noteFetchStarts.add(id);
+    await Future<void>.delayed(Duration.zero);
+    if (failNoteIds.contains(id)) {
+      throw StateError('injected note fetch failure ($id)');
+    }
+    if (nullNoteIds.contains(id)) {
+      return null;
+    }
+    return server.getNoteById(id);
+  }
+
+  @override
+  Future<Map<String, dynamic>> createNote({
+    required String title,
+    required Map<String, dynamic> data,
+    Map<String, dynamic>? meta,
+  }) async {
+    createNoteCalls++;
+    await Future<void>.delayed(Duration.zero);
+    return server.createNote(title: title, data: data, meta: meta);
+  }
+
+  @override
+  Future<Map<String, dynamic>?> updateNote(
+    String id,
+    Map<String, dynamic> patch,
+  ) async {
+    updateNoteCalls++;
+    lastNotePatch[id] = patch;
+    await Future<void>.delayed(Duration.zero);
+    _maybeThrowNote(id);
+    return server.updateNote(id, patch);
+  }
+
+  @override
+  Future<bool> deleteNote(String id) async {
+    deleteNoteCalls++;
+    await Future<void>.delayed(Duration.zero);
+    _maybeThrowNote(id);
+    return server.deleteNote(id);
+  }
+
+  @override
+  Future<Map<String, dynamic>?> togglePinNote(String id) async {
+    togglePinNoteCalls++;
+    await Future<void>.delayed(Duration.zero);
+    _maybeThrowNote(id);
+    return server.togglePinNote(id);
+  }
 }

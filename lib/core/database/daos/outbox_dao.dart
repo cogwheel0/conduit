@@ -16,7 +16,12 @@ enum OutboxKind {
   deleteChat,
   requestCompletion,
   folderUpsert,
-  folderDelete;
+  folderDelete,
+  // ---- Phase 5 notes (CDT-RFC-001 D-11) ----
+  noteCreate,
+  noteUpdate,
+  noteDelete,
+  notePin;
 
   /// Parses a persisted kind name; null for an unknown/legacy string so the
   /// drainer can skip it without crashing (A1).
@@ -30,6 +35,14 @@ enum OutboxKind {
   /// Folder ops live in their own coalescing/lock domain (A1, A3).
   bool get isFolderKind =>
       this == OutboxKind.folderUpsert || this == OutboxKind.folderDelete;
+
+  /// Note ops live in their own lock domain (Phase 5) for adapter ownership
+  /// routing — parallels [isFolderKind].
+  bool get isNoteKind =>
+      this == OutboxKind.noteCreate ||
+      this == OutboxKind.noteUpdate ||
+      this == OutboxKind.noteDelete ||
+      this == OutboxKind.notePin;
 }
 
 /// Typed payload for a `requestCompletion` outbox op (W1/W3/W4).
@@ -126,7 +139,7 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
   }) async {
     _validatePayload(kind, payload, contentHash);
 
-    final decision = await _coalesce(kind: kind, chatId: chatId);
+    final decision = await _coalesce(kind: kind, chatId: chatId, payload: payload);
 
     if (decision.deletions.isNotEmpty) {
       await (delete(outboxOps)
@@ -136,6 +149,18 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
                   t.status.equals(OutboxStatus.pending),
             ))
           .go();
+    }
+
+    // Patch-map merge into a surviving noteUpdate (D-11): when consecutive
+    // noteUpdate ops collapse, the survivor's payload is the UNION of the
+    // earlier patch and the new one (new keys win) so a data edit followed by a
+    // title-only edit never drops the data axis. Done before the early return so
+    // a collapse still persists the merged map.
+    if (decision.mergedPayload != null && decision.survivorSeq != null) {
+      await (update(outboxOps)..where((t) => t.seq.equals(decision.survivorSeq!)))
+          .write(
+            OutboxOpsCompanion(payload: Value(jsonEncode(decision.mergedPayload))),
+          );
     }
 
     if (!decision.insert) {
@@ -416,6 +441,7 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
   Future<_CoalesceDecision> _coalesce({
     required OutboxKind kind,
     required String? chatId,
+    Map<String, dynamic> payload = const {},
   }) async {
     // Every Phase 2 kind carries an entity id in the chatId column (chat id
     // or folder id). With no id there is nothing to coalesce against.
@@ -517,6 +543,68 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
                 op.seq,
           ],
         );
+
+      // ---- Phase 5 notes (CDT-RFC-001 D-11) ----
+      case OutboxKind.noteCreate:
+        // Fresh local note id: there can be no prior pending op for it.
+        assert(
+          pending.isEmpty,
+          'noteCreate enqueued for a noteId with pending ops: $chatId',
+        );
+        return const _CoalesceDecision(insert: true);
+
+      case OutboxKind.noteUpdate:
+        // createChat-analog: a pending noteCreate reconstructs the live row at
+        // push (note_mapper builds title+data from the row), so it already
+        // carries the latest title/data — collapse into it, no merge needed.
+        final create = newestOfKind(OutboxKind.noteCreate);
+        if (create != null) {
+          return _CoalesceDecision(insert: false, survivorSeq: create.seq);
+        }
+        // Consecutive noteUpdate collapse to the newest, MERGING patch maps so
+        // a data edit followed by a title-only edit keeps the data axis (the
+        // reconstructed-from-row patch only includes `data` when this edit
+        // touched data, so a union is required — D-11 patch-map coalescing).
+        final priorUpdate = newestOfKind(OutboxKind.noteUpdate);
+        if (priorUpdate != null) {
+          final merged = <String, dynamic>{
+            ..._decodePayload(priorUpdate.payload),
+            ...payload,
+          };
+          return _CoalesceDecision(
+            insert: false,
+            survivorSeq: priorUpdate.seq,
+            mergedPayload: merged,
+          );
+        }
+        return const _CoalesceDecision(insert: true);
+
+      case OutboxKind.notePin:
+        // Pin lives on its own axis (dedicated /pin endpoint). Coalesce among
+        // itself: the newest desired-state wins (the row already holds it).
+        final pin = newestOfKind(OutboxKind.notePin);
+        if (pin != null) {
+          return _CoalesceDecision(insert: false, survivorSeq: pin.seq);
+        }
+        return const _CoalesceDecision(insert: true);
+
+      case OutboxKind.noteDelete:
+        // Annihilates EVERY earlier pending op for this note.
+        if (pendingKinds.contains(OutboxKind.noteCreate)) {
+          // Never reached the server ⇒ pure local drop: delete all pending,
+          // emit no noteDelete op (the row drop is the caller's dropLocalNote).
+          return _CoalesceDecision(
+            insert: false,
+            deletions: [for (final op in pending) op.seq],
+          );
+        }
+        return _CoalesceDecision(
+          insert: true,
+          deletions: [
+            for (final op in pending)
+              if (OutboxKind.fromName(op.kind) != OutboxKind.noteDelete) op.seq,
+          ],
+        );
     }
   }
 
@@ -591,6 +679,24 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
           payload['folderId'] is String,
           'folderDelete.folderId must be a String',
         );
+      // ---- Phase 5 notes (CDT-RFC-001 D-11) ----
+      case OutboxKind.noteCreate:
+      case OutboxKind.noteDelete:
+        // Empty payload: title/data reconstructed from the row at push
+        // (note_mapper), mirroring createChat/deleteChat (§3.iii).
+        _require(payload.isEmpty, '${kind.name} payload must be empty');
+      case OutboxKind.noteUpdate:
+        // Carries the patch map; `title` is ALWAYS present (WARNING B: the
+        // router's NoteForm requires it, and the merge union must never lose it).
+        _require(
+          payload['title'] is String,
+          'noteUpdate.title must be a String',
+        );
+      case OutboxKind.notePin:
+        _require(
+          payload['desired'] is bool,
+          'notePin.desired must be a bool',
+        );
     }
   }
 
@@ -609,9 +715,14 @@ class _CoalesceDecision {
     required this.insert,
     this.deletions = const [],
     this.survivorSeq,
+    this.mergedPayload,
   });
 
   final bool insert;
   final List<int> deletions;
   final int? survivorSeq;
+
+  /// When non-null, the surviving op's payload is rewritten to this merged
+  /// patch map (D-11 noteUpdate patch-map coalescing).
+  final Map<String, dynamic>? mergedPayload;
 }

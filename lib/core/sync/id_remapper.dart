@@ -26,7 +26,7 @@ class RemapEvent {
   /// The server-minted id the local rows were rewritten to.
   final String toId;
 
-  /// `'chat'` or `'folder'`.
+  /// `'chat'`, `'folder'`, or `'note'`.
   final String entityKind;
 
   @override
@@ -248,6 +248,142 @@ class IdRemapper {
     );
     _events.add(
       RemapEvent(fromId: localId, toId: serverId, entityKind: 'folder'),
+    );
+  }
+
+  /// Rewrites note [localId] to [serverId] in one transaction (CDT-RFC-001
+  /// Phase 5, §7.3). Notes are FLAT documents — there are NO child rows to
+  /// repoint (no messages, no folder backrefs), so this is the simplest remap:
+  /// INSERT-copy the row at the server id stamping the server timestamps,
+  /// repoint the note's FTS rows + any conflict-copy back-pointer + pending
+  /// outbox ops, then delete the local row. Callers MUST hold the NOTE lock for
+  /// BOTH the local and server id around the remap.
+  ///
+  /// R-09: [serverCreatedAt]/[serverUpdatedAt] are raw NANOSECONDS and are
+  /// copied verbatim — no unit conversion anywhere on the note path.
+  Future<void> remapNote({
+    required String localId,
+    required String serverId,
+    required int serverCreatedAt,
+    required int serverUpdatedAt,
+  }) async {
+    if (localId == serverId) return;
+    await _db.transaction(() async {
+      final local = await _getNote(localId);
+      if (local == null) {
+        // The local row is already gone (a prior pull merged the server note).
+        // Repoint any leftover FTS rows + conflict back-pointers + pending ops.
+        await _remapNoteFtsRows(localId, serverId);
+        await _rewriteNoteConflictOf(localId, serverId);
+        await _rewriteOutboxChatId(localId, serverId);
+        return;
+      }
+      final serverRow = await _getNote(serverId);
+      if (serverRow != null) {
+        // A pull already inserted the server note: discard the local duplicate,
+        // repoint its ops + conflict back-pointers, drop its FTS rows + row.
+        await _rewriteNoteConflictOf(localId, serverId);
+        await _rewriteOutboxChatId(localId, serverId);
+        await _deleteNoteRow(localId); // trigger #10 purges local FTS rows.
+        return;
+      }
+      // (a) INSERT a row at serverId copying every column, stamping the server
+      // (ns) timestamps + serverUpdatedAt and clearing every field-LWW dirty
+      // flag (the create is now server-acknowledged). Trigger #7 indexes the
+      // serverId FTS rows on insert.
+      await _insertNoteCopy(
+        from: local,
+        newId: serverId,
+        serverCreatedAt: serverCreatedAt,
+        serverUpdatedAt: serverUpdatedAt,
+      );
+      // (b) The serverId FTS rows are created by trigger #7 above; purge the
+      // stale localId FTS rows by deleting the local row last (trigger #10).
+      await _rewriteNoteConflictOf(localId, serverId);
+      await _deleteNoteRow(localId);
+      // (c) Repoint pending|inFlight outbox ops (the running noteCreate op is
+      // inFlight; after remap the drainer markDone()s it).
+      await _rewriteOutboxChatId(localId, serverId);
+    });
+
+    DebugLogger.log(
+      'remap-note',
+      scope: 'sync/remap',
+      data: {'from': localId, 'to': serverId},
+    );
+    _events.add(
+      RemapEvent(fromId: localId, toId: serverId, entityKind: 'note'),
+    );
+  }
+
+  // ---- note helpers ----
+
+  Future<NoteRow?> _getNote(String id) {
+    return (_db.select(_db.notes)..where((t) => t.id.equals(id)))
+        .getSingleOrNull();
+  }
+
+  Future<void> _insertNoteCopy({
+    required NoteRow from,
+    required String newId,
+    required int serverCreatedAt,
+    required int serverUpdatedAt,
+  }) async {
+    await _db.into(_db.notes).insert(
+          NotesCompanion.insert(
+            id: newId,
+            title: from.title,
+            data: Value(from.data),
+            meta: Value(from.meta),
+            isPinned: Value(from.isPinned),
+            createdAt: serverCreatedAt,
+            updatedAt: serverUpdatedAt,
+            serverUpdatedAt: Value(serverUpdatedAt),
+            // Create acknowledged: clear the title/data dirty axes. Keep the
+            // pin axis dirty if it was — a pending pin still owes its /pin push.
+            dirtyTitle: const Value(false),
+            dirtyData: const Value(false),
+            dirtyPinned: Value(from.dirtyPinned),
+            deleted: Value(from.deleted),
+            rawExtra: Value(from.rawExtra),
+            isConflictCopy: Value(from.isConflictCopy),
+            conflictOf: Value(from.conflictOf),
+          ),
+        );
+  }
+
+  Future<void> _deleteNoteRow(String id) {
+    return (_db.delete(_db.notes)..where((t) => t.id.equals(id))).go();
+  }
+
+  /// Repoints a conflict copy's `conflict_of` back-pointer from [fromId] to
+  /// [toId] when the CANONICAL note it copied was itself remapped. (A conflict
+  /// copy references its canonical by id; if that canonical was a `local:` note
+  /// that just got a server id, keep the pointer valid.)
+  Future<void> _rewriteNoteConflictOf(String fromId, String toId) {
+    return _db.customUpdate(
+      'UPDATE notes SET conflict_of = ? WHERE conflict_of = ?',
+      variables: [Variable.withString(toId), Variable.withString(fromId)],
+      updates: {_db.notes},
+      updateKind: UpdateKind.update,
+    );
+  }
+
+  /// Repoints the note FTS rows (`kind IN ('note_title','note_text')`) from
+  /// [localId] to [serverId] on the standalone `chat_fts` vtable. Used on the
+  /// merge-collision branches where the local row is dropped without trigger
+  /// #7 re-indexing under the server id. Tolerant of a not-yet-built index.
+  Future<void> _remapNoteFtsRows(String localId, String serverId) async {
+    final exists = await _db
+        .customSelect(
+          "SELECT 1 FROM sqlite_master WHERE name = 'chat_fts' LIMIT 1",
+        )
+        .get();
+    if (exists.isEmpty) return;
+    await _db.customUpdate(
+      "UPDATE chat_fts SET chat_id = ? "
+      "WHERE chat_id = ? AND kind IN ('note_title', 'note_text')",
+      variables: [Variable.withString(serverId), Variable.withString(localId)],
     );
   }
 

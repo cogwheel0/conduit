@@ -7,6 +7,8 @@ import 'package:conduit/core/sync/chat_locks.dart';
 import 'package:conduit/core/sync/clock.dart';
 import 'package:conduit/core/sync/id_remapper.dart';
 import 'package:conduit/core/sync/outbox_drainer.dart';
+import 'package:conduit/core/sync/chat_adapter.dart';
+import 'package:conduit/core/sync/pull_sync.dart';
 import 'package:conduit/core/sync/push_sync.dart';
 import 'package:conduit/core/sync/sync_api_client.dart';
 import 'package:drift/native.dart';
@@ -90,6 +92,30 @@ class RecordingSyncApiClient implements SyncApiClient {
   Future<bool> getChatPinned(String id) async => false;
   @override
   Future<Map<String, dynamic>?> togglePin(String id) async => null;
+  // Note write surface: the chat-op drainer tests never drive note kinds, so
+  // these are unreachable here.
+  @override
+  Future<(List<Map<String, dynamic>>, bool)> getNoteListRaw() =>
+      throw UnsupportedError('notes not exercised by chat-op drainer tests');
+  @override
+  Future<Map<String, dynamic>?> getNoteRaw(String id) =>
+      throw UnsupportedError('notes');
+  @override
+  Future<Map<String, dynamic>> createNote({
+    required String title,
+    required Map<String, dynamic> data,
+    Map<String, dynamic>? meta,
+  }) => throw UnsupportedError('notes');
+  @override
+  Future<Map<String, dynamic>?> updateNote(
+    String id,
+    Map<String, dynamic> patch,
+  ) => throw UnsupportedError('notes');
+  @override
+  Future<bool> deleteNote(String id) => throw UnsupportedError('notes');
+  @override
+  Future<Map<String, dynamic>?> togglePinNote(String id) =>
+      throw UnsupportedError('notes');
   @override
   Future<Map<String, dynamic>?> toggleArchive(String id) async => null;
   @override
@@ -213,6 +239,18 @@ void main() {
       isOnline: () => online,
       completion: completion,
       terminalClassifier: terminal,
+      adapters: [
+        ChatAdapter(
+          pull: PullSync(
+            client: client,
+            db: db,
+            locks: chatLocks,
+            remapper: remapper,
+          ),
+          push: push,
+          chatLocks: chatLocks,
+        ),
+      ],
     );
   }
 

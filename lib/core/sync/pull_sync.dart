@@ -9,6 +9,7 @@ import '../utils/debug_logger.dart';
 import 'chat_locks.dart';
 import 'id_remapper.dart';
 import 'sync_api_client.dart';
+import 'sync_entity_adapter.dart';
 
 /// Overlap window in server epoch seconds: same-second edits + clock skew
 /// between server processes (CDT-RFC-001 §7.1). Re-merges are idempotent,
@@ -280,6 +281,52 @@ class PullSync {
     );
   }
 
+  // ---- SyncEntityAdapter seam (CDT-RFC-001 Phase 5) ----
+  //
+  // These expose the GENUINELY-shared chat pull surface to [ChatAdapter] so the
+  // drainer/seam can treat chats and notes uniformly. The chat-only axes — the
+  // Q-03 archived sub-loop, §7.6 folders, and the §7.3 createChat crash-heal —
+  // are NOT here: they stay in the concrete [run] orchestrator above (the
+  // archived loop folds into the SAME watermark/worker-pool as the main list, a
+  // coupling that the generic `runPullFor` driver deliberately does not model —
+  // see the seam's anti-over-abstraction caveat). So `runPullFor` drives NOTES
+  // and the chat-only [run] keeps its integrated orchestration; both share the
+  // merge/list/fetch primitives below.
+
+  /// One MAIN-list page as generic [SyncListItem]s (epoch SECONDS), newest
+  /// first. Excludes the archived list (a chat-only axis kept inside [run]).
+  Future<List<SyncListItem>> mainListPage(int page) async {
+    final items = await _client.getChatListPage(page);
+    return [
+      for (final item in items)
+        if (_parseListItem(item, fromArchivedList: false) case final p?)
+          SyncListItem(id: p.id, updatedAt: p.updatedAt, envelope: item),
+    ];
+  }
+
+  /// Full `ChatResponse` fetch; null on 404. Adapter seam.
+  Future<Map<String, dynamic>?> fetchChatRaw(String id) =>
+      _client.getChatRaw(id);
+
+  /// Lock + one-tx merge of a raw `ChatResponse` map with `listLastReadAt: null`
+  /// (the max() rule preserves the local value). Returns `mustPush`. Adapter
+  /// seam — the archived path inside [run] supplies a real lastReadAt and is NOT
+  /// routed here.
+  Future<bool> mergeChatResponseForAdapter(Map<String, dynamic> resp) async {
+    final id = resp['id'] is String ? resp['id'] as String : '';
+    if (id.isEmpty) {
+      throw const FormatException('ChatResponse without a string id');
+    }
+    var mustPush = false;
+    await _locks.runExclusive(id, () async {
+      mustPush = await _upsertServerChatUnlockedReturningPush(
+        resp,
+        listLastReadAt: null,
+      );
+    });
+    return mustPush;
+  }
+
   /// Single-chat pull. `getChatRaw` null (404) -> returns null, no local
   /// change (deletion reconcile is Phase 3). Otherwise lock + upsert
   /// (`listLastReadAt: null` — the max() rule preserves the local value) and
@@ -316,6 +363,18 @@ class PullSync {
   Future<void> _upsertServerChatUnlocked(
     Map<String, dynamic> resp, {
     required int? listLastReadAt,
+  }) {
+    return _upsertServerChatUnlockedReturningPush(
+      resp,
+      listLastReadAt: listLastReadAt,
+    );
+  }
+
+  /// As [_upsertServerChatUnlocked] but returns whether the merge owed a push
+  /// (REQ 4) — used by the [ChatAdapter] seam's `mergeServer`.
+  Future<bool> _upsertServerChatUnlockedReturningPush(
+    Map<String, dynamic> resp, {
+    required int? listLastReadAt,
   }) async {
     final id = resp['id'] as String;
     final createdAt = _asEpochSeconds(resp['created_at']) ?? 0;
@@ -346,7 +405,7 @@ class PullSync {
     // server id) and drop the op instead of inserting a duplicate row that would
     // then be re-POSTed on the next drain.
     if (await _tryHealCreate(rows: rows, serverId: id, serverCreatedAt: createdAt, serverUpdatedAt: updatedAt)) {
-      return;
+      return false;
     }
 
     // §7.4 three-way merge runs inside ONE drift transaction in the DAO
@@ -368,6 +427,7 @@ class PullSync {
     if (write.mustPush) {
       await _enqueueUpdateIfMissing(id);
     }
+    return write.mustPush;
   }
 
   /// Enqueues an `updateChat` op for [chatId] unless one (or a createChat that

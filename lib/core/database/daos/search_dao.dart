@@ -4,6 +4,7 @@ import '../app_database.dart';
 import '../fts/fts_ddl.dart';
 import '../fts/fts_query.dart';
 import '../tables/chats.dart';
+import '../tables/notes.dart';
 
 part 'search_dao.g.dart';
 
@@ -15,6 +16,8 @@ part 'search_dao.g.dart';
 /// message bodies leak into the list/search projection) PLUS the
 /// search-specific [snippet], [messageId] of the best-scoring hit, and the
 /// bm25 [rank].
+enum SearchHitKind { chat, note }
+
 class SearchHit {
   const SearchHit({
     required this.chatId,
@@ -24,12 +27,20 @@ class SearchHit {
     required this.pinned,
     required this.archived,
     required this.rank,
+    this.kind = SearchHitKind.chat,
     this.folderId,
     this.lastReadAt,
     this.snippet,
     this.messageId,
   });
 
+  /// Whether this hit is a chat or a note (CDT-RFC-001 Phase 5). The UI routes
+  /// a note hit to the note editor and a chat hit to the conversation.
+  final SearchHitKind kind;
+
+  /// The entity id: a chat id when [kind] is chat, a note id when note. Named
+  /// `chatId` for source-compat with the Phase 4 consumers; treat it as the
+  /// entity id.
   final String chatId;
   final String title;
 
@@ -60,7 +71,7 @@ class SearchHit {
 /// through [customSelect]. The JOIN to `chats` is declared so drift tracks the
 /// table for stream invalidation and supplies the narrow envelope fields plus
 /// the deleted-tombstone filter.
-@DriftAccessor(tables: [Chats])
+@DriftAccessor(tables: [Chats, Notes])
 class SearchDao extends DatabaseAccessor<AppDatabase> with _$SearchDaoMixin {
   SearchDao(super.db);
 
@@ -142,6 +153,74 @@ class SearchDao extends DatabaseAccessor<AppDatabase> with _$SearchDaoMixin {
     return rows.map(_hitFromRow).toList(growable: false);
   }
 
+  /// Ranked full-text search over NOTE titles + extracted note bodies
+  /// (CDT-RFC-001 Phase 5). Same `chat_fts` vtable + bm25/snippet machinery as
+  /// [search], but the MATCH is filtered to the note kinds and the result joins
+  /// `notes` (excluding tombstones). The hit's `chatId` carries the NOTE id and
+  /// `kind` is [SearchHitKind.note]. Note timestamps are NANOSECONDS (R-09 —
+  /// never unit-converted; the consumer distinguishes by `kind`).
+  Future<List<SearchHit>> searchNotes(
+    String raw, {
+    int limit = _kDefaultLimit,
+    int offset = 0,
+  }) async {
+    final match = toFtsMatchQuery(raw);
+    if (match.isEmpty) return const [];
+    final built = await attachedDatabase.syncMetaDao.getValue(kFtsBuiltKey);
+    if (built != '1') return const [];
+
+    final rows = await customSelect(
+      'WITH hits AS MATERIALIZED ('
+      '  SELECT chat_id, kind, '
+      "         snippet(chat_fts, 0, '\u2068', '\u2069', '…', 12) AS snip, "
+      '         bm25(chat_fts, ?) AS score '
+      '  FROM chat_fts '
+      "  WHERE chat_fts MATCH ? AND kind IN ('note_title', 'note_text')"
+      '), '
+      'ranked AS ('
+      '  SELECT chat_id, kind, snip, score, '
+      '         ROW_NUMBER() OVER ('
+      '           PARTITION BY chat_id ORDER BY score ASC'
+      '         ) AS rn '
+      '  FROM hits'
+      ') '
+      'SELECT n.id, n.title, n.created_at, n.updated_at, n.is_pinned, '
+      '       r.score AS rank, r.snip AS snippet, r.kind AS kind '
+      'FROM ranked r JOIN notes n ON n.id = r.chat_id '
+      'WHERE r.rn = 1 AND n.deleted = 0 '
+      'ORDER BY r.score ASC '
+      'LIMIT ? OFFSET ?',
+      variables: [
+        Variable.withReal(_kTextWeight),
+        Variable.withString(match),
+        Variable.withInt(limit),
+        Variable.withInt(offset),
+      ],
+      readsFrom: {notes},
+    ).get();
+
+    return rows.map(_noteHitFromRow).toList(growable: false);
+  }
+
+  /// Combined offline search returning NOTE hits alongside CHAT hits
+  /// (CDT-RFC-001 §11 Phase 5 acceptance), merged and re-ranked by bm25 (lower
+  /// is better). Runs the two entity queries independently (each owns its
+  /// JOIN/clock) and merges in Dart — the result set is bounded by [limit] so a
+  /// Dart-side merge is cheap and keeps each query's SQL simple.
+  Future<List<SearchHit>> searchAll(
+    String raw, {
+    int limit = _kDefaultLimit,
+  }) async {
+    final results = await Future.wait([
+      search(raw, limit: limit),
+      searchNotes(raw, limit: limit),
+    ]);
+    final merged = [...results[0], ...results[1]]
+      ..sort((a, b) => a.rank.compareTo(b.rank));
+    if (merged.length <= limit) return merged;
+    return merged.sublist(0, limit);
+  }
+
   SearchHit _hitFromRow(QueryRow row) {
     final messageId = row.read<String?>('message_id');
     return SearchHit(
@@ -155,6 +234,21 @@ class SearchDao extends DatabaseAccessor<AppDatabase> with _$SearchDaoMixin {
       lastReadAt: row.read<int?>('last_read_at'),
       snippet: row.read<String?>('snippet'),
       messageId: (messageId == null || messageId.isEmpty) ? null : messageId,
+      rank: row.read<double>('rank'),
+    );
+  }
+
+  SearchHit _noteHitFromRow(QueryRow row) {
+    return SearchHit(
+      kind: SearchHitKind.note,
+      chatId: row.read<String>('id'),
+      title: row.read<String>('title'),
+      // NANOSECONDS (note clock; R-09 — not converted).
+      createdAt: row.read<int>('created_at'),
+      updatedAt: row.read<int>('updated_at'),
+      pinned: row.read<bool>('is_pinned'),
+      archived: false,
+      snippet: row.read<String?>('snippet'),
       rank: row.read<double>('rank'),
     );
   }

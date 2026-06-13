@@ -96,6 +96,64 @@ END;
 ''',
 ];
 
+/// Phase 5 NOTES triggers (CDT-RFC-001 Phase 5 / uiContract §FTS).
+///
+/// Notes are flat documents (no message rows), so they reuse the SINGLE
+/// `chat_fts` vtable rather than forking a parallel notes index (NON-NEG 6).
+/// The vtable's `chat_id` column is mentally "owner_id"; a note keys its rows by
+/// the note id in `chat_id` with `message_id = ''`. Two new kinds partition the
+/// note rows from chat rows:
+///   * `'note_title'` — the note's title.
+///   * `'note_text'`  — the note body, extracted from the JSON `data` column via
+///     `json_extract(data, '$.content.md')` (the body lives at
+///     `data['content']['md']`, NOT the raw JSON blob).
+///
+/// COLLISION SAFETY: note ids and chat ids are distinct UUID namespaces, so a
+/// note row and a chat row never collide on `(chat_id, kind)`; the `kind`
+/// discriminator keeps them partitioned even if an id ever overlapped.
+///
+/// JSON1 note: `json_extract` ships in the default SQLite builds drift uses on
+/// iOS/Android (sqlite3_flutter_libs bundles a JSON1-enabled amalgamation), so
+/// extracting the markdown body in-trigger is safe. `coalesce(..., '')` guards a
+/// missing/NULL path so the FTS row is never NULL (which FTS5 would reject).
+const List<String> kNoteFtsTriggers = <String>[
+  // 7. notes AFTER INSERT → title row + extracted-body text row.
+  '''
+CREATE TRIGGER IF NOT EXISTS chat_fts_note_ai AFTER INSERT ON notes BEGIN
+  INSERT INTO chat_fts(text, chat_id, message_id, kind)
+  VALUES (new.title, new.id, '', 'note_title');
+  INSERT INTO chat_fts(text, chat_id, message_id, kind)
+  VALUES (coalesce(json_extract(new.data, '\$.content.md'), ''),
+          new.id, '', 'note_text');
+END;
+''',
+  // 8. notes AFTER UPDATE OF title (guarded so unrelated column writes skip).
+  '''
+CREATE TRIGGER IF NOT EXISTS chat_fts_note_title_au AFTER UPDATE OF title ON notes
+WHEN new.title <> old.title BEGIN
+  DELETE FROM chat_fts WHERE kind = 'note_title' AND chat_id = old.id;
+  INSERT INTO chat_fts(text, chat_id, message_id, kind)
+  VALUES (new.title, new.id, '', 'note_title');
+END;
+''',
+  // 9. notes AFTER UPDATE OF data — re-extract the body (guarded on raw data).
+  '''
+CREATE TRIGGER IF NOT EXISTS chat_fts_note_data_au AFTER UPDATE OF data ON notes
+WHEN new.data <> old.data BEGIN
+  DELETE FROM chat_fts WHERE kind = 'note_text' AND chat_id = old.id;
+  INSERT INTO chat_fts(text, chat_id, message_id, kind)
+  VALUES (coalesce(json_extract(new.data, '\$.content.md'), ''),
+          new.id, '', 'note_text');
+END;
+''',
+  // 10. notes AFTER DELETE — purges BOTH note kinds for the note id.
+  '''
+CREATE TRIGGER IF NOT EXISTS chat_fts_note_ad AFTER DELETE ON notes BEGIN
+  DELETE FROM chat_fts WHERE chat_id = old.id;
+END;
+''',
+];
+
 /// Backfill statements run once, post-first-sync (or in onUpgrade for installs
 /// already past first sync). `INSERT ... SELECT` from the live tables.
 const String kBackfillMessages = '''
@@ -106,6 +164,20 @@ SELECT content, chat_id, id, 'msg' FROM messages;
 const String kBackfillTitles = '''
 INSERT INTO chat_fts(text, chat_id, message_id, kind)
 SELECT title, id, '', 'title' FROM chats WHERE deleted = 0;
+''';
+
+/// Phase 5 NOTES backfill (run in `onUpgrade from<5` and in
+/// [buildFtsIfNeeded] alongside the chat backfills). `INSERT ... SELECT` from
+/// the live `notes` table, excluding tombstones.
+const String kBackfillNoteTitles = '''
+INSERT INTO chat_fts(text, chat_id, message_id, kind)
+SELECT title, id, '', 'note_title' FROM notes WHERE deleted = 0;
+''';
+
+const String kBackfillNoteText = '''
+INSERT INTO chat_fts(text, chat_id, message_id, kind)
+SELECT coalesce(json_extract(data, '\$.content.md'), ''), id, '', 'note_text'
+FROM notes WHERE deleted = 0;
 ''';
 
 /// `sync_meta` key marking the one-time FTS backfill as complete. Dedicated and

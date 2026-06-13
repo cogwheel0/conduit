@@ -5979,6 +5979,120 @@ class ApiService {
     return response.data == true;
   }
 
+  // ===== Phase 5 NOTES sync write seams (CDT-RFC-001 D-11) =====
+  //
+  // Raw equivalents of the note CRUD that surface the §B5 terminal-error
+  // contract (401/403 -> SyncTerminalException, 404 -> null/false). All note
+  // timestamps in/out are server NANOSECONDS — copied verbatim (R-09).
+
+  /// GET `/api/v1/notes/{id}` — the FULL (untruncated) note map; null on
+  /// 404/401/403 (gone / not ours, treated as absent for the own-notes pull).
+  Future<Map<String, dynamic>?> getNoteRaw(String id) async {
+    try {
+      final response = await _dio.get('/api/v1/notes/$id');
+      final data = response.data;
+      if (data is Map<String, dynamic>) return data;
+      if (data is Map) return Map<String, dynamic>.from(data);
+      return null;
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if (code == 404 || code == 401 || code == 403) return null;
+      rethrow;
+    }
+  }
+
+  /// POST `/api/v1/notes/create` body `{title, data, meta?}`. Returns the
+  /// minted note map; 401/403 -> [SyncTerminalException].
+  Future<Map<String, dynamic>> createNoteRaw({
+    required String title,
+    required Map<String, dynamic> data,
+    Map<String, dynamic>? meta,
+  }) async {
+    try {
+      final response = await _dio.post(
+        '/api/v1/notes/create',
+        data: {'title': title, 'data': data, 'meta': ?meta},
+      );
+      final map = _coerceResponseMap(response.data);
+      if (map == null) {
+        throw StateError('createNoteRaw: unexpected response shape');
+      }
+      return map;
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if (code == 401 || code == 403) {
+        throw SyncTerminalException(
+          statusCode: code,
+          message: 'createNote forbidden',
+        );
+      }
+      rethrow;
+    }
+  }
+
+  /// POST `/api/v1/notes/{id}/update` body = the patch map. Returns the updated
+  /// note map; null on 404; 401/403 -> [SyncTerminalException].
+  Future<Map<String, dynamic>?> updateNoteRaw(
+    String id,
+    Map<String, dynamic> patch,
+  ) async {
+    try {
+      final response = await _dio.post(
+        '/api/v1/notes/$id/update',
+        data: patch,
+      );
+      return _coerceResponseMap(response.data);
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if (code == 404) return null;
+      if (code == 401 || code == 403) {
+        throw SyncTerminalException(
+          statusCode: code,
+          message: 'updateNote $id forbidden',
+        );
+      }
+      rethrow;
+    }
+  }
+
+  /// DELETE `/api/v1/notes/{id}/delete`. `true` on success; 404 -> `false`
+  /// (already gone, no throw); 401/403 -> [SyncTerminalException].
+  Future<bool> deleteNoteRaw(String id) async {
+    try {
+      final response = await _dio.delete('/api/v1/notes/$id/delete');
+      return response.data == true;
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if (code == 404) return false;
+      if (code == 401 || code == 403) {
+        throw SyncTerminalException(
+          statusCode: code,
+          message: 'deleteNote $id forbidden',
+        );
+      }
+      rethrow;
+    }
+  }
+
+  /// POST `/api/v1/notes/{id}/pin` — stateless toggle. Returns the note map
+  /// after the flip; null on 404; 401/403 -> [SyncTerminalException].
+  Future<Map<String, dynamic>?> togglePinNoteRaw(String id) async {
+    try {
+      final response = await _dio.post('/api/v1/notes/$id/pin');
+      return _coerceResponseMap(response.data);
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if (code == 404) return null;
+      if (code == 401 || code == 403) {
+        throw SyncTerminalException(
+          statusCode: code,
+          message: 'pinNote $id forbidden',
+        );
+      }
+      rethrow;
+    }
+  }
+
   /// Generate a title for note content using AI
   Future<String?> generateNoteTitle(
     String content, {

@@ -9,6 +9,7 @@ import 'chat_locks.dart';
 import 'clock.dart';
 import 'push_sync.dart';
 import 'sync_api_client.dart';
+import 'sync_entity_adapter.dart';
 
 /// Completion seam (Wiring D). The concrete `RequestCompletionRunner` (in
 /// features/chat, touching the streaming providers) implements this. Rebuilds
@@ -46,6 +47,7 @@ class OutboxDrainer {
     required Backoff backoff,
     required bool Function() isOnline,
     required RequestCompletionRunner completion,
+    required List<SyncEntityAdapter> adapters,
     TerminalErrorClassifier? terminalClassifier,
   })  : _db = db,
         _chatLocks = chatLocks,
@@ -55,6 +57,7 @@ class OutboxDrainer {
         _backoff = backoff,
         _isOnline = isOnline,
         _completion = completion,
+        _adapters = adapters,
         _isTerminal = terminalClassifier ?? _defaultTerminal;
 
   /// §7.2 pool of 2, matching legacy parallelism.
@@ -72,7 +75,14 @@ class OutboxDrainer {
   final ChatLocks _chatLocks;
   // ignore: unused_field
   final ChatLocks _folderLocks;
+  // ignore: unused_field
   final PushSync _push;
+
+  /// Entity adapters that own outbox kinds (chat + note). The drainer routes
+  /// each op to `adapters.firstWhere((a) => a.ownsKind(kind))` instead of a
+  /// hardcoded per-kind switch. requestCompletion is the lone chat-only kind
+  /// with no adapter pushOp; it is dispatched to [_completion] directly.
+  final List<SyncEntityAdapter> _adapters;
   final SyncClock _clock;
   final Backoff _backoff;
   final bool Function() _isOnline;
@@ -204,24 +214,35 @@ class OutboxDrainer {
   }
 
   Future<void> _execute(OutboxOp op, OutboxKind kind) async {
-    switch (kind) {
-      case OutboxKind.createChat:
-        await _push.pushCreateChat(op.chatId!);
-      case OutboxKind.updateChat:
-        await _push.pushUpdateChat(op.chatId!);
-      case OutboxKind.deleteChat:
-        await _push.pushDeleteChat(op.chatId!);
-      case OutboxKind.requestCompletion:
-        await _completion.run(
-          chatId: op.chatId!,
-          payload: _decodePayload(op.payload),
-        );
-      case OutboxKind.folderUpsert:
-        await _push.pushFolderUpsert(_decodePayload(op.payload));
-      case OutboxKind.folderDelete:
-        final payload = _decodePayload(op.payload);
-        await _push.pushFolderDelete(payload['folderId'] as String);
+    // requestCompletion is the lone chat-only kind with no adapter pushOp: it
+    // runs through the dedicated completion seam (rebuilds the request from rows
+    // at drain time), not the entity push path.
+    if (kind == OutboxKind.requestCompletion) {
+      await _completion.run(
+        chatId: op.chatId!,
+        payload: _decodePayload(op.payload),
+      );
+      return;
     }
+    // Ownership dispatch (CDT-RFC-001 Phase 5 seam): the chat + note adapters
+    // partition every remaining kind, so exactly one owns it. The busy-key /
+    // per-id FIFO / crash-recovery / backoff machinery above is entity-agnostic
+    // and unchanged — note ids share the chat_id column but are distinct UUIDs,
+    // so a note op never blocks a chat op.
+    for (final adapter in _adapters) {
+      if (adapter.ownsKind(kind)) {
+        await adapter.pushOp(op);
+        return;
+      }
+    }
+    // No owner: should be unreachable (the enum is fully partitioned), but never
+    // crash the drain — park it so it can't block its id's head forever.
+    DebugLogger.error(
+      'no adapter owns kind, parking',
+      scope: 'outbox/drain',
+      data: {'seq': op.seq, 'kind': kind.name},
+    );
+    await _db.outboxDao.markParked(op.seq, error: 'no adapter for ${kind.name}');
   }
 
   Future<void> _handleFailure(
@@ -284,6 +305,11 @@ class OutboxDrainer {
       return;
     }
     if (kind == OutboxKind.folderDelete && status == 404) {
+      await _db.outboxDao.markDone(op.seq);
+      return;
+    }
+    if (kind == OutboxKind.noteDelete && status == 404) {
+      // Already gone server-side: success (parity with deleteChat 404).
       await _db.outboxDao.markDone(op.seq);
       return;
     }
