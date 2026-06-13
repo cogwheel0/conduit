@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:drift/drift.dart' show Value;
 
 import '../database/app_database.dart';
@@ -25,10 +23,6 @@ const int kNotePullOverlapNs = 5 * 1000 * 1000 * 1000;
 /// early-stop watermark loop works the same as chats.
 const int kOpenWebUiNoteListPageSize = 60;
 
-/// Worker pool for changed-note full-fetches (parity with
-/// `kPullFetchConcurrency`).
-const int kNotePullFetchConcurrency = 4;
-
 /// Raw int64 NANOSECONDS — NO unit conversion (R-09).
 int? _asNs(Object? value) {
   if (value is int) return value;
@@ -36,38 +30,11 @@ int? _asNs(Object? value) {
   return null;
 }
 
-/// Outcome of one note pull cycle (diagnostics + tests).
-class NotePullResult {
-  const NotePullResult({
-    required this.success,
-    this.changedNotes = 0,
-    this.failedFetches = 0,
-    required this.watermarkAdvanced,
-  });
-
-  final bool success;
-  final int changedNotes;
-  final int failedFetches;
-  final bool watermarkAdvanced;
-}
-
-/// One changed note list item: just `{id, updated_at(ns)}`. The list `data` is
-/// server-truncated (`_truncate_note_data`, 1000 chars) so it is NEVER read for
-/// body content — the full-fetch (`getNoteRaw`) supplies the authoritative row.
-class _ChangedNote {
-  const _ChangedNote({required this.id, required this.updatedAt});
-
-  final String id;
-
-  /// Server NANOSECONDS.
-  final int updatedAt;
-}
-
-/// Watermark-delta note pull (CDT-RFC-001 D-11, R-09). DELIBERATELY mirrors
-/// [PullSync] structurally (list → threshold early-stop → worker-pool full
-/// fetch → field-LWW merge → watermark advance), differing only where the
-/// design REQUIRES it: a FLAT-doc merge (no archived sub-loop, no folders), the
-/// note clock in NANOSECONDS, and the dedicated `notes_pull_watermark`.
+/// Note-pull SEAM for the generic watermark-delta driver (CDT-RFC-001 D-11,
+/// R-09). The list/early-stop/worker-pool/watermark-advance spine itself lives
+/// in `runPullFor` over a [NoteAdapter]; this class supplies only the FLAT-doc
+/// note specifics it drives through: the raw list page ([getListPageRaw]), the
+/// full fetch ([fetchRaw]), and the field-LWW merge ([mergeNoteResponse]).
 ///
 /// All timestamp comparisons are int-vs-int NANOSECONDS; `DateTime.now()` never
 /// participates. The note watermark is NEVER read against the chat watermark.
@@ -92,105 +59,6 @@ class NotePullSync {
   // ignore: unused_field
   final IdRemapper? _remapper;
 
-  /// Runs one note pull cycle. The (nanosecond) watermark advances only when
-  /// every list page and every note fetch succeeded; on any failure it stays
-  /// frozen and the idempotent field-LWW merge makes the next run safe.
-  Future<NotePullResult> run() async {
-    final watermark = await _db.syncMetaDao.getNotesPullWatermark();
-    final threshold = watermark - kNotePullOverlapNs;
-    var maxSeen = watermark;
-
-    final changed = <String, _ChangedNote>{};
-
-    // 1. List loop (updated_at DESC). Any list-page error aborts the cycle
-    // before any full fetch, freezing the watermark.
-    try {
-      var page = 1;
-      var stop = false;
-      while (!stop) {
-        final items = await _getNoteListPage(page);
-        for (final item in items) {
-          final parsed = _parseListItem(item);
-          if (parsed == null) continue;
-          if (parsed.updatedAt > threshold) {
-            changed.putIfAbsent(parsed.id, () => parsed);
-            maxSeen = math.max(maxSeen, parsed.updatedAt);
-          } else {
-            stop = true;
-            break;
-          }
-        }
-        if (stop || items.length < kOpenWebUiNoteListPageSize) break;
-        page++;
-      }
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'list-page-failed',
-        scope: 'sync/notes',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      return const NotePullResult(success: false, watermarkAdvanced: false);
-    }
-
-    // 2. Full-fetch each changed note (newest-first) with a worker pool; the
-    // list `data` is truncated so the body MUST come from getNoteRaw.
-    final toFetch = changed.values.toList(growable: false);
-    var nextIndex = 0;
-    var failedFetches = 0;
-    Future<void> worker() async {
-      while (true) {
-        if (nextIndex >= toFetch.length) return;
-        final item = toFetch[nextIndex++];
-        try {
-          final resp = await _client.getNoteRaw(item.id);
-          if (resp == null) {
-            // Server-deleted / not-ours: deletion reconcile handles purge.
-            continue;
-          }
-          await mergeNoteResponse(resp);
-        } catch (error, stackTrace) {
-          failedFetches++;
-          DebugLogger.error(
-            'note-fetch-failed',
-            scope: 'sync/notes',
-            error: error,
-            stackTrace: stackTrace,
-            data: {'noteId': item.id},
-          );
-        }
-      }
-    }
-
-    await Future.wait([
-      for (var i = 0; i < kNotePullFetchConcurrency; i++) worker(),
-    ]);
-
-    // 3. Watermark advance rule (parity with chats §REQ 5).
-    final success = failedFetches == 0;
-    final watermarkAdvanced = success && maxSeen > watermark;
-    if (success) {
-      await _db.syncMetaDao.setNotesPullWatermark(maxSeen);
-    }
-
-    DebugLogger.log(
-      'cycle-done',
-      scope: 'sync/notes',
-      data: {
-        'changed': toFetch.length,
-        'failed': failedFetches,
-        'watermark': maxSeen,
-        'advanced': watermarkAdvanced,
-      },
-    );
-    return NotePullResult(
-      success: success,
-      changedNotes: toFetch.length,
-      failedFetches: failedFetches,
-      watermarkAdvanced: watermarkAdvanced,
-    );
-  }
-
   /// Lock + one-transaction field-LWW merge of a full `NoteModel` map (D-11).
   /// On a merge that retained local-dirty content, enqueues a `noteUpdate`
   /// (mirrors the chat `mustPush` → updateChat enqueue). Public so the
@@ -207,13 +75,6 @@ class NotePullSync {
       }
       return write.mustPush;
     });
-  }
-
-  /// Single-note pull (UI on-open refresh). null (404/not-ours) -> no change.
-  Future<void> pullNote(String noteId) async {
-    final resp = await _client.getNoteRaw(noteId);
-    if (resp == null) return;
-    await mergeNoteResponse(resp);
   }
 
   /// Enqueues a `noteUpdate` for [noteId] unless a noteUpdate/noteCreate is
@@ -258,20 +119,6 @@ class NotePullSync {
     if (page > 1) return const [];
     final (items, _) = await _client.getNoteListRaw();
     return items;
-  }
-
-  _ChangedNote? _parseListItem(Map<String, dynamic> item) {
-    final id = item['id'];
-    final updatedAt = _asNs(item['updated_at']);
-    if (id is! String || id.isEmpty || updatedAt == null) {
-      DebugLogger.warning(
-        'malformed-list-item',
-        scope: 'sync/notes',
-        data: {'item': item.toString()},
-      );
-      return null;
-    }
-    return _ChangedNote(id: id, updatedAt: updatedAt);
   }
 }
 

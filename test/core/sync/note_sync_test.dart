@@ -9,7 +9,10 @@ import 'package:checks/checks.dart';
 import 'package:conduit/core/database/app_database.dart';
 import 'package:conduit/core/database/daos/outbox_dao.dart';
 import 'package:conduit/core/sync/chat_locks.dart';
+import 'package:conduit/core/sync/id_remapper.dart';
+import 'package:conduit/core/sync/note_adapter.dart';
 import 'package:conduit/core/sync/note_sync.dart';
+import 'package:conduit/core/sync/sync_entity_adapter.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -34,7 +37,22 @@ void main() {
   });
   tearDown(() => db.close());
 
-  NotePullSync pull() => NotePullSync(client: client, db: db, locks: locks);
+  /// Drives the LIVE production note-pull path: the generic [runPullFor] driver
+  /// over a [NoteAdapter] — exactly what the sync engine wires (D-11, R-09).
+  Future<AdapterPullResult> pull() {
+    final remapper = IdRemapper(db);
+    final adapter = NoteAdapter(
+      pull: NotePullSync(client: client, db: db, locks: locks),
+      push: NotePushSync(
+        client: client,
+        db: db,
+        noteLocks: locks,
+        remapper: remapper,
+      ),
+      noteLocks: locks,
+    );
+    return runPullFor(adapter, db: db);
+  }
 
   Future<List<NoteRow>> allNotes() => db.select(db.notes).get();
 
@@ -54,7 +72,7 @@ void main() {
       updatedAt: kT2,
     );
 
-    final result = await pull().run();
+    final result = await pull();
     check(result.success).isTrue();
 
     final notes = await allNotes();
@@ -79,7 +97,7 @@ void main() {
       createdAt: kT1,
       updatedAt: kT1,
     );
-    await pull().run();
+    await pull();
     check((await allNotes()).length).equals(1);
 
     // 2. Local data edit (marks dirtyData), while the note is offline.
@@ -102,7 +120,7 @@ void main() {
     );
 
     // 4. Pull → the field-LWW merge must spawn a conflict copy (D-11).
-    await pull().run();
+    await pull();
 
     final notes = await allNotes();
     check(notes.length).equals(2); // canonical + conflict copy, none lost
@@ -128,7 +146,7 @@ void main() {
       createdAt: kT1,
       updatedAt: kT1,
     );
-    await pull().run();
+    await pull();
 
     await locks.runExclusive('n1', () async {
       await db.notesDao.updateNoteWithOutbox(
