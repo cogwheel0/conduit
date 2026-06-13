@@ -354,9 +354,9 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
 
   /// Envelope-only stub for archived metadata (Q-03 default) and summary
   /// upserts. One tx; insert (bodySynced=false, blobMeta='{}') when absent;
-  /// when present, update ONLY title/updatedAt/createdAt/pinned/archived/
-  /// folderId and lastReadAt=max(...); NEVER touches messages, bodySynced,
-  /// blobMeta, rawExtra.
+  /// when present, update ONLY title/updatedAt/createdAt, provided
+  /// pinned/archived/folderId, and lastReadAt=max(...); NEVER touches messages,
+  /// bodySynced, blobMeta, rawExtra.
   Future<void> upsertEnvelopeStub({
     required String id,
     required String title,
@@ -393,7 +393,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
           updatedAt: Value(updatedAt),
           pinned: pinned == null ? const Value.absent() : Value(pinned),
           archived: archived == null ? const Value.absent() : Value(archived),
-          folderId: Value(folderId),
+          folderId: folderId == null ? const Value.absent() : Value(folderId),
           lastReadAt: Value(
             _maxLastReadAt(existing.lastReadAt, lastReadAt),
           ),

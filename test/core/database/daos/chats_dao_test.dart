@@ -389,6 +389,29 @@ void main() {
       check(row!.pinned).isTrue();
       check(row.archived).isTrue();
     });
+
+    test('absent folderId leaves the existing value alone on update', () async {
+      await db.chatsDao.upsertEnvelopeStub(
+        id: 'foldered',
+        title: 'Foldered',
+        createdAt: 1,
+        updatedAt: 1,
+        folderId: 'f-1',
+      );
+
+      await db.chatsDao.upsertEnvelopeStub(
+        id: 'foldered',
+        title: 'Archived summary refresh',
+        createdAt: 1,
+        updatedAt: 2,
+        archived: true,
+      );
+
+      final row = await db.chatsDao.getChat('foldered');
+      check(row!.folderId).equals('f-1');
+      check(row.archived).isTrue();
+      check(row.updatedAt).equals(2);
+    });
   });
 
   group('updateEnvelope', () {
