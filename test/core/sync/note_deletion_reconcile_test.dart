@@ -122,17 +122,33 @@ void main() {
     check(await db.notesDao.getNote('flaky')).isNotNull();
   });
 
-  test('safety valve aborts when too many notes are candidates', () async {
+  test('safety valve aborts when candidates exceed the floor AND half the set',
+      () async {
     final client = FakeSyncApiClient(server);
-    // Two local notes, both absent from the server → 100% candidates > 50%.
-    await seedLocalOnly('x');
-    await seedLocalOnly('y');
-    client.nullNoteIds.addAll(['x', 'y']);
+    // 8 local notes, all absent from the server → above the absolute floor (5)
+    // and 50% → abort without purging.
+    final ids = List.generate(8, (i) => 'n$i');
+    for (final id in ids) {
+      await seedLocalOnly(id);
+    }
+    client.nullNoteIds.addAll(ids);
 
     final result = await reconcileWith(client).run(ReconcileReason.manualRefresh);
     check(result.aborted).isTrue();
     check(result.purged).equals(0);
-    check(await db.notesDao.getNote('x')).isNotNull();
+    check(await db.notesDao.getNote('n0')).isNotNull();
+  });
+
+  test('a SMALL library is NOT blocked: a single deleted note is purged '
+      '(regression — fraction valve must not trip below the floor)', () async {
+    final client = FakeSyncApiClient(server);
+    await seedLocalOnly('only');
+    client.nullNoteIds.add('only'); // probe -> gone
+
+    final result = await reconcileWith(client).run(ReconcileReason.manualRefresh);
+    check(result.aborted).isFalse();
+    check(result.purged).equals(1);
+    check(await db.notesDao.getNote('only')).isNull();
   });
 
   test('a dead session aborts without purging or advancing the throttle',

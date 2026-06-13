@@ -1,9 +1,16 @@
+import 'dart:math' as math;
+
 import '../database/app_database.dart';
 import '../utils/debug_logger.dart';
 import 'chat_locks.dart';
 import 'clock.dart';
 import 'deletion_reconcile.dart'
-    show ReconcileReason, ReconcileResult, kReconcileMinIntervalSeconds, kReconcileMaxPurgeFraction;
+    show
+        ReconcileReason,
+        ReconcileResult,
+        kReconcileMinIntervalSeconds,
+        kReconcileMaxPurgeFraction,
+        kReconcileMinCandidatesForValve;
 import 'sync_api_client.dart';
 
 /// §7.5 deletion reconcile for NOTES — the flat-document analogue of
@@ -83,10 +90,16 @@ class NoteDeletionReconcile {
       return const ReconcileResult(ran: true);
     }
 
-    // 3. Safety valve: an implausible candidate fraction (e.g. a token-expiry
-    //    storm) aborts without purging or advancing the throttle.
+    // 3. Safety valve: an implausibly-LARGE candidate set (above an absolute
+    //    floor AND a large fraction) aborts without purging. The floor keeps a
+    //    legitimate small-library note deletion from being mistaken for a
+    //    token-expiry mass-delete and blocked forever.
     if (localServerIds.isNotEmpty &&
-        candidates.length > localServerIds.length * kReconcileMaxPurgeFraction) {
+        candidates.length >
+            math.max(
+              kReconcileMinCandidatesForValve,
+              localServerIds.length * kReconcileMaxPurgeFraction,
+            )) {
       DebugLogger.warning(
         'note-reconcile-aborted-safety-valve',
         scope: 'sync/reconcile',

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import '../database/app_database.dart';
 import '../utils/debug_logger.dart';
 import 'chat_locks.dart';
@@ -23,6 +25,15 @@ const int kReconcileMinIntervalSeconds = 86400;
 /// token-expiry storm slipping past the auth gate). A genuine bulk
 /// server-delete still reconciles on a later run once the set is smaller.
 const double kReconcileMaxPurgeFraction = 0.5;
+
+/// Absolute floor below which the fraction valve NEVER trips: a high candidate
+/// fraction is only implausible when the candidate COUNT is also meaningful.
+/// Without this, a user with one server chat that is genuinely deleted hits
+/// `1 > 0.5` and the valve aborts forever — the phantom row would never purge.
+/// Small candidate sets are safe to process: the per-candidate confirmed-gone
+/// probe + the session-liveness guard are the real token-expiry protection; the
+/// fraction valve is only a coarse backstop against an implausibly-large set.
+const int kReconcileMinCandidatesForValve = 5;
 
 /// Outcome of one reconcile run (diagnostics + tests).
 class ReconcileResult {
@@ -127,10 +138,17 @@ class DeletionReconcile {
       return const ReconcileResult(ran: true);
     }
 
-    // 3. Safety valve against a token-expiry mass-delete: if an implausible
-    //    fraction of local chats are candidates, abort without purging.
+    // 3. Safety valve against a token-expiry mass-delete: if an implausibly
+    //    LARGE candidate set appears (both above an absolute floor AND a large
+    //    fraction), abort without purging. The floor keeps a legitimate
+    //    small-library deletion (e.g. a user's only chat) from being mistaken
+    //    for a mass-delete and blocked forever.
     if (localServerIds.isNotEmpty &&
-        candidates.length > localServerIds.length * kReconcileMaxPurgeFraction) {
+        candidates.length >
+            math.max(
+              kReconcileMinCandidatesForValve,
+              localServerIds.length * kReconcileMaxPurgeFraction,
+            )) {
       DebugLogger.warning(
         'reconcile-aborted-safety-valve',
         scope: 'sync/reconcile',

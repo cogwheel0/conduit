@@ -178,7 +178,15 @@ class PushSync {
       }
       final serverArchived = resp['archived'] == true;
       if (chat.archived != serverArchived) {
-        await _client.toggleArchive(chatId);
+        // Symmetric with the pin path: re-read the live archived state (the
+        // ChatResponse value can be stale relative to a concurrent toggle by
+        // another client) and flip only on a real delta, so a racing client
+        // can't make this blindly toggle archive back to the wrong state.
+        final liveRaw = await _client.getChatRaw(chatId);
+        final liveArchived = liveRaw?['archived'] == true;
+        if (liveArchived != chat.archived) {
+          await _client.toggleArchive(chatId);
+        }
       }
 
       // folder-move delta: update_chat IGNORES folder_id, so a changed folder
