@@ -520,10 +520,13 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
 
       case OutboxKind.folderDelete:
         final hasLocalCreate = pending.any(_isLocalFolderCreate);
+        final priorDelete = newestOfKind(OutboxKind.folderDelete);
         return _CoalesceDecision(
           // A brand-new local folderUpsert means the folder never reached the
-          // server ⇒ drop both, emit nothing. Otherwise emit the delete.
-          insert: !hasLocalCreate,
+          // server ⇒ drop both, emit nothing. Otherwise emit one delete, reusing
+          // an existing pending delete if present.
+          insert: !hasLocalCreate && priorDelete == null,
+          survivorSeq: priorDelete?.seq,
           deletions: [
             for (final op in pending)
               if (OutboxKind.fromName(op.kind) == OutboxKind.folderUpsert)

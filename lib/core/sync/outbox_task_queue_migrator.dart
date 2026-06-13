@@ -20,9 +20,10 @@ import 'id_remapper.dart';
 /// per-server `sync_meta['outbox_task_queue_migrated']` flag (the outbox is
 /// per-server, so the flag lives in the active server DB, not Hive metadata).
 /// Idempotent across partial failures: each task's rows+ops are written in its
-/// own `ChatLocks`-serialized transaction, createChat ops carry a
-/// `contentHash` so a re-run dedupes, and the flag + Hive key deletion happen
-/// ONLY after every eligible task converted (R7).
+/// own `ChatLocks`-serialized transaction, createChat ops carry a `contentHash`
+/// plus a durable sync_meta marker so a re-run dedupes even after the op drains,
+/// and the flag + Hive key deletion happen ONLY after every eligible task
+/// converted (R7).
 ///
 /// Pure-Dart-ish: takes its collaborators by injection (no Riverpod) so it is
 /// unit-testable against an in-memory [AppDatabase]. Only chat-op + completion
@@ -45,6 +46,12 @@ class OutboxTaskQueueMigrator {
 
   /// Per-server `sync_meta` flag set to `'1'` once migration completes (D3).
   static const String migratedFlagKey = 'outbox_task_queue_migrated';
+
+  /// Prefix for per-task new-chat contentHash markers. These survive beyond the
+  /// outbox row lifetime, so a process that aborts before [migratedFlagKey] but
+  /// later drains the create op cannot re-POST the same legacy task.
+  static const String _createHashMarkerPrefix =
+      'outbox_task_queue_create_hash:';
 
   static String _emptyModel() => '';
 
@@ -223,23 +230,31 @@ class OutboxTaskQueueMigrator {
       final contentHash = createChatContentHash(rows);
 
       // Dedupe across partial-failure re-runs: skip if a createChat op already
-      // carries this hash (R7).
+      // carries this hash OR a durable marker says a prior converted op may have
+      // already drained and been deleted (R7).
+      if (await _createHashAlreadyMigrated(contentHash)) {
+        return _ConvertOutcome.skippedDuplicate;
+      }
       if (await _createOpExistsForHash(contentHash)) {
+        await _markCreateHashMigrated(contentHash);
         return _ConvertOutcome.skippedDuplicate;
       }
 
       await _chatLocks.runExclusive(localId, () async {
-        await _db.chatsDao.insertLocalChatWithCreateOp(
-          chat: rows.chat,
-          messages: rows.messages,
-          blobRows: rows,
-          contentHash: contentHash,
-          completion: RequestCompletionPayload(
-            assistantMessageId: asstId,
-            model: _resolveDefaultModel(),
-            toolIds: toolIds,
-          ),
-        );
+        await _db.transaction(() async {
+          await _db.chatsDao.insertLocalChatWithCreateOp(
+            chat: rows.chat,
+            messages: rows.messages,
+            blobRows: rows,
+            contentHash: contentHash,
+            completion: RequestCompletionPayload(
+              assistantMessageId: asstId,
+              model: _resolveDefaultModel(),
+              toolIds: toolIds,
+            ),
+          );
+          await _markCreateHashMigrated(contentHash);
+        });
       });
       return _ConvertOutcome.converted;
     }
@@ -362,8 +377,27 @@ class OutboxTaskQueueMigrator {
         parent.content == userText;
   }
 
-  /// Whether any outbox op (pending or otherwise) carries [contentHash] —
-  /// the createChat fingerprint used for partial-failure dedupe (R7).
+  /// Whether this createChat [contentHash] has already been converted in a prior
+  /// migration attempt. Unlike the outbox row, this marker survives a successful
+  /// drain, so it closes the "converted, aborted, drained, retried" duplicate
+  /// POST gap.
+  Future<bool> _createHashAlreadyMigrated(String contentHash) async {
+    final value =
+        await _db.syncMetaDao.getValue(_createHashMarkerKey(contentHash));
+    return value == '1';
+  }
+
+  Future<void> _markCreateHashMigrated(String contentHash) {
+    return _db.syncMetaDao.setValue(_createHashMarkerKey(contentHash), '1');
+  }
+
+  static String _createHashMarkerKey(String contentHash) {
+    return '$_createHashMarkerPrefix$contentHash';
+  }
+
+  /// Whether any outbox op (pending or otherwise) carries [contentHash] — the
+  /// createChat fingerprint used for partial-failure dedupe (R7). This is still
+  /// needed to backfill the durable marker for conversions created by older code.
   Future<bool> _createOpExistsForHash(String contentHash) async {
     final rows = await (_db.select(_db.outboxOps)
           ..where((t) => t.contentHash.equals(contentHash))

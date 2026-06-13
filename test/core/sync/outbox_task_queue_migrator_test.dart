@@ -313,6 +313,28 @@ void main() {
       check((await db.select(db.chats).get()).length).equals(1);
     });
 
+    test('durable contentHash marker dedupes after the create op drained',
+        () async {
+      final task = sendTextTask(id: 't1', text: 'already posted');
+      await caches.put('outbound_task_queue_v1', [task]);
+      await migrator().migrateIfNeeded();
+
+      // Simulate an abort before the migration flag persisted, followed by a
+      // same-process drain that deleted the createChat/requestCompletion rows.
+      await (db.delete(db.syncMeta)
+            ..where((t) => t.key.equals(OutboxTaskQueueMigrator.migratedFlagKey)))
+          .go();
+      await db.delete(db.outboxOps).go();
+
+      await caches.put('outbound_task_queue_v1', [task]);
+      final report = await migrator().migrateIfNeeded();
+
+      check(report.skippedDuplicate).equals(1);
+      check(report.converted).equals(0);
+      check((await db.select(db.chats).get()).length).equals(1);
+      check(await db.select(db.outboxOps).get()).isEmpty();
+    });
+
     test('absent key: no-op, flag NOT set (awaits a later prefs migration)',
         () async {
       final report = await migrator().migrateIfNeeded();

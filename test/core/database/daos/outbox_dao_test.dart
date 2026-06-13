@@ -271,6 +271,38 @@ void main() {
       check(pending.single.seq).equals(del);
       check(pending.single.kind).equals('folderDelete');
     });
+
+    test('folderDelete collapses into an existing pending folderDelete',
+        () async {
+      final firstDelete = await enqueue(
+        kind: OutboxKind.folderDelete,
+        chatId: 'srvf',
+        payload: {'folderId': 'srvf'},
+      );
+      await enqueue(
+        kind: OutboxKind.folderUpsert,
+        chatId: 'srvf',
+        payload: {
+          'folderId': 'srvf',
+          'name': 'n',
+          'parentId': null,
+          'data': null,
+          'meta': null,
+          'createIfAbsent': false,
+        },
+      );
+      final secondDelete = await enqueue(
+        kind: OutboxKind.folderDelete,
+        chatId: 'srvf',
+        payload: {'folderId': 'srvf'},
+      );
+
+      check(secondDelete).equals(firstDelete);
+      final pending = await dao.pendingForChat('srvf');
+      check(pending).length.equals(1);
+      check(pending.single.seq).equals(firstDelete);
+      check(pending.single.kind).equals('folderDelete');
+    });
   });
 
   group('claimNextRunnable (A2)', () {
