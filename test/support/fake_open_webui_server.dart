@@ -324,6 +324,116 @@ class FakeOpenWebUiServer {
   /// (the vendored route raises 404), true after removal.
   bool deleteChat(String id) => _chats.remove(id) != null;
 
+  /// Mirrors `GET /api/v1/chats/{id}/pinned`
+  /// (`get_pinned_status_by_id`): the chat's `pinned` flag; throws 401 when
+  /// the chat is missing/unowned (the route raises
+  /// `HTTP_401_UNAUTHORIZED`).
+  bool getChatPinned(String id) {
+    final record = _chats[id];
+    if (record == null) {
+      throw FakeOpenWebUiHttpException(401, 'Unauthorized');
+    }
+    return record.pinned;
+  }
+
+  /// Mirrors `POST /api/v1/chats/{id}/pin` (`pin_chat_by_id` ->
+  /// `toggle_chat_pinned_by_id`): a STATELESS TOGGLE that IGNORES the body.
+  /// Returns the `ChatResponse` after the flip; null on a missing id.
+  Map<String, dynamic>? togglePin(String id) {
+    final record = _chats[id];
+    if (record == null) return null;
+    record.pinned = !record.pinned;
+    return _toChatResponse(record);
+  }
+
+  /// Mirrors `POST /api/v1/chats/{id}/archive` (`archive_chat_by_id` ->
+  /// `toggle_chat_archive_by_id`): a STATELESS TOGGLE that IGNORES the body.
+  /// Returns the `ChatResponse` after the flip; null on a missing id.
+  Map<String, dynamic>? toggleArchive(String id) {
+    final record = _chats[id];
+    if (record == null) return null;
+    record.archived = !record.archived;
+    return _toChatResponse(record);
+  }
+
+  /// Mirrors `POST /api/v1/chats/{id}/folder` (`update_chat_folder_id_by_id`):
+  /// sets the chat's `folder_id` (a non-null target must reference a seeded
+  /// folder, mirroring the ownership check). Returns the `ChatResponse`; null
+  /// on a missing chat id.
+  Map<String, dynamic>? moveChatToFolder(String id, String? folderId) {
+    final record = _chats[id];
+    if (record == null) return null;
+    if (folderId != null && !_folders.containsKey(folderId)) {
+      throw FakeOpenWebUiHttpException(404, 'Not found');
+    }
+    record.folderId = folderId;
+    record.updatedAt = _now();
+    return _toChatResponse(record);
+  }
+
+  /// Mirrors `POST /api/v1/folders/` (`create_folder`): the server mints the
+  /// id; returns the raw folder map.
+  Map<String, dynamic> createFolder({required String name, String? parentId}) {
+    final now = _now();
+    final id = _uuid.v4();
+    final folder = <String, dynamic>{
+      'id': id,
+      'name': name,
+      'parent_id': parentId,
+      'created_at': now,
+      'updated_at': now,
+    };
+    _folders[id] = folder;
+    return _deepCopy(folder);
+  }
+
+  /// Mirrors `POST /api/v1/folders/{id}/update` (`update_folder_by_id`):
+  /// shallow-updates name/data/meta. No-op on a missing id.
+  void updateFolder(
+    String id, {
+    String? name,
+    Map<String, dynamic>? data,
+    Map<String, dynamic>? meta,
+  }) {
+    final folder = _folders[id];
+    if (folder == null) return;
+    if (name != null) folder['name'] = name;
+    if (data != null) folder['data'] = _deepCopy(data);
+    if (meta != null) folder['meta'] = _deepCopy(meta);
+    folder['updated_at'] = _now();
+  }
+
+  /// Mirrors `POST /api/v1/folders/{id}/update/parent`. No-op on a missing id.
+  void updateFolderParent(String id, String? parentId) {
+    final folder = _folders[id];
+    if (folder == null) return;
+    folder['parent_id'] = parentId;
+    folder['updated_at'] = _now();
+  }
+
+  /// Mirrors `DELETE /api/v1/folders/{id}?delete_contents=<flag>`
+  /// (`delete_folder_by_id`): removes the folder. When [deleteContents] is
+  /// true, contained chats are deleted; when false, they are re-parented to
+  /// root (`folder_id = null`). Returns false on a missing id.
+  bool deleteFolder(String id, {bool deleteContents = true}) {
+    if (!_folders.containsKey(id)) return false;
+    for (final record in _chats.values) {
+      if (record.folderId == id) {
+        if (deleteContents) {
+          // Tombstone-by-removal happens after iteration to avoid mutating
+          // during traversal.
+        } else {
+          record.folderId = null;
+        }
+      }
+    }
+    if (deleteContents) {
+      _chats.removeWhere((_, record) => record.folderId == id);
+    }
+    _folders.remove(id);
+    return true;
+  }
+
   /// Test helper: seeds a chat row with explicit timestamps and flags,
   /// bypassing the clock and folder validation ([folderId], when given, is
   /// registered as an existing folder as a side effect).

@@ -6,6 +6,7 @@ import '../database/mappers/conversation_assembler.dart';
 import '../models/conversation.dart';
 import '../utils/debug_logger.dart';
 import 'chat_locks.dart';
+import 'id_remapper.dart';
 import 'sync_api_client.dart';
 
 /// Overlap window in server epoch seconds: same-second edits + clock skew
@@ -67,17 +68,26 @@ class _ChangedItem {
 /// `DateTime.now()` never participates in watermark or merge logic (REQ 5).
 class PullSync {
   /// Constructor injection ONLY — no Riverpod here.
+  ///
+  /// [remapper] enables the §7.3 createChat crash-heal: when a pulled server
+  /// chat matches the content hash of a still-pending local createChat op, the
+  /// pull completes the remap (folding the `local:` row into the server row)
+  /// instead of inserting a duplicate. When null (read-path-only tests) the
+  /// heal is skipped and merges proceed verbatim.
   PullSync({
     required SyncApiClient client,
     required AppDatabase db,
     required ChatLocks locks,
+    IdRemapper? remapper,
   }) : _client = client,
        _db = db,
-       _locks = locks;
+       _locks = locks,
+       _remapper = remapper;
 
   final SyncApiClient _client;
   final AppDatabase _db;
   final ChatLocks _locks;
+  final IdRemapper? _remapper;
 
   /// Runs one pull cycle. The watermark advances only when every list page
   /// and every chat fetch succeeded (REQ 5); on any failure it stays frozen
@@ -305,33 +315,99 @@ class PullSync {
   Future<void> _upsertServerChatUnlocked(
     Map<String, dynamic> resp, {
     required int? listLastReadAt,
-  }) {
+  }) async {
     final id = resp['id'] as String;
+    final createdAt = _asEpochSeconds(resp['created_at']) ?? 0;
+    final updatedAt = _asEpochSeconds(resp['updated_at']) ?? 0;
     final blob = resp['chat'];
     final meta = resp['meta'];
-    return _db.chatsDao.upsertServerChat(
-      rows: ChatBlobMapper.blobToRows(
-        chatId: id,
-        blob: blob is Map<String, dynamic>
-            ? blob
-            : (blob is Map
-                  ? Map<String, dynamic>.from(blob)
-                  : <String, dynamic>{}),
-        title: resp['title'] is String ? resp['title'] as String : '',
-        folderId: resp['folder_id'] is String
-            ? resp['folder_id'] as String
-            : null,
-        pinned: resp['pinned'] == true,
-        archived: resp['archived'] == true,
-        createdAt: _asEpochSeconds(resp['created_at']) ?? 0,
-        updatedAt: _asEpochSeconds(resp['updated_at']) ?? 0,
-      ),
+    final rows = ChatBlobMapper.blobToRows(
+      chatId: id,
+      blob: blob is Map<String, dynamic>
+          ? blob
+          : (blob is Map
+                ? Map<String, dynamic>.from(blob)
+                : <String, dynamic>{}),
+      title: resp['title'] is String ? resp['title'] as String : '',
+      folderId: resp['folder_id'] is String
+          ? resp['folder_id'] as String
+          : null,
+      pinned: resp['pinned'] == true,
+      archived: resp['archived'] == true,
+      createdAt: createdAt,
+      updatedAt: updatedAt,
+    );
+
+    // §7.3 createChat crash-heal: if this server chat is the materialization of
+    // a local createChat that crashed between server-create and remap-commit,
+    // its content hash matches a still-pending createChat op carrying a DIFFERENT
+    // (local:) chat id. Complete the remap (folding the local row into this
+    // server id) and drop the op instead of inserting a duplicate row that would
+    // then be re-POSTed on the next drain.
+    if (await _tryHealCreate(rows: rows, serverId: id, serverCreatedAt: createdAt, serverUpdatedAt: updatedAt)) {
+      return;
+    }
+
+    await _db.chatsDao.upsertServerChat(
+      rows: rows,
       shareId: resp['share_id'] is String ? resp['share_id'] as String : null,
       meta: meta is Map<String, dynamic>
           ? meta
           : (meta is Map ? Map<String, dynamic>.from(meta) : const {}),
       listLastReadAt: listLastReadAt,
     );
+  }
+
+  /// Attempts the §7.3 content-hash crash-heal. Returns true when it ran the
+  /// remap (caller must NOT then upsert a separate row). No-op (false) when no
+  /// remapper is wired, the server id already matches the op's chat id (the row
+  /// is already at the server id), or no pending createChat op fingerprint
+  /// matches this server blob.
+  Future<bool> _tryHealCreate({
+    required ChatRows rows,
+    required String serverId,
+    required int serverCreatedAt,
+    required int serverUpdatedAt,
+  }) async {
+    final remapper = _remapper;
+    if (remapper == null) return false;
+
+    // Hash the server-arrived rows under the SERVER id; createChatContentHash
+    // excludes the volatile id/timestamp, so this equals the digest recorded on
+    // the local op (the server preserves the client's history/message ids on
+    // create — only the top-level chat id is reminted).
+    final hash = createChatContentHash(rows);
+    final op = await _db.outboxDao.pendingCreateForHash(hash);
+    if (op == null) return false;
+    final localId = op.chatId;
+    if (localId == null || localId == serverId) {
+      // No id to remap, or the op was already repointed to this server id by a
+      // prior heal/remap — let the normal upsert refresh the row.
+      return false;
+    }
+
+    DebugLogger.log(
+      'create-crash-heal',
+      scope: 'sync/pull',
+      data: {'from': localId, 'to': serverId, 'seq': op.seq},
+    );
+    // We already hold the SERVER id lock (this merge runs under it). remapChat
+    // also touches the local row, so acquire the LOCAL lock too. No deadlock:
+    // pushCreateChat releases the local lock BEFORE taking the server lock, so
+    // the two never hold both simultaneously in opposite order.
+    await _locks.runExclusive(localId, () async {
+      await remapper.remapChat(
+        localId: localId,
+        serverId: serverId,
+        serverCreatedAt: serverCreatedAt,
+        serverUpdatedAt: serverUpdatedAt,
+      );
+      // The remap repointed the still-pending createChat op's chat_id to the
+      // server id (§7.3). The chat now exists server-side, so the create is
+      // satisfied: drop the op so the drainer never re-POSTs it.
+      await _db.outboxDao.markDone(op.seq);
+    });
+    return true;
   }
 
   _ChangedItem? _parseListItem(

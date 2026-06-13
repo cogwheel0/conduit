@@ -49,6 +49,13 @@ class _AirplaneModeSyncApiClient implements SyncApiClient {
   @override
   Future<(List<Map<String, dynamic>>, bool)> getFoldersRaw() async =>
       _offline();
+
+  // Phase 1 read-path test: every network call (read or the Phase 2 write
+  // extensions) must throw as if offline. Funnel the unimplemented write
+  // methods through [_offline] so this airplane-mode double stays valid as the
+  // [SyncApiClient] interface grows without re-listing each method.
+  @override
+  dynamic noSuchMethod(Invocation invocation) => _offline();
 }
 
 void main() {

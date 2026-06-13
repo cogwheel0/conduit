@@ -8,6 +8,7 @@ import '../models/conversation.dart';
 import '../providers/app_providers.dart';
 import '../utils/debug_logger.dart';
 import 'chat_locks.dart';
+import 'id_remapper.dart';
 import 'pull_sync.dart';
 import 'sync_api_client.dart';
 
@@ -53,6 +54,11 @@ class SyncEngine extends _$SyncEngine {
   bool _running = false;
   bool _rerunRequested = false;
 
+  /// Owned per notifier instance (which follows db identity via [build]). Wired
+  /// into [PullSync] so pull merges can complete the §7.3 createChat crash-heal
+  /// instead of duplicating. Disposed with the notifier.
+  IdRemapper? _remapper;
+
   /// Completer for the cycle callers are currently joining (debouncing or
   /// queued behind a running cycle).
   Completer<PullResult?>? _joinable;
@@ -67,6 +73,8 @@ class SyncEngine extends _$SyncEngine {
     ref.watch(chatLocksProvider);
     ref.onDispose(() {
       _debounce?.cancel();
+      unawaited(_remapper?.dispose());
+      _remapper = null;
       final joinable = _joinable;
       _joinable = null;
       if (joinable != null && !joinable.isCompleted) {
@@ -126,6 +134,7 @@ class SyncEngine extends _$SyncEngine {
       client: client,
       db: db,
       locks: ref.read(chatLocksProvider),
+      remapper: _remapper ??= IdRemapper(db),
     );
   }
 

@@ -18,4 +18,10 @@ class OutboxOps extends Table {
   IntColumn get attempts => integer().withDefault(const Constant(0))();
   IntColumn get nextAttemptAt => integer().nullable()();
   TextColumn get lastError => text().nullable()();
+
+  /// Set ONLY on `createChat` ops: the §7.3 crash-heal fingerprint
+  /// (`createChatContentHash`). A pull that merges a server chat whose blob
+  /// hashes to this value remaps the local chat to the server id instead of
+  /// inserting a duplicate. Null for every other kind.
+  TextColumn get contentHash => text().nullable()();
 }

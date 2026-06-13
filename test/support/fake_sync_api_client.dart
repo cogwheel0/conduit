@@ -115,4 +115,113 @@ class FakeSyncApiClient implements SyncApiClient {
     }
     return (server.getFolders(), true);
   }
+
+  // ---- Phase 2 write extensions (thin pass-throughs over the fake server,
+  //      mirroring the vendored toggle/merge/error truth) ----
+
+  /// Set ids whose write throws a retryable transport error, to exercise the
+  /// drainer's backoff path.
+  final Set<String> failWriteIds = <String>{};
+
+  /// Chat ids whose write throws a terminal [SyncTerminalException] (403),
+  /// simulating a not-owner / no-permission server response.
+  final Set<String> terminalWriteIds = <String>{};
+
+  int createChatCalls = 0;
+  int updateChatCalls = 0;
+  int deleteChatCalls = 0;
+
+  void _maybeThrow(String id) {
+    if (failWriteIds.contains(id)) {
+      throw StateError('injected write failure ($id)');
+    }
+    if (terminalWriteIds.contains(id)) {
+      throw const SyncTerminalException(statusCode: 403, message: 'forbidden');
+    }
+  }
+
+  @override
+  Future<Map<String, dynamic>> createChat(
+    Map<String, dynamic> chatBlob, {
+    String? folderId,
+  }) async {
+    createChatCalls++;
+    await Future<void>.delayed(Duration.zero);
+    return server.createChat(chatBlob, folderId: folderId);
+  }
+
+  @override
+  Future<Map<String, dynamic>?> updateChat(
+    String id,
+    Map<String, dynamic> fullBlob,
+  ) async {
+    updateChatCalls++;
+    await Future<void>.delayed(Duration.zero);
+    _maybeThrow(id);
+    return server.updateChat(id, fullBlob);
+  }
+
+  @override
+  Future<bool> deleteChat(String id) async {
+    deleteChatCalls++;
+    await Future<void>.delayed(Duration.zero);
+    _maybeThrow(id);
+    return server.deleteChat(id);
+  }
+
+  @override
+  Future<bool> getChatPinned(String id) async {
+    try {
+      return server.getChatPinned(id);
+    } on FakeOpenWebUiHttpException {
+      return false;
+    }
+  }
+
+  @override
+  Future<Map<String, dynamic>?> togglePin(String id) async {
+    return server.togglePin(id);
+  }
+
+  @override
+  Future<Map<String, dynamic>?> toggleArchive(String id) async {
+    return server.toggleArchive(id);
+  }
+
+  @override
+  Future<Map<String, dynamic>?> moveChatToFolder(
+    String id,
+    String? folderId,
+  ) async {
+    return server.moveChatToFolder(id, folderId);
+  }
+
+  @override
+  Future<Map<String, dynamic>> createFolder({
+    required String name,
+    String? parentId,
+  }) async {
+    await Future<void>.delayed(Duration.zero);
+    return server.createFolder(name: name, parentId: parentId);
+  }
+
+  @override
+  Future<void> updateFolder(
+    String id, {
+    String? name,
+    Map<String, dynamic>? data,
+    Map<String, dynamic>? meta,
+  }) async {
+    server.updateFolder(id, name: name, data: data, meta: meta);
+  }
+
+  @override
+  Future<void> updateFolderParent(String id, String? parentId) async {
+    server.updateFolderParent(id, parentId);
+  }
+
+  @override
+  Future<void> deleteFolder(String id, {bool deleteContents = false}) async {
+    server.deleteFolder(id, deleteContents: deleteContents);
+  }
 }

@@ -6,6 +6,7 @@ import '../app_database.dart';
 import '../mappers/chat_blob_mapper.dart';
 import '../tables/chats.dart';
 import '../tables/messages.dart';
+import 'outbox_dao.dart';
 
 part 'chats_dao.g.dart';
 
@@ -211,6 +212,212 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
         updatedAt: updatedAt,
       ),
     );
+  }
+
+  // ---- local-mutation variants (CDT-RFC-001 §7.2.1, Wiring W1) ------------
+  //
+  // Each writes its rows AND (when [enqueue]) its outbox op in ONE drift
+  // transaction so an op can never exist without its data (REQ §7.2.1). The
+  // CALLER holds ChatLocks.runExclusive(chatId); these methods NEVER lock
+  // internally (R9 reentrancy). The enqueue joins the SAME transaction by
+  // calling [OutboxDao.enqueue] (which opens no transaction of its own).
+  //
+  // The server-origin variants above (`upsertServerChat`, `upsertEnvelopeStub`,
+  // `updateEnvelope`, `hardDelete`) stay enqueue-free — pull-merge / echo are
+  // server-origin writes and must never produce outbox ops.
+
+  OutboxDao get _outboxDao => attachedDatabase.outboxDao;
+
+  /// Local envelope edit: wraps [updateEnvelope]'s write, marks the chat
+  /// `dirty` so the conflict gate / merge sees it, and (when [enqueue])
+  /// enqueues an `updateChat` op — all in one transaction. Caller holds the
+  /// chat lock. `dirty=true` is always set for a local mutation; the
+  /// non-enqueuing server-confirmed path stays on bare [updateEnvelope].
+  Future<void> updateEnvelopeWithOutbox(
+    String chatId, {
+    Value<String> title = const Value.absent(),
+    Value<String?> folderId = const Value.absent(),
+    Value<bool> pinned = const Value.absent(),
+    Value<bool> archived = const Value.absent(),
+    Value<int> updatedAt = const Value.absent(),
+    required bool enqueue,
+  }) {
+    return transaction(() async {
+      await (update(chats)..where((t) => t.id.equals(chatId))).write(
+        ChatsCompanion(
+          title: title,
+          folderId: folderId,
+          pinned: pinned,
+          archived: archived,
+          updatedAt: updatedAt,
+          dirty: const Value(true),
+        ),
+      );
+      if (enqueue) {
+        await _outboxDao.enqueue(kind: OutboxKind.updateChat, chatId: chatId);
+      }
+    });
+  }
+
+  /// Local delete: tombstones the chat (`deleted=true, dirty=true`) and
+  /// enqueues a `deleteChat` op in one transaction. Rows are NOT hard-deleted
+  /// here (tombstone discipline §7.5); the drainer's `pushDeleteChat` purges
+  /// after the server confirms. Caller holds the chat lock.
+  Future<void> tombstoneWithOutbox(String chatId) {
+    return transaction(() async {
+      await (update(chats)..where((t) => t.id.equals(chatId))).write(
+        const ChatsCompanion(
+          deleted: Value(true),
+          dirty: Value(true),
+        ),
+      );
+      await _outboxDao.enqueue(kind: OutboxKind.deleteChat, chatId: chatId);
+    });
+  }
+
+  /// Pure-local drop of a `local:` chat whose create never reached the server
+  /// (W2): hard-deletes the chat row (FK cascades messages) AND deletes every
+  /// pending outbox op for it, in one transaction — no `deleteChat` op (the
+  /// chat never existed server-side). Caller holds the chat lock.
+  Future<void> dropLocalChat(String localId) {
+    return transaction(() async {
+      await (delete(_outboxDao.outboxOps)
+            ..where((t) => t.chatId.equals(localId)))
+          .go();
+      await (delete(chats)..where((t) => t.id.equals(localId))).go();
+    });
+  }
+
+  /// Offline compose (W3.b): inserts the `local:` chat row + its message rows
+  /// (all `dirty=true`) and enqueues a `createChat` op carrying [contentHash],
+  /// then — when an assistant placeholder is present — a `requestCompletion`
+  /// op (seq AFTER the create, so the drainer creates+remaps before running
+  /// the completion against the server id, §B2.4) — all in one transaction.
+  /// Caller holds `ChatLocks(chat.id)`.
+  Future<void> insertLocalChatWithCreateOp({
+    required ChatRowData chat,
+    required List<MessageRowData> messages,
+    required ChatRows blobRows,
+    required String contentHash,
+    RequestCompletionPayload? completion,
+  }) {
+    return transaction(() async {
+      await into(chats).insert(
+        ChatsCompanion.insert(
+          id: chat.id,
+          title: chat.title,
+          folderId: Value(chat.folderId),
+          pinned: Value(chat.pinned),
+          archived: Value(chat.archived),
+          currentMessageId: Value(chat.currentMessageId),
+          createdAt: chat.createdAt,
+          updatedAt: chat.updatedAt,
+          serverUpdatedAt: const Value(null),
+          dirty: const Value(true),
+          deleted: const Value(false),
+          bodySynced: const Value(true),
+          rawExtra: Value(jsonEncode(chat.rawExtra)),
+          blobMeta: Value(jsonEncode(blobMetaJson(blobRows))),
+        ),
+      );
+      await batch((b) {
+        b.insertAll(this.messages, [
+          for (final message in messages)
+            MessagesCompanion.insert(
+              id: message.id,
+              chatId: message.chatId,
+              parentId: Value(message.parentId),
+              role: message.role,
+              content: message.content,
+              model: Value(message.model),
+              createdAt: message.createdAt,
+              orderIndex: message.orderIndex,
+              payload: jsonEncode(message.payload),
+              dirty: const Value(true),
+            ),
+        ]);
+      });
+      await _outboxDao.enqueue(
+        kind: OutboxKind.createChat,
+        chatId: chat.id,
+        contentHash: contentHash,
+      );
+      if (completion != null) {
+        await _outboxDao.enqueue(
+          kind: OutboxKind.requestCompletion,
+          chatId: chat.id,
+          payload: completion.toJson(),
+        );
+      }
+    });
+  }
+
+  /// Send-on-existing-chat (W3.c): upserts the user message + assistant
+  /// placeholder rows (`dirty=true`), updates the chat envelope
+  /// (`currentMessageId`, `updatedAt`, `dirty=true`), enqueues an `updateChat`
+  /// op, and — when [enqueueCompletion] — a `requestCompletion` op (seq after
+  /// the update) — all in one transaction. Caller holds the chat lock.
+  ///
+  /// New message rows take `orderIndex = max(order_index)+1` for the chat,
+  /// counting up across the batch; existing rows keep their orderIndex.
+  Future<void> appendMessagesWithUpdateOp({
+    required String chatId,
+    required List<MessageRowData> messages,
+    String? currentMessageId,
+    int? updatedAt,
+    required bool enqueueCompletion,
+    RequestCompletionPayload? completion,
+  }) {
+    return transaction(() async {
+      final maxExpr = this.messages.orderIndex.max();
+      final maxQuery = selectOnly(this.messages)
+        ..addColumns([maxExpr])
+        ..where(this.messages.chatId.equals(chatId));
+      final maxRow = await maxQuery.getSingle();
+      var nextOrder = (maxRow.read(maxExpr) ?? -1) + 1;
+
+      for (final message in messages) {
+        final existing = await (select(this.messages)..where(
+              (t) => t.chatId.equals(chatId) & t.id.equals(message.id),
+            ))
+            .getSingleOrNull();
+        final orderIndex = existing?.orderIndex ?? nextOrder++;
+        await into(this.messages).insertOnConflictUpdate(
+          MessagesCompanion.insert(
+            id: message.id,
+            chatId: chatId,
+            parentId: Value(message.parentId),
+            role: message.role,
+            content: message.content,
+            model: Value(message.model),
+            createdAt: message.createdAt,
+            orderIndex: orderIndex,
+            payload: jsonEncode(message.payload),
+            dirty: const Value(true),
+          ),
+        );
+      }
+
+      await (update(chats)..where((t) => t.id.equals(chatId))).write(
+        ChatsCompanion(
+          currentMessageId: currentMessageId == null
+              ? const Value.absent()
+              : Value(currentMessageId),
+          updatedAt: updatedAt == null ? const Value.absent() : Value(updatedAt),
+          dirty: const Value(true),
+        ),
+      );
+
+      await _outboxDao.enqueue(kind: OutboxKind.updateChat, chatId: chatId);
+
+      if (enqueueCompletion && completion != null) {
+        await _outboxDao.enqueue(
+          kind: OutboxKind.requestCompletion,
+          chatId: chatId,
+          payload: completion.toJson(),
+        );
+      }
+    });
   }
 
   /// `UPDATE ... SET last_read_at = max(coalesce(last_read_at, 0), ?)` —

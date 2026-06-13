@@ -5,6 +5,7 @@ import 'package:path_provider/path_provider.dart';
 import 'daos/chats_dao.dart';
 import 'daos/folders_dao.dart';
 import 'daos/messages_dao.dart';
+import 'daos/outbox_dao.dart';
 import 'daos/sync_meta_dao.dart';
 import 'tables/chats.dart';
 import 'tables/folders.dart';
@@ -23,7 +24,7 @@ part 'app_database.g.dart';
 /// on server switch or removal) is owned by the Phase 1 DatabaseManager.
 @DriftDatabase(
   tables: [SyncMeta, Chats, Messages, Folders, OutboxOps],
-  daos: [ChatsDao, MessagesDao, FoldersDao, SyncMetaDao],
+  daos: [ChatsDao, MessagesDao, FoldersDao, SyncMetaDao, OutboxDao],
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase(super.e);
@@ -44,7 +45,7 @@ class AppDatabase extends _$AppDatabase {
   }
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -61,6 +62,17 @@ class AppDatabase extends _$AppDatabase {
         await m.createTable(folders);
         await m.createTable(outboxOps);
         await _createIndexes();
+      }
+      if (from < 3) {
+        // Phase 2 write path: the §7.3 crash-heal fingerprint column and the
+        // per-chat FIFO claim-scan index. Both idempotent (the v1->v2 heal
+        // above already runs _createIndexes, which now also creates the
+        // chat_seq index).
+        await m.addColumn(outboxOps, outboxOps.contentHash);
+        await customStatement(
+          'CREATE INDEX IF NOT EXISTS idx_outbox_chat_seq '
+          'ON outbox_ops (chat_id, seq);',
+        );
       }
     },
     beforeOpen: (details) async {
@@ -87,6 +99,11 @@ class AppDatabase extends _$AppDatabase {
     await customStatement(
       'CREATE INDEX IF NOT EXISTS idx_outbox_status '
       'ON outbox_ops (status, next_attempt_at);',
+    );
+    // Per-chat FIFO claim scans (`claimNextRunnable` head check, §7.2).
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_outbox_chat_seq '
+      'ON outbox_ops (chat_id, seq);',
     );
   }
 }

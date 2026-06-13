@@ -1,6 +1,8 @@
 import 'package:checks/checks.dart';
 import 'package:conduit/core/database/app_database.dart';
+import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit/core/sync/chat_locks.dart';
+import 'package:conduit/core/sync/id_remapper.dart';
 import 'package:conduit/core/sync/pull_sync.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -483,6 +485,103 @@ void main() {
       await pull.pullChat('chat-1');
 
       check((await db.chatsDao.getChat('chat-1'))!.lastReadAt).equals(140);
+    });
+  });
+
+  group('createChat crash-heal (§7.3, Finding 3)', () {
+    test(
+        'pull folds the server chat into the pending local create instead of '
+        'duplicating, and drops the op', () async {
+      final remapper = IdRemapper(db);
+      addTearDown(remapper.dispose);
+      final healingPull = PullSync(
+        client: client,
+        db: db,
+        locks: locks,
+        remapper: remapper,
+      );
+
+      // 1. Local compose: a local: chat + createChat op carrying its content
+      //    hash (exactly what insertLocalChatWithCreateOp records at enqueue).
+      const localId = 'local:heal-me';
+      final blob = blobFor('heal', messageCount: 2);
+      final rows = ChatBlobMapper.blobToRows(
+        chatId: localId,
+        blob: blob,
+        title: 'Title heal',
+        createdAt: 100,
+        updatedAt: 200,
+      );
+      final contentHash = createChatContentHash(rows);
+      await db.chatsDao.insertLocalChatWithCreateOp(
+        chat: rows.chat,
+        messages: rows.messages,
+        blobRows: rows,
+        contentHash: contentHash,
+      );
+
+      // 2. Crash window: the server-create POST succeeded (server mints a real
+      //    id) but the process died before the remap committed, so the local
+      //    row is still local: and the createChat op is still pending.
+      final serverResp = server.createChat({...blob, 'id': ''});
+      final serverId = serverResp['id'] as String;
+      check(serverId.startsWith('local:')).isFalse();
+
+      // 3. A pull sees the new server chat. The heal must remap, not duplicate.
+      final result = await healingPull.run();
+      check(result.success).isTrue();
+
+      // Exactly ONE chat row, at the server id; the local row is gone.
+      check(await db.chatsDao.getChat(localId)).isNull();
+      check(await db.chatsDao.getChat(serverId)).isNotNull();
+      check((await db.select(db.chats).get()).length).equals(1);
+      // The pending createChat op was completed (dropped) by the heal — no
+      // re-POST will happen on the next drain.
+      check(await db.outboxDao.pendingForChat(localId)).isEmpty();
+      check(await db.outboxDao.pendingForChat(serverId)).isEmpty();
+      // And only ONE chat exists server-side (no duplicate was minted).
+      check(server.getChatById(serverId)).isNotNull();
+    });
+
+    test('a non-matching content hash does NOT heal (normal merge)', () async {
+      final remapper = IdRemapper(db);
+      addTearDown(remapper.dispose);
+      final healingPull = PullSync(
+        client: client,
+        db: db,
+        locks: locks,
+        remapper: remapper,
+      );
+
+      // Pending create for a DIFFERENT chat content.
+      const localId = 'local:other';
+      final rows = ChatBlobMapper.blobToRows(
+        chatId: localId,
+        blob: blobFor('other'),
+        title: 'Title other',
+        createdAt: 100,
+        updatedAt: 200,
+      );
+      await db.chatsDao.insertLocalChatWithCreateOp(
+        chat: rows.chat,
+        messages: rows.messages,
+        blobRows: rows,
+        contentHash: createChatContentHash(rows),
+      );
+
+      // An unrelated server chat arrives.
+      server.seedChat(
+        id: 'srv-unrelated',
+        blob: blobFor('unrelated'),
+        createdAt: 100,
+        updatedAt: 300,
+      );
+      await healingPull.run();
+
+      // Local create untouched (still pending), server chat merged separately.
+      check(await db.chatsDao.getChat(localId)).isNotNull();
+      check(await db.chatsDao.getChat('srv-unrelated')).isNotNull();
+      check(await db.outboxDao.pendingForChat(localId)).length.equals(1);
     });
   });
 }

@@ -22,6 +22,7 @@ import '../models/server_user_settings.dart';
 import '../models/user.dart';
 import '../auth/api_auth_interceptor.dart';
 import '../error/api_error_interceptor.dart';
+import '../sync/sync_api_client.dart' show SyncTerminalException;
 // Tool-call details are parsed in the UI layer to render collapsible blocks
 import 'connectivity_service.dart';
 import '../utils/debug_logger.dart';
@@ -1361,6 +1362,140 @@ class ApiService {
       }
       rethrow;
     }
+  }
+
+  // ===== Phase 2 sync write seams (CDT-RFC-001 §7.2/§7.4) =====
+  //
+  // These accept a prebuilt `rowsToBlob` blob and return the decoded
+  // `ChatResponse` map verbatim. They deliberately do NOT reuse
+  // `createConversation` (which builds its own blob from `ChatMessage`) nor
+  // `updateConversation` (which sends a partial `{title, system}` dict — the
+  // §3.iii shallow-merge hazard).
+
+  /// POST `/api/v1/chats/new` with the COMPLETE blob; returns the parsed
+  /// `ChatResponse` map (the server mints `id`).
+  Future<Map<String, dynamic>> createChatRaw(
+    Map<String, dynamic> chatBlob, {
+    String? folderId,
+  }) async {
+    final response = await _dio.post(
+      '/api/v1/chats/new',
+      data: {'chat': chatBlob, 'folder_id': ?folderId},
+    );
+    final map = _coerceResponseMap(response.data);
+    if (map == null) {
+      throw StateError('createChatRaw: unexpected response shape');
+    }
+    return map;
+  }
+
+  /// POST `/api/v1/chats/{id}` with the COMPLETE blob. Returns the parsed
+  /// `ChatResponse` map; null on 404 (chat gone); throws
+  /// [SyncTerminalException] on 401/403.
+  Future<Map<String, dynamic>?> updateChatRaw(
+    String id,
+    Map<String, dynamic> chat,
+  ) async {
+    try {
+      final response = await _dio.post(
+        '/api/v1/chats/$id',
+        data: {'chat': chat},
+      );
+      return _coerceResponseMap(response.data);
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if (code == 404) return null;
+      if (code == 401 || code == 403) {
+        throw SyncTerminalException(
+          statusCode: code,
+          message: 'updateChat $id forbidden',
+        );
+      }
+      rethrow;
+    }
+  }
+
+  /// DELETE `/api/v1/chats/{id}`. `true` on success; 404 -> `false` (already
+  /// gone, no throw); 401/403 -> [SyncTerminalException].
+  Future<bool> deleteChatRaw(String id) async {
+    try {
+      await _dio.delete('/api/v1/chats/$id');
+      return true;
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if (code == 404) return false;
+      if (code == 401 || code == 403) {
+        throw SyncTerminalException(
+          statusCode: code,
+          message: 'deleteChat $id forbidden',
+        );
+      }
+      rethrow;
+    }
+  }
+
+  /// GET `/api/v1/chats/{id}/pinned` -> bool (false on a null/absent body).
+  Future<bool> getChatPinnedRaw(String id) async {
+    final response = await _dio.get('/api/v1/chats/$id/pinned');
+    return response.data == true;
+  }
+
+  /// POST `/api/v1/chats/{id}/pin` — stateless toggle. Returns the parsed
+  /// `ChatResponse`; null on 404.
+  Future<Map<String, dynamic>?> togglePinRaw(String id) async {
+    try {
+      final response = await _dio.post('/api/v1/chats/$id/pin');
+      return _coerceResponseMap(response.data);
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404) return null;
+      rethrow;
+    }
+  }
+
+  /// POST `/api/v1/chats/{id}/archive` — stateless toggle. Returns the parsed
+  /// `ChatResponse`; null on 404.
+  Future<Map<String, dynamic>?> toggleArchiveRaw(String id) async {
+    try {
+      final response = await _dio.post('/api/v1/chats/$id/archive');
+      return _coerceResponseMap(response.data);
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404) return null;
+      rethrow;
+    }
+  }
+
+  /// POST `/api/v1/chats/{id}/folder` body `{folder_id: folderId}`. Returns
+  /// the parsed `ChatResponse`; null on 404.
+  Future<Map<String, dynamic>?> moveChatToFolderRaw(
+    String id,
+    String? folderId,
+  ) async {
+    try {
+      final response = await _dio.post(
+        '/api/v1/chats/$id/folder',
+        data: {'folder_id': folderId},
+      );
+      return _coerceResponseMap(response.data);
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404) return null;
+      rethrow;
+    }
+  }
+
+  /// DELETE `/api/v1/folders/{id}?delete_contents=<flag>`.
+  ///
+  /// Distinct from [deleteFolder] (which omits the param and gets the
+  /// DESTRUCTIVE server default `true`). Sync-driven deletes pass `false` so
+  /// contained chats are re-parented to root, not deleted (verified
+  /// `routers/folders.py:delete_folder_by_id`).
+  Future<void> deleteFolderRaw(
+    String id, {
+    bool deleteContents = false,
+  }) async {
+    await _dio.delete(
+      '/api/v1/folders/$id',
+      queryParameters: {'delete_contents': deleteContents},
+    );
   }
 
   static List<Map<String, dynamic>> _coerceRawMapList(Object? data) {
