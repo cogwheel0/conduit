@@ -129,6 +129,7 @@ class IdRemapper {
       // Idempotent no-op: a prior crash-heal already adopted the server id.
       return;
     }
+    var didRewriteLocal = false;
     await _db.transaction(() async {
       final local = await _getChat(localId);
       if (local == null) {
@@ -142,6 +143,7 @@ class IdRemapper {
         await _rewriteOutboxChatId(localId, serverId);
         return;
       }
+      didRewriteLocal = true;
 
       final serverRow = await _getChat(serverId);
       if (serverRow != null) {
@@ -196,6 +198,7 @@ class IdRemapper {
       await _rewriteOutboxChatId(localId, serverId);
     });
 
+    if (!didRewriteLocal) return;
     DebugLogger.log(
       'remap-chat',
       scope: 'sync/remap',
@@ -215,6 +218,7 @@ class IdRemapper {
     required int serverUpdatedAt,
   }) async {
     if (localId == serverId) return;
+    var didRewriteLocal = false;
     await _db.transaction(() async {
       final local = await _getFolder(localId);
       if (local == null) {
@@ -222,6 +226,7 @@ class IdRemapper {
         await _rewriteOutboxChatId(localId, serverId);
         return;
       }
+      didRewriteLocal = true;
       final serverRow = await _getFolder(serverId);
       if (serverRow != null) {
         // A pull already created the server folder: discard the local stub,
@@ -241,6 +246,7 @@ class IdRemapper {
       await _rewriteOutboxChatId(localId, serverId);
     });
 
+    if (!didRewriteLocal) return;
     DebugLogger.log(
       'remap-folder',
       scope: 'sync/remap',
@@ -268,6 +274,7 @@ class IdRemapper {
     required int serverUpdatedAt,
   }) async {
     if (localId == serverId) return;
+    var didRewriteLocal = false;
     await _db.transaction(() async {
       final local = await _getNote(localId);
       if (local == null) {
@@ -278,6 +285,7 @@ class IdRemapper {
         await _rewriteOutboxChatId(localId, serverId);
         return;
       }
+      didRewriteLocal = true;
       final serverRow = await _getNote(serverId);
       if (serverRow != null) {
         // A pull already inserted the server note: discard the local duplicate,
@@ -306,6 +314,7 @@ class IdRemapper {
       await _rewriteOutboxChatId(localId, serverId);
     });
 
+    if (!didRewriteLocal) return;
     DebugLogger.log(
       'remap-note',
       scope: 'sync/remap',

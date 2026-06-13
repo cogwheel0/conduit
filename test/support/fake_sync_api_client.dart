@@ -262,18 +262,24 @@ class FakeSyncApiClient implements SyncApiClient {
   }
 
   @override
-  Future<void> updateFolder(
+  Future<Map<String, dynamic>?> updateFolder(
     String id, {
     String? name,
     Map<String, dynamic>? data,
     Map<String, dynamic>? meta,
   }) async {
+    final exists = server.getFolders().any((folder) => folder['id'] == id);
+    if (!exists) return null;
     server.updateFolder(id, name: name, data: data, meta: meta);
+    return server.getFolders().firstWhere((folder) => folder['id'] == id);
   }
 
   @override
-  Future<void> updateFolderParent(String id, String? parentId) async {
+  Future<bool> updateFolderParent(String id, String? parentId) async {
+    final exists = server.getFolders().any((folder) => folder['id'] == id);
+    if (!exists) return false;
     server.updateFolderParent(id, parentId);
+    return true;
   }
 
   @override

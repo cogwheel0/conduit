@@ -169,6 +169,23 @@ void main() {
       await sub.cancel();
     });
 
+    test('does not emit a duplicate event when the local chat is already gone',
+        () async {
+      final events = <RemapEvent>[];
+      final sub = remapper.remapEvents.listen(events.add);
+
+      await remapper.remapChat(
+        localId: 'local:already-gone',
+        serverId: 'srv-already-gone',
+        serverCreatedAt: 1,
+        serverUpdatedAt: 2,
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      check(events).isEmpty();
+      await sub.cancel();
+    });
+
     test('crash-heal: server stub already present (0 messages) -> local rows '
         'win, no duplicate', () async {
       const localId = 'local:heal';
@@ -465,6 +482,22 @@ void main() {
 
       check(events.single.entityKind).equals('folder');
       check(events.single.toId).equals(serverId);
+      await sub.cancel();
+    });
+
+    test('does not emit a duplicate event when the local folder is already gone',
+        () async {
+      final events = <RemapEvent>[];
+      final sub = remapper.remapEvents.listen(events.add);
+
+      await remapper.remapFolder(
+        localId: 'local:folder-gone',
+        serverId: 'srv-folder-gone',
+        serverUpdatedAt: 3,
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      check(events).isEmpty();
       await sub.cancel();
     });
   });

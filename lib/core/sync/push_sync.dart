@@ -302,14 +302,34 @@ class PushSync {
         return;
       }
 
-      await _client.updateFolder(
-        folderId,
-        name: name,
-        data: data,
-        meta: meta,
-      );
+      final hasFolderPatch = name != null || data != null || meta != null;
+      if (hasFolderPatch) {
+        final folderResp = await _client.updateFolder(
+          folderId,
+          name: name,
+          data: data,
+          meta: meta,
+        );
+        if (folderResp == null) {
+          DebugLogger.warning(
+            'folder-update-404',
+            scope: 'sync/push',
+            data: {'folderId': folderId},
+          );
+          return;
+        }
+      }
       if (parentId != null || payload.containsKey('parentId')) {
-        await _client.updateFolderParent(folderId, parentId);
+        final parentUpdated =
+            await _client.updateFolderParent(folderId, parentId);
+        if (!parentUpdated) {
+          DebugLogger.warning(
+            'folder-update-404',
+            scope: 'sync/push',
+            data: {'folderId': folderId},
+          );
+          return;
+        }
       }
       await _clearFolderDirty(folderId);
     });

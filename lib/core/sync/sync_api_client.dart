@@ -115,16 +115,16 @@ abstract interface class SyncApiClient {
     String? parentId,
   });
 
-  /// POST `/api/v1/folders/{id}/update`.
-  Future<void> updateFolder(
+  /// POST `/api/v1/folders/{id}/update`; null on 404.
+  Future<Map<String, dynamic>?> updateFolder(
     String id, {
     String? name,
     Map<String, dynamic>? data,
     Map<String, dynamic>? meta,
   });
 
-  /// POST `/api/v1/folders/{id}/update/parent`.
-  Future<void> updateFolderParent(String id, String? parentId);
+  /// POST `/api/v1/folders/{id}/update/parent`; false on 404.
+  Future<bool> updateFolderParent(String id, String? parentId);
 
   /// DELETE `/api/v1/folders/{id}?delete_contents=false`. `true` on success;
   /// 404 (already-gone) -> `false` WITHOUT throwing. 401/403 throws
@@ -284,18 +284,43 @@ class ApiSyncApiClient implements SyncApiClient {
   }
 
   @override
-  Future<void> updateFolder(
+  Future<Map<String, dynamic>?> updateFolder(
     String id, {
     String? name,
     Map<String, dynamic>? data,
     Map<String, dynamic>? meta,
-  }) {
-    return api.updateFolder(id, name: name, data: data, meta: meta);
+  }) async {
+    try {
+      return await api.updateFolder(id, name: name, data: data, meta: meta);
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if (code == 404) return null;
+      if (code == 401 || code == 403) {
+        throw SyncTerminalException(
+          statusCode: code,
+          message: 'updateFolder $id forbidden',
+        );
+      }
+      rethrow;
+    }
   }
 
   @override
-  Future<void> updateFolderParent(String id, String? parentId) {
-    return api.updateFolderParent(id, parentId);
+  Future<bool> updateFolderParent(String id, String? parentId) async {
+    try {
+      await api.updateFolderParent(id, parentId);
+      return true;
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if (code == 404) return false;
+      if (code == 401 || code == 403) {
+        throw SyncTerminalException(
+          statusCode: code,
+          message: 'updateFolderParent $id forbidden',
+        );
+      }
+      rethrow;
+    }
   }
 
   @override

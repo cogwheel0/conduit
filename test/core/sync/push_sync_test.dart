@@ -501,6 +501,28 @@ void main() {
       check((await db.select(db.folders).get()).single.dirty).isFalse();
     });
 
+    test('existing folder update 404 returns without clearing dirty', () async {
+      await db.into(db.folders).insert(
+            FoldersCompanion.insert(
+              id: 'missing-folder',
+              name: 'Ghost',
+              createdAt: 1,
+              updatedAt: 2,
+              dirty: const Value(true),
+            ),
+          );
+
+      await push.pushFolderUpsert(<String, dynamic>{
+        'folderId': 'missing-folder',
+        'name': 'Ghost',
+        'createIfAbsent': false,
+      });
+
+      final row = await db.foldersDao.getFolder('missing-folder');
+      check(row).isNotNull();
+      check(row!.dirty).isTrue();
+    });
+
     test('folder delete uses delete_contents=false and purges the row',
         () async {
       final created = server.createFolder(name: 'Doomed');

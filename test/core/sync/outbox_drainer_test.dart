@@ -146,7 +146,7 @@ class RecordingSyncApiClient implements SyncApiClient {
   }) async =>
       throw UnimplementedError();
   @override
-  Future<void> updateFolder(
+  Future<Map<String, dynamic>?> updateFolder(
     String id, {
     String? name,
     Map<String, dynamic>? data,
@@ -154,7 +154,7 @@ class RecordingSyncApiClient implements SyncApiClient {
   }) async =>
       throw UnimplementedError();
   @override
-  Future<void> updateFolderParent(String id, String? parentId) async =>
+  Future<bool> updateFolderParent(String id, String? parentId) async =>
       throw UnimplementedError();
   @override
   Future<bool> deleteFolder(String id, {bool deleteContents = false}) async =>
