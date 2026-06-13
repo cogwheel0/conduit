@@ -134,16 +134,19 @@ class PushSync {
   /// is cleared.
   ///
   /// CONFLICT GATE (§7.2, Phase 2 stub per §11): pushUpdateChat does NOT
-  /// re-pull. The Phase 1 pull fast-forward-merged (no dirty rows existed),
-  /// and Phase 2 trusts the current rows as the merged result; full three-way
-  /// merge is Phase 3. It reconstructs from the CURRENT rows (which already
-  /// overlay local dirty edits) and pushes the complete blob.
+  /// re-pull, and it refuses to push envelope-only stubs. Once a full body pull
+  /// has set `bodySynced=true`, the current rows are the merged result; this
+  /// reconstructs from those rows (which already overlay local dirty edits) and
+  /// pushes the complete blob.
   Future<void> pushUpdateChat(String chatId) async {
     await _chatLocks.runExclusive(chatId, () async {
       final chat = await _db.chatsDao.getChat(chatId);
       if (chat == null || chat.deleted) {
         // A deleteChat op will handle a tombstoned/absent chat.
         return;
+      }
+      if (!chat.bodySynced) {
+        throw StateError('updateChat deferred until body sync completes: $chatId');
       }
       final messages = await _db.messagesDao.getForChat(chatId);
       final capturedMessageIds = [for (final m in messages) m.id];

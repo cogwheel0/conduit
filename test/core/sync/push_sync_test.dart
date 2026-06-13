@@ -28,6 +28,7 @@ Future<void> seedLocalChat(
   bool pinned = false,
   bool archived = false,
   bool dirty = true,
+  bool bodySynced = true,
   Map<String, dynamic>? extraBlobKeys,
 }) async {
   await db.into(db.chats).insert(
@@ -41,7 +42,7 @@ Future<void> seedLocalChat(
           createdAt: 100,
           updatedAt: 200,
           dirty: Value(dirty),
-          bodySynced: const Value(false),
+          bodySynced: Value(bodySynced),
           rawExtra: Value(jsonEncode(extraBlobKeys ?? <String, dynamic>{})),
           blobMeta: Value(
             jsonEncode(<String, dynamic>{
@@ -227,6 +228,43 @@ void main() {
       check(msgs.every((m) => !m.dirty)).isTrue();
     });
 
+    test('defers update when the chat body is only an envelope stub', () async {
+      server.seedChat(
+        id: 'stub',
+        blob: {
+          'title': 'Server title',
+          'history': {
+            'messages': {
+              'server-old': {
+                'id': 'server-old',
+                'parentId': null,
+                'role': 'user',
+                'content': 'server history',
+              },
+            },
+            'currentId': 'server-old',
+          },
+        },
+        createdAt: 100,
+        updatedAt: 150,
+      );
+      await seedLocalChat(
+        db,
+        id: 'stub',
+        messageCount: 2,
+        dirty: true,
+        bodySynced: false,
+      );
+
+      await check(push.pushUpdateChat('stub')).throws<StateError>();
+
+      final stored = server.getChatById('stub')!;
+      final history = (stored['chat'] as Map)['history'] as Map;
+      final messages = history['messages'] as Map;
+      check(messages.keys.toSet()).deepEquals({'server-old'});
+      check((await db.chatsDao.getChat('stub'))!.dirty).isTrue();
+    });
+
     test('respects the server shallow-merge + output->content re-derivation',
         () async {
       // Server has an assistant message with no output.
@@ -254,6 +292,7 @@ void main() {
               createdAt: 1,
               updatedAt: 2,
               dirty: const Value(true),
+              bodySynced: const Value(true),
               blobMeta: Value(jsonEncode(<String, dynamic>{
                 'v': 1,
                 'blobHadTitle': true,

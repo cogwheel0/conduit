@@ -280,28 +280,27 @@ class OutboxTaskQueueMigrator {
     final userMsgId = _uuid.v5(Namespace.url.value, '$taskId/user');
     final asstId = _uuid.v5(Namespace.url.value, '$taskId/assistant');
 
-    // Idempotency guard: if this task already converted (its deterministic
-    // assistant row exists), skip — do not re-append or re-enqueue completion.
-    if (await _messageExists(conversationId, asstId)) {
-      return _ConvertOutcome.skippedDuplicate;
-    }
+    return _chatLocks.runExclusive(conversationId, () async {
+      // Idempotency guard: if this task already converted (its deterministic
+      // assistant row exists), skip — do not re-append or re-enqueue completion.
+      if (await _messageExists(conversationId, asstId)) {
+        return _ConvertOutcome.skippedDuplicate;
+      }
 
-    // Server-completed guard: a legacy "running" task's completion may have
-    // finished SERVER-SIDE before the crash, and `_runOnce` pulls BEFORE this
-    // migration runs — so the chat may already hold that turn under the
-    // server's OWN message ids (which never match our v5-derived [asstId]).
-    // Re-appending here would duplicate the turn AND fire an unwanted second
-    // generation. Detect it by content: if the chat's LATEST user message
-    // matches this task's text and already has a non-empty assistant reply,
-    // the turn is done — skip. (Matching the latest turn, not any historical
-    // message, avoids false-skipping legitimately-repeated text.)
-    if (await _latestTurnAlreadyCompleted(conversationId, text)) {
-      return _ConvertOutcome.skippedDuplicate;
-    }
+      // Server-completed guard: a legacy "running" task's completion may have
+      // finished SERVER-SIDE before the crash, and `_runOnce` pulls BEFORE this
+      // migration runs — so the chat may already hold that turn under the
+      // server's OWN message ids (which never match our v5-derived [asstId]).
+      // Re-appending here would duplicate the turn AND fire an unwanted second
+      // generation. Detect it by content: if the chat's LATEST user message
+      // matches this task's text and already has a non-empty assistant reply,
+      // the turn is done — skip. (Matching the latest turn, not any historical
+      // message, avoids false-skipping legitimately-repeated text.)
+      if (await _latestTurnAlreadyCompleted(conversationId, text)) {
+        return _ConvertOutcome.skippedDuplicate;
+      }
 
-    final existing = await _db.chatsDao.getChat(conversationId);
-
-    await _chatLocks.runExclusive(conversationId, () async {
+      final existing = await _db.chatsDao.getChat(conversationId);
       if (existing == null) {
         // No local row yet (not pulled). Insert a bodySynced=false stub keyed
         // by the server id so the append has a parent row; the subsequent pull
@@ -336,8 +335,8 @@ class OutboxTaskQueueMigrator {
           toolIds: toolIds,
         ),
       );
+      return _ConvertOutcome.converted;
     });
-    return _ConvertOutcome.converted;
   }
 
   /// Whether the message [messageId] already exists for [chatId] — the
