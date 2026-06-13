@@ -420,6 +420,22 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     });
   }
 
+  /// Stop-streaming abort (W14): deletes PENDING `requestCompletion` ops for
+  /// [chatId] so a turn the user stopped is not re-driven by the next drain. An
+  /// `inFlight` requestCompletion (the stream already started) is NOT touched —
+  /// the stop's transport-cancel handles it and its op markDone()s on stream
+  /// finish. Caller holds the chat lock. Returns the number of ops removed.
+  Future<int> cancelPendingCompletion(String chatId) {
+    return (delete(_outboxDao.outboxOps)
+          ..where(
+            (t) =>
+                t.chatId.equals(chatId) &
+                t.kind.equals(OutboxKind.requestCompletion.name) &
+                t.status.equals(OutboxStatus.pending),
+          ))
+        .go();
+  }
+
   /// `UPDATE ... SET last_read_at = max(coalesce(last_read_at, 0), ?)` —
   /// never lowered.
   Future<void> setLastReadAt(String chatId, int epochSeconds) {

@@ -131,6 +131,15 @@ class FakeSyncApiClient implements SyncApiClient {
   int updateChatCalls = 0;
   int deleteChatCalls = 0;
 
+  /// When set, every [createChat] awaits this future before returning — lets a
+  /// test hold a createChat op `inFlight` at a deterministic point (so a
+  /// concurrent drain trigger can be exercised against a genuinely-in-flight
+  /// op).
+  Future<void>? createChatGate;
+
+  /// Ids in the order [createChat] calls STARTED (records `__localId`).
+  final List<String> createChatStarts = <String>[];
+
   void _maybeThrow(String id) {
     if (failWriteIds.contains(id)) {
       throw StateError('injected write failure ($id)');
@@ -146,7 +155,12 @@ class FakeSyncApiClient implements SyncApiClient {
     String? folderId,
   }) async {
     createChatCalls++;
+    createChatStarts.add(chatBlob['__localId'] as String? ?? 'create');
     await Future<void>.delayed(Duration.zero);
+    final gate = createChatGate;
+    if (gate != null) {
+      await gate;
+    }
     return server.createChat(chatBlob, folderId: folderId);
   }
 

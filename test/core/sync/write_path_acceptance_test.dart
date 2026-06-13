@@ -247,10 +247,83 @@ void main() {
       check(server.getChatById(serverId)).isNotNull();
       check(completion.ranForChats).deepEquals([serverId]);
 
+      // R8: EXACTLY ONE assistant row for the turn (the placeholder id, the DB
+      // row, and the completion echo all share `a-off`, so upsertLocalEcho keyed
+      // on {chatId,id} updated the one row instead of writing a duplicate).
+      final finalMsgs = await db.messagesDao.getForChat(serverId);
+      check(finalMsgs.where((m) => m.role == 'assistant').toList())
+          .length
+          .equals(1);
+      check(finalMsgs.where((m) => m.id == 'a-off').single.content)
+          .equals('assistant reply');
+
       await db.close();
       // Reset db to in-memory so tearDown's close is harmless.
       db = AppDatabase(NativeDatabase.memory());
       wire();
+    },
+  );
+
+  test(
+    'crash between createChat and remap-commit heals without duplicating the '
+    'chat or the assistant row',
+    () async {
+      const localId = 'local:crash-heal';
+      const contentHash = 'crash-heal-hash';
+      final blobRows = _composeRows(localId, 'heal me');
+      await chatLocks.runExclusive(localId, () async {
+        await db.chatsDao.insertLocalChatWithCreateOp(
+          chat: blobRows.chat,
+          messages: blobRows.messages,
+          blobRows: blobRows,
+          contentHash: contentHash,
+          completion: const RequestCompletionPayload(
+            assistantMessageId: 'a-off',
+            model: 'gpt-test',
+          ),
+        );
+      });
+
+      // Simulate a crash AFTER the server minted the chat but BEFORE the local
+      // remap committed: POST the chat to the fake server directly and adopt the
+      // server id by completing the remap (idempotent: re-running remap or push
+      // must not create a second chat).
+      final blob = ChatBlobMapper.rowsToBlob(blobRows)..['id'] = '';
+      final resp = await client.createChat(blob, folderId: null);
+      final serverId = resp['id'] as String;
+
+      // Heal: complete the remap that the crash interrupted.
+      await chatLocks.runExclusive(serverId, () async {
+        await remapper.remapChat(
+          localId: localId,
+          serverId: serverId,
+          serverCreatedAt: 7000,
+          serverUpdatedAt: 7000,
+        );
+      });
+
+      // Now drain. pushCreateChat re-runs against the NON-local (already
+      // remapped) id, recognizes the create is already satisfied, and does NOT
+      // POST a second chat; the requestCompletion then runs against serverId.
+      await drainer().drain();
+
+      // Exactly one server chat, no local leftover.
+      check(await db.chatsDao.getChat(localId)).isNull();
+      final serverChats = (await db.select(db.chats).get())
+          .where((c) => !c.id.startsWith('local:'))
+          .toList();
+      check(serverChats.length).equals(1);
+      check(serverChats.single.id).equals(serverId);
+
+      // The server has exactly one chat for this id (no duplicate POST).
+      check(server.getChatById(serverId)).isNotNull();
+
+      // Exactly one assistant row, with the completed body (R8).
+      final msgs = await db.messagesDao.getForChat(serverId);
+      check(msgs.where((m) => m.role == 'assistant').toList()).length.equals(1);
+      check(msgs.where((m) => m.id == 'a-off').single.content)
+          .equals('assistant reply');
+      check(completion.ranForChats).deepEquals([serverId]);
     },
   );
 }

@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:checks/checks.dart';
 import 'package:conduit/core/database/app_database.dart';
 import 'package:conduit/core/database/database_provider.dart';
+import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit/core/providers/app_providers.dart';
+import 'package:conduit/core/services/connectivity_service.dart';
 import 'package:conduit/core/sync/sync_api_client.dart';
 import 'package:conduit/core/sync/sync_engine.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
@@ -31,12 +33,16 @@ void main() {
     await db.close();
   });
 
-  ProviderContainer makeContainer({bool authenticated = true}) {
+  ProviderContainer makeContainer({
+    bool authenticated = true,
+    bool online = true,
+  }) {
     final container = ProviderContainer(
       overrides: [
         appDatabaseProvider.overrideWith((ref) => db),
         syncApiClientProvider.overrideWith((ref) => client),
         isAuthenticatedProvider2.overrideWith((ref) => authenticated),
+        isOnlineProvider.overrideWith((ref) => online),
         legacyConversationCachePurgerProvider.overrideWith(
           (ref) => () async {
             purgeCalls++;
@@ -46,6 +52,40 @@ void main() {
     );
     addTearDown(container.dispose);
     return container;
+  }
+
+  /// Inserts a `local:` chat row + its createChat outbox op in one tx, exactly
+  /// as the production durable-send path does, so the drainer reconstructs the
+  /// blob from rows and POSTs it via [PushSync.pushCreateChat].
+  Future<void> seedLocalCreate(String localId, {required String contentHash}) {
+    final rows = ChatBlobMapper.blobToRows(
+      chatId: localId,
+      title: 'Draft $localId',
+      createdAt: 1,
+      updatedAt: 1,
+      blob: <String, dynamic>{
+        'title': 'Draft $localId',
+        'history': <String, dynamic>{
+          'currentId': 'm1',
+          'messages': <String, dynamic>{
+            'm1': <String, dynamic>{
+              'id': 'm1',
+              'parentId': null,
+              'childrenIds': <String>[],
+              'role': 'user',
+              'content': 'hello',
+              'timestamp': 1,
+            },
+          },
+        },
+      },
+    );
+    return db.chatsDao.insertLocalChatWithCreateOp(
+      chat: rows.chat,
+      messages: rows.messages,
+      blobRows: rows,
+      contentHash: contentHash,
+    );
   }
 
   Future<void> waitFor(
@@ -229,5 +269,50 @@ void main() {
       check(await engine.pullChatNow('chat-1')).isNull();
       check(client.chatFetchStarts).isEmpty();
     });
+  });
+
+  group('outbox drain serialization (one shared drainer)', () {
+    test(
+      'a pull-cycle drain and a concurrent drainNow() execute a createChat '
+      'exactly once (no resetInFlightToPending double-send)',
+      () async {
+        // A local createChat op is enqueued, exactly as a durable send would.
+        await seedLocalCreate('local:c1', contentHash: 'h1');
+        final container = makeContainer();
+        final engine = container.read(syncEngineProvider.notifier);
+
+        // Hold the FIRST createChat POST open so the op is genuinely `inFlight`
+        // (claimed + mid-push) when the second drain trigger fires. If two
+        // OutboxDrainer instances existed, the second's resetInFlightToPending
+        // would re-arm this op and re-POST it.
+        final gate = Completer<void>();
+        client.createChatGate = gate.future;
+
+        // Entry point (1): the pull cycle's post-pull drain.
+        final pullDrain = engine.requestPull(reason: 'pull-cycle');
+        // Wait until the createChat POST is provably in flight.
+        await waitFor(() => client.createChatStarts.isNotEmpty);
+        check(client.createChatCalls).equals(1);
+
+        // Entry point (2): a live send's immediate drain (durableSend ->
+        // drainNow -> onConnectivityRegained -> resetInFlightToPending +
+        // drain). With one shared drainer this collapses into the in-flight
+        // drain instead of resetting the in-flight op.
+        final connectivityDrain = engine.drainNow();
+
+        // Release the held POST; let everything settle.
+        gate.complete();
+        await pullDrain;
+        await connectivityDrain;
+        // Drain again to flush any queued rerun the shared single-flight
+        // scheduled, proving it does NOT re-POST.
+        await engine.drainNow();
+
+        // The createChat reached the server exactly once.
+        check(client.createChatCalls).equals(1);
+        // The op was consumed (remapped + marked done), nothing left pending.
+        check(await db.outboxDao.pendingForChat('local:c1')).isEmpty();
+      },
+    );
   });
 }

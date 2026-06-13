@@ -44,7 +44,7 @@ import '../services/historical_message_regeneration.dart';
 import '../voice_mode/chat_voice_mode_controller.dart';
 import '../voice_mode/chat_voice_mode_overlay.dart';
 import '../voice_call/presentation/voice_call_launcher.dart';
-import '../../../shared/services/tasks/task_queue.dart';
+import '../../../core/services/media_upload_controller.dart';
 import '../../tools/providers/tools_providers.dart';
 import '../../../core/models/chat_message.dart';
 import '../../../core/models/conversation.dart';
@@ -547,16 +547,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       // Get selected tools
       final toolIds = ref.read(selectedToolIdsProvider);
 
-      // Enqueue task-based send to unify flow across text, images, and tools
-      final activeConv = ref.read(activeConversationProvider);
-      await ref
-          .read(taskQueueProvider.notifier)
-          .enqueueSendText(
-            conversationId: activeConv?.id,
-            text: text,
-            attachments: uploadedFileIds.isNotEmpty ? uploadedFileIds : null,
-            toolIds: toolIds.isNotEmpty ? toolIds : null,
-          );
+      // Durable send: persists rows + outbox op in one tx (survives a
+      // force-quit) and drives streaming via the requestCompletion op.
+      await durableSend(
+        ref,
+        text,
+        uploadedFileIds.isNotEmpty ? uploadedFileIds : null,
+        toolIds: toolIds.isNotEmpty ? toolIds : null,
+      );
 
       // Clear attachments after successful send
       ref.read(attachedFilesProvider.notifier).clearAll();
@@ -599,21 +597,20 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       // Add files to the attachment list
       ref.read(attachedFilesProvider.notifier).addFiles(attachments);
 
-      // Enqueue uploads via task queue for unified retry/progress
-      final activeConv = ref.read(activeConversationProvider);
+      // Drive uploads via the shared media-upload controller (fold-out, not an
+      // outbox op) for unified retry/progress.
       for (final attachment in attachments) {
         try {
           await ref
-              .read(taskQueueProvider.notifier)
-              .enqueueUploadMedia(
-                conversationId: activeConv?.id,
+              .read(mediaUploadControllerProvider)
+              .upload(
                 filePath: attachment.file.path,
                 fileName: attachment.displayName,
                 fileSize: await attachment.file.length(),
               );
         } catch (e) {
           if (!mounted) return;
-          DebugLogger.log('Enqueue upload failed: $e', scope: 'chat/page');
+          DebugLogger.log('Upload failed: $e', scope: 'chat/page');
         }
       }
     } catch (e) {
@@ -759,15 +756,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         scope: 'chat/page',
       );
 
-      // Enqueue upload via task queue for unified retry/progress
-      DebugLogger.log('Enqueueing image upload(s)...', scope: 'chat/page');
-      final activeConv = ref.read(activeConversationProvider);
+      // Drive uploads via the shared media-upload controller for unified
+      // retry/progress.
+      DebugLogger.log('Uploading image(s)...', scope: 'chat/page');
       for (final attachment in attachments) {
         try {
           await ref
-              .read(taskQueueProvider.notifier)
-              .enqueueUploadMedia(
-                conversationId: activeConv?.id,
+              .read(mediaUploadControllerProvider)
+              .upload(
                 filePath: attachment.file.path,
                 fileName: attachment.displayName,
                 fileSize:
@@ -775,7 +771,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
               );
         } catch (e) {
           DebugLogger.log(
-            'Enqueue image upload failed: $e',
+            'Image upload failed: $e',
             scope: 'chat/page',
           );
         }
@@ -800,8 +796,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     // Add attachments to the list
     ref.read(attachedFilesProvider.notifier).addFiles(attachments);
 
-    // Enqueue uploads via task queue for unified retry/progress
-    final activeConv = ref.read(activeConversationProvider);
+    // Drive uploads via the shared media-upload controller for unified
+    // retry/progress.
     for (final attachment in attachments) {
       try {
         final fileSize = await attachment.file.length();
@@ -810,15 +806,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           scope: 'chat/page',
         );
         await ref
-            .read(taskQueueProvider.notifier)
-            .enqueueUploadMedia(
-              conversationId: activeConv?.id,
+            .read(mediaUploadControllerProvider)
+            .upload(
               filePath: attachment.file.path,
               fileName: attachment.displayName,
               fileSize: fileSize,
             );
       } catch (e) {
-        DebugLogger.log('Enqueue pasted upload failed: $e', scope: 'chat/page');
+        DebugLogger.log('Pasted upload failed: $e', scope: 'chat/page');
       }
     }
 

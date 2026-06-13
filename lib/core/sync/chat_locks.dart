@@ -68,3 +68,13 @@ ChatLocks chatLocks(Ref ref) {
   ref.watch(appDatabaseProvider);
   return ChatLocks();
 }
+
+/// Folder ops own a SEPARATE lock domain from chats (`OutboxDao.isFolderKind`):
+/// [PushSync]/[OutboxDrainer] take this as their `folderLocks`. A distinct
+/// instance from [chatLocksProvider] so a folder op never contends a chat op
+/// (and vice versa). Also recreated per database identity.
+@Riverpod(keepAlive: true)
+ChatLocks folderLocks(Ref ref) {
+  ref.watch(appDatabaseProvider);
+  return ChatLocks();
+}

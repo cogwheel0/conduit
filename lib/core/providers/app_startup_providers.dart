@@ -25,6 +25,7 @@ import '../utils/system_ui_style.dart';
 import '../models/server_config.dart';
 import '../../features/tools/providers/tools_providers.dart';
 import '../../features/chat/providers/chat_providers.dart';
+import '../../features/chat/providers/remap_route_sync_provider.dart';
 
 part 'app_startup_providers.g.dart';
 
@@ -970,6 +971,10 @@ class AppStartupFlow extends _$AppStartupFlow {
     // Install the sync engine's pull triggers (CDT-RFC-001 §7.6): app start,
     // auth, foreground, connectivity-regained, and the periodic timer.
     ref.watch(syncTriggersProvider);
+
+    // Install the remap-route consumer (Wiring C): swaps the active-chat /
+    // pending-folder id in place when a local id is remapped to a server id.
+    ref.watch(remapRouteSyncProvider);
 
     // Retry authenticated startup work if the API becomes available after the
     // initial startup/auth transition request.

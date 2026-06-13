@@ -13,8 +13,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../../features/auth/providers/unified_auth_providers.dart';
 import '../../features/chat/providers/chat_providers.dart';
 import '../../features/chat/services/file_attachment_service.dart';
-import '../../shared/services/tasks/task_queue.dart';
-import '../providers/app_providers.dart';
+import 'media_upload_controller.dart';
 import '../utils/debug_logger.dart';
 import 'app_intents_service.dart';
 import 'navigation_service.dart';
@@ -385,8 +384,7 @@ class HomeWidgetCoordinator extends _$HomeWidgetCoordinator {
     // Warm the attachment service
     final _ = ref.read(fileAttachmentServiceProvider);
     final notifier = ref.read(attachedFilesProvider.notifier);
-    final taskQueue = ref.read(taskQueueProvider.notifier);
-    final activeConv = ref.read(activeConversationProvider);
+    final mediaUpload = ref.read(mediaUploadControllerProvider);
 
     final attachment = LocalAttachment(
       file: file,
@@ -396,8 +394,7 @@ class HomeWidgetCoordinator extends _$HomeWidgetCoordinator {
     notifier.addFiles([attachment]);
 
     try {
-      await taskQueue.enqueueUploadMedia(
-        conversationId: activeConv?.id,
+      await mediaUpload.upload(
         filePath: file.path,
         fileName: attachment.displayName,
         fileSize: await file.length(),

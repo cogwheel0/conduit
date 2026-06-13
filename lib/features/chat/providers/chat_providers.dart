@@ -13,12 +13,15 @@ import '../../../core/models/chat_message.dart';
 import '../../../core/models/model.dart';
 import '../../../core/models/conversation.dart';
 import '../../../core/database/app_database.dart';
+import '../../../core/database/daos/outbox_dao.dart';
 import '../../../core/database/database_provider.dart';
 import '../../../core/database/local_conversation_loader.dart';
 import '../../../core/database/mappers/chat_blob_mapper.dart';
 import '../../../core/database/mappers/conversation_assembler.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/sync/chat_locks.dart';
+import '../../../core/sync/clock.dart';
+import '../../../core/sync/id_remapper.dart';
 import '../../../core/sync/sync_engine.dart';
 
 import '../../../core/services/location_service.dart';
@@ -33,7 +36,6 @@ import '../../../core/utils/message_tree_utils.dart' as message_tree;
 import '../../../core/utils/tool_calls_parser.dart';
 import '../models/chat_context_attachment.dart';
 import '../providers/context_attachments_provider.dart';
-import '../../../shared/services/tasks/task_queue.dart';
 import '../../tools/providers/tools_providers.dart';
 import '../services/chat_transport_dispatch.dart';
 import '../services/reviewer_mode_service.dart';
@@ -3553,6 +3555,520 @@ Future<void> regenerateMessage(
   }
 }
 
+/// Drives the EXISTING streaming pipeline for a turn whose rows already exist
+/// (the user message + assistant placeholder are in the DB and loaded into
+/// `chatMessagesProvider`). The SHARED streaming tail used by both the queued
+/// completion runner (Wiring D) and — over time — the interactive send paths,
+/// so there is exactly ONE `sendMessageSession`/`dispatchChatTransport`
+/// dispatch path.
+///
+/// It rebuilds `requestMessages` LIVE from `chatMessagesProvider` rows (never
+/// snapshots), passes [assistantMessageId] as `responseMessageId` (load-bearing
+/// for the R8 one-row-per-turn guarantee), and does NOT mint a new assistant id
+/// nor re-add the user message. Caller has already ensured the placeholder is
+/// the last message and marked streaming (via [_preseedAssistantAndPersist]).
+Future<void> runQueuedCompletion(
+  dynamic ref, {
+  required String chatId,
+  required String assistantMessageId,
+  required String model,
+  List<String> toolIds = const <String>[],
+  List<String> filterIds = const <String>[],
+  String? sessionIdOverride,
+}) async {
+  final api = ref.read(apiServiceProvider);
+  if (api == null) {
+    throw StateError('runQueuedCompletion requires an API service');
+  }
+  final selectedModel = ref.read(selectedModelProvider);
+  // Empty model => fall back to the selected default model (mirrors the
+  // migrator's empty-model contract). A still-empty model is a hard error.
+  final effectiveModelId = model.isNotEmpty
+      ? model
+      : (selectedModel?.id ?? '');
+  if (effectiveModelId.isEmpty) {
+    throw StateError('runQueuedCompletion has no model to send');
+  }
+
+  final activeConversation = ref.read(activeConversationProvider);
+  if (activeConversation == null || activeConversation.id != chatId) {
+    // The caller (runner) activates the chat before driving; a mismatch means
+    // the active chat changed under us — let the op retry on a later drain.
+    throw StateError('runQueuedCompletion: chat $chatId is not active');
+  }
+
+  Map<String, dynamic>? userSettingsData;
+  String? userSystemPrompt;
+  try {
+    userSettingsData = await api.getUserSettings();
+    userSystemPrompt = _extractSystemPromptFromSettings(userSettingsData);
+  } catch (_) {}
+
+  final toolIdsForApi = _extractToolIdsForApi(toolIds);
+  final selectedFilterIds = filterIds;
+
+  // Rebuild the conversation history LIVE from the loaded rows (§3.iii).
+  final List<ChatMessage> messages = ref.read(chatMessagesProvider);
+  final List<Map<String, dynamic>> conversationMessages =
+      <Map<String, dynamic>>[];
+  for (int i = 0; i < messages.length; i++) {
+    final msg = messages[i];
+    if (_isArchivedAssistantVariant(msg)) {
+      continue;
+    }
+    if (_shouldIncludeConversationHistoryMessage(msg)) {
+      final cleaned = ToolCallsParser.sanitizeForApi(msg.content);
+      final List<String> messageAttachments = msg.attachmentIds ?? const [];
+      if (messageAttachments.isNotEmpty) {
+        final messageMap = await _buildMessagePayloadWithAttachments(
+          api: api,
+          role: msg.role,
+          cleanedText: cleaned,
+          attachmentIds: messageAttachments,
+        );
+        if (msg.files != null && msg.files!.isNotEmpty) {
+          final rawFiles = messageMap['files'];
+          final existingFiles = rawFiles is List
+              ? rawFiles.whereType<Map<String, dynamic>>().toList()
+              : <Map<String, dynamic>>[];
+          messageMap['files'] = <Map<String, dynamic>>[
+            ...existingFiles,
+            ...msg.files!,
+          ];
+        }
+        if (msg.output != null && msg.output!.isNotEmpty) {
+          messageMap['output'] = msg.output;
+        }
+        conversationMessages.add(messageMap);
+      } else {
+        conversationMessages.add({
+          'role': msg.role,
+          'content': cleaned,
+          'files': ?msg.files,
+          'output': ?msg.output,
+        });
+      }
+    }
+  }
+
+  final conversationSystemPrompt = activeConversation.systemPrompt?.trim();
+  final effectiveSystemPrompt =
+      (conversationSystemPrompt != null && conversationSystemPrompt.isNotEmpty)
+      ? conversationSystemPrompt
+      : userSystemPrompt;
+  if (effectiveSystemPrompt != null && effectiveSystemPrompt.isNotEmpty) {
+    final hasSystemMessage = conversationMessages.any(
+      (m) => (m['role']?.toString().toLowerCase() ?? '') == 'system',
+    );
+    if (!hasSystemMessage) {
+      conversationMessages.insert(0, {
+        'role': 'system',
+        'content': effectiveSystemPrompt,
+      });
+    }
+  }
+
+  final isTemporary =
+      isTemporaryChat(activeConversation.id) ||
+      ref.read(temporaryChatEnabledProvider);
+  final requestMessages = _buildChatCompletionMessages(
+    conversationMessages: conversationMessages,
+    isTemporary: isTemporary,
+  );
+
+  // Ensure the (already-existing) assistant placeholder is loaded + streaming.
+  await _preseedAssistantAndPersist(
+    ref,
+    existingAssistantId: assistantMessageId,
+    modelId: effectiveModelId,
+  );
+
+  final webSearchEnabled =
+      ref.read(webSearchEnabledProvider) &&
+      ref.read(webSearchAvailableProvider);
+  final imageGenerationEnabled =
+      ref.read(imageGenerationEnabledProvider) &&
+      ref.read(imageGenerationAvailableProvider);
+
+  final Map<String, dynamic> modelItem =
+      (selectedModel != null && selectedModel.id == effectiveModelId)
+      ? _buildLocalModelItem(selectedModel)
+      : <String, dynamic>{'id': effectiveModelId, 'name': effectiveModelId};
+
+  final socketService = ref.read(socketServiceProvider);
+  final socketSessionId =
+      sessionIdOverride ??
+      await _ensureConnectedSocketSessionId(socketService);
+
+  List<Map<String, dynamic>>? toolServers;
+  try {
+    toolServers = await _resolveToolServersForRequest(
+      api: api,
+      userSettings: userSettingsData,
+      selectedToolIds: ref.read(selectedToolIdsProvider),
+    );
+  } catch (_) {}
+
+  final bgTasks = _buildOpenWebUiBackgroundTasks(
+    userSettings: userSettingsData,
+    shouldGenerateTitle: false,
+    webSearchEnabled: webSearchEnabled,
+    imageGenerationEnabled: imageGenerationEnabled,
+  );
+
+  final bool isBackgroundToolsFlowPre =
+      toolIdsForApi.isNotEmpty ||
+      (toolServers != null && toolServers.isNotEmpty);
+
+  String? lastUserMessageId;
+  for (int i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role == 'user') {
+      lastUserMessageId = messages[i].id;
+      break;
+    }
+  }
+
+  Map<String, dynamic>? promptVars2;
+  Map<String, dynamic>? parentMsgMap;
+  try {
+    promptVars2 = await _buildOpenWebUiPromptVariablesForRequest(
+      ref,
+      now: DateTime.now(),
+      userSettings: userSettingsData,
+    );
+  } catch (_) {}
+  try {
+    parentMsgMap = _buildOpenWebUiUserMessage(
+      messages: messages,
+      userMessageId: lastUserMessageId,
+      modelId: effectiveModelId,
+      assistantChildMessageId: assistantMessageId,
+    );
+  } catch (_) {}
+
+  socketService?.startBuffering(
+    chatId,
+    sessionId: socketSessionId,
+    messageId: assistantMessageId,
+  );
+
+  try {
+    final session = await api.sendMessageSession(
+      messages: requestMessages,
+      model: effectiveModelId,
+      conversationId: chatId,
+      toolIds: toolIdsForApi.isNotEmpty ? toolIdsForApi : null,
+      filterIds: selectedFilterIds.isNotEmpty ? selectedFilterIds : null,
+      enableWebSearch: webSearchEnabled,
+      enableImageGeneration: imageGenerationEnabled,
+      modelItem: modelItem,
+      sessionIdOverride: socketSessionId,
+      toolServers: toolServers,
+      backgroundTasks: bgTasks,
+      responseMessageId: assistantMessageId,
+      userSettings: userSettingsData,
+      parentId: parentMsgMap?['parentId']?.toString(),
+      userMessage: parentMsgMap,
+      variables: promptVars2,
+      files: _extractTopLevelRequestFiles(parentMsgMap),
+    );
+
+    final modelLower = effectiveModelId.toLowerCase();
+    final modelUsesReasoning =
+        modelLower.contains('o1') ||
+        modelLower.contains('o3') ||
+        modelLower.contains('deepseek-r1') ||
+        modelLower.contains('reasoning') ||
+        modelLower.contains('think');
+
+    final bool isBackgroundFlow =
+        isBackgroundToolsFlowPre ||
+        webSearchEnabled ||
+        imageGenerationEnabled ||
+        bgTasks.isNotEmpty;
+
+    await dispatchChatTransport(
+      ref: ref,
+      session: session,
+      assistantMessageId: assistantMessageId,
+      modelId: effectiveModelId,
+      modelItem: modelItem,
+      activeConversationId: chatId,
+      api: api,
+      socketService: socketService,
+      workerManager: ref.read(workerManagerProvider),
+      webSearchEnabled: webSearchEnabled,
+      imageGenerationEnabled: imageGenerationEnabled,
+      isBackgroundFlow: isBackgroundFlow,
+      modelUsesReasoning: modelUsesReasoning,
+      toolsEnabled:
+          toolIdsForApi.isNotEmpty ||
+          (toolServers != null && toolServers.isNotEmpty) ||
+          imageGenerationEnabled,
+      isTemporary: isTemporary,
+      filterIds: selectedFilterIds.isNotEmpty ? selectedFilterIds : null,
+    );
+  } finally {
+    socketService?.stopBuffering(
+      chatId,
+      sessionId: socketSessionId,
+      messageId: assistantMessageId,
+    );
+  }
+}
+
+/// Durable send (CDT-RFC-001 §7.2 write path; Group 1 of the task_queue
+/// retirement). Replaces the legacy `taskQueueProvider.enqueueSendText` path.
+///
+/// Writes the user message + assistant placeholder rows AND the outbox op(s)
+/// (createChat or updateChat, plus requestCompletion) in ONE transaction via the
+/// `*WithOutbox` DAO methods, under `ChatLocks.runExclusive(chatId)`, so a send
+/// composed offline survives a force-quit (NON-NEGOTIABLE 4). The optimistic UI
+/// add is separate + instant. The SAME [assistantMessageId] is threaded into the
+/// in-memory placeholder, the DB row, and `RequestCompletionPayload`
+/// (NON-NEGOTIABLE 1, R8). Streaming is then driven by the requestCompletion op
+/// via the drainer's runner — `drainNow()` fires immediately so an online send
+/// streams with no perceptible delay.
+///
+/// Falls back to the legacy inline send ([_sendMessageInternal]) when there is
+/// no active database (reviewer mode / no active server), preserving behavior.
+Future<void> durableSend(
+  dynamic ref,
+  String message,
+  List<String>? attachments, {
+  List<String>? toolIds,
+  String? pendingFolderIdOverride,
+  bool isVoiceMode = false,
+}) async {
+  final db = ref.read(appDatabaseProvider);
+  final reviewerMode = ref.read(reviewerModeProvider);
+  final selectedModel = ref.read(selectedModelProvider);
+  final temporary = ref.read(temporaryChatEnabledProvider);
+
+  // No durable backend (reviewer mode, no active server) OR a temporary chat
+  // (never persisted): fall back to the legacy inline send path unchanged.
+  if (db == null || reviewerMode || selectedModel == null || temporary) {
+    await _sendMessageInternal(
+      ref,
+      message,
+      attachments,
+      toolIds,
+      isVoiceMode,
+      pendingFolderIdOverride,
+    );
+    return;
+  }
+
+  final filterIds = ref.read(selectedFilterIdsProvider);
+  final now = ref.read(syncClockProvider).nowEpochSeconds();
+
+  final existingMessages = ref.read(chatMessagesProvider);
+  final parentId = _resolveOpenWebUiParentIdForNewUserMessage(existingMessages);
+
+  // Mint both ids ONCE (R8): the placeholder, the DB row, and the completion
+  // payload all share `assistantMessageId`.
+  final userMessageId = const Uuid().v4();
+  final assistantMessageId = const Uuid().v4();
+
+  // ---- optimistic UI (instant; NON-NEGOTIABLE 4) ----
+  final attachmentIds = attachments;
+  final userMessage = ChatMessage(
+    id: userMessageId,
+    role: 'user',
+    content: message,
+    timestamp: DateTime.now(),
+    model: selectedModel.id,
+    attachmentIds: attachmentIds,
+    metadata: {
+      'parentId': parentId,
+      'childrenIds': <String>[assistantMessageId],
+      'models': <String>[selectedModel.id],
+    },
+  );
+  ref.read(chatMessagesProvider.notifier).addMessage(userMessage);
+  final assistantPlaceholder = ChatMessage(
+    id: assistantMessageId,
+    role: 'assistant',
+    content: '',
+    timestamp: DateTime.now(),
+    model: selectedModel.id,
+    isStreaming: true,
+    metadata: {'parentId': userMessageId, 'childrenIds': const <String>[]},
+  );
+  ref.read(chatMessagesProvider.notifier).addMessage(assistantPlaceholder);
+
+  final chatLocks = ref.read(chatLocksProvider);
+  final attachmentList = attachments ?? const <String>[];
+  final toolIdList = toolIds ?? const <String>[];
+
+  final completion = RequestCompletionPayload(
+    assistantMessageId: assistantMessageId,
+    model: selectedModel.id,
+    toolIds: toolIdList,
+    filterIds: filterIds,
+  );
+
+  var activeConversation = ref.read(activeConversationProvider);
+
+  if (activeConversation == null) {
+    // ---- NEW local chat ----
+    final pendingFolderId =
+        pendingFolderIdOverride ?? ref.read(pendingFolderIdProvider);
+    final localId = 'local:${const Uuid().v4()}';
+    final title = _titleFromText(message);
+
+    final blob = _buildDurableNewChatBlob(
+      userMsgId: userMessageId,
+      asstId: assistantMessageId,
+      parentId: parentId,
+      text: message,
+      attachments: attachmentList,
+      modelId: selectedModel.id,
+      now: now,
+    );
+    final rows = ChatBlobMapper.blobToRows(
+      chatId: localId,
+      blob: blob,
+      title: title,
+      folderId: pendingFolderId,
+      createdAt: now,
+      updatedAt: now,
+    );
+    final contentHash = createChatContentHash(rows);
+
+    // Set the active conversation to the local id BEFORE persisting so the
+    // runner / remap consumer see a stable id.
+    final localConversation = Conversation(
+      id: localId,
+      title: title,
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+      messages: ref.read(chatMessagesProvider),
+      folderId: pendingFolderId,
+    );
+    ref.read(activeConversationProvider.notifier).set(localConversation);
+    activeConversation = localConversation;
+    ref.read(pendingFolderIdProvider.notifier).clear();
+
+    await chatLocks.runExclusive(localId, () async {
+      await db.chatsDao.insertLocalChatWithCreateOp(
+        chat: rows.chat,
+        messages: rows.messages,
+        blobRows: rows,
+        contentHash: contentHash,
+        completion: completion,
+      );
+    });
+  } else {
+    // ---- EXISTING chat ----
+    final chatId = activeConversation.id;
+    final userRow = MessageRowData(
+      id: userMessageId,
+      chatId: chatId,
+      parentId: parentId,
+      role: 'user',
+      content: message,
+      createdAt: now,
+      orderIndex: 0,
+      payload: <String, dynamic>{
+        'id': userMessageId,
+        'parentId': parentId,
+        'childrenIds': <String>[assistantMessageId],
+        'role': 'user',
+        'content': message,
+        'files': _durableFilesFor(attachmentList),
+        'models': <String>[selectedModel.id],
+        'timestamp': now,
+      },
+    );
+    final asstRow = MessageRowData(
+      id: assistantMessageId,
+      chatId: chatId,
+      parentId: userMessageId,
+      role: 'assistant',
+      content: '',
+      model: selectedModel.id,
+      createdAt: now,
+      orderIndex: 1,
+      payload: <String, dynamic>{
+        'id': assistantMessageId,
+        'parentId': userMessageId,
+        'childrenIds': <String>[],
+        'role': 'assistant',
+        'content': '',
+        'model': selectedModel.id,
+        'timestamp': now,
+      },
+    );
+
+    await chatLocks.runExclusive(chatId, () async {
+      await db.chatsDao.appendMessagesWithUpdateOp(
+        chatId: chatId,
+        messages: [userRow, asstRow],
+        currentMessageId: assistantMessageId,
+        updatedAt: now,
+        enqueueCompletion: true,
+        completion: completion,
+      );
+    });
+  }
+
+  // Drive streaming immediately (online) via the requestCompletion op.
+  await ref.read(syncEngineProvider.notifier).drainNow();
+}
+
+Map<String, dynamic> _buildDurableNewChatBlob({
+  required String userMsgId,
+  required String asstId,
+  required String? parentId,
+  required String text,
+  required List<String> attachments,
+  required String modelId,
+  required int now,
+}) {
+  return <String, dynamic>{
+    'title': _titleFromText(text),
+    'models': <String>[modelId],
+    'history': <String, dynamic>{
+      'currentId': asstId,
+      'messages': <String, dynamic>{
+        userMsgId: <String, dynamic>{
+          'id': userMsgId,
+          'parentId': parentId,
+          'childrenIds': <String>[asstId],
+          'role': 'user',
+          'content': text,
+          'files': _durableFilesFor(attachments),
+          'models': <String>[modelId],
+          'timestamp': now,
+        },
+        asstId: <String, dynamic>{
+          'id': asstId,
+          'parentId': userMsgId,
+          'childrenIds': <String>[],
+          'role': 'assistant',
+          'content': '',
+          'model': modelId,
+          'timestamp': now,
+        },
+      },
+    },
+  };
+}
+
+List<Map<String, dynamic>> _durableFilesFor(List<String> attachments) {
+  return [
+    for (final id in attachments)
+      <String, dynamic>{'type': 'file', 'id': id},
+  ];
+}
+
+String _titleFromText(String text) {
+  final trimmed = text.trim();
+  if (trimmed.isEmpty) return 'New Chat';
+  return trimmed.length <= 50 ? trimmed : trimmed.substring(0, 50);
+}
+
 // Send message function for widgets
 Future<void> sendMessage(
   WidgetRef ref,
@@ -4617,13 +5133,20 @@ final stopGenerationProvider = Provider<void Function()>((ref) {
           } catch (_) {}
         }());
 
-        // Also cancel local queue tasks for this conversation
+        // Drop any PENDING requestCompletion op for this chat so a stopped
+        // turn is not re-driven by the next drain (W14). An inFlight op (the
+        // stream already started) is left to the transport-cancel above.
         try {
-          // Fire-and-forget local queue cancellation
-          // ignore: unawaited_futures
-          ref
-              .read(taskQueueProvider.notifier)
-              .cancelByConversation(activeConv.id);
+          final db = ref.read(appDatabaseProvider);
+          if (db != null) {
+            final chatLocks = ref.read(chatLocksProvider);
+            // Fire-and-forget; the lock serializes against the drainer.
+            // ignore: unawaited_futures
+            chatLocks.runExclusive(
+              activeConv.id,
+              () => db.chatsDao.cancelPendingCompletion(activeConv.id),
+            );
+          }
         } catch (_) {}
       }
     } catch (_) {}

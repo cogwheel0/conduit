@@ -45,10 +45,12 @@ class SyncTriggers extends _$SyncTriggers {
     ref.listen(appDatabaseProvider, (_, _) => _maybeFireStart());
     ref.listen(syncApiClientProvider, (_, _) => _maybeFireStart());
 
-    // Connectivity regained.
+    // Connectivity regained: pull AND drain the outbox (the drainer resets
+    // backoff on pending ops then drains — A6/A7).
     ref.listen(isOnlineProvider, (previous, next) {
       if (previous == false && next) {
         _request('online');
+        unawaited(ref.read(syncEngineProvider.notifier).drainNow());
       }
     });
 

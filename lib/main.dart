@@ -19,7 +19,9 @@ import 'core/services/native_sheet_hydration_service.dart';
 import 'core/services/performance_profiler.dart';
 import 'core/services/carplay_service.dart';
 import 'core/services/settings_service.dart';
+import 'core/sync/request_completion_runner_provider.dart';
 import 'features/auth/providers/unified_auth_providers.dart';
+import 'features/chat/services/request_completion_runner.dart';
 import 'features/chat/providers/text_to_speech_provider.dart';
 import 'features/chat/providers/chat_providers.dart' show restoreDefaultModel;
 import 'features/tools/providers/tools_providers.dart';
@@ -176,6 +178,12 @@ void main() {
         overrides: [
           secureStorageProvider.overrideWithValue(secureStorage),
           hiveBoxesProvider.overrideWithValue(hiveBoxes),
+          // Inversion seam (E3): the core/sync drainer reads the no-op
+          // RequestCompletionRunner stub; bind it to the chat implementation so
+          // queued completions re-enter the streaming pipeline.
+          requestCompletionRunnerProvider.overrideWith(
+            (ref) => ref.watch(chatRequestCompletionRunnerProvider),
+          ),
         ],
       );
       // CarPlay can cold-launch Conduit without a visible Flutter scene, so

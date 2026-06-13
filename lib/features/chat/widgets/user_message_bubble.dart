@@ -8,9 +8,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/providers/app_providers.dart';
 import '../../../core/services/navigation_service.dart';
-import '../../../shared/services/tasks/task_queue.dart';
 import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
@@ -909,22 +907,20 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
         );
         ref.read(chatMessagesProvider.notifier).setMessages(keep);
 
-        // Enqueue edited text as a new message
-        final activeConv = ref.read(activeConversationProvider);
+        // Durable send of the edited text as a new turn (updateChat +
+        // requestCompletion under the chat lock), then drive streaming.
         final List<String>? attachments =
             (widget.message.attachmentIds != null &&
                 (widget.message.attachmentIds as List).isNotEmpty)
             ? List<String>.from(widget.message.attachmentIds as List)
             : null;
         final toolIds = ref.read(selectedToolIdsProvider);
-        await ref
-            .read(taskQueueProvider.notifier)
-            .enqueueSendText(
-              conversationId: activeConv?.id,
-              text: newText,
-              attachments: attachments,
-              toolIds: toolIds.isNotEmpty ? toolIds : null,
-            );
+        await durableSend(
+          ref,
+          newText,
+          attachments,
+          toolIds: toolIds.isNotEmpty ? toolIds : null,
+        );
       }
     } catch (_) {
       // Swallow errors; upstream error handling will surface if needed

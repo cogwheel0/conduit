@@ -26,7 +26,7 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/platform_scroll_physics.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/utils/ui_utils.dart';
-import '../../../shared/services/tasks/task_queue.dart';
+import '../../../core/services/media_upload_controller.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/chrome_gradient_fade.dart';
@@ -454,15 +454,16 @@ class _FolderPageState extends ConsumerState<FolderPage> {
 
       NavigationService.router.go(Routes.chat);
 
-      await container
-          .read(taskQueueProvider.notifier)
-          .enqueueSendText(
-            conversationId: null,
-            pendingFolderId: widget.folderId,
-            text: text,
-            attachments: uploadedFileIds.isNotEmpty ? uploadedFileIds : null,
-            toolIds: toolIds.isNotEmpty ? toolIds : null,
-          );
+      // Durable send: a NEW local chat with folderId set on the chat row
+      // (PushSync.pushCreateChat passes folder_id to createChat), plus a
+      // requestCompletion op; streaming is driven via the drainer.
+      await chat.durableSend(
+        container,
+        text,
+        uploadedFileIds.isNotEmpty ? uploadedFileIds : null,
+        toolIds: toolIds.isNotEmpty ? toolIds : null,
+        pendingFolderIdOverride: widget.folderId,
+      );
 
       container.read(attachedFilesProvider.notifier).clearAll();
     } finally {
@@ -501,9 +502,8 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       ref.read(attachedFilesProvider.notifier).addFiles(attachments);
       for (final attachment in attachments) {
         await ref
-            .read(taskQueueProvider.notifier)
-            .enqueueUploadMedia(
-              conversationId: null,
+            .read(mediaUploadControllerProvider)
+            .upload(
               filePath: attachment.file.path,
               fileName: attachment.displayName,
               fileSize: await attachment.file.length(),
@@ -621,9 +621,8 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       ref.read(attachedFilesProvider.notifier).addFiles(attachments);
       for (final attachment in attachments) {
         await ref
-            .read(taskQueueProvider.notifier)
-            .enqueueUploadMedia(
-              conversationId: null,
+            .read(mediaUploadControllerProvider)
+            .upload(
               filePath: attachment.file.path,
               fileName: attachment.displayName,
               fileSize:
@@ -644,9 +643,8 @@ class _FolderPageState extends ConsumerState<FolderPage> {
     for (final attachment in attachments) {
       try {
         await ref
-            .read(taskQueueProvider.notifier)
-            .enqueueUploadMedia(
-              conversationId: null,
+            .read(mediaUploadControllerProvider)
+            .upload(
               filePath: attachment.file.path,
               fileName: attachment.displayName,
               fileSize: await attachment.file.length(),

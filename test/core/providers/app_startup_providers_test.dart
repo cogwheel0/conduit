@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/core/models/folder.dart';
 import 'package:conduit/core/models/server_config.dart';
+import 'package:conduit/core/database/database_provider.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/providers/app_startup_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
@@ -36,6 +37,10 @@ Future<ProviderContainer> _createAuthenticatedWarmupContainer({
           ),
       isOnlineProvider.overrideWithValue(true),
       authTokenProvider3.overrideWithValue('test-token'),
+      // No active server DB in these warmup-focused tests: keep the sync
+      // engine / remap-route consumer inert so building AppStartupFlow does
+      // not reach the (unimplemented) hiveBoxesProvider via appDatabase.
+      appDatabaseProvider.overrideWithValue(null),
       apiOverride ?? apiServiceProvider.overrideWithValue(_StubApiService()),
       connectivityServiceProvider.overrideWithValue(_FakeConnectivityService()),
       conversationsOverride ??

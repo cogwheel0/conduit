@@ -1,15 +1,24 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../features/auth/providers/unified_auth_providers.dart';
 import '../database/database_provider.dart';
 import '../models/conversation.dart';
+import '../persistence/persistence_providers.dart';
 import '../providers/app_providers.dart';
+import '../services/connectivity_service.dart';
 import '../utils/debug_logger.dart';
+import 'backoff.dart';
 import 'chat_locks.dart';
+import 'clock.dart';
 import 'id_remapper.dart';
+import 'outbox_drainer.dart';
+import 'outbox_task_queue_migrator.dart';
 import 'pull_sync.dart';
+import 'push_sync.dart';
+import 'request_completion_runner_provider.dart';
 import 'sync_api_client.dart';
 
 part 'sync_engine.g.dart';
@@ -55,9 +64,27 @@ class SyncEngine extends _$SyncEngine {
   bool _rerunRequested = false;
 
   /// Owned per notifier instance (which follows db identity via [build]). Wired
-  /// into [PullSync] so pull merges can complete the §7.3 createChat crash-heal
-  /// instead of duplicating. Disposed with the notifier.
+  /// into [PullSync]/[PushSync] (the SAME instance, so `remapEvents` is a single
+  /// stream) so pull merges can complete the §7.3 createChat crash-heal instead
+  /// of duplicating. Disposed with the notifier.
   IdRemapper? _remapper;
+
+  /// The engine's single [OutboxDrainer], built lazily against the current db
+  /// (which the notifier identity follows via [build]) and shared by BOTH drain
+  /// entry points — the pull cycle ([_runOnce]) and connectivity-regained
+  /// ([drainNow]). Caching one instance (rather than `_buildDrainer()` minting a
+  /// fresh one per call) is load-bearing: the drainer's single-flight `_draining`
+  /// guard and the once-per-process stranded-`inFlight` recovery (`_recovered`)
+  /// are PER-INSTANCE. Two instances would each recover independently, so
+  /// instance B's `resetInFlightToPending` could re-arm an op instance A has
+  /// legitimately claimed and is mid-push on → duplicate server chat / double
+  /// send. A single shared instance serializes the two paths through one
+  /// `_draining` mutex and runs recovery exactly once.
+  OutboxDrainer? _drainer;
+
+  /// The migrator runs at most once per process (it is also internally
+  /// idempotent + flag-gated per server, so a re-attempt is a cheap no-op).
+  bool _migrated = false;
 
   /// Completer for the cycle callers are currently joining (debouncing or
   /// queued behind a running cycle).
@@ -75,6 +102,7 @@ class SyncEngine extends _$SyncEngine {
       _debounce?.cancel();
       unawaited(_remapper?.dispose());
       _remapper = null;
+      _drainer = null;
       final joinable = _joinable;
       _joinable = null;
       if (joinable != null && !joinable.isCompleted) {
@@ -88,6 +116,33 @@ class SyncEngine extends _$SyncEngine {
       ref.read(appDatabaseProvider) == null ||
       ref.read(syncApiClientProvider) == null ||
       !ref.read(isAuthenticatedProvider2);
+
+  /// The engine's single [IdRemapper] (shared by [PullSync] and [PushSync]).
+  /// Lazily built against the current db; null when there is no active db.
+  IdRemapper? _ensureRemapper() {
+    final db = ref.read(appDatabaseProvider);
+    if (db == null) return null;
+    return _remapper ??= IdRemapper(db);
+  }
+
+  /// Stream of committed local->server id remaps (Wiring C). The route/active
+  /// chat consumer (`remapRouteSyncProvider`) listens here to swap ids in place.
+  /// Empty (a never-emitting stream) while there is no active db.
+  Stream<RemapEvent> get remapEvents =>
+      _ensureRemapper()?.remapEvents ?? const Stream<RemapEvent>.empty();
+
+  /// The engine's single [IdRemapper] (the same instance feeding [remapEvents]
+  /// and shared with PushSync/PullSync). Exposed for tests to drive a committed
+  /// remap and assert the [remapRouteSyncProvider] consumer reacts.
+  @visibleForTesting
+  IdRemapper? get remapperForTesting => _ensureRemapper();
+
+  /// Connectivity-regained drain (Wiring, §A6/A7): resets backoff on pending
+  /// ops then drains. Called from `sync_triggers` on the false->true edge.
+  Future<void> drainNow() async {
+    if (_inert) return;
+    await _ensureDrainer()?.onConnectivityRegained();
+  }
 
   /// Single debounced entry point (RFC §7.6). 300 ms debounce; single-flight:
   /// a call during a running cycle sets a rerun flag (storms collapse to <= 1
@@ -130,11 +185,72 @@ class SyncEngine extends _$SyncEngine {
     final db = ref.read(appDatabaseProvider);
     final client = ref.read(syncApiClientProvider);
     if (db == null || client == null) return null;
+    final remapper = _ensureRemapper();
+    if (remapper == null) return null;
     return PullSync(
       client: client,
       db: db,
       locks: ref.read(chatLocksProvider),
-      remapper: _remapper ??= IdRemapper(db),
+      remapper: remapper,
+    );
+  }
+
+  /// Engine-internal: [PushSync] shares the engine's [IdRemapper] so the §7.3
+  /// remap stream is single (PullSync crash-heal + PushSync create remap both
+  /// emit on it).
+  PushSync? _buildPushSync() {
+    final db = ref.read(appDatabaseProvider);
+    final client = ref.read(syncApiClientProvider);
+    if (db == null || client == null) return null;
+    final remapper = _ensureRemapper();
+    if (remapper == null) return null;
+    return PushSync(
+      client: client,
+      db: db,
+      chatLocks: ref.read(chatLocksProvider),
+      folderLocks: ref.read(folderLocksProvider),
+      clock: ref.read(syncClockProvider),
+      remapper: remapper,
+    );
+  }
+
+  /// Engine-internal: the engine's SINGLE outbox drainer, cached per notifier
+  /// instance (db identity, like [_remapper]) so both drain entry points share
+  /// one `_draining` mutex and one once-per-process `_recovered` guard. Built
+  /// lazily; `isOnline` is the live bool provider read each call; `completion`
+  /// is the chat runner injected via the [requestCompletionRunnerProvider] seam.
+  /// Returns null (and does NOT cache) until db/client are ready.
+  OutboxDrainer? _ensureDrainer() {
+    final existing = _drainer;
+    if (existing != null) return existing;
+    final db = ref.read(appDatabaseProvider);
+    final push = _buildPushSync();
+    if (db == null || push == null) return null;
+    return _drainer = OutboxDrainer(
+      db: db,
+      chatLocks: ref.read(chatLocksProvider),
+      folderLocks: ref.read(folderLocksProvider),
+      push: push,
+      clock: ref.read(syncClockProvider),
+      backoff: ref.read(backoffProvider),
+      isOnline: () => ref.read(isOnlineProvider),
+      completion: ref.read(requestCompletionRunnerProvider),
+    );
+  }
+
+  /// Engine-internal: the one-time legacy Hive task-queue migrator. Built
+  /// lazily so it sees the current db/clock/default-model. Internally idempotent
+  /// + per-server flag-gated; the engine's [_migrated] guard limits it to a
+  /// single ATTEMPT per process.
+  OutboxTaskQueueMigrator? _buildMigrator() {
+    final db = ref.read(appDatabaseProvider);
+    if (db == null) return null;
+    return OutboxTaskQueueMigrator(
+      db: db,
+      hiveBoxes: ref.read(hiveBoxesProvider),
+      chatLocks: ref.read(chatLocksProvider),
+      clock: ref.read(syncClockProvider),
+      resolveDefaultModel: () => ref.read(selectedModelProvider)?.id ?? '',
     );
   }
 
@@ -204,6 +320,29 @@ class SyncEngine extends _$SyncEngine {
 
     final previousWatermark = await db.syncMetaDao.getPullWatermark();
     final result = await pull.run();
+
+    // §9 step 2 / §11: convert the legacy Hive task queue into rows+ops EXACTLY
+    // ONCE per process, BEFORE the first drain, so converted ops are visible to
+    // it (the migrator is also internally idempotent + per-server flag-gated).
+    if (!_migrated) {
+      _migrated = true;
+      try {
+        await _buildMigrator()?.migrateIfNeeded();
+      } catch (error, stackTrace) {
+        // A migration abort/error must not abort the pull cycle; it retries
+        // next process (the flag is only set after a full conversion pass).
+        DebugLogger.error(
+          'task-queue-migrate-failed',
+          scope: 'sync/engine',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
+    }
+
+    // Drain the outbox AFTER pull (W: pull-then-push ordering). Errors are
+    // caught + logged by the enclosing `_startCycle` try.
+    await _ensureDrainer()?.drain();
 
     final foldersEnabled = result.foldersFeatureEnabled;
     if (foldersEnabled != null && ref.mounted) {
