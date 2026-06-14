@@ -291,12 +291,12 @@ class IdRemapper {
         // repoint its ops + conflict back-pointers, drop its FTS rows + row.
         await _rewriteNoteConflictOf(localId, serverId);
         await _rewriteOutboxChatId(localId, serverId);
-        await _deleteNoteRow(localId); // trigger #10 purges local FTS rows.
+        await _deleteNoteRow(localId); // trigger #12 purges local FTS rows.
         return;
       }
       // (a) INSERT a row at serverId copying every column, stamping the server
       // (ns) timestamps + serverUpdatedAt and clearing every field-LWW dirty
-      // flag (the create is now server-acknowledged). Trigger #7 indexes the
+      // flag (the create is now server-acknowledged). Trigger #8 indexes the
       // serverId FTS rows on insert.
       await _insertNoteCopy(
         from: local,
@@ -304,8 +304,8 @@ class IdRemapper {
         serverCreatedAt: serverCreatedAt,
         serverUpdatedAt: serverUpdatedAt,
       );
-      // (b) The serverId FTS rows are created by trigger #7 above; purge the
-      // stale localId FTS rows by deleting the local row last (trigger #10).
+      // (b) The serverId FTS rows are created by trigger #8 above; purge the
+      // stale localId FTS rows by deleting the local row last (trigger #12).
       await _rewriteNoteConflictOf(localId, serverId);
       await _deleteNoteRow(localId);
       // (c) Repoint pending|inFlight outbox ops (the running noteCreate op is

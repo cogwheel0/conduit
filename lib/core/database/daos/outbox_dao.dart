@@ -728,6 +728,16 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
         return const _CoalesceDecision(insert: true);
 
       case OutboxKind.notePin:
+        if (pendingKinds.contains(OutboxKind.noteDelete)) {
+          return _CoalesceDecision(
+            insert: false,
+            deletions: [
+              for (final op in pending)
+                if (OutboxKind.fromName(op.kind) != OutboxKind.noteDelete)
+                  op.seq,
+            ],
+          );
+        }
         // Pin lives on its own axis (dedicated /pin endpoint). Coalesce among
         // itself: the newest desired-state wins (the row already holds it).
         final pin = newestOfKind(OutboxKind.notePin);

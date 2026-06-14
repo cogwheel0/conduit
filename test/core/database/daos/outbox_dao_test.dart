@@ -495,6 +495,24 @@ void main() {
       check(pending.single.kind).equals('noteDelete');
     });
 
+    test('notePin is dropped behind a pending noteDelete', () async {
+      final deleteSeq = await enqueue(
+        kind: OutboxKind.noteDelete,
+        chatId: 'n1',
+      );
+      final pinSeq = await enqueue(
+        kind: OutboxKind.notePin,
+        chatId: 'n1',
+        payload: {'desired': true},
+      );
+
+      check(pinSeq).equals(-1);
+      final pending = await dao.pendingForChat('n1');
+      check(pending).length.equals(1);
+      check(pending.single.seq).equals(deleteSeq);
+      check(pending.single.kind).equals('noteDelete');
+    });
+
     test('chat coalescing does not delete same-id note ops', () async {
       await enqueue(
         kind: OutboxKind.noteUpdate,
