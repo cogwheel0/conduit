@@ -371,57 +371,55 @@ void main() {
   });
 
   group('folder-before-chat ordering (§7.6 non-negotiable 6)', () {
-    test(
-      'pushUpdateChat does NOT send a local:-prefixed folder id; leaves the '
-      'chat dirty + re-enqueues so a later drain (post-remap) sends it',
-      () async {
-        // A server chat whose folderId points at a still-local folder.
-        await db
-            .into(db.chats)
-            .insert(
-              ChatsCompanion.insert(
-                id: 'chat1',
-                title: 'Chat',
-                folderId: const Value('local:pendingFolder'),
-                createdAt: 50,
-                updatedAt: 100,
-                serverUpdatedAt: const Value(100),
-                dirty: const Value(true),
-                bodySynced: const Value(true),
-                rawExtra: const Value('{}'),
-                blobMeta: Value(
-                  jsonEncode(<String, dynamic>{
-                    'v': 1,
-                    'blobHadTitle': true,
-                    'blobTitleValue': 'Chat',
-                    'blobHadHistory': true,
-                    'historyHadMessages': true,
-                    'historyHadCurrentId': false,
-                    'historyExtra': <String, dynamic>{},
-                    'unmappableMessages': <String, dynamic>{},
-                  }),
-                ),
+    test('pushUpdateChat does NOT send a local:-prefixed folder id; leaves the '
+        'chat dirty and lets the drainer back off the existing op', () async {
+      // A server chat whose folderId points at a still-local folder.
+      await db
+          .into(db.chats)
+          .insert(
+            ChatsCompanion.insert(
+              id: 'chat1',
+              title: 'Chat',
+              folderId: const Value('local:pendingFolder'),
+              createdAt: 50,
+              updatedAt: 100,
+              serverUpdatedAt: const Value(100),
+              dirty: const Value(true),
+              bodySynced: const Value(true),
+              rawExtra: const Value('{}'),
+              blobMeta: Value(
+                jsonEncode(<String, dynamic>{
+                  'v': 1,
+                  'blobHadTitle': true,
+                  'blobTitleValue': 'Chat',
+                  'blobHadHistory': true,
+                  'historyHadMessages': true,
+                  'historyHadCurrentId': false,
+                  'historyExtra': <String, dynamic>{},
+                  'unmappableMessages': <String, dynamic>{},
+                }),
               ),
-            );
-        // Register the chat server-side (so updateChat finds it) at root.
-        server.seedChat(
-          id: 'chat1',
-          blob: <String, dynamic>{'id': '', 'title': 'Chat'},
-          createdAt: 50,
-          updatedAt: 100,
-        );
+            ),
+          );
+      // Register the chat server-side (so updateChat finds it) at root.
+      server.seedChat(
+        id: 'chat1',
+        blob: <String, dynamic>{'id': '', 'title': 'Chat'},
+        createdAt: 50,
+        updatedAt: 100,
+      );
 
-        await push.pushUpdateChat('chat1');
+      await check(push.pushUpdateChat('chat1')).throws<StateError>();
 
-        // moveChatToFolder was NOT called with the local id (no server move).
-        check(server.getChatById('chat1')!['folder_id']).isNull();
-        // Chat stays dirty (deferred) and a fresh updateChat op is queued.
-        final chat = await db.chatsDao.getChat('chat1');
-        check(chat!.dirty).isTrue();
-        final ops = await db.outboxDao.pendingForChat('chat1');
-        check(ops.any((o) => o.kind == OutboxKind.updateChat.name)).isTrue();
-      },
-    );
+      // No server write/move happens while the folder id is still local.
+      check(client.updateChatCalls).equals(0);
+      check(server.getChatById('chat1')!['folder_id']).isNull();
+      // Chat stays dirty; when run through OutboxDrainer, the same op backs
+      // off instead of completing and enqueueing a fresh immediate retry.
+      final chat = await db.chatsDao.getChat('chat1');
+      check(chat!.dirty).isTrue();
+      check(await db.outboxDao.pendingForChat('chat1')).isEmpty();
+    });
 
     test(
       'after the folder is remapped to a server id, pushUpdateChat sends the '

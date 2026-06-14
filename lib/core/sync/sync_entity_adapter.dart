@@ -80,8 +80,9 @@ abstract interface class SyncEntityAdapter {
 
   /// True when [SyncListItem.envelope] is already a full raw entity response
   /// suitable for [mergeServer]. Chats return only metadata in list pages, so
-  /// they keep this false and still call [fetchRaw]; notes return full NoteModel
-  /// maps, so they set it true and avoid N redundant GETs.
+  /// they keep this false and still call [fetchRaw]; notes also keep this false
+  /// because the list endpoint truncates `data.content.md` to 1000 chars and is
+  /// only authoritative for `{id, updated_at}`.
   bool get listEnvelopeIsFullRaw;
 
   /// Full fetch of one entity; null on 404 (or not-ours, treated as gone).
