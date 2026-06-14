@@ -108,6 +108,8 @@ class PullSync {
       var stop = false;
       while (!stop) {
         final items = await _client.getChatListPage(page);
+        final changedBefore = changed.length;
+        final maxSeenBefore = maxSeen;
         for (final item in items) {
           final parsed = _parseListItem(item);
           if (parsed == null) continue;
@@ -120,6 +122,7 @@ class PullSync {
           }
         }
         if (stop || items.length < kOpenWebUiChatListPageSize) break;
+        if (changed.length == changedBefore && maxSeen == maxSeenBefore) break;
         page++;
       }
     } catch (error, stackTrace) {
@@ -137,16 +140,20 @@ class PullSync {
     // freezes the watermark.
     var archivedListFailed = false;
     final archivedChanged = <_ChangedItem>[];
+    final archivedChangedIds = <String>{};
     try {
       var page = 1;
       var stop = false;
       while (!stop) {
         final items = await _client.getArchivedChatListPage(page);
+        final archivedChangedBefore = archivedChanged.length;
+        final maxSeenBefore = maxSeen;
         for (final item in items) {
           final parsed = _parseListItem(item);
           if (parsed == null) continue;
           if (parsed.updatedAt > threshold) {
-            if (!changed.containsKey(parsed.id)) {
+            if (!changed.containsKey(parsed.id) &&
+                archivedChangedIds.add(parsed.id)) {
               archivedChanged.add(parsed);
             }
             maxSeen = math.max(maxSeen, parsed.updatedAt);
@@ -156,6 +163,10 @@ class PullSync {
           }
         }
         if (stop || items.length < kOpenWebUiChatListPageSize) break;
+        if (archivedChanged.length == archivedChangedBefore &&
+            maxSeen == maxSeenBefore) {
+          break;
+        }
         page++;
       }
     } catch (error, stackTrace) {
@@ -449,7 +460,8 @@ class PullSync {
     final remapper = _remapper;
     if (remapper == null) return false;
 
-    final hasPendingCreate = hasPendingCreateHashes ??
+    final hasPendingCreate =
+        hasPendingCreateHashes ??
         await _db.outboxDao.hasPendingCreateContentHashes();
     if (!hasPendingCreate) return false;
 
