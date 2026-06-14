@@ -179,6 +179,38 @@ void main() {
     },
   );
 
+  test('field-LWW merge clears an abnormal clean tombstone', () async {
+    await db.into(db.notes).insert(
+          NotesCompanion.insert(
+            id: 'n1',
+            title: 'Hidden local',
+            data: Value(jsonEncode({'content': {'md': 'old'}})),
+            createdAt: kT1,
+            updatedAt: kT1,
+            serverUpdatedAt: const Value(kT1),
+            deleted: const Value(true),
+          ),
+        );
+
+    await db.notesDao.mergeServerNote(
+      serverRaw: <String, dynamic>{
+        'id': 'n1',
+        'title': 'Visible server',
+        'data': {'content': {'md': 'new'}},
+        'meta': <String, dynamic>{},
+        'is_pinned': false,
+        'created_at': kT1,
+        'updated_at': kT2,
+      },
+    );
+
+    final row = await db.notesDao.getNote('n1');
+    check(row).isNotNull();
+    check(row!.deleted).isFalse();
+    check(row.title).equals('Visible server');
+    check(row.data).contains('new');
+  });
+
   test('pushNotePin PROBES live state and toggles only on a real delta '
       '(no blind toggle-first flip)', () async {
     // Note exists locally + on the server; server pin = false.

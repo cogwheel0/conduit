@@ -50,6 +50,28 @@ Future<void> _insertMessage(
       );
 }
 
+/// Inserts a note row (fires the notes AFTER INSERT FTS triggers).
+Future<void> _insertNote(
+  AppDatabase db, {
+  required String id,
+  required String title,
+  required String body,
+  int createdAt = 100,
+  int updatedAt = 100,
+}) {
+  return db
+      .into(db.notes)
+      .insert(
+        NotesCompanion.insert(
+          id: id,
+          title: title,
+          data: Value('{"content":{"md":"$body"}}'),
+          createdAt: createdAt,
+          updatedAt: updatedAt,
+        ),
+      );
+}
+
 void main() {
   // Several tests intentionally open additional in-memory databases (separate
   // executors) to exercise the pre-FTS backfill flow; the multi-database
@@ -246,6 +268,31 @@ void main() {
         check(leftover.read<int>('n')).equals(0);
       },
     );
+
+    test('note delete preserves chat FTS rows for a colliding id', () async {
+      const id = 'same-uuid';
+      await _insertChat(db, id: id, title: 'collision chat title');
+      await _insertMessage(
+        db,
+        id: 'm1',
+        chatId: id,
+        content: 'collision chat body',
+      );
+      await _insertNote(
+        db,
+        id: id,
+        title: 'collision note title',
+        body: 'collision note body',
+      );
+
+      check(await db.searchDao.search('chat')).isNotEmpty();
+      check(await db.searchDao.searchNotes('note')).isNotEmpty();
+
+      await (db.delete(db.notes)..where((t) => t.id.equals(id))).go();
+
+      check(await db.searchDao.search('chat')).isNotEmpty();
+      check(await db.searchDao.searchNotes('note')).isEmpty();
+    });
   });
 
   group('population gate (§E)', () {

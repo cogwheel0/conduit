@@ -108,9 +108,9 @@ END;
 ///     `json_extract(data, '$.content.md')` (the body lives at
 ///     `data['content']['md']`, NOT the raw JSON blob).
 ///
-/// COLLISION SAFETY: note ids and chat ids are distinct UUID namespaces, so a
-/// note row and a chat row never collide on `(chat_id, kind)`; the `kind`
-/// discriminator keeps them partitioned even if an id ever overlapped.
+/// COLLISION SAFETY: note ids and chat ids can overlap because both are
+/// server-generated UUIDs. Every note maintenance statement is kind-scoped so
+/// a note row never purges or rewrites chat title/message rows with the same id.
 ///
 /// JSON1 note: `json_extract` ships in the default SQLite builds drift uses on
 /// iOS/Android (sqlite3_flutter_libs bundles a JSON1-enabled amalgamation), so
@@ -149,7 +149,8 @@ END;
   // 10. notes AFTER DELETE — purges BOTH note kinds for the note id.
   '''
 CREATE TRIGGER IF NOT EXISTS chat_fts_note_ad AFTER DELETE ON notes BEGIN
-  DELETE FROM chat_fts WHERE chat_id = old.id;
+  DELETE FROM chat_fts
+  WHERE chat_id = old.id AND kind IN ('note_title', 'note_text');
 END;
 ''',
 ];
