@@ -4206,8 +4206,17 @@ Map<String, dynamic> _buildDurableNewChatBlob({
 
 List<Map<String, dynamic>> _durableFilesFor(List<String> attachments) {
   return [
-    for (final id in attachments) <String, dynamic>{'type': 'file', 'id': id},
+    for (final id in attachments)
+      if (id.startsWith('data:image/'))
+        <String, dynamic>{'type': 'image', 'url': id}
+      else
+        <String, dynamic>{'type': 'file', 'id': id},
   ];
+}
+
+@visibleForTesting
+List<Map<String, dynamic>> buildDurableFilesForTest(List<String> attachments) {
+  return _durableFilesFor(attachments);
 }
 
 String _titleFromText(String text) {

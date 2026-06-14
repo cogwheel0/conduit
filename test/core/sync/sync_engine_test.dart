@@ -412,6 +412,68 @@ void main() {
         ).isEmpty();
       },
     );
+
+    test(
+      'in-flight cycle aborts before draining a newly selected database',
+      () async {
+        final firstDb = db;
+        final secondDb = AppDatabase(NativeDatabase.memory());
+        final activeDbProvider =
+            NotifierProvider<_MutableValue<AppDatabase?>, AppDatabase?>(
+              () => _MutableValue<AppDatabase?>(firstDb),
+            );
+        final container = ProviderContainer(
+          overrides: [
+            appDatabaseProvider.overrideWith(
+              (ref) => ref.watch(activeDbProvider),
+            ),
+            syncApiClientProvider.overrideWith((ref) => client),
+            isAuthenticatedProvider2.overrideWith((ref) => true),
+            isOnlineProvider.overrideWith((ref) => true),
+          ],
+        );
+        addTearDown(() async {
+          container.dispose();
+          await secondDb.close();
+        });
+
+        seedChat('chat-before-switch', 100);
+        final engine = container.read(syncEngineProvider.notifier);
+        final gate = Completer<void>();
+        client.chatFetchGate = gate.future;
+
+        final first = engine.requestPull(reason: 'switch-mid-cycle');
+        await waitFor(() => client.chatFetchStarts.isNotEmpty);
+
+        await seedLocalCreate(
+          'local:after-mid-cycle-switch',
+          contentHash: 'h-mid-switch',
+          targetDb: secondDb,
+        );
+        container.read(activeDbProvider.notifier).set(secondDb);
+        container.read(syncEngineProvider);
+
+        gate.complete();
+        final result = await first;
+
+        check(result).isNull();
+        check(client.createChatCalls).equals(0);
+        check(
+          await secondDb.outboxDao.pendingForChat(
+            'local:after-mid-cycle-switch',
+          ),
+        ).isNotEmpty();
+
+        await engine.drainNow();
+
+        check(client.createChatCalls).equals(1);
+        check(
+          await secondDb.outboxDao.pendingForChat(
+            'local:after-mid-cycle-switch',
+          ),
+        ).isEmpty();
+      },
+    );
   });
 
   group('SyncEngine.pullChatNow', () {

@@ -112,6 +112,11 @@ class SyncEngine extends _$SyncEngine {
   /// queued behind a running cycle).
   Completer<PullResult?>? _joinable;
 
+  /// Monotonic dependency snapshot id. Incremented whenever db/client/auth or
+  /// lock/clock/backoff/completion bindings change so in-flight cycles can
+  /// abort before crossing work into a different server/session.
+  int _sessionEpoch = 0;
+
   @override
   SyncStatus build() {
     final db = ref.watch(appDatabaseProvider);
@@ -135,6 +140,7 @@ class SyncEngine extends _$SyncEngine {
         !identical(_boundCompletionRunner, completionRunner) ||
         _boundAuthenticated != authenticated;
     if (dependenciesChanged) {
+      _sessionEpoch++;
       _resetSessionBoundState();
       _boundDb = db;
       _boundClient = client;
@@ -181,15 +187,25 @@ class SyncEngine extends _$SyncEngine {
     _boundAuthenticated = null;
   }
 
+  bool _cycleStillBound(int epoch, String checkpoint) {
+    if (!ref.mounted || epoch != _sessionEpoch) {
+      DebugLogger.log(
+        'cycle-aborted-dependencies-changed',
+        scope: 'sync/engine',
+        data: {'checkpoint': checkpoint},
+      );
+      return false;
+    }
+    return true;
+  }
+
   bool get _inert =>
-      ref.read(appDatabaseProvider) == null ||
-      ref.read(syncApiClientProvider) == null ||
-      !ref.read(isAuthenticatedProvider2);
+      _boundDb == null || _boundClient == null || _boundAuthenticated != true;
 
   /// The engine's single [IdRemapper] (shared by [PullSync] and [PushSync]).
   /// Lazily built against the current db; null when there is no active db.
   IdRemapper? _ensureRemapper() {
-    final db = ref.read(appDatabaseProvider);
+    final db = _boundDb;
     if (db == null) return null;
     return _remapper ??= IdRemapper(db);
   }
@@ -260,15 +276,16 @@ class SyncEngine extends _$SyncEngine {
   }
 
   PullSync? _buildPullSync() {
-    final db = ref.read(appDatabaseProvider);
-    final client = ref.read(syncApiClientProvider);
-    if (db == null || client == null) return null;
+    final db = _boundDb;
+    final client = _boundClient;
+    final chatLocks = _boundChatLocks;
+    if (db == null || client == null || chatLocks == null) return null;
     final remapper = _ensureRemapper();
     if (remapper == null) return null;
     return PullSync(
       client: client,
       db: db,
-      locks: ref.read(chatLocksProvider),
+      locks: chatLocks,
       remapper: remapper,
     );
   }
@@ -277,17 +294,26 @@ class SyncEngine extends _$SyncEngine {
   /// remap stream is single (PullSync crash-heal + PushSync create remap both
   /// emit on it).
   PushSync? _buildPushSync() {
-    final db = ref.read(appDatabaseProvider);
-    final client = ref.read(syncApiClientProvider);
-    if (db == null || client == null) return null;
+    final db = _boundDb;
+    final client = _boundClient;
+    final chatLocks = _boundChatLocks;
+    final folderLocks = _boundFolderLocks;
+    final clock = _boundClock;
+    if (db == null ||
+        client == null ||
+        chatLocks == null ||
+        folderLocks == null ||
+        clock == null) {
+      return null;
+    }
     final remapper = _ensureRemapper();
     if (remapper == null) return null;
     return PushSync(
       client: client,
       db: db,
-      chatLocks: ref.read(chatLocksProvider),
-      folderLocks: ref.read(folderLocksProvider),
-      clock: ref.read(syncClockProvider),
+      chatLocks: chatLocks,
+      folderLocks: folderLocks,
+      clock: clock,
       remapper: remapper,
     );
   }
@@ -296,15 +322,16 @@ class SyncEngine extends _$SyncEngine {
   /// IdRemapper (the §7.3 remap stream is single) + the SEPARATE noteLocks
   /// domain. Null until db/client/remapper are ready.
   NotePullSync? _buildNotePullSync() {
-    final db = ref.read(appDatabaseProvider);
-    final client = ref.read(syncApiClientProvider);
-    if (db == null || client == null) return null;
+    final db = _boundDb;
+    final client = _boundClient;
+    final noteLocks = _boundNoteLocks;
+    if (db == null || client == null || noteLocks == null) return null;
     final remapper = _ensureRemapper();
     if (remapper == null) return null;
     return NotePullSync(
       client: client,
       db: db,
-      locks: ref.read(noteLocksProvider),
+      locks: noteLocks,
       remapper: remapper,
     );
   }
@@ -312,15 +339,16 @@ class SyncEngine extends _$SyncEngine {
   /// Engine-internal: the note push handlers (Phase 5). Shares the engine's
   /// IdRemapper + the noteLocks domain.
   NotePushSync? _buildNotePushSync() {
-    final db = ref.read(appDatabaseProvider);
-    final client = ref.read(syncApiClientProvider);
-    if (db == null || client == null) return null;
+    final db = _boundDb;
+    final client = _boundClient;
+    final noteLocks = _boundNoteLocks;
+    if (db == null || client == null || noteLocks == null) return null;
     final remapper = _ensureRemapper();
     if (remapper == null) return null;
     return NotePushSync(
       client: client,
       db: db,
-      noteLocks: ref.read(noteLocksProvider),
+      noteLocks: noteLocks,
       remapper: remapper,
     );
   }
@@ -363,18 +391,27 @@ class SyncEngine extends _$SyncEngine {
   OutboxDrainer? _ensureDrainer() {
     final existing = _drainer;
     if (existing != null) return existing;
-    final db = ref.read(appDatabaseProvider);
+    final db = _boundDb;
+    final clock = _boundClock;
+    final backoff = _boundBackoff;
+    final completion = _boundCompletionRunner;
     // The drainer pushes through the PushSync instances embedded in adapters;
     // _buildAdapters() already builds (and null-guards on) PushSync internally,
     // so a separate _buildPushSync() here would be a discarded duplicate.
     final adapters = _buildAdapters();
-    if (db == null || adapters == null) return null;
+    if (db == null ||
+        clock == null ||
+        backoff == null ||
+        completion == null ||
+        adapters == null) {
+      return null;
+    }
     return _drainer = OutboxDrainer(
       db: db,
-      clock: ref.read(syncClockProvider),
-      backoff: ref.read(backoffProvider),
+      clock: clock,
+      backoff: backoff,
       isOnline: () => ref.read(isOnlineProvider),
-      completion: ref.read(requestCompletionRunnerProvider),
+      completion: completion,
       adapters: adapters,
     );
   }
@@ -384,13 +421,15 @@ class SyncEngine extends _$SyncEngine {
   /// + per-server flag-gated; the engine's [_migrated] guard limits it to a
   /// single successful attempt per process.
   OutboxTaskQueueMigrator? _buildMigrator() {
-    final db = ref.read(appDatabaseProvider);
-    if (db == null) return null;
+    final db = _boundDb;
+    final chatLocks = _boundChatLocks;
+    final clock = _boundClock;
+    if (db == null || chatLocks == null || clock == null) return null;
     return OutboxTaskQueueMigrator(
       db: db,
       hiveBoxes: ref.read(hiveBoxesProvider),
-      chatLocks: ref.read(chatLocksProvider),
-      clock: ref.read(syncClockProvider),
+      chatLocks: chatLocks,
+      clock: clock,
       resolveDefaultModel: () => ref.read(selectedModelProvider)?.id ?? '',
     );
   }
@@ -399,28 +438,36 @@ class SyncEngine extends _$SyncEngine {
   /// db/client/chatLocks/clock. Its own 24h throttle gates the [background]
   /// reason; [reconcileNow] drives [ReconcileReason.manualRefresh].
   DeletionReconcile? _buildReconcile() {
-    final db = ref.read(appDatabaseProvider);
-    final client = ref.read(syncApiClientProvider);
-    if (db == null || client == null) return null;
+    final db = _boundDb;
+    final client = _boundClient;
+    final chatLocks = _boundChatLocks;
+    final clock = _boundClock;
+    if (db == null || client == null || chatLocks == null || clock == null) {
+      return null;
+    }
     return DeletionReconcile(
       client: client,
       db: db,
-      locks: ref.read(chatLocksProvider),
-      clock: ref.read(syncClockProvider),
+      locks: chatLocks,
+      clock: clock,
     );
   }
 
   /// Engine-internal: the §7.5 NOTE deletion reconcile (own throttle key + note
   /// list/probe endpoints + note lock domain). Mirrors [_buildReconcile].
   NoteDeletionReconcile? _buildNoteReconcile() {
-    final db = ref.read(appDatabaseProvider);
-    final client = ref.read(syncApiClientProvider);
-    if (db == null || client == null) return null;
+    final db = _boundDb;
+    final client = _boundClient;
+    final noteLocks = _boundNoteLocks;
+    final clock = _boundClock;
+    if (db == null || client == null || noteLocks == null || clock == null) {
+      return null;
+    }
     return NoteDeletionReconcile(
       client: client,
       db: db,
-      locks: ref.read(noteLocksProvider),
-      clock: ref.read(syncClockProvider),
+      locks: noteLocks,
+      clock: clock,
     );
   }
 
@@ -456,6 +503,7 @@ class SyncEngine extends _$SyncEngine {
     final joined = _joinable;
     _joinable = null;
     if (joined == null || _running) return;
+    final cycleEpoch = _sessionEpoch;
     _running = true;
 
     PullResult? result;
@@ -468,7 +516,7 @@ class SyncEngine extends _$SyncEngine {
           lastError: state.lastError,
         );
       }
-      result = await _runOnce();
+      result = await _runOnce(cycleEpoch);
     } catch (error, stackTrace) {
       lastError = error.toString();
       DebugLogger.error(
@@ -480,11 +528,13 @@ class SyncEngine extends _$SyncEngine {
     } finally {
       _running = false;
       if (ref.mounted) {
+        final previousStateWatermark = state.lastSuccessUpdatedAtWatermark;
+        final watermark = (result?.success ?? false)
+            ? (await _readWatermark(cycleEpoch)) ?? previousStateWatermark
+            : previousStateWatermark;
         state = SyncStatus(
           phase: SyncPhase.idle,
-          lastSuccessUpdatedAtWatermark: (result?.success ?? false)
-              ? await _readWatermark()
-              : state.lastSuccessUpdatedAtWatermark,
+          lastSuccessUpdatedAtWatermark: watermark,
           lastError:
               lastError ??
               ((result != null && !result.success)
@@ -504,10 +554,14 @@ class SyncEngine extends _$SyncEngine {
     }
   }
 
-  Future<PullResult?> _runOnce() async {
-    final db = ref.read(appDatabaseProvider);
+  Future<PullResult?> _runOnce(int cycleEpoch) async {
+    final db = _boundDb;
+    final clock = _boundClock;
     final pull = _buildPullSync();
-    if (db == null || pull == null || !ref.read(isAuthenticatedProvider2)) {
+    if (db == null ||
+        clock == null ||
+        pull == null ||
+        _boundAuthenticated != true) {
       DebugLogger.log(
         'inert',
         scope: 'sync/engine',
@@ -517,7 +571,10 @@ class SyncEngine extends _$SyncEngine {
     }
 
     final previousWatermark = await db.syncMetaDao.getPullWatermark();
+    if (!_cycleStillBound(cycleEpoch, 'after-watermark-read')) return null;
+
     final result = await pull.run();
+    if (!_cycleStillBound(cycleEpoch, 'after-chat-pull')) return null;
 
     // Phase 5 (D-11): pull NOTES through the generic adapter driver, on the
     // SEPARATE nanosecond `notes_pull_watermark` (R-09 — never compared to the
@@ -546,6 +603,7 @@ class SyncEngine extends _$SyncEngine {
           stackTrace: stackTrace,
         );
       }
+      if (!_cycleStillBound(cycleEpoch, 'after-note-pull')) return null;
     }
 
     // A watermark-0 pull is itself a COMPLETE enumeration of the server set,
@@ -555,13 +613,16 @@ class SyncEngine extends _$SyncEngine {
     // background reconcile waits a full interval instead of redundantly
     // re-enumerating every page on the very first cycle (§7.5).
     if (result.success && previousWatermark == 0) {
-      final nowSeconds = ref.read(syncClockProvider).nowEpochSeconds();
+      final nowSeconds = clock.nowEpochSeconds();
       await db.syncMetaDao.setLastFullReconcileAt(nowSeconds);
       // Same for the NOTE reconcile gate: the first cycle's note pull already
       // enumerated every note, so pre-advance its gate too (it otherwise reads
       // 0 and runs a redundant getNoteListRaw + full-ID diff right after the
       // first full pull).
       await db.syncMetaDao.setNotesLastFullReconcileAt(nowSeconds);
+      if (!_cycleStillBound(cycleEpoch, 'after-first-pull-gates')) {
+        return null;
+      }
     }
 
     // §9 step 2 / §11: convert the legacy Hive task queue into rows+ops EXACTLY
@@ -582,11 +643,13 @@ class SyncEngine extends _$SyncEngine {
           stackTrace: stackTrace,
         );
       }
+      if (!_cycleStillBound(cycleEpoch, 'after-task-migration')) return null;
     }
 
     // Drain the outbox AFTER pull (W: pull-then-push ordering). Errors are
     // caught + logged by the enclosing `_startCycle` try.
     await _ensureDrainer()?.drain();
+    if (!_cycleStillBound(cycleEpoch, 'after-outbox-drain')) return null;
 
     // §7.5 deletion reconcile (background reason; its own 24h throttle gates
     // how often it actually enumerates). A failure here must not abort the
@@ -602,6 +665,7 @@ class SyncEngine extends _$SyncEngine {
         stackTrace: stackTrace,
       );
     }
+    if (!_cycleStillBound(cycleEpoch, 'after-chat-reconcile')) return null;
     try {
       await _buildNoteReconcile()?.run(ReconcileReason.background);
     } catch (error, stackTrace) {
@@ -612,6 +676,7 @@ class SyncEngine extends _$SyncEngine {
         stackTrace: stackTrace,
       );
     }
+    if (!_cycleStillBound(cycleEpoch, 'after-note-reconcile')) return null;
 
     final foldersEnabled = result.foldersFeatureEnabled;
     if (foldersEnabled != null && ref.mounted) {
@@ -619,6 +684,7 @@ class SyncEngine extends _$SyncEngine {
           .read(foldersFeatureEnabledProvider.notifier)
           .setEnabled(foldersEnabled);
     }
+    if (!_cycleStillBound(cycleEpoch, 'after-folder-flag')) return null;
 
     // §9.3 cleanup: the legacy Hive cache is disposable; delete it exactly
     // once after the first successful full pull.
@@ -638,6 +704,9 @@ class SyncEngine extends _$SyncEngine {
           );
         }
       }
+      if (!_cycleStillBound(cycleEpoch, 'after-hive-cache-purge')) {
+        return null;
+      }
     }
     // Phase 4 FTS5 population (CDT-RFC-001 §10/§E): build the search index
     // after a successful sync has written chat/message rows. The first attempt
@@ -645,14 +714,15 @@ class SyncEngine extends _$SyncEngine {
     // `fts_built` unset, later successful cycles retry even after the pull
     // watermark has advanced.
     if (result.success && ref.mounted) {
-      await _scheduleFtsBuildIfNeeded(db);
+      await _scheduleFtsBuildIfNeeded(db, cycleEpoch);
     }
     return result;
   }
 
-  Future<void> _scheduleFtsBuildIfNeeded(AppDatabase db) async {
+  Future<void> _scheduleFtsBuildIfNeeded(AppDatabase db, int cycleEpoch) async {
     if (_ftsBuildInFlight) return;
     final built = await db.syncMetaDao.getValue(kFtsBuiltKey);
+    if (!_cycleStillBound(cycleEpoch, 'after-fts-flag-read')) return;
     if (built == '1') return;
 
     _ftsBuildInFlight = true;
@@ -682,15 +752,24 @@ class SyncEngine extends _$SyncEngine {
             );
           }
         } finally {
-          _ftsBuildInFlight = false;
+          if (cycleEpoch == _sessionEpoch) {
+            _ftsBuildInFlight = false;
+          }
         }
       }),
     );
   }
 
-  Future<int?> _readWatermark() async {
-    final db = ref.read(appDatabaseProvider);
+  Future<int?> _readWatermark(int cycleEpoch) async {
+    final db = _boundDb;
     if (db == null) return null;
-    return db.syncMetaDao.getPullWatermark();
+    if (!_cycleStillBound(cycleEpoch, 'before-watermark-state-read')) {
+      return null;
+    }
+    final watermark = await db.syncMetaDao.getPullWatermark();
+    if (!_cycleStillBound(cycleEpoch, 'after-watermark-state-read')) {
+      return null;
+    }
+    return watermark;
   }
 }

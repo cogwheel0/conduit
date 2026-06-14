@@ -78,6 +78,17 @@ void main() {
   });
 
   group('OpenWebUI message alignment', () {
+    test('durable attachments preserve data URL images separately', () {
+      const dataUrl = 'data:image/png;base64,AA==';
+
+      final files = buildDurableFilesForTest(const [dataUrl, 'file-123']);
+
+      check(files).deepEquals(const [
+        {'type': 'image', 'url': dataUrl},
+        {'type': 'file', 'id': 'file-123'},
+      ]);
+    });
+
     test('temporary chats keep full outbound history', () {
       final messages = buildChatCompletionMessagesForTest(
         conversationMessages: const [
