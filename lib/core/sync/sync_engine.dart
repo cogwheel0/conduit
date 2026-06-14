@@ -4,7 +4,9 @@ import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../features/auth/providers/unified_auth_providers.dart';
+import '../database/app_database.dart';
 import '../database/database_provider.dart';
+import '../database/fts/fts_ddl.dart' show kFtsBuiltKey;
 import '../models/conversation.dart';
 import '../persistence/persistence_providers.dart';
 import '../providers/app_providers.dart';
@@ -91,6 +93,10 @@ class SyncEngine extends _$SyncEngine {
   /// The migrator runs at most once per process (it is also internally
   /// idempotent + flag-gated per server, so a re-attempt is a cheap no-op).
   bool _migrated = false;
+
+  /// Prevents overlapping fire-and-forget FTS backfills while the durable
+  /// `fts_built` flag is still unset.
+  bool _ftsBuildInFlight = false;
 
   /// Completer for the cycle callers are currently joining (debouncing or
   /// queued behind a running cycle).
@@ -588,45 +594,57 @@ class SyncEngine extends _$SyncEngine {
         }
       }
 
-      // Phase 4 FTS5 population (CDT-RFC-001 §10/§E): build the search index
-      // AFTER the first full sync has written chat/message rows. The
-      // conversation list already streams from `watchChatList` (it emitted the
-      // moment chats landed, before this post-pull step), so populating here is
-      // off the first-interactive-render path. Run it unawaited so a large
-      // backfill never blocks the cycle's completion / render; `buildFtsIfNeeded`
-      // is idempotent + flag-gated, so it retries next cycle on failure (the
-      // flag stays unset on error). Errors must NOT abort the cycle.
-      unawaited(
-        Future.microtask(() async {
-          try {
-            await db.buildFtsIfNeeded();
-          } catch (error, stackTrace) {
-            // A server switch / logout can dispose this db while the
-            // fire-and-forget build is in flight. That race is expected and
-            // harmless (the flag stays unset → the next active db rebuilds);
-            // log it at debug, not error, so it isn't mistaken for a real
-            // FTS failure.
-            final msg = error.toString();
-            if (msg.contains('closed') ||
-                msg.contains('closing') ||
-                msg.contains('re-open')) {
-              DebugLogger.log(
-                'fts-build-skipped-db-closed',
-                scope: 'sync/fts',
-              );
-            } else {
-              DebugLogger.error(
-                'fts-build-failed',
-                scope: 'sync/fts',
-                error: error,
-                stackTrace: stackTrace,
-              );
-            }
-          }
-        }),
-      );
+    }
+    // Phase 4 FTS5 population (CDT-RFC-001 §10/§E): build the search index
+    // after a successful sync has written chat/message rows. The first attempt
+    // normally runs after the first full pull; if it fails and leaves
+    // `fts_built` unset, later successful cycles retry even after the pull
+    // watermark has advanced.
+    if (result.success && ref.mounted) {
+      await _scheduleFtsBuildIfNeeded(db);
     }
     return result;
+  }
+
+  Future<void> _scheduleFtsBuildIfNeeded(AppDatabase db) async {
+    if (_ftsBuildInFlight) return;
+    final built = await db.syncMetaDao.getValue(kFtsBuiltKey);
+    if (built == '1') return;
+
+    _ftsBuildInFlight = true;
+    // The conversation list already streams from `watchChatList`; running this
+    // out of band keeps large backfills off the cycle completion path.
+    unawaited(
+      Future.microtask(() async {
+        try {
+          await db.buildFtsIfNeeded();
+        } catch (error, stackTrace) {
+          // A server switch / logout can dispose this db while the
+          // fire-and-forget build is in flight. That race is expected and
+          // harmless (the flag stays unset -> the next active db rebuilds);
+          // log it at debug, not error, so it isn't mistaken for a real
+          // FTS failure.
+          final msg = error.toString();
+          if (msg.contains('closed') ||
+              msg.contains('closing') ||
+              msg.contains('re-open')) {
+            DebugLogger.log(
+              'fts-build-skipped-db-closed',
+              scope: 'sync/fts',
+            );
+          } else {
+            DebugLogger.error(
+              'fts-build-failed',
+              scope: 'sync/fts',
+              error: error,
+              stackTrace: stackTrace,
+            );
+          }
+        } finally {
+          _ftsBuildInFlight = false;
+        }
+      }),
+    );
   }
 
   Future<int?> _readWatermark() async {

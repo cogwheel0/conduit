@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:checks/checks.dart';
 import 'package:conduit/core/database/app_database.dart';
 import 'package:conduit/core/database/database_provider.dart';
+import 'package:conduit/core/database/fts/fts_ddl.dart';
 import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit/core/persistence/persistence_providers.dart';
 import 'package:conduit/core/providers/app_providers.dart';
@@ -16,6 +17,27 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../support/fake_open_webui_server.dart';
 import '../../support/fake_sync_api_client.dart';
+
+class _FailableFtsDatabase extends AppDatabase {
+  _FailableFtsDatabase(super.e);
+
+  int buildAttempts = 0;
+  final firstFailureObserved = Completer<void>();
+  final retrySucceeded = Completer<void>();
+
+  @override
+  Future<void> buildFtsIfNeeded() async {
+    buildAttempts++;
+    if (buildAttempts == 1) {
+      firstFailureObserved.complete();
+      throw StateError('injected fts build failure');
+    }
+    await super.buildFtsIfNeeded();
+    if (!retrySucceeded.isCompleted) {
+      retrySucceeded.complete();
+    }
+  }
+}
 
 void main() {
   late FakeOpenWebUiServer server;
@@ -103,6 +125,19 @@ void main() {
     while (!condition()) {
       if (DateTime.now().isAfter(deadline)) {
         fail('waitFor timed out');
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+  }
+
+  Future<void> waitForAsync(
+    Future<bool> Function() condition, {
+    Duration timeout = const Duration(seconds: 5),
+  }) async {
+    final deadline = DateTime.now().add(timeout);
+    while (!await condition()) {
+      if (DateTime.now().isAfter(deadline)) {
+        fail('waitForAsync timed out');
       }
       await Future<void>.delayed(const Duration(milliseconds: 10));
     }
@@ -235,6 +270,21 @@ void main() {
       final healed = await engine.requestPull(reason: 'healing-pull');
       check(healed!.success).isTrue();
       check(purgeCalls).equals(1);
+    });
+
+    test('FTS build retries when the watermark already advanced', () async {
+      await db.syncMetaDao.setPullWatermark(50);
+      seedChat('chat-1', 100);
+      final container = makeContainer();
+      final engine = container.read(syncEngineProvider.notifier);
+
+      final result = await engine.requestPull(reason: 'fts-retry');
+      check(result!.success).isTrue();
+
+      await waitForAsync(
+        () async => await db.syncMetaDao.getValue(kFtsBuiltKey) == '1',
+      );
+      check(await db.searchDao.search('hello')).isNotEmpty();
     });
 
     test('task queue migration failure retries on the next cycle', () async {
