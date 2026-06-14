@@ -63,10 +63,7 @@ class ChatMergeResult {
 /// rows diverge from the server and so need a push (REQ 4). Lives here so the
 /// DAO and `PullSync` share one type without a drift import in this library.
 class ChatMergeWriteResult {
-  const ChatMergeWriteResult({
-    required this.outcome,
-    required this.mustPush,
-  });
+  const ChatMergeWriteResult({required this.outcome, required this.mustPush});
 
   final MergeOutcome outcome;
   final bool mustPush;
@@ -242,7 +239,7 @@ ChatMergeResult _threeWay({
       ? local.chat.currentMessageId
       : server.chat.currentMessageId;
   var currentFromLocal = preferLocalCurrent;
-  if (currentId != null && !survivorIds.contains(currentId)) {
+  if (currentId == null || !survivorIds.contains(currentId)) {
     // Fall back to server's choice, then to the deepest leaf of the active
     // branch.
     final serverCurrent = server.chat.currentMessageId;
@@ -362,7 +359,10 @@ MessageRowData _withDerivedChildren(
   List<MessageRowData> all,
 ) {
   final childrenIds = ChatBlobMapper.deriveChildrenIds(message.id, all);
-  final payload = <String, dynamic>{...message.payload, 'childrenIds': childrenIds};
+  final payload = <String, dynamic>{
+    ...message.payload,
+    'childrenIds': childrenIds,
+  };
   return MessageRowData(
     id: message.id,
     chatId: message.chatId,

@@ -385,11 +385,15 @@ void main() {
 
       // m3 took the server payload (parentId m1). m1's derived children are
       // m2, m3 and mNew (the dirty local addition).
-      check(childrenOf(result.merged, 'm1')).unorderedEquals(['m2', 'm3', 'mNew']);
+      check(
+        childrenOf(result.merged, 'm1'),
+      ).unorderedEquals(['m2', 'm3', 'mNew']);
       check(childrenOf(result.merged, 'm2')).isEmpty();
       // tree-consistent against the rebuilt blob.
       check(
-        ChatBlobMapper.treeIsConsistent(ChatBlobMapper.rowsToBlob(result.merged)),
+        ChatBlobMapper.treeIsConsistent(
+          ChatBlobMapper.rowsToBlob(result.merged),
+        ),
       ).isTrue();
     });
 
@@ -457,41 +461,44 @@ void main() {
       check(result.merged.chat.currentMessageId).equals('m2');
     });
 
-    test('currentId clamp: chosen id not in survivors falls back to server', () {
-      // Local current points at a message the merge drops (non-dirty,
-      // remotely-deleted). Falls back to server's currentId.
-      final server = rowsFor(
-        chatId: 'c',
-        messages: {
-          'm1': {'role': 'user'},
-        },
-        currentId: 'm1',
-        updatedAt: 300,
-      );
-      final local = rowsFor(
-        chatId: 'c',
-        messages: {
-          'm1': {'role': 'user'},
-          'mGone': {'parentId': 'm1', 'role': 'assistant'},
-          'mDirty': {'parentId': 'm1', 'role': 'user'},
-        },
-        currentId: 'mGone',
-        updatedAt: 250,
-      );
+    test(
+      'currentId clamp: chosen id not in survivors falls back to server',
+      () {
+        // Local current points at a message the merge drops (non-dirty,
+        // remotely-deleted). Falls back to server's currentId.
+        final server = rowsFor(
+          chatId: 'c',
+          messages: {
+            'm1': {'role': 'user'},
+          },
+          currentId: 'm1',
+          updatedAt: 300,
+        );
+        final local = rowsFor(
+          chatId: 'c',
+          messages: {
+            'm1': {'role': 'user'},
+            'mGone': {'parentId': 'm1', 'role': 'assistant'},
+            'mDirty': {'parentId': 'm1', 'role': 'user'},
+          },
+          currentId: 'mGone',
+          updatedAt: 250,
+        );
 
-      // mDirty is dirty so preferLocalCurrent is true, but local current
-      // (mGone) is dropped → clamp to server's m1.
-      final result = mergeChat(
-        server: server,
-        local: local,
-        base: 200,
-        chatEnvelopeDirty: false,
-        dirtyMessageIds: const {'mDirty'},
-      );
+        // mDirty is dirty so preferLocalCurrent is true, but local current
+        // (mGone) is dropped → clamp to server's m1.
+        final result = mergeChat(
+          server: server,
+          local: local,
+          base: 200,
+          chatEnvelopeDirty: false,
+          dirtyMessageIds: const {'mDirty'},
+        );
 
-      check(idsOf(result.merged)).unorderedEquals(['m1', 'mDirty']);
-      check(result.merged.chat.currentMessageId).equals('m1');
-    });
+        check(idsOf(result.merged)).unorderedEquals(['m1', 'mDirty']);
+        check(result.merged.chat.currentMessageId).equals('m1');
+      },
+    );
 
     test('currentId deepest-leaf fallback is cycle guarded', () {
       final server = rowsFor(
@@ -523,6 +530,65 @@ void main() {
 
       check(idsOf(result.merged)).unorderedEquals(['a', 'b']);
       check(result.merged.chat.currentMessageId).equals('a');
+    });
+
+    test('currentId null falls back to deepest leaf after server fallback', () {
+      final server = rowsFor(
+        chatId: 'c',
+        messages: {
+          'm1': {'role': 'user'},
+          'm2': {'parentId': 'm1', 'role': 'assistant'},
+        },
+        updatedAt: 300,
+      );
+      final local = rowsFor(
+        chatId: 'c',
+        messages: {
+          'm1': {'role': 'user'},
+          'm2': {'parentId': 'm1', 'role': 'assistant', 'content': 'dirty'},
+        },
+        updatedAt: 250,
+      );
+
+      final result = mergeChat(
+        server: server,
+        local: local,
+        base: 200,
+        chatEnvelopeDirty: false,
+        dirtyMessageIds: const {'m2'},
+      );
+
+      check(result.merged.chat.currentMessageId).equals('m2');
+    });
+
+    test('server currentId null also falls back to deepest leaf', () {
+      final server = rowsFor(
+        chatId: 'c',
+        messages: {
+          'm1': {'role': 'user'},
+          'm2': {'parentId': 'm1', 'role': 'assistant'},
+        },
+        updatedAt: 300,
+      );
+      final local = rowsFor(
+        chatId: 'c',
+        messages: {
+          'm1': {'role': 'user'},
+          'm2': {'parentId': 'm1', 'role': 'assistant'},
+        },
+        currentId: 'm1',
+        updatedAt: 250,
+      );
+
+      final result = mergeChat(
+        server: server,
+        local: local,
+        base: 200,
+        chatEnvelopeDirty: true,
+        dirtyMessageIds: const {},
+      );
+
+      check(result.merged.chat.currentMessageId).equals('m2');
     });
   });
 
@@ -569,44 +635,46 @@ void main() {
       check(result.merged.chat.archived).isTrue();
     });
 
-    test('chatEnvelopeDirty=false → server envelope wins (message dirty only)',
-        () {
-      final server = rowsFor(
-        chatId: 'c',
-        messages: {
-          'm1': {'role': 'user'},
-        },
-        currentId: 'm1',
-        title: 'Server Title',
-        folderId: 'srv-folder',
-        pinned: true,
-        updatedAt: 300,
-      );
-      final local = rowsFor(
-        chatId: 'c',
-        messages: {
-          'm1': {'role': 'user'},
-          'mDirty': {'parentId': 'm1', 'role': 'assistant'},
-        },
-        currentId: 'mDirty',
-        title: 'Local Title',
-        folderId: 'loc-folder',
-        pinned: false,
-        updatedAt: 250,
-      );
+    test(
+      'chatEnvelopeDirty=false → server envelope wins (message dirty only)',
+      () {
+        final server = rowsFor(
+          chatId: 'c',
+          messages: {
+            'm1': {'role': 'user'},
+          },
+          currentId: 'm1',
+          title: 'Server Title',
+          folderId: 'srv-folder',
+          pinned: true,
+          updatedAt: 300,
+        );
+        final local = rowsFor(
+          chatId: 'c',
+          messages: {
+            'm1': {'role': 'user'},
+            'mDirty': {'parentId': 'm1', 'role': 'assistant'},
+          },
+          currentId: 'mDirty',
+          title: 'Local Title',
+          folderId: 'loc-folder',
+          pinned: false,
+          updatedAt: 250,
+        );
 
-      final result = mergeChat(
-        server: server,
-        local: local,
-        base: 200,
-        chatEnvelopeDirty: false,
-        dirtyMessageIds: const {'mDirty'},
-      );
+        final result = mergeChat(
+          server: server,
+          local: local,
+          base: 200,
+          chatEnvelopeDirty: false,
+          dirtyMessageIds: const {'mDirty'},
+        );
 
-      check(result.merged.chat.title).equals('Server Title');
-      check(result.merged.chat.folderId).equals('srv-folder');
-      check(result.merged.chat.pinned).isTrue();
-    });
+        check(result.merged.chat.title).equals('Server Title');
+        check(result.merged.chat.folderId).equals('srv-folder');
+        check(result.merged.chat.pinned).isTrue();
+      },
+    );
   });
 
   group('rawExtra preservation (§7.4 e)', () {
@@ -646,12 +714,15 @@ void main() {
         dirtyMessageIds: const {'mDirty'},
       );
 
-      check(result.merged.chat.rawExtra['models'] as List)
-          .deepEquals(['srv-model']);
-      check(result.merged.chat.rawExtra['params'] as Map)
-          .deepEquals({'temp': 0.9});
-      check(result.merged.chat.rawExtra['unknownFutureKey'])
-          .equals('from-server');
+      check(
+        result.merged.chat.rawExtra['models'] as List,
+      ).deepEquals(['srv-model']);
+      check(
+        result.merged.chat.rawExtra['params'] as Map,
+      ).deepEquals({'temp': 0.9});
+      check(
+        result.merged.chat.rawExtra['unknownFutureKey'],
+      ).equals('from-server');
       check(result.merged.blobHadHistory).equals(server.blobHadHistory);
       check(result.merged.blobHadTitle).equals(server.blobHadTitle);
     });
@@ -702,18 +773,20 @@ void main() {
       );
 
       check(idsOf(second.merged)).unorderedEquals(idsOf(first.merged).toList());
-      check(second.dirtyMessageIds)
-          .unorderedEquals(first.dirtyMessageIds.toList());
-      check(second.merged.chat.currentMessageId)
-          .equals(first.merged.chat.currentMessageId);
+      check(
+        second.dirtyMessageIds,
+      ).unorderedEquals(first.dirtyMessageIds.toList());
+      check(
+        second.merged.chat.currentMessageId,
+      ).equals(first.merged.chat.currentMessageId);
       check(second.mustPush).isTrue();
       check(second.newServerUpdatedAt).equals(200);
-      check(childrenOf(second.merged, 'm2'))
-          .unorderedEquals(childrenOf(first.merged, 'm2'));
+      check(
+        childrenOf(second.merged, 'm2'),
+      ).unorderedEquals(childrenOf(first.merged, 'm2'));
     });
 
-    test('overlap-window re-merge after B advances (push landed) is a no-op',
-        () {
+    test('overlap-window re-merge after B advances (push landed) is a no-op', () {
       // After a three-way push succeeds, B advances to the response
       // updated_at (== S.updatedAt here). A re-pull within the 5s window of the
       // SAME S now hits case 1 (S.updatedAt == base) → noRemoteChange.
@@ -777,8 +850,7 @@ void main() {
       check(idsOf(result.merged)).unorderedEquals(['s1', 's2', 'dirtyKeep']);
     });
 
-    test(
-        'three-way re-parents a surviving dirty descendant when a CLEAN '
+    test('three-way re-parents a surviving dirty descendant when a CLEAN '
         'ancestor is remotely deleted (no dangling parentId)', () {
       // Server kept only the root m1 (it deleted the clean middle m2).
       final server = rowsFor(
@@ -817,9 +889,11 @@ void main() {
       check(m3.payload['parentId']).equals('m1');
       check(childrenOf(result.merged, 'm1')).contains('m3');
       // The rebuilt tree is fully connected (no dangling parentId).
-      check(ChatBlobMapper.treeIsConsistent(ChatBlobMapper.rowsToBlob(
-        result.merged,
-      ))).isTrue();
+      check(
+        ChatBlobMapper.treeIsConsistent(
+          ChatBlobMapper.rowsToBlob(result.merged),
+        ),
+      ).isTrue();
     });
   });
 }
