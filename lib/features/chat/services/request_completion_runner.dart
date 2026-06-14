@@ -17,9 +17,8 @@ part 'request_completion_runner.g.dart';
 /// a live interactive stream already owns the chat (R5). The drainer's default
 /// terminal classifier treats it as transient, so the op stays pending and is
 /// re-attempted on a later drain (after the live stream finishes) instead of
-/// burning toward the N=5 park budget unfairly. Accepting the +1 attempt is the
-/// minimal correct behavior.
-class CompletionBusyException implements Exception {
+/// burning toward the N=5 park budget unfairly.
+class CompletionBusyException implements OutboxDeferralException {
   const CompletionBusyException(this.chatId);
 
   final String chatId;

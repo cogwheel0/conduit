@@ -161,6 +161,8 @@ Future<AdapterPullResult> runPullFor(
     var stop = false;
     while (!stop) {
       final items = await adapter.getListPage(page);
+      final changedBefore = changed.length;
+      final maxSeenBefore = maxSeen;
       for (final item in items) {
         if (item.skip) continue;
         if (item.updatedAt > threshold) {
@@ -171,6 +173,9 @@ Future<AdapterPullResult> runPullFor(
           break;
         }
       }
+      final madeProgress =
+          changed.length != changedBefore || maxSeen != maxSeenBefore;
+      if (!madeProgress) break;
       if (stop || items.length < adapter.listPageSize) break;
       page++;
     }

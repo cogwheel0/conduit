@@ -40,6 +40,26 @@ class _MalformedFirstPageNoteClient extends FakeSyncApiClient {
   }
 }
 
+class _AllMalformedFirstPageNoteClient extends FakeSyncApiClient {
+  _AllMalformedFirstPageNoteClient(super.server);
+
+  @override
+  Future<(List<Map<String, dynamic>>, bool)> getNoteListRaw({int? page}) async {
+    noteListRequests++;
+    noteListPages.add(page);
+    if (page == 1) {
+      return (
+        [
+          for (var i = 0; i < FakeOpenWebUiServer.notePageSize; i++)
+            <String, dynamic>{'id': 'malformed-$i'},
+        ],
+        true,
+      );
+    }
+    return super.getNoteListRaw(page: page);
+  }
+}
+
 void main() {
   late FakeOpenWebUiServer server;
   late FakeSyncApiClient client;
@@ -169,6 +189,18 @@ void main() {
       check(await db.syncMetaDao.getNotesPullWatermark()).equals(kT1 + 59);
     },
   );
+
+  test('all-skip full note list page stops pagination', () async {
+    client = _AllMalformedFirstPageNoteClient(server);
+
+    final result = await pull();
+
+    check(result.success).isTrue();
+    check(result.changed).equals(0);
+    check(client.noteListPages).deepEquals([1]);
+    check(client.noteFetchStarts).isEmpty();
+    check(await allNotes()).isEmpty();
+  });
 
   test(
     'pull full-fetches note bodies instead of trusting truncated list data',

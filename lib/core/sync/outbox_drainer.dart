@@ -20,6 +20,10 @@ abstract interface class RequestCompletionRunner {
   });
 }
 
+/// Marker for temporary conditions that mean an op did not actually attempt
+/// network work and therefore must not burn retry/parking budget.
+abstract interface class OutboxDeferralException implements Exception {}
+
 /// Classifies a push error as a terminal (non-retryable) server response so
 /// the drainer can park/handle it instead of retrying forever (A7, §B5).
 /// Returns the HTTP status code for a terminal server error (401/403, and a
@@ -273,8 +277,24 @@ class OutboxDrainer {
     Object error,
     StackTrace stack,
   ) async {
-    final newAttempts = op.attempts + 1;
     final message = error.toString();
+    if (error is OutboxDeferralException) {
+      DebugLogger.error(
+        'outbox op deferred without attempt',
+        scope: 'outbox/drain',
+        error: error,
+        stackTrace: stack,
+        data: {'seq': op.seq, 'kind': kind.name, 'attempts': op.attempts},
+      );
+      await _db.outboxDao.markDeferred(
+        op.seq,
+        error: message,
+        nextAttemptAt: _clock.nowEpochSeconds() + 1,
+      );
+      return;
+    }
+
+    final newAttempts = op.attempts + 1;
 
     DebugLogger.error(
       'outbox op failed',

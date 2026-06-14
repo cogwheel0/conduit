@@ -313,6 +313,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   SocketEventSubscription? _passiveConversationSocketSubscription;
   StreamSubscription<List<MessageRow>>? _dbMessagesSubscription;
   String? _dbWatchedChatId;
+  int _dbMessagesGeneration = 0;
   DateTime? _lastStreamingActivity;
   StringBuffer? _streamingBuffer;
   Timer? _streamingSyncTimer;
@@ -437,7 +438,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _dbMessagesSubscription = db.messagesDao
         .watchForChat(conversationId)
         .listen(
-          (rows) => unawaited(_onDbMessagesChanged(conversationId, rows)),
+          (rows) {
+            final generation = ++_dbMessagesGeneration;
+            unawaited(_onDbMessagesChanged(conversationId, rows, generation));
+          },
           onError: (Object error, StackTrace stackTrace) {
             DebugLogger.error(
               'db-watch-failed',
@@ -454,6 +458,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _dbMessagesSubscription?.cancel();
     _dbMessagesSubscription = null;
     _dbWatchedChatId = null;
+    _dbMessagesGeneration++;
   }
 
   /// Database emissions adopt through the exact same protected path as
@@ -463,8 +468,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   Future<void> _onDbMessagesChanged(
     String conversationId,
     List<MessageRow> rows,
+    int generation,
   ) async {
-    if (_disposed || _shouldProtectLocalStreamingState) {
+    if (_disposed ||
+        generation != _dbMessagesGeneration ||
+        _shouldProtectLocalStreamingState) {
       return;
     }
     if (ref.read(activeConversationProvider)?.id != conversationId) {
@@ -476,11 +484,17 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
     try {
       final chat = await db.chatsDao.getChat(conversationId);
+      if (generation != _dbMessagesGeneration) {
+        return;
+      }
       if (chat == null || !chat.bodySynced) {
         return;
       }
       final conversation = assembleConversation(chat, rows);
-      if (_disposed || !ref.mounted || _shouldProtectLocalStreamingState) {
+      if (_disposed ||
+          !ref.mounted ||
+          generation != _dbMessagesGeneration ||
+          _shouldProtectLocalStreamingState) {
         return;
       }
       if (ref.read(activeConversationProvider)?.id != conversationId) {

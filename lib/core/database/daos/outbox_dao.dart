@@ -324,6 +324,28 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
     );
   }
 
+  /// Reschedules an op that should remain pending without burning retry
+  /// attempts. Used for non-attempt deferrals such as offline checks or a live
+  /// stream already owning a queued completion.
+  Future<void> markDeferred(
+    int seq, {
+    required String error,
+    required int nextAttemptAt,
+  }) {
+    return customUpdate(
+      'UPDATE outbox_ops SET status = ?, last_error = ?, '
+      'next_attempt_at = ? WHERE seq = ?',
+      variables: [
+        Variable.withString(OutboxStatus.pending),
+        Variable.withString(error),
+        Variable.withInt(nextAttemptAt),
+        Variable.withInt(seq),
+      ],
+      updates: {outboxOps},
+      updateKind: UpdateKind.update,
+    );
+  }
+
   /// Reschedules an op that could not be tried only because the device was
   /// offline (§7.2). Stays `pending` and pushes [nextAttemptAt] forward to pace
   /// re-checks, but does NOT bump `attempts`: an offline no-op is not a real
@@ -331,18 +353,7 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
   /// (otherwise a long offline stretch parks a perfectly good completion the
   /// instant connectivity returns). `lastError` is recorded for diagnostics.
   Future<void> markOfflineDeferred(int seq, {required int nextAttemptAt}) {
-    return customUpdate(
-      'UPDATE outbox_ops SET status = ?, last_error = ?, '
-      'next_attempt_at = ? WHERE seq = ?',
-      variables: [
-        Variable.withString(OutboxStatus.pending),
-        Variable.withString('offline'),
-        Variable.withInt(nextAttemptAt),
-        Variable.withInt(seq),
-      ],
-      updates: {outboxOps},
-      updateKind: UpdateKind.update,
-    );
+    return markDeferred(seq, error: 'offline', nextAttemptAt: nextAttemptAt);
   }
 
   /// Terminal `failed` until a manual retry (requestCompletion N=5 §7.2).

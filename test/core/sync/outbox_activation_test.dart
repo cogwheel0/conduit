@@ -216,59 +216,63 @@ void main() {
       },
     );
 
-    test('a CompletionBusyException defers (stays pending) without parking',
-        () async {
-      // Seed a server chat with a standalone requestCompletion op (no create
-      // dependency) so the only thing the drainer does is run the completion.
-      const chatId = 'cbusy';
-      server.seedChat(
-        id: chatId,
-        blob: {
-          'title': 'T',
-          'history': {
-            'messages': {
-              'm1': {
-                'id': 'm1',
-                'role': 'user',
-                'content': 'hi',
-                'parentId': null,
-                'childrenIds': <String>[],
+    test(
+      'a CompletionBusyException defers (stays pending) without parking',
+      () async {
+        // Seed a server chat with a standalone requestCompletion op (no create
+        // dependency) so the only thing the drainer does is run the completion.
+        const chatId = 'cbusy';
+        server.seedChat(
+          id: chatId,
+          blob: {
+            'title': 'T',
+            'history': {
+              'messages': {
+                'm1': {
+                  'id': 'm1',
+                  'role': 'user',
+                  'content': 'hi',
+                  'parentId': null,
+                  'childrenIds': <String>[],
+                },
               },
+              'currentId': 'm1',
             },
-            'currentId': 'm1',
           },
-        },
-        createdAt: 1,
-        updatedAt: 1,
-      );
-      await db.transaction(
-        () => dao.enqueue(
-          kind: OutboxKind.requestCompletion,
-          chatId: chatId,
-          payload: const RequestCompletionPayload(
-            assistantMessageId: 'aBusy',
-            model: 'm',
-          ).toJson(),
-        ),
-      );
+          createdAt: 1,
+          updatedAt: 1,
+        );
+        await db.transaction(
+          () => dao.enqueue(
+            kind: OutboxKind.requestCompletion,
+            chatId: chatId,
+            payload: const RequestCompletionPayload(
+              assistantMessageId: 'aBusy',
+              model: 'm',
+            ).toJson(),
+          ),
+        );
 
-      // First drain: the runner reports BUSY (a live stream owns the chat).
-      completion.nextError = const CompletionBusyException(chatId);
-      await buildDrainer().drain();
+        // First drain: the runner reports BUSY (a live stream owns the chat).
+        completion.nextError = const CompletionBusyException(chatId);
+        await buildDrainer().drain();
 
-      // The op stays pending (a transient retry) and is NOT parked: the busy
-      // exception is not terminal, so R5 deferral never burns the turn.
-      final pending = await dao.pendingForChat(chatId);
-      check(pending).length.equals(1);
-      check(pending.single.status).equals('pending');
-      check(await dao.watchParkedForChat(chatId).first).isEmpty();
-      check(completion.ranChats).isEmpty();
+        // The op stays pending (a transient retry) and is NOT parked: the busy
+        // exception is not terminal, so R5 deferral never burns the turn.
+        final pending = await dao.pendingForChat(chatId);
+        check(pending).length.equals(1);
+        check(pending.single.status).equals('pending');
+        check(pending.single.attempts).equals(0);
+        check(pending.single.nextAttemptAt).equals(1001);
+        check(await dao.watchParkedForChat(chatId).first).isEmpty();
+        check(completion.ranChats).isEmpty();
 
-      // Next drain (after the live stream finishes) runs it to completion.
-      clock.now += 10;
-      await buildDrainer().drain();
-      check(completion.ranChats).deepEquals([chatId]);
-      check(await dao.pendingForChat(chatId)).isEmpty();
-    });
+        // Next drain (after the live stream finishes) runs it to completion.
+        clock.now += 10;
+        await buildDrainer().drain();
+        check(completion.ranChats).deepEquals([chatId]);
+        check(await dao.pendingForChat(chatId)).isEmpty();
+      },
+    );
   });
 }
