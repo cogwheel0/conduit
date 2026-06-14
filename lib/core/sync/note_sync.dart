@@ -236,9 +236,10 @@ class NotePushSync {
       final serverUpdatedAt = _asNs(resp['updated_at']) ?? note.updatedAt;
 
       // Keep the local-id lock while acquiring the server-id lock for remap.
-      // Unlike chat create, note pull never holds serverId while trying to take
-      // localId for crash-heal, so this closes the post-POST edit window
-      // without introducing an opposite-order deadlock.
+      // Pull-side crash-heal can hold serverId then try localId, but it only
+      // matches pending noteCreate ops. This push worker has already claimed the
+      // op as inFlight, so crash-heal exits before taking localId and cannot
+      // form an opposite-order cycle.
       await _noteLocks.runExclusive(
         serverId,
         () => _remapper.remapNote(
