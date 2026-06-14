@@ -276,23 +276,15 @@ class OutboxDrainer {
     );
   }
 
-  /// Per-kind terminal (non-retryable) server-error handling (A7, §B):
-  /// * deleteChat/noteDelete 404 ⇒ already gone ⇒ treat as success (markDone).
-  /// * everything else terminal (e.g. updateChat 401 not-owner) ⇒ park + log.
+  /// Per-kind terminal (non-retryable) server-error handling (A7, §B).
+  /// Delete 404s are absorbed inside [SyncApiClient] delete methods as
+  /// already-gone success; terminal errors that reach the drainer are parked.
   Future<void> _handleTerminal(
     OutboxOp op,
     OutboxKind kind,
     int status,
     String message,
   ) async {
-    // 404 on deleteChat/noteDelete ⇒ already gone server-side ⇒ success.
-    // folderDelete absorbs 404 inside SyncApiClient.deleteFolder (returns false),
-    // so its already-gone path never throws into this terminal handler.
-    if (status == 404 &&
-        (kind == OutboxKind.deleteChat || kind == OutboxKind.noteDelete)) {
-      await _db.outboxDao.markDone(op.seq);
-      return;
-    }
     DebugLogger.error(
       'outbox op parked on terminal server error',
       scope: 'outbox/drain',

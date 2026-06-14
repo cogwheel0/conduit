@@ -58,7 +58,7 @@ class Notes extends Table {
   TextColumn get rawExtra => text().withDefault(const Constant('{}'))();
 
   /// True for a note created by the D-11 conflict-copy branch so the UI can
-  /// badge it AND so it is EXEMPT from re-conflicting (infinite-loop guard).
+  /// badge it and link it back to the canonical note.
   BoolColumn get isConflictCopy =>
       boolean().withDefault(const Constant(false))();
 
