@@ -29,13 +29,9 @@ class NoteAdapter implements SyncEntityAdapter {
   @override
   int get pullOverlap => kNotePullOverlapNs;
 
-  /// Notes are listed in a SINGLE unpaged call ([getListPageRaw] returns an
-  /// empty list for any page > 1 without a network call), so a sentinel larger
-  /// than any realistic note count keeps `runPullFor` from ever requesting a
-  /// page 2 — making the single-page contract explicit rather than relying on
-  /// the driver's `items.length < listPageSize` escape hatch.
+  /// Vendored `GET /api/v1/notes/?page=N` returns 60 items per page.
   @override
-  int get listPageSize => 1 << 30;
+  int get listPageSize => kOpenWebUiNoteListPageSize;
 
   @override
   // The vendored list endpoint truncates data.content.md to 1000 chars; it is

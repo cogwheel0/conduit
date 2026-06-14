@@ -642,7 +642,11 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
         // itself: the newest desired-state wins (the row already holds it).
         final pin = newestOfKind(OutboxKind.notePin);
         if (pin != null) {
-          return _CoalesceDecision(insert: false, survivorSeq: pin.seq);
+          return _CoalesceDecision(
+            insert: false,
+            survivorSeq: pin.seq,
+            mergedPayload: payload,
+          );
         }
         return const _CoalesceDecision(insert: true);
 

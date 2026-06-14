@@ -82,11 +82,7 @@ class FakeSyncApiClient implements SyncApiClient {
       throw StateError('injected main list failure (page $page)');
     }
     return _hide(
-      server.getChatList(
-        page: page,
-        includePinned: true,
-        includeFolders: true,
-      ),
+      server.getChatList(page: page, includePinned: true, includeFolders: true),
     );
   }
 
@@ -317,6 +313,7 @@ class FakeSyncApiClient implements SyncApiClient {
   final Set<String> terminalNoteWriteIds = <String>{};
 
   int noteListRequests = 0;
+  final List<int?> noteListPages = <int?>[];
   int createNoteCalls = 0;
   int updateNoteCalls = 0;
   int deleteNoteCalls = 0;
@@ -339,15 +336,16 @@ class FakeSyncApiClient implements SyncApiClient {
   }
 
   @override
-  Future<(List<Map<String, dynamic>>, bool)> getNoteListRaw() async {
+  Future<(List<Map<String, dynamic>>, bool)> getNoteListRaw({int? page}) async {
     noteListRequests++;
+    noteListPages.add(page);
     if (failNoteList) {
       throw StateError('injected note list failure');
     }
     if (!notesFeatureEnabled) {
       return (const <Map<String, dynamic>>[], false);
     }
-    return (server.getNotes(), true);
+    return (server.getNotes(page: page), true);
   }
 
   @override

@@ -105,7 +105,7 @@ class RecordingSyncApiClient implements SyncApiClient {
   // Note write surface: the chat-op drainer tests never drive note kinds, so
   // these are unreachable here.
   @override
-  Future<(List<Map<String, dynamic>>, bool)> getNoteListRaw() =>
+  Future<(List<Map<String, dynamic>>, bool)> getNoteListRaw({int? page}) =>
       throw UnsupportedError('notes not exercised by chat-op drainer tests');
   @override
   Future<Map<String, dynamic>?> getNoteRaw(String id) =>

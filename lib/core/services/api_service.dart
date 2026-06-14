@@ -5879,10 +5879,15 @@ class ApiService {
   /// Get all notes with user information.
   /// Returns a record with (notes data, feature enabled flag).
   /// When the notes feature is disabled server-side (403), returns ([], false).
-  Future<(List<Map<String, dynamic>>, bool)> getNotes() async {
+  Future<(List<Map<String, dynamic>>, bool)> getNotes({int? page}) async {
     try {
-      _traceApi('Fetching notes');
-      final response = await _dio.get('/api/v1/notes/');
+      _traceApi('Fetching notes${page == null ? '' : ', page: $page'}');
+      final queryParams = <String, dynamic>{};
+      if (page != null) queryParams['page'] = page;
+      final response = await _dio.get(
+        '/api/v1/notes/',
+        queryParameters: queryParams.isEmpty ? null : queryParams,
+      );
       DebugLogger.log(
         'fetch-status',
         scope: 'api/notes',

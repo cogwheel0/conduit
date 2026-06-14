@@ -151,7 +151,7 @@ abstract interface class SyncApiClient {
   /// uses the list only for `{id, updated_at}` and full-fetches each changed
   /// note via [getNoteRaw]. The bool is featureEnabled (false on 401/403, the
   /// vendored "notes feature disabled / no permission" response).
-  Future<(List<Map<String, dynamic>>, bool)> getNoteListRaw();
+  Future<(List<Map<String, dynamic>>, bool)> getNoteListRaw({int? page});
 
   /// GET `/api/v1/notes/{id}` — the FULL (untruncated) `NoteResponse` map;
   /// null on 404. 401/403 (not owner / no read) throws
@@ -369,8 +369,8 @@ class ApiSyncApiClient implements SyncApiClient {
   // ---- Phase 5 NOTES ----
 
   @override
-  Future<(List<Map<String, dynamic>>, bool)> getNoteListRaw() {
-    return api.getNotes();
+  Future<(List<Map<String, dynamic>>, bool)> getNoteListRaw({int? page}) {
+    return api.getNotes(page: page);
   }
 
   @override

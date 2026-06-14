@@ -102,6 +102,27 @@ void main() {
     check(await db.syncMetaDao.getPullWatermark()).equals(0);
   });
 
+  test('pull paginates note lists past the first server page', () async {
+    for (var i = 0; i < FakeOpenWebUiServer.notePageSize + 1; i++) {
+      server.seedNote(
+        id: 'n-${i.toString().padLeft(2, '0')}',
+        title: 'Note $i',
+        data: {
+          'content': {'md': 'body $i'},
+        },
+        createdAt: kT1 + i,
+        updatedAt: kT1 + i,
+      );
+    }
+
+    final result = await pull();
+
+    check(result.success).isTrue();
+    check(result.changed).equals(FakeOpenWebUiServer.notePageSize + 1);
+    check(client.noteListPages).deepEquals([1, 2]);
+    check(await allNotes()).length.equals(FakeOpenWebUiServer.notePageSize + 1);
+  });
+
   test(
     'pull full-fetches note bodies instead of trusting truncated list data',
     () async {
@@ -306,6 +327,34 @@ void main() {
     },
   );
 
+  test('tombstoneWithOutbox dirties title and data tombstone axes', () async {
+    server.seedNote(
+      id: 'n-delete',
+      title: 'Server note',
+      data: {
+        'content': {'md': 'body'},
+      },
+      createdAt: kT1,
+      updatedAt: kT1,
+    );
+    await pull();
+
+    await locks.runExclusive('n-delete', () {
+      return db.notesDao.tombstoneWithOutbox('n-delete');
+    });
+
+    final row = await db.notesDao.getNote('n-delete');
+    check(row).isNotNull();
+    check(row!.deleted).isTrue();
+    check(row.dirtyTitle).isTrue();
+    check(row.dirtyData).isTrue();
+
+    final pending = await db.outboxDao.pendingForChat('n-delete');
+    check(
+      pending.map((op) => op.kind),
+    ).deepEquals([OutboxKind.noteDelete.name]);
+  });
+
   test(
     'pull crash-heals a pending noteCreate with a matching server note',
     () async {
@@ -493,6 +542,44 @@ void main() {
       check(row!.dirtyPinned).isTrue();
     },
   );
+
+  test('pin coalescing keeps the newest desired payload', () async {
+    server.seedNote(
+      id: 'p3',
+      title: 'P',
+      data: {
+        'content': {'md': 'x'},
+      },
+      createdAt: kT1,
+      updatedAt: kT1,
+      pinned: false,
+    );
+    await pull();
+
+    await locks.runExclusive('p3', () async {
+      await db.notesDao.pinNoteWithOutbox('p3', desiredPinned: true);
+      await db.notesDao.pinNoteWithOutbox('p3', desiredPinned: false);
+    });
+
+    final pending = await db.outboxDao.pendingForChat('p3');
+    check(pending).length.equals(1);
+    check(pending.single.kind).equals(OutboxKind.notePin.name);
+    final payload = jsonDecode(pending.single.payload) as Map<String, dynamic>;
+    check(payload['desired']).equals(false);
+
+    final push = NotePushSync(
+      client: client,
+      db: db,
+      noteLocks: locks,
+      remapper: syncRemapper,
+    );
+    await push.pushNotePin('p3', desired: payload['desired'] == true);
+
+    check(client.togglePinNoteCalls).equals(0);
+    check(server.getNoteById('p3')!['is_pinned']).equals(false);
+    final row = await db.notesDao.getNote('p3');
+    check(row!.dirtyPinned).isFalse();
+  });
 
   test('pushNoteCreate remaps while the local-id lock is still held', () async {
     final recordingLocks = _RecordingChatLocks();

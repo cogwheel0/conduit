@@ -18,9 +18,9 @@ import 'sync_api_client.dart';
 const int kNotePullOverlapNs = 5 * 1000 * 1000 * 1000;
 
 /// Server page size for `GET /api/v1/notes/?page=N` (vendored
-/// `routers/notes.py:get_notes`, `limit = 60`). The list with NO `page` param
-/// returns every note unpaged; [NotePullSync] passes explicit pages so the
-/// early-stop watermark loop works the same as chats.
+/// `routers/notes.py:get_notes`, `limit = 60` only when `page` is present).
+/// [NotePullSync] passes explicit pages so the early-stop watermark loop works
+/// the same as chats and cannot silently depend on an unpaged full-list call.
 const int kOpenWebUiNoteListPageSize = 60;
 
 /// Raw int64 NANOSECONDS — NO unit conversion (R-09).
@@ -159,21 +159,16 @@ class NotePullSync {
   /// Exposed for the [NoteAdapter] seam.
   Future<Map<String, dynamic>?> fetchRaw(String id) => _client.getNoteRaw(id);
 
-  /// One list page of raw note maps (page>1 is empty — see [_getNoteListPage]).
+  /// One explicit server page of raw note maps.
   /// Exposed for the [NoteAdapter] seam.
   Future<List<Map<String, dynamic>>> getListPageRaw(int page) =>
       _getNoteListPage(page);
 
   Future<List<Map<String, dynamic>>> _getNoteListPage(int page) async {
-    // The vendored list endpoint takes an optional ?page; the SyncApiClient
-    // seam exposes the whole list (featureEnabled flag dropped here — a
-    // disabled feature simply yields no changed notes). Page-slice client-side
-    // is unnecessary: getNoteListRaw already returns the server page set when
-    // unpaged; for parity with chats we read the full ordered list once on
-    // page 1 and treat any later page as empty (the list is updated_at DESC and
-    // bounded by the truncating server, so a single ordered pass suffices).
-    if (page > 1) return const [];
-    final (items, _) = await _client.getNoteListRaw();
+    // The vendored endpoint applies `limit = 60` only when `?page=N` is present.
+    // Pull always uses explicit pages so large note libraries are enumerated
+    // with the same early-stop semantics as chat pull.
+    final (items, _) = await _client.getNoteListRaw(page: page);
     return items;
   }
 }

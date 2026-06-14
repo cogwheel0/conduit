@@ -336,7 +336,11 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
   Future<void> tombstoneWithOutbox(String id) {
     return transaction(() async {
       await (update(notes)..where((t) => t.id.equals(id))).write(
-        const NotesCompanion(deleted: Value(true), dirtyData: Value(true)),
+        const NotesCompanion(
+          deleted: Value(true),
+          dirtyTitle: Value(true),
+          dirtyData: Value(true),
+        ),
       );
       final deleteSeq = await _outboxDao.enqueue(
         kind: OutboxKind.noteDelete,
