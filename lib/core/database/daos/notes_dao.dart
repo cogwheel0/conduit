@@ -312,14 +312,24 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
   }
 
   /// Local delete: tombstones the note (`deleted=true` + a dirty flag) and
-  /// enqueues a `noteDelete` op. Rows are NOT hard-deleted here (tombstone
-  /// discipline); the drainer purges on confirm. Caller holds the note lock.
+  /// enqueues a `noteDelete` op. Rows are normally NOT hard-deleted here
+  /// (tombstone discipline); the drainer purges on confirm. The exception is a
+  /// pure-local create/delete pair that coalesces to no outbox survivor. Caller
+  /// holds the note lock.
   Future<void> tombstoneWithOutbox(String id) {
     return transaction(() async {
       await (update(notes)..where((t) => t.id.equals(id))).write(
         const NotesCompanion(deleted: Value(true), dirtyData: Value(true)),
       );
-      await _outboxDao.enqueue(kind: OutboxKind.noteDelete, chatId: id);
+      final deleteSeq = await _outboxDao.enqueue(
+        kind: OutboxKind.noteDelete,
+        chatId: id,
+      );
+      if (deleteSeq == -1) {
+        // noteCreate + noteDelete coalesced away: the note never reached the
+        // server, so no tombstone should remain for reconcile/drain to find.
+        await (delete(notes)..where((t) => t.id.equals(id))).go();
+      }
     });
   }
 

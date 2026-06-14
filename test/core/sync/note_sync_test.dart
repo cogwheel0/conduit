@@ -265,6 +265,37 @@ void main() {
     check(row.data).contains('local copy edit');
   });
 
+  test(
+    'tombstoneWithOutbox drops a local note when create/delete annihilate',
+    () async {
+      const localId = 'local:drop-note';
+
+      await locks.runExclusive(localId, () async {
+        await db.notesDao.insertLocalNoteWithCreateOp(
+          note: NotesCompanion.insert(
+            id: localId,
+            title: 'Draft',
+            data: Value(
+              jsonEncode({
+                'content': {'md': 'draft'},
+              }),
+            ),
+            createdAt: kT1,
+            updatedAt: kT1,
+          ),
+        );
+        check(await db.notesDao.getNote(localId)).isNotNull();
+        check(
+          (await db.outboxDao.pendingForChat(localId)).map((op) => op.kind),
+        ).deepEquals(['noteCreate']);
+        await db.notesDao.tombstoneWithOutbox(localId);
+      });
+
+      check(await db.notesDao.getNote(localId)).isNull();
+      check(await db.outboxDao.pendingForChat(localId)).isEmpty();
+    },
+  );
+
   test('pushNotePin PROBES live state and toggles only on a real delta '
       '(no blind toggle-first flip)', () async {
     // Note exists locally + on the server; server pin = false.

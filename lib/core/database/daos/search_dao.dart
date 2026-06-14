@@ -44,8 +44,12 @@ class SearchHit {
   final String chatId;
   final String title;
 
-  /// Epoch seconds.
+  /// Timestamp unit depends on [kind]: chat hits use epoch seconds; note hits
+  /// use server nanoseconds (R-09). Branch on [kind] before formatting.
   final int createdAt;
+
+  /// Timestamp unit depends on [kind]: chat hits use epoch seconds; note hits
+  /// use server nanoseconds (R-09). Branch on [kind] before formatting.
   final int updatedAt;
   final bool pinned;
   final bool archived;
