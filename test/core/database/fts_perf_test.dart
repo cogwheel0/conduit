@@ -53,83 +53,78 @@ void main() {
   // -------------------------------------------------------------------------
   // BUDGET 1 — cold start to interactive list ≤ 400 ms from DB open.
   // -------------------------------------------------------------------------
-  test(
-    'BUDGET 1: cold start to first watchChatList emission < 400ms '
-    '(1000 chats, no FTS on the path)',
-    () async {
-      // Seed with one db, close it, then COLD-OPEN a fresh db over the file.
-      final file = dbFile('cold-start');
-      final seedDb = AppDatabase(NativeDatabase(file));
-      await seedLargeFixture(seedDb);
-      await seedDb.close();
+  test('BUDGET 1: cold start to first watchChatList emission < 400ms '
+      '(1000 chats, no FTS on the path)', () async {
+    // Seed with one db, close it, then COLD-OPEN a fresh db over the file.
+    final file = dbFile('cold-start');
+    final seedDb = AppDatabase(NativeDatabase(file));
+    await seedLargeFixture(seedDb);
+    await seedDb.close();
 
-      final db = AppDatabase(NativeDatabase(file));
-      addTearDown(db.close);
+    final db = AppDatabase(NativeDatabase(file));
+    addTearDown(db.close);
 
-      // Start the clock BEFORE subscribing; stop on the first emission.
-      final sw = Stopwatch()..start();
-      final first = Completer<List<ChatListEntry>>();
-      final sub = db.chatsDao.watchChatList().listen((entries) {
-        if (!first.isCompleted) first.complete(entries);
-      });
-      final entries = await first.future;
-      sw.stop();
-      await sub.cancel();
+    // Start the clock BEFORE subscribing; stop on the first emission.
+    final sw = Stopwatch()..start();
+    final first = Completer<List<ChatListEntry>>();
+    final sub = db.chatsDao.watchChatList().listen((entries) {
+      if (!first.isCompleted) first.complete(entries);
+    });
+    final entries = await first.future;
+    sw.stop();
+    await sub.cancel();
 
-      final elapsed = sw.elapsed;
-      DebugLogger.log(
-        'cold-start-ms',
-        scope: 'perf/list',
-        data: {'ms': elapsed.inMilliseconds, 'rows': entries.length},
-      );
+    final elapsed = sw.elapsed;
+    DebugLogger.log(
+      'cold-start-ms',
+      scope: 'perf/list',
+      data: {'ms': elapsed.inMilliseconds, 'rows': entries.length},
+    );
 
-      // The narrow projection delivers all 1000 (+1 big) rows.
-      check(entries.length).equals(1001);
-      // The list must emit BEFORE any FTS build is on the path — the fixture
-      // above never built FTS, so fts_built is absent and the list still emits.
-      check(elapsed).isLessThan(_coldStartBudget);
-    },
-  );
+    // The narrow projection delivers all 1000 (+1 big) rows.
+    check(entries.length).equals(1001);
+    // The list must emit BEFORE any FTS build is on the path — the fixture
+    // above never built FTS, so fts_built is absent and the list still emits.
+    check(elapsed).isLessThan(_coldStartBudget);
+  });
 
   // -------------------------------------------------------------------------
   // BUDGET 1b — same cold-open via the internal first-page fast-path. Proves
   // getChatPage(limit:200) is a render-fast hydrate well under budget without
   // changing the provider's public API (LIST CONTRACT).
   // -------------------------------------------------------------------------
-  test(
-    'LIST CONTRACT: getChatPage first page (200) cold-opens < 400ms and '
-    'matches watchChatList ordering',
-    () async {
-      final file = dbFile('first-page');
-      final seedDb = AppDatabase(NativeDatabase(file));
-      await seedLargeFixture(seedDb);
-      await seedDb.close();
+  test('LIST CONTRACT: getChatPage first page (200) cold-opens < 400ms and '
+      'matches watchChatList ordering', () async {
+    final file = dbFile('first-page');
+    final seedDb = AppDatabase(NativeDatabase(file));
+    await seedLargeFixture(seedDb);
+    await seedDb.close();
 
-      final db = AppDatabase(NativeDatabase(file));
-      addTearDown(db.close);
+    final db = AppDatabase(NativeDatabase(file));
+    addTearDown(db.close);
 
-      final sw = Stopwatch()..start();
-      final page = await db.chatsDao.getChatPage(limit: 200, offset: 0);
-      sw.stop();
-      DebugLogger.log(
-        'first-page-ms',
-        scope: 'perf/list',
-        data: {'ms': sw.elapsed.inMilliseconds, 'rows': page.length},
-      );
-      check(page.length).equals(200);
-      check(sw.elapsed).isLessThan(_coldStartBudget);
+    final sw = Stopwatch()..start();
+    final page = await db.chatsDao.getChatPage(limit: 200, offset: 0);
+    sw.stop();
+    DebugLogger.log(
+      'first-page-ms',
+      scope: 'perf/list',
+      data: {'ms': sw.elapsed.inMilliseconds, 'rows': page.length},
+    );
+    check(page.length).equals(200);
+    check(sw.elapsed).isLessThan(_coldStartBudget);
 
-      // Ordering is identical to watchChatList: updatedAt DESC, id ASC. The
-      // fixture's strictly-decreasing updatedAt makes chat-0000 the newest.
-      final firstFromStream = await db.chatsDao.watchChatList().first;
-      check(page.map((e) => e.id).toList())
-          .deepEquals(firstFromStream.take(200).map((e) => e.id).toList());
+    // Ordering is identical to watchChatList: updatedAt DESC, id ASC. The
+    // fixture's strictly-decreasing updatedAt makes chat-0000 the newest.
+    final firstFromStream = await db.chatsDao.watchChatList().first;
+    check(
+      page.map((e) => e.id).toList(),
+    ).deepEquals(firstFromStream.take(200).map((e) => e.id).toList());
 
-      // Pagination composes: second page continues with no gaps/overlaps.
-      final page2 = await db.chatsDao.getChatPage(limit: 200, offset: 200);
-      check(page2.first.id).equals(firstFromStream[200].id);
-    },
-  );
+    // Pagination composes: second page continues with no gaps/overlaps.
+    final page2 = await db.chatsDao.getChatPage(limit: 200, offset: 200);
+    check(page2.first.id).equals(firstFromStream[200].id);
+  });
 
   // -------------------------------------------------------------------------
   // BUDGET 2 — append one message to a 500-message chat ≤ 10 ms tx (FTS live).
@@ -184,7 +179,12 @@ void main() {
       final file = dbFile('emissions-1');
       final db = AppDatabase(NativeDatabase(file));
       addTearDown(db.close);
-      await seedAndBuildFts(db, chats: 50, msgsPerChat: 10, bigChatMessages: 50);
+      await seedAndBuildFts(
+        db,
+        chats: 50,
+        msgsPerChat: 10,
+        bigChatMessages: 50,
+      );
 
       // Subscribe and drain the initial emission, then count only NEW ones.
       final emissions = <int>[];
@@ -208,6 +208,7 @@ void main() {
         () => emissions.isNotEmpty,
         timeout: const Duration(seconds: 2),
       );
+      await _settleQueuedEmissions();
       await sub.cancel();
 
       DebugLogger.log(
@@ -225,7 +226,12 @@ void main() {
       final file = dbFile('emissions-10');
       final db = AppDatabase(NativeDatabase(file));
       addTearDown(db.close);
-      await seedAndBuildFts(db, chats: 50, msgsPerChat: 10, bigChatMessages: 50);
+      await seedAndBuildFts(
+        db,
+        chats: 50,
+        msgsPerChat: 10,
+        bigChatMessages: 50,
+      );
 
       var count = 0;
       final ready = Completer<void>();
@@ -243,6 +249,7 @@ void main() {
       }
 
       await _waitUntil(() => count >= 10, timeout: const Duration(seconds: 2));
+      await _settleQueuedEmissions();
       await sub.cancel();
 
       DebugLogger.log(
@@ -271,10 +278,9 @@ void main() {
 
       // Before any build: fts_built is absent/'0' and search short-circuits to
       // [] without throwing on an absent/empty vtable.
-      check(await db.syncMetaDao.getValue('fts_built')).anyOf([
-        (it) => it.isNull(),
-        (it) => it.equals('0'),
-      ]);
+      check(
+        await db.syncMetaDao.getValue('fts_built'),
+      ).anyOf([(it) => it.isNull(), (it) => it.equals('0')]);
       // search() sanitizes its raw argument internally (toFtsMatchQuery), so we
       // pass the raw sentinel word, not a pre-built MATCH expression.
       //
@@ -296,8 +302,12 @@ void main() {
       // Kick the list watch AND the build concurrently; the first list emission
       // must not depend on the build completing.
       final firstList = db.chatsDao.watchChatList().first;
-      final buildFuture = db.buildFtsIfNeeded();
+      var buildCompleted = false;
+      final buildFuture = db.buildFtsIfNeeded().whenComplete(() {
+        buildCompleted = true;
+      });
       final list = await firstList;
+      check(buildCompleted).isFalse();
       // seedLargeFixture always appends kBigChatId on top of `chats`, so 200
       // seeded chats yield 201 rows (mirrors the 1000 -> 1001 cold-start case).
       check(list.length).equals(201);
@@ -319,45 +329,44 @@ void main() {
   // -------------------------------------------------------------------------
   // SEARCH CORRECTNESS (acceptance, not a budget) — ranked, grouped to chats.
   // -------------------------------------------------------------------------
-  test(
-    'SEARCH: sentinel returns exactly the 3 planted chats, bm25-RANKED, '
-    'grouped one row per chat with a non-empty snippet',
-    () async {
-      final file = dbFile('search');
-      final db = AppDatabase(NativeDatabase(file));
-      addTearDown(db.close);
-      final fixture = await seedAndBuildFts(db);
+  test('SEARCH: sentinel returns exactly the 3 planted chats, bm25-RANKED, '
+      'grouped one row per chat with a non-empty snippet', () async {
+    final file = dbFile('search');
+    final db = AppDatabase(NativeDatabase(file));
+    addTearDown(db.close);
+    final fixture = await seedAndBuildFts(db);
 
-      // NOTE: if this throws "unable to use function bm25 in the requested
-      // context", the SearchDao query in lib/core/database/daos/search_dao.dart
-      // (FTS-agent owned) wraps bm25(chat_fts, ?) inside a CTE — FTS5 auxiliary
-      // functions (bm25/snippet) only work when the FTS table is the immediate
-      // query target, not materialized through a CTE.
-      final results = await db.searchDao.search(kSentinel, limit: 50);
+    // NOTE: if this throws "unable to use function bm25 in the requested
+    // context", the SearchDao query in lib/core/database/daos/search_dao.dart
+    // (FTS-agent owned) wraps bm25(chat_fts, ?) inside a CTE — FTS5 auxiliary
+    // functions (bm25/snippet) only work when the FTS table is the immediate
+    // query target, not materialized through a CTE.
+    final results = await db.searchDao.search(kSentinel, limit: 50);
 
-      DebugLogger.log(
-        'fts-query',
-        scope: 'search',
-        data: {'qlen': kSentinel.length, 'results': results.length},
-      );
+    DebugLogger.log(
+      'fts-query',
+      scope: 'search',
+      data: {'qlen': kSentinel.length, 'results': results.length},
+    );
 
-      final chatIds = results.map((r) => r.chatId).toList();
-      // Exactly the three planted chats, grouped one row each.
-      check(chatIds.toSet()).deepEquals(fixture.sentinelHitsByChatId.keys.toSet());
-      check(chatIds.length).equals(3);
+    final chatIds = results.map((r) => r.chatId).toList();
+    // Exactly the three planted chats, grouped one row each.
+    check(
+      chatIds.toSet(),
+    ).deepEquals(fixture.sentinelHitsByChatId.keys.toSet());
+    check(chatIds.length).equals(3);
 
-      // bm25 ranking: equal-length corpus, so most/earliest sentinel hits rank
-      // first. The fixture planted 6 > 3 > 1 hits.
-      check(chatIds).deepEquals(fixture.sentinelChatIdsByRank);
+    // bm25 ranking: equal-length corpus, so most/earliest sentinel hits rank
+    // first. The fixture planted 6 > 3 > 1 hits.
+    check(chatIds).deepEquals(fixture.sentinelChatIdsByRank);
 
-      // The sentinel lives only in message BODIES (the fixture keeps it out of
-      // titles), so every hit is a message match with a non-empty snippet.
-      for (final r in results) {
-        check(r.snippet).isNotNull();
-        check(r.snippet!).isNotEmpty();
-      }
-    },
-  );
+    // The sentinel lives only in message BODIES (the fixture keeps it out of
+    // titles), so every hit is a message match with a non-empty snippet.
+    for (final r in results) {
+      check(r.snippet).isNotNull();
+      check(r.snippet!).isNotEmpty();
+    }
+  });
 }
 
 /// Re-runs the real first-sync writer for [chatId] so the merge is a full
@@ -387,4 +396,8 @@ Future<void> _waitUntil(
     }
     await Future<void>.delayed(const Duration(milliseconds: 5));
   }
+}
+
+Future<void> _settleQueuedEmissions() {
+  return Future<void>.delayed(const Duration(milliseconds: 25));
 }

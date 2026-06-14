@@ -219,12 +219,11 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
   }
 
   /// Atomically claims the lowest-seq runnable op (A2). Runnable means:
-  /// `status='pending'`, due (`nextAttemptAt IS NULL OR <= now`), its chat is
-  /// not [busyChatIds], AND it is the per-chat head (no smaller-seq op for the
-  /// same chatId is still pending|inFlight — strict per-chat FIFO and the
-  /// "requestCompletion only after preceding ops succeed" rule §7.2). On hit,
-  /// flips the row to `inFlight` and returns it; null when nothing is
-  /// runnable.
+  /// `status='pending'`, due (`nextAttemptAt IS NULL OR <= now`), its queue
+  /// domain is not [busyChatIds], AND it is the per-domain head (no smaller-seq
+  /// op for the same domain+id is still live — strict FIFO for chat, folder, and
+  /// note domains). On hit, flips the row to `inFlight` and returns it; null
+  /// when nothing is runnable.
   ///
   /// chatId-NULL ops form a single independent stream keyed on the SQL NULL
   /// group; [busyChatIds] may contain the sentinel `'<null>'` to mark that
@@ -253,8 +252,11 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
         if (candidates.isEmpty) return null;
 
         for (final op in candidates) {
-          final busyKey = op.chatId ?? _nullChatKey;
-          if (busyChatIds.contains(busyKey)) continue;
+          final busyKey = busyKeyFor(op);
+          if (busyChatIds.contains(busyKey) ||
+              busyChatIds.contains(op.chatId ?? _nullChatKey)) {
+            continue;
+          }
 
           if (!await _isChatHead(op)) continue;
 
@@ -282,6 +284,7 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
         await (select(outboxOps)
               ..where(
                 (t) =>
+                    t.kind.isIn(_domainKindNamesForName(op.kind)) &
                     (op.chatId == null
                         ? t.chatId.isNull()
                         : t.chatId.equals(op.chatId!)) &
@@ -498,20 +501,37 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
   }
 
   /// All pending ops for [chatId] (seq ASC) — coalescing + tests (A2).
-  Future<List<OutboxOp>> pendingForChat(String chatId) {
-    return (select(outboxOps)
-          ..where(
-            (t) =>
-                t.chatId.equals(chatId) & t.status.equals(OutboxStatus.pending),
-          )
-          ..orderBy([(t) => OrderingTerm.asc(t.seq)]))
-        .get();
+  Future<List<OutboxOp>> pendingForChat(
+    String chatId, {
+    OutboxKind? domainKind,
+  }) {
+    final query = select(outboxOps)
+      ..where(
+        (t) => t.chatId.equals(chatId) & t.status.equals(OutboxStatus.pending),
+      );
+    if (domainKind != null) {
+      query.where((t) => t.kind.isIn(_domainKindNamesForName(domainKind.name)));
+    }
+    return (query..orderBy([(t) => OrderingTerm.asc(t.seq)])).get();
   }
 
   // --- coalescing (A3) -----------------------------------------------------
 
   /// Sentinel busy-key for the chatId-NULL op stream (A2).
   static const String _nullChatKey = '<null>';
+
+  /// Worker busy key for one outbox op. The persisted `chat_id` column stores
+  /// chat ids, folder ids, and note ids, so the logical domain must be part of
+  /// the key to avoid false blocking across entity types.
+  static String busyKeyFor(OutboxOp op) =>
+      busyKeyForKindName(op.kind, op.chatId);
+
+  static String busyKeyForKind(OutboxKind kind, String? chatId) =>
+      busyKeyForKindName(kind.name, chatId);
+
+  static String busyKeyForKindName(String kindName, String? chatId) {
+    return '${_domainNameForKindName(kindName)}:${chatId ?? _nullChatKey}';
+  }
 
   Future<_CoalesceDecision> _coalesce({
     required OutboxKind kind,
@@ -524,7 +544,7 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
       return const _CoalesceDecision(insert: true);
     }
 
-    final pending = await pendingForChat(chatId);
+    final pending = await pendingForChat(chatId, domainKind: kind);
     final pendingKinds = {
       for (final op in pending) OutboxKind.fromName(op.kind),
     };
@@ -723,6 +743,39 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
     final folderId = payload['folderId'];
     final isLocal = folderId is String && folderId.startsWith('local:');
     return createIfAbsent && isLocal;
+  }
+
+  static String _domainNameForKindName(String kindName) {
+    final kind = OutboxKind.fromName(kindName);
+    if (kind == null) return kindName;
+    if (kind.isFolderKind) return 'folder';
+    if (kind.isNoteKind) return 'note';
+    return 'chat';
+  }
+
+  static List<String> _domainKindNamesForName(String kindName) {
+    final kind = OutboxKind.fromName(kindName);
+    if (kind == null) return [kindName];
+    if (kind.isFolderKind) {
+      return const [
+        OutboxKind.folderUpsert,
+        OutboxKind.folderDelete,
+      ].map((kind) => kind.name).toList();
+    }
+    if (kind.isNoteKind) {
+      return const [
+        OutboxKind.noteCreate,
+        OutboxKind.noteUpdate,
+        OutboxKind.noteDelete,
+        OutboxKind.notePin,
+      ].map((kind) => kind.name).toList();
+    }
+    return const [
+      OutboxKind.createChat,
+      OutboxKind.updateChat,
+      OutboxKind.deleteChat,
+      OutboxKind.requestCompletion,
+    ].map((kind) => kind.name).toList();
   }
 
   Future<String?> _currentCreateChatContentHash(String chatId) async {

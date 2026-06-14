@@ -78,9 +78,9 @@ class OutboxDrainer {
   final RequestCompletionRunner _completion;
   final TerminalErrorClassifier _isTerminal;
 
-  /// chatIds currently held by a worker. `'<null>'` marks the chatId-NULL stream.
-  /// Claims are serialized through [_claimTail] so a returned op is reserved in
-  /// this set before any other worker can claim.
+  /// Queue-domain keys currently held by a worker. Claims are serialized through
+  /// [_claimTail] so a returned op is reserved in this set before any other
+  /// worker can claim.
   final Set<String> _busy = <String>{};
   Future<void> _claimTail = Future<void>.value();
 
@@ -155,7 +155,7 @@ class OutboxDrainer {
       final op = await _claimNextReserved();
       if (op == null) return;
 
-      final busyKey = op.chatId ?? '<null>';
+      final busyKey = OutboxDao.busyKeyFor(op);
       try {
         await _process(op);
       } finally {
@@ -176,7 +176,7 @@ class OutboxDrainer {
           busyChatIds: _busy,
         );
         if (op != null) {
-          _busy.add(op.chatId ?? '<null>');
+          _busy.add(OutboxDao.busyKeyFor(op));
         }
         return op;
       } finally {

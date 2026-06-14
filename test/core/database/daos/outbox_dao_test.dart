@@ -495,6 +495,20 @@ void main() {
       check(pending.single.kind).equals('noteDelete');
     });
 
+    test('chat coalescing does not delete same-id note ops', () async {
+      await enqueue(
+        kind: OutboxKind.noteUpdate,
+        chatId: 'shared-id',
+        payload: {'title': 'note edit'},
+      );
+      await enqueue(kind: OutboxKind.deleteChat, chatId: 'shared-id');
+
+      final pending = await dao.pendingForChat('shared-id');
+      check(
+        pending.map((op) => op.kind).toList(),
+      ).deepEquals(['noteUpdate', 'deleteChat']);
+    });
+
     test(
       'noteUpdate coalescing drops stale data when dirtyData is clean',
       () async {
@@ -589,6 +603,36 @@ void main() {
         check(claimed.chatId).equals('c2');
       },
     );
+
+    test('same id in different domains can run independently', () async {
+      await enqueue(
+        kind: OutboxKind.folderUpsert,
+        chatId: 'shared-id',
+        payload: {
+          'folderId': 'shared-id',
+          'name': 'folder',
+          'createIfAbsent': false,
+        },
+      );
+      final noteSeq = await enqueue(
+        kind: OutboxKind.noteUpdate,
+        chatId: 'shared-id',
+        payload: {'title': 'note edit'},
+      );
+
+      final first = await dao.claimNextRunnable(
+        nowEpochSeconds: 100,
+        busyChatIds: {},
+      );
+      check(first!.kind).equals('folderUpsert');
+
+      final second = await dao.claimNextRunnable(
+        nowEpochSeconds: 100,
+        busyChatIds: {},
+      );
+      check(second!.seq).equals(noteSeq);
+      check(second.kind).equals('noteUpdate');
+    });
 
     test('nextAttemptAt in the future is not runnable until due', () async {
       final seq = await enqueue(kind: OutboxKind.updateChat, chatId: 'c1');

@@ -385,7 +385,7 @@ class FakeSyncApiClient implements SyncApiClient {
     Map<String, dynamic> patch,
   ) async {
     updateNoteCalls++;
-    lastNotePatch[id] = patch;
+    lastNotePatch[id] = Map<String, dynamic>.from(patch);
     await Future<void>.delayed(Duration.zero);
     _maybeThrowNote(id);
     return server.updateNote(id, patch);

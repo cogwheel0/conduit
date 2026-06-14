@@ -140,6 +140,14 @@ void main() {
       check(await api.getNoteRaw('missing-note')).isNull();
     });
 
+    test('getChatPinnedRaw maps 404 to false', () async {
+      final api = _buildApiService(
+        _StatusJsonAdapter(statusCode: 404, body: {'detail': 'not found'}),
+      );
+
+      check(await api.getChatPinnedRaw('missing-chat')).isFalse();
+    });
+
     for (final statusCode in [401, 403]) {
       test('getNoteRaw maps $statusCode to SyncTerminalException', () async {
         final api = _buildApiService(
@@ -158,6 +166,9 @@ void main() {
     for (final entry in <String, Future<void> Function(ApiService)>{
       'createChatRaw': (api) async {
         await api.createChatRaw(const {'history': <String, dynamic>{}});
+      },
+      'getChatPinnedRaw': (api) async {
+        await api.getChatPinnedRaw('c1');
       },
       'togglePinRaw': (api) async {
         await api.togglePinRaw('c1');

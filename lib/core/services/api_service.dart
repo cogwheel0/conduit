@@ -1450,8 +1450,20 @@ class ApiService {
 
   /// GET `/api/v1/chats/{id}/pinned` -> bool (false on a null/absent body).
   Future<bool> getChatPinnedRaw(String id) async {
-    final response = await _dio.get('/api/v1/chats/$id/pinned');
-    return response.data == true;
+    try {
+      final response = await _dio.get('/api/v1/chats/$id/pinned');
+      return response.data == true;
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if (code == 404) return false;
+      if (code == 401 || code == 403) {
+        throw SyncTerminalException(
+          statusCode: code,
+          message: 'getChatPinned $id forbidden',
+        );
+      }
+      rethrow;
+    }
   }
 
   /// POST `/api/v1/chats/{id}/pin` — stateless toggle. Returns the parsed
