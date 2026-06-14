@@ -191,9 +191,9 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
             );
           }
 
-          final localMessages = await (select(messages)
-                ..where((t) => t.chatId.equals(serverChat.id)))
-              .get();
+          final localMessages = await (select(
+            messages,
+          )..where((t) => t.chatId.equals(serverChat.id))).get();
           final local = chatRowsFromDb(existing, localMessages);
           final dirtyMessageIds = <String>{
             for (final m in localMessages)
@@ -247,9 +247,9 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
 
       final base = existing.serverUpdatedAt!;
 
-      final localMessages = await (select(messages)
-            ..where((t) => t.chatId.equals(serverChat.id)))
-          .get();
+      final localMessages = await (select(
+        messages,
+      )..where((t) => t.chatId.equals(serverChat.id))).get();
       final local = chatRowsFromDb(existing, localMessages);
       final dirtyMessageIds = <String>{
         for (final m in localMessages)
@@ -421,9 +421,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
           pinned: pinned == null ? const Value.absent() : Value(pinned),
           archived: archived == null ? const Value.absent() : Value(archived),
           folderId: folderId == null ? const Value.absent() : Value(folderId),
-          lastReadAt: Value(
-            _maxLastReadAt(existing.lastReadAt, lastReadAt),
-          ),
+          lastReadAt: Value(_maxLastReadAt(existing.lastReadAt, lastReadAt)),
         ),
       );
     });
@@ -495,18 +493,25 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   }
 
   /// Local delete: tombstones the chat (`deleted=true, dirty=true`) and
-  /// enqueues a `deleteChat` op in one transaction. Rows are NOT hard-deleted
-  /// here (tombstone discipline §7.5); the drainer's `pushDeleteChat` purges
-  /// after the server confirms. Caller holds the chat lock.
+  /// enqueues a `deleteChat` op in one transaction. Rows are normally NOT
+  /// hard-deleted here (tombstone discipline §7.5); the drainer's
+  /// `pushDeleteChat` purges after the server confirms. The exception is a
+  /// pure-local create/delete pair that coalesces to no outbox survivor.
+  /// Caller holds the chat lock.
   Future<void> tombstoneWithOutbox(String chatId) {
     return transaction(() async {
       await (update(chats)..where((t) => t.id.equals(chatId))).write(
-        const ChatsCompanion(
-          deleted: Value(true),
-          dirty: Value(true),
-        ),
+        const ChatsCompanion(deleted: Value(true), dirty: Value(true)),
       );
-      await _outboxDao.enqueue(kind: OutboxKind.deleteChat, chatId: chatId);
+      final deleteSeq = await _outboxDao.enqueue(
+        kind: OutboxKind.deleteChat,
+        chatId: chatId,
+      );
+      if (deleteSeq == -1) {
+        // createChat + deleteChat coalesced away: the chat never reached the
+        // server, so no tombstone should remain for reconcile/drain to find.
+        await (delete(chats)..where((t) => t.id.equals(chatId))).go();
+      }
     });
   }
 
@@ -516,9 +521,9 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   /// chat never existed server-side). Caller holds the chat lock.
   Future<void> dropLocalChat(String localId) {
     return transaction(() async {
-      await (delete(_outboxDao.outboxOps)
-            ..where((t) => t.chatId.equals(localId)))
-          .go();
+      await (delete(
+        _outboxDao.outboxOps,
+      )..where((t) => t.chatId.equals(localId))).go();
       await (delete(chats)..where((t) => t.id.equals(localId))).go();
     });
   }
@@ -530,9 +535,9 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   /// reconcile proved gone (404/401), so any pending op for it is moot.
   Future<void> purgeReconciledChat(String chatId) {
     return transaction(() async {
-      await (delete(_outboxDao.outboxOps)
-            ..where((t) => t.chatId.equals(chatId)))
-          .go();
+      await (delete(
+        _outboxDao.outboxOps,
+      )..where((t) => t.chatId.equals(chatId))).go();
       await (delete(chats)..where((t) => t.id.equals(chatId))).go();
     });
   }
@@ -614,10 +619,11 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
       var nextOrder = (maxRow.read(maxExpr) ?? -1) + 1;
 
       for (final message in messages) {
-        final existing = await (select(this.messages)..where(
-              (t) => t.chatId.equals(chatId) & t.id.equals(message.id),
-            ))
-            .getSingleOrNull();
+        final existing =
+            await (select(this.messages)..where(
+                  (t) => t.chatId.equals(chatId) & t.id.equals(message.id),
+                ))
+                .getSingleOrNull();
         final orderIndex = existing?.orderIndex ?? nextOrder++;
         await into(this.messages).insertOnConflictUpdate(
           MessagesCompanion.insert(
@@ -640,7 +646,9 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
           currentMessageId: currentMessageId == null
               ? const Value.absent()
               : Value(currentMessageId),
-          updatedAt: updatedAt == null ? const Value.absent() : Value(updatedAt),
+          updatedAt: updatedAt == null
+              ? const Value.absent()
+              : Value(updatedAt),
           dirty: const Value(true),
         ),
       );
@@ -669,13 +677,12 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   /// the stop's transport-cancel handles it and its op markDone()s on stream
   /// finish. Caller holds the chat lock. Returns the number of ops removed.
   Future<int> cancelPendingCompletion(String chatId) {
-    return (delete(_outboxDao.outboxOps)
-          ..where(
-            (t) =>
-                t.chatId.equals(chatId) &
-                t.kind.equals(OutboxKind.requestCompletion.name) &
-                t.status.equals(OutboxStatus.pending),
-          ))
+    return (delete(_outboxDao.outboxOps)..where(
+          (t) =>
+              t.chatId.equals(chatId) &
+              t.kind.equals(OutboxKind.requestCompletion.name) &
+              t.status.equals(OutboxStatus.pending),
+        ))
         .go();
   }
 
@@ -717,17 +724,16 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   }
 
   JoinedSelectStatement<HasResultSet, dynamic> _listProjection() {
-    return selectOnly(chats)
-      ..addColumns([
-        chats.id,
-        chats.title,
-        chats.createdAt,
-        chats.updatedAt,
-        chats.pinned,
-        chats.archived,
-        chats.folderId,
-        chats.lastReadAt,
-      ]);
+    return selectOnly(chats)..addColumns([
+      chats.id,
+      chats.title,
+      chats.createdAt,
+      chats.updatedAt,
+      chats.pinned,
+      chats.archived,
+      chats.folderId,
+      chats.lastReadAt,
+    ]);
   }
 
   ChatListEntry _entryFromProjection(TypedResult row) {

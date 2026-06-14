@@ -27,8 +27,9 @@ class FoldersDao extends DatabaseAccessor<AppDatabase> with _$FoldersDaoMixin {
 
   /// Full row, one-shot.
   Future<FolderRow?> getFolder(String folderId) {
-    return (select(folders)..where((t) => t.id.equals(folderId)))
-        .getSingleOrNull();
+    return (select(
+      folders,
+    )..where((t) => t.id.equals(folderId))).getSingleOrNull();
   }
 
   /// DIRTY-AWARE LWW replace of the full server folder set (RFC §7.6). The
@@ -118,10 +119,7 @@ class FoldersDao extends DatabaseAccessor<AppDatabase> with _$FoldersDaoMixin {
       final existing = await getFolder(id);
       if (existing == null) {
         // Brand-new local folder. rawExtra carries data/meta verbatim.
-        final rawExtra = <String, dynamic>{
-          'data': ?data,
-          'meta': ?meta,
-        };
+        final rawExtra = <String, dynamic>{'data': ?data, 'meta': ?meta};
         await into(folders).insert(
           FoldersCompanion.insert(
             id: id,
@@ -169,23 +167,26 @@ class FoldersDao extends DatabaseAccessor<AppDatabase> with _$FoldersDaoMixin {
   }
 
   /// Local folder delete: tombstones the row (`deleted=true, dirty=true`) and
-  /// enqueues a `folderDelete` op in one transaction. The row is NOT
+  /// enqueues a `folderDelete` op in one transaction. The row is normally NOT
   /// hard-deleted here (tombstone discipline §7.6); the drainer's
   /// `pushFolderDelete` (delete_contents=false) purges after the server
-  /// confirms. Caller holds the folder lock.
+  /// confirms. The exception is a pure-local create/delete pair that coalesces
+  /// to no outbox survivor. Caller holds the folder lock.
   Future<void> tombstoneFolderWithOutbox(String id) {
     return transaction(() async {
       await (update(folders)..where((t) => t.id.equals(id))).write(
-        const FoldersCompanion(
-          deleted: Value(true),
-          dirty: Value(true),
-        ),
+        const FoldersCompanion(deleted: Value(true), dirty: Value(true)),
       );
-      await _outboxDao.enqueue(
+      final deleteSeq = await _outboxDao.enqueue(
         kind: OutboxKind.folderDelete,
         chatId: id,
         payload: <String, dynamic>{'folderId': id},
       );
+      if (deleteSeq == -1) {
+        // folderUpsert(createIfAbsent) + folderDelete coalesced away: the
+        // folder never reached the server, so no tombstone should remain.
+        await (delete(folders)..where((t) => t.id.equals(id))).go();
+      }
     });
   }
 
@@ -196,9 +197,9 @@ class FoldersDao extends DatabaseAccessor<AppDatabase> with _$FoldersDaoMixin {
   /// lock.
   Future<void> dropLocalFolder(String localId) {
     return transaction(() async {
-      await (delete(_outboxDao.outboxOps)
-            ..where((t) => t.chatId.equals(localId)))
-          .go();
+      await (delete(
+        _outboxDao.outboxOps,
+      )..where((t) => t.chatId.equals(localId))).go();
       await (delete(folders)..where((t) => t.id.equals(localId))).go();
     });
   }

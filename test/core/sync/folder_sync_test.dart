@@ -27,7 +27,9 @@ Future<void> seedServerFolderRow(
   String name = 'F',
   int updatedAt = 100,
 }) async {
-  await db.into(db.folders).insert(
+  await db
+      .into(db.folders)
+      .insert(
         FoldersCompanion.insert(
           id: id,
           name: name,
@@ -44,14 +46,13 @@ Map<String, dynamic> rawFolder(
   String id, {
   String name = 'F',
   int updatedAt = 100,
-}) =>
-    <String, dynamic>{
-      'id': id,
-      'name': name,
-      'parent_id': null,
-      'created_at': 50,
-      'updated_at': updatedAt,
-    };
+}) => <String, dynamic>{
+  'id': id,
+  'name': name,
+  'parent_id': null,
+  'created_at': 50,
+  'updated_at': updatedAt,
+};
 
 void main() {
   late FakeOpenWebUiServer server;
@@ -87,139 +88,188 @@ void main() {
   });
 
   group('pull LWW is dirty-aware (§7.6)', () {
-    test('a dirty local folder edit is NOT clobbered by the server payload',
-        () async {
-      // Local edit pending push: name 'Local', dirty.
-      await db.into(db.folders).insert(
-            FoldersCompanion.insert(
-              id: 'f1',
-              name: 'Local',
-              createdAt: 50,
-              updatedAt: 100,
-              serverUpdatedAt: const Value(100),
-              dirty: const Value(true),
-            ),
-          );
+    test(
+      'a dirty local folder edit is NOT clobbered by the server payload',
+      () async {
+        // Local edit pending push: name 'Local', dirty.
+        await db
+            .into(db.folders)
+            .insert(
+              FoldersCompanion.insert(
+                id: 'f1',
+                name: 'Local',
+                createdAt: 50,
+                updatedAt: 100,
+                serverUpdatedAt: const Value(100),
+                dirty: const Value(true),
+              ),
+            );
 
-      // Server still has the OLD name.
-      await db.foldersDao.replaceServerFolders([rawFolder('f1', name: 'Server')]);
+        // Server still has the OLD name.
+        await db.foldersDao.replaceServerFolders([
+          rawFolder('f1', name: 'Server'),
+        ]);
 
-      final f1 = await db.foldersDao.getFolder('f1');
-      check(f1!.name).equals('Local'); // local wins
-      check(f1.dirty).isTrue();
-    });
+        final f1 = await db.foldersDao.getFolder('f1');
+        check(f1!.name).equals('Local'); // local wins
+        check(f1.dirty).isTrue();
+      },
+    );
 
-    test('a local tombstone is NOT resurrected by the server payload',
-        () async {
-      await db.into(db.folders).insert(
-            FoldersCompanion.insert(
-              id: 'f2',
-              name: 'Gone',
-              createdAt: 50,
-              updatedAt: 100,
-              deleted: const Value(true),
-              dirty: const Value(true),
-            ),
-          );
+    test(
+      'a local tombstone is NOT resurrected by the server payload',
+      () async {
+        await db
+            .into(db.folders)
+            .insert(
+              FoldersCompanion.insert(
+                id: 'f2',
+                name: 'Gone',
+                createdAt: 50,
+                updatedAt: 100,
+                deleted: const Value(true),
+                dirty: const Value(true),
+              ),
+            );
 
-      await db.foldersDao.replaceServerFolders([rawFolder('f2', name: 'Back')]);
+        await db.foldersDao.replaceServerFolders([
+          rawFolder('f2', name: 'Back'),
+        ]);
 
-      final f2 = await db.foldersDao.getFolder('f2');
-      check(f2!.deleted).isTrue(); // not resurrected
-      check(f2.name).equals('Gone');
-    });
+        final f2 = await db.foldersDao.getFolder('f2');
+        check(f2!.deleted).isTrue(); // not resurrected
+        check(f2.name).equals('Gone');
+      },
+    );
 
-    test('a clean server-absent folder is purged (genuine server delete)',
-        () async {
-      await seedServerFolderRow(db, id: 'stale');
-      // Payload no longer contains 'stale'.
-      await db.foldersDao.replaceServerFolders([rawFolder('survivor')]);
+    test(
+      'a clean server-absent folder is purged (genuine server delete)',
+      () async {
+        await seedServerFolderRow(db, id: 'stale');
+        // Payload no longer contains 'stale'.
+        await db.foldersDao.replaceServerFolders([rawFolder('survivor')]);
 
-      check(await db.foldersDao.getFolder('stale')).isNull();
-      check(await db.foldersDao.getFolder('survivor')).isNotNull();
-    });
+        check(await db.foldersDao.getFolder('stale')).isNull();
+        check(await db.foldersDao.getFolder('survivor')).isNotNull();
+      },
+    );
 
-    test('a dirty local-create absent from the server SURVIVES the purge',
-        () async {
-      // local:-create not yet pushed: dirty, absent from server.
-      await db.into(db.folders).insert(
-            FoldersCompanion.insert(
-              id: 'local:new',
-              name: 'Fresh',
-              createdAt: 0,
-              updatedAt: 0,
-              serverUpdatedAt: const Value(null),
-              dirty: const Value(true),
-            ),
-          );
+    test(
+      'a dirty local-create absent from the server SURVIVES the purge',
+      () async {
+        // local:-create not yet pushed: dirty, absent from server.
+        await db
+            .into(db.folders)
+            .insert(
+              FoldersCompanion.insert(
+                id: 'local:new',
+                name: 'Fresh',
+                createdAt: 0,
+                updatedAt: 0,
+                serverUpdatedAt: const Value(null),
+                dirty: const Value(true),
+              ),
+            );
 
-      await db.foldersDao.replaceServerFolders([rawFolder('other')]);
+        await db.foldersDao.replaceServerFolders([rawFolder('other')]);
 
-      check(await db.foldersDao.getFolder('local:new')).isNotNull();
-    });
+        check(await db.foldersDao.getFolder('local:new')).isNotNull();
+      },
+    );
 
-    test('a clean server folder is upserted server-origin (dirty=false)',
-        () async {
-      await db.foldersDao.replaceServerFolders([rawFolder('s', name: 'Srv')]);
-      final f = await db.foldersDao.getFolder('s');
-      check(f!.name).equals('Srv');
-      check(f.dirty).isFalse();
-      check(f.serverUpdatedAt).equals(100);
-    });
+    test(
+      'a clean server folder is upserted server-origin (dirty=false)',
+      () async {
+        await db.foldersDao.replaceServerFolders([rawFolder('s', name: 'Srv')]);
+        final f = await db.foldersDao.getFolder('s');
+        check(f!.name).equals('Srv');
+        check(f.dirty).isFalse();
+        check(f.serverUpdatedAt).equals(100);
+      },
+    );
   });
 
   group('FoldersDao local-mutation methods enqueue outbox ops', () {
-    test('upsertFolderWithOutbox (create) writes dirty row + folderUpsert op',
-        () async {
-      await folderLocks.runExclusive('local:fnew', () async {
-        await db.foldersDao.upsertFolderWithOutbox(
-          id: 'local:fnew',
-          name: 'New Folder',
-          createIfAbsent: true,
-        );
-      });
+    test(
+      'upsertFolderWithOutbox (create) writes dirty row + folderUpsert op',
+      () async {
+        await folderLocks.runExclusive('local:fnew', () async {
+          await db.foldersDao.upsertFolderWithOutbox(
+            id: 'local:fnew',
+            name: 'New Folder',
+            createIfAbsent: true,
+          );
+        });
 
-      final row = await db.foldersDao.getFolder('local:fnew');
-      check(row!.dirty).isTrue();
-      check(row.serverUpdatedAt).isNull();
+        final row = await db.foldersDao.getFolder('local:fnew');
+        check(row!.dirty).isTrue();
+        check(row.serverUpdatedAt).isNull();
 
-      final ops = await db.outboxDao.pendingForChat('local:fnew');
-      check(ops.length).equals(1);
-      check(ops.single.kind).equals(OutboxKind.folderUpsert.name);
-      final payload = jsonDecode(ops.single.payload) as Map<String, dynamic>;
-      check(payload['createIfAbsent']).equals(true);
-      check(payload['name']).equals('New Folder');
-    });
+        final ops = await db.outboxDao.pendingForChat('local:fnew');
+        check(ops.length).equals(1);
+        check(ops.single.kind).equals(OutboxKind.folderUpsert.name);
+        final payload = jsonDecode(ops.single.payload) as Map<String, dynamic>;
+        check(payload['createIfAbsent']).equals(true);
+        check(payload['name']).equals('New Folder');
+      },
+    );
 
-    test('upsertFolderWithOutbox (edit) marks an existing folder dirty',
-        () async {
-      await seedServerFolderRow(db, id: 'f', name: 'Old');
-      await folderLocks.runExclusive('f', () async {
-        await db.foldersDao.upsertFolderWithOutbox(
-          id: 'f',
-          name: 'Renamed',
-          createIfAbsent: false,
-        );
-      });
-      final row = await db.foldersDao.getFolder('f');
-      check(row!.name).equals('Renamed');
-      check(row.dirty).isTrue();
-      // serverUpdatedAt preserved (LWW gate keys off dirty, not the clock).
-      check(row.serverUpdatedAt).equals(100);
-    });
+    test(
+      'upsertFolderWithOutbox (edit) marks an existing folder dirty',
+      () async {
+        await seedServerFolderRow(db, id: 'f', name: 'Old');
+        await folderLocks.runExclusive('f', () async {
+          await db.foldersDao.upsertFolderWithOutbox(
+            id: 'f',
+            name: 'Renamed',
+            createIfAbsent: false,
+          );
+        });
+        final row = await db.foldersDao.getFolder('f');
+        check(row!.name).equals('Renamed');
+        check(row.dirty).isTrue();
+        // serverUpdatedAt preserved (LWW gate keys off dirty, not the clock).
+        check(row.serverUpdatedAt).equals(100);
+      },
+    );
 
-    test('tombstoneFolderWithOutbox tombstones + enqueues folderDelete',
-        () async {
-      await seedServerFolderRow(db, id: 'f');
-      await folderLocks.runExclusive('f', () async {
-        await db.foldersDao.tombstoneFolderWithOutbox('f');
-      });
-      final row = await db.foldersDao.getFolder('f');
-      check(row!.deleted).isTrue();
-      check(row.dirty).isTrue();
-      final ops = await db.outboxDao.pendingForChat('f');
-      check(ops.single.kind).equals(OutboxKind.folderDelete.name);
-    });
+    test(
+      'tombstoneFolderWithOutbox tombstones + enqueues folderDelete',
+      () async {
+        await seedServerFolderRow(db, id: 'f');
+        await folderLocks.runExclusive('f', () async {
+          await db.foldersDao.tombstoneFolderWithOutbox('f');
+        });
+        final row = await db.foldersDao.getFolder('f');
+        check(row!.deleted).isTrue();
+        check(row.dirty).isTrue();
+        final ops = await db.outboxDao.pendingForChat('f');
+        check(ops.single.kind).equals(OutboxKind.folderDelete.name);
+      },
+    );
+
+    test(
+      'tombstoneFolderWithOutbox drops an annihilated local create',
+      () async {
+        await folderLocks.runExclusive('local:fdelete', () async {
+          await db.foldersDao.upsertFolderWithOutbox(
+            id: 'local:fdelete',
+            name: 'Delete Me',
+            createIfAbsent: true,
+          );
+          check(
+            (await db.outboxDao.pendingForChat(
+              'local:fdelete',
+            )).map((op) => op.kind),
+          ).deepEquals([OutboxKind.folderUpsert.name]);
+
+          await db.foldersDao.tombstoneFolderWithOutbox('local:fdelete');
+        });
+
+        check(await db.foldersDao.getFolder('local:fdelete')).isNull();
+        check(await db.outboxDao.pendingForChat('local:fdelete')).isEmpty();
+      },
+    );
 
     test('dropLocalFolder removes a local create + its pending ops', () async {
       await folderLocks.runExclusive('local:f', () async {
@@ -249,7 +299,9 @@ void main() {
       );
 
       await folderLocks.runExclusive('folderX', () async {
-        await db.into(db.folders).insert(
+        await db
+            .into(db.folders)
+            .insert(
               FoldersCompanion.insert(
                 id: 'folderX',
                 name: 'X',
@@ -275,97 +327,104 @@ void main() {
 
   group('folder-before-chat ordering (§7.6 non-negotiable 6)', () {
     test(
-        'pushUpdateChat does NOT send a local:-prefixed folder id; leaves the '
-        'chat dirty + re-enqueues so a later drain (post-remap) sends it',
-        () async {
-      // A server chat whose folderId points at a still-local folder.
-      await db.into(db.chats).insert(
-            ChatsCompanion.insert(
-              id: 'chat1',
-              title: 'Chat',
-              folderId: const Value('local:pendingFolder'),
-              createdAt: 50,
-              updatedAt: 100,
-              serverUpdatedAt: const Value(100),
-              dirty: const Value(true),
-              bodySynced: const Value(true),
-              rawExtra: const Value('{}'),
-              blobMeta: Value(
-                jsonEncode(<String, dynamic>{
-                  'v': 1,
-                  'blobHadTitle': true,
-                  'blobTitleValue': 'Chat',
-                  'blobHadHistory': true,
-                  'historyHadMessages': true,
-                  'historyHadCurrentId': false,
-                  'historyExtra': <String, dynamic>{},
-                  'unmappableMessages': <String, dynamic>{},
-                }),
+      'pushUpdateChat does NOT send a local:-prefixed folder id; leaves the '
+      'chat dirty + re-enqueues so a later drain (post-remap) sends it',
+      () async {
+        // A server chat whose folderId points at a still-local folder.
+        await db
+            .into(db.chats)
+            .insert(
+              ChatsCompanion.insert(
+                id: 'chat1',
+                title: 'Chat',
+                folderId: const Value('local:pendingFolder'),
+                createdAt: 50,
+                updatedAt: 100,
+                serverUpdatedAt: const Value(100),
+                dirty: const Value(true),
+                bodySynced: const Value(true),
+                rawExtra: const Value('{}'),
+                blobMeta: Value(
+                  jsonEncode(<String, dynamic>{
+                    'v': 1,
+                    'blobHadTitle': true,
+                    'blobTitleValue': 'Chat',
+                    'blobHadHistory': true,
+                    'historyHadMessages': true,
+                    'historyHadCurrentId': false,
+                    'historyExtra': <String, dynamic>{},
+                    'unmappableMessages': <String, dynamic>{},
+                  }),
+                ),
               ),
-            ),
-          );
-      // Register the chat server-side (so updateChat finds it) at root.
-      server.seedChat(
-        id: 'chat1',
-        blob: <String, dynamic>{'id': '', 'title': 'Chat'},
-        createdAt: 50,
-        updatedAt: 100,
-      );
+            );
+        // Register the chat server-side (so updateChat finds it) at root.
+        server.seedChat(
+          id: 'chat1',
+          blob: <String, dynamic>{'id': '', 'title': 'Chat'},
+          createdAt: 50,
+          updatedAt: 100,
+        );
 
-      await push.pushUpdateChat('chat1');
+        await push.pushUpdateChat('chat1');
 
-      // moveChatToFolder was NOT called with the local id (no server move).
-      check(server.getChatById('chat1')!['folder_id']).isNull();
-      // Chat stays dirty (deferred) and a fresh updateChat op is queued.
-      final chat = await db.chatsDao.getChat('chat1');
-      check(chat!.dirty).isTrue();
-      final ops = await db.outboxDao.pendingForChat('chat1');
-      check(ops.any((o) => o.kind == OutboxKind.updateChat.name)).isTrue();
-    });
+        // moveChatToFolder was NOT called with the local id (no server move).
+        check(server.getChatById('chat1')!['folder_id']).isNull();
+        // Chat stays dirty (deferred) and a fresh updateChat op is queued.
+        final chat = await db.chatsDao.getChat('chat1');
+        check(chat!.dirty).isTrue();
+        final ops = await db.outboxDao.pendingForChat('chat1');
+        check(ops.any((o) => o.kind == OutboxKind.updateChat.name)).isTrue();
+      },
+    );
 
     test(
-        'after the folder is remapped to a server id, pushUpdateChat sends the '
-        'real folder id and clears dirty', () async {
-      // Seed a real server folder + a server chat at root.
-      server.seedFolder('serverFolder');
-      server.seedChat(
-        id: 'chat2',
-        blob: <String, dynamic>{'id': '', 'title': 'Chat2'},
-        createdAt: 50,
-        updatedAt: 100,
-      );
-      await db.into(db.chats).insert(
-            ChatsCompanion.insert(
-              id: 'chat2',
-              title: 'Chat2',
-              folderId: const Value('serverFolder'),
-              createdAt: 50,
-              updatedAt: 100,
-              serverUpdatedAt: const Value(100),
-              dirty: const Value(true),
-              bodySynced: const Value(true),
-              rawExtra: const Value('{}'),
-              blobMeta: Value(
-                jsonEncode(<String, dynamic>{
-                  'v': 1,
-                  'blobHadTitle': true,
-                  'blobTitleValue': 'Chat2',
-                  'blobHadHistory': true,
-                  'historyHadMessages': true,
-                  'historyHadCurrentId': false,
-                  'historyExtra': <String, dynamic>{},
-                  'unmappableMessages': <String, dynamic>{},
-                }),
+      'after the folder is remapped to a server id, pushUpdateChat sends the '
+      'real folder id and clears dirty',
+      () async {
+        // Seed a real server folder + a server chat at root.
+        server.seedFolder('serverFolder');
+        server.seedChat(
+          id: 'chat2',
+          blob: <String, dynamic>{'id': '', 'title': 'Chat2'},
+          createdAt: 50,
+          updatedAt: 100,
+        );
+        await db
+            .into(db.chats)
+            .insert(
+              ChatsCompanion.insert(
+                id: 'chat2',
+                title: 'Chat2',
+                folderId: const Value('serverFolder'),
+                createdAt: 50,
+                updatedAt: 100,
+                serverUpdatedAt: const Value(100),
+                dirty: const Value(true),
+                bodySynced: const Value(true),
+                rawExtra: const Value('{}'),
+                blobMeta: Value(
+                  jsonEncode(<String, dynamic>{
+                    'v': 1,
+                    'blobHadTitle': true,
+                    'blobTitleValue': 'Chat2',
+                    'blobHadHistory': true,
+                    'historyHadMessages': true,
+                    'historyHadCurrentId': false,
+                    'historyExtra': <String, dynamic>{},
+                    'unmappableMessages': <String, dynamic>{},
+                  }),
+                ),
               ),
-            ),
-          );
+            );
 
-      await push.pushUpdateChat('chat2');
+        await push.pushUpdateChat('chat2');
 
-      // The real folder id reached the server.
-      check(server.getChatById('chat2')!['folder_id']).equals('serverFolder');
-      final chat = await db.chatsDao.getChat('chat2');
-      check(chat!.dirty).isFalse();
-    });
+        // The real folder id reached the server.
+        check(server.getChatById('chat2')!['folder_id']).equals('serverFolder');
+        final chat = await db.chatsDao.getChat('chat2');
+        check(chat!.dirty).isFalse();
+      },
+    );
   });
 }
