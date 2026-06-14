@@ -159,12 +159,12 @@ Conversation conversationFromSearchHit(SearchHit hit) {
 /// Folder row -> model. Do NOT synthesize `conversationIds` in Phase 1.
 Folder folderFromRow(FolderRow r) {
   return Folder.fromJson(<String, dynamic>{
+    ..._decodeJsonMap(r.rawExtra),
     'id': r.id,
     'name': r.name,
     'parent_id': r.parentId,
     'created_at': r.createdAt,
     'updated_at': r.updatedAt,
-    ..._decodeJsonMap(r.rawExtra),
   });
 }
 

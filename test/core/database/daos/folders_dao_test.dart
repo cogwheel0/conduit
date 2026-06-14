@@ -65,13 +65,15 @@ void main() {
         },
         'some_future_key': [1, 2, 3],
       };
-      await db.foldersDao
-          .replaceServerFolders([_rawFolder('f-extra', extra: extra)]);
+      await db.foldersDao.replaceServerFolders([
+        _rawFolder('f-extra', extra: extra),
+      ]);
       final row = (await db.foldersDao.watchFolders().first).single;
       check(
-        because: 'rawExtra must hold meta/is_expanded/data/items/unknown keys '
-            'verbatim',
         _deepEq.equals(jsonDecode(row.rawExtra), extra),
+        because:
+            'rawExtra must hold meta/is_expanded/data/items/unknown keys '
+            'verbatim',
       ).isTrue();
     });
 
@@ -85,20 +87,22 @@ void main() {
       check(row.serverUpdatedAt).equals(0);
     });
 
-    test('hard-deletes rows missing from the payload (full list endpoint)',
-        () async {
-      await db.foldersDao.replaceServerFolders([
-        _rawFolder('f-1', name: 'A'),
-        _rawFolder('f-2', name: 'B'),
-        _rawFolder('f-3', name: 'C'),
-      ]);
-      await db.foldersDao.replaceServerFolders([
-        _rawFolder('f-2', name: 'B renamed'),
-      ]);
-      final rows = await db.foldersDao.watchFolders().first;
-      check(rows.map((r) => r.id).toList()).deepEquals(['f-2']);
-      check(rows.single.name).equals('B renamed');
-    });
+    test(
+      'hard-deletes rows missing from the payload (full list endpoint)',
+      () async {
+        await db.foldersDao.replaceServerFolders([
+          _rawFolder('f-1', name: 'A'),
+          _rawFolder('f-2', name: 'B'),
+          _rawFolder('f-3', name: 'C'),
+        ]);
+        await db.foldersDao.replaceServerFolders([
+          _rawFolder('f-2', name: 'B renamed'),
+        ]);
+        final rows = await db.foldersDao.watchFolders().first;
+        check(rows.map((r) => r.id).toList()).deepEquals(['f-2']);
+        check(rows.single.name).equals('B renamed');
+      },
+    );
 
     test('an empty payload clears the table', () async {
       await db.foldersDao.replaceServerFolders([_rawFolder('f-1')]);
@@ -122,8 +126,9 @@ void main() {
         _rawFolder('f-1', name: 'A'),
         _rawFolder('f-2', name: 'B'),
       ]);
-      await db.foldersDao
-          .upsertServerFolder(_rawFolder('f-1', name: 'A renamed'));
+      await db.foldersDao.upsertServerFolder(
+        _rawFolder('f-1', name: 'A renamed'),
+      );
       final rows = await db.foldersDao.watchFolders().first;
       check(rows.map((r) => r.name).toList()).deepEquals(['A renamed', 'B']);
     });
@@ -136,8 +141,9 @@ void main() {
         _rawFolder('f-a', name: 'Apple'),
         _rawFolder('f-b', name: 'Banana'),
       ]);
-      await (db.update(db.folders)..where((t) => t.id.equals('f-b')))
-          .write(const FoldersCompanion(deleted: Value(true)));
+      await (db.update(db.folders)..where((t) => t.id.equals('f-b'))).write(
+        const FoldersCompanion(deleted: Value(true)),
+      );
       final rows = await db.foldersDao.watchFolders().first;
       check(rows.map((r) => r.name).toList()).deepEquals(['Apple', 'Cherry']);
     });
