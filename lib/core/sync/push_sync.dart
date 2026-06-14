@@ -30,12 +30,12 @@ class PushSync {
     required ChatLocks folderLocks,
     required SyncClock clock,
     required IdRemapper remapper,
-  })  : _client = client,
-        _db = db,
-        _chatLocks = chatLocks,
-        _folderLocks = folderLocks,
-        _clock = clock,
-        _remapper = remapper;
+  }) : _client = client,
+       _db = db,
+       _chatLocks = chatLocks,
+       _folderLocks = folderLocks,
+       _clock = clock,
+       _remapper = remapper;
 
   final SyncApiClient _client;
   final AppDatabase _db;
@@ -74,47 +74,48 @@ class PushSync {
       return localId;
     }
 
-    final _CreatePush? pushed = await _chatLocks.runExclusive(localId, () async {
-      final chat = await _db.chatsDao.getChat(localId);
-      if (chat == null) {
-        // Annihilated by a delete before we ran, or already remapped.
-        return null;
-      }
-      final messages = await _db.messagesDao.getForChat(localId);
-      final rows = chatRowsFromDb(chat, messages);
-      final blob = ChatBlobMapper.rowsToBlob(rows)..['id'] = '';
-      final resp = await _client.createChat(blob, folderId: chat.folderId);
-      final serverId = resp['id'];
-      if (serverId is! String || serverId.isEmpty) {
-        throw StateError('createChat response without a string id');
-      }
-      return _CreatePush(
-        serverId: serverId,
-        serverCreatedAt: _epoch(resp['created_at']) ?? chat.createdAt,
-        serverUpdatedAt: _epoch(resp['updated_at']) ?? chat.updatedAt,
-        capturedMessageIds: [for (final m in messages) m.id],
-      );
-    });
+    final _CreatePush? pushed = await _chatLocks.runExclusive(
+      localId,
+      () async {
+        final chat = await _db.chatsDao.getChat(localId);
+        if (chat == null) {
+          // Annihilated by a delete before we ran, or already remapped.
+          return null;
+        }
+        final messages = await _db.messagesDao.getForChat(localId);
+        final rows = chatRowsFromDb(chat, messages);
+        final blob = ChatBlobMapper.rowsToBlob(rows)..['id'] = '';
+        final resp = await _client.createChat(blob, folderId: chat.folderId);
+        final serverId = resp['id'];
+        if (serverId is! String || serverId.isEmpty) {
+          throw StateError('createChat response without a string id');
+        }
+        return _CreatePush(
+          serverId: serverId,
+          serverCreatedAt: _epoch(resp['created_at']) ?? chat.createdAt,
+          serverUpdatedAt: _epoch(resp['updated_at']) ?? chat.updatedAt,
+          capturedMessageIds: [for (final m in messages) m.id],
+        );
+      },
+    );
 
     if (pushed == null) return null;
 
-    // Remap under the SERVER id lock: the §7.3 single transaction (rewrite
-    // chats.id + messages.chatId + pending outbox.chatId) commits here, BEFORE
-    // the drainer marks the createChat op done.
-    await _chatLocks.runExclusive(
-      pushed.serverId,
-      () => _remapper.remapChat(
+    // Remap and dirty-clear under one SERVER id lock: the §7.3 transaction
+    // (rewrite chats.id + messages.chatId + pending outbox.chatId) and the
+    // captured-snapshot dirty clear commit before any pull merge for serverId
+    // can interleave.
+    await _chatLocks.runExclusive(pushed.serverId, () async {
+      await _remapper.remapChat(
         localId: localId,
         serverId: pushed.serverId,
         serverCreatedAt: pushed.serverCreatedAt,
         serverUpdatedAt: pushed.serverUpdatedAt,
-      ),
-    );
-
-    // Dirty-clear (§7.2): the whole reconstruct+POST happened under one lock
-    // span, so there was no mid-flight window for create — clear dirty for the
-    // captured message snapshot (now living under serverId) and the chat row.
-    await _chatLocks.runExclusive(pushed.serverId, () async {
+      );
+      // Dirty-clear (§7.2): the whole reconstruct+POST happened under one
+      // local-id lock span, and remap+clear share this server-id lock span.
+      // Clear only the captured message snapshot (now living under serverId)
+      // and the chat row.
       await _clearDirty(
         chatId: pushed.serverId,
         messageIds: pushed.capturedMessageIds,
@@ -146,7 +147,9 @@ class PushSync {
         return;
       }
       if (!chat.bodySynced) {
-        throw StateError('updateChat deferred until body sync completes: $chatId');
+        throw StateError(
+          'updateChat deferred until body sync completes: $chatId',
+        );
       }
       final messages = await _db.messagesDao.getForChat(chatId);
       final capturedMessageIds = [for (final m in messages) m.id];
@@ -211,8 +214,9 @@ class PushSync {
       // rewrites chats.folderId to the real server id — re-runs this op and
       // sends the move. This makes ordering self-healing without a cross-entity
       // dependency graph.
-      final serverFolderId =
-          resp['folder_id'] is String ? resp['folder_id'] as String : null;
+      final serverFolderId = resp['folder_id'] is String
+          ? resp['folder_id'] as String
+          : null;
       final localFolderPending =
           chat.folderId != null && chat.folderId!.startsWith('local:');
       if (localFolderPending) {
@@ -273,8 +277,9 @@ class PushSync {
     await _folderLocks.runExclusive(folderId, () async {
       final createIfAbsent = payload['createIfAbsent'] == true;
       final name = payload['name'] is String ? payload['name'] as String : null;
-      final parentId =
-          payload['parentId'] is String ? payload['parentId'] as String : null;
+      final parentId = payload['parentId'] is String
+          ? payload['parentId'] as String
+          : null;
       final data = _asMap(payload['data']);
       final meta = _asMap(payload['meta']);
 
@@ -320,8 +325,10 @@ class PushSync {
         }
       }
       if (parentId != null || payload.containsKey('parentId')) {
-        final parentUpdated =
-            await _client.updateFolderParent(folderId, parentId);
+        final parentUpdated = await _client.updateFolderParent(
+          folderId,
+          parentId,
+        );
         if (!parentUpdated) {
           DebugLogger.warning(
             'folder-update-404',
@@ -398,8 +405,9 @@ class PushSync {
   }
 
   Future<void> _clearFolderDirty(String folderId) {
-    return (_db.update(_db.folders)..where((t) => t.id.equals(folderId)))
-        .write(const FoldersCompanion(dirty: Value(false)));
+    return (_db.update(_db.folders)..where((t) => t.id.equals(folderId))).write(
+      const FoldersCompanion(dirty: Value(false)),
+    );
   }
 
   static Map<String, dynamic>? _asMap(Object? value) {

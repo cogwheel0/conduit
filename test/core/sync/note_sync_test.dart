@@ -59,14 +59,18 @@ void main() {
     server.seedNote(
       id: 'n1',
       title: 'First',
-      data: {'content': {'md': 'one'}},
+      data: {
+        'content': {'md': 'one'},
+      },
       createdAt: kT1,
       updatedAt: kT1,
     );
     server.seedNote(
       id: 'n2',
       title: 'Second',
-      data: {'content': {'md': 'two'}},
+      data: {
+        'content': {'md': 'two'},
+      },
       createdAt: kT1,
       updatedAt: kT2,
     );
@@ -74,7 +78,7 @@ void main() {
     final result = await pull();
     check(result.success).isTrue();
     check(client.noteListRequests).equals(1);
-    check(client.noteFetchStarts).isEmpty();
+    check(client.noteFetchStarts).unorderedEquals(['n1', 'n2']);
 
     final notes = await allNotes();
     check(notes.map((n) => n.id).toList()).unorderedEquals(['n1', 'n2']);
@@ -88,55 +92,92 @@ void main() {
     check(await db.syncMetaDao.getPullWatermark()).equals(0);
   });
 
-  test('CONFLICT COPY: a concurrent data edit yields two surviving notes',
-      () async {
-    // 1. Sync n1.
-    server.seedNote(
-      id: 'n1',
-      title: 'Doc',
-      data: {'content': {'md': 'server v1'}},
-      createdAt: kT1,
-      updatedAt: kT1,
-    );
-    await pull();
-    check((await allNotes()).length).equals(1);
-
-    // 2. Local data edit (marks dirtyData), while the note is offline.
-    await locks.runExclusive('n1', () async {
-      await db.notesDao.updateNoteWithOutbox(
-        'n1',
-        data: Value(jsonEncode({'content': {'md': 'my LOCAL edit'}})),
-        localUpdatedAtNs: kT1 + 1,
-        enqueue: true,
+  test(
+    'pull full-fetches note bodies instead of trusting truncated list data',
+    () async {
+      final longBody = 'x' * 1200;
+      server.seedNote(
+        id: 'long-note',
+        title: 'Long',
+        data: {
+          'content': {'md': longBody},
+        },
+        createdAt: kT1,
+        updatedAt: kT1,
       );
-    });
 
-    // 3. The server's copy of n1 also advanced (someone else edited the body).
-    server.seedNote(
-      id: 'n1',
-      title: 'Doc',
-      data: {'content': {'md': 'server v2'}},
-      createdAt: kT1,
-      updatedAt: kT2,
-    );
+      final result = await pull();
+      check(result.success).isTrue();
+      check(client.noteListRequests).equals(1);
+      check(client.noteFetchStarts).deepEquals(['long-note']);
 
-    // 4. Pull → the field-LWW merge must spawn a conflict copy (D-11).
-    await pull();
+      final row = await db.notesDao.getNote('long-note');
+      check(row).isNotNull();
+      final data = jsonDecode(row!.data) as Map<String, dynamic>;
+      final content = data['content'] as Map<String, dynamic>;
+      check(content['md']).equals(longBody);
+    },
+  );
 
-    final notes = await allNotes();
-    check(notes.length).equals(2); // canonical + conflict copy, none lost
+  test(
+    'CONFLICT COPY: a concurrent data edit yields two surviving notes',
+    () async {
+      // 1. Sync n1.
+      server.seedNote(
+        id: 'n1',
+        title: 'Doc',
+        data: {
+          'content': {'md': 'server v1'},
+        },
+        createdAt: kT1,
+        updatedAt: kT1,
+      );
+      await pull();
+      check((await allNotes()).length).equals(1);
 
-    final canonical = notes.firstWhere((n) => n.id == 'n1');
-    final copy = notes.firstWhere((n) => n.id != 'n1');
+      // 2. Local data edit (marks dirtyData), while the note is offline.
+      await locks.runExclusive('n1', () async {
+        await db.notesDao.updateNoteWithOutbox(
+          'n1',
+          data: Value(
+            jsonEncode({
+              'content': {'md': 'my LOCAL edit'},
+            }),
+          ),
+          localUpdatedAtNs: kT1 + 1,
+          enqueue: true,
+        );
+      });
 
-    // Canonical adopted the server data and is clean on the data axis.
-    check(canonical.data).contains('server v2');
-    check(canonical.dirtyData).isFalse();
-    // The conflict copy preserved the LOCAL edit (no silent loss) and is a
-    // fresh local: note that will be pushed as a new note.
-    check(copy.data).contains('my LOCAL edit');
-    check(copy.id.startsWith('local:')).isTrue();
-  });
+      // 3. The server's copy of n1 also advanced (someone else edited the body).
+      server.seedNote(
+        id: 'n1',
+        title: 'Doc',
+        data: {
+          'content': {'md': 'server v2'},
+        },
+        createdAt: kT1,
+        updatedAt: kT2,
+      );
+
+      // 4. Pull → the field-LWW merge must spawn a conflict copy (D-11).
+      await pull();
+
+      final notes = await allNotes();
+      check(notes.length).equals(2); // canonical + conflict copy, none lost
+
+      final canonical = notes.firstWhere((n) => n.id == 'n1');
+      final copy = notes.firstWhere((n) => n.id != 'n1');
+
+      // Canonical adopted the server data and is clean on the data axis.
+      check(canonical.data).contains('server v2');
+      check(canonical.dirtyData).isFalse();
+      // The conflict copy preserved the LOCAL edit (no silent loss) and is a
+      // fresh local: note that will be pushed as a new note.
+      check(copy.data).contains('my LOCAL edit');
+      check(copy.id.startsWith('local:')).isTrue();
+    },
+  );
 
   test('pushNotePin PROBES live state and toggles only on a real delta '
       '(no blind toggle-first flip)', () async {
@@ -144,7 +185,9 @@ void main() {
     server.seedNote(
       id: 'p1',
       title: 'P',
-      data: {'content': {'md': 'x'}},
+      data: {
+        'content': {'md': 'x'},
+      },
       createdAt: kT1,
       updatedAt: kT1,
       pinned: false,
@@ -152,7 +195,9 @@ void main() {
     await db.notesDao.upsertServerNote(<String, dynamic>{
       'id': 'p1',
       'title': 'P',
-      'data': {'content': {'md': 'x'}},
+      'data': {
+        'content': {'md': 'x'},
+      },
       'meta': <String, dynamic>{},
       'is_pinned': false,
       'created_at': kT1,
@@ -181,7 +226,9 @@ void main() {
     server.seedNote(
       id: 'p1',
       title: 'Pinned',
-      data: {'content': {'md': 'server v1'}},
+      data: {
+        'content': {'md': 'server v1'},
+      },
       createdAt: kT1,
       updatedAt: kT1,
       pinned: false,
@@ -195,7 +242,9 @@ void main() {
     server.seedNote(
       id: 'p1',
       title: 'Server rename',
-      data: {'content': {'md': 'server v2'}},
+      data: {
+        'content': {'md': 'server v2'},
+      },
       createdAt: kT1,
       updatedAt: kT2,
       pinned: false,
@@ -210,39 +259,45 @@ void main() {
     check(row.dirtyPinned).isTrue();
 
     final pending = await db.outboxDao.pendingForChat('p1');
-    check(pending.map((op) => op.kind).toList())
-        .unorderedEquals([OutboxKind.notePin.name]);
+    check(
+      pending.map((op) => op.kind).toList(),
+    ).unorderedEquals([OutboxKind.notePin.name]);
   });
 
-  test('updateNoteWithOutbox writes the row AND a noteUpdate op in one tx',
-      () async {
-    server.seedNote(
-      id: 'n1',
-      title: 'Doc',
-      data: {'content': {'md': 'v1'}},
-      createdAt: kT1,
-      updatedAt: kT1,
-    );
-    await pull();
-
-    await locks.runExclusive('n1', () async {
-      await db.notesDao.updateNoteWithOutbox(
-        'n1',
-        title: const Value('Renamed'),
-        localUpdatedAtNs: kT1 + 1,
-        enqueue: true,
+  test(
+    'updateNoteWithOutbox writes the row AND a noteUpdate op in one tx',
+    () async {
+      server.seedNote(
+        id: 'n1',
+        title: 'Doc',
+        data: {
+          'content': {'md': 'v1'},
+        },
+        createdAt: kT1,
+        updatedAt: kT1,
       );
-    });
+      await pull();
 
-    final row = await db.notesDao.getNote('n1');
-    check(row!.title).equals('Renamed');
-    check(row.dirtyTitle).isTrue();
+      await locks.runExclusive('n1', () async {
+        await db.notesDao.updateNoteWithOutbox(
+          'n1',
+          title: const Value('Renamed'),
+          localUpdatedAtNs: kT1 + 1,
+          enqueue: true,
+        );
+      });
 
-    final ops = await db.outboxDao.pendingForChat('n1');
-    check(ops.map((o) => o.kind).toList()).contains(OutboxKind.noteUpdate.name);
-    // The patch always carries title (vendored NoteForm requires it).
-    final payload =
-        jsonDecode(ops.first.payload) as Map<String, dynamic>;
-    check(payload['title']).equals('Renamed');
-  });
+      final row = await db.notesDao.getNote('n1');
+      check(row!.title).equals('Renamed');
+      check(row.dirtyTitle).isTrue();
+
+      final ops = await db.outboxDao.pendingForChat('n1');
+      check(
+        ops.map((o) => o.kind).toList(),
+      ).contains(OutboxKind.noteUpdate.name);
+      // The patch always carries title (vendored NoteForm requires it).
+      final payload = jsonDecode(ops.first.payload) as Map<String, dynamic>;
+      check(payload['title']).equals('Renamed');
+    },
+  );
 }

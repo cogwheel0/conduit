@@ -14,11 +14,9 @@ import 'sync_entity_adapter.dart';
 /// implicitly via [pullOverlap] + each list item's `updatedAt` and the
 /// dedicated [watermarkKey]; those NEVER meet the chat (seconds) domain (R-09).
 class NoteAdapter implements SyncEntityAdapter {
-  NoteAdapter({
-    required NotePullSync pull,
-    required NotePushSync push,
-  })  : _pull = pull,
-        _push = push;
+  NoteAdapter({required NotePullSync pull, required NotePushSync push})
+    : _pull = pull,
+      _push = push;
 
   final NotePullSync _pull;
   final NotePushSync _push;
@@ -30,17 +28,18 @@ class NoteAdapter implements SyncEntityAdapter {
   @override
   int get pullOverlap => kNotePullOverlapNs;
 
-  /// Notes are fetched in a SINGLE unpaged call ([getListPageRaw] returns an
+  /// Notes are listed in a SINGLE unpaged call ([getListPageRaw] returns an
   /// empty list for any page > 1 without a network call), so a sentinel larger
   /// than any realistic note count keeps `runPullFor` from ever requesting a
   /// page 2 — making the single-page contract explicit rather than relying on
-  /// the driver's `items.length < listPageSize` escape hatch (which would do one
-  /// extra no-op Dart loop when a user has ≥ 60 notes).
+  /// the driver's `items.length < listPageSize` escape hatch.
   @override
   int get listPageSize => 1 << 30;
 
   @override
-  bool get listEnvelopeIsFullRaw => true;
+  // The vendored list endpoint truncates data.content.md to 1000 chars; it is
+  // only authoritative for id/updated_at. Always full-fetch changed notes.
+  bool get listEnvelopeIsFullRaw => false;
 
   @override
   bool ownsKind(OutboxKind kind) => kind.isNoteKind;
@@ -48,9 +47,7 @@ class NoteAdapter implements SyncEntityAdapter {
   @override
   Future<List<SyncListItem>> getListPage(int page) async {
     final raw = await _pull.getListPageRaw(page);
-    return [
-      for (final item in raw) ?_listItem(item),
-    ];
+    return [for (final item in raw) ?_listItem(item)];
   }
 
   SyncListItem? _listItem(Map<String, dynamic> item) {
