@@ -173,6 +173,30 @@ void main() {
       check(overlap).isEmpty();
     });
 
+    test('searchAll supports combined pagination', () async {
+      for (var i = 0; i < 3; i++) {
+        await _insertChat(db, id: 'c$i', title: 'papaya chat $i');
+        await _insertNote(db, id: 'n$i', title: 'papaya note $i', body: 'body');
+      }
+
+      final firstPage = await db.searchDao.searchAll('papaya', limit: 2);
+      final secondPage = await db.searchDao.searchAll(
+        'papaya',
+        limit: 2,
+        offset: 2,
+      );
+
+      check(firstPage).length.equals(2);
+      check(secondPage).length.equals(2);
+      final firstIds = firstPage
+          .map((h) => '${h.kind.name}:${h.chatId}')
+          .toSet();
+      final secondIds = secondPage
+          .map((h) => '${h.kind.name}:${h.chatId}')
+          .toSet();
+      check(firstIds.intersection(secondIds)).isEmpty();
+    });
+
     test('adversarial input does not crash the query', () async {
       await _insertChat(db, id: 'c1', title: 'safe chat');
       // None of these should throw.
@@ -360,7 +384,7 @@ void main() {
       check(await fresh.searchDao.search('preexisting')).isNotEmpty();
     });
 
-    test('backfill excludes deleted chats but indexes their nothing', () async {
+    test('backfill excludes deleted chats and their messages', () async {
       final fresh = AppDatabase(NativeDatabase.memory());
       addTearDown(fresh.close);
       await fresh
@@ -374,9 +398,23 @@ void main() {
               deleted: const Value(true),
             ),
           );
+      await fresh
+          .into(fresh.messages)
+          .insert(
+            MessagesCompanion.insert(
+              id: 'm1',
+              chatId: 'c1',
+              role: 'user',
+              content: 'gone message body',
+              createdAt: 1,
+              orderIndex: 0,
+              payload: '{}',
+            ),
+          );
       await fresh.buildFtsIfNeeded();
-      // The deleted chat's title is not backfilled.
+      // Neither the deleted chat title nor its message content is backfilled.
       check(await fresh.searchDao.search('gone')).isEmpty();
+      check(await _ftsRowCount(fresh)).equals(0);
     });
   });
 }

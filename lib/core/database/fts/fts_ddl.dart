@@ -160,7 +160,10 @@ END;
 /// already past first sync). `INSERT ... SELECT` from the live tables.
 const String kBackfillMessages = '''
 INSERT INTO chat_fts(text, chat_id, message_id, kind)
-SELECT content, chat_id, id, 'msg' FROM messages;
+SELECT m.content, m.chat_id, m.id, 'msg'
+FROM messages m
+JOIN chats c ON c.id = m.chat_id
+WHERE c.deleted = 0;
 ''';
 
 const String kBackfillTitles = '''

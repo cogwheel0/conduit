@@ -23,23 +23,23 @@ class _V3Database extends GeneratedDatabase {
 
   @override
   Iterable<TableInfo<Table, dynamic>> get allTables => [
-        syncMeta,
-        chats,
-        messages,
-      ];
+    syncMeta,
+    chats,
+    messages,
+  ];
 
   @override
   int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
-        onCreate: (m) async {
-          await m.createAll();
-        },
-        beforeOpen: (_) async {
-          await customStatement('PRAGMA foreign_keys = ON');
-        },
-      );
+    onCreate: (m) async {
+      await m.createAll();
+    },
+    beforeOpen: (_) async {
+      await customStatement('PRAGMA foreign_keys = ON');
+    },
+  );
 }
 
 void main() {
@@ -92,10 +92,25 @@ void main() {
             payload: '{}',
           ),
         );
+    await v3
+        .into(v3.messages)
+        .insert(
+          MessagesCompanion.insert(
+            id: 'm2',
+            chatId: 'c2',
+            role: 'user',
+            content: 'ghostword should not backfill',
+            createdAt: 1,
+            orderIndex: 0,
+            payload: '{}',
+          ),
+        );
     // Simulate a post-first-sync install (watermark advanced).
     await v3
         .into(v3.syncMeta)
-        .insert(SyncMetaCompanion.insert(key: 'pull_watermark', value: '12345'));
+        .insert(
+          SyncMetaCompanion.insert(key: 'pull_watermark', value: '12345'),
+        );
     await v3.close();
 
     // 2. Reopen as the real v4 AppDatabase -> onUpgrade(3, 4) runs.
@@ -111,8 +126,13 @@ void main() {
     final bodyHits = await db.searchDao.search('chlorophyll');
     check(bodyHits.map((h) => h.chatId).toList()).deepEquals(['c1']);
 
-    // 4. The deleted chat's title is NOT backfilled (WHERE deleted = 0).
+    // 4. The deleted chat's title and messages are NOT backfilled.
     check(await db.searchDao.search('deleted')).isEmpty();
+    check(await db.searchDao.search('ghostword')).isEmpty();
+    final deletedFtsRows = await db
+        .customSelect("SELECT count(*) AS n FROM chat_fts WHERE chat_id = 'c2'")
+        .getSingle();
+    check(deletedFtsRows.read<int>('n')).equals(0);
 
     // 5. Triggers are now live: a fresh message is auto-indexed.
     await db
@@ -149,9 +169,7 @@ void main() {
     // buildFtsIfNeeded creates it on demand and is searchable thereafter.
     await db.buildFtsIfNeeded();
     final after = await db
-        .customSelect(
-          "SELECT name FROM sqlite_master WHERE name='chat_fts'",
-        )
+        .customSelect("SELECT name FROM sqlite_master WHERE name='chat_fts'")
         .get();
     check(after).isNotEmpty();
   });

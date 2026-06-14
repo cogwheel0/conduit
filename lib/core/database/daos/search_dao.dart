@@ -209,20 +209,25 @@ class SearchDao extends DatabaseAccessor<AppDatabase> with _$SearchDaoMixin {
   /// Combined offline search returning NOTE hits alongside CHAT hits
   /// (CDT-RFC-001 §11 Phase 5 acceptance), merged and re-ranked by bm25 (lower
   /// is better). Runs the two entity queries independently (each owns its
-  /// JOIN/clock) and merges in Dart — the result set is bounded by [limit] so a
-  /// Dart-side merge is cheap and keeps each query's SQL simple.
+  /// JOIN/clock) and merges in Dart. For combined pagination, each source
+  /// fetches [offset] + [limit] rows so the Dart-side global window can skip
+  /// the first [offset] merged hits without dropping high-ranked rows from a
+  /// dominant corpus.
   Future<List<SearchHit>> searchAll(
     String raw, {
     int limit = _kDefaultLimit,
+    int offset = 0,
   }) async {
+    if (limit <= 0) return const <SearchHit>[];
+    final pageOffset = offset < 0 ? 0 : offset;
+    final sourceLimit = limit + pageOffset;
     final results = await Future.wait([
-      search(raw, limit: limit),
-      searchNotes(raw, limit: limit),
+      search(raw, limit: sourceLimit),
+      searchNotes(raw, limit: sourceLimit),
     ]);
     final merged = [...results[0], ...results[1]]
       ..sort((a, b) => a.rank.compareTo(b.rank));
-    if (merged.length <= limit) return merged;
-    return merged.sublist(0, limit);
+    return merged.skip(pageOffset).take(limit).toList(growable: false);
   }
 
   SearchHit _hitFromRow(QueryRow row) {
