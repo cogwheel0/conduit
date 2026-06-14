@@ -90,8 +90,7 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
       );
       return;
     }
-    if (placeholder.content.trim().isNotEmpty &&
-        _placeholderMarkedComplete(placeholder)) {
+    if (_placeholderMarkedComplete(placeholder)) {
       DebugLogger.log(
         'completion-already-done',
         scope: 'chat/completion',

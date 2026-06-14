@@ -3978,6 +3978,12 @@ Future<void> runHeadlessCompletion(
     files: _extractTopLevelRequestFiles(parentMsgMap),
   );
 
+  await _markHeadlessCompletionSubmitted(
+    ref,
+    chatId: chatId,
+    assistantMessageId: assistantMessageId,
+  );
+
   // Drain the HTTP byte stream to EOF (discarding chunks) so the server runs to
   // completion + persists. The socket/task flow has no byteStream — the server
   // generates it as a background task; the subsequent pull(s) collect it.
@@ -4031,6 +4037,29 @@ Future<void> runHeadlessCompletion(
     scope: 'chat/completion',
     data: {'chatId': chatId},
   );
+}
+
+Future<void> _markHeadlessCompletionSubmitted(
+  dynamic ref, {
+  required String chatId,
+  required String assistantMessageId,
+}) async {
+  final db = _readAppDatabaseOrNull(ref);
+  if (db == null) return;
+  try {
+    await db.messagesDao.markAssistantResponseDone(
+      chatId: chatId,
+      messageId: assistantMessageId,
+    );
+  } catch (error, stackTrace) {
+    DebugLogger.error(
+      'headless-completion-marker-failed',
+      scope: 'chat/completion',
+      error: error,
+      stackTrace: stackTrace,
+      data: {'chatId': chatId, 'assistantMessageId': assistantMessageId},
+    );
+  }
 }
 
 AppDatabase? _readAppDatabaseOrNull(dynamic ref) {

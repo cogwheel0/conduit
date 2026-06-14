@@ -5,6 +5,7 @@ import 'package:conduit/core/database/app_database.dart';
 import 'package:conduit/core/database/daos/outbox_dao.dart';
 import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit/core/sync/id_remapper.dart';
+import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -493,6 +494,47 @@ void main() {
       check(pending.single.seq).equals(firstDelete);
       check(pending.single.kind).equals('noteDelete');
     });
+
+    test(
+      'noteUpdate coalescing drops stale data when dirtyData is clean',
+      () async {
+        await db
+            .into(db.notes)
+            .insert(
+              NotesCompanion.insert(
+                id: 'n-clean',
+                title: 'Server clean',
+                data: const Value('{"content":{"md":"server"}}'),
+                createdAt: 1,
+                updatedAt: 1,
+                dirtyData: const Value(false),
+              ),
+            );
+
+        final first = await enqueue(
+          kind: OutboxKind.noteUpdate,
+          chatId: 'n-clean',
+          payload: {
+            'title': 'Old title',
+            'data': {
+              'content': {'md': 'already merged'},
+            },
+          },
+        );
+        final second = await enqueue(
+          kind: OutboxKind.noteUpdate,
+          chatId: 'n-clean',
+          payload: {'title': 'Title only'},
+        );
+
+        check(second).equals(first);
+        final pending = await dao.pendingForChat('n-clean');
+        final payload =
+            jsonDecode(pending.single.payload) as Map<String, dynamic>;
+        check(payload['title']).equals('Title only');
+        check(payload.containsKey('data')).isFalse();
+      },
+    );
   });
 
   group('claimNextRunnable (A2)', () {

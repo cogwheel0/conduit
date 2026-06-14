@@ -277,5 +277,48 @@ void main() {
           (await db.messagesDao.getForChat('chat-pl')).single;
       check(_deepEq.equals(jsonDecode(row.payload), payload)).isTrue();
     });
+
+    test('markAssistantResponseDone marks replay-safe completion metadata',
+        () async {
+      await db.chatsDao.upsertEnvelopeStub(
+        id: 'chat-headless',
+        title: 'Headless',
+        createdAt: 1,
+        updatedAt: 1,
+      );
+      await db.messagesDao.upsertLocalEcho(
+        echo(
+          chatId: 'chat-headless',
+          id: 'assistant-headless',
+          content: '',
+          payload: const {
+            'id': 'assistant-headless',
+            'role': 'assistant',
+            'content': '',
+            'metadata': {'checkpoint': true},
+          },
+        ),
+      );
+
+      final marked = await db.messagesDao.markAssistantResponseDone(
+        chatId: 'chat-headless',
+        messageId: 'assistant-headless',
+      );
+
+      check(marked).isTrue();
+      final row =
+          (await db.messagesDao.getForChat('chat-headless')).single;
+      final payload = jsonDecode(row.payload) as Map<String, dynamic>;
+      check(payload['isStreaming']).equals(false);
+      check(payload['done']).equals(true);
+      check(
+        (payload['metadata'] as Map<String, dynamic>)['responseDone'],
+      ).equals(true);
+      check(
+        (payload['metadata'] as Map<String, dynamic>)['checkpoint'],
+      ).equals(true);
+      check(row.content).equals('');
+      check(row.dirty).isFalse();
+    });
   });
 }

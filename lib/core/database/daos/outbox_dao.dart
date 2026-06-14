@@ -653,16 +653,22 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
             mergedContentHash: noteCreateContentHashFromRow(note),
           );
         }
-        // Consecutive noteUpdate collapse to the newest, MERGING patch maps so
-        // a data edit followed by a title-only edit keeps the data axis (the
-        // reconstructed-from-row patch only includes `data` when this edit
-        // touched data, so a union is required — D-11 patch-map coalescing).
+        // Consecutive noteUpdate collapse to the newest, MERGING patch maps.
+        // Keep an older `data` key only while the live row still has dirtyData;
+        // an intervening pull may have cleared that axis before a title-only
+        // edit enqueues the replacement op.
         final priorUpdate = newestOfKind(OutboxKind.noteUpdate);
         if (priorUpdate != null) {
           final merged = <String, dynamic>{
             ..._decodePayload(priorUpdate.payload),
             ...payload,
           };
+          if (!payload.containsKey('data')) {
+            final note = await attachedDatabase.notesDao.getNote(chatId);
+            if (note != null && !note.dirtyData) {
+              merged.remove('data');
+            }
+          }
           return _CoalesceDecision(
             insert: false,
             survivorSeq: priorUpdate.seq,

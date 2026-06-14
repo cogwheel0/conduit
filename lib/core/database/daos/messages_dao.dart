@@ -26,6 +26,40 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
     return (_forChat(chatId)).get();
   }
 
+  /// Marks an assistant placeholder as submitted/completed without changing its
+  /// content. Headless completions use this after the server accepts the
+  /// request so replay can distinguish "already sent, awaiting pull" from a
+  /// resumable partial stream checkpoint.
+  Future<bool> markAssistantResponseDone({
+    required String chatId,
+    required String messageId,
+  }) {
+    return transaction(() async {
+      final existing = await _messageById(chatId, messageId);
+      if (existing == null) return false;
+
+      final payload = _decodePayloadMap(existing.payload);
+      final metadata = _asJsonMap(payload['metadata']);
+      payload
+        ..putIfAbsent('id', () => messageId)
+        ..putIfAbsent('role', () => existing.role)
+        ..putIfAbsent('content', () => existing.content)
+        ..['isStreaming'] = false
+        ..['done'] = true
+        ..['metadata'] = <String, dynamic>{...metadata, 'responseDone': true};
+
+      await (update(
+        messages,
+      )..where((t) => t.chatId.equals(chatId) & t.id.equals(messageId))).write(
+        MessagesCompanion(
+          payload: Value(jsonEncode(payload)),
+          dirty: const Value(false),
+        ),
+      );
+      return true;
+    });
+  }
+
   /// Local echo for D-07 (stream completion + pause checkpoint). One tx;
   /// caller holds the chat lock. No-op (returns false) when the chats row is
   /// absent. New rows get `orderIndex = max(order_index) + 1` for the chat;
@@ -119,6 +153,23 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
     return (select(messages)
           ..where((t) => t.chatId.equals(chatId) & t.id.equals(messageId)))
         .getSingleOrNull();
+  }
+
+  Map<String, dynamic> _decodePayloadMap(String raw) {
+    try {
+      final decoded = jsonDecode(raw);
+      return _asJsonMap(decoded);
+    } catch (_) {
+      return <String, dynamic>{};
+    }
+  }
+
+  Map<String, dynamic> _asJsonMap(Object? value) {
+    if (value is Map<String, dynamic>) return Map<String, dynamic>.from(value);
+    if (value is Map) {
+      return value.map((key, value) => MapEntry(key.toString(), value));
+    }
+    return <String, dynamic>{};
   }
 
   String? _safeTip(

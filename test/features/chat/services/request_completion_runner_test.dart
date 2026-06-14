@@ -153,6 +153,36 @@ void main() {
     check(rows.single.content).equals('already answered');
   });
 
+  test(
+    'returns early for a headless submitted marker with empty content',
+    () async {
+      const chatId = 'chat-headless-marker';
+      await seedChat(chatId);
+      await seedMessage(
+        chatId,
+        'asst-headless',
+        '',
+        payload: const <String, dynamic>{
+          'id': 'asst-headless',
+          'role': 'assistant',
+          'content': '',
+          'metadata': {'responseDone': true},
+        },
+      );
+
+      final (:container, :runner) = makeRunner(
+        isStreaming: false,
+        active: conv('a-different-chat'),
+      );
+
+      await runner.run(chatId: chatId, payload: payload('asst-headless'));
+
+      check(
+        container.read(activeConversationProvider)?.id,
+      ).equals('a-different-chat');
+    },
+  );
+
   test('does not treat pause-checkpoint content as completed', () async {
     const chatId = 'chat-partial';
     await seedChat(chatId);
