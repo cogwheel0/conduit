@@ -162,7 +162,7 @@ void main() {
         .into(db.messages)
         .insert(
           MessagesCompanion.insert(
-            id: 'm2',
+            id: 'm3',
             chatId: 'c1',
             role: 'user',
             content: 'mitochondria powerhouse',
