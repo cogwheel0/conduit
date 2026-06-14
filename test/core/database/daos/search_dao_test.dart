@@ -197,6 +197,21 @@ void main() {
       check(firstIds.intersection(secondIds)).isEmpty();
     });
 
+    test('note search hits expose epoch-second timestamps', () async {
+      await _insertNote(
+        db,
+        id: 'n',
+        title: 'papaya note',
+        body: 'body',
+        createdAt: 1700000000123456789,
+        updatedAt: 1700000001987654321,
+      );
+
+      final hit = (await db.searchDao.searchNotes('papaya')).single;
+      check(hit.createdAt).equals(1700000000);
+      check(hit.updatedAt).equals(1700000001);
+    });
+
     test('adversarial input does not crash the query', () async {
       await _insertChat(db, id: 'c1', title: 'safe chat');
       // None of these should throw.

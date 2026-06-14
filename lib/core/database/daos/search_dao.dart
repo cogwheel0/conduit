@@ -44,12 +44,12 @@ class SearchHit {
   final String chatId;
   final String title;
 
-  /// Timestamp unit depends on [kind]: chat hits use epoch seconds; note hits
-  /// use server nanoseconds (R-09). Branch on [kind] before formatting.
+  /// Epoch seconds for all hit kinds. Note rows are stored in nanoseconds
+  /// (R-09) and normalized at the DAO boundary.
   final int createdAt;
 
-  /// Timestamp unit depends on [kind]: chat hits use epoch seconds; note hits
-  /// use server nanoseconds (R-09). Branch on [kind] before formatting.
+  /// Epoch seconds for all hit kinds. Note rows are stored in nanoseconds
+  /// (R-09) and normalized at the DAO boundary.
   final int updatedAt;
   final bool pinned;
   final bool archived;
@@ -161,8 +161,9 @@ class SearchDao extends DatabaseAccessor<AppDatabase> with _$SearchDaoMixin {
   /// (CDT-RFC-001 Phase 5). Same `chat_fts` vtable + bm25/snippet machinery as
   /// [search], but the MATCH is filtered to the note kinds and the result joins
   /// `notes` (excluding tombstones). The hit's `chatId` carries the NOTE id and
-  /// `kind` is [SearchHitKind.note]. Note timestamps are NANOSECONDS (R-09 —
-  /// never unit-converted; the consumer distinguishes by `kind`).
+  /// `kind` is [SearchHitKind.note]. Note table timestamps remain NANOSECONDS
+  /// (R-09); [SearchHit] normalizes them to epoch seconds so mixed search
+  /// consumers never compare or format mixed units.
   Future<List<SearchHit>> searchNotes(
     String raw, {
     int limit = _kDefaultLimit,
@@ -252,13 +253,14 @@ class SearchDao extends DatabaseAccessor<AppDatabase> with _$SearchDaoMixin {
       kind: SearchHitKind.note,
       chatId: row.read<String>('id'),
       title: row.read<String>('title'),
-      // NANOSECONDS (note clock; R-09 — not converted).
-      createdAt: row.read<int>('created_at'),
-      updatedAt: row.read<int>('updated_at'),
+      createdAt: _nsToEpochSeconds(row.read<int>('created_at')),
+      updatedAt: _nsToEpochSeconds(row.read<int>('updated_at')),
       pinned: row.read<bool>('is_pinned'),
       archived: false,
       snippet: row.read<String?>('snippet'),
       rank: row.read<double>('rank'),
     );
   }
+
+  int _nsToEpochSeconds(int nanoseconds) => nanoseconds ~/ 1000000000;
 }

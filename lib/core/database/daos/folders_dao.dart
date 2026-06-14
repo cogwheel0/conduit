@@ -110,7 +110,7 @@ class FoldersDao extends DatabaseAccessor<AppDatabase> with _$FoldersDaoMixin {
   Future<void> upsertFolderWithOutbox({
     required String id,
     String? name,
-    String? parentId,
+    Value<String?> parentId = const Value.absent(),
     Map<String, dynamic>? data,
     Map<String, dynamic>? meta,
     required bool createIfAbsent,
@@ -124,7 +124,7 @@ class FoldersDao extends DatabaseAccessor<AppDatabase> with _$FoldersDaoMixin {
           FoldersCompanion.insert(
             id: id,
             name: name ?? '',
-            parentId: Value(parentId),
+            parentId: parentId,
             createdAt: 0,
             updatedAt: 0,
             serverUpdatedAt: const Value(null),
@@ -144,7 +144,7 @@ class FoldersDao extends DatabaseAccessor<AppDatabase> with _$FoldersDaoMixin {
         await (update(folders)..where((t) => t.id.equals(id))).write(
           FoldersCompanion(
             name: name == null ? const Value.absent() : Value(name),
-            parentId: Value(parentId),
+            parentId: parentId,
             rawExtra: Value(jsonEncode(mergedExtra)),
             dirty: const Value(true),
           ),
@@ -158,7 +158,7 @@ class FoldersDao extends DatabaseAccessor<AppDatabase> with _$FoldersDaoMixin {
           'folderId': id,
           'createIfAbsent': createIfAbsent,
           'name': ?name,
-          'parentId': ?parentId,
+          if (parentId.present) 'parentId': parentId.value,
           'data': ?data,
           'meta': ?meta,
         },

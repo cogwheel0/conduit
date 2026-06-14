@@ -25,6 +25,7 @@ Future<void> seedServerFolderRow(
   AppDatabase db, {
   required String id,
   String name = 'F',
+  String? parentId,
   int updatedAt = 100,
 }) async {
   await db
@@ -33,6 +34,7 @@ Future<void> seedServerFolderRow(
         FoldersCompanion.insert(
           id: id,
           name: name,
+          parentId: Value(parentId),
           createdAt: 50,
           updatedAt: updatedAt,
           serverUpdatedAt: Value(updatedAt),
@@ -230,6 +232,49 @@ void main() {
         check(row.dirty).isTrue();
         // serverUpdatedAt preserved (LWW gate keys off dirty, not the clock).
         check(row.serverUpdatedAt).equals(100);
+      },
+    );
+
+    test(
+      'upsertFolderWithOutbox preserves parent when edit omits parentId',
+      () async {
+        await seedServerFolderRow(db, id: 'f', name: 'Old', parentId: 'parent');
+        await folderLocks.runExclusive('f', () async {
+          await db.foldersDao.upsertFolderWithOutbox(
+            id: 'f',
+            name: 'Renamed',
+            createIfAbsent: false,
+          );
+        });
+
+        final row = await db.foldersDao.getFolder('f');
+        check(row!.parentId).equals('parent');
+
+        final ops = await db.outboxDao.pendingForChat('f');
+        final payload = jsonDecode(ops.single.payload) as Map<String, dynamic>;
+        check(payload.containsKey('parentId')).isFalse();
+      },
+    );
+
+    test(
+      'upsertFolderWithOutbox can explicitly move a folder to root',
+      () async {
+        await seedServerFolderRow(db, id: 'f', name: 'Old', parentId: 'parent');
+        await folderLocks.runExclusive('f', () async {
+          await db.foldersDao.upsertFolderWithOutbox(
+            id: 'f',
+            parentId: const Value(null),
+            createIfAbsent: false,
+          );
+        });
+
+        final row = await db.foldersDao.getFolder('f');
+        check(row!.parentId).isNull();
+
+        final ops = await db.outboxDao.pendingForChat('f');
+        final payload = jsonDecode(ops.single.payload) as Map<String, dynamic>;
+        check(payload.containsKey('parentId')).isTrue();
+        check(payload['parentId']).isNull();
       },
     );
 

@@ -91,10 +91,8 @@ Conversation assembleConversation(ChatRow chat, List<MessageRow> messages) {
 
 /// Shared body-less summary builder. Timestamps are epoch SECONDS (scaled to
 /// millis), matching `_parseTimestamp` (local tz). Used by both the list-entry
-/// and chat-search-hit mappers, whose envelopes are identical apart from field
-/// names. NOTE: SearchHit note-kind hits carry NANOSECOND timestamps (R-09);
-/// this builder must only be fed seconds-scale inputs (today only chat hits
-/// reach [conversationFromSearchHit]).
+/// and search-hit mappers, whose envelopes are identical apart from field
+/// names.
 Conversation _summaryConversation({
   required String id,
   required String title,
