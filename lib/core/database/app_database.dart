@@ -212,6 +212,7 @@ class AppDatabase extends _$AppDatabase {
     final built = await syncMetaDao.getValue(kFtsBuiltKey);
     if (built == '1') return;
     await transaction(() async {
+      await customStatement('DELETE FROM chat_fts');
       await customStatement(kBackfillMessages);
       await customStatement(kBackfillTitles);
       await _backfillNotesFtsIfPresent();

@@ -1,6 +1,7 @@
 import 'package:checks/checks.dart';
 import 'package:conduit/core/database/app_database.dart';
 import 'package:conduit/core/database/daos/search_dao.dart';
+import 'package:conduit/core/database/fts/fts_ddl.dart';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -398,6 +399,34 @@ void main() {
       // And it is actually searchable.
       check(await fresh.searchDao.search('preexisting')).isNotEmpty();
     });
+
+    test(
+      'backfill replaces rows written by live triggers before the gate',
+      () async {
+        final fresh = AppDatabase(NativeDatabase.memory());
+        addTearDown(fresh.close);
+
+        await fresh.customStatement(kCreateChatFts);
+        for (final trigger in kChatFtsTriggers) {
+          await fresh.customStatement(trigger);
+        }
+
+        await _insertChat(fresh, id: 'c1', title: 'triggered title');
+        await _insertMessage(
+          fresh,
+          chatId: 'c1',
+          id: 'm1',
+          content: 'triggered body',
+        );
+        check(await _ftsRowCount(fresh)).equals(2);
+        check(await fresh.syncMetaDao.getValue(kFtsBuiltKey)).isNull();
+
+        await fresh.buildFtsIfNeeded();
+
+        check(await _ftsRowCount(fresh)).equals(2);
+        check(await fresh.searchDao.search('triggered')).isNotEmpty();
+      },
+    );
 
     test('backfill excludes deleted chats and their messages', () async {
       final fresh = AppDatabase(NativeDatabase.memory());
