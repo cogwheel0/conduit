@@ -193,6 +193,32 @@ void main() {
       check(pending.single.kind).equals('deleteChat');
     });
 
+    test('deleteChat collapses into an existing pending deleteChat', () async {
+      final firstDelete = await enqueue(
+        kind: OutboxKind.deleteChat,
+        chatId: 'srv1',
+      );
+      await enqueue(
+        kind: OutboxKind.requestCompletion,
+        chatId: 'srv1',
+        payload: {
+          'assistantMessageId': 'a',
+          'model': 'm',
+          'toolIds': <String>[],
+        },
+      );
+      final secondDelete = await enqueue(
+        kind: OutboxKind.deleteChat,
+        chatId: 'srv1',
+      );
+
+      check(secondDelete).equals(firstDelete);
+      final pending = await dao.pendingForChat('srv1');
+      check(pending).length.equals(1);
+      check(pending.single.seq).equals(firstDelete);
+      check(pending.single.kind).equals('deleteChat');
+    });
+
     test('requestCompletion is never coalesced', () async {
       Map<String, dynamic> rc(String id) => {
             'assistantMessageId': id,

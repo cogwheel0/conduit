@@ -503,6 +503,7 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
 
       case OutboxKind.deleteChat:
         // Annihilates EVERY earlier pending op for this chat.
+        final priorDelete = newestOfKind(OutboxKind.deleteChat);
         if (pendingKinds.contains(OutboxKind.createChat)) {
           // Never reached the server ⇒ pure local drop: delete all pending,
           // emit no deleteChat op.
@@ -512,7 +513,8 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
           );
         }
         return _CoalesceDecision(
-          insert: true,
+          insert: priorDelete == null,
+          survivorSeq: priorDelete?.seq,
           deletions: [
             for (final op in pending)
               if (OutboxKind.fromName(op.kind) != OutboxKind.deleteChat) op.seq,
