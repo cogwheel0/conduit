@@ -29,6 +29,9 @@ class SyncTriggers extends _$SyncTriggers {
   Timer? _periodic;
   _SyncLifecycleObserver? _observer;
   bool _startFired = false;
+  bool _startCheckQueued = false;
+  Object? _startDatabase;
+  Object? _startClient;
 
   @override
   void build() {
@@ -43,8 +46,8 @@ class SyncTriggers extends _$SyncTriggers {
       }
       _maybeFireStart();
     });
-    ref.listen(appDatabaseProvider, (_, _) => _maybeFireStart());
-    ref.listen(syncApiClientProvider, (_, _) => _maybeFireStart());
+    ref.listen(appDatabaseProvider, (_, _) => _queueMaybeFireStart());
+    ref.listen(syncApiClientProvider, (_, _) => _queueMaybeFireStart());
 
     // Connectivity regained: pull AND drain the outbox (the drainer resets
     // backoff on pending ops then drains — A6/A7).
@@ -92,14 +95,30 @@ class SyncTriggers extends _$SyncTriggers {
   }
 
   void _maybeFireStart() {
-    if (_startFired) return;
-    final ready =
-        ref.read(isAuthenticatedProvider2) &&
-        ref.read(appDatabaseProvider) != null &&
-        ref.read(syncApiClientProvider) != null;
-    if (!ready) return;
+    final db = ref.read(appDatabaseProvider);
+    final client = ref.read(syncApiClientProvider);
+    if (!ref.read(isAuthenticatedProvider2) || db == null || client == null) {
+      return;
+    }
+    if (_startFired &&
+        identical(db, _startDatabase) &&
+        identical(client, _startClient)) {
+      return;
+    }
     _startFired = true;
+    _startDatabase = db;
+    _startClient = client;
     _request('start');
+  }
+
+  void _queueMaybeFireStart() {
+    if (_startCheckQueued) return;
+    _startCheckQueued = true;
+    scheduleMicrotask(() {
+      _startCheckQueued = false;
+      if (!ref.mounted) return;
+      _maybeFireStart();
+    });
   }
 
   void _restartPeriodicTimer() {

@@ -10,6 +10,7 @@ import 'package:conduit/core/sync/chat_locks.dart';
 import 'package:conduit/core/sync/clock.dart';
 import 'package:conduit/core/sync/deletion_reconcile.dart' show ReconcileReason;
 import 'package:conduit/core/sync/note_deletion_reconcile.dart';
+import 'package:conduit/core/sync/sync_api_client.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -48,6 +49,15 @@ class _NoteSessionDiesAfterFirstPurgeClient extends FakeSyncApiClient {
       failNoteList = true;
     }
     return super.getNoteRaw(id);
+  }
+}
+
+class _TerminalNoteProbeClient extends FakeSyncApiClient {
+  _TerminalNoteProbeClient(super.server);
+
+  @override
+  Future<Map<String, dynamic>?> getNoteRaw(String id) {
+    throw const SyncTerminalException(statusCode: 403, message: 'forbidden');
   }
 }
 
@@ -229,6 +239,21 @@ void main() {
       check(await db.syncMetaDao.getNotesLastFullReconcileAt()).equals(0);
     },
   );
+
+  test('a terminal probe aborts without advancing the throttle', () async {
+    final client = _TerminalNoteProbeClient(server);
+    await seedLocalOnly('forbidden');
+
+    final result = await reconcileWith(
+      client,
+    ).run(ReconcileReason.manualRefresh);
+
+    check(result.aborted).isTrue();
+    check(result.purged).equals(0);
+    check(result.skipped).equals(1);
+    check(await db.notesDao.getNote('forbidden')).isNotNull();
+    check(await db.syncMetaDao.getNotesLastFullReconcileAt()).equals(0);
+  });
 
   test('notes feature disabled is not a mass-delete signal', () async {
     final client = FakeSyncApiClient(server)..notesFeatureEnabled = false;

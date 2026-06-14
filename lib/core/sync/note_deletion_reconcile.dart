@@ -129,6 +129,26 @@ class NoteDeletionReconcile {
         bool gone;
         try {
           gone = (await _client.getNoteRaw(id)) == null;
+        } on SyncTerminalException catch (error, stackTrace) {
+          DebugLogger.warning(
+            'note-reconcile-aborted-terminal-probe',
+            scope: 'sync/reconcile',
+            data: {
+              'noteId': id,
+              'status': error.statusCode,
+              'message': error.message,
+            },
+          );
+          DebugLogger.error(
+            'note-reconcile-probe-terminal',
+            scope: 'sync/reconcile',
+            error: error,
+            stackTrace: stackTrace,
+            data: {'noteId': id},
+          );
+          sessionDead = true;
+          skipped++;
+          return;
         } catch (error, stackTrace) {
           DebugLogger.error(
             'note-reconcile-probe-error',

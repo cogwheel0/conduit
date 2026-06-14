@@ -99,7 +99,9 @@ void main() {
   ProviderContainer makeContainer() {
     final container = ProviderContainer(
       overrides: [
-        isAuthenticatedProvider2.overrideWith((ref) => ref.watch(_authProvider)),
+        isAuthenticatedProvider2.overrideWith(
+          (ref) => ref.watch(_authProvider),
+        ),
         isOnlineProvider.overrideWith((ref) => ref.watch(_onlineProvider)),
         appDatabaseProvider.overrideWith((ref) => ref.watch(_dbProvider)),
         syncApiClientProvider.overrideWith((ref) => ref.watch(_clientProvider)),
@@ -120,8 +122,7 @@ void main() {
   int countOf(String reason) => pulls.where((r) => r == reason).length;
 
   group('app-start gate', () {
-    test(
-        'start fires exactly once when (auth, db, client) become ready and '
+    test('start fires exactly once when (auth, db, client) become ready and '
         'never again while dependencies flap', () async {
       final container = makeContainer();
       container.read(syncTriggersProvider);
@@ -160,55 +161,89 @@ void main() {
       check(countOf('auth')).equals(2);
     });
 
-    test('start fires immediately when everything is ready at install',
-        () async {
-      final container = makeContainer();
-      container.read(_authProvider.notifier).set(true);
-      container.read(_dbProvider.notifier).set(db);
-      container.read(_clientProvider.notifier).set(client);
+    test(
+      'start fires immediately when everything is ready at install',
+      () async {
+        final container = makeContainer();
+        container.read(_authProvider.notifier).set(true);
+        container.read(_dbProvider.notifier).set(db);
+        container.read(_clientProvider.notifier).set(client);
 
-      container.read(syncTriggersProvider);
-      await flushMicrotasks();
+        container.read(syncTriggersProvider);
+        await flushMicrotasks();
 
-      check(countOf('start')).equals(1);
-    });
+        check(countOf('start')).equals(1);
+      },
+    );
+
+    test(
+      'start fires again when the ready database/client pair changes',
+      () async {
+        final container = makeContainer();
+        container.read(_authProvider.notifier).set(true);
+        container.read(_dbProvider.notifier).set(db);
+        container.read(_clientProvider.notifier).set(client);
+        container.read(syncTriggersProvider);
+        await flushMicrotasks();
+        check(countOf('start')).equals(1);
+
+        final db2 = AppDatabase(NativeDatabase.memory());
+        addTearDown(db2.close);
+        final client2 = FakeSyncApiClient(FakeOpenWebUiServer());
+
+        container.read(_dbProvider.notifier).set(db2);
+        container.read(_clientProvider.notifier).set(client2);
+        await flushMicrotasks();
+
+        check(countOf('start')).equals(2);
+
+        // Re-emitting the same ready pair does not refire.
+        container.read(_dbProvider.notifier).set(db2);
+        container.read(_clientProvider.notifier).set(client2);
+        await flushMicrotasks();
+        check(countOf('start')).equals(2);
+      },
+    );
   });
 
   group('connectivity edge', () {
-    test('offline->online fires exactly one pull; going offline fires none',
-        () async {
-      final container = makeContainer();
-      container.read(_authProvider.notifier).set(true);
-      container.read(_dbProvider.notifier).set(db);
-      container.read(_clientProvider.notifier).set(client);
-      container.read(syncTriggersProvider);
-      await flushMicrotasks();
-      pulls.clear();
+    test(
+      'offline->online fires exactly one pull; going offline fires none',
+      () async {
+        final container = makeContainer();
+        container.read(_authProvider.notifier).set(true);
+        container.read(_dbProvider.notifier).set(db);
+        container.read(_clientProvider.notifier).set(client);
+        container.read(syncTriggersProvider);
+        await flushMicrotasks();
+        pulls.clear();
 
-      container.read(_onlineProvider.notifier).set(false);
-      await flushMicrotasks();
-      check(countOf('online')).equals(0);
+        container.read(_onlineProvider.notifier).set(false);
+        await flushMicrotasks();
+        check(countOf('online')).equals(0);
 
-      container.read(_onlineProvider.notifier).set(true);
-      await flushMicrotasks();
-      check(countOf('online')).equals(1);
-      check(pulls).deepEquals(['online']);
-    });
+        container.read(_onlineProvider.notifier).set(true);
+        await flushMicrotasks();
+        check(countOf('online')).equals(1);
+        check(pulls).deepEquals(['online']);
+      },
+    );
   });
 
   group('lifecycle observer + periodic timer', () {
-    test(
-        'resume fires a foreground pull and restarts the timer; pause '
+    test('resume fires a foreground pull and restarts the timer; pause '
         'cancels it; dispose removes the observer', () {
       fakeAsync((async) {
         final container = ProviderContainer(
           overrides: [
-            isAuthenticatedProvider2
-                .overrideWith((ref) => ref.watch(_authProvider)),
+            isAuthenticatedProvider2.overrideWith(
+              (ref) => ref.watch(_authProvider),
+            ),
             isOnlineProvider.overrideWith((ref) => ref.watch(_onlineProvider)),
             appDatabaseProvider.overrideWith((ref) => ref.watch(_dbProvider)),
-            syncApiClientProvider
-                .overrideWith((ref) => ref.watch(_clientProvider)),
+            syncApiClientProvider.overrideWith(
+              (ref) => ref.watch(_clientProvider),
+            ),
             syncEngineProvider.overrideWith(() => _RecordingSyncEngine(pulls)),
           ],
         );
@@ -259,12 +294,14 @@ void main() {
       fakeAsync((async) {
         final container = ProviderContainer(
           overrides: [
-            isAuthenticatedProvider2
-                .overrideWith((ref) => ref.watch(_authProvider)),
+            isAuthenticatedProvider2.overrideWith(
+              (ref) => ref.watch(_authProvider),
+            ),
             isOnlineProvider.overrideWith((ref) => ref.watch(_onlineProvider)),
             appDatabaseProvider.overrideWith((ref) => ref.watch(_dbProvider)),
-            syncApiClientProvider
-                .overrideWith((ref) => ref.watch(_clientProvider)),
+            syncApiClientProvider.overrideWith(
+              (ref) => ref.watch(_clientProvider),
+            ),
             syncEngineProvider.overrideWith(() => _RecordingSyncEngine(pulls)),
           ],
         );
