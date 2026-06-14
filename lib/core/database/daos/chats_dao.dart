@@ -446,7 +446,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
       }
       await (update(chats)..where((t) => t.id.equals(id))).write(
         ChatsCompanion(
-          title: Value(title),
+          title: existing.dirty ? const Value.absent() : Value(title),
           createdAt: Value(createdAt),
           updatedAt: Value(updatedAt),
           pinned: pinned == null ? const Value.absent() : Value(pinned),

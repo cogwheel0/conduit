@@ -412,6 +412,36 @@ void main() {
       check(row.archived).isTrue();
     });
 
+    test('preserves a dirty local title while refreshing summary fields',
+        () async {
+      await db.chatsDao.upsertEnvelopeStub(
+        id: 'dirty-title',
+        title: 'Original',
+        createdAt: 1,
+        updatedAt: 1,
+        archived: true,
+      );
+      await db.chatsDao.updateEnvelopeWithOutbox(
+        'dirty-title',
+        title: const Value('Local rename'),
+        enqueue: true,
+      );
+
+      await db.chatsDao.upsertEnvelopeStub(
+        id: 'dirty-title',
+        title: 'Server summary title',
+        createdAt: 1,
+        updatedAt: 2,
+        archived: false,
+      );
+
+      final row = await db.chatsDao.getChat('dirty-title');
+      check(row!.title).equals('Local rename');
+      check(row.dirty).isTrue();
+      check(row.updatedAt).equals(2);
+      check(row.archived).isFalse();
+    });
+
     test('absent folderId leaves the existing value alone on update', () async {
       await db.chatsDao.upsertEnvelopeStub(
         id: 'foldered',
