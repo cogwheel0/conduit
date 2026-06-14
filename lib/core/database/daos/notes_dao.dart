@@ -212,6 +212,9 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
     // Canonical row: title/data each follow the field-LWW decision. Conflict
     // copies with dirty data keep their local body instead of forking again.
     final serverRow = serverToNoteRow(serverRaw);
+    final mergedUpdatedAt = decision.advanceServerUpdatedAt
+        ? serverUpdatedAt
+        : existing.updatedAt;
     await (update(notes)..where((t) => t.id.equals(existing.id))).write(
       NotesCompanion(
         title: decision.takeServerTitle
@@ -220,7 +223,7 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
         data: decision.takeServerData ? serverRow.data : Value(existing.data),
         meta: serverRow.meta,
         // Pin mirror is never touched by the title/data merge (WARNING A).
-        updatedAt: Value(serverUpdatedAt),
+        updatedAt: Value(mergedUpdatedAt),
         serverUpdatedAt: decision.advanceServerUpdatedAt
             ? Value(serverUpdatedAt)
             : const Value.absent(),

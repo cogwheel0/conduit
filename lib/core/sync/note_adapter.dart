@@ -44,14 +44,18 @@ class NoteAdapter implements SyncEntityAdapter {
   @override
   Future<List<SyncListItem>> getListPage(int page) async {
     final raw = await _pull.getListPageRaw(page);
-    return [for (final item in raw) ?_listItem(item)];
+    return [for (final item in raw) _listItem(item)];
   }
 
-  SyncListItem? _listItem(Map<String, dynamic> item) {
+  SyncListItem _listItem(Map<String, dynamic> item) {
     final id = item['id'];
-    if (id is! String || id.isEmpty) return null;
+    if (id is! String || id.isEmpty) {
+      throw const FormatException('Note list item without a string id');
+    }
     final ns = asNs(item['updated_at']);
-    if (ns == null) return null;
+    if (ns == null) {
+      throw FormatException('Note list item without updated_at: $id');
+    }
     return SyncListItem(id: id, updatedAt: ns, envelope: item);
   }
 

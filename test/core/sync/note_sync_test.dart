@@ -24,6 +24,21 @@ import '../../support/fake_sync_api_client.dart';
 const int kT1 = 1718000000000000000; // ns
 const int kT2 = kT1 + 60 * 1000 * 1000 * 1000; // +60s in ns, past the overlap
 
+class _MalformedFirstPageNoteClient extends FakeSyncApiClient {
+  _MalformedFirstPageNoteClient(super.server);
+
+  @override
+  Future<(List<Map<String, dynamic>>, bool)> getNoteListRaw({int? page}) async {
+    final (items, enabled) = await super.getNoteListRaw(page: page);
+    if (page != 1 || items.length < FakeOpenWebUiServer.notePageSize) {
+      return (items, enabled);
+    }
+    final mutated = [for (final item in items) Map<String, dynamic>.from(item)];
+    mutated.first.remove('updated_at');
+    return (mutated, enabled);
+  }
+}
+
 void main() {
   late FakeOpenWebUiServer server;
   late FakeSyncApiClient client;
@@ -122,6 +137,32 @@ void main() {
     check(client.noteListPages).deepEquals([1, 2]);
     check(await allNotes()).length.equals(FakeOpenWebUiServer.notePageSize + 1);
   });
+
+  test(
+    'malformed note list items fail the page instead of shortening it',
+    () async {
+      client = _MalformedFirstPageNoteClient(server);
+      for (var i = 0; i < FakeOpenWebUiServer.notePageSize + 1; i++) {
+        server.seedNote(
+          id: 'n-${i.toString().padLeft(2, '0')}',
+          title: 'Note $i',
+          data: {
+            'content': {'md': 'body $i'},
+          },
+          createdAt: kT1 + i,
+          updatedAt: kT1 + i,
+        );
+      }
+
+      final result = await pull();
+
+      check(result.success).isFalse();
+      check(client.noteListPages).deepEquals([1]);
+      check(client.noteFetchStarts).isEmpty();
+      check(await allNotes()).isEmpty();
+      check(await db.syncMetaDao.getNotesPullWatermark()).equals(0);
+    },
+  );
 
   test(
     'pull full-fetches note bodies instead of trusting truncated list data',
@@ -292,6 +333,7 @@ void main() {
     check(row.id).equals('copy-1');
     check(row.isConflictCopy).isTrue();
     check(row.dirtyData).isTrue();
+    check(row.updatedAt).equals(kT1);
     check(row.serverUpdatedAt).equals(kT1);
     check(row.data).contains('local copy edit');
   });
