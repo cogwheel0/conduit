@@ -4,6 +4,7 @@ import 'package:checks/checks.dart';
 import 'package:collection/collection.dart';
 import 'package:conduit/core/database/app_database.dart';
 import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
+import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -164,6 +165,41 @@ void main() {
       check(rowA.orderIndex).equals(0);
       check(rowA.content).equals('one, streamed further');
       check(fetched.singleWhere((m) => m.id == 'm-b').orderIndex).equals(1);
+    });
+
+    test('completed turn links to previous tip and advances currentMessageId',
+        () async {
+      await db.chatsDao.upsertEnvelopeStub(
+        id: 'chat-turn',
+        title: 'Turn',
+        createdAt: 1,
+        updatedAt: 1,
+      );
+      await db.messagesDao.upsertLocalEcho(
+        echo(chatId: 'chat-turn', id: 'prev-a'),
+      );
+      await (db.update(db.chats)..where((t) => t.id.equals('chat-turn'))).write(
+        const ChatsCompanion(currentMessageId: Value('prev-a')),
+      );
+
+      final wrote = await db.messagesDao.upsertLocalEchoTurn(
+        chatId: 'chat-turn',
+        user: echo(
+          chatId: 'chat-turn',
+          id: 'u-2',
+          role: 'user',
+          content: 'next question',
+        ),
+        assistant: echo(chatId: 'chat-turn', id: 'a-2', content: 'answer'),
+      );
+
+      check(wrote).isTrue();
+      final rows = await db.messagesDao.getForChat('chat-turn');
+      check(rows.singleWhere((m) => m.id == 'u-2').parentId).equals('prev-a');
+      check(rows.singleWhere((m) => m.id == 'a-2').parentId).equals('u-2');
+      check((await db.chatsDao.getChat('chat-turn'))!.currentMessageId).equals(
+        'a-2',
+      );
     });
 
     test('payload round-trips verbatim through jsonEncode/jsonDecode',

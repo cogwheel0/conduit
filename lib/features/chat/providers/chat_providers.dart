@@ -2179,16 +2179,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   }) async {
     try {
       await locks.runExclusive(chatId, () async {
-        if (trailingUser != null) {
-          final wrote = await db.messagesDao.upsertLocalEcho(
-            _localEchoRow(chatId, trailingUser),
-          );
-          if (!wrote) {
-            return;
-          }
-        }
-        await db.messagesDao.upsertLocalEcho(
-          _localEchoRow(chatId, assistant, parentId: trailingUser?.id),
+        await db.messagesDao.upsertLocalEchoTurn(
+          chatId: chatId,
+          user: trailingUser == null
+              ? null
+              : _localEchoRow(chatId, trailingUser),
+          assistant: _localEchoRow(chatId, assistant),
         );
       });
     } catch (error, stackTrace) {

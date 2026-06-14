@@ -42,39 +42,86 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
       )..where((t) => t.id.equals(row.chatId))).getSingleOrNull();
       if (chatExists == null) return false;
 
-      final existing = await (select(messages)..where(
-            (t) => t.chatId.equals(row.chatId) & t.id.equals(row.id),
-          ))
-          .getSingleOrNull();
+      await _upsertLocalEchoRow(row);
+      return true;
+    });
+  }
 
-      final int orderIndex;
-      if (existing != null) {
-        orderIndex = existing.orderIndex;
-      } else {
-        final maxExpr = messages.orderIndex.max();
-        final maxQuery = selectOnly(messages)
-          ..addColumns([maxExpr])
-          ..where(messages.chatId.equals(row.chatId));
-        final maxRow = await maxQuery.getSingle();
-        orderIndex = (maxRow.read(maxExpr) ?? -1) + 1;
+  /// D-07 completed-turn echo. Caller holds the chat lock. Reads the current
+  /// active branch tip, links the echoed user to that tip, links the assistant
+  /// to the echoed user, and advances chats.currentMessageId to the assistant
+  /// in the same transaction as the message writes.
+  Future<bool> upsertLocalEchoTurn({
+    required String chatId,
+    required MessageRowData? user,
+    required MessageRowData assistant,
+  }) {
+    return transaction(() async {
+      final chat = await (select(
+        chats,
+      )..where((t) => t.id.equals(chatId))).getSingleOrNull();
+      if (chat == null) return false;
+
+      final previousTip = chat.currentMessageId;
+      if (user != null) {
+        await _upsertLocalEchoRow(_withParent(user, previousTip));
       }
-
-      await into(messages).insertOnConflictUpdate(
-        MessagesCompanion.insert(
-          id: row.id,
-          chatId: row.chatId,
-          parentId: Value(row.parentId),
-          role: row.role,
-          content: row.content,
-          model: Value(row.model),
-          createdAt: row.createdAt,
-          orderIndex: orderIndex,
-          payload: jsonEncode(row.payload),
-          dirty: const Value(false),
-        ),
+      await _upsertLocalEchoRow(
+        _withParent(assistant, user?.id ?? previousTip),
+      );
+      await (update(chats)..where((t) => t.id.equals(chatId))).write(
+        ChatsCompanion(currentMessageId: Value(assistant.id)),
       );
       return true;
     });
+  }
+
+  Future<void> _upsertLocalEchoRow(MessageRowData row) async {
+    final existing =
+        await (select(messages)
+              ..where((t) => t.chatId.equals(row.chatId) & t.id.equals(row.id)))
+            .getSingleOrNull();
+
+    final int orderIndex;
+    if (existing != null) {
+      orderIndex = existing.orderIndex;
+    } else {
+      final maxExpr = messages.orderIndex.max();
+      final maxQuery = selectOnly(messages)
+        ..addColumns([maxExpr])
+        ..where(messages.chatId.equals(row.chatId));
+      final maxRow = await maxQuery.getSingle();
+      orderIndex = (maxRow.read(maxExpr) ?? -1) + 1;
+    }
+
+    await into(messages).insertOnConflictUpdate(
+      MessagesCompanion.insert(
+        id: row.id,
+        chatId: row.chatId,
+        parentId: Value(row.parentId),
+        role: row.role,
+        content: row.content,
+        model: Value(row.model),
+        createdAt: row.createdAt,
+        orderIndex: orderIndex,
+        payload: jsonEncode(row.payload),
+        dirty: const Value(false),
+      ),
+    );
+  }
+
+  MessageRowData _withParent(MessageRowData row, String? parentId) {
+    return MessageRowData(
+      id: row.id,
+      chatId: row.chatId,
+      parentId: parentId,
+      role: row.role,
+      content: row.content,
+      model: row.model,
+      createdAt: row.createdAt,
+      orderIndex: row.orderIndex,
+      payload: Map<String, dynamic>.from(row.payload)..['parentId'] = parentId,
+    );
   }
 
   SimpleSelectStatement<$MessagesTable, MessageRow> _forChat(String chatId) {

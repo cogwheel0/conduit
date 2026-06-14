@@ -314,6 +314,51 @@ void main() {
       },
     );
 
+    test('chat soft-delete purges both title and message rows', () async {
+      await _insertChat(db, id: 'soft-chat', title: 'softgone title');
+      await _insertMessage(
+        db,
+        id: 'm1',
+        chatId: 'soft-chat',
+        content: 'softgone body',
+      );
+      check(await db.searchDao.search('softgone')).isNotEmpty();
+
+      await (db.update(db.chats)..where((t) => t.id.equals('soft-chat'))).write(
+        const ChatsCompanion(deleted: Value(true)),
+      );
+
+      check(await db.searchDao.search('softgone')).isEmpty();
+      final leftover = await db
+          .customSelect(
+            "SELECT count(*) AS n FROM chat_fts WHERE chat_id = 'soft-chat'",
+          )
+          .getSingle();
+      check(leftover.read<int>('n')).equals(0);
+    });
+
+    test('note soft-delete purges both note rows', () async {
+      await _insertNote(
+        db,
+        id: 'soft-note',
+        title: 'softnote title',
+        body: 'softnote body',
+      );
+      check(await db.searchDao.searchNotes('softnote')).isNotEmpty();
+
+      await (db.update(db.notes)..where((t) => t.id.equals('soft-note'))).write(
+        const NotesCompanion(deleted: Value(true)),
+      );
+
+      check(await db.searchDao.searchNotes('softnote')).isEmpty();
+      final leftover = await db
+          .customSelect(
+            "SELECT count(*) AS n FROM chat_fts WHERE chat_id = 'soft-note'",
+          )
+          .getSingle();
+      check(leftover.read<int>('n')).equals(0);
+    });
+
     test('note delete preserves chat FTS rows for a colliding id', () async {
       const id = 'same-uuid';
       await _insertChat(db, id: id, title: 'collision chat title');

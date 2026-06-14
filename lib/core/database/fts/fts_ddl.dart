@@ -35,7 +35,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS chat_fts USING fts5(
 );
 ''';
 
-/// The six triggers covering EVERY write path. SQL triggers fire regardless of
+/// The chat triggers covering EVERY write path. SQL triggers fire regardless of
 /// the Dart path that issued the write.
 ///
 /// FK-CASCADE GOTCHA: messages are deleted by FK cascade in
@@ -87,7 +87,16 @@ WHEN new.title <> old.title BEGIN
   VALUES (new.title, new.id, '', 'title');
 END;
 ''',
-  // 6. chats AFTER DELETE — purges BOTH title and all msg rows for the chat.
+  // 6. chats AFTER UPDATE OF deleted — soft-delete purges title + msg rows.
+  '''
+CREATE TRIGGER IF NOT EXISTS chat_fts_chat_deleted_au
+AFTER UPDATE OF deleted ON chats
+WHEN new.deleted = 1 BEGIN
+  DELETE FROM chat_fts
+  WHERE chat_id = old.id AND kind IN ('title', 'msg');
+END;
+''',
+  // 7. chats AFTER DELETE — purges BOTH title and all msg rows for the chat.
   //    This is the complete purge that covers FK-cascaded message deletes.
   '''
 CREATE TRIGGER IF NOT EXISTS chat_fts_chat_ad AFTER DELETE ON chats BEGIN
@@ -147,7 +156,16 @@ WHEN new.data <> old.data BEGIN
           new.id, '', 'note_text');
 END;
 ''',
-  // 10. notes AFTER DELETE — purges BOTH note kinds for the note id.
+  // 10. notes AFTER UPDATE OF deleted — soft-delete purges both note kinds.
+  '''
+CREATE TRIGGER IF NOT EXISTS chat_fts_note_deleted_au
+AFTER UPDATE OF deleted ON notes
+WHEN new.deleted = 1 BEGIN
+  DELETE FROM chat_fts
+  WHERE chat_id = old.id AND kind IN ('note_title', 'note_text');
+END;
+''',
+  // 11. notes AFTER DELETE — purges BOTH note kinds for the note id.
   '''
 CREATE TRIGGER IF NOT EXISTS chat_fts_note_ad AFTER DELETE ON notes BEGIN
   DELETE FROM chat_fts

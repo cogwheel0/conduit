@@ -11,10 +11,12 @@ import 'dart:convert';
 import 'package:checks/checks.dart';
 import 'package:conduit/core/database/app_database.dart';
 import 'package:conduit/core/database/database_provider.dart';
+import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
+import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -89,6 +91,30 @@ void main() {
     updatedAt: 1704067200,
   );
 
+  Future<void> seedExistingTurn(String id) async {
+    await seedChatRow(id);
+    await db.messagesDao.upsertLocalEcho(
+      MessageRowData(
+        id: 'prev-a',
+        chatId: id,
+        role: 'assistant',
+        content: 'Previous answer',
+        createdAt: 1704067200,
+        orderIndex: 0,
+        payload: const {
+          'id': 'prev-a',
+          'parentId': null,
+          'role': 'assistant',
+          'content': 'Previous answer',
+          'timestamp': 1704067200,
+        },
+      ),
+    );
+    await (db.update(db.chats)..where((t) => t.id.equals(id))).write(
+      const ChatsCompanion(currentMessageId: Value('prev-a')),
+    );
+  }
+
   group('D-07 stream-completion persistence', () {
     test(
       'finishStreaming echoes the user+assistant turn with linked parentId',
@@ -122,6 +148,36 @@ void main() {
         check(assistantPayload['isStreaming']).equals(false);
         // The in-state assistant is no longer streaming.
         check(container.read(chatMessagesProvider).last.isStreaming).isFalse();
+      },
+    );
+
+    test(
+      'finishStreaming links an existing chat turn to the previous tip',
+      () async {
+        await seedExistingTurn('d07-existing');
+        final container = buildContainer();
+        container
+            .read(activeConversationProvider.notifier)
+            .set(_conversation('d07-existing'));
+
+        final notifier = container.read(chatMessagesProvider.notifier);
+        notifier.setMessages([
+          _user('u-2', 'Follow-up'),
+          _streamingAssistant('a-2', 'Follow-up answer'),
+        ]);
+
+        notifier.finishStreaming();
+        await settleUntil(
+          () async =>
+              (await db.chatsDao.getChat('d07-existing'))?.currentMessageId ==
+              'a-2',
+        );
+
+        final rows = await db.messagesDao.getForChat('d07-existing');
+        check(rows.singleWhere((r) => r.id == 'u-2').parentId).equals('prev-a');
+        check(rows.singleWhere((r) => r.id == 'a-2').parentId).equals('u-2');
+        final chat = await db.chatsDao.getChat('d07-existing');
+        check(chat!.currentMessageId).equals('a-2');
       },
     );
 

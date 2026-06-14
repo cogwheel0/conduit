@@ -11,8 +11,8 @@
 /// character inside loses its operator meaning, then append a trailing `*` for
 /// type-ahead prefix matching. Tokens are joined with implicit AND (a space).
 ///
-/// An empty / all-punctuation / whitespace-only input returns `''`; the caller
-/// MUST short-circuit on `''` and return no results (never run `MATCH ''`).
+/// Empty or whitespace-only input returns `''`; the caller MUST short-circuit
+/// on `''` and return no results (never run `MATCH ''`).
 library;
 
 /// Matches any run of Unicode whitespace (covers ASCII spaces/tabs/newlines
@@ -21,10 +21,10 @@ final RegExp _whitespace = RegExp(r'\s+', unicode: true);
 
 /// Converts arbitrary [raw] user input into a safe FTS5 MATCH expression.
 ///
-/// Returns `''` when the input has no indexable content (empty, whitespace, or
-/// only characters that vanish during escaping). The result, when non-empty, is
-/// always a syntactically valid MATCH expression: a space-joined list of
-/// quoted-phrase prefix terms like `"foo"* "bar"*`.
+/// Returns `''` when the input has no indexable content (empty or whitespace).
+/// The result, when non-empty, is always a syntactically valid MATCH
+/// expression: a space-joined list of quoted-phrase prefix terms like
+/// `"foo"* "bar"*`.
 String toFtsMatchQuery(String raw) {
   final trimmed = raw.trim();
   if (trimmed.isEmpty) return '';
