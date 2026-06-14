@@ -279,8 +279,8 @@ void main() {
   test('crash between createChat and remap-commit heals without duplicating the '
       'chat or the assistant row', () async {
     const localId = 'local:crash-heal';
-    const contentHash = 'crash-heal-hash';
     final blobRows = _composeRows(localId, 'heal me');
+    final contentHash = createChatContentHash(blobRows);
     await chatLocks.runExclusive(localId, () async {
       await db.chatsDao.insertLocalChatWithCreateOp(
         chat: blobRows.chat,

@@ -7,6 +7,7 @@ import '../utils/debug_logger.dart';
 import 'chat_locks.dart';
 import 'clock.dart';
 import 'id_remapper.dart';
+import 'outbox_drainer.dart';
 import 'sync_api_client.dart';
 
 /// Per-kind outbox push handlers (CDT-RFC-001 §7.2/§7.3/§7.4).
@@ -57,7 +58,7 @@ class PushSync {
   /// is acquired before releasing it so a pull cannot fast-forward the server
   /// row between POST and remap. The §7.3 transaction commits before the
   /// drainer marks the op done.
-  Future<String?> pushCreateChat(String localId) async {
+  Future<String?> pushCreateChat(String localId, {String? contentHash}) async {
     // Re-run idempotency (§7.3): the remap repoints this op's chat_id from
     // local:<uuid> to the server id INSIDE the §7.3 transaction, which commits
     // BEFORE the drainer markDone()s the op. A crash (or a pull-side crash-heal)
@@ -74,9 +75,14 @@ class PushSync {
         final chat = await _db.chatsDao.getChat(localId);
         if (chat != null) {
           final messages = await _db.messagesDao.getForChat(localId);
+          final capturedMessageIds = _messageIdsIfSnapshotMatches(
+            chat,
+            messages,
+            contentHash,
+          );
           await _clearDirty(
             chatId: localId,
-            messageIds: [for (final message in messages) message.id],
+            messageIds: capturedMessageIds,
             serverUpdatedAt: chat.serverUpdatedAt ?? chat.updatedAt,
           );
         }
@@ -99,7 +105,7 @@ class PushSync {
           scope: 'sync/push',
           data: {'chatId': localId, 'folderId': chat.folderId},
         );
-        throw StateError(
+        throw _OutboxDeferred(
           'createChat deferred until folder remap completes: $localId',
         );
       }
@@ -160,7 +166,7 @@ class PushSync {
         return;
       }
       if (!chat.bodySynced) {
-        throw StateError(
+        throw _OutboxDeferred(
           'updateChat deferred until body sync completes: $chatId',
         );
       }
@@ -170,7 +176,7 @@ class PushSync {
           scope: 'sync/push',
           data: {'chatId': chatId, 'folderId': chat.folderId},
         );
-        throw StateError(
+        throw _OutboxDeferred(
           'updateChat deferred until folder remap completes: $chatId',
         );
       }
@@ -294,13 +300,15 @@ class PushSync {
             scope: 'sync/push',
             data: {'folderId': folderId, 'parentId': parentId},
           );
-          throw StateError(
+          throw _OutboxDeferred(
             'createFolder deferred until parent remap completes: $folderId',
           );
         }
         final resp = await _client.createFolder(
           name: name ?? '',
           parentId: parentId,
+          data: data,
+          meta: meta,
         );
         final serverId = resp['id'];
         if (serverId is! String || serverId.isEmpty) {
@@ -345,7 +353,7 @@ class PushSync {
             scope: 'sync/push',
             data: {'folderId': folderId, 'parentId': parentId},
           );
-          throw StateError(
+          throw _OutboxDeferred(
             'updateFolderParent deferred until parent remap completes: '
             '$folderId',
           );
@@ -416,11 +424,40 @@ class PushSync {
     return null;
   }
 
+  static List<String> _messageIdsIfSnapshotMatches(
+    ChatRow chat,
+    List<MessageRow> messages,
+    String? contentHash,
+  ) {
+    if (contentHash == null || contentHash.isEmpty) {
+      return const [];
+    }
+    final currentHash = createChatContentHash(chatRowsFromDb(chat, messages));
+    if (currentHash != contentHash) {
+      DebugLogger.log(
+        'create-already-satisfied-hash-changed',
+        scope: 'sync/push',
+        data: {'chatId': chat.id},
+      );
+      return const [];
+    }
+    return [for (final message in messages) message.id];
+  }
+
   static int? _epoch(Object? value) {
     if (value is int) return value;
     if (value is num) return value.toInt();
     return null;
   }
+}
+
+class _OutboxDeferred implements OutboxDeferralException {
+  const _OutboxDeferred(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
 }
 
 /// Result of the createChat POST carried out of the local-id lock span.

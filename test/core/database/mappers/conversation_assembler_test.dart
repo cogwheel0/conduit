@@ -57,9 +57,9 @@ void main() {
         },
       };
       check(
+        _deepEq.equals(envelope, expected),
         because: 'envelope must match what /api/v1/chats/{id} returns today\n'
             'got: ${jsonEncode(envelope)}',
-        _deepEq.equals(envelope, expected),
       ).isTrue();
     });
   });
@@ -165,8 +165,8 @@ void main() {
       check(folder.meta).isNotNull();
       check(folder.meta!['color']).equals('#00ff00');
       check(
-        because: 'Phase 1 must not synthesize conversationIds',
         folder.conversationIds,
+        because: 'Phase 1 must not synthesize conversationIds',
       ).isEmpty();
     });
   });

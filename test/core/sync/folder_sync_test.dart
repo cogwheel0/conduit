@@ -6,6 +6,7 @@ import 'package:conduit/core/database/daos/outbox_dao.dart';
 import 'package:conduit/core/sync/chat_locks.dart';
 import 'package:conduit/core/sync/clock.dart';
 import 'package:conduit/core/sync/id_remapper.dart';
+import 'package:conduit/core/sync/outbox_drainer.dart';
 import 'package:conduit/core/sync/push_sync.dart';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
@@ -409,7 +410,9 @@ void main() {
         updatedAt: 100,
       );
 
-      await check(push.pushUpdateChat('chat1')).throws<StateError>();
+      await check(
+        push.pushUpdateChat('chat1'),
+      ).throws<OutboxDeferralException>();
 
       // No server write/move happens while the folder id is still local.
       check(client.updateChatCalls).equals(0);

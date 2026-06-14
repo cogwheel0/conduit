@@ -422,13 +422,20 @@ class FakeOpenWebUiServer {
 
   /// Mirrors `POST /api/v1/folders/` (`create_folder`): the server mints the
   /// id; returns the raw folder map.
-  Map<String, dynamic> createFolder({required String name, String? parentId}) {
+  Map<String, dynamic> createFolder({
+    required String name,
+    String? parentId,
+    Map<String, dynamic>? data,
+    Map<String, dynamic>? meta,
+  }) {
     final now = _now();
     final id = _uuid.v4();
     final folder = <String, dynamic>{
       'id': id,
       'name': name,
       'parent_id': parentId,
+      if (data != null) 'data': _deepCopy(data),
+      if (meta != null) 'meta': _deepCopy(meta),
       'created_at': now,
       'updated_at': now,
     };

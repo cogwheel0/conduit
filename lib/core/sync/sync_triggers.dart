@@ -28,6 +28,7 @@ const Duration kPeriodicPullInterval = Duration(minutes: 5);
 class SyncTriggers extends _$SyncTriggers {
   Timer? _periodic;
   _SyncLifecycleObserver? _observer;
+  bool _isForeground = false;
   bool _startFired = false;
   bool _startCheckQueued = false;
   Object? _startDatabase;
@@ -73,14 +74,17 @@ class SyncTriggers extends _$SyncTriggers {
     // Foreground/background lifecycle + periodic timer.
     final observer = _SyncLifecycleObserver(
       onResumed: () {
+        _isForeground = true;
         _request('foreground');
         _restartPeriodicTimer();
       },
-      onPaused: _cancelPeriodicTimer,
+      onPaused: _leaveForeground,
+      onInactive: _leaveForeground,
+      onHidden: _leaveForeground,
+      onDetached: _leaveForeground,
     );
     _observer = observer;
     WidgetsBinding.instance.addObserver(observer);
-    _restartPeriodicTimer();
 
     ref.onDispose(() {
       _cancelPeriodicTimer();
@@ -124,12 +128,21 @@ class SyncTriggers extends _$SyncTriggers {
   void _restartPeriodicTimer() {
     _periodic?.cancel();
     _periodic = Timer.periodic(kPeriodicPullInterval, (_) {
+      if (!_isForeground) {
+        DebugLogger.log('periodic-skipped-background', scope: 'sync/triggers');
+        return;
+      }
       if (!ref.read(isOnlineProvider)) {
         DebugLogger.log('periodic-skipped-offline', scope: 'sync/triggers');
         return;
       }
       _request('periodic');
     });
+  }
+
+  void _leaveForeground() {
+    _isForeground = false;
+    _cancelPeriodicTimer();
   }
 
   void _cancelPeriodicTimer() {
@@ -150,10 +163,19 @@ class SyncTriggers extends _$SyncTriggers {
 }
 
 class _SyncLifecycleObserver with WidgetsBindingObserver {
-  _SyncLifecycleObserver({required this.onResumed, required this.onPaused});
+  _SyncLifecycleObserver({
+    required this.onResumed,
+    required this.onPaused,
+    required this.onInactive,
+    required this.onHidden,
+    required this.onDetached,
+  });
 
   final void Function() onResumed;
   final void Function() onPaused;
+  final void Function() onInactive;
+  final void Function() onHidden;
+  final void Function() onDetached;
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -165,8 +187,13 @@ class _SyncLifecycleObserver with WidgetsBindingObserver {
         onPaused();
         break;
       case AppLifecycleState.detached:
+        onDetached();
+        break;
       case AppLifecycleState.inactive:
+        onInactive();
+        break;
       case AppLifecycleState.hidden:
+        onHidden();
         break;
     }
   }

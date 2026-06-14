@@ -13,6 +13,7 @@ import 'package:conduit/core/sync/outbox_drainer.dart';
 import 'package:conduit/core/sync/pull_sync.dart';
 import 'package:conduit/core/sync/push_sync.dart';
 import 'package:conduit/core/sync/sync_api_client.dart';
+import 'package:conduit/core/sync/sync_entity_adapter.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -151,11 +152,18 @@ class RecordingSyncApiClient implements SyncApiClient {
   Future<Map<String, dynamic>> createFolder({
     required String name,
     String? parentId,
+    Map<String, dynamic>? data,
+    Map<String, dynamic>? meta,
   }) async {
     calls.add('createFolder');
     events.add('createFolder:$name');
     await Future<void>.delayed(Duration.zero);
-    return server.createFolder(name: name, parentId: parentId);
+    return server.createFolder(
+      name: name,
+      parentId: parentId,
+      data: data,
+      meta: meta,
+    );
   }
 
   @override
@@ -265,6 +273,7 @@ void main() {
   OutboxDrainer buildDrainer({
     Backoff? backoff,
     TerminalErrorClassifier? terminal,
+    List<SyncEntityAdapter>? adapters,
   }) {
     return OutboxDrainer(
       db: db,
@@ -273,31 +282,33 @@ void main() {
       isOnline: () => online,
       completion: completion,
       terminalClassifier: terminal,
-      adapters: [
-        ChatAdapter(
-          pull: PullSync(
-            client: client,
-            db: db,
-            locks: chatLocks,
-            remapper: remapper,
-          ),
-          push: push,
-        ),
-        NoteAdapter(
-          pull: NotePullSync(
-            client: client,
-            db: db,
-            locks: chatLocks,
-            remapper: remapper,
-          ),
-          push: NotePushSync(
-            client: client,
-            db: db,
-            noteLocks: chatLocks,
-            remapper: remapper,
-          ),
-        ),
-      ],
+      adapters:
+          adapters ??
+          [
+            ChatAdapter(
+              pull: PullSync(
+                client: client,
+                db: db,
+                locks: chatLocks,
+                remapper: remapper,
+              ),
+              push: push,
+            ),
+            NoteAdapter(
+              pull: NotePullSync(
+                client: client,
+                db: db,
+                locks: chatLocks,
+                remapper: remapper,
+              ),
+              push: NotePushSync(
+                client: client,
+                db: db,
+                noteLocks: chatLocks,
+                remapper: remapper,
+              ),
+            ),
+          ],
     );
   }
 
@@ -364,6 +375,23 @@ void main() {
         check(row.status).equals(OutboxStatus.failed);
         check(row.attempts).equals(1);
         check(row.lastError!).contains('missing noteId');
+        check(client.calls).isEmpty();
+      },
+    );
+
+    test(
+      'kind with no owning adapter parks without being marked done',
+      () async {
+        await seedServerChat('c1');
+        final seq = await enqueue(kind: OutboxKind.updateChat, chatId: 'c1');
+
+        await buildDrainer(adapters: const []).drain();
+
+        final row = await (db.select(
+          db.outboxOps,
+        )..where((t) => t.seq.equals(seq))).getSingle();
+        check(row.status).equals(OutboxStatus.failed);
+        check(row.lastError!).contains('no adapter for updateChat');
         check(client.calls).isEmpty();
       },
     );

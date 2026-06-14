@@ -1548,20 +1548,22 @@ class ApiService {
   static List<Map<String, dynamic>> _coerceRawMapList(Object? data) {
     Object? normalized = data;
     if (normalized is String && normalized.isNotEmpty) {
-      try {
-        normalized = jsonDecode(normalized);
-      } catch (_) {
-        return const [];
+      normalized = jsonDecode(normalized);
+    }
+    if (normalized is! List) {
+      throw FormatException('Expected JSON array response, got $normalized');
+    }
+    final rows = <Map<String, dynamic>>[];
+    for (final item in normalized) {
+      if (item is Map<String, dynamic>) {
+        rows.add(item);
+      } else if (item is Map) {
+        rows.add(Map<String, dynamic>.from(item));
+      } else {
+        throw FormatException('Expected JSON object item, got $item');
       }
     }
-    if (normalized is! List) return const [];
-    return [
-      for (final item in normalized)
-        if (item is Map<String, dynamic>)
-          item
-        else if (item is Map)
-          Map<String, dynamic>.from(item),
-    ];
+    return rows;
   }
 
   // Parse full OpenWebUI chat with messages
@@ -2589,11 +2591,18 @@ class ApiService {
   Future<Map<String, dynamic>> createFolder({
     required String name,
     String? parentId,
+    Map<String, dynamic>? data,
+    Map<String, dynamic>? meta,
   }) async {
     _traceApi('Creating folder: $name');
     final response = await _dio.post(
       '/api/v1/folders/',
-      data: {'name': name, 'parent_id': ?parentId},
+      data: {
+        'name': name,
+        'parent_id': ?parentId,
+        'data': ?data,
+        'meta': ?meta,
+      },
     );
     return response.data as Map<String, dynamic>;
   }

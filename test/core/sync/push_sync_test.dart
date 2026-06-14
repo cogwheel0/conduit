@@ -5,6 +5,7 @@ import 'package:conduit/core/database/app_database.dart';
 import 'package:conduit/core/sync/chat_locks.dart';
 import 'package:conduit/core/sync/clock.dart';
 import 'package:conduit/core/sync/id_remapper.dart';
+import 'package:conduit/core/sync/outbox_drainer.dart';
 import 'package:conduit/core/sync/push_sync.dart';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
@@ -186,12 +187,38 @@ void main() {
       check(client.createChatCalls).equals(1);
     });
 
+    test(
+      're-run with an already-remapped id keeps newer dirty messages dirty',
+      () async {
+        const localId = 'local:dirty-replay';
+        await seedLocalChat(db, id: localId, messageCount: 1);
+        final serverId = await push.pushCreateChat(localId);
+        final message = (await db.messagesDao.getForChat(serverId!)).single;
+        await (db.update(db.messages)..where(
+              (t) => t.chatId.equals(serverId) & t.id.equals(message.id),
+            ))
+            .write(const MessagesCompanion(dirty: Value(true)));
+
+        final reResult = await push.pushCreateChat(
+          serverId,
+          contentHash: 'older-snapshot',
+        );
+
+        check(reResult).equals(serverId);
+        check(client.createChatCalls).equals(1);
+        final messages = await db.messagesDao.getForChat(serverId);
+        check(messages.single.dirty).isTrue();
+      },
+    );
+
     test('defers create while the target folder is still local', () async {
       const localId = 'local:foldered-chat';
       const folderId = 'local:folder';
       await seedLocalChat(db, id: localId, folderId: folderId, messageCount: 1);
 
-      await check(push.pushCreateChat(localId)).throws<StateError>();
+      await check(
+        push.pushCreateChat(localId),
+      ).throws<OutboxDeferralException>();
 
       check(client.createChatCalls).equals(0);
       final chat = await db.chatsDao.getChat(localId);
@@ -301,7 +328,9 @@ void main() {
         bodySynced: false,
       );
 
-      await check(push.pushUpdateChat('stub')).throws<StateError>();
+      await check(
+        push.pushUpdateChat('stub'),
+      ).throws<OutboxDeferralException>();
 
       final stored = server.getChatById('stub')!;
       final history = (stored['chat'] as Map)['history'] as Map;
@@ -548,6 +577,10 @@ void main() {
           'folderId': localId,
           'name': 'Work',
           'parentId': null,
+          'data': {
+            'files': ['file-1'],
+          },
+          'meta': {'color': '#336699'},
           'createIfAbsent': true,
         });
 
@@ -557,7 +590,14 @@ void main() {
         check(folders.length).equals(1);
         check(folders.single.id.startsWith('local:')).isFalse();
         check(folders.single.dirty).isFalse();
-        check(server.getFolders().map((f) => f['name'])).contains('Work');
+        final serverFolder = server.getFolders().single;
+        check(serverFolder['name']).equals('Work');
+        check(serverFolder['data']).isA<Map<String, dynamic>>().deepEquals({
+          'files': ['file-1'],
+        });
+        check(
+          serverFolder['meta'],
+        ).isA<Map<String, dynamic>>().deepEquals({'color': '#336699'});
       },
     );
 
@@ -586,7 +626,7 @@ void main() {
             'parentId': parentId,
             'createIfAbsent': true,
           }),
-        ).throws<StateError>();
+        ).throws<OutboxDeferralException>();
 
         check(server.getFolders()).isEmpty();
         final row = await db.foldersDao.getFolder(localId);
@@ -693,7 +733,7 @@ void main() {
             'parentId': 'local:parent-folder',
             'createIfAbsent': false,
           }),
-        ).throws<StateError>();
+        ).throws<OutboxDeferralException>();
 
         final stored = server.getFolders().firstWhere((f) => f['id'] == id);
         check(stored['parent_id']).isNull();

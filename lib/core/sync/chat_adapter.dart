@@ -69,7 +69,10 @@ class ChatAdapter implements SyncEntityAdapter {
     final kind = OutboxKind.fromName(op.kind);
     switch (kind) {
       case OutboxKind.createChat:
-        await _push.pushCreateChat(_requiredChatId(op, OutboxKind.createChat));
+        await _push.pushCreateChat(
+          _requiredChatId(op, OutboxKind.createChat),
+          contentHash: op.contentHash,
+        );
         break;
       case OutboxKind.updateChat:
         await _push.pushUpdateChat(_requiredChatId(op, OutboxKind.updateChat));

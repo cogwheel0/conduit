@@ -252,9 +252,16 @@ class FakeSyncApiClient implements SyncApiClient {
   Future<Map<String, dynamic>> createFolder({
     required String name,
     String? parentId,
+    Map<String, dynamic>? data,
+    Map<String, dynamic>? meta,
   }) async {
     await Future<void>.delayed(Duration.zero);
-    return server.createFolder(name: name, parentId: parentId);
+    return server.createFolder(
+      name: name,
+      parentId: parentId,
+      data: data,
+      meta: meta,
+    );
   }
 
   @override

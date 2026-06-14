@@ -255,29 +255,46 @@ void main() {
         async.flushMicrotasks();
         pulls.clear();
 
-        // The timer installed at build ticks every 5 minutes.
+        // The timer starts only after a foreground resume.
         async.elapse(kPeriodicPullInterval);
-        check(countOf('periodic')).equals(1);
+        check(countOf('periodic')).equals(0);
 
         // Resume: one foreground pull, timer restarted from zero.
         binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
         async.flushMicrotasks();
         check(countOf('foreground')).equals(1);
         async.elapse(kPeriodicPullInterval);
-        check(countOf('periodic')).equals(2);
+        check(countOf('periodic')).equals(1);
 
         // Pause: the periodic timer must not survive backgrounding.
         binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
         async.flushMicrotasks();
         async.elapse(kPeriodicPullInterval * 3);
-        check(countOf('periodic')).equals(2);
+        check(countOf('periodic')).equals(1);
+
+        // Inactive and hidden are background-equivalent for periodic pulls.
+        binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+        async.flushMicrotasks();
+        check(countOf('foreground')).equals(2);
+        binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+        async.flushMicrotasks();
+        async.elapse(kPeriodicPullInterval * 3);
+        check(countOf('periodic')).equals(1);
+
+        binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+        async.flushMicrotasks();
+        check(countOf('foreground')).equals(3);
+        binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+        async.flushMicrotasks();
+        async.elapse(kPeriodicPullInterval * 3);
+        check(countOf('periodic')).equals(1);
 
         // Resume restarts it.
         binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
         async.flushMicrotasks();
-        check(countOf('foreground')).equals(2);
+        check(countOf('foreground')).equals(4);
         async.elapse(kPeriodicPullInterval);
-        check(countOf('periodic')).equals(3);
+        check(countOf('periodic')).equals(2);
 
         // Dispose: observer removed, timer cancelled — nothing fires again.
         container.dispose();
@@ -316,6 +333,9 @@ void main() {
         // microtask; under fakeAsync that needs a timer flush, so elapse(zero)
         // rather than flushMicrotasks.
         async.elapse(Duration.zero);
+        pulls.clear();
+        binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+        async.flushMicrotasks();
         pulls.clear();
 
         // Offline ticks are skipped entirely.

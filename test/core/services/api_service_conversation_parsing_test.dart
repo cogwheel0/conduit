@@ -66,6 +66,25 @@ void main() {
       check(rows.single['title']).equals('Encoded');
     });
 
+    test(
+      'getChatListPageRaw throws on malformed JSON-string payloads',
+      () async {
+        final adapter = _RouteJsonAdapter({'/api/v1/chats/': 'not json'});
+        final api = _buildApiService(adapter);
+
+        await check(api.getChatListPageRaw(page: 1)).throws<FormatException>();
+      },
+    );
+
+    test('getChatListPageRaw throws on non-list payloads', () async {
+      final adapter = _RouteJsonAdapter({
+        '/api/v1/chats/': {'items': <Object?>[]},
+      });
+      final api = _buildApiService(adapter);
+
+      await check(api.getChatListPageRaw(page: 1)).throws<FormatException>();
+    });
+
     test('searchChats parses wrapped byte summary payloads', () async {
       final adapter = _RouteJsonAdapter({
         '/api/v1/chats/search': {

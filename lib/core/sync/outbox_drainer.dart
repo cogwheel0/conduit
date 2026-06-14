@@ -127,8 +127,8 @@ class OutboxDrainer {
   /// single-threaded event loop ensure no worker is mid-push the first time.
   Future<void> _recoverStrandedOnce() async {
     if (_recovered) return;
-    _recovered = true;
     final reclaimed = await _db.outboxDao.resetInFlightToPending();
+    _recovered = true;
     if (reclaimed > 0) {
       DebugLogger.log(
         'reclaimed stranded inFlight ops',
@@ -225,14 +225,16 @@ class OutboxDrainer {
     }
 
     try {
-      await _execute(op, kind);
-      await _db.outboxDao.markDone(op.seq);
+      final executed = await _execute(op, kind);
+      if (executed) {
+        await _db.outboxDao.markDone(op.seq);
+      }
     } catch (error, stack) {
       await _handleFailure(op, kind, error, stack);
     }
   }
 
-  Future<void> _execute(OutboxOp op, OutboxKind kind) async {
+  Future<bool> _execute(OutboxOp op, OutboxKind kind) async {
     // requestCompletion must be consumed here before the adapter loop. The
     // ChatAdapter owns the kind for FIFO partitioning, but its pushOp
     // intentionally throws for requestCompletion; falling through is a bug.
@@ -245,7 +247,7 @@ class OutboxDrainer {
         chatId: chatId,
         payload: decodeOutboxPayload(op.payload),
       );
-      return;
+      return true;
     }
     // Ownership dispatch (CDT-RFC-001 Phase 5 seam): the chat + note adapters
     // partition every remaining kind, so exactly one owns it. The busy-key /
@@ -255,7 +257,7 @@ class OutboxDrainer {
     for (final adapter in _adapters) {
       if (adapter.ownsKind(kind)) {
         await adapter.pushOp(op);
-        return;
+        return true;
       }
     }
     // No owner: should be unreachable (the enum is fully partitioned), but never
@@ -269,6 +271,7 @@ class OutboxDrainer {
       op.seq,
       error: 'no adapter for ${kind.name}',
     );
+    return false;
   }
 
   Future<void> _handleFailure(

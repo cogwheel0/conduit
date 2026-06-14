@@ -115,6 +115,8 @@ abstract interface class SyncApiClient {
   Future<Map<String, dynamic>> createFolder({
     required String name,
     String? parentId,
+    Map<String, dynamic>? data,
+    Map<String, dynamic>? meta,
   });
 
   /// POST `/api/v1/folders/{id}/update`; null on 404.
@@ -317,8 +319,15 @@ class ApiSyncApiClient implements SyncApiClient {
   Future<Map<String, dynamic>> createFolder({
     required String name,
     String? parentId,
+    Map<String, dynamic>? data,
+    Map<String, dynamic>? meta,
   }) {
-    return api.createFolder(name: name, parentId: parentId);
+    return api.createFolder(
+      name: name,
+      parentId: parentId,
+      data: data,
+      meta: meta,
+    );
   }
 
   @override
