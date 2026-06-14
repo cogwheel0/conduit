@@ -293,11 +293,13 @@ class DeletionReconcile {
     var page = 1;
     while (true) {
       final items = await fetch(page);
+      final idsBefore = into.length;
       for (final item in items) {
         final id = item['id'];
         if (id is String && id.isNotEmpty) into.add(id);
       }
       if (items.length < kOpenWebUiChatListPageSize) break;
+      if (into.length == idsBefore) break;
       page++;
     }
   }

@@ -208,7 +208,17 @@ class PushSync {
       final serverArchived = resp['archived'] == true;
       final needsPinCheck = chat.pinned != serverPinned;
       final needsArchiveCheck = chat.archived != serverArchived;
-      if (needsArchiveCheck) {
+
+      if (needsPinCheck && !needsArchiveCheck) {
+        // Pin lives in a join table; confirm against /pinned (authoritative)
+        // rather than the ChatResponse copy, then flip on a real delta. This
+        // path intentionally skips getChatRaw; no archive liveness check is
+        // needed for a pin-only delta.
+        final livePinned = await _client.getChatPinned(chatId);
+        if (livePinned != chat.pinned) {
+          await _client.togglePin(chatId);
+        }
+      } else if (needsArchiveCheck) {
         // A liveness fetch is needed only for archive reconciliation: the
         // archive flag rides the ChatResponse, while pin has a dedicated
         // authoritative endpoint below.
@@ -228,13 +238,6 @@ class PushSync {
               await _client.toggleArchive(chatId);
             }
           }
-        }
-      } else if (needsPinCheck) {
-        // Pin lives in a join table; confirm against /pinned (authoritative)
-        // rather than the ChatResponse copy, then flip on a real delta.
-        final livePinned = await _client.getChatPinned(chatId);
-        if (livePinned != chat.pinned) {
-          await _client.togglePin(chatId);
         }
       }
 

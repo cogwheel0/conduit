@@ -4,6 +4,8 @@ import 'package:conduit/core/database/daos/outbox_dao.dart';
 import 'package:conduit/core/sync/chat_locks.dart';
 import 'package:conduit/core/sync/clock.dart';
 import 'package:conduit/core/sync/deletion_reconcile.dart';
+import 'package:conduit/core/sync/pull_sync.dart'
+    show kOpenWebUiChatListPageSize;
 import 'package:dio/dio.dart';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
@@ -33,6 +35,23 @@ class _SessionDyingClient extends FakeSyncApiClient {
       }
     }
     return super.getChatListPage(page);
+  }
+}
+
+/// A client that models broken pagination by returning page 1 for every main
+/// list page request.
+class _RepeatingFirstPageClient extends FakeSyncApiClient {
+  _RepeatingFirstPageClient(super.server);
+
+  final pages = <int>[];
+
+  @override
+  Future<List<Map<String, dynamic>>> getChatListPage(int page) {
+    pages.add(page);
+    if (page > 2) {
+      throw StateError('pagination did not stop after a duplicate full page');
+    }
+    return super.getChatListPage(1);
   }
 }
 
@@ -126,6 +145,36 @@ void main() {
   };
 
   group('pagination absence is NOT a delete signal', () {
+    test(
+      'server list enumeration stops when a full page adds no new ids',
+      () async {
+        for (var i = 0; i < kOpenWebUiChatListPageSize; i++) {
+          final id = 'chat-${i.toString().padLeft(2, '0')}';
+          server.seedChat(
+            id: id,
+            blob: blobFor(id),
+            createdAt: 50,
+            updatedAt: 100 + i,
+          );
+          await seedServerChat(db, id: id);
+        }
+        final repeatingClient = _RepeatingFirstPageClient(server);
+        reconcile = DeletionReconcile(
+          client: repeatingClient,
+          db: db,
+          locks: locks,
+          clock: clock,
+        );
+
+        final result = await reconcile.run(ReconcileReason.manualRefresh);
+
+        check(result.ran).isTrue();
+        check(result.candidates).equals(0);
+        check(result.purged).equals(0);
+        check(repeatingClient.pages).deepEquals([1, 2]);
+      },
+    );
+
     test('a chat present on the server but absent from the page set is NOT '
         'purged — the probe confirms it still exists', () async {
       // Both chats exist on the server AND locally.
