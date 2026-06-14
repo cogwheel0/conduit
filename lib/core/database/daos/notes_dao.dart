@@ -243,6 +243,13 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
   /// title+data reconstructed from the row at push). Caller holds the note
   /// lock for `note` (the new id is on `note`).
   Future<void> insertLocalNoteWithCreateOp({required NotesCompanion note}) {
+    if (!note.id.present) {
+      throw ArgumentError.value(
+        note.id,
+        'note.id',
+        'insertLocalNoteWithCreateOp requires an explicit id',
+      );
+    }
     final id = note.id.value;
     return transaction(() async {
       await into(notes).insert(
