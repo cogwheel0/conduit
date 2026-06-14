@@ -86,6 +86,10 @@ class SearchDao extends DatabaseAccessor<AppDatabase> with _$SearchDaoMixin {
   /// Default result limit — parity with the server search `limit: 50`.
   static const int _kDefaultLimit = 50;
 
+  /// Combined chat+note pagination is merge-then-slice in Dart. Keep each
+  /// source query bounded even if a caller asks for a very deep offset.
+  static const int _kMaxSearchAllSourceLimit = 250;
+
   /// Ranked full-text search over message content + chat titles.
   ///
   /// [raw] is arbitrary user input; it is sanitized via [toFtsMatchQuery] to a
@@ -221,7 +225,11 @@ class SearchDao extends DatabaseAccessor<AppDatabase> with _$SearchDaoMixin {
   }) async {
     if (limit <= 0) return const <SearchHit>[];
     final pageOffset = offset < 0 ? 0 : offset;
-    final sourceLimit = limit + pageOffset;
+    if (pageOffset >= _kMaxSearchAllSourceLimit) return const <SearchHit>[];
+    final requestedSourceLimit = limit + pageOffset;
+    final sourceLimit = requestedSourceLimit > _kMaxSearchAllSourceLimit
+        ? _kMaxSearchAllSourceLimit
+        : requestedSourceLimit;
     final results = await Future.wait([
       search(raw, limit: sourceLimit),
       searchNotes(raw, limit: sourceLimit),

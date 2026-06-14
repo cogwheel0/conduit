@@ -507,6 +507,26 @@ void main() {
       );
       check(claimed!.seq).equals(s1);
     });
+
+    test(
+      'scans due ops in bounded batches without missing later runnable ops',
+      () async {
+        final busy = <String>{};
+        for (var i = 0; i < 130; i++) {
+          final chatId = 'c$i';
+          await enqueue(kind: OutboxKind.updateChat, chatId: chatId);
+          if (i < 128) busy.add(chatId);
+        }
+
+        final claimed = await dao.claimNextRunnable(
+          nowEpochSeconds: 100,
+          busyChatIds: busy,
+        );
+
+        check(claimed).isNotNull();
+        check(claimed!.chatId).equals('c128');
+      },
+    );
   });
 
   group('mark* + requeue (A2)', () {

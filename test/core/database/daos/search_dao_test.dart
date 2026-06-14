@@ -198,6 +198,15 @@ void main() {
       check(firstIds.intersection(secondIds)).isEmpty();
     });
 
+    test('searchAll caps deep offsets', () async {
+      await _insertChat(db, id: 'c', title: 'papaya chat');
+      await _insertNote(db, id: 'n', title: 'papaya note', body: 'body');
+
+      final hits = await db.searchDao.searchAll('papaya', offset: 1000);
+
+      check(hits).isEmpty();
+    });
+
     test('note search hits expose epoch-second timestamps', () async {
       await _insertNote(
         db,

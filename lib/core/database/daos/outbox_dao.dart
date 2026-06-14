@@ -124,6 +124,10 @@ class OutboxStatus {
 class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
   OutboxDao(super.db);
 
+  /// Bounds each claim query so a large offline outbox is scanned in chunks
+  /// rather than materialized into one Dart list.
+  static const int _claimCandidateBatchSize = 128;
+
   /// Coalesces against existing PENDING ops for [chatId] per A3, then inserts
   /// a fresh `pending` op (attempts=0, nextAttemptAt=null) UNLESS coalescing
   /// determined the new op is a no-op. Returns the surviving seq: the new
@@ -204,31 +208,39 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
     required Set<String> busyChatIds,
   }) {
     return transaction(() async {
-      final candidates =
-          await (select(outboxOps)
-                ..where(
-                  (t) =>
-                      t.status.equals(OutboxStatus.pending) &
-                      (t.nextAttemptAt.isNull() |
-                          t.nextAttemptAt.isSmallerOrEqualValue(
-                            nowEpochSeconds,
-                          )),
-                )
-                ..orderBy([(t) => OrderingTerm.asc(t.seq)]))
-              .get();
+      var offset = 0;
+      while (true) {
+        final candidates =
+            await (select(outboxOps)
+                  ..where(
+                    (t) =>
+                        t.status.equals(OutboxStatus.pending) &
+                        (t.nextAttemptAt.isNull() |
+                            t.nextAttemptAt.isSmallerOrEqualValue(
+                              nowEpochSeconds,
+                            )),
+                  )
+                  ..orderBy([(t) => OrderingTerm.asc(t.seq)])
+                  ..limit(_claimCandidateBatchSize, offset: offset))
+                .get();
 
-      for (final op in candidates) {
-        final busyKey = op.chatId ?? _nullChatKey;
-        if (busyChatIds.contains(busyKey)) continue;
+        if (candidates.isEmpty) return null;
 
-        if (!await _isChatHead(op)) continue;
+        for (final op in candidates) {
+          final busyKey = op.chatId ?? _nullChatKey;
+          if (busyChatIds.contains(busyKey)) continue;
 
-        await (update(outboxOps)..where((t) => t.seq.equals(op.seq))).write(
-          const OutboxOpsCompanion(status: Value(OutboxStatus.inFlight)),
-        );
-        return op.copyWith(status: OutboxStatus.inFlight);
+          if (!await _isChatHead(op)) continue;
+
+          await (update(outboxOps)..where((t) => t.seq.equals(op.seq))).write(
+            const OutboxOpsCompanion(status: Value(OutboxStatus.inFlight)),
+          );
+          return op.copyWith(status: OutboxStatus.inFlight);
+        }
+
+        if (candidates.length < _claimCandidateBatchSize) return null;
+        offset += _claimCandidateBatchSize;
       }
-      return null;
     });
   }
 
