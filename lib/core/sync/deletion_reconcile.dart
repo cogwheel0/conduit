@@ -163,21 +163,32 @@ class DeletionReconcile {
       );
     }
 
-    // 4. Probe + purge each candidate under its chat lock.
+    // 4. Verify the session once before the purge phase, then probe + purge
+    //    each candidate under its chat lock.
     var purged = 0;
     var skipped = 0;
     // The vendored GET /chats/{id} returns 401 (not 404) for a genuinely
     // missing/not-owned chat (routers/chats.py:957), so probeChatExists must
     // treat 401 as gone — but a 401 is ALSO what an expired token yields. To
-    // keep a token expiry from purging live chats, verify the session is still
-    // alive (a cheap authed list fetch) before EACH purge. If it is dead, abort
-    // the run without purging further or advancing the throttle.
-    var sessionDead = false;
+    // keep a token expiry from purging live chats, verify the session is alive
+    // once immediately before the purge phase. If it is dead, abort the run
+    // without purging or advancing the throttle.
+    try {
+      await _client.getChatListPage(1);
+    } catch (_) {
+      DebugLogger.warning(
+        'reconcile-aborted-session-dead',
+        scope: 'sync/reconcile',
+        data: {'candidates': candidates.length},
+      );
+      return ReconcileResult(
+        ran: true,
+        candidates: candidates.length,
+        skipped: candidates.length,
+        aborted: true,
+      );
+    }
     for (final id in candidates) {
-      if (sessionDead) {
-        skipped++;
-        continue;
-      }
       await _locks.runExclusive(id, () async {
         bool gone;
         try {
@@ -199,21 +210,6 @@ class DeletionReconcile {
           skipped++;
           return;
         }
-        try {
-          await _client.getChatListPage(1);
-        } catch (_) {
-          // Session is dead — every probe 401 this run is ambiguous. Purge
-          // nothing further; leave the throttle un-advanced so the next
-          // authenticated trigger retries.
-          DebugLogger.warning(
-            'reconcile-aborted-session-dead',
-            scope: 'sync/reconcile',
-            data: {'chatId': id},
-          );
-          sessionDead = true;
-          skipped++;
-          return;
-        }
         // Confirmed gone with a verified-live session: purge rows + drop ops.
         await _db.chatsDao.purgeReconciledChat(id);
         purged++;
@@ -223,16 +219,6 @@ class DeletionReconcile {
           data: {'chatId': id},
         );
       });
-    }
-
-    if (sessionDead) {
-      return ReconcileResult(
-        ran: true,
-        candidates: candidates.length,
-        purged: purged,
-        skipped: skipped,
-        aborted: true,
-      );
     }
 
     await _db.syncMetaDao.setLastFullReconcileAt(now);

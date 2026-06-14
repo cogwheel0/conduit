@@ -304,7 +304,10 @@ class NotePushSync {
             scope: 'sync/notes',
             data: {'noteId': noteId},
           );
-          throw StateError('note pin confirmation missing ($noteId)');
+          throw SyncTerminalException(
+            statusCode: 404,
+            message: 'note pin confirmation missing ($noteId)',
+          );
         }
         livePinned = confirmedRaw['is_pinned'] == true;
       }
@@ -314,7 +317,10 @@ class NotePushSync {
           scope: 'sync/notes',
           data: {'noteId': noteId, 'desired': desired, 'actual': livePinned},
         );
-        throw StateError('note pin confirmation mismatch ($noteId)');
+        throw SyncTerminalException(
+          statusCode: 0,
+          message: 'note pin confirmation mismatch ($noteId)',
+        );
       }
       await _clearNotePinDirty(noteId);
     });

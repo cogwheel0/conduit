@@ -13,6 +13,7 @@ import 'package:conduit/core/sync/chat_locks.dart';
 import 'package:conduit/core/sync/id_remapper.dart';
 import 'package:conduit/core/sync/note_adapter.dart';
 import 'package:conduit/core/sync/note_sync.dart';
+import 'package:conduit/core/sync/sync_api_client.dart';
 import 'package:conduit/core/sync/sync_entity_adapter.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
@@ -585,7 +586,9 @@ void main() {
         remapper: syncRemapper,
       );
 
-      await check(push.pushNotePin('p2', desired: true)).throws<StateError>();
+      await check(
+        push.pushNotePin('p2', desired: true),
+      ).throws<SyncTerminalException>();
 
       check(client.togglePinNoteCalls).equals(1);
       check(server.getNoteById('p2')!['is_pinned']).equals(false);

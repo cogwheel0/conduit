@@ -17,34 +17,21 @@ class FakeSyncClock implements SyncClock {
   int nowEpochSeconds() => now;
 }
 
-/// A client whose session dies the instant the probe loop starts: enumeration
-/// (which runs first) succeeds, then the first probe injects a main-list-page
-/// failure so the reconcile's liveness re-check throws (simulating a token that
-/// expired between enumeration and probing).
+/// A client whose session dies after enumeration but before the purge phase.
 class _SessionDyingClient extends FakeSyncApiClient {
   _SessionDyingClient(super.server);
 
-  @override
-  Future<bool> probeChatExists(String id) {
-    failChatListPages.add(1);
-    return super.probeChatExists(id);
-  }
-}
-
-/// The first candidate is confirmed gone and purged under a live session, then
-/// the session expires before the next candidate's liveness re-check.
-class _SessionDiesAfterFirstPurgeClient extends FakeSyncApiClient {
-  _SessionDiesAfterFirstPurgeClient(super.server);
-
-  var probes = 0;
+  var pageOneCalls = 0;
 
   @override
-  Future<bool> probeChatExists(String id) {
-    probes++;
-    if (probes > 1) {
-      failChatListPages.add(1);
+  Future<List<Map<String, dynamic>>> getChatListPage(int page) {
+    if (page == 1) {
+      pageOneCalls++;
+      if (pageOneCalls > 1) {
+        throw StateError('injected main list failure (liveness)');
+      }
     }
-    return super.probeChatExists(id);
+    return super.getChatListPage(page);
   }
 }
 
@@ -218,9 +205,9 @@ void main() {
       }
       await seedServerChat(db, id: 'ghost401');
 
-      // The probe reports the ghost gone (a 401), but the SESSION is dead — the
-      // token expired between enumeration and the probe loop. The liveness
-      // re-check (getChatListPage(1)) must catch it and abort.
+      // The probe would report the ghost gone (a 401), but the SESSION is dead
+      // before the purge phase. The single pre-purge liveness check must catch
+      // it and abort.
       final dying = _SessionDyingClient(server)
         ..probe401GoneIds.add('ghost401');
       final dyingReconcile = DeletionReconcile(
@@ -234,48 +221,45 @@ void main() {
 
       check(result.aborted).isTrue();
       check(result.purged).equals(0);
+      check(result.skipped).equals(1);
+      check(dying.probeChatExistsCalls).equals(0);
       // The ghost is NOT purged — its 401 was ambiguous with the dead token.
       check(await db.chatsDao.getChat('ghost401')).isNotNull();
       // Throttle not advanced: a later authenticated run retries.
       check(await db.syncMetaDao.getLastFullReconcileAt()).equals(0);
     });
 
-    test('a session that expires after one purge aborts before purging the '
-        'next candidate', () async {
-      for (final id in ['s1', 's2', 's3']) {
-        server.seedChat(
-          id: id,
-          blob: blobFor(id),
-          createdAt: 50,
-          updatedAt: 100,
-        );
-        await seedServerChat(db, id: id);
-      }
-      for (final id in ['ghost-a', 'ghost-b']) {
-        await seedServerChat(db, id: id);
-      }
+    test(
+      'liveness is checked once for multiple confirmed-gone candidates',
+      () async {
+        for (final id in ['s1', 's2', 's3']) {
+          server.seedChat(
+            id: id,
+            blob: blobFor(id),
+            createdAt: 50,
+            updatedAt: 100,
+          );
+          await seedServerChat(db, id: id);
+        }
+        for (final id in ['ghost-a', 'ghost-b']) {
+          await seedServerChat(db, id: id);
+        }
 
-      final dying = _SessionDiesAfterFirstPurgeClient(server)
-        ..probe401GoneIds.addAll(['ghost-a', 'ghost-b']);
-      final dyingReconcile = DeletionReconcile(
-        client: dying,
-        db: db,
-        locks: locks,
-        clock: clock,
-      );
+        client.probe401GoneIds.addAll(['ghost-a', 'ghost-b']);
 
-      final result = await dyingReconcile.run(ReconcileReason.manualRefresh);
+        final result = await reconcile.run(ReconcileReason.manualRefresh);
 
-      check(result.aborted).isTrue();
-      check(result.purged).equals(1);
-      check(result.skipped).equals(1);
-      final survivors = [
-        await db.chatsDao.getChat('ghost-a'),
-        await db.chatsDao.getChat('ghost-b'),
-      ].where((row) => row != null).length;
-      check(survivors).equals(1);
-      check(await db.syncMetaDao.getLastFullReconcileAt()).equals(0);
-    });
+        check(result.aborted).isFalse();
+        check(result.purged).equals(2);
+        check(result.skipped).equals(0);
+        check(client.probeChatExistsCalls).equals(2);
+        // One main-list fetch for enumeration, one for the pre-purge liveness
+        // check; not one liveness request per candidate.
+        check(client.chatListPageRequests).equals(2);
+        check(await db.chatsDao.getChat('ghost-a')).isNull();
+        check(await db.chatsDao.getChat('ghost-b')).isNull();
+      },
+    );
 
     test(
       'a transient probe error SKIPS (does not purge) the candidate',
