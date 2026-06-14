@@ -1,4 +1,5 @@
 import 'package:checks/checks.dart';
+import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -85,8 +86,37 @@ void main() {
 
       check(files).deepEquals(const [
         {'type': 'image', 'url': dataUrl},
-        {'type': 'file', 'id': 'file-123'},
+        {'type': 'file', 'id': 'file-123', 'url': 'file-123'},
       ]);
+    });
+
+    test('headless landing detects structured non-text assistant output', () {
+      final now = DateTime.utc(2026, 1, 1);
+
+      check(
+        headlessAssistantLandedForTest(
+          ChatMessage(
+            id: 'a1',
+            role: 'assistant',
+            content: '',
+            timestamp: now,
+            output: const [
+              {'type': 'tool_calls'},
+            ],
+          ),
+        ),
+      ).isTrue();
+      check(
+        headlessAssistantLandedForTest(
+          ChatMessage(
+            id: 'a2',
+            role: 'assistant',
+            content: '',
+            timestamp: now,
+            metadata: const {'responseDone': true},
+          ),
+        ),
+      ).isFalse();
     });
 
     test('temporary chats keep full outbound history', () {

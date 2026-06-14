@@ -703,18 +703,72 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   }
 
   /// Stop-streaming abort (W14): deletes PENDING `requestCompletion` ops for
-  /// [chatId] so a turn the user stopped is not re-driven by the next drain. An
-  /// `inFlight` requestCompletion (the stream already started) is NOT touched —
-  /// the stop's transport-cancel handles it and its op markDone()s on stream
-  /// finish. Caller holds the chat lock. Returns the number of ops removed.
+  /// [chatId] so a turn the user stopped is not re-driven by the next drain.
+  /// It also removes the matching empty assistant placeholder before the
+  /// co-enqueued `updateChat` drains, so the update reconstructs a blob without
+  /// a permanent empty assistant bubble. An `inFlight` requestCompletion (the
+  /// stream already started) is NOT touched — the stop's transport-cancel
+  /// handles it and its op markDone()s on stream finish. Caller holds the chat
+  /// lock. Returns the number of requestCompletion ops removed.
   Future<int> cancelPendingCompletion(String chatId) {
-    return (delete(_outboxDao.outboxOps)..where(
-          (t) =>
-              t.chatId.equals(chatId) &
-              t.kind.equals(OutboxKind.requestCompletion.name) &
-              t.status.equals(OutboxStatus.pending),
-        ))
-        .go();
+    return transaction(() async {
+      final pending =
+          await (select(_outboxDao.outboxOps)..where(
+                (t) =>
+                    t.chatId.equals(chatId) &
+                    t.kind.equals(OutboxKind.requestCompletion.name) &
+                    t.status.equals(OutboxStatus.pending),
+              ))
+              .get();
+      if (pending.isEmpty) return 0;
+
+      final assistantIds = <String>{};
+      for (final op in pending) {
+        final assistantId = _requestCompletionAssistantId(op.payload);
+        if (assistantId != null) assistantIds.add(assistantId);
+      }
+      final placeholders = assistantIds.isEmpty
+          ? const <MessageRow>[]
+          : await (select(messages)..where(
+                  (t) =>
+                      t.chatId.equals(chatId) &
+                      t.id.isIn(assistantIds.toList()) &
+                      t.role.equals('assistant') &
+                      t.content.equals(''),
+                ))
+                .get();
+
+      final removedOps =
+          await (delete(_outboxDao.outboxOps)..where(
+                (t) =>
+                    t.chatId.equals(chatId) &
+                    t.kind.equals(OutboxKind.requestCompletion.name) &
+                    t.status.equals(OutboxStatus.pending),
+              ))
+              .go();
+
+      if (placeholders.isNotEmpty) {
+        await (delete(messages)..where(
+              (t) =>
+                  t.chatId.equals(chatId) &
+                  t.id.isIn([for (final row in placeholders) row.id]),
+            ))
+            .go();
+
+        final chat = await getChat(chatId);
+        if (chat != null &&
+            placeholders.any((row) => row.id == chat.currentMessageId)) {
+          final replacementTip = placeholders
+              .firstWhere((row) => row.id == chat.currentMessageId)
+              .parentId;
+          await (update(chats)..where((t) => t.id.equals(chatId))).write(
+            ChatsCompanion(currentMessageId: Value<String?>(replacementTip)),
+          );
+        }
+      }
+
+      return removedOps;
+    });
   }
 
   /// `UPDATE ... SET last_read_at = max(coalesce(last_read_at, 0), ?)` —
@@ -753,6 +807,17 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   static int? _maxLastReadAt(int? local, int? server) {
     if (local == null && server == null) return null;
     return math.max(local ?? 0, server ?? 0);
+  }
+
+  static String? _requestCompletionAssistantId(String rawPayload) {
+    try {
+      final decoded = jsonDecode(rawPayload);
+      if (decoded is Map && decoded['assistantMessageId'] is String) {
+        final id = decoded['assistantMessageId'] as String;
+        return id.isEmpty ? null : id;
+      }
+    } catch (_) {}
+    return null;
   }
 
   JoinedSelectStatement<HasResultSet, dynamic> _listProjection() {

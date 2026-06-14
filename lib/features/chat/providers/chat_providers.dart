@@ -23,6 +23,7 @@ import '../../../core/providers/app_providers.dart';
 import '../../../core/sync/chat_locks.dart';
 import '../../../core/sync/clock.dart';
 import '../../../core/sync/id_remapper.dart';
+import '../../../core/sync/outbox_drainer.dart' show OutboxDeferralException;
 import '../../../core/sync/sync_engine.dart';
 
 import '../../../core/services/location_service.dart';
@@ -3692,7 +3693,9 @@ Future<void> runQueuedCompletion(
   if (activeConversation == null || activeConversation.id != chatId) {
     // The caller (runner) activates the chat before driving; a mismatch means
     // the active chat changed under us — let the op retry on a later drain.
-    throw StateError('runQueuedCompletion: chat $chatId is not active');
+    throw _QueuedCompletionDeferred(
+      'runQueuedCompletion: chat $chatId is not active',
+    );
   }
 
   Map<String, dynamic>? userSettingsData;
@@ -4023,7 +4026,7 @@ Future<void> runHeadlessCompletion(
     final asst = convo?.messages
         .where((m) => m.id == assistantMessageId)
         .firstOrNull;
-    if (asst != null && asst.content.trim().isNotEmpty) {
+    if (asst != null && _headlessAssistantLanded(asst)) {
       DebugLogger.log(
         'headless-completion-landed',
         scope: 'chat/completion',
@@ -4037,6 +4040,34 @@ Future<void> runHeadlessCompletion(
     scope: 'chat/completion',
     data: {'chatId': chatId},
   );
+}
+
+bool _headlessAssistantLanded(ChatMessage message) {
+  if (message.content.trim().isNotEmpty) return true;
+  if (message.output?.isNotEmpty == true) return true;
+  if (message.files?.isNotEmpty == true) return true;
+  if (message.embeds?.isNotEmpty == true) return true;
+  if (message.sources.isNotEmpty) return true;
+  if (message.codeExecutions.isNotEmpty) return true;
+  if (message.followUps.isNotEmpty) return true;
+  if (message.error != null) return true;
+
+  final metadata = message.metadata;
+  if (metadata == null || metadata.isEmpty) return false;
+  return metadata.keys.any((key) => key != 'responseDone');
+}
+
+@visibleForTesting
+bool headlessAssistantLandedForTest(ChatMessage message) =>
+    _headlessAssistantLanded(message);
+
+class _QueuedCompletionDeferred implements OutboxDeferralException {
+  const _QueuedCompletionDeferred(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
 }
 
 Future<void> _markHeadlessCompletionSubmitted(
@@ -4341,7 +4372,7 @@ List<Map<String, dynamic>> _durableFilesFor(List<String> attachments) {
       if (id.startsWith('data:image/'))
         <String, dynamic>{'type': 'image', 'url': id}
       else
-        <String, dynamic>{'type': 'file', 'id': id},
+        <String, dynamic>{'type': 'file', 'id': id, 'url': id},
   ];
 }
 

@@ -306,6 +306,57 @@ void main() {
         ).deepEquals(['updateChat', 'requestCompletion']);
       },
     );
+
+    test(
+      'cancelPendingCompletion removes empty assistant before update drains',
+      () async {
+        await seedServerChat('c1');
+        await db.chatsDao.appendMessagesWithUpdateOp(
+          chatId: 'c1',
+          currentMessageId: 'a2',
+          updatedAt: 500,
+          messages: <MessageRowData>[
+            MessageRowData(
+              id: 'u2',
+              chatId: 'c1',
+              parentId: 'm1',
+              role: 'user',
+              content: 'next',
+              createdAt: 400,
+              orderIndex: 0,
+              payload: const {'id': 'u2', 'role': 'user', 'content': 'next'},
+            ),
+            MessageRowData(
+              id: 'a2',
+              chatId: 'c1',
+              parentId: 'u2',
+              role: 'assistant',
+              content: '',
+              createdAt: 401,
+              orderIndex: 0,
+              payload: const {'id': 'a2', 'role': 'assistant', 'content': ''},
+            ),
+          ],
+          enqueueCompletion: true,
+          completion: const RequestCompletionPayload(
+            assistantMessageId: 'a2',
+            model: 'gpt',
+          ),
+        );
+
+        final removed = await db.chatsDao.cancelPendingCompletion('c1');
+
+        check(removed).equals(1);
+        final messages = await db.messagesDao.getForChat('c1');
+        check(messages.map((m) => m.id).toSet()).deepEquals({'m1', 'u2'});
+        check((await db.chatsDao.getChat('c1'))!.currentMessageId).equals('u2');
+        check(
+          (await db.outboxDao.pendingForChat(
+            'c1',
+          )).map((op) => op.kind).toList(),
+        ).deepEquals(['updateChat']);
+      },
+    );
   });
 
   group('R2: rollback leaves NEITHER rows nor op', () {
