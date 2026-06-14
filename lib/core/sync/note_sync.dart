@@ -44,11 +44,11 @@ class NotePullSync {
     required AppDatabase db,
     required ChatLocks locks,
     IdRemapper? remapper,
-  })  : _client = client,
-        _db = db,
-        _locks = locks,
-        // ignore: prefer_initializing_formals
-        _remapper = remapper;
+  }) : _client = client,
+       _db = db,
+       _locks = locks,
+       // ignore: prefer_initializing_formals
+       _remapper = remapper;
 
   final SyncApiClient _client;
   final AppDatabase _db;
@@ -133,10 +133,10 @@ class NotePushSync {
     required AppDatabase db,
     required ChatLocks noteLocks,
     required IdRemapper remapper,
-  })  : _client = client,
-        _db = db,
-        _noteLocks = noteLocks,
-        _remapper = remapper;
+  }) : _client = client,
+       _db = db,
+       _noteLocks = noteLocks,
+       _remapper = remapper;
 
   final SyncApiClient _client;
   final AppDatabase _db;
@@ -162,7 +162,10 @@ class NotePushSync {
 
     return _noteLocks.runExclusive(localId, () async {
       final note = await _db.notesDao.getNote(localId);
-      if (note == null) return null; // Annihilated or already remapped.
+      if (note == null || note.deleted) {
+        // Annihilated, tombstoned, or already remapped.
+        return null;
+      }
       final data = decodeNoteData(note.data);
       final resp = await _client.createNote(
         title: note.title,
@@ -299,7 +302,8 @@ class NotePushSync {
   }
 
   Future<void> _clearNotePinDirty(String noteId) {
-    return (_db.update(_db.notes)..where((t) => t.id.equals(noteId)))
-        .write(const NotesCompanion(dirtyPinned: Value(false)));
+    return (_db.update(_db.notes)..where((t) => t.id.equals(noteId))).write(
+      const NotesCompanion(dirtyPinned: Value(false)),
+    );
   }
 }

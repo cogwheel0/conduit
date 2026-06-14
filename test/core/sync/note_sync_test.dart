@@ -380,6 +380,42 @@ void main() {
     ).isTrue();
   });
 
+  test('pushNoteCreate skips a tombstoned local note', () async {
+    final remapper = IdRemapper(db);
+    addTearDown(remapper.dispose);
+    final push = NotePushSync(
+      client: client,
+      db: db,
+      noteLocks: locks,
+      remapper: remapper,
+    );
+    const localId = 'local:n-deleted';
+    await db
+        .into(db.notes)
+        .insert(
+          NotesCompanion.insert(
+            id: localId,
+            title: 'Deleted draft',
+            data: Value(
+              jsonEncode({
+                'content': {'md': 'body'},
+              }),
+            ),
+            createdAt: kT1,
+            updatedAt: kT1,
+            dirtyTitle: const Value(true),
+            dirtyData: const Value(true),
+            deleted: const Value(true),
+          ),
+        );
+
+    final serverId = await push.pushNoteCreate(localId);
+
+    check(serverId).isNull();
+    check(client.createNoteCalls).equals(0);
+    check(await db.notesDao.getNote(localId)).isNotNull();
+  });
+
   test('pull does not enqueue noteUpdate for pin-only dirty notes', () async {
     server.seedNote(
       id: 'p1',
