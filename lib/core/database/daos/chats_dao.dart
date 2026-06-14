@@ -164,9 +164,9 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   ///      `serverUpdatedAt = base` (UNCHANGED), delete+reinsert merged messages
   ///      with `dirty` set per the merged dirty-id set.
   ///
-  /// Returns the [MergeOutcome] and `mustPush` so `PullSync` can enqueue an
-  /// `updateChat` op when the merged result diverges from the server (REQ 4).
-  /// This method NEVER enqueues — the pull path owns op scheduling.
+  /// Returns the [MergeOutcome] and `mustPush`. When the merged result diverges
+  /// from the server, this method also reasserts a pending `updateChat` op in
+  /// the SAME transaction as the dirty row writes (REQ 4 / outbox atomicity).
   Future<ChatMergeWriteResult> mergeServerChat({
     required ChatRows server,
     String? shareId,
@@ -216,9 +216,12 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
             chatDirty: true,
             dirtyMessageIds: result.dirtyMessageIds,
           );
-          return ChatMergeWriteResult(
-            outcome: result.outcome,
-            mustPush: result.mustPush,
+          return _mergeResultWithUpdateOpIfMissing(
+            serverChat.id,
+            ChatMergeWriteResult(
+              outcome: result.outcome,
+              mustPush: result.mustPush,
+            ),
           );
         }
         await _writeChatRows(
@@ -266,10 +269,13 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
 
       switch (result.outcome) {
         case MergeOutcome.noRemoteChange:
-          // Rows untouched; only re-assert push (caller enqueues if needed).
-          return ChatMergeWriteResult(
-            outcome: result.outcome,
-            mustPush: result.mustPush,
+          // Rows untouched; only re-assert push below when needed.
+          return _mergeResultWithUpdateOpIfMissing(
+            serverChat.id,
+            ChatMergeWriteResult(
+              outcome: result.outcome,
+              mustPush: result.mustPush,
+            ),
           );
         case MergeOutcome.fastForward:
           await _writeChatRows(
@@ -281,9 +287,12 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
             serverUpdatedAt: result.newServerUpdatedAt,
             chatDirty: false,
           );
-          return ChatMergeWriteResult(
-            outcome: result.outcome,
-            mustPush: result.mustPush,
+          return _mergeResultWithUpdateOpIfMissing(
+            serverChat.id,
+            ChatMergeWriteResult(
+              outcome: result.outcome,
+              mustPush: result.mustPush,
+            ),
           );
         case MergeOutcome.threeWay:
           await _writeChatRows(
@@ -296,12 +305,34 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
             chatDirty: true,
             dirtyMessageIds: result.dirtyMessageIds,
           );
-          return ChatMergeWriteResult(
-            outcome: result.outcome,
-            mustPush: result.mustPush,
+          return _mergeResultWithUpdateOpIfMissing(
+            serverChat.id,
+            ChatMergeWriteResult(
+              outcome: result.outcome,
+              mustPush: result.mustPush,
+            ),
           );
       }
     });
+  }
+
+  /// Caller is inside [mergeServerChat]'s transaction. Reasserts a pending
+  /// updateChat atomically with dirty merge writes unless an update/create
+  /// already covers this chat.
+  Future<ChatMergeWriteResult> _mergeResultWithUpdateOpIfMissing(
+    String chatId,
+    ChatMergeWriteResult result,
+  ) async {
+    if (!result.mustPush) return result;
+    final pending = await _outboxDao.pendingForChat(chatId);
+    final hasUpdateOrCreate = pending.any((op) {
+      final kind = OutboxKind.fromName(op.kind);
+      return kind == OutboxKind.updateChat || kind == OutboxKind.createChat;
+    });
+    if (!hasUpdateOrCreate) {
+      await _outboxDao.enqueue(kind: OutboxKind.updateChat, chatId: chatId);
+    }
+    return result;
   }
 
   /// Shared chat-body writer. The fast-forward / first-sync callers pass

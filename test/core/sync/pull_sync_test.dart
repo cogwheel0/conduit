@@ -559,6 +559,10 @@ void main() {
         );
       });
       check((await db.chatsDao.getChat('chat-1'))!.dirty).isTrue();
+      final staleOps = await db.outboxDao.pendingForChat('chat-1');
+      check(staleOps.single.kind).equals('updateChat');
+      await db.outboxDao.markDone(staleOps.single.seq);
+      check(await db.outboxDao.pendingForChat('chat-1')).isEmpty();
 
       // Server independently advances (adds its own m3) past the merge base.
       server.seedChat(
