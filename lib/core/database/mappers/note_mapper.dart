@@ -45,7 +45,15 @@ NotesCompanion serverToNoteRow(
   Map<String, dynamic> server, {
   String? overrideId,
 }) {
-  final id = overrideId ?? (server['id'] as String);
+  final rawId = overrideId ?? server['id'];
+  if (rawId is! String || rawId.isEmpty) {
+    throw ArgumentError.value(
+      rawId,
+      'server[id]',
+      'must be a non-empty String',
+    );
+  }
+  final id = rawId;
   final rawExtra = <String, dynamic>{
     for (final entry in server.entries)
       if (!_typedNoteKeys.contains(entry.key)) entry.key: entry.value,
@@ -89,10 +97,7 @@ Map<String, dynamic> noteRowToServer(NoteRow row) {
 /// `title` is REQUIRED, so a title-less update fails validation), and includes
 /// `data` only when the data axis is dirty. Never includes `meta`/access keys
 /// (own-notes sync never touches them).
-Map<String, dynamic> noteRowToPatch(
-  NoteRow row, {
-  required bool includeData,
-}) {
+Map<String, dynamic> noteRowToPatch(NoteRow row, {required bool includeData}) {
   return <String, dynamic>{
     'title': row.title,
     if (includeData) 'data': _decodeMap(row.data),

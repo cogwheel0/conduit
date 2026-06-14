@@ -1378,15 +1378,26 @@ class ApiService {
     Map<String, dynamic> chatBlob, {
     String? folderId,
   }) async {
-    final response = await _dio.post(
-      '/api/v1/chats/new',
-      data: {'chat': chatBlob, 'folder_id': ?folderId},
-    );
-    final map = _coerceResponseMap(response.data);
-    if (map == null) {
-      throw StateError('createChatRaw: unexpected response shape');
+    try {
+      final response = await _dio.post(
+        '/api/v1/chats/new',
+        data: {'chat': chatBlob, 'folder_id': ?folderId},
+      );
+      final map = _coerceResponseMap(response.data);
+      if (map == null) {
+        throw StateError('createChatRaw: unexpected response shape');
+      }
+      return map;
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if (code == 401 || code == 403) {
+        throw SyncTerminalException(
+          statusCode: code,
+          message: 'createChat forbidden',
+        );
+      }
+      rethrow;
     }
-    return map;
   }
 
   /// POST `/api/v1/chats/{id}` with the COMPLETE blob. Returns the parsed
@@ -1447,7 +1458,14 @@ class ApiService {
       final response = await _dio.post('/api/v1/chats/$id/pin');
       return _coerceResponseMap(response.data);
     } on DioException catch (e) {
-      if (e.response?.statusCode == 404) return null;
+      final code = e.response?.statusCode;
+      if (code == 404) return null;
+      if (code == 401 || code == 403) {
+        throw SyncTerminalException(
+          statusCode: code,
+          message: 'pinChat $id forbidden',
+        );
+      }
       rethrow;
     }
   }
@@ -1459,7 +1477,14 @@ class ApiService {
       final response = await _dio.post('/api/v1/chats/$id/archive');
       return _coerceResponseMap(response.data);
     } on DioException catch (e) {
-      if (e.response?.statusCode == 404) return null;
+      final code = e.response?.statusCode;
+      if (code == 404) return null;
+      if (code == 401 || code == 403) {
+        throw SyncTerminalException(
+          statusCode: code,
+          message: 'archiveChat $id forbidden',
+        );
+      }
       rethrow;
     }
   }
@@ -1477,7 +1502,14 @@ class ApiService {
       );
       return _coerceResponseMap(response.data);
     } on DioException catch (e) {
-      if (e.response?.statusCode == 404) return null;
+      final code = e.response?.statusCode;
+      if (code == 404) return null;
+      if (code == 401 || code == 403) {
+        throw SyncTerminalException(
+          statusCode: code,
+          message: 'moveChatToFolder $id forbidden',
+        );
+      }
       rethrow;
     }
   }
@@ -1490,10 +1522,7 @@ class ApiService {
   /// `routers/folders.py:delete_folder_by_id`).
   /// Returns `true` on success; `false` on 404 (already gone); 401/403 ->
   /// [SyncTerminalException].
-  Future<bool> deleteFolderRaw(
-    String id, {
-    bool deleteContents = false,
-  }) async {
+  Future<bool> deleteFolderRaw(String id, {bool deleteContents = false}) async {
     try {
       await _dio.delete(
         '/api/v1/folders/$id',
@@ -6052,10 +6081,7 @@ class ApiService {
     Map<String, dynamic> patch,
   ) async {
     try {
-      final response = await _dio.post(
-        '/api/v1/notes/$id/update',
-        data: patch,
-      );
+      final response = await _dio.post('/api/v1/notes/$id/update', data: patch);
       return _coerceResponseMap(response.data);
     } on DioException catch (e) {
       final code = e.response?.statusCode;

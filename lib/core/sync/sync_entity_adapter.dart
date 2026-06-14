@@ -9,10 +9,14 @@ import '../utils/debug_logger.dart';
 /// returning an empty map when the payload is absent or not a JSON object.
 /// Shared by the sync-package adapters/drainer (CDT-RFC-001 Phase 5).
 Map<String, dynamic> decodeOutboxPayload(String raw) {
-  final decoded = jsonDecode(raw);
-  if (decoded is Map<String, dynamic>) return decoded;
-  if (decoded is Map) return decoded.cast<String, dynamic>();
-  return <String, dynamic>{};
+  try {
+    final decoded = jsonDecode(raw);
+    if (decoded is Map<String, dynamic>) return decoded;
+    if (decoded is Map) return decoded.cast<String, dynamic>();
+    return <String, dynamic>{};
+  } on FormatException {
+    return <String, dynamic>{};
+  }
 }
 
 /// One changed list item in an entity's OWN clock unit (CDT-RFC-001 Phase 5

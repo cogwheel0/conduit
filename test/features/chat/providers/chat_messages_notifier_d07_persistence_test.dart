@@ -23,27 +23,27 @@ class _TestActiveConversationNotifier extends ActiveConversationNotifier {
 }
 
 ChatMessage _user(String id, String content) => ChatMessage(
-      id: id,
-      role: 'user',
-      content: content,
-      timestamp: DateTime(2024, 1, 1),
-    );
+  id: id,
+  role: 'user',
+  content: content,
+  timestamp: DateTime(2024, 1, 1),
+);
 
 ChatMessage _streamingAssistant(String id, String content) => ChatMessage(
-      id: id,
-      role: 'assistant',
-      content: content,
-      timestamp: DateTime(2024, 1, 1, 0, 0, 1),
-      isStreaming: true,
-    );
+  id: id,
+  role: 'assistant',
+  content: content,
+  timestamp: DateTime(2024, 1, 1, 0, 0, 1),
+  isStreaming: true,
+);
 
 Conversation _conversation(String id) => Conversation(
-      id: id,
-      title: 'Test chat',
-      createdAt: DateTime(2024, 1, 1),
-      updatedAt: DateTime(2024, 1, 1),
-      messages: const [],
-    );
+  id: id,
+  title: 'Test chat',
+  createdAt: DateTime(2024, 1, 1),
+  updatedAt: DateTime(2024, 1, 1),
+  messages: const [],
+);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -68,48 +68,57 @@ void main() {
     return container;
   }
 
-  // The echo write runs unawaited under the chat lock; let it settle.
-  Future<void> settle() async {
-    for (var i = 0; i < 5; i++) {
-      await Future<void>.delayed(Duration.zero);
+  Future<void> settleUntil(
+    Future<bool> Function() done, {
+    Duration timeout = const Duration(seconds: 1),
+  }) async {
+    final deadline = DateTime.now().add(timeout);
+    while (DateTime.now().isBefore(deadline)) {
+      if (await done()) return;
+      await Future<void>.delayed(const Duration(milliseconds: 10));
     }
+    fail('Timed out waiting for async persistence to settle');
   }
 
   Future<void> seedChatRow(String id) => db.chatsDao.upsertEnvelopeStub(
-        id: id,
-        title: 'Test chat',
-        createdAt: 1704067200,
-        updatedAt: 1704067200,
-      );
+    id: id,
+    title: 'Test chat',
+    createdAt: 1704067200,
+    updatedAt: 1704067200,
+  );
 
   group('D-07 stream-completion persistence', () {
-    test('finishStreaming echoes the user+assistant turn with linked parentId',
-        () async {
-      await seedChatRow('d07-chat');
-      final container = buildContainer();
-      container
-          .read(activeConversationProvider.notifier)
-          .set(_conversation('d07-chat'));
+    test(
+      'finishStreaming echoes the user+assistant turn with linked parentId',
+      () async {
+        await seedChatRow('d07-chat');
+        final container = buildContainer();
+        container
+            .read(activeConversationProvider.notifier)
+            .set(_conversation('d07-chat'));
 
-      final notifier = container.read(chatMessagesProvider.notifier);
-      notifier.setMessages([
-        _user('u-1', 'Question'),
-        _streamingAssistant('a-1', 'Streamed answer'),
-      ]);
+        final notifier = container.read(chatMessagesProvider.notifier);
+        notifier.setMessages([
+          _user('u-1', 'Question'),
+          _streamingAssistant('a-1', 'Streamed answer'),
+        ]);
 
-      notifier.finishStreaming();
-      await settle();
+        notifier.finishStreaming();
+        await settleUntil(
+          () async => (await db.messagesDao.getForChat('d07-chat')).length == 2,
+        );
 
-      final rows = await db.messagesDao.getForChat('d07-chat');
-      check(rows.map((r) => r.id).toList()).deepEquals(['u-1', 'a-1']);
-      final assistant = rows.firstWhere((r) => r.id == 'a-1');
-      final user = rows.firstWhere((r) => r.id == 'u-1');
-      check(user.parentId).isNull();
-      check(assistant.parentId).equals('u-1');
-      check(assistant.content).equals('Streamed answer');
-      // The in-state assistant is no longer streaming.
-      check(container.read(chatMessagesProvider).last.isStreaming).isFalse();
-    });
+        final rows = await db.messagesDao.getForChat('d07-chat');
+        check(rows.map((r) => r.id).toList()).deepEquals(['u-1', 'a-1']);
+        final assistant = rows.firstWhere((r) => r.id == 'a-1');
+        final user = rows.firstWhere((r) => r.id == 'u-1');
+        check(user.parentId).isNull();
+        check(assistant.parentId).equals('u-1');
+        check(assistant.content).equals('Streamed answer');
+        // The in-state assistant is no longer streaming.
+        check(container.read(chatMessagesProvider).last.isStreaming).isFalse();
+      },
+    );
 
     test('temporary (local:) chats persist nothing', () async {
       await seedChatRow('local:draft');
@@ -124,7 +133,9 @@ void main() {
         _streamingAssistant('a-1', 'Streamed answer'),
       ]);
       notifier.finishStreaming();
-      await settle();
+      await settleUntil(
+        () async => (await db.messagesDao.getForChat('local:draft')).isEmpty,
+      );
 
       check(await db.messagesDao.getForChat('local:draft')).isEmpty();
     });

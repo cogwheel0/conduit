@@ -33,6 +33,7 @@ class RecordingSyncApiClient implements SyncApiClient {
   final FakeOpenWebUiServer server;
 
   final List<String> calls = <String>[];
+  final List<String> events = <String>[];
 
   /// chatIds whose next write throws the given error (transient unless a
   /// [SyncTerminalException]). Consumed once per failure scheduled.
@@ -71,6 +72,7 @@ class RecordingSyncApiClient implements SyncApiClient {
   }) {
     calls.add('createChat');
     final localId = chatBlob['__localId'] as String? ?? 'create';
+    events.add('createChat:$localId');
     return _track(
       localId,
       () async => server.createChat(chatBlob, folderId: folderId),
@@ -83,12 +85,14 @@ class RecordingSyncApiClient implements SyncApiClient {
     Map<String, dynamic> fullBlob,
   ) {
     calls.add('updateChat:$id');
+    events.add('updateChat:$id');
     return _track(id, () async => server.updateChat(id, fullBlob));
   }
 
   @override
   Future<bool> deleteChat(String id) {
     calls.add('deleteChat:$id');
+    events.add('deleteChat:$id');
     return _track(id, () async => server.deleteChat(id));
   }
 
@@ -166,6 +170,7 @@ class RecordingSyncApiClient implements SyncApiClient {
 class FakeCompletionRunner implements RequestCompletionRunner {
   int runs = 0;
   final List<String> ranChats = <String>[];
+  List<String>? events;
 
   /// Number of times [run] should throw before succeeding (per the whole
   /// runner, not per chat — tests use a single completion op).
@@ -179,6 +184,7 @@ class FakeCompletionRunner implements RequestCompletionRunner {
   }) async {
     runs++;
     ranChats.add(chatId);
+    events?.add('completion:$chatId');
     await Future<void>.delayed(Duration.zero);
     if (failuresRemaining > 0) {
       failuresRemaining--;
@@ -218,6 +224,7 @@ void main() {
       remapper: remapper,
     );
     completion = FakeCompletionRunner();
+    completion.events = client.events;
     online = true;
   });
 
@@ -302,20 +309,18 @@ void main() {
   group('per-chat FIFO + pool of 2', () {
     test('a chat\'s ops run strictly in seq order', () async {
       await seedServerChat('c1');
-      // two updates collapse — enqueue update then a delete to get ordered ops.
       await enqueue(kind: OutboxKind.updateChat, chatId: 'c1');
-      await enqueue(kind: OutboxKind.deleteChat, chatId: 'c1');
-      // delete annihilates the update for a server chat? No: update is
-      // non-create, so deleteChat keeps only itself. Re-seed an update AFTER
-      // is impossible; instead assert the single delete ran.
-      server.seedChat(
-        id: 'c1',
-        blob: const {'title': 'x'},
-        createdAt: 1,
-        updatedAt: 1,
+      await enqueue(
+        kind: OutboxKind.requestCompletion,
+        chatId: 'c1',
+        payload: const RequestCompletionPayload(
+          assistantMessageId: 'a1',
+          model: 'm',
+        ).toJson(),
       );
 
       await buildDrainer().drain();
+      check(client.events).deepEquals(['updateChat:c1', 'completion:c1']);
       check(await dao.pendingForChat('c1')).isEmpty();
     });
 

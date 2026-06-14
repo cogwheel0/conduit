@@ -27,10 +27,10 @@ class NoteDeletionReconcile {
     required AppDatabase db,
     required ChatLocks locks,
     required SyncClock clock,
-  })  : _client = client,
-        _db = db,
-        _locks = locks,
-        _clock = clock;
+  }) : _client = client,
+       _db = db,
+       _locks = locks,
+       _clock = clock;
 
   final SyncApiClient _client;
   final AppDatabase _db;
@@ -114,12 +114,11 @@ class NoteDeletionReconcile {
 
     // 4. Probe + purge under each note's lock. getNoteRaw returns null when the
     //    note is gone (404 / vendored not-ours). Because that null is ambiguous
-    //    with an expired token, verify the session is still alive ONCE (a cheap
-    //    authed list fetch) before trusting any purge; a dead session aborts the
-    //    run with no purges and no throttle advance.
+    //    with an expired token, verify the session is still alive before every
+    //    purge candidate; a dead session aborts the run with no further purges
+    //    and no throttle advance.
     var purged = 0;
     var skipped = 0;
-    var sessionVerified = false;
     var sessionDead = false;
     for (final id in candidates) {
       if (sessionDead) {
@@ -145,37 +144,32 @@ class NoteDeletionReconcile {
           skipped++;
           return;
         }
-        if (!sessionVerified) {
-          // getNoteRaw's null is ambiguous with an expired token, so confirm
-          // the session is still alive before trusting any purge. getNoteListRaw
-          // SWALLOWS 401/403 and signals it via featureEnabled=false (it never
-          // throws on auth failure), so a thrown error OR a (_, false) result
-          // both mean the session is dead — abort with no purge.
-          //
-          // KNOWN TRADE-OFF: featureEnabled=false ALSO fires if the Notes
-          // feature is toggled off mid-reconcile (vs the chat side, where
-          // getChatListPage throws on auth failure and can't conflate the two).
-          // Treating a mid-run feature-disable as "session dead" is deliberately
-          // conservative: it skips this run's purges (no data loss) and the next
-          // reconcile re-runs cleanly once the feature is back.
-          bool alive;
-          try {
-            final (_, enabled) = await _client.getNoteListRaw();
-            alive = enabled;
-          } catch (_) {
-            alive = false;
-          }
-          if (!alive) {
-            DebugLogger.warning(
-              'note-reconcile-aborted-session-dead',
-              scope: 'sync/reconcile',
-              data: {'noteId': id},
-            );
-            sessionDead = true;
-            skipped++;
-            return;
-          }
-          sessionVerified = true;
+        // getNoteRaw's null is ambiguous with an expired token, so confirm the
+        // session is still alive before trusting this purge. getNoteListRaw
+        // SWALLOWS 401/403 and signals it via featureEnabled=false (it never
+        // throws on auth failure), so a thrown error OR a (_, false) result both
+        // mean the session is dead.
+        //
+        // KNOWN TRADE-OFF: featureEnabled=false ALSO fires if the Notes feature
+        // is toggled off mid-reconcile. Treating that as "session dead" is
+        // deliberately conservative: it skips this run's remaining purges (no
+        // data loss) and the next reconcile re-runs once the feature is back.
+        bool alive;
+        try {
+          final (_, enabled) = await _client.getNoteListRaw();
+          alive = enabled;
+        } catch (_) {
+          alive = false;
+        }
+        if (!alive) {
+          DebugLogger.warning(
+            'note-reconcile-aborted-session-dead',
+            scope: 'sync/reconcile',
+            data: {'noteId': id},
+          );
+          sessionDead = true;
+          skipped++;
+          return;
         }
         await _db.notesDao.purgeReconciledNote(id);
         purged++;

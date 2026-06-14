@@ -133,6 +133,7 @@ class ChatRows {
     required this.chat,
     this.messages = const <MessageRowData>[],
     this.unmappableMessages = const <String, dynamic>{},
+    this.unmappableMessageOrder = const <String, int>{},
     required this.blobHadTitle,
     this.blobTitleValue,
     required this.blobHadHistory,
@@ -153,6 +154,12 @@ class ChatRows {
   /// message `Map` with a non-`String` key), preserved verbatim and keyed by
   /// their original key.
   final Map<String, dynamic> unmappableMessages;
+
+  /// Original iteration position for each [unmappableMessages] entry.
+  ///
+  /// Old persisted rows may not have this metadata; [rowsToBlob] falls back to
+  /// appending those entries after mapped messages in insertion order.
+  final Map<String, int> unmappableMessageOrder;
 
   /// Whether the original blob had a top-level `title` key. [rowsToBlob]
   /// only re-emits `title` when this is `true`, so the mapper never invents
@@ -221,7 +228,8 @@ class ChatBlobMapper {
     final historyValue = blob['history'];
     // Non-String keys cannot come from jsonDecode, but Dart-built blobs can
     // carry them; treat such a history as malformed and keep it verbatim.
-    final blobHadHistory = blob.containsKey('history') &&
+    final blobHadHistory =
+        blob.containsKey('history') &&
         historyValue is Map &&
         _hasOnlyStringKeys(historyValue);
 
@@ -238,6 +246,7 @@ class ChatBlobMapper {
     final historyExtra = <String, dynamic>{};
     final messages = <MessageRowData>[];
     final unmappableMessages = <String, dynamic>{};
+    final unmappableMessageOrder = <String, int>{};
     String? currentMessageId;
     var historyHadMessages = false;
     var historyHadCurrentId = false;
@@ -295,6 +304,7 @@ class ChatBlobMapper {
                 // nodes, etc.), or a Dart-built Map with non-String keys:
                 // cannot become a row; keep verbatim.
                 unmappableMessages[messageKey] = messageValue;
+                unmappableMessageOrder[messageKey] = orderIndex;
               }
               orderIndex++;
             }
@@ -323,6 +333,7 @@ class ChatBlobMapper {
       ),
       messages: messages,
       unmappableMessages: unmappableMessages,
+      unmappableMessageOrder: unmappableMessageOrder,
       blobHadTitle: blobHadTitle,
       blobTitleValue: blobTitleValue,
       blobHadHistory: blobHadHistory,
@@ -364,12 +375,28 @@ class ChatBlobMapper {
       // never invent a sub-key the original history did not have.
       if (rows.historyHadMessages && !history.containsKey('messages')) {
         final messages = <String, dynamic>{};
-        final ordered = [...rows.messages]
-          ..sort((a, b) => a.orderIndex.compareTo(b.orderIndex));
-        for (final message in ordered) {
-          messages[message.id] = message.payload;
+        final ordered =
+            <({int orderIndex, String id, Object? payload})>[
+              for (final message in rows.messages)
+                (
+                  orderIndex: message.orderIndex,
+                  id: message.id,
+                  payload: message.payload,
+                ),
+              for (final entry in rows.unmappableMessages.entries)
+                (
+                  orderIndex: rows.unmappableMessageOrder[entry.key] ?? 1 << 30,
+                  id: entry.key,
+                  payload: entry.value,
+                ),
+            ]..sort((a, b) {
+              final byOrder = a.orderIndex.compareTo(b.orderIndex);
+              if (byOrder != 0) return byOrder;
+              return a.id.compareTo(b.id);
+            });
+        for (final entry in ordered) {
+          messages[entry.id] = entry.payload;
         }
-        messages.addAll(rows.unmappableMessages);
         history['messages'] = messages;
       }
       if (rows.historyHadCurrentId && !history.containsKey('currentId')) {
@@ -418,7 +445,9 @@ class ChatBlobMapper {
     if (history is! Map) return true;
 
     final messagesValue = history['messages'];
-    final messages = messagesValue is Map ? messagesValue : const <String, dynamic>{};
+    final messages = messagesValue is Map
+        ? messagesValue
+        : const <String, dynamic>{};
 
     final currentId = history['currentId'];
     if (currentId != null && !messages.containsKey(currentId)) {

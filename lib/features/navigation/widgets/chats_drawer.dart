@@ -1697,12 +1697,21 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         } else {
           // Fallback: use the lightweight item to update the active
           // conversation
-          final fallback = (await container.read(
+          final conversations = await container.read(
             conversationsProvider.future,
-          )).firstWhere((c) => c.id == id);
-          container
-              .read(activeConversationProvider.notifier)
-              .set(withOptimisticReadAt(fallback));
+          );
+          Conversation? fallback;
+          for (final conversation in conversations) {
+            if (conversation.id == id) {
+              fallback = conversation;
+              break;
+            }
+          }
+          if (fallback != null) {
+            container
+                .read(activeConversationProvider.notifier)
+                .set(withOptimisticReadAt(fallback));
+          }
         }
       }
 

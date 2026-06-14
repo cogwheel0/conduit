@@ -1097,10 +1097,21 @@ class _FolderPageState extends ConsumerState<FolderPage> {
           // Materialize the local row so the next open is DB-first.
           schedulePullChatNow(container, conversationId);
         } else {
-          final conversation = (await container.read(
+          final conversations = await container.read(
             conversationsProvider.future,
-          )).firstWhere((item) => item.id == conversationId);
-          container.read(activeConversationProvider.notifier).set(conversation);
+          );
+          Conversation? conversation;
+          for (final item in conversations) {
+            if (item.id == conversationId) {
+              conversation = item;
+              break;
+            }
+          }
+          if (conversation != null) {
+            container
+                .read(activeConversationProvider.notifier)
+                .set(conversation);
+          }
         }
       }
 

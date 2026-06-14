@@ -49,6 +49,7 @@ ChatRows chatRowsFromDb(ChatRow chat, List<MessageRow> messages) {
         ),
     ],
     unmappableMessages: _asJsonMap(blobMeta['unmappableMessages']),
+    unmappableMessageOrder: _asStringIntMap(blobMeta['unmappableMessageOrder']),
     blobHadTitle: blobMeta['blobHadTitle'] == true,
     blobTitleValue: blobMeta['blobTitleValue'],
     blobHadHistory: blobMeta['blobHadHistory'] == true,
@@ -187,4 +188,13 @@ Map<String, dynamic> _asJsonMap(Object? value) {
     };
   }
   return <String, dynamic>{};
+}
+
+Map<String, int> _asStringIntMap(Object? value) {
+  if (value is! Map) return <String, int>{};
+  return <String, int>{
+    for (final entry in value.entries)
+      if (entry.value is num)
+        entry.key.toString(): (entry.value as num).toInt(),
+  };
 }

@@ -909,10 +909,10 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
 
         // Durable send of the edited text as a new turn (updateChat +
         // requestCompletion under the chat lock), then drive streaming.
+        final attachmentIds = widget.message.attachmentIds;
         final List<String>? attachments =
-            (widget.message.attachmentIds != null &&
-                (widget.message.attachmentIds as List).isNotEmpty)
-            ? List<String>.from(widget.message.attachmentIds as List)
+            attachmentIds != null && attachmentIds.isNotEmpty
+            ? List<String>.of(attachmentIds)
             : null;
         final toolIds = ref.read(selectedToolIdsProvider);
         await durableSend(

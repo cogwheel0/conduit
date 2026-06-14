@@ -91,8 +91,8 @@ String _content(int seed, int line, {required bool withSentinel}) {
   // 12 deterministic tokens per message — enough text for a meaningful FTS doc
   // and a non-empty snippet, cheap to generate.
   for (var i = 0; i < 12; i++) {
-    final token = _loremTokens[(seed * 7 + line * 13 + i * 17) %
-        _loremTokens.length];
+    final token =
+        _loremTokens[(seed * 7 + line * 13 + i * 17) % _loremTokens.length];
     buffer
       ..write(token)
       ..write(' ');
@@ -133,14 +133,13 @@ ChatRows _chatRows(
     currentId = id;
   }
 
-  final title = '$kSentinel chat $chatId';
   return ChatBlobMapper.blobToRows(
     chatId: chatId,
     title: 'Chat $chatId',
     createdAt: 1_000_000,
     updatedAt: updatedAt,
     blob: <String, dynamic>{
-      'title': title.contains(kSentinel) ? 'Chat $chatId' : title,
+      'title': 'Chat $chatId',
       'history': <String, dynamic>{
         'currentId': currentId,
         'messages': messages,

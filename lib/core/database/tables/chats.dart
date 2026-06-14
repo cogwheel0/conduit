@@ -39,7 +39,8 @@ class Chats extends Table {
 
   /// A3: `ChatRows` round-trip bookkeeping (JSON, exact keys: v,
   /// blobHadTitle, blobTitleValue, blobHadHistory, historyHadMessages,
-  /// historyHadCurrentId, historyExtra, unmappableMessages).
+  /// historyHadCurrentId, historyExtra, unmappableMessages,
+  /// unmappableMessageOrder).
   TextColumn get blobMeta => text().withDefault(const Constant('{}'))();
 
   /// A5: true only after a full `ChatResponse` upsert; false for archived

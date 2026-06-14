@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
@@ -222,11 +224,46 @@ class ApiSyncApiClient implements SyncApiClient {
       return resp != null;
     } on DioException catch (e) {
       final status = e.response?.statusCode;
-      if (status == 404 || status == 401) {
+      if (status == 404) {
+        return false;
+      }
+      if (status == 401 && _isVendoredNotFound401(e.response?.data)) {
         return false;
       }
       rethrow;
     }
+  }
+
+  bool _isVendoredNotFound401(Object? data) {
+    return _responseErrorStrings(data).any(_looksLikeNotFound);
+  }
+
+  Iterable<String> _responseErrorStrings(Object? data) sync* {
+    if (data is Map) {
+      for (final key in const ['detail', 'error', 'message']) {
+        final value = data[key];
+        if (value != null) yield value.toString();
+      }
+      return;
+    }
+    if (data is List<int>) {
+      yield* _responseErrorStrings(utf8.decode(data, allowMalformed: true));
+      return;
+    }
+    if (data is String) {
+      try {
+        yield* _responseErrorStrings(jsonDecode(data));
+      } on FormatException {
+        // Fall through and inspect the raw text below.
+      }
+      yield data;
+    }
+  }
+
+  bool _looksLikeNotFound(String value) {
+    final lower = value.toLowerCase();
+    return lower.contains('not found') ||
+        lower.contains("could not find what you're looking for");
   }
 
   @override

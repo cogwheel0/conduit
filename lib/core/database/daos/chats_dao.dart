@@ -716,6 +716,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     'historyHadCurrentId': rows.historyHadCurrentId,
     'historyExtra': rows.historyExtra,
     'unmappableMessages': rows.unmappableMessages,
+    'unmappableMessageOrder': rows.unmappableMessageOrder,
   };
 
   static int? _maxLastReadAt(int? local, int? server) {
