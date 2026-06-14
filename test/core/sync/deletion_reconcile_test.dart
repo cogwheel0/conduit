@@ -4,6 +4,7 @@ import 'package:conduit/core/database/daos/outbox_dao.dart';
 import 'package:conduit/core/sync/chat_locks.dart';
 import 'package:conduit/core/sync/clock.dart';
 import 'package:conduit/core/sync/deletion_reconcile.dart';
+import 'package:dio/dio.dart';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -32,6 +33,35 @@ class _SessionDyingClient extends FakeSyncApiClient {
       }
     }
     return super.getChatListPage(page);
+  }
+}
+
+/// A client whose preflight liveness check succeeds, then the per-chat probe
+/// sees a real auth failure rather than the vendored NOT_FOUND 401.
+class _AuthFailingProbeClient extends FakeSyncApiClient {
+  _AuthFailingProbeClient(
+    super.server, {
+    this.authFailureAfterSuccessfulProbes = 0,
+  });
+
+  final int authFailureAfterSuccessfulProbes;
+
+  @override
+  Future<bool> probeChatExists(String id) async {
+    probeChatExistsCalls++;
+    await Future<void>.delayed(Duration.zero);
+    if (probeChatExistsCalls <= authFailureAfterSuccessfulProbes) {
+      return false;
+    }
+    final requestOptions = RequestOptions(path: '/api/v1/chats/$id');
+    throw DioException(
+      requestOptions: requestOptions,
+      response: Response<Map<String, dynamic>>(
+        requestOptions: requestOptions,
+        statusCode: 401,
+        data: const {'detail': 'token expired'},
+      ),
+    );
   }
 }
 
@@ -281,6 +311,64 @@ void main() {
         check(result.skipped).equals(1);
         // Survives this run; reconcile is best-effort + re-runs.
         check(await db.chatsDao.getChat('flaky')).isNotNull();
+      },
+    );
+
+    test(
+      'a terminal probe auth failure aborts without advancing the throttle',
+      () async {
+        final authFailing = _AuthFailingProbeClient(server);
+        final authFailingReconcile = DeletionReconcile(
+          client: authFailing,
+          db: db,
+          locks: locks,
+          clock: clock,
+        );
+        await seedServerChat(db, id: 'auth-failed');
+
+        final result = await authFailingReconcile.run(
+          ReconcileReason.manualRefresh,
+        );
+
+        check(result.aborted).isTrue();
+        check(result.purged).equals(0);
+        check(result.skipped).equals(1);
+        check(authFailing.probeChatExistsCalls).equals(1);
+        check(await db.chatsDao.getChat('auth-failed')).isNotNull();
+        check(await db.syncMetaDao.getLastFullReconcileAt()).equals(0);
+      },
+    );
+
+    test(
+      'a mid-loop terminal auth failure aborts without advancing the throttle',
+      () async {
+        final authFailing = _AuthFailingProbeClient(
+          server,
+          authFailureAfterSuccessfulProbes: 1,
+        );
+        final authFailingReconcile = DeletionReconcile(
+          client: authFailing,
+          db: db,
+          locks: locks,
+          clock: clock,
+        );
+        await seedServerChat(db, id: 'ghost-1');
+        await seedServerChat(db, id: 'ghost-2');
+
+        final result = await authFailingReconcile.run(
+          ReconcileReason.manualRefresh,
+        );
+
+        check(result.aborted).isTrue();
+        check(result.purged).equals(1);
+        check(result.skipped).equals(1);
+        check(authFailing.probeChatExistsCalls).equals(2);
+        final remaining = [
+          await db.chatsDao.getChat('ghost-1'),
+          await db.chatsDao.getChat('ghost-2'),
+        ].whereType<ChatRow>().toList();
+        check(remaining.length).equals(1);
+        check(await db.syncMetaDao.getLastFullReconcileAt()).equals(0);
       },
     );
   });

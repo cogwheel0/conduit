@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 
+import 'package:dio/dio.dart';
+
 import '../database/app_database.dart';
 import '../utils/debug_logger.dart';
 import 'chat_locks.dart';
@@ -58,8 +60,8 @@ class ReconcileResult {
   /// (transient) — left untouched this run.
   final int skipped;
 
-  /// Safety valve tripped: candidates exceeded [kReconcileMaxPurgeFraction]
-  /// of the local set, so NOTHING was purged.
+  /// Safety valve or session-liveness guard tripped. Depending on when the
+  /// guard tripped, some earlier confirmed-gone candidates may have purged.
   final bool aborted;
 }
 
@@ -164,9 +166,12 @@ class DeletionReconcile {
     }
 
     // 4. Verify the session once before the purge phase, then probe + purge
-    //    each candidate under its chat lock.
+    //    each candidate under its chat lock. If a probe observes an auth /
+    //    terminal failure after the preflight check, stop trusting absence for
+    //    the rest of the run and leave the throttle untouched.
     var purged = 0;
     var skipped = 0;
+    var sessionDead = false;
     // The vendored GET /chats/{id} returns 401 (not 404) for a genuinely
     // missing/not-owned chat (routers/chats.py:957), so probeChatExists must
     // treat 401 as gone — but a 401 is ALSO what an expired token yields. To
@@ -189,11 +194,32 @@ class DeletionReconcile {
       );
     }
     for (final id in candidates) {
+      if (sessionDead) {
+        skipped++;
+        continue;
+      }
       await _locks.runExclusive(id, () async {
         bool gone;
         try {
           gone = !await _client.probeChatExists(id);
         } catch (error, stackTrace) {
+          if (_isTerminalProbeError(error)) {
+            DebugLogger.warning(
+              'reconcile-aborted-terminal-probe',
+              scope: 'sync/reconcile',
+              data: {'chatId': id, 'status': _probeStatusCode(error)},
+            );
+            DebugLogger.error(
+              'reconcile-probe-terminal',
+              scope: 'sync/reconcile',
+              error: error,
+              stackTrace: stackTrace,
+              data: {'chatId': id},
+            );
+            sessionDead = true;
+            skipped++;
+            return;
+          }
           // Transient (network/5xx): skip this candidate this run.
           DebugLogger.error(
             'reconcile-probe-error',
@@ -219,6 +245,16 @@ class DeletionReconcile {
           data: {'chatId': id},
         );
       });
+    }
+
+    if (sessionDead) {
+      return ReconcileResult(
+        ran: true,
+        candidates: candidates.length,
+        purged: purged,
+        skipped: skipped,
+        aborted: true,
+      );
     }
 
     await _db.syncMetaDao.setLastFullReconcileAt(now);
@@ -264,5 +300,17 @@ class DeletionReconcile {
       if (items.length < kOpenWebUiChatListPageSize) break;
       page++;
     }
+  }
+
+  bool _isTerminalProbeError(Object error) {
+    if (error is SyncTerminalException) return true;
+    final status = _probeStatusCode(error);
+    return status == 401 || status == 403;
+  }
+
+  int? _probeStatusCode(Object error) {
+    if (error is SyncTerminalException) return error.statusCode;
+    if (error is DioException) return error.response?.statusCode;
+    return null;
   }
 }
