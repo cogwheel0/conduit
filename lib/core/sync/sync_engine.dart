@@ -103,6 +103,7 @@ class SyncEngine extends _$SyncEngine {
   /// The migrator runs at most once per process (it is also internally
   /// idempotent + flag-gated per server, so a re-attempt is a cheap no-op).
   bool _migrated = false;
+  Future<void>? _migrationInFlight;
 
   /// Prevents overlapping fire-and-forget FTS backfills while the durable
   /// `fts_built` flag is still unset.
@@ -163,6 +164,7 @@ class SyncEngine extends _$SyncEngine {
     _remapper = null;
     _drainer = null;
     _migrated = false;
+    _migrationInFlight = null;
     _ftsBuildInFlight = false;
     final joinable = _joinable;
     _joinable = null;
@@ -226,6 +228,7 @@ class SyncEngine extends _$SyncEngine {
   /// ops then drains. Called from `sync_triggers` on the false->true edge.
   Future<void> drainNow() async {
     if (_inert) return;
+    await _migrateLegacyTaskQueueIfNeeded();
     await _ensureDrainer()?.onConnectivityRegained();
   }
 
@@ -235,6 +238,7 @@ class SyncEngine extends _$SyncEngine {
   /// chat. Single-flight via the shared drainer's `_draining` guard.
   Future<void> drainOutbox() async {
     if (_inert) return;
+    await _migrateLegacyTaskQueueIfNeeded();
     await _ensureDrainer()?.drain();
   }
 
@@ -432,6 +436,44 @@ class SyncEngine extends _$SyncEngine {
       clock: clock,
       resolveDefaultModel: () => ref.read(selectedModelProvider)?.id ?? '',
     );
+  }
+
+  /// §9 step 2 / §11: convert the legacy Hive task queue into rows+ops EXACTLY
+  /// ONCE per process, BEFORE any drain entry point can consume the outbox.
+  Future<void> _migrateLegacyTaskQueueIfNeeded() {
+    if (_migrated) return Future<void>.value();
+    final inFlight = _migrationInFlight;
+    if (inFlight != null) return inFlight;
+
+    final migrationEpoch = _sessionEpoch;
+    late final Future<void> migration;
+    migration = _runLegacyTaskQueueMigration(migrationEpoch).whenComplete(() {
+      if (migrationEpoch == _sessionEpoch &&
+          identical(_migrationInFlight, migration)) {
+        _migrationInFlight = null;
+      }
+    });
+    _migrationInFlight = migration;
+    return migration;
+  }
+
+  Future<void> _runLegacyTaskQueueMigration(int migrationEpoch) async {
+    try {
+      await _buildMigrator()?.migrateIfNeeded();
+      if (migrationEpoch == _sessionEpoch) {
+        _migrated = true;
+      }
+    } catch (error, stackTrace) {
+      // A migration abort/error must not abort the triggering drain/cycle; it
+      // retries next time. The process guard is set only after the migrator
+      // returns, and the durable flag is set only after a full conversion pass.
+      DebugLogger.error(
+        'task-queue-migrate-failed',
+        scope: 'sync/engine',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
   }
 
   /// Engine-internal: the §7.5 deletion reconcile, sharing the engine's
@@ -636,26 +678,8 @@ class SyncEngine extends _$SyncEngine {
       }
     }
 
-    // §9 step 2 / §11: convert the legacy Hive task queue into rows+ops EXACTLY
-    // ONCE per process, BEFORE the first drain, so converted ops are visible to
-    // it (the migrator is also internally idempotent + per-server flag-gated).
-    if (!_migrated) {
-      try {
-        await _buildMigrator()?.migrateIfNeeded();
-        _migrated = true;
-      } catch (error, stackTrace) {
-        // A migration abort/error must not abort the pull cycle; it retries
-        // next cycle (the process guard is set only after the migrator returns,
-        // and the durable flag is set only after a full conversion pass).
-        DebugLogger.error(
-          'task-queue-migrate-failed',
-          scope: 'sync/engine',
-          error: error,
-          stackTrace: stackTrace,
-        );
-      }
-      if (!_cycleStillBound(cycleEpoch, 'after-task-migration')) return null;
-    }
+    await _migrateLegacyTaskQueueIfNeeded();
+    if (!_cycleStillBound(cycleEpoch, 'after-task-migration')) return null;
 
     // Drain the outbox AFTER pull (W: pull-then-push ordering). Errors are
     // caught + logged by the enclosing `_startCycle` try.

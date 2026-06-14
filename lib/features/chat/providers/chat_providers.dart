@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -4997,7 +4998,7 @@ Future<void> _saveConversationLocally(dynamic ref) async {
               updatedConversation.updatedAt.millisecondsSinceEpoch ~/ 1000,
           pinned: updatedConversation.pinned,
           archived: updatedConversation.archived,
-          folderId: updatedConversation.folderId,
+          folderId: Value(updatedConversation.folderId),
           lastReadAt: lastReadAt == null
               ? null
               : lastReadAt.millisecondsSinceEpoch ~/ 1000,

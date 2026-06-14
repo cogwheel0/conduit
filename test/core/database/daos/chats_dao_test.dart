@@ -52,59 +52,71 @@ void main() {
         check(chatRow.bodySynced).isTrue();
         check(chatRow.dirty).isFalse();
         check(chatRow.deleted).isFalse();
-        check(chatRow.serverUpdatedAt)
-            .equals(fixture.envelope['updated_at'] as int);
+        check(
+          chatRow.serverUpdatedAt,
+        ).equals(fixture.envelope['updated_at'] as int);
       });
     }
   });
 
-  test('re-upserting the same chat stays idempotent (no duplicate messages)',
-      () async {
-    final fixture = loadChatBlobFixtures()
-        .singleWhere((f) => f.name == '02_linear_multi_turn');
-    final rows = rowsFromFixture(fixture);
-    await db.chatsDao.upsertServerChat(rows: rows);
-    final firstCount = (await db.messagesDao.getForChat(fixture.chatId)).length;
-    await db.chatsDao.upsertServerChat(rows: rowsFromFixture(fixture));
-    final messageRows = await db.messagesDao.getForChat(fixture.chatId);
-    check(messageRows.length).equals(firstCount);
-    final chatRow = await db.chatsDao.getChat(fixture.chatId);
-    final rebuilt =
-        ChatBlobMapper.rowsToBlob(chatRowsFromDb(chatRow!, messageRows));
-    check(_deepEq.equals(rebuilt, fixture.blob)).isTrue();
-  });
+  test(
+    're-upserting the same chat stays idempotent (no duplicate messages)',
+    () async {
+      final fixture = loadChatBlobFixtures().singleWhere(
+        (f) => f.name == '02_linear_multi_turn',
+      );
+      final rows = rowsFromFixture(fixture);
+      await db.chatsDao.upsertServerChat(rows: rows);
+      final firstCount = (await db.messagesDao.getForChat(
+        fixture.chatId,
+      )).length;
+      await db.chatsDao.upsertServerChat(rows: rowsFromFixture(fixture));
+      final messageRows = await db.messagesDao.getForChat(fixture.chatId);
+      check(messageRows.length).equals(firstCount);
+      final chatRow = await db.chatsDao.getChat(fixture.chatId);
+      final rebuilt = ChatBlobMapper.rowsToBlob(
+        chatRowsFromDb(chatRow!, messageRows),
+      );
+      check(_deepEq.equals(rebuilt, fixture.blob)).isTrue();
+    },
+  );
 
   group('watchChatList', () {
-    test('projection SQL selects no payload/rawExtra/blobMeta/meta columns',
-        () async {
-      final selects = <String>[];
-      final recordingDb = AppDatabase(
-        NativeDatabase.memory().interceptWith(_SelectRecorder(selects)),
-      );
-      addTearDown(recordingDb.close);
+    test(
+      'projection SQL selects no payload/rawExtra/blobMeta/meta columns',
+      () async {
+        final selects = <String>[];
+        final recordingDb = AppDatabase(
+          NativeDatabase.memory().interceptWith(_SelectRecorder(selects)),
+        );
+        addTearDown(recordingDb.close);
 
-      await recordingDb.chatsDao.watchChatList().first;
+        await recordingDb.chatsDao.watchChatList().first;
 
-      final chatSelects = selects
-          .where((sql) => sql.toLowerCase().contains('from "chats"') ||
-              sql.toLowerCase().contains('from chats'))
-          .toList();
-      check(
-        because: 'the watched list query itself must have run',
-        chatSelects,
-      ).isNotEmpty();
-      for (final sql in chatSelects) {
-        final lower = sql.toLowerCase();
-        check(because: 'REQ §10.2 narrow projection, got: $sql', lower)
-          ..not((s) => s.contains('payload'))
-          ..not((s) => s.contains('raw_extra'))
-          ..not((s) => s.contains('blob_meta'));
+        final chatSelects = selects
+            .where(
+              (sql) =>
+                  sql.toLowerCase().contains('from "chats"') ||
+                  sql.toLowerCase().contains('from chats'),
+            )
+            .toList();
         check(
-          because: 'meta column must not appear in the list SQL: $sql',
-          RegExp(r'(?<![a-z0-9_])meta(?![a-z0-9_])').hasMatch(lower),
-        ).isFalse();
-      }
-    });
+          because: 'the watched list query itself must have run',
+          chatSelects,
+        ).isNotEmpty();
+        for (final sql in chatSelects) {
+          final lower = sql.toLowerCase();
+          check(because: 'REQ §10.2 narrow projection, got: $sql', lower)
+            ..not((s) => s.contains('payload'))
+            ..not((s) => s.contains('raw_extra'))
+            ..not((s) => s.contains('blob_meta'));
+          check(
+            because: 'meta column must not appear in the list SQL: $sql',
+            RegExp(r'(?<![a-z0-9_])meta(?![a-z0-9_])').hasMatch(lower),
+          ).isFalse();
+        }
+      },
+    );
 
     test('writing 50 chats in one transaction emits exactly once', () async {
       final emissions = <List<ChatListEntry>>[];
@@ -135,8 +147,7 @@ void main() {
       check(emissions.last.length).equals(50);
     });
 
-    test('orders by updatedAt DESC then id ASC and hides tombstones',
-        () async {
+    test('orders by updatedAt DESC then id ASC and hides tombstones', () async {
       await db.chatsDao.upsertEnvelopeStub(
         id: 'b',
         title: 'tie-b',
@@ -161,8 +172,9 @@ void main() {
         createdAt: 1,
         updatedAt: 300,
       );
-      await (db.update(db.chats)..where((t) => t.id.equals('d')))
-          .write(const ChatsCompanion(deleted: Value(true)));
+      await (db.update(db.chats)..where((t) => t.id.equals('d'))).write(
+        const ChatsCompanion(deleted: Value(true)),
+      );
 
       final entries = await db.chatsDao.watchChatList().first;
       check(entries.map((e) => e.id).toList()).deepEquals(['c', 'a', 'b']);
@@ -189,7 +201,7 @@ void main() {
         createdAt: 11,
         updatedAt: 22,
         pinned: true,
-        folderId: 'f-1',
+        folderId: const Value('f-1'),
         lastReadAt: 33,
       );
       final entry = await db.chatsDao.watchChatMeta('meta-1').first;
@@ -214,21 +226,21 @@ void main() {
         title: 'one',
         createdAt: 1,
         updatedAt: 10,
-        folderId: 'f-1',
+        folderId: const Value('f-1'),
       );
       await db.chatsDao.upsertEnvelopeStub(
         id: 'in-2',
         title: 'two',
         createdAt: 1,
         updatedAt: 20,
-        folderId: 'f-1',
+        folderId: const Value('f-1'),
       );
       await db.chatsDao.upsertEnvelopeStub(
         id: 'other',
         title: 'other folder',
         createdAt: 1,
         updatedAt: 30,
-        folderId: 'f-2',
+        folderId: const Value('f-2'),
       );
       final entries = await db.chatsDao.getChatsInFolder('f-1');
       check(entries.map((e) => e.id).toList()).deepEquals(['in-2', 'in-1']);
@@ -243,26 +255,30 @@ void main() {
         rows: rowsFromFixture(fixture),
         listLastReadAt: 100,
       );
-      check((await db.chatsDao.getChat(fixture.chatId))!.lastReadAt)
-          .equals(100);
+      check(
+        (await db.chatsDao.getChat(fixture.chatId))!.lastReadAt,
+      ).equals(100);
 
       await db.chatsDao.upsertServerChat(
         rows: rowsFromFixture(fixture),
         listLastReadAt: 50,
       );
-      check((await db.chatsDao.getChat(fixture.chatId))!.lastReadAt)
-          .equals(100);
+      check(
+        (await db.chatsDao.getChat(fixture.chatId))!.lastReadAt,
+      ).equals(100);
 
       await db.chatsDao.upsertServerChat(rows: rowsFromFixture(fixture));
-      check((await db.chatsDao.getChat(fixture.chatId))!.lastReadAt)
-          .equals(100);
+      check(
+        (await db.chatsDao.getChat(fixture.chatId))!.lastReadAt,
+      ).equals(100);
 
       await db.chatsDao.upsertServerChat(
         rows: rowsFromFixture(fixture),
         listLastReadAt: 200,
       );
-      check((await db.chatsDao.getChat(fixture.chatId))!.lastReadAt)
-          .equals(200);
+      check(
+        (await db.chatsDao.getChat(fixture.chatId))!.lastReadAt,
+      ).equals(200);
     });
 
     test('upsertServerChat keeps null when both sides are null', () async {
@@ -331,44 +347,50 @@ void main() {
       check(row.archived).isFalse();
     });
 
-    test('never touches messages/bodySynced/blobMeta/rawExtra of a full chat',
-        () async {
-      final fixture = loadChatBlobFixtures()
-          .singleWhere((f) => f.name == '02_linear_multi_turn');
-      await db.chatsDao.upsertServerChat(
-        rows: rowsFromFixture(fixture),
-        shareId: 'share-1',
-        meta: const {'tags': ['x']},
-      );
-      final before = await db.chatsDao.getChat(fixture.chatId);
-      final messagesBefore = await db.messagesDao.getForChat(fixture.chatId);
-      check(messagesBefore).isNotEmpty();
+    test(
+      'never touches messages/bodySynced/blobMeta/rawExtra of a full chat',
+      () async {
+        final fixture = loadChatBlobFixtures().singleWhere(
+          (f) => f.name == '02_linear_multi_turn',
+        );
+        await db.chatsDao.upsertServerChat(
+          rows: rowsFromFixture(fixture),
+          shareId: 'share-1',
+          meta: const {
+            'tags': ['x'],
+          },
+        );
+        final before = await db.chatsDao.getChat(fixture.chatId);
+        final messagesBefore = await db.messagesDao.getForChat(fixture.chatId);
+        check(messagesBefore).isNotEmpty();
 
-      await db.chatsDao.upsertEnvelopeStub(
-        id: fixture.chatId,
-        title: 'Renamed via list',
-        createdAt: (fixture.envelope['created_at'] as int),
-        updatedAt: (fixture.envelope['updated_at'] as int) + 5,
-        pinned: true,
-        folderId: 'f-9',
-      );
+        await db.chatsDao.upsertEnvelopeStub(
+          id: fixture.chatId,
+          title: 'Renamed via list',
+          createdAt: (fixture.envelope['created_at'] as int),
+          updatedAt: (fixture.envelope['updated_at'] as int) + 5,
+          pinned: true,
+          folderId: const Value('f-9'),
+        );
 
-      final after = await db.chatsDao.getChat(fixture.chatId);
-      check(after!.title).equals('Renamed via list');
-      check(after.updatedAt)
-          .equals((fixture.envelope['updated_at'] as int) + 5);
-      check(after.pinned).isTrue();
-      check(after.folderId).equals('f-9');
-      // Untouched:
-      check(after.bodySynced).equals(before!.bodySynced);
-      check(after.blobMeta).equals(before.blobMeta);
-      check(after.rawExtra).equals(before.rawExtra);
-      check(after.meta).equals(before.meta);
-      check(after.shareId).equals(before.shareId);
-      check(after.serverUpdatedAt).equals(before.serverUpdatedAt);
-      final messagesAfter = await db.messagesDao.getForChat(fixture.chatId);
-      check(messagesAfter.length).equals(messagesBefore.length);
-    });
+        final after = await db.chatsDao.getChat(fixture.chatId);
+        check(after!.title).equals('Renamed via list');
+        check(
+          after.updatedAt,
+        ).equals((fixture.envelope['updated_at'] as int) + 5);
+        check(after.pinned).isTrue();
+        check(after.folderId).equals('f-9');
+        // Untouched:
+        check(after.bodySynced).equals(before!.bodySynced);
+        check(after.blobMeta).equals(before.blobMeta);
+        check(after.rawExtra).equals(before.rawExtra);
+        check(after.meta).equals(before.meta);
+        check(after.shareId).equals(before.shareId);
+        check(after.serverUpdatedAt).equals(before.serverUpdatedAt);
+        final messagesAfter = await db.messagesDao.getForChat(fixture.chatId);
+        check(messagesAfter.length).equals(messagesBefore.length);
+      },
+    );
 
     test('absent pinned/archived leave the existing values alone', () async {
       await db.chatsDao.upsertEnvelopeStub(
@@ -396,7 +418,7 @@ void main() {
         title: 'Foldered',
         createdAt: 1,
         updatedAt: 1,
-        folderId: 'f-1',
+        folderId: const Value('f-1'),
       );
 
       await db.chatsDao.upsertEnvelopeStub(
@@ -412,6 +434,31 @@ void main() {
       check(row.archived).isTrue();
       check(row.updatedAt).equals(2);
     });
+
+    test(
+      'explicit null folderId clears the existing value on update',
+      () async {
+        await db.chatsDao.upsertEnvelopeStub(
+          id: 'folder-clear',
+          title: 'Foldered',
+          createdAt: 1,
+          updatedAt: 1,
+          folderId: const Value('f-1'),
+        );
+
+        await db.chatsDao.upsertEnvelopeStub(
+          id: 'folder-clear',
+          title: 'Unfoldered summary refresh',
+          createdAt: 1,
+          updatedAt: 2,
+          folderId: const Value(null),
+        );
+
+        final row = await db.chatsDao.getChat('folder-clear');
+        check(row!.folderId).isNull();
+        check(row.updatedAt).equals(2);
+      },
+    );
   });
 
   group('updateEnvelope', () {
@@ -429,7 +476,7 @@ void main() {
         title: 'Original',
         createdAt: 10,
         updatedAt: 20,
-        folderId: 'f-1',
+        folderId: const Value('f-1'),
       );
       final affected = await db.chatsDao.updateEnvelope(
         'env',
@@ -452,7 +499,7 @@ void main() {
         title: 'Original',
         createdAt: 10,
         updatedAt: 20,
-        folderId: 'f-1',
+        folderId: const Value('f-1'),
       );
       await db.chatsDao.updateEnvelope('env2', folderId: const Value(null));
       check((await db.chatsDao.getChat('env2'))!.folderId).isNull();
@@ -471,8 +518,9 @@ void main() {
 
   group('hardDelete', () {
     test('removes the chat row and cascades messages', () async {
-      final fixture = loadChatBlobFixtures()
-          .singleWhere((f) => f.name == '02_linear_multi_turn');
+      final fixture = loadChatBlobFixtures().singleWhere(
+        (f) => f.name == '02_linear_multi_turn',
+      );
       await db.chatsDao.upsertServerChat(rows: rowsFromFixture(fixture));
       check(await db.messagesDao.getForChat(fixture.chatId)).isNotEmpty();
 

@@ -21,6 +21,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/utils/conversation_context_menu.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
+import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -325,8 +326,7 @@ void main() {
     await tester.runAsync(() async {
       // A new `local:` chat with folderId == 'work' carrying the user text.
       final chats = await db.chatsDao.watchChatList().first;
-      final localChats =
-          chats.where((c) => c.id.startsWith('local:')).toList();
+      final localChats = chats.where((c) => c.id.startsWith('local:')).toList();
       expect(localChats, hasLength(1));
       final chatId = localChats.single.id;
       expect(localChats.single.folderId, 'work');
@@ -383,7 +383,7 @@ void main() {
       title: 'Folder Chat',
       createdAt: timestamp.millisecondsSinceEpoch ~/ 1000,
       updatedAt: timestamp.millisecondsSinceEpoch ~/ 1000,
-      folderId: 'work',
+      folderId: const Value('work'),
     );
     final container = _createContainer(
       api: _FakeFolderApiService(),

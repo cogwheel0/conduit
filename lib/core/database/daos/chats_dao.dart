@@ -422,7 +422,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     required int updatedAt,
     bool? pinned,
     bool? archived,
-    String? folderId,
+    Value<String?> folderId = const Value.absent(),
     int? lastReadAt,
   }) {
     return transaction(() async {
@@ -436,7 +436,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
             updatedAt: updatedAt,
             pinned: Value(pinned ?? false),
             archived: Value(archived ?? false),
-            folderId: Value(folderId),
+            folderId: folderId,
             lastReadAt: Value(lastReadAt),
             bodySynced: const Value(false),
             blobMeta: const Value('{}'),
@@ -451,7 +451,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
           updatedAt: Value(updatedAt),
           pinned: pinned == null ? const Value.absent() : Value(pinned),
           archived: archived == null ? const Value.absent() : Value(archived),
-          folderId: folderId == null ? const Value.absent() : Value(folderId),
+          folderId: folderId,
           lastReadAt: Value(_maxLastReadAt(existing.lastReadAt, lastReadAt)),
         ),
       );

@@ -1260,10 +1260,7 @@ class Conversations extends _$Conversations {
           DebugLogger.log(
             'cold-start-ms',
             scope: 'perf/list',
-            data: {
-              'ms': coldStart.elapsedMilliseconds,
-              'rows': entries.length,
-            },
+            data: {'ms': coldStart.elapsedMilliseconds, 'rows': entries.length},
           );
           completer.complete(conversations);
           return;
@@ -1295,9 +1292,7 @@ class Conversations extends _$Conversations {
     bool includeFolders = false,
     bool forceFresh = false,
   }) async {
-    await ref
-        .read(syncEngineProvider.notifier)
-        .requestPull(reason: 'refresh');
+    await ref.read(syncEngineProvider.notifier).requestPull(reason: 'refresh');
   }
 
   /// All chats are local rows; nothing to page in.
@@ -1320,17 +1315,18 @@ class Conversations extends _$Conversations {
     if (db == null || isTemporaryChat(id)) return;
     final locks = ref.read(chatLocksProvider);
     unawaited(
-      locks
-          .runExclusive(id, () => db.chatsDao.hardDelete(id))
-          .catchError((Object error, StackTrace stackTrace) {
-            DebugLogger.error(
-              'row-delete-failed',
-              scope: 'conversations',
-              error: error,
-              stackTrace: stackTrace,
-              data: {'id': id},
-            );
-          }),
+      locks.runExclusive(id, () => db.chatsDao.hardDelete(id)).catchError((
+        Object error,
+        StackTrace stackTrace,
+      ) {
+        DebugLogger.error(
+          'row-delete-failed',
+          scope: 'conversations',
+          error: error,
+          stackTrace: stackTrace,
+          data: {'id': id},
+        );
+      }),
     );
   }
 
@@ -1405,17 +1401,18 @@ class Conversations extends _$Conversations {
     // max() rule means the column is never lowered and the value never enters
     // watermark logic.
     unawaited(
-      db.chatsDao
-          .setLastReadAt(id, _epochSecondsOf(readAt))
-          .catchError((Object error, StackTrace stackTrace) {
-            DebugLogger.error(
-              'read-mark-failed',
-              scope: 'conversations',
-              error: error,
-              stackTrace: stackTrace,
-              data: {'id': id},
-            );
-          }),
+      db.chatsDao.setLastReadAt(id, _epochSecondsOf(readAt)).catchError((
+        Object error,
+        StackTrace stackTrace,
+      ) {
+        DebugLogger.error(
+          'read-mark-failed',
+          scope: 'conversations',
+          error: error,
+          stackTrace: stackTrace,
+          data: {'id': id},
+        );
+      }),
     );
   }
 
@@ -1453,7 +1450,7 @@ class Conversations extends _$Conversations {
               updatedAt: _epochSecondsOf(conversation.updatedAt),
               pinned: conversation.pinned,
               archived: conversation.archived,
-              folderId: conversation.folderId,
+              folderId: Value(conversation.folderId),
               lastReadAt: lastReadAt == null
                   ? null
                   : _epochSecondsOf(lastReadAt),

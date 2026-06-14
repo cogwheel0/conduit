@@ -37,12 +37,12 @@ class OutboxTaskQueueMigrator {
     required SyncClock clock,
     String Function() resolveDefaultModel = _emptyModel,
     Uuid uuid = const Uuid(),
-  })  : _db = db,
-        _boxes = hiveBoxes,
-        _chatLocks = chatLocks,
-        _clock = clock,
-        _resolveDefaultModel = resolveDefaultModel,
-        _uuid = uuid;
+  }) : _db = db,
+       _boxes = hiveBoxes,
+       _chatLocks = chatLocks,
+       _clock = clock,
+       _resolveDefaultModel = resolveDefaultModel,
+       _uuid = uuid;
 
   /// Per-server `sync_meta` flag set to `'1'` once migration completes (D3).
   static const String migratedFlagKey = 'outbox_task_queue_migrated';
@@ -310,7 +310,7 @@ class OutboxTaskQueueMigrator {
           title: _titleFromText(text),
           createdAt: now,
           updatedAt: now,
-          folderId: pendingFolderId,
+          folderId: Value(pendingFolderId),
         );
       }
       await _db.chatsDao.appendMessagesWithUpdateOp(
@@ -343,10 +343,11 @@ class OutboxTaskQueueMigrator {
   /// idempotency guard for the existing-chat branch (a deterministic assistant
   /// row present means this legacy task already converted on a prior run).
   Future<bool> _messageExists(String chatId, String messageId) async {
-    final rows = await (_db.select(_db.messages)
-          ..where((t) => t.chatId.equals(chatId) & t.id.equals(messageId))
-          ..limit(1))
-        .get();
+    final rows =
+        await (_db.select(_db.messages)
+              ..where((t) => t.chatId.equals(chatId) & t.id.equals(messageId))
+              ..limit(1))
+            .get();
     return rows.isNotEmpty;
   }
 
@@ -365,15 +366,13 @@ class OutboxTaskQueueMigrator {
     final chat = await _db.chatsDao.getChat(chatId);
     final currentId = chat?.currentMessageId;
     if (currentId == null) return false;
-    final rows = await (_db.select(_db.messages)
-          ..where((t) => t.chatId.equals(chatId)))
-        .get();
+    final rows = await (_db.select(
+      _db.messages,
+    )..where((t) => t.chatId.equals(chatId))).get();
     final byId = {for (final r in rows) r.id: r};
     // The active-branch tip must be a COMPLETED assistant reply.
     final tip = byId[currentId];
-    if (tip == null ||
-        tip.role != 'assistant' ||
-        tip.content.trim().isEmpty) {
+    if (tip == null || tip.role != 'assistant' || tip.content.trim().isEmpty) {
       return false;
     }
     // Its parent is the active turn's user message.
@@ -388,8 +387,9 @@ class OutboxTaskQueueMigrator {
   /// drain, so it closes the "converted, aborted, drained, retried" duplicate
   /// POST gap.
   Future<bool> _createHashAlreadyMigrated(String contentHash) async {
-    final value =
-        await _db.syncMetaDao.getValue(_createHashMarkerKey(contentHash));
+    final value = await _db.syncMetaDao.getValue(
+      _createHashMarkerKey(contentHash),
+    );
     return value == '1';
   }
 
@@ -405,10 +405,11 @@ class OutboxTaskQueueMigrator {
   /// createChat fingerprint used for partial-failure dedupe (R7). This is still
   /// needed to backfill the durable marker for conversions created by older code.
   Future<bool> _createOpExistsForHash(String contentHash) async {
-    final rows = await (_db.select(_db.outboxOps)
-          ..where((t) => t.contentHash.equals(contentHash))
-          ..limit(1))
-        .get();
+    final rows =
+        await (_db.select(_db.outboxOps)
+              ..where((t) => t.contentHash.equals(contentHash))
+              ..limit(1))
+            .get();
     return rows.isNotEmpty;
   }
 
@@ -504,8 +505,7 @@ class OutboxTaskQueueMigrator {
 
   List<Map<String, dynamic>> _filesFor(List<String> attachments) {
     return [
-      for (final id in attachments)
-        <String, dynamic>{'type': 'file', 'id': id},
+      for (final id in attachments) <String, dynamic>{'type': 'file', 'id': id},
     ];
   }
 
@@ -517,7 +517,10 @@ class OutboxTaskQueueMigrator {
 
   static List<String> _stringList(Object? value) {
     if (value is List) {
-      return [for (final e in value) if (e is String) e];
+      return [
+        for (final e in value)
+          if (e is String) e,
+      ];
     }
     return const <String>[];
   }

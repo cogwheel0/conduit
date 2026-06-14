@@ -393,6 +393,28 @@ void main() {
       check(migrationBuildAttempts).equals(2);
     });
 
+    test('direct drain entry points run task queue migration first', () async {
+      var migrationBuildAttempts = 0;
+      final container = makeContainer(
+        onHiveBoxesRead: () => migrationBuildAttempts++,
+      );
+      final engine = container.read(syncEngineProvider.notifier);
+
+      await seedLocalCreate('local:drain-now', contentHash: 'h-drain-now');
+      await engine.drainNow();
+      check(migrationBuildAttempts).equals(1);
+      check(client.createChatCalls).equals(1);
+      container.invalidate(hiveBoxesProvider);
+
+      await seedLocalCreate(
+        'local:drain-outbox',
+        contentHash: 'h-drain-outbox',
+      );
+      await engine.drainOutbox();
+      check(migrationBuildAttempts).equals(2);
+      check(client.createChatCalls).equals(2);
+    });
+
     test('folders 403 result flips foldersFeatureEnabledProvider', () async {
       seedChat('chat-1', 100);
       client.foldersFeatureEnabled = false;

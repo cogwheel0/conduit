@@ -74,9 +74,11 @@ class OutboxDrainer {
   final RequestCompletionRunner _completion;
   final TerminalErrorClassifier _isTerminal;
 
-  /// chatIds currently held by a worker (single-threaded Dart, so claim+add is
-  /// atomic across the await point). `'<null>'` marks the chatId-NULL stream.
+  /// chatIds currently held by a worker. `'<null>'` marks the chatId-NULL stream.
+  /// Claims are serialized through [_claimTail] so a returned op is reserved in
+  /// this set before any other worker can claim.
   final Set<String> _busy = <String>{};
+  Future<void> _claimTail = Future<void>.value();
 
   bool _draining = false;
   bool _rerun = false;
@@ -146,20 +148,37 @@ class OutboxDrainer {
 
   Future<void> _worker() async {
     while (true) {
-      final op = await _db.outboxDao.claimNextRunnable(
-        nowEpochSeconds: _clock.nowEpochSeconds(),
-        busyChatIds: _busy,
-      );
+      final op = await _claimNextReserved();
       if (op == null) return;
 
       final busyKey = op.chatId ?? '<null>';
-      _busy.add(busyKey);
       try {
         await _process(op);
       } finally {
         _busy.remove(busyKey);
       }
     }
+  }
+
+  Future<OutboxOp?> _claimNextReserved() {
+    final previous = _claimTail;
+    final release = Completer<void>();
+    _claimTail = release.future;
+
+    return previous.then((_) async {
+      try {
+        final op = await _db.outboxDao.claimNextRunnable(
+          nowEpochSeconds: _clock.nowEpochSeconds(),
+          busyChatIds: _busy,
+        );
+        if (op != null) {
+          _busy.add(op.chatId ?? '<null>');
+        }
+        return op;
+      } finally {
+        release.complete();
+      }
+    });
   }
 
   Future<void> _process(OutboxOp op) async {
