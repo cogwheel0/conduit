@@ -24,16 +24,19 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   late Directory tempDir;
+  late Box<dynamic> preferences;
   late Box<dynamic> caches;
+  late Box<dynamic> attachmentQueue;
+  late Box<dynamic> metadata;
   late AppDatabase db;
   late ChatLocks chatLocks;
 
   HiveBoxes boxes() => HiveBoxes(
-        preferences: caches,
-        caches: caches,
-        attachmentQueue: caches,
-        metadata: caches,
-      );
+    preferences: preferences,
+    caches: caches,
+    attachmentQueue: attachmentQueue,
+    metadata: metadata,
+  );
 
   OutboxTaskQueueMigrator migrator({String model = 'default-model'}) {
     return OutboxTaskQueueMigrator(
@@ -48,7 +51,10 @@ void main() {
   setUp(() async {
     tempDir = await Directory.systemTemp.createTemp('outbox-migrate-test');
     Hive.init(tempDir.path);
+    preferences = await Hive.openBox<dynamic>('preferences_v1');
     caches = await Hive.openBox<dynamic>('caches_v1');
+    attachmentQueue = await Hive.openBox<dynamic>('attachment_queue_v1');
+    metadata = await Hive.openBox<dynamic>('metadata_v1');
     db = AppDatabase(NativeDatabase.memory());
     chatLocks = ChatLocks();
   });
@@ -79,50 +85,56 @@ void main() {
   }
 
   group('new-chat conversion (acceptance D5)', () {
-    test('queued sendTextMessage -> local chat + createChat + completion ops',
-        () async {
-      await caches.put('outbound_task_queue_v1', [
-        sendTextTask(id: 't1', text: 'first message', toolIds: ['tool-a']),
-      ]);
+    test(
+      'queued sendTextMessage -> local chat + createChat + completion ops',
+      () async {
+        await caches.put('outbound_task_queue_v1', [
+          sendTextTask(id: 't1', text: 'first message', toolIds: ['tool-a']),
+        ]);
 
-      final report = await migrator().migrateIfNeeded();
+        final report = await migrator().migrateIfNeeded();
 
-      check(report.converted).equals(1);
+        check(report.converted).equals(1);
 
-      // Exactly one local chat row, dirty + not yet synced.
-      final chats = await db.select(db.chats).get();
-      check(chats.length).equals(1);
-      final chat = chats.single;
-      check(chat.id.startsWith('local:')).isTrue();
-      check(chat.dirty).isTrue();
-      check(chat.serverUpdatedAt).isNull();
-      check(chat.bodySynced).isTrue();
+        // Exactly one local chat row, dirty + not yet synced.
+        final chats = await db.select(db.chats).get();
+        check(chats.length).equals(1);
+        final chat = chats.single;
+        check(chat.id.startsWith('local:')).isTrue();
+        check(chat.dirty).isTrue();
+        check(chat.serverUpdatedAt).isNull();
+        check(chat.bodySynced).isTrue();
 
-      // user + assistant placeholder rows.
-      final msgs = await db.messagesDao.getForChat(chat.id);
-      check(msgs.length).equals(2);
-      check(msgs.where((m) => m.role == 'user').single.content)
-          .equals('first message');
+        // user + assistant placeholder rows.
+        final msgs = await db.messagesDao.getForChat(chat.id);
+        check(msgs.length).equals(2);
+        check(
+          msgs.where((m) => m.role == 'user').single.content,
+        ).equals('first message');
 
-      // createChat (with contentHash) THEN requestCompletion.
-      final ops = await db.outboxDao.pendingForChat(chat.id);
-      check(ops.length).equals(2);
-      check(ops[0].kind).equals('createChat');
-      check(ops[0].contentHash).isNotNull();
-      check(ops[1].kind).equals('requestCompletion');
-      final payload =
-          RequestCompletionPayload.fromJson(_decode(ops[1].payload));
-      check(payload.model).equals('default-model');
-      check(payload.toolIds).deepEquals(['tool-a']);
-      // Completion's assistantMessageId matches a real placeholder row.
-      check(msgs.any((m) => m.id == payload.assistantMessageId)).isTrue();
+        // createChat (with contentHash) THEN requestCompletion.
+        final ops = await db.outboxDao.pendingForChat(chat.id);
+        check(ops.length).equals(2);
+        check(ops[0].kind).equals('createChat');
+        check(ops[0].contentHash).isNotNull();
+        check(ops[1].kind).equals('requestCompletion');
+        final payload = RequestCompletionPayload.fromJson(
+          _decode(ops[1].payload),
+        );
+        check(payload.model).equals('default-model');
+        check(payload.toolIds).deepEquals(['tool-a']);
+        // Completion's assistantMessageId matches a real placeholder row.
+        check(msgs.any((m) => m.id == payload.assistantMessageId)).isTrue();
 
-      // Flag set + Hive key purged.
-      check(await db.syncMetaDao
-              .getValue(OutboxTaskQueueMigrator.migratedFlagKey))
-          .equals('1');
-      check(caches.get('outbound_task_queue_v1')).isNull();
-    });
+        // Flag set + Hive key purged.
+        check(
+          await db.syncMetaDao.getValue(
+            OutboxTaskQueueMigrator.migratedFlagKey,
+          ),
+        ).equals('1');
+        check(caches.get('outbound_task_queue_v1')).isNull();
+      },
+    );
 
     test('running tasks are coerced to queued and converted', () async {
       await caches.put('outbound_task_queue_v1', [
@@ -145,58 +157,74 @@ void main() {
   });
 
   group('existing-chat conversion', () {
-    test('server-id task enqueues requestCompletion ONLY (no createChat)',
-        () async {
-      await caches.put('outbound_task_queue_v1', [
-        sendTextTask(id: 't1', conversationId: 'srv-1', text: 'hi'),
-      ]);
-      await migrator().migrateIfNeeded();
+    test(
+      'server-id task enqueues requestCompletion ONLY (no createChat)',
+      () async {
+        await caches.put('outbound_task_queue_v1', [
+          sendTextTask(id: 't1', conversationId: 'srv-1', text: 'hi'),
+        ]);
+        await migrator().migrateIfNeeded();
 
-      final ops = await db.outboxDao.pendingForChat('srv-1');
-      check(ops.map((o) => o.kind).toList())
-          .deepEquals(['updateChat', 'requestCompletion']);
-      // A stub row was materialized for the unpulled server id.
-      check(await db.chatsDao.getChat('srv-1')).isNotNull();
-    });
+        final ops = await db.outboxDao.pendingForChat('srv-1');
+        check(
+          ops.map((o) => o.kind).toList(),
+        ).deepEquals(['updateChat', 'requestCompletion']);
+        // A stub row was materialized for the unpulled server id.
+        check(await db.chatsDao.getChat('srv-1')).isNotNull();
+      },
+    );
 
     test('a "running" task whose turn ALREADY completed server-side is skipped '
         '(no duplicate turn, no second completion)', () async {
       // _runOnce pulls BEFORE migration; the completed turn is already stored
       // under the SERVER's own message ids (not the v5-derived ids).
-      await db.into(db.chats).insert(ChatsCompanion.insert(
-            id: 'srv-2',
-            title: 'T',
-            createdAt: 1,
-            updatedAt: 1,
-            currentMessageId: const Value('srv-asst'), // active-branch tip
-            bodySynced: const Value(true),
-          ));
-      await db.into(db.messages).insert(MessagesCompanion.insert(
-            id: 'srv-user',
-            chatId: 'srv-2',
-            role: 'user',
-            content: 'hi',
-            createdAt: 1,
-            orderIndex: 0,
-            payload: '{}',
-          ));
-      await db.into(db.messages).insert(MessagesCompanion.insert(
-            id: 'srv-asst',
-            chatId: 'srv-2',
-            role: 'assistant',
-            content: 'hello there',
-            parentId: const Value('srv-user'),
-            createdAt: 2,
-            orderIndex: 1,
-            payload: '{}',
-          ));
+      await db
+          .into(db.chats)
+          .insert(
+            ChatsCompanion.insert(
+              id: 'srv-2',
+              title: 'T',
+              createdAt: 1,
+              updatedAt: 1,
+              currentMessageId: const Value('srv-asst'), // active-branch tip
+              bodySynced: const Value(true),
+            ),
+          );
+      await db
+          .into(db.messages)
+          .insert(
+            MessagesCompanion.insert(
+              id: 'srv-user',
+              chatId: 'srv-2',
+              role: 'user',
+              content: 'hi',
+              createdAt: 1,
+              orderIndex: 0,
+              payload: '{}',
+            ),
+          );
+      await db
+          .into(db.messages)
+          .insert(
+            MessagesCompanion.insert(
+              id: 'srv-asst',
+              chatId: 'srv-2',
+              role: 'assistant',
+              content: 'hello there',
+              parentId: const Value('srv-user'),
+              createdAt: 2,
+              orderIndex: 1,
+              payload: '{}',
+            ),
+          );
 
       await caches.put('outbound_task_queue_v1', [
         sendTextTask(
-            id: 't1',
-            conversationId: 'srv-2',
-            text: 'hi',
-            status: 'running'),
+          id: 't1',
+          conversationId: 'srv-2',
+          text: 'hi',
+          status: 'running',
+        ),
       ]);
       await migrator().migrateIfNeeded();
 
@@ -209,33 +237,45 @@ void main() {
     test('a migrated turn LINKS to the prior conversation tip (not an orphan '
         'root) when the chat was already pulled', () async {
       // A pulled chat with a prior completed turn; current tip = prior-asst.
-      await db.into(db.chats).insert(ChatsCompanion.insert(
-            id: 'srv-3',
-            title: 'T',
-            createdAt: 1,
-            updatedAt: 1,
-            currentMessageId: const Value('prior-asst'),
-            bodySynced: const Value(true),
-          ));
-      await db.into(db.messages).insert(MessagesCompanion.insert(
-            id: 'prior-user',
-            chatId: 'srv-3',
-            role: 'user',
-            content: 'old question',
-            createdAt: 1,
-            orderIndex: 0,
-            payload: '{}',
-          ));
-      await db.into(db.messages).insert(MessagesCompanion.insert(
-            id: 'prior-asst',
-            chatId: 'srv-3',
-            role: 'assistant',
-            content: 'old answer',
-            parentId: const Value('prior-user'),
-            createdAt: 2,
-            orderIndex: 1,
-            payload: '{}',
-          ));
+      await db
+          .into(db.chats)
+          .insert(
+            ChatsCompanion.insert(
+              id: 'srv-3',
+              title: 'T',
+              createdAt: 1,
+              updatedAt: 1,
+              currentMessageId: const Value('prior-asst'),
+              bodySynced: const Value(true),
+            ),
+          );
+      await db
+          .into(db.messages)
+          .insert(
+            MessagesCompanion.insert(
+              id: 'prior-user',
+              chatId: 'srv-3',
+              role: 'user',
+              content: 'old question',
+              createdAt: 1,
+              orderIndex: 0,
+              payload: '{}',
+            ),
+          );
+      await db
+          .into(db.messages)
+          .insert(
+            MessagesCompanion.insert(
+              id: 'prior-asst',
+              chatId: 'srv-3',
+              role: 'assistant',
+              content: 'old answer',
+              parentId: const Value('prior-user'),
+              createdAt: 2,
+              orderIndex: 1,
+              payload: '{}',
+            ),
+          );
 
       await caches.put('outbound_task_queue_v1', [
         sendTextTask(id: 't1', conversationId: 'srv-3', text: 'new question'),
@@ -244,8 +284,9 @@ void main() {
 
       // The migrated user message hangs off the prior tip, not null.
       final msgs = await db.messagesDao.getForChat('srv-3');
-      final migratedUser =
-          msgs.firstWhere((m) => m.role == 'user' && m.content == 'new question');
+      final migratedUser = msgs.firstWhere(
+        (m) => m.role == 'user' && m.content == 'new question',
+      );
       check(migratedUser.parentId).equals('prior-asst');
     });
   });
@@ -290,86 +331,100 @@ void main() {
       check((await db.select(db.chats).get()).length).equals(firstCount);
     });
 
-    test('contentHash dedupe prevents duplicate chats on re-run before flag',
-        () async {
-      // Two migrator runs WITHOUT the flag set in between (simulate a crash
-      // after conversion but before the flag persisted) must not duplicate.
-      final task = sendTextTask(id: 't1', text: 'dedupe me');
-      await caches.put('outbound_task_queue_v1', [task]);
+    test(
+      'contentHash dedupe prevents duplicate chats on re-run before flag',
+      () async {
+        // Two migrator runs WITHOUT the flag set in between (simulate a crash
+        // after conversion but before the flag persisted) must not duplicate.
+        final task = sendTextTask(id: 't1', text: 'dedupe me');
+        await caches.put('outbound_task_queue_v1', [task]);
 
-      // First run, but clear the flag afterward to simulate the flag-write
-      // never landing.
-      await migrator().migrateIfNeeded();
-      await (db.delete(db.syncMeta)
-            ..where((t) => t.key.equals(OutboxTaskQueueMigrator.migratedFlagKey)))
-          .go();
-      // Re-seed the same task and run again: contentHash dedupe skips it.
-      await caches.put('outbound_task_queue_v1', [task]);
-      final report = await migrator().migrateIfNeeded();
+        // First run, but clear the flag afterward to simulate the flag-write
+        // never landing.
+        await migrator().migrateIfNeeded();
+        await (db.delete(db.syncMeta)..where(
+              (t) => t.key.equals(OutboxTaskQueueMigrator.migratedFlagKey),
+            ))
+            .go();
+        // Re-seed the same task and run again: contentHash dedupe skips it.
+        await caches.put('outbound_task_queue_v1', [task]);
+        final report = await migrator().migrateIfNeeded();
 
-      check(report.skippedDuplicate).equals(1);
-      check(report.converted).equals(0);
-      // Still exactly one local chat.
-      check((await db.select(db.chats).get()).length).equals(1);
-    });
+        check(report.skippedDuplicate).equals(1);
+        check(report.converted).equals(0);
+        // Still exactly one local chat.
+        check((await db.select(db.chats).get()).length).equals(1);
+      },
+    );
 
-    test('durable contentHash marker dedupes after the create op drained',
-        () async {
-      final task = sendTextTask(id: 't1', text: 'already posted');
-      await caches.put('outbound_task_queue_v1', [task]);
-      await migrator().migrateIfNeeded();
+    test(
+      'durable contentHash marker dedupes after the create op drained',
+      () async {
+        final task = sendTextTask(id: 't1', text: 'already posted');
+        await caches.put('outbound_task_queue_v1', [task]);
+        await migrator().migrateIfNeeded();
 
-      // Simulate an abort before the migration flag persisted, followed by a
-      // same-process drain that deleted the createChat/requestCompletion rows.
-      await (db.delete(db.syncMeta)
-            ..where((t) => t.key.equals(OutboxTaskQueueMigrator.migratedFlagKey)))
-          .go();
-      await db.delete(db.outboxOps).go();
+        // Simulate an abort before the migration flag persisted, followed by a
+        // same-process drain that deleted the createChat/requestCompletion rows.
+        await (db.delete(db.syncMeta)..where(
+              (t) => t.key.equals(OutboxTaskQueueMigrator.migratedFlagKey),
+            ))
+            .go();
+        await db.delete(db.outboxOps).go();
 
-      await caches.put('outbound_task_queue_v1', [task]);
-      final report = await migrator().migrateIfNeeded();
+        await caches.put('outbound_task_queue_v1', [task]);
+        final report = await migrator().migrateIfNeeded();
 
-      check(report.skippedDuplicate).equals(1);
-      check(report.converted).equals(0);
-      check((await db.select(db.chats).get()).length).equals(1);
-      check(await db.select(db.outboxOps).get()).isEmpty();
-    });
+        check(report.skippedDuplicate).equals(1);
+        check(report.converted).equals(0);
+        check((await db.select(db.chats).get()).length).equals(1);
+        check(await db.select(db.outboxOps).get()).isEmpty();
+      },
+    );
 
     test('absent key: no-op and sets the migrated flag', () async {
       final report = await migrator().migrateIfNeeded();
       check(report.converted).equals(0);
       check(report.alreadyMigrated).isFalse();
-      check(await db.syncMetaDao
-              .getValue(OutboxTaskQueueMigrator.migratedFlagKey))
-          .equals('1');
+      check(
+        await db.syncMetaDao.getValue(OutboxTaskQueueMigrator.migratedFlagKey),
+      ).equals('1');
     });
 
-    test('existing-chat re-run is idempotent (Finding 6: no duplicate rows/ops)',
-        () async {
-      final task = sendTextTask(id: 't1', conversationId: 'srv-1', text: 'hi');
-      await caches.put('outbound_task_queue_v1', [task]);
-      await migrator().migrateIfNeeded();
-      final firstMsgs = await db.messagesDao.getForChat('srv-1');
-      final firstOps = await db.outboxDao.pendingForChat('srv-1');
-      check(firstMsgs).length.equals(2); // user + assistant
-      check(firstOps.map((o) => o.kind).toList())
-          .deepEquals(['updateChat', 'requestCompletion']);
+    test(
+      'existing-chat re-run is idempotent (Finding 6: no duplicate rows/ops)',
+      () async {
+        final task = sendTextTask(
+          id: 't1',
+          conversationId: 'srv-1',
+          text: 'hi',
+        );
+        await caches.put('outbound_task_queue_v1', [task]);
+        await migrator().migrateIfNeeded();
+        final firstMsgs = await db.messagesDao.getForChat('srv-1');
+        final firstOps = await db.outboxDao.pendingForChat('srv-1');
+        check(firstMsgs).length.equals(2); // user + assistant
+        check(
+          firstOps.map((o) => o.kind).toList(),
+        ).deepEquals(['updateChat', 'requestCompletion']);
 
-      // Simulate a partial-failure crash: flag never landed. Re-run.
-      await (db.delete(db.syncMeta)
-            ..where((t) => t.key.equals(OutboxTaskQueueMigrator.migratedFlagKey)))
-          .go();
-      await caches.put('outbound_task_queue_v1', [task]);
-      final report = await migrator().migrateIfNeeded();
+        // Simulate a partial-failure crash: flag never landed. Re-run.
+        await (db.delete(db.syncMeta)..where(
+              (t) => t.key.equals(OutboxTaskQueueMigrator.migratedFlagKey),
+            ))
+            .go();
+        await caches.put('outbound_task_queue_v1', [task]);
+        final report = await migrator().migrateIfNeeded();
 
-      check(report.skippedDuplicate).equals(1);
-      check(report.converted).equals(0);
-      // Still exactly one user/assistant pair and ONE requestCompletion: the
-      // deterministic ids + dedupe guard mean "running twice == once" (§9.2).
-      check(await db.messagesDao.getForChat('srv-1')).length.equals(2);
-      final ops = await db.outboxDao.pendingForChat('srv-1');
-      check(ops.where((o) => o.kind == 'requestCompletion').length).equals(1);
-    });
+        check(report.skippedDuplicate).equals(1);
+        check(report.converted).equals(0);
+        // Still exactly one user/assistant pair and ONE requestCompletion: the
+        // deterministic ids + dedupe guard mean "running twice == once" (§9.2).
+        check(await db.messagesDao.getForChat('srv-1')).length.equals(2);
+        final ops = await db.outboxDao.pendingForChat('srv-1');
+        check(ops.where((o) => o.kind == 'requestCompletion').length).equals(1);
+      },
+    );
   });
 
   group('String-form queue (Finding 5: data loss)', () {
@@ -394,9 +449,9 @@ void main() {
       check(report.converted).equals(0);
       check(report.alreadyMigrated).isFalse();
       // Flag NOT set and key NOT deleted: a future startup can retry.
-      check(await db.syncMetaDao
-              .getValue(OutboxTaskQueueMigrator.migratedFlagKey))
-          .isNull();
+      check(
+        await db.syncMetaDao.getValue(OutboxTaskQueueMigrator.migratedFlagKey),
+      ).isNull();
       check(caches.get('outbound_task_queue_v1')).isNotNull();
     });
   });

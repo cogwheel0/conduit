@@ -2969,8 +2969,10 @@ class Folders extends _$Folders {
         ? null
         : _transformItemById(current, id, transform, idOf: (f) => f.id);
     if (update == null) {
-      // Folder unknown in memory: reconcile from the server.
-      _requestReconcilePull(action: 'update-missing');
+      _persistFolderTransform(id, transform);
+      _requestReconcilePull(
+        action: current == null ? 'update-cold' : 'update-missing',
+      );
       return;
     }
     _replaceState(update.items);
@@ -3028,6 +3030,31 @@ class Folders extends _$Folders {
           error: error,
           stackTrace: stackTrace,
           data: {'id': folder.id},
+        );
+      }),
+    );
+  }
+
+  void _persistFolderTransform(
+    String id,
+    Folder Function(Folder folder) transform,
+  ) {
+    final db = ref.read(appDatabaseProvider);
+    if (db == null) return;
+    unawaited(
+      (() async {
+        final row = await db.foldersDao.getFolder(id);
+        if (row == null) return;
+        await db.foldersDao.upsertServerFolder(
+          _rawFolder(transform(folderFromRow(row))),
+        );
+      })().catchError((Object error, StackTrace stackTrace) {
+        DebugLogger.error(
+          'row-transform-failed',
+          scope: 'folders',
+          error: error,
+          stackTrace: stackTrace,
+          data: {'id': id},
         );
       }),
     );

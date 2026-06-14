@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:checks/checks.dart';
@@ -46,19 +47,35 @@ class StubCompletionRunner implements RequestCompletionRunner {
     final p = RequestCompletionPayload.fromJson(payload);
     // chatId is ALWAYS a server id here (createChat ran + remap repointed it).
     await locks.runExclusive(chatId, () async {
+      final existingMessages = await db.messagesDao.getForChat(chatId);
+      MessageRow? existingAssistant;
+      for (final message in existingMessages) {
+        if (message.id == p.assistantMessageId) {
+          existingAssistant = message;
+          break;
+        }
+      }
+      final payload = <String, dynamic>{
+        ..._payloadOf(existingAssistant),
+        'id': p.assistantMessageId,
+        'role': 'assistant',
+        'content': 'assistant reply',
+      };
+      final parentId = existingAssistant?.parentId;
+      if (parentId != null) {
+        payload['parentId'] = parentId;
+      }
+
       await db.messagesDao.upsertLocalEcho(
         MessageRowData(
           id: p.assistantMessageId,
           chatId: chatId,
+          parentId: parentId,
           role: 'assistant',
           content: 'assistant reply',
-          createdAt: 7001,
-          orderIndex: 99,
-          payload: <String, dynamic>{
-            'id': p.assistantMessageId,
-            'role': 'assistant',
-            'content': 'assistant reply',
-          },
+          createdAt: existingAssistant?.createdAt ?? 7001,
+          orderIndex: existingAssistant?.orderIndex ?? 99,
+          payload: payload,
         ),
       );
     });
@@ -266,9 +283,9 @@ void main() {
     check(
       finalMsgs.where((m) => m.role == 'assistant').toList(),
     ).length.equals(1);
-    check(
-      finalMsgs.where((m) => m.id == 'a-off').single.content,
-    ).equals('assistant reply');
+    final assistant = finalMsgs.where((m) => m.id == 'a-off').single;
+    check(assistant.content).equals('assistant reply');
+    check(assistant.parentId).equals('u-off');
 
     await db.close();
     // Reset db to in-memory so tearDown's close is harmless.
@@ -335,9 +352,9 @@ void main() {
     final msgs = await db.messagesDao.getForChat(serverId);
     check(msgs.every((m) => !m.dirty)).isTrue();
     check(msgs.where((m) => m.role == 'assistant').toList()).length.equals(1);
-    check(
-      msgs.where((m) => m.id == 'a-off').single.content,
-    ).equals('assistant reply');
+    final assistant = msgs.where((m) => m.id == 'a-off').single;
+    check(assistant.content).equals('assistant reply');
+    check(assistant.parentId).equals('u-off');
     check(completion.ranForChats).deepEquals([serverId]);
   });
 }
@@ -375,4 +392,20 @@ ChatRows _composeRows(String localId, String text) {
       },
     },
   );
+}
+
+Map<String, dynamic> _payloadOf(MessageRow? row) {
+  if (row == null || row.payload.isEmpty) {
+    return <String, dynamic>{};
+  }
+  final decoded = jsonDecode(row.payload);
+  if (decoded is Map<String, dynamic>) {
+    return Map<String, dynamic>.from(decoded);
+  }
+  if (decoded is Map) {
+    return <String, dynamic>{
+      for (final entry in decoded.entries) entry.key.toString(): entry.value,
+    };
+  }
+  return <String, dynamic>{};
 }

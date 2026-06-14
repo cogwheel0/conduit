@@ -27,6 +27,33 @@ Widget _buildHarness({
 }
 
 void main() {
+  test('wraps inline HTML in a sandboxed iframe', () {
+    final document = WebContentEmbed.debugWrapHtmlDocument(
+      '<div>chart</div><script>renderChart()</script>',
+    );
+
+    expect(document, contains('sandbox="allow-scripts allow-forms"'));
+    expect(document, contains('referrerpolicy="no-referrer"'));
+    expect(document, contains('srcdoc="'));
+    expect(document, contains('&lt;script&gt;renderChart()&lt;/script&gt;'));
+    expect(document, isNot(contains('<script>renderChart()</script>')));
+  });
+
+  test('escapes injected arguments before adding them to sandbox HTML', () {
+    final document = WebContentEmbed.debugWrapHtmlDocument(
+      '<html><head><title>embed</title></head><body></body></html>',
+      argsText: '</script><script>steal()</script>',
+    );
+
+    expect(
+      document,
+      contains(
+        r'window.args = &quot;\u003C/script\u003E\u003Cscript\u003Esteal()\u003C/script\u003E&quot;;',
+      ),
+    );
+    expect(document, isNot(contains('</script><script>steal()</script>')));
+  });
+
   testWidgets('collapsed source changes clear stale controllers', (
     tester,
   ) async {

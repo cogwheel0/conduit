@@ -207,26 +207,29 @@ void main() {
     check(noteIndex).isNotEmpty();
   });
 
-  test('fresh v4 install (onCreate) has no FTS until built', () async {
+  test('fresh install creates FTS objects before first backfill', () async {
     final db = AppDatabase(NativeDatabase.memory());
     addTearDown(db.close);
     // Force the executor open + onCreate to run.
     await db.customSelect('SELECT 1').get();
 
-    // onCreate is deliberately FTS-free: the vtable does not exist yet.
+    // Fresh installs create the vtable/triggers up front, while the expensive
+    // backfill remains gated behind buildFtsIfNeeded().
     final tables = await db
         .customSelect(
           "SELECT name FROM sqlite_master WHERE type='table' "
           "AND name='chat_fts'",
         )
         .get();
-    check(tables).isEmpty();
+    check(tables).isNotEmpty();
+    check(await db.syncMetaDao.getValue(kFtsBuiltKey)).isNull();
 
-    // buildFtsIfNeeded creates it on demand and is searchable thereafter.
+    // buildFtsIfNeeded remains idempotent and marks the backfill complete.
     await db.buildFtsIfNeeded();
     final after = await db
         .customSelect("SELECT name FROM sqlite_master WHERE name='chat_fts'")
         .get();
     check(after).isNotEmpty();
+    check(await db.syncMetaDao.getValue(kFtsBuiltKey)).equals('1');
   });
 }

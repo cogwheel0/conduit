@@ -277,7 +277,7 @@ void main() {
       addTearDown(db.close);
 
       // Before any build: fts_built is absent/'0' and search short-circuits to
-      // [] without throwing on an absent/empty vtable.
+      // [] without relying on FTS contents.
       check(
         await db.syncMetaDao.getValue('fts_built'),
       ).anyOf([(it) => it.isNull(), (it) => it.equals('0')]);
@@ -285,11 +285,9 @@ void main() {
       // pass the raw sentinel word, not a pre-built MATCH expression.
       //
       // perfContract Budget 4 / §10.6: querying a not-yet-built chat_fts must
-      // NOT throw — SearchDao must short-circuit (e.g. fts_built != '1' → []).
-      // The vtable is created only by buildFtsIfNeeded()/the v4 upgrade, NOT by
-      // onCreate, so on a fresh DB it is absent here. If this throws
-      // "no such table: chat_fts", the guard is missing in
-      // lib/core/database/daos/search_dao.dart (FTS-agent owned).
+      // NOT throw or scan it — SearchDao must short-circuit
+      // (e.g. fts_built != '1' → []) even though onCreate now installs the FTS
+      // objects before the first backfill.
       final beforeBuild = await db.searchDao.search(kSentinel, limit: 20);
       check(
         because:

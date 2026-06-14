@@ -200,10 +200,11 @@ class PushSync {
       }
       final serverUpdatedAt = _epoch(resp['updated_at']) ?? chat.updatedAt;
 
-      // pin/archive toggle-delta (B1): the toggle endpoints IGNORE the body
-      // and pin/archive live in the envelope, NOT the blob, so update_chat
-      // never changes them. Derive both deltas from this same ChatResponse and
-      // issue at most one toggle each (Phase 2 acceptable simplification).
+      // pin/archive toggle-delta (B1): the server only exposes stateless toggle
+      // endpoints for these axes, so the sync path always drives them through
+      // desired-state reconcilers that probe before toggling and confirm after.
+      // A retry after a post-toggle timeout re-probes and therefore cannot
+      // double-flip.
       final serverPinned = resp['pinned'] == true;
       final serverArchived = resp['archived'] == true;
       final needsPinCheck = chat.pinned != serverPinned;
@@ -211,13 +212,9 @@ class PushSync {
 
       if (needsPinCheck && !needsArchiveCheck) {
         // Pin lives in a join table; confirm against /pinned (authoritative)
-        // rather than the ChatResponse copy, then flip on a real delta. This
-        // path intentionally skips getChatRaw; no archive liveness check is
-        // needed for a pin-only delta.
-        final livePinned = await _client.getChatPinned(chatId);
-        if (livePinned != chat.pinned) {
-          await _client.togglePin(chatId);
-        }
+        // rather than the ChatResponse copy. This path intentionally skips
+        // getChatRaw; no archive liveness check is needed for a pin-only delta.
+        await _setChatPinned(chatId, desired: chat.pinned);
       } else if (needsArchiveCheck) {
         // A liveness fetch is needed only for archive reconciliation: the
         // archive flag rides the ChatResponse, while pin has a dedicated
@@ -225,18 +222,14 @@ class PushSync {
         final liveRaw = await _client.getChatRaw(chatId);
         if (liveRaw != null) {
           if (needsPinCheck) {
-            // Pin lives in a join table; confirm against /pinned (authoritative)
-            // rather than the ChatResponse copy, then flip on a real delta.
-            final livePinned = await _client.getChatPinned(chatId);
-            if (livePinned != chat.pinned) {
-              await _client.togglePin(chatId);
-            }
+            await _setChatPinned(chatId, desired: chat.pinned);
           }
           if (needsArchiveCheck) {
-            final liveArchived = liveRaw['archived'] == true;
-            if (liveArchived != chat.archived) {
-              await _client.toggleArchive(chatId);
-            }
+            await _setChatArchived(
+              chatId,
+              desired: chat.archived,
+              initialRaw: liveRaw,
+            );
           }
         }
       }
@@ -266,6 +259,71 @@ class PushSync {
         serverUpdatedAt: serverUpdatedAt,
       );
     });
+  }
+
+  Future<void> _setChatPinned(String chatId, {required bool desired}) async {
+    var livePinned = await _client.getChatPinned(chatId);
+    if (livePinned != desired) {
+      await _client.togglePin(chatId);
+      livePinned = await _client.getChatPinned(chatId);
+    }
+    if (livePinned != desired) {
+      DebugLogger.warning(
+        'pin-confirm-mismatch',
+        scope: 'sync/push',
+        data: {'chatId': chatId, 'desired': desired, 'actual': livePinned},
+      );
+      throw SyncTerminalException(
+        statusCode: 0,
+        message: 'chat pin confirmation mismatch ($chatId)',
+      );
+    }
+  }
+
+  Future<void> _setChatArchived(
+    String chatId, {
+    required bool desired,
+    Map<String, dynamic>? initialRaw,
+  }) async {
+    var liveRaw = initialRaw ?? await _client.getChatRaw(chatId);
+    if (liveRaw == null) {
+      DebugLogger.warning(
+        'archive-confirm-404',
+        scope: 'sync/push',
+        data: {'chatId': chatId},
+      );
+      return;
+    }
+
+    var liveArchived = liveRaw['archived'] == true;
+    if (liveArchived != desired) {
+      await _client.toggleArchive(chatId);
+      liveRaw = await _client.getChatRaw(chatId);
+      if (liveRaw == null) {
+        DebugLogger.warning(
+          'archive-post-toggle-404',
+          scope: 'sync/push',
+          data: {'chatId': chatId},
+        );
+        throw SyncTerminalException(
+          statusCode: 404,
+          message: 'chat archive confirmation missing ($chatId)',
+        );
+      }
+      liveArchived = liveRaw['archived'] == true;
+    }
+
+    if (liveArchived != desired) {
+      DebugLogger.warning(
+        'archive-confirm-mismatch',
+        scope: 'sync/push',
+        data: {'chatId': chatId, 'desired': desired, 'actual': liveArchived},
+      );
+      throw SyncTerminalException(
+        statusCode: 0,
+        message: 'chat archive confirmation mismatch ($chatId)',
+      );
+    }
   }
 
   // ---- deleteChat (§7.5) ----

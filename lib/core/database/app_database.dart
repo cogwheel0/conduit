@@ -64,6 +64,8 @@ class AppDatabase extends _$AppDatabase {
     onCreate: (m) async {
       await m.createAll();
       await _createIndexes();
+      await _createFts();
+      await _ensureNotesFts(backfill: false);
     },
     onUpgrade: (m, from, to) async {
       if (from < 2) {

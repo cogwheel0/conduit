@@ -76,8 +76,7 @@ void main() {
     });
   }
 
-  Future<List<FolderRow>> folderRows() =>
-      db.foldersDao.watchFolders().first;
+  Future<List<FolderRow>> folderRows() => db.foldersDao.watchFolders().first;
 
   List<String> namesOf(List<Folder> folders) =>
       folders.map((folder) => folder.name).toList();
@@ -117,75 +116,108 @@ void main() {
       ).deepEquals(['Archive', 'Work']);
     });
 
-    test('upsertFolderFromRemote lands in memory and in the database',
-        () async {
-      final container = makeContainer();
-      await container.read(foldersProvider.future);
+    test(
+      'upsertFolderFromRemote lands in memory and in the database',
+      () async {
+        final container = makeContainer();
+        await container.read(foldersProvider.future);
 
-      container.read(foldersProvider.notifier).upsertFolderFromRemote(
-            Folder(
-              id: 'f-new',
-              name: 'Fresh',
-              createdAt: DateTime.fromMillisecondsSinceEpoch(100 * 1000),
-              updatedAt: DateTime.fromMillisecondsSinceEpoch(100 * 1000),
-            ),
-          );
+        container
+            .read(foldersProvider.notifier)
+            .upsertFolderFromRemote(
+              Folder(
+                id: 'f-new',
+                name: 'Fresh',
+                createdAt: DateTime.fromMillisecondsSinceEpoch(100 * 1000),
+                updatedAt: DateTime.fromMillisecondsSinceEpoch(100 * 1000),
+              ),
+            );
 
-      // Synchronous in-memory upsert.
-      check(
-        namesOf(container.read(foldersProvider).requireValue),
-      ).deepEquals(['Fresh']);
+        // Synchronous in-memory upsert.
+        check(
+          namesOf(container.read(foldersProvider).requireValue),
+        ).deepEquals(['Fresh']);
 
-      // Row write lands and the next emission agrees (no flicker revert).
-      var landed = false;
-      await waitFor(() {
-        if (!landed) {
-          folderRows().then(
-            (rows) => landed = rows.any((row) => row.name == 'Fresh'),
-          );
-        }
-        return landed;
-      });
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-      check(
-        namesOf(container.read(foldersProvider).requireValue),
-      ).deepEquals(['Fresh']);
-    });
+        // Row write lands and the next emission agrees (no flicker revert).
+        var landed = false;
+        await waitFor(() {
+          if (!landed) {
+            folderRows().then(
+              (rows) => landed = rows.any((row) => row.name == 'Fresh'),
+            );
+          }
+          return landed;
+        });
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        check(
+          namesOf(container.read(foldersProvider).requireValue),
+        ).deepEquals(['Fresh']);
+      },
+    );
 
-    test('updateFolderFromRemote renames in memory and in the database',
-        () async {
-      await seedFolderRow('f1', 'Work');
-      final container = makeContainer();
-      await container.read(foldersProvider.future);
+    test(
+      'updateFolderFromRemote renames in memory and in the database',
+      () async {
+        await seedFolderRow('f1', 'Work');
+        final container = makeContainer();
+        await container.read(foldersProvider.future);
 
-      container.read(foldersProvider.notifier).updateFolderFromRemote(
-            'f1',
-            (folder) => Folder(
-              id: folder.id,
-              name: 'Renamed',
-              createdAt: folder.createdAt,
-              updatedAt: folder.updatedAt,
-            ),
-          );
+        container
+            .read(foldersProvider.notifier)
+            .updateFolderFromRemote(
+              'f1',
+              (folder) => Folder(
+                id: folder.id,
+                name: 'Renamed',
+                createdAt: folder.createdAt,
+                updatedAt: folder.updatedAt,
+              ),
+            );
 
-      check(
-        namesOf(container.read(foldersProvider).requireValue),
-      ).deepEquals(['Renamed']);
+        check(
+          namesOf(container.read(foldersProvider).requireValue),
+        ).deepEquals(['Renamed']);
 
-      var renamed = false;
-      await waitFor(() {
-        if (!renamed) {
-          folderRows().then(
-            (rows) => renamed = rows.any((row) => row.name == 'Renamed'),
-          );
-        }
-        return renamed;
-      });
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-      check(
-        namesOf(container.read(foldersProvider).requireValue),
-      ).deepEquals(['Renamed']);
-    });
+        var renamed = false;
+        await waitFor(() {
+          if (!renamed) {
+            folderRows().then(
+              (rows) => renamed = rows.any((row) => row.name == 'Renamed'),
+            );
+          }
+          return renamed;
+        });
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        check(
+          namesOf(container.read(foldersProvider).requireValue),
+        ).deepEquals(['Renamed']);
+      },
+    );
+
+    test(
+      'updateFolderFromRemote persists while provider state is cold',
+      () async {
+        await seedFolderRow('f1', 'Work');
+        final container = makeContainer();
+
+        container
+            .read(foldersProvider.notifier)
+            .updateFolderFromRemote(
+              'f1',
+              (folder) => folder.copyWith(name: 'Renamed'),
+            );
+
+        var renamed = false;
+        await waitFor(() {
+          if (!renamed) {
+            folderRows().then(
+              (rows) => renamed = rows.any((row) => row.name == 'Renamed'),
+            );
+          }
+          return renamed;
+        });
+      },
+    );
 
     test('removeFolderFromRemote hard-deletes the row', () async {
       await seedFolderRow('f1', 'Work');
@@ -214,15 +246,12 @@ void main() {
       ).deepEquals(['Play']);
     });
 
-    test('warmIfNeeded and refresh converge on the sync engine pull',
-        () async {
+    test('warmIfNeeded and refresh converge on the sync engine pull', () async {
       final server = FakeOpenWebUiServer();
       final client = FakeSyncApiClient(server);
       server.seedFolder('f-remote');
       final container = makeContainer(
-        extraOverrides: [
-          syncApiClientProvider.overrideWith((ref) => client),
-        ],
+        extraOverrides: [syncApiClientProvider.overrideWith((ref) => client)],
       );
       await container.read(foldersProvider.future);
 
@@ -231,8 +260,9 @@ void main() {
       check(client.foldersRequests).isGreaterOrEqual(1);
       await waitFor(() {
         final state = container.read(foldersProvider);
-        return (state.asData?.value ?? const <Folder>[])
-            .any((folder) => folder.id == 'f-remote');
+        return (state.asData?.value ?? const <Folder>[]).any(
+          (folder) => folder.id == 'f-remote',
+        );
       });
 
       final requestsBefore = client.foldersRequests;
@@ -240,22 +270,22 @@ void main() {
       check(client.foldersRequests).isGreaterOrEqual(requestsBefore + 1);
     });
 
-    test('a pull reporting folders 403 disables foldersFeatureEnabledProvider',
-        () async {
-      final server = FakeOpenWebUiServer();
-      final client = FakeSyncApiClient(server)..foldersFeatureEnabled = false;
-      final container = makeContainer(
-        extraOverrides: [
-          syncApiClientProvider.overrideWith((ref) => client),
-        ],
-      );
-      check(container.read(foldersFeatureEnabledProvider)).isTrue();
+    test(
+      'a pull reporting folders 403 disables foldersFeatureEnabledProvider',
+      () async {
+        final server = FakeOpenWebUiServer();
+        final client = FakeSyncApiClient(server)..foldersFeatureEnabled = false;
+        final container = makeContainer(
+          extraOverrides: [syncApiClientProvider.overrideWith((ref) => client)],
+        );
+        check(container.read(foldersFeatureEnabledProvider)).isTrue();
 
-      await container
-          .read(syncEngineProvider.notifier)
-          .requestPull(reason: 'test');
+        await container
+            .read(syncEngineProvider.notifier)
+            .requestPull(reason: 'test');
 
-      check(container.read(foldersFeatureEnabledProvider)).isFalse();
-    });
+        check(container.read(foldersFeatureEnabledProvider)).isFalse();
+      },
+    );
   });
 }

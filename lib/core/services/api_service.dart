@@ -1466,8 +1466,13 @@ class ApiService {
     }
   }
 
-  /// POST `/api/v1/chats/{id}/pin` — stateless toggle. Returns the parsed
-  /// `ChatResponse`; null on 404.
+  /// POST `/api/v1/chats/{id}/pin` — low-level stateless toggle primitive.
+  ///
+  /// Do not enqueue or retry this operation directly. Sync write paths must call
+  /// desired-state reconcilers that probe before toggling and confirm after,
+  /// because retrying this primitive alone can double-flip.
+  ///
+  /// Returns the parsed `ChatResponse`; null on 404.
   Future<Map<String, dynamic>?> togglePinRaw(String id) async {
     try {
       final response = await _dio.post('/api/v1/chats/$id/pin');
@@ -1485,8 +1490,13 @@ class ApiService {
     }
   }
 
-  /// POST `/api/v1/chats/{id}/archive` — stateless toggle. Returns the parsed
-  /// `ChatResponse`; null on 404.
+  /// POST `/api/v1/chats/{id}/archive` — low-level stateless toggle primitive.
+  ///
+  /// Do not enqueue or retry this operation directly. Sync write paths must call
+  /// desired-state reconcilers that probe before toggling and confirm after,
+  /// because retrying this primitive alone can double-flip.
+  ///
+  /// Returns the parsed `ChatResponse`; null on 404.
   Future<Map<String, dynamic>?> toggleArchiveRaw(String id) async {
     try {
       final response = await _dio.post('/api/v1/chats/$id/archive');
@@ -6159,8 +6169,14 @@ class ApiService {
     }
   }
 
-  /// POST `/api/v1/notes/{id}/pin` — stateless toggle. Returns the note map
-  /// after the flip; null on 404; 401/403 -> [SyncTerminalException].
+  /// POST `/api/v1/notes/{id}/pin` — low-level stateless toggle primitive.
+  ///
+  /// Do not enqueue or retry this operation directly. [NoteSync.pushNotePin]
+  /// drives a desired final state by reading before the toggle and confirming
+  /// after it, so retries re-probe instead of double-flipping.
+  ///
+  /// Returns the note map after the flip; null on 404; 401/403 ->
+  /// [SyncTerminalException].
   Future<Map<String, dynamic>?> togglePinNoteRaw(String id) async {
     try {
       final response = await _dio.post('/api/v1/notes/$id/pin');

@@ -279,7 +279,10 @@ class ApiSyncApiClient implements SyncApiClient {
     Map<String, dynamic> chatBlob, {
     String? folderId,
   }) {
-    return api.createChatRaw(chatBlob, folderId: folderId);
+    return _withTerminalAuth(
+      () => api.createChatRaw(chatBlob, folderId: folderId),
+      'createChat',
+    );
   }
 
   @override
@@ -287,32 +290,62 @@ class ApiSyncApiClient implements SyncApiClient {
     String id,
     Map<String, dynamic> fullBlob,
   ) {
-    return api.updateChatRaw(id, fullBlob);
+    return _withTerminalAuth(
+      () => api.updateChatRaw(id, fullBlob),
+      'updateChat $id',
+    );
   }
 
   @override
   Future<bool> deleteChat(String id) {
-    return api.deleteChatRaw(id);
+    return _withTerminalAuth(() => api.deleteChatRaw(id), 'deleteChat $id');
   }
 
   @override
   Future<bool> getChatPinned(String id) {
-    return api.getChatPinnedRaw(id);
+    return _withTerminalAuth(
+      () => api.getChatPinnedRaw(id),
+      'getChatPinned $id',
+    );
   }
 
   @override
   Future<Map<String, dynamic>?> togglePin(String id) {
-    return api.togglePinRaw(id);
+    return _withTerminalAuth(() => api.togglePinRaw(id), 'togglePin $id');
   }
 
   @override
   Future<Map<String, dynamic>?> toggleArchive(String id) {
-    return api.toggleArchiveRaw(id);
+    return _withTerminalAuth(
+      () => api.toggleArchiveRaw(id),
+      'toggleArchive $id',
+    );
   }
 
   @override
   Future<Map<String, dynamic>?> moveChatToFolder(String id, String? folderId) {
-    return api.moveChatToFolderRaw(id, folderId);
+    return _withTerminalAuth(
+      () => api.moveChatToFolderRaw(id, folderId),
+      'moveChatToFolder $id',
+    );
+  }
+
+  Future<T> _withTerminalAuth<T>(
+    Future<T> Function() action,
+    String operation,
+  ) async {
+    try {
+      return await action();
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if (code == 401 || code == 403) {
+        throw SyncTerminalException(
+          statusCode: code,
+          message: '$operation forbidden',
+        );
+      }
+      rethrow;
+    }
   }
 
   @override

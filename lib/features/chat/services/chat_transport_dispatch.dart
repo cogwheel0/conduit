@@ -330,13 +330,23 @@ Future<void> dispatchChatTransport({
       // CDT-RFC-001 Phase 1 (E2): the post-stream snapshot refresh persists
       // through the sync engine (upsertServerChat under the chat lock).
       try {
-        return await ref
-                .read(syncEngineProvider.notifier)
-                .pullChatNow(chatId)
-            as Conversation?;
-      } catch (_) {
+        final result = await ref
+            .read(syncEngineProvider.notifier)
+            .pullChatNow(chatId);
+        if (result is Conversation) {
+          return result;
+        }
+        return null;
+      } catch (error, stackTrace) {
         // Engine unavailable (no database / reviewer mode): the helper falls
         // back to the direct fetch.
+        DebugLogger.error(
+          'pull-snapshot-failed',
+          scope: 'transport/dispatch',
+          error: error,
+          stackTrace: stackTrace,
+          data: {'chatId': chatId},
+        );
         return null;
       }
     },
