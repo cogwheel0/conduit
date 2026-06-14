@@ -54,9 +54,8 @@ class NotePullSync {
   final AppDatabase _db;
   final ChatLocks _locks;
 
-  /// Held for parity with [PullSync]; the note create crash-heal is a Phase 5
-  /// extension not required by §11 acceptance, so this is currently unused.
-  // ignore: unused_field
+  /// Used by pull-side note create crash-heal when a process crashed after the
+  /// server minted a note but before the local `noteCreate` remap committed.
   final IdRemapper? _remapper;
 
   /// Lock + one-transaction field-LWW merge of a full `NoteModel` map (D-11).
@@ -69,6 +68,14 @@ class NotePullSync {
       throw const FormatException('NoteResponse without a string id');
     }
     return _locks.runExclusive(id, () async {
+      final healed = await _tryHealCreate(
+        serverRaw: resp,
+        serverId: id,
+        serverCreatedAt: _asNs(resp['created_at']) ?? 0,
+        serverUpdatedAt: _asNs(resp['updated_at']) ?? 0,
+      );
+      if (healed) return false;
+
       final write = await _db.notesDao.mergeServerNote(serverRaw: resp);
       if (write.mustPush) {
         await _enqueueUpdateIfMissing(id);
@@ -99,6 +106,53 @@ class NotePullSync {
       chatId: noteId,
       payload: patch,
     );
+  }
+
+  /// Attempts the note-create content-hash crash-heal. Returns true when the
+  /// pending local create was remapped to [serverId] and the caller must skip
+  /// the normal server-row merge.
+  Future<bool> _tryHealCreate({
+    required Map<String, dynamic> serverRaw,
+    required String serverId,
+    required int serverCreatedAt,
+    required int serverUpdatedAt,
+  }) async {
+    final remapper = _remapper;
+    if (remapper == null) return false;
+
+    final hasPendingCreate = await _db.outboxDao.hasPendingCreateContentHashes(
+      kind: OutboxKind.noteCreate,
+    );
+    if (!hasPendingCreate) return false;
+
+    final hash = noteCreateContentHashFromServer(serverRaw);
+    final op = await _db.outboxDao.pendingCreateForHash(
+      hash,
+      kind: OutboxKind.noteCreate,
+    );
+    if (op == null) return false;
+
+    final localId = op.chatId;
+    if (localId == null || localId == serverId) return false;
+
+    DebugLogger.log(
+      'note-create-crash-heal',
+      scope: 'sync/notes',
+      data: {'from': localId, 'to': serverId, 'seq': op.seq},
+    );
+
+    await _locks.runExclusive(localId, () async {
+      await remapper.remapNote(
+        localId: localId,
+        serverId: serverId,
+        serverCreatedAt: serverCreatedAt,
+        serverUpdatedAt: serverUpdatedAt,
+      );
+      // The server note exists, so the still-pending create is satisfied. Drop
+      // it after remap so the drainer cannot POST a duplicate.
+      await _db.outboxDao.markDone(op.seq);
+    });
+    return true;
   }
 
   /// Full server-shaped note fetch (`GET /notes/{id}`); null on 404/not-ours.

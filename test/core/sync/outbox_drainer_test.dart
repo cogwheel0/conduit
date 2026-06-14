@@ -6,8 +6,10 @@ import 'package:conduit/core/sync/backoff.dart';
 import 'package:conduit/core/sync/chat_locks.dart';
 import 'package:conduit/core/sync/clock.dart';
 import 'package:conduit/core/sync/id_remapper.dart';
-import 'package:conduit/core/sync/outbox_drainer.dart';
 import 'package:conduit/core/sync/chat_adapter.dart';
+import 'package:conduit/core/sync/note_adapter.dart';
+import 'package:conduit/core/sync/note_sync.dart';
+import 'package:conduit/core/sync/outbox_drainer.dart';
 import 'package:conduit/core/sync/pull_sync.dart';
 import 'package:conduit/core/sync/push_sync.dart';
 import 'package:conduit/core/sync/sync_api_client.dart';
@@ -281,6 +283,20 @@ void main() {
           ),
           push: push,
         ),
+        NoteAdapter(
+          pull: NotePullSync(
+            client: client,
+            db: db,
+            locks: chatLocks,
+            remapper: remapper,
+          ),
+          push: NotePushSync(
+            client: client,
+            db: db,
+            noteLocks: chatLocks,
+            remapper: remapper,
+          ),
+        ),
       ],
     );
   }
@@ -331,6 +347,26 @@ void main() {
       check(server.getChatById('c1')).isNull();
       check(await dao.pendingForChat('c1')).isEmpty();
     });
+
+    test(
+      'malformed note op without a noteId parks instead of disappearing',
+      () async {
+        final seq = await enqueue(
+          kind: OutboxKind.noteUpdate,
+          payload: {'title': 'orphan'},
+        );
+
+        await buildDrainer().drain();
+
+        final row = await (db.select(
+          db.outboxOps,
+        )..where((t) => t.seq.equals(seq))).getSingle();
+        check(row.status).equals(OutboxStatus.failed);
+        check(row.attempts).equals(1);
+        check(row.lastError!).contains('missing noteId');
+        check(client.calls).isEmpty();
+      },
+    );
 
     test(
       'folderUpsert uses remapped op chatId over stale payload folderId',

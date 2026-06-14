@@ -4,6 +4,7 @@ import '../database/daos/outbox_dao.dart';
 import '../database/mappers/note_mapper.dart' show asNs;
 import '../database/daos/sync_meta_dao.dart';
 import 'note_sync.dart';
+import 'sync_api_client.dart';
 import 'sync_entity_adapter.dart';
 
 /// [SyncEntityAdapter] for FLAT-doc notes (CDT-RFC-001 Phase 5, D-11, R-09).
@@ -69,6 +70,12 @@ class NoteAdapter implements SyncEntityAdapter {
   Future<void> pushOp(OutboxOp op) async {
     final kind = OutboxKind.fromName(op.kind);
     final noteId = op.chatId;
+    if (kind != null && kind.isNoteKind && (noteId == null || noteId.isEmpty)) {
+      throw SyncTerminalException(
+        statusCode: 400,
+        message: 'malformed ${kind.name} op: missing noteId',
+      );
+    }
     if (noteId == null) return;
     switch (kind) {
       case OutboxKind.noteCreate:

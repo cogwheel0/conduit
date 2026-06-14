@@ -28,26 +28,35 @@ void main() {
   late FakeSyncApiClient client;
   late AppDatabase db;
   late ChatLocks locks;
+  late IdRemapper syncRemapper;
 
   setUp(() {
     server = FakeOpenWebUiServer();
     client = FakeSyncApiClient(server);
     db = AppDatabase(NativeDatabase.memory());
     locks = ChatLocks();
+    syncRemapper = IdRemapper(db);
   });
-  tearDown(() => db.close());
+  tearDown(() async {
+    await syncRemapper.dispose();
+    await db.close();
+  });
 
   /// Drives the LIVE production note-pull path: the generic [runPullFor] driver
   /// over a [NoteAdapter] — exactly what the sync engine wires (D-11, R-09).
   Future<AdapterPullResult> pull() {
-    final remapper = IdRemapper(db);
     final adapter = NoteAdapter(
-      pull: NotePullSync(client: client, db: db, locks: locks),
+      pull: NotePullSync(
+        client: client,
+        db: db,
+        locks: locks,
+        remapper: syncRemapper,
+      ),
       push: NotePushSync(
         client: client,
         db: db,
         noteLocks: locks,
-        remapper: remapper,
+        remapper: syncRemapper,
       ),
     );
     return runPullFor(adapter, db: db);
@@ -293,6 +302,59 @@ void main() {
 
       check(await db.notesDao.getNote(localId)).isNull();
       check(await db.outboxDao.pendingForChat(localId)).isEmpty();
+    },
+  );
+
+  test(
+    'pull crash-heals a pending noteCreate with a matching server note',
+    () async {
+      const localId = 'local:n-crash';
+      const serverId = 'server-n-crash';
+
+      await locks.runExclusive(localId, () async {
+        await db.notesDao.insertLocalNoteWithCreateOp(
+          note: NotesCompanion.insert(
+            id: localId,
+            title: 'Draft',
+            data: Value(
+              jsonEncode({
+                'content': {'md': 'body'},
+              }),
+            ),
+            createdAt: kT1,
+            updatedAt: kT1,
+          ),
+        );
+      });
+
+      final localOps = await db.outboxDao.pendingForChat(localId);
+      check(localOps).length.equals(1);
+      check(localOps.single.kind).equals(OutboxKind.noteCreate.name);
+      check(localOps.single.contentHash).isNotNull();
+
+      server.seedNote(
+        id: serverId,
+        title: 'Draft',
+        data: {
+          'content': {'md': 'body'},
+        },
+        createdAt: kT1,
+        updatedAt: kT2,
+      );
+
+      final result = await pull();
+
+      check(result.success).isTrue();
+      check(await db.notesDao.getNote(localId)).isNull();
+      final healed = await db.notesDao.getNote(serverId);
+      check(healed).isNotNull();
+      check(healed!.title).equals('Draft');
+      check(healed.dirtyTitle).isFalse();
+      check(healed.dirtyData).isFalse();
+      check(healed.serverUpdatedAt).equals(kT2);
+      check(await db.outboxDao.pendingForChat(localId)).isEmpty();
+      check(await db.outboxDao.pendingForChat(serverId)).isEmpty();
+      check(client.createNoteCalls).equals(0);
     },
   );
 

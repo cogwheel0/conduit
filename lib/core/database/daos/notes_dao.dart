@@ -201,7 +201,12 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
           conflictOf: Value(existing.id),
         ),
       );
-      await _outboxDao.enqueue(kind: OutboxKind.noteCreate, chatId: copyId);
+      final copy = await getNote(copyId);
+      await _outboxDao.enqueue(
+        kind: OutboxKind.noteCreate,
+        chatId: copyId,
+        contentHash: noteCreateContentHashFromRow(copy!),
+      );
     }
 
     // Canonical row: title/data each follow the field-LWW decision. Conflict
@@ -249,7 +254,12 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
           deleted: const Value(false),
         ),
       );
-      await _outboxDao.enqueue(kind: OutboxKind.noteCreate, chatId: id);
+      final row = await getNote(id);
+      await _outboxDao.enqueue(
+        kind: OutboxKind.noteCreate,
+        chatId: id,
+        contentHash: noteCreateContentHashFromRow(row!),
+      );
     });
   }
 

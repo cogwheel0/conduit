@@ -82,6 +82,29 @@ void main() {
       ).throws<ArgumentError>();
     });
 
+    test('noteCreate requires empty payload + contentHash', () async {
+      await check(
+        enqueue(
+          kind: OutboxKind.noteCreate,
+          chatId: 'local:n',
+          contentHash: 'note-hash',
+        ),
+      ).completes();
+
+      await check(
+        enqueue(
+          kind: OutboxKind.noteCreate,
+          chatId: 'local:n-payload',
+          payload: {'title': 'x'},
+          contentHash: 'note-hash',
+        ),
+      ).throws<ArgumentError>();
+
+      await check(
+        enqueue(kind: OutboxKind.noteCreate, chatId: 'local:n-missing-hash'),
+      ).throws<ArgumentError>();
+    });
+
     test('requestCompletion requires the typed fields', () async {
       await check(
         enqueue(
@@ -652,6 +675,31 @@ void main() {
       check(await dao.pendingCreateForHash('hash-B')).isNull();
     });
 
+    test('can target noteCreate hashes without matching createChat', () async {
+      await enqueue(
+        kind: OutboxKind.createChat,
+        chatId: 'local:c',
+        contentHash: 'same-hash',
+      );
+      await enqueue(
+        kind: OutboxKind.noteCreate,
+        chatId: 'local:n',
+        contentHash: 'note-hash',
+      );
+
+      final noteHit = await dao.pendingCreateForHash(
+        'note-hash',
+        kind: OutboxKind.noteCreate,
+      );
+      check(noteHit!.chatId).equals('local:n');
+      check(
+        await dao.pendingCreateForHash(
+          'same-hash',
+          kind: OutboxKind.noteCreate,
+        ),
+      ).isNull();
+    });
+
     test(
       'does NOT match an inFlight create (owned by a live worker)',
       () async {
@@ -675,6 +723,20 @@ void main() {
       check(await dao.hasPendingCreateContentHashes()).isTrue();
       await dao.claimNextRunnable(nowEpochSeconds: 1, busyChatIds: {});
       check(await dao.hasPendingCreateContentHashes()).isFalse();
+    });
+
+    test('hasPendingCreateContentHashes can preflight noteCreate', () async {
+      check(
+        await dao.hasPendingCreateContentHashes(kind: OutboxKind.noteCreate),
+      ).isFalse();
+      await enqueue(
+        kind: OutboxKind.noteCreate,
+        chatId: 'local:n',
+        contentHash: 'note-hash',
+      );
+      check(
+        await dao.hasPendingCreateContentHashes(kind: OutboxKind.noteCreate),
+      ).isTrue();
     });
   });
 

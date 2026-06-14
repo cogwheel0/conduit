@@ -17,6 +17,7 @@ library;
 
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
 import 'package:drift/drift.dart';
 
 import '../app_database.dart';
@@ -104,6 +105,29 @@ Map<String, dynamic> noteRowToPatch(NoteRow row, {required bool includeData}) {
   };
 }
 
+/// Stable fingerprint for `noteCreate` crash-heal. Hashes only the fields sent
+/// by `NotePushSync.pushNoteCreate`: title and data. Server-minted id/timestamps
+/// and metadata never participate.
+String noteCreateContentHashFromRow(NoteRow row) {
+  return noteCreateContentHash(title: row.title, data: _decodeMap(row.data));
+}
+
+/// Server-shaped counterpart to [noteCreateContentHashFromRow].
+String noteCreateContentHashFromServer(Map<String, dynamic> server) {
+  return noteCreateContentHash(
+    title: server['title'] is String ? server['title'] as String : '',
+    data: _asMap(server['data']),
+  );
+}
+
+String noteCreateContentHash({
+  required String title,
+  required Map<String, dynamic> data,
+}) {
+  final stable = <String, dynamic>{'title': title, 'data': data};
+  return sha256.convert(utf8.encode(_canonicalJson(stable))).toString();
+}
+
 /// Decodes a row's stored `data` JSON string into the server-shaped `data`
 /// dict (the full `{content: {md, html, json}, ...}` sub-object) for the
 /// create/update POST body. Tolerant of corrupt JSON (empty map).
@@ -141,3 +165,39 @@ int? asNs(Object? value) {
 }
 
 int? _asNs(Object? value) => asNs(value);
+
+String _canonicalJson(Object? value) {
+  final buffer = StringBuffer();
+  _writeCanonical(value, buffer);
+  return buffer.toString();
+}
+
+void _writeCanonical(Object? value, StringBuffer out) {
+  if (value is Map) {
+    final keys = value.keys.map((k) => k.toString()).toList()..sort();
+    out.write('{');
+    var first = true;
+    for (final key in keys) {
+      if (!first) out.write(',');
+      first = false;
+      out
+        ..write(jsonEncode(key))
+        ..write(':');
+      _writeCanonical(value[key], out);
+    }
+    out.write('}');
+    return;
+  }
+  if (value is Iterable && value is! String) {
+    out.write('[');
+    var first = true;
+    for (final item in value) {
+      if (!first) out.write(',');
+      first = false;
+      _writeCanonical(item, out);
+    }
+    out.write(']');
+    return;
+  }
+  out.write(jsonEncode(value));
+}
