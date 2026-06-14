@@ -561,6 +561,40 @@ void main() {
       },
     );
 
+    test(
+      'local folder create defers while its parent is still local',
+      () async {
+        const localId = 'local:child-folder';
+        const parentId = 'local:parent-folder';
+        await db
+            .into(db.folders)
+            .insert(
+              FoldersCompanion.insert(
+                id: localId,
+                name: 'Child',
+                parentId: const Value(parentId),
+                createdAt: 100,
+                updatedAt: 200,
+                dirty: const Value(true),
+              ),
+            );
+
+        await check(
+          push.pushFolderUpsert(<String, dynamic>{
+            'folderId': localId,
+            'name': 'Child',
+            'parentId': parentId,
+            'createIfAbsent': true,
+          }),
+        ).throws<StateError>();
+
+        check(server.getFolders()).isEmpty();
+        final row = await db.foldersDao.getFolder(localId);
+        check(row).isNotNull();
+        check(row!.dirty).isTrue();
+      },
+    );
+
     test('existing folder update pushes name + parent', () async {
       final created = server.createFolder(name: 'Old');
       final id = created['id'] as String;
@@ -635,6 +669,39 @@ void main() {
       final row = await db.foldersDao.getFolder('missing-parent-folder');
       check(row).isNull();
     });
+
+    test(
+      'existing folder parent update defers while parent is still local',
+      () async {
+        final created = server.createFolder(name: 'Old');
+        final id = created['id'] as String;
+        await db
+            .into(db.folders)
+            .insert(
+              FoldersCompanion.insert(
+                id: id,
+                name: 'Old',
+                createdAt: 1,
+                updatedAt: 2,
+                dirty: const Value(true),
+              ),
+            );
+
+        await check(
+          push.pushFolderUpsert(<String, dynamic>{
+            'folderId': id,
+            'parentId': 'local:parent-folder',
+            'createIfAbsent': false,
+          }),
+        ).throws<StateError>();
+
+        final stored = server.getFolders().firstWhere((f) => f['id'] == id);
+        check(stored['parent_id']).isNull();
+        final row = await db.foldersDao.getFolder(id);
+        check(row).isNotNull();
+        check(row!.dirty).isTrue();
+      },
+    );
 
     test(
       'folder delete uses delete_contents=false and purges the row',

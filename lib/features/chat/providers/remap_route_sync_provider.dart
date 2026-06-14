@@ -31,7 +31,7 @@ void remapRouteSync(Ref ref) {
         );
         ref
             .read(activeConversationProvider.notifier)
-            .set(active.copyWith(id: event.toId));
+            .remapIdInPlace(fromId: event.fromId, toId: event.toId);
       }
     } else if (event.entityKind == 'folder') {
       final pending = ref.read(pendingFolderIdProvider);

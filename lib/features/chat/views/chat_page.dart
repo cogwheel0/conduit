@@ -770,10 +770,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                     imageSizes[attachment] ?? await attachment.file.length(),
               );
         } catch (e) {
-          DebugLogger.log(
-            'Image upload failed: $e',
-            scope: 'chat/page',
-          );
+          DebugLogger.log('Image upload failed: $e', scope: 'chat/page');
         }
       }
     } catch (e) {
@@ -1280,6 +1277,19 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if (conversationId == _lastConversationId) return;
 
     final outgoingId = _lastConversationId;
+    if (isActiveConversationInPlaceRemap(ref, outgoingId, conversationId)) {
+      if (outgoingId != null &&
+          conversationId != null &&
+          _savedScrollOffsets.containsKey(outgoingId)) {
+        _savedScrollOffsets[conversationId] = _savedScrollOffsets.remove(
+          outgoingId,
+        )!;
+      }
+      _lastConversationId = conversationId;
+      markConversationRead(ref, conversationId);
+      return;
+    }
+
     markConversationRead(ref, outgoingId);
     markConversationRead(ref, conversationId);
     if (outgoingId != null && _scrollController.hasClients) {

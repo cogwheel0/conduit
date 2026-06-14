@@ -60,6 +60,9 @@ class RequestCompletionPayload {
     required this.model,
     this.toolIds = const <String>[],
     this.filterIds = const <String>[],
+    this.terminalId,
+    this.enableWebSearch = false,
+    this.enableImageGeneration = false,
     this.sessionIdOverride,
   });
 
@@ -72,6 +75,9 @@ class RequestCompletionPayload {
   final String model;
   final List<String> toolIds;
   final List<String> filterIds;
+  final String? terminalId;
+  final bool enableWebSearch;
+  final bool enableImageGeneration;
   final String? sessionIdOverride;
 
   Map<String, dynamic> toJson() => <String, dynamic>{
@@ -79,6 +85,9 @@ class RequestCompletionPayload {
     'model': model,
     'toolIds': toolIds,
     'filterIds': filterIds,
+    if (terminalId != null) 'terminalId': terminalId,
+    'enableWebSearch': enableWebSearch,
+    'enableImageGeneration': enableImageGeneration,
     if (sessionIdOverride != null) 'sessionIdOverride': sessionIdOverride,
   };
 
@@ -88,6 +97,11 @@ class RequestCompletionPayload {
       model: json['model'] is String ? json['model'] as String : '',
       toolIds: _stringList(json['toolIds']),
       filterIds: _stringList(json['filterIds']),
+      terminalId: json['terminalId'] is String
+          ? json['terminalId'] as String
+          : null,
+      enableWebSearch: json['enableWebSearch'] == true,
+      enableImageGeneration: json['enableImageGeneration'] == true,
       sessionIdOverride: json['sessionIdOverride'] is String
           ? json['sessionIdOverride'] as String
           : null,

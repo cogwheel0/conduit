@@ -81,30 +81,30 @@ void main() {
   late StubCompletionRunner completion;
 
   HiveBoxes boxes() => HiveBoxes(
-        preferences: caches,
-        caches: caches,
-        attachmentQueue: caches,
-        metadata: caches,
-      );
+    preferences: caches,
+    caches: caches,
+    attachmentQueue: caches,
+    metadata: caches,
+  );
 
   OutboxDrainer drainer() => OutboxDrainer(
-        db: db,
-        clock: clock,
-        backoff: Backoff(jitter: () => 0.0),
-        isOnline: () => true,
-        completion: completion,
-        adapters: [
-          ChatAdapter(
-            pull: PullSync(
-              client: client,
-              db: db,
-              locks: chatLocks,
-              remapper: remapper,
-            ),
-            push: push,
-          ),
-        ],
-      );
+    db: db,
+    clock: clock,
+    backoff: Backoff(jitter: () => 0.0),
+    isOnline: () => true,
+    completion: completion,
+    adapters: [
+      ChatAdapter(
+        pull: PullSync(
+          client: client,
+          db: db,
+          locks: chatLocks,
+          remapper: remapper,
+        ),
+        push: push,
+      ),
+    ],
+  );
 
   void wire() {
     chatLocks = ChatLocks();
@@ -175,8 +175,9 @@ void main() {
 
       // Local id is gone; a server-id row exists with the body.
       check(await db.chatsDao.getChat(localId)).isNull();
-      final serverChats =
-          (await db.select(db.chats).get()).where((c) => !c.id.startsWith('local:'));
+      final serverChats = (await db.select(db.chats).get()).where(
+        (c) => !c.id.startsWith('local:'),
+      );
       check(serverChats.length).equals(1);
       final serverId = serverChats.single.id;
 
@@ -185,9 +186,9 @@ void main() {
       check(stored).isNotNull();
       final history = (stored!['chat'] as Map)['history'] as Map;
       final messages = history['messages'] as Map;
-      final userMsg = messages.values.firstWhere(
-        (m) => (m as Map)['role'] == 'user',
-      ) as Map;
+      final userMsg =
+          messages.values.firstWhere((m) => (m as Map)['role'] == 'user')
+              as Map;
       check(userMsg['content']).equals('migrate and send me');
 
       // The completion ran against the SERVER id (remap repointed it, §B2.4).
@@ -202,140 +203,143 @@ void main() {
     },
   );
 
-  test(
-    'compose-offline -> force-quit (fresh container, same db file) -> '
-    'message survives -> reconnect sends and remaps',
-    () async {
-      // Use a FILE-backed db so a "force quit" (new AppDatabase over the same
-      // file) preserves the rows + outbox ops.
-      await db.close();
-      final dbFile = File('${tempDir.path}/server.sqlite');
-      db = AppDatabase(NativeDatabase(dbFile));
-      wire();
+  test('compose-offline -> force-quit (fresh container, same db file) -> '
+      'message survives -> reconnect sends and remaps', () async {
+    // Use a FILE-backed db so a "force quit" (new AppDatabase over the same
+    // file) preserves the rows + outbox ops.
+    await db.close();
+    final dbFile = File('${tempDir.path}/server.sqlite');
+    db = AppDatabase(NativeDatabase(dbFile));
+    wire();
 
-      const localId = 'local:offline-compose';
-      // OFFLINE compose: write rows + createChat + requestCompletion in one txn.
-      final blobRows = _composeRows(localId, 'offline hello');
-      await chatLocks.runExclusive(localId, () async {
-        await db.chatsDao.insertLocalChatWithCreateOp(
-          chat: blobRows.chat,
-          messages: blobRows.messages,
-          blobRows: blobRows,
-          contentHash: 'offline-hash',
-          completion: const RequestCompletionPayload(
-            assistantMessageId: 'a-off',
-            model: 'gpt-test',
-          ),
-        );
-      });
+    const localId = 'local:offline-compose';
+    // OFFLINE compose: write rows + createChat + requestCompletion in one txn.
+    final blobRows = _composeRows(localId, 'offline hello');
+    await chatLocks.runExclusive(localId, () async {
+      await db.chatsDao.insertLocalChatWithCreateOp(
+        chat: blobRows.chat,
+        messages: blobRows.messages,
+        blobRows: blobRows,
+        contentHash: 'offline-hash',
+        completion: const RequestCompletionPayload(
+          assistantMessageId: 'a-off',
+          model: 'gpt-test',
+        ),
+      );
+    });
 
-      // --- FORCE QUIT: drop the in-memory app state, reopen the same file. ---
-      await db.close();
-      await remapper.dispose();
-      db = AppDatabase(NativeDatabase(dbFile));
-      wire();
+    // --- FORCE QUIT: drop the in-memory app state, reopen the same file. ---
+    await db.close();
+    await remapper.dispose();
+    db = AppDatabase(NativeDatabase(dbFile));
+    wire();
 
-      // The composed chat is still visible after relaunch.
-      final survived = await db.chatsDao.getChat(localId);
-      check(survived).isNotNull();
-      check(survived!.dirty).isTrue();
-      final msgs = await db.messagesDao.getForChat(localId);
-      check(msgs.where((m) => m.role == 'user').single.content)
-          .equals('offline hello');
-      // Both ops survived.
-      check((await db.outboxDao.pendingForChat(localId)).map((o) => o.kind))
-          .deepEquals(['createChat', 'requestCompletion']);
+    // The composed chat is still visible after relaunch.
+    final survived = await db.chatsDao.getChat(localId);
+    check(survived).isNotNull();
+    check(survived!.dirty).isTrue();
+    final msgs = await db.messagesDao.getForChat(localId);
+    check(
+      msgs.where((m) => m.role == 'user').single.content,
+    ).equals('offline hello');
+    // Both ops survived.
+    check(
+      (await db.outboxDao.pendingForChat(localId)).map((o) => o.kind),
+    ).deepEquals(['createChat', 'requestCompletion']);
 
-      // --- RECONNECT: drain sends + remaps. ---
-      await drainer().drain();
+    // --- RECONNECT: drain sends + remaps. ---
+    await drainer().drain();
 
-      check(await db.chatsDao.getChat(localId)).isNull();
-      final serverChats = (await db.select(db.chats).get())
-          .where((c) => !c.id.startsWith('local:'));
-      check(serverChats.length).equals(1);
-      final serverId = serverChats.single.id;
-      check(server.getChatById(serverId)).isNotNull();
-      check(completion.ranForChats).deepEquals([serverId]);
+    check(await db.chatsDao.getChat(localId)).isNull();
+    final serverChats = (await db.select(db.chats).get()).where(
+      (c) => !c.id.startsWith('local:'),
+    );
+    check(serverChats.length).equals(1);
+    final serverId = serverChats.single.id;
+    check(server.getChatById(serverId)).isNotNull();
+    check(completion.ranForChats).deepEquals([serverId]);
 
-      // R8: EXACTLY ONE assistant row for the turn (the placeholder id, the DB
-      // row, and the completion echo all share `a-off`, so upsertLocalEcho keyed
-      // on {chatId,id} updated the one row instead of writing a duplicate).
-      final finalMsgs = await db.messagesDao.getForChat(serverId);
-      check(finalMsgs.where((m) => m.role == 'assistant').toList())
-          .length
-          .equals(1);
-      check(finalMsgs.where((m) => m.id == 'a-off').single.content)
-          .equals('assistant reply');
+    // R8: EXACTLY ONE assistant row for the turn (the placeholder id, the DB
+    // row, and the completion echo all share `a-off`, so upsertLocalEcho keyed
+    // on {chatId,id} updated the one row instead of writing a duplicate).
+    final finalMsgs = await db.messagesDao.getForChat(serverId);
+    check(
+      finalMsgs.where((m) => m.role == 'assistant').toList(),
+    ).length.equals(1);
+    check(
+      finalMsgs.where((m) => m.id == 'a-off').single.content,
+    ).equals('assistant reply');
 
-      await db.close();
-      // Reset db to in-memory so tearDown's close is harmless.
-      db = AppDatabase(NativeDatabase.memory());
-      wire();
-    },
-  );
+    await db.close();
+    // Reset db to in-memory so tearDown's close is harmless.
+    db = AppDatabase(NativeDatabase.memory());
+    wire();
+  });
 
-  test(
-    'crash between createChat and remap-commit heals without duplicating the '
-    'chat or the assistant row',
-    () async {
-      const localId = 'local:crash-heal';
-      const contentHash = 'crash-heal-hash';
-      final blobRows = _composeRows(localId, 'heal me');
-      await chatLocks.runExclusive(localId, () async {
-        await db.chatsDao.insertLocalChatWithCreateOp(
-          chat: blobRows.chat,
-          messages: blobRows.messages,
-          blobRows: blobRows,
-          contentHash: contentHash,
-          completion: const RequestCompletionPayload(
-            assistantMessageId: 'a-off',
-            model: 'gpt-test',
-          ),
-        );
-      });
+  test('crash between createChat and remap-commit heals without duplicating the '
+      'chat or the assistant row', () async {
+    const localId = 'local:crash-heal';
+    const contentHash = 'crash-heal-hash';
+    final blobRows = _composeRows(localId, 'heal me');
+    await chatLocks.runExclusive(localId, () async {
+      await db.chatsDao.insertLocalChatWithCreateOp(
+        chat: blobRows.chat,
+        messages: blobRows.messages,
+        blobRows: blobRows,
+        contentHash: contentHash,
+        completion: const RequestCompletionPayload(
+          assistantMessageId: 'a-off',
+          model: 'gpt-test',
+        ),
+      );
+    });
 
-      // Simulate a crash AFTER the server minted the chat but BEFORE the local
-      // remap committed: POST the chat to the fake server directly and adopt the
-      // server id by completing the remap (idempotent: re-running remap or push
-      // must not create a second chat).
-      final blob = ChatBlobMapper.rowsToBlob(blobRows)..['id'] = '';
-      final resp = await client.createChat(blob, folderId: null);
-      final serverId = resp['id'] as String;
+    // Simulate a crash AFTER the server minted the chat but BEFORE the local
+    // remap committed: POST the chat to the fake server directly and adopt the
+    // server id by completing the remap (idempotent: re-running remap or push
+    // must not create a second chat).
+    final blob = ChatBlobMapper.rowsToBlob(blobRows)..['id'] = '';
+    final resp = await client.createChat(blob, folderId: null);
+    final serverId = resp['id'] as String;
 
-      // Heal: complete the remap that the crash interrupted.
-      await chatLocks.runExclusive(serverId, () async {
-        await remapper.remapChat(
-          localId: localId,
-          serverId: serverId,
-          serverCreatedAt: 7000,
-          serverUpdatedAt: 7000,
-        );
-      });
+    // Heal: complete the remap that the crash interrupted.
+    await chatLocks.runExclusive(serverId, () async {
+      await remapper.remapChat(
+        localId: localId,
+        serverId: serverId,
+        serverCreatedAt: 7000,
+        serverUpdatedAt: 7000,
+      );
+    });
 
-      // Now drain. pushCreateChat re-runs against the NON-local (already
-      // remapped) id, recognizes the create is already satisfied, and does NOT
-      // POST a second chat; the requestCompletion then runs against serverId.
-      await drainer().drain();
+    // Now drain. pushCreateChat re-runs against the NON-local (already
+    // remapped) id, recognizes the create is already satisfied, and does NOT
+    // POST a second chat; the requestCompletion then runs against serverId.
+    await drainer().drain();
 
-      // Exactly one server chat, no local leftover.
-      check(await db.chatsDao.getChat(localId)).isNull();
-      final serverChats = (await db.select(db.chats).get())
-          .where((c) => !c.id.startsWith('local:'))
-          .toList();
-      check(serverChats.length).equals(1);
-      check(serverChats.single.id).equals(serverId);
+    // Exactly one server chat, no local leftover.
+    check(await db.chatsDao.getChat(localId)).isNull();
+    final serverChats = (await db.select(db.chats).get())
+        .where((c) => !c.id.startsWith('local:'))
+        .toList();
+    check(serverChats.length).equals(1);
+    check(serverChats.single.id).equals(serverId);
 
-      // The server has exactly one chat for this id (no duplicate POST).
-      check(server.getChatById(serverId)).isNotNull();
+    // The server has exactly one chat for this id (no duplicate POST).
+    check(server.getChatById(serverId)).isNotNull();
 
-      // Exactly one assistant row, with the completed body (R8).
-      final msgs = await db.messagesDao.getForChat(serverId);
-      check(msgs.where((m) => m.role == 'assistant').toList()).length.equals(1);
-      check(msgs.where((m) => m.id == 'a-off').single.content)
-          .equals('assistant reply');
-      check(completion.ranForChats).deepEquals([serverId]);
-    },
-  );
+    // Exactly one assistant row, with the completed body (R8).
+    final healedChat = await db.chatsDao.getChat(serverId);
+    check(healedChat!.dirty).isFalse();
+    check(healedChat.serverUpdatedAt).equals(7000);
+    final msgs = await db.messagesDao.getForChat(serverId);
+    check(msgs.every((m) => !m.dirty)).isTrue();
+    check(msgs.where((m) => m.role == 'assistant').toList()).length.equals(1);
+    check(
+      msgs.where((m) => m.id == 'a-off').single.content,
+    ).equals('assistant reply');
+    check(completion.ranForChats).deepEquals([serverId]);
+  });
 }
 
 /// Builds canonical ChatRows for a brand-new local compose (user + assistant

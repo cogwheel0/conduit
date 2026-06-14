@@ -355,7 +355,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         _configureDbMessagesWatch(next?.id);
 
         // Only react when the conversation actually changes
-        if (previous?.id == next?.id) {
+        if (previous?.id == next?.id ||
+            isActiveConversationInPlaceRemap(ref, previous?.id, next?.id)) {
           final serverMessages = next?.messages ?? const [];
           if (_shouldAdoptServerMessages(serverMessages)) {
             _adoptServerMessages(
@@ -3656,6 +3657,9 @@ Future<void> runQueuedCompletion(
   required String model,
   List<String> toolIds = const <String>[],
   List<String> filterIds = const <String>[],
+  String? terminalId,
+  bool enableWebSearch = false,
+  bool enableImageGeneration = false,
   String? sessionIdOverride,
 }) async {
   final api = ref.read(apiServiceProvider);
@@ -3707,12 +3711,8 @@ Future<void> runQueuedCompletion(
     modelId: effectiveModelId,
   );
 
-  final webSearchEnabled =
-      ref.read(webSearchEnabledProvider) &&
-      ref.read(webSearchAvailableProvider);
-  final imageGenerationEnabled =
-      ref.read(imageGenerationEnabledProvider) &&
-      ref.read(imageGenerationAvailableProvider);
+  final webSearchEnabled = enableWebSearch;
+  final imageGenerationEnabled = enableImageGeneration;
 
   final Map<String, dynamic> modelItem =
       (selectedModel != null && selectedModel.id == effectiveModelId)
@@ -3728,7 +3728,7 @@ Future<void> runQueuedCompletion(
     toolServers = await _resolveToolServersForRequest(
       api: api,
       userSettings: userSettingsData,
-      selectedToolIds: ref.read(selectedToolIdsProvider),
+      selectedToolIds: toolIds,
     );
   } catch (_) {}
 
@@ -3741,6 +3741,7 @@ Future<void> runQueuedCompletion(
 
   final bool isBackgroundToolsFlowPre =
       toolIdsForApi.isNotEmpty ||
+      terminalId != null ||
       (toolServers != null && toolServers.isNotEmpty);
 
   final lastUserMessageId = _lastUserMessageId(messages);
@@ -3774,6 +3775,7 @@ Future<void> runQueuedCompletion(
       messages: requestMessages,
       model: effectiveModelId,
       conversationId: chatId,
+      terminalId: terminalId,
       toolIds: toolIdsForApi.isNotEmpty ? toolIdsForApi : null,
       filterIds: selectedFilterIds.isNotEmpty ? selectedFilterIds : null,
       enableWebSearch: webSearchEnabled,
@@ -3814,6 +3816,7 @@ Future<void> runQueuedCompletion(
       modelUsesReasoning: modelUsesReasoning,
       toolsEnabled:
           toolIdsForApi.isNotEmpty ||
+          terminalId != null ||
           (toolServers != null && toolServers.isNotEmpty) ||
           imageGenerationEnabled,
       isTemporary: isTemporary,
@@ -3854,6 +3857,9 @@ Future<void> runHeadlessCompletion(
   required String model,
   List<String> toolIds = const <String>[],
   List<String> filterIds = const <String>[],
+  String? terminalId,
+  bool enableWebSearch = false,
+  bool enableImageGeneration = false,
   String? sessionIdOverride,
 }) async {
   final api = ref.read(apiServiceProvider);
@@ -3899,19 +3905,15 @@ Future<void> runHeadlessCompletion(
   final socketSessionId =
       sessionIdOverride ?? await _ensureConnectedSocketSessionId(socketService);
 
-  final webSearchEnabled =
-      ref.read(webSearchEnabledProvider) &&
-      ref.read(webSearchAvailableProvider);
-  final imageGenerationEnabled =
-      ref.read(imageGenerationEnabledProvider) &&
-      ref.read(imageGenerationAvailableProvider);
+  final webSearchEnabled = enableWebSearch;
+  final imageGenerationEnabled = enableImageGeneration;
 
   List<Map<String, dynamic>>? toolServers;
   try {
     toolServers = await _resolveToolServersForRequest(
       api: api,
       userSettings: userSettingsData,
-      selectedToolIds: ref.read(selectedToolIdsProvider),
+      selectedToolIds: toolIds,
     );
   } catch (_) {}
 
@@ -3945,6 +3947,7 @@ Future<void> runHeadlessCompletion(
     messages: requestMessages,
     model: effectiveModelId,
     conversationId: chatId,
+    terminalId: terminalId,
     toolIds: toolIdsForApi.isNotEmpty ? toolIdsForApi : null,
     filterIds: filterIds.isNotEmpty ? filterIds : null,
     enableWebSearch: webSearchEnabled,
@@ -4016,6 +4019,14 @@ Future<void> runHeadlessCompletion(
   );
 }
 
+AppDatabase? _readAppDatabaseOrNull(dynamic ref) {
+  try {
+    return ref.read(appDatabaseProvider);
+  } catch (_) {
+    return null;
+  }
+}
+
 /// Durable send (CDT-RFC-001 §7.2 write path; Group 1 of the task_queue
 /// retirement). Replaces the legacy `taskQueueProvider.enqueueSendText` path.
 ///
@@ -4039,7 +4050,20 @@ Future<void> durableSend(
   String? pendingFolderIdOverride,
   bool isVoiceMode = false,
 }) async {
-  final db = ref.read(appDatabaseProvider);
+  final activeAtSendStart = ref.read(activeConversationProvider);
+  if (isTemporaryChat(activeAtSendStart?.id)) {
+    await _sendMessageInternal(
+      ref,
+      message,
+      attachments,
+      toolIds,
+      isVoiceMode,
+      pendingFolderIdOverride,
+    );
+    return;
+  }
+
+  final db = _readAppDatabaseOrNull(ref);
   final reviewerMode = ref.read(reviewerModeProvider);
   final selectedModel = ref.read(selectedModelProvider);
   final temporary = ref.read(temporaryChatEnabledProvider);
@@ -4060,6 +4084,16 @@ Future<void> durableSend(
 
   final filterIds = ref.read(selectedFilterIdsProvider);
   final now = ref.read(syncClockProvider).nowEpochSeconds();
+  final selectedTerminalId = ref.read(selectedTerminalIdProvider);
+  final terminalIdForCompletion = modelSupportsTerminal(selectedModel)
+      ? _resolveTerminalIdForRequest(selectedTerminalId: selectedTerminalId)
+      : null;
+  final webSearchEnabled =
+      ref.read(webSearchEnabledProvider) &&
+      ref.read(webSearchAvailableProvider);
+  final imageGenerationEnabled =
+      ref.read(imageGenerationEnabledProvider) &&
+      ref.read(imageGenerationAvailableProvider);
 
   final existingMessages = ref.read(chatMessagesProvider);
   final parentId = _resolveOpenWebUiParentIdForNewUserMessage(existingMessages);
@@ -4105,9 +4139,12 @@ Future<void> durableSend(
     model: selectedModel.id,
     toolIds: toolIdList,
     filterIds: filterIds,
+    terminalId: terminalIdForCompletion,
+    enableWebSearch: webSearchEnabled,
+    enableImageGeneration: imageGenerationEnabled,
   );
 
-  var activeConversation = ref.read(activeConversationProvider);
+  var activeConversation = activeAtSendStart;
 
   if (activeConversation == null) {
     // ---- NEW local chat ----

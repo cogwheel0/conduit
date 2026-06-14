@@ -133,6 +133,9 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
         model: decoded.model,
         toolIds: decoded.toolIds,
         filterIds: decoded.filterIds,
+        terminalId: decoded.terminalId,
+        enableWebSearch: decoded.enableWebSearch,
+        enableImageGeneration: decoded.enableImageGeneration,
         sessionIdOverride: decoded.sessionIdOverride,
       );
       return;
@@ -150,6 +153,9 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
       model: decoded.model,
       toolIds: decoded.toolIds,
       filterIds: decoded.filterIds,
+      terminalId: decoded.terminalId,
+      enableWebSearch: decoded.enableWebSearch,
+      enableImageGeneration: decoded.enableImageGeneration,
       sessionIdOverride: decoded.sessionIdOverride,
     );
   }

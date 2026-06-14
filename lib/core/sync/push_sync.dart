@@ -65,12 +65,23 @@ class PushSync {
     // Re-running must NOT POST a second chat: a non-local id means the server
     // chat already exists, so the create is already satisfied — return it as-is.
     if (!localId.startsWith('local:')) {
-      DebugLogger.log(
-        'create-already-satisfied',
-        scope: 'sync/push',
-        data: {'chatId': localId},
-      );
-      return localId;
+      return _chatLocks.runExclusive(localId, () async {
+        DebugLogger.log(
+          'create-already-satisfied',
+          scope: 'sync/push',
+          data: {'chatId': localId},
+        );
+        final chat = await _db.chatsDao.getChat(localId);
+        if (chat != null) {
+          final messages = await _db.messagesDao.getForChat(localId);
+          await _clearDirty(
+            chatId: localId,
+            messageIds: [for (final message in messages) message.id],
+            serverUpdatedAt: chat.serverUpdatedAt ?? chat.updatedAt,
+          );
+        }
+        return localId;
+      });
     }
 
     return _chatLocks.runExclusive(localId, () async {
@@ -277,6 +288,16 @@ class PushSync {
       final meta = _asMap(payload['meta']);
 
       if (createIfAbsent && folderId.startsWith('local:')) {
+        if (parentId != null && parentId.startsWith('local:')) {
+          DebugLogger.log(
+            'folder-create-defer-local-parent',
+            scope: 'sync/push',
+            data: {'folderId': folderId, 'parentId': parentId},
+          );
+          throw StateError(
+            'createFolder deferred until parent remap completes: $folderId',
+          );
+        }
         final resp = await _client.createFolder(
           name: name ?? '',
           parentId: parentId,
@@ -318,6 +339,17 @@ class PushSync {
         }
       }
       if (parentId != null || payload.containsKey('parentId')) {
+        if (parentId != null && parentId.startsWith('local:')) {
+          DebugLogger.log(
+            'folder-parent-defer-local-parent',
+            scope: 'sync/push',
+            data: {'folderId': folderId, 'parentId': parentId},
+          );
+          throw StateError(
+            'updateFolderParent deferred until parent remap completes: '
+            '$folderId',
+          );
+        }
         final parentUpdated = await _client.updateFolderParent(
           folderId,
           parentId,

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:checks/checks.dart';
 import 'package:conduit/core/database/app_database.dart';
 import 'package:conduit/core/database/daos/outbox_dao.dart';
@@ -197,7 +199,11 @@ void main() {
           completion: const RequestCompletionPayload(
             assistantMessageId: 'a1',
             model: 'gpt',
-            toolIds: <String>[],
+            toolIds: <String>['tool-a'],
+            filterIds: <String>['filter-a'],
+            terminalId: 'terminal-a',
+            enableWebSearch: true,
+            enableImageGeneration: true,
           ),
         );
 
@@ -216,6 +222,14 @@ void main() {
         check(ops[0].contentHash).equals('hash-1');
         check(ops[1].kind).equals('requestCompletion');
         check(ops[1].seq).isGreaterThan(ops[0].seq);
+        final completionPayload = RequestCompletionPayload.fromJson(
+          jsonDecode(ops[1].payload) as Map<String, dynamic>,
+        );
+        check(completionPayload.toolIds).deepEquals(['tool-a']);
+        check(completionPayload.filterIds).deepEquals(['filter-a']);
+        check(completionPayload.terminalId).equals('terminal-a');
+        check(completionPayload.enableWebSearch).isTrue();
+        check(completionPayload.enableImageGeneration).isTrue();
       },
     );
 

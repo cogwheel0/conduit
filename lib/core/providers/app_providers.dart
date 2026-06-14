@@ -1621,11 +1621,65 @@ final activeConversationProvider =
       ActiveConversationNotifier.new,
     );
 
+@immutable
+class ActiveConversationInPlaceRemap {
+  const ActiveConversationInPlaceRemap({
+    required this.fromId,
+    required this.toId,
+  });
+
+  final String fromId;
+  final String toId;
+
+  bool matches(String? previousId, String? nextId) =>
+      previousId == fromId && nextId == toId;
+}
+
+final activeConversationInPlaceRemapProvider =
+    NotifierProvider<
+      ActiveConversationInPlaceRemapNotifier,
+      ActiveConversationInPlaceRemap?
+    >(ActiveConversationInPlaceRemapNotifier.new);
+
+class ActiveConversationInPlaceRemapNotifier
+    extends Notifier<ActiveConversationInPlaceRemap?> {
+  @override
+  ActiveConversationInPlaceRemap? build() => null;
+
+  void mark({required String fromId, required String toId}) {
+    state = ActiveConversationInPlaceRemap(fromId: fromId, toId: toId);
+  }
+}
+
+bool isActiveConversationInPlaceRemap(
+  dynamic ref,
+  String? previousId,
+  String? nextId,
+) {
+  try {
+    return ref
+            .read(activeConversationInPlaceRemapProvider)
+            ?.matches(previousId, nextId) ??
+        false;
+  } catch (_) {
+    return false;
+  }
+}
+
 class ActiveConversationNotifier extends Notifier<Conversation?> {
   @override
   Conversation? build() => null;
 
   void set(Conversation? conversation) => state = conversation;
+
+  void remapIdInPlace({required String fromId, required String toId}) {
+    final current = state;
+    if (current == null || current.id != fromId) return;
+    ref
+        .read(activeConversationInPlaceRemapProvider.notifier)
+        .mark(fromId: fromId, toId: toId);
+    state = current.copyWith(id: toId);
+  }
 
   void clear() => state = null;
 }
