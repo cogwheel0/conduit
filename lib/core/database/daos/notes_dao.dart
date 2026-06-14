@@ -204,8 +204,8 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
       await _outboxDao.enqueue(kind: OutboxKind.noteCreate, chatId: copyId);
     }
 
-    // Canonical row: server data adopted (takeServerData is always true on the
-    // fieldLww branch); title from server unless the local title won.
+    // Canonical row: title/data each follow the field-LWW decision. Conflict
+    // copies with dirty data keep their local body instead of forking again.
     final serverRow = serverToNoteRow(serverRaw);
     await (update(notes)..where((t) => t.id.equals(existing.id))).write(
       NotesCompanion(

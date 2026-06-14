@@ -43,13 +43,13 @@ class OutboxDrainer {
     required RequestCompletionRunner completion,
     required List<SyncEntityAdapter> adapters,
     TerminalErrorClassifier? terminalClassifier,
-  })  : _db = db,
-        _clock = clock,
-        _backoff = backoff,
-        _isOnline = isOnline,
-        _completion = completion,
-        _adapters = adapters,
-        _isTerminal = terminalClassifier ?? _defaultTerminal;
+  }) : _db = db,
+       _clock = clock,
+       _backoff = backoff,
+       _isOnline = isOnline,
+       _completion = completion,
+       _adapters = adapters,
+       _isTerminal = terminalClassifier ?? _defaultTerminal;
 
   /// §7.2 pool of 2, matching legacy parallelism.
   static const int kPoolSize = 2;
@@ -190,6 +190,17 @@ class OutboxDrainer {
       return;
     }
 
+    if (kind == OutboxKind.requestCompletion && op.chatId == null) {
+      const message = 'malformed requestCompletion op: missing chatId';
+      DebugLogger.error(
+        'malformed requestCompletion op, parking',
+        scope: 'outbox/drain',
+        data: {'seq': op.seq},
+      );
+      await _db.outboxDao.markParked(op.seq, error: message);
+      return;
+    }
+
     try {
       await _execute(op, kind);
       await _db.outboxDao.markDone(op.seq);
@@ -203,8 +214,12 @@ class OutboxDrainer {
     // runs through the dedicated completion seam (rebuilds the request from rows
     // at drain time), not the entity push path.
     if (kind == OutboxKind.requestCompletion) {
+      final chatId = op.chatId;
+      if (chatId == null) {
+        throw StateError('requestCompletion missing chatId after validation');
+      }
       await _completion.run(
-        chatId: op.chatId!,
+        chatId: chatId,
         payload: decodeOutboxPayload(op.payload),
       );
       return;
@@ -227,7 +242,10 @@ class OutboxDrainer {
       scope: 'outbox/drain',
       data: {'seq': op.seq, 'kind': kind.name},
     );
-    await _db.outboxDao.markParked(op.seq, error: 'no adapter for ${kind.name}');
+    await _db.outboxDao.markParked(
+      op.seq,
+      error: 'no adapter for ${kind.name}',
+    );
   }
 
   Future<void> _handleFailure(

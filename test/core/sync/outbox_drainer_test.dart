@@ -71,7 +71,10 @@ class RecordingSyncApiClient implements SyncApiClient {
   }) {
     calls.add('createChat');
     final localId = chatBlob['__localId'] as String? ?? 'create';
-    return _track(localId, () async => server.createChat(chatBlob, folderId: folderId));
+    return _track(
+      localId,
+      () async => server.createChat(chatBlob, folderId: folderId),
+    );
   }
 
   @override
@@ -134,8 +137,7 @@ class RecordingSyncApiClient implements SyncApiClient {
   Future<Map<String, dynamic>?> getChatRaw(String id) async =>
       throw UnimplementedError();
   @override
-  Future<bool> probeChatExists(String id) async =>
-      throw UnimplementedError();
+  Future<bool> probeChatExists(String id) async => throw UnimplementedError();
   @override
   Future<(List<Map<String, dynamic>>, bool)> getFoldersRaw() async =>
       throw UnimplementedError();
@@ -143,16 +145,14 @@ class RecordingSyncApiClient implements SyncApiClient {
   Future<Map<String, dynamic>> createFolder({
     required String name,
     String? parentId,
-  }) async =>
-      throw UnimplementedError();
+  }) async => throw UnimplementedError();
   @override
   Future<Map<String, dynamic>?> updateFolder(
     String id, {
     String? name,
     Map<String, dynamic>? data,
     Map<String, dynamic>? meta,
-  }) async =>
-      throw UnimplementedError();
+  }) async => throw UnimplementedError();
   @override
   Future<bool> updateFolderParent(String id, String? parentId) async =>
       throw UnimplementedError();
@@ -378,68 +378,99 @@ void main() {
       check(parked.single.attempts).equals(5);
     });
 
-    test('a parked op is no longer claimed; requeue re-arms a fresh N=5',
-        () async {
-      await seedServerChat('c1');
-      completion.failuresRemaining = 100;
-      final seq = await enqueue(
-        kind: OutboxKind.requestCompletion,
-        chatId: 'c1',
-        payload: {
-          'assistantMessageId': 'a1',
-          'model': 'm',
-          'toolIds': <String>[],
-        },
-      );
-      final drainer = buildDrainer();
-      for (var i = 0; i < 5; i++) {
-        await drainer.drain();
-        clock.now += 10000;
-      }
-      check(completion.runs).equals(5);
+    test(
+      'a parked op is no longer claimed; requeue re-arms a fresh N=5',
+      () async {
+        await seedServerChat('c1');
+        completion.failuresRemaining = 100;
+        final seq = await enqueue(
+          kind: OutboxKind.requestCompletion,
+          chatId: 'c1',
+          payload: {
+            'assistantMessageId': 'a1',
+            'model': 'm',
+            'toolIds': <String>[],
+          },
+        );
+        final drainer = buildDrainer();
+        for (var i = 0; i < 5; i++) {
+          await drainer.drain();
+          clock.now += 10000;
+        }
+        check(completion.runs).equals(5);
 
-      // Parked: another drain does nothing.
-      await drainer.drain();
-      check(completion.runs).equals(5);
-
-      // Manual retry: fresh N=5 budget.
-      await dao.requeueParked(seq, nowEpochSeconds: clock.now);
-      for (var i = 0; i < 5; i++) {
+        // Parked: another drain does nothing.
         await drainer.drain();
-        clock.now += 10000;
-      }
-      check(completion.runs).equals(10);
-    });
+        check(completion.runs).equals(5);
+
+        // Manual retry: fresh N=5 budget.
+        await dao.requeueParked(seq, nowEpochSeconds: clock.now);
+        for (var i = 0; i < 5; i++) {
+          await drainer.drain();
+          clock.now += 10000;
+        }
+        check(completion.runs).equals(10);
+      },
+    );
+
+    test(
+      'malformed requestCompletion without chatId parks immediately',
+      () async {
+        final seq = await db
+            .into(db.outboxOps)
+            .insert(
+              OutboxOpsCompanion.insert(
+                kind: OutboxKind.requestCompletion.name,
+                payload: const Value(
+                  '{"assistantMessageId":"a1","model":"m","toolIds":[]}',
+                ),
+              ),
+            );
+        final drainer = buildDrainer();
+
+        await drainer.drain();
+
+        check(completion.runs).equals(0);
+        final row = await (db.select(
+          db.outboxOps,
+        )..where((t) => t.seq.equals(seq))).getSingle();
+        check(row.status).equals(OutboxStatus.failed);
+        check(row.attempts).equals(1);
+        check(
+          row.lastError!,
+        ).contains('malformed requestCompletion op: missing chatId');
+      },
+    );
   });
 
   group('backoff scheduling honored', () {
-    test('a transient failure schedules nextAttemptAt and is skipped early',
-        () async {
-      await seedServerChat('c1');
-      await enqueue(kind: OutboxKind.updateChat, chatId: 'c1');
-      client.failuresByChat['c1'] = [StateError('transient')];
-      // base 2000ms, jitter ~1.0 -> ~2s delay -> nextAttemptAt = now + 2.
-      final drainer = buildDrainer(
-        backoff: Backoff(jitter: () => 0.999999),
-      );
+    test(
+      'a transient failure schedules nextAttemptAt and is skipped early',
+      () async {
+        await seedServerChat('c1');
+        await enqueue(kind: OutboxKind.updateChat, chatId: 'c1');
+        client.failuresByChat['c1'] = [StateError('transient')];
+        // base 2000ms, jitter ~1.0 -> ~2s delay -> nextAttemptAt = now + 2.
+        final drainer = buildDrainer(backoff: Backoff(jitter: () => 0.999999));
 
-      await drainer.drain();
-      final afterFail = await dao.pendingForChat('c1');
-      check(afterFail.single.attempts).equals(1);
-      check(afterFail.single.status).equals('pending');
-      // delay window for attempt 0 is [0,2000) -> 1999ms -> ceil(1.999)=2s.
-      check(afterFail.single.nextAttemptAt).equals(clock.now + 2);
+        await drainer.drain();
+        final afterFail = await dao.pendingForChat('c1');
+        check(afterFail.single.attempts).equals(1);
+        check(afterFail.single.status).equals('pending');
+        // delay window for attempt 0 is [0,2000) -> 1999ms -> ceil(1.999)=2s.
+        check(afterFail.single.nextAttemptAt).equals(clock.now + 2);
 
-      // Before the backoff elapses, the op is not claimed (no new write).
-      final callsBefore = client.calls.length;
-      await drainer.drain();
-      check(client.calls.length).equals(callsBefore);
+        // Before the backoff elapses, the op is not claimed (no new write).
+        final callsBefore = client.calls.length;
+        await drainer.drain();
+        check(client.calls.length).equals(callsBefore);
 
-      // After the backoff window, it succeeds and is removed.
-      clock.now += 2;
-      await drainer.drain();
-      check(await dao.pendingForChat('c1')).isEmpty();
-    });
+        // After the backoff window, it succeeds and is removed.
+        clock.now += 2;
+        await drainer.drain();
+        check(await dao.pendingForChat('c1')).isEmpty();
+      },
+    );
 
     test('connectivity regained resets backoff to now and drains', () async {
       await seedServerChat('c1');
@@ -448,8 +479,9 @@ void main() {
       final drainer = buildDrainer(backoff: Backoff(jitter: () => 0.999999));
 
       await drainer.drain();
-      check((await dao.pendingForChat('c1')).single.nextAttemptAt)
-          .equals(clock.now + 2);
+      check(
+        (await dao.pendingForChat('c1')).single.nextAttemptAt,
+      ).equals(clock.now + 2);
 
       // Regain connectivity WITHOUT advancing the clock: backoff is reset to
       // now so the op runs immediately and (no more failures) completes.
@@ -533,7 +565,9 @@ void main() {
     });
 
     test('malformed folderDelete payload parks without retrying', () async {
-      final seq = await db.into(db.outboxOps).insert(
+      final seq = await db
+          .into(db.outboxOps)
+          .insert(
             OutboxOpsCompanion.insert(
               kind: OutboxKind.folderDelete.name,
               chatId: const Value('folder-bad'),
@@ -548,8 +582,9 @@ void main() {
       final parked = await dao.watchParkedForChat('folder-bad').first;
       check(parked).length.equals(1);
       check(parked.single.seq).equals(seq);
-      check(parked.single.lastError!)
-          .contains('malformed folderDelete payload');
+      check(
+        parked.single.lastError!,
+      ).contains('malformed folderDelete payload');
     });
   });
 
