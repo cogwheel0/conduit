@@ -50,7 +50,9 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
   /// D-07 completed-turn echo. Caller holds the chat lock. Reads the current
   /// active branch tip, links the echoed user to that tip, links the assistant
   /// to the echoed user, and advances chats.currentMessageId to the assistant
-  /// in the same transaction as the message writes.
+  /// in the same transaction as the message writes. Replaying the same turn is
+  /// idempotent: existing turn rows are used to recover the pre-turn tip so the
+  /// user row is never re-parented to its own assistant.
   Future<bool> upsertLocalEchoTurn({
     required String chatId,
     required MessageRowData? user,
@@ -62,7 +64,12 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
       )..where((t) => t.id.equals(chatId))).getSingleOrNull();
       if (chat == null) return false;
 
-      final previousTip = chat.currentMessageId;
+      final previousTip = await _previousTipBeforeEchoTurn(
+        chatId: chatId,
+        currentTip: chat.currentMessageId,
+        userId: user?.id,
+        assistantId: assistant.id,
+      );
       if (user != null) {
         await _upsertLocalEchoRow(_withParent(user, previousTip));
       }
@@ -74,6 +81,55 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
       );
       return true;
     });
+  }
+
+  Future<String?> _previousTipBeforeEchoTurn({
+    required String chatId,
+    required String? currentTip,
+    required String? userId,
+    required String assistantId,
+  }) async {
+    if (currentTip == assistantId) {
+      final assistant = await _messageById(chatId, assistantId);
+      final assistantParent = _safeTip(
+        assistant?.parentId,
+        userId: userId,
+        assistantId: assistantId,
+      );
+      if (userId != null && assistant?.parentId == userId) {
+        final user = await _messageById(chatId, userId);
+        return _safeTip(
+          user?.parentId,
+          userId: userId,
+          assistantId: assistantId,
+        );
+      }
+      return assistantParent;
+    }
+
+    if (userId != null && currentTip == userId) {
+      final user = await _messageById(chatId, userId);
+      return _safeTip(user?.parentId, userId: userId, assistantId: assistantId);
+    }
+
+    return _safeTip(currentTip, userId: userId, assistantId: assistantId);
+  }
+
+  Future<MessageRow?> _messageById(String chatId, String messageId) {
+    return (select(messages)
+          ..where((t) => t.chatId.equals(chatId) & t.id.equals(messageId)))
+        .getSingleOrNull();
+  }
+
+  String? _safeTip(
+    String? tip, {
+    required String? userId,
+    required String assistantId,
+  }) {
+    if (tip == null || tip == userId || tip == assistantId) {
+      return null;
+    }
+    return tip;
   }
 
   Future<void> _upsertLocalEchoRow(MessageRowData row) async {

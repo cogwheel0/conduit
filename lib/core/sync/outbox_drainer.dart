@@ -210,9 +210,9 @@ class OutboxDrainer {
   }
 
   Future<void> _execute(OutboxOp op, OutboxKind kind) async {
-    // requestCompletion is the lone chat-only kind with no adapter pushOp: it
-    // runs through the dedicated completion seam (rebuilds the request from rows
-    // at drain time), not the entity push path.
+    // requestCompletion must be consumed here before the adapter loop. The
+    // ChatAdapter owns the kind for FIFO partitioning, but its pushOp
+    // intentionally throws for requestCompletion; falling through is a bug.
     if (kind == OutboxKind.requestCompletion) {
       final chatId = op.chatId;
       if (chatId == null) {

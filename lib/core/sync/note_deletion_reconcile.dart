@@ -113,10 +113,11 @@ class NoteDeletionReconcile {
     }
 
     // 4. Probe + purge under each note's lock. getNoteRaw returns null only
-    //    when the note is gone (404); auth/permission failures throw and are
-    //    skipped. Still verify the session is alive before every purge
-    //    candidate so a mid-run auth loss aborts with no further purges and no
-    //    throttle advance.
+    //    when the note is gone (404); auth/permission failures throw and abort
+    //    the run with no throttle advance. The list fetch above is the single
+    //    liveness/feature check for this run; unlike chats, note 404 is not
+    //    ambiguous with auth failure, so per-candidate full-list checks would
+    //    only add O(library * candidates) work.
     var purged = 0;
     var skipped = 0;
     var sessionDead = false;
@@ -161,32 +162,6 @@ class NoteDeletionReconcile {
           return;
         }
         if (!gone) {
-          skipped++;
-          return;
-        }
-        // Confirm the session is still alive before trusting this purge.
-        // getNoteListRaw SWALLOWS 401/403 and signals it via
-        // featureEnabled=false (it never throws on auth failure), so a thrown
-        // error OR a (_, false) result both mean the session is dead.
-        //
-        // KNOWN TRADE-OFF: featureEnabled=false ALSO fires if the Notes feature
-        // is toggled off mid-reconcile. Treating that as "session dead" is
-        // deliberately conservative: it skips this run's remaining purges (no
-        // data loss) and the next reconcile re-runs once the feature is back.
-        bool alive;
-        try {
-          final (_, enabled) = await _client.getNoteListRaw();
-          alive = enabled;
-        } catch (_) {
-          alive = false;
-        }
-        if (!alive) {
-          DebugLogger.warning(
-            'note-reconcile-aborted-session-dead',
-            scope: 'sync/reconcile',
-            data: {'noteId': id},
-          );
-          sessionDead = true;
           skipped++;
           return;
         }

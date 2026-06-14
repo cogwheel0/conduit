@@ -202,6 +202,56 @@ void main() {
       );
     });
 
+    test('replaying a completed turn preserves the original parent chain',
+        () async {
+      await db.chatsDao.upsertEnvelopeStub(
+        id: 'chat-replay',
+        title: 'Replay',
+        createdAt: 1,
+        updatedAt: 1,
+      );
+      await db.messagesDao.upsertLocalEcho(
+        echo(chatId: 'chat-replay', id: 'prev-a'),
+      );
+      await (db.update(db.chats)..where((t) => t.id.equals('chat-replay')))
+          .write(const ChatsCompanion(currentMessageId: Value('prev-a')));
+
+      final user = echo(
+        chatId: 'chat-replay',
+        id: 'u-2',
+        role: 'user',
+        content: 'next question',
+      );
+      await db.messagesDao.upsertLocalEchoTurn(
+        chatId: 'chat-replay',
+        user: user,
+        assistant: echo(
+          chatId: 'chat-replay',
+          id: 'a-2',
+          content: 'partial answer',
+        ),
+      );
+
+      final replayed = await db.messagesDao.upsertLocalEchoTurn(
+        chatId: 'chat-replay',
+        user: user,
+        assistant: echo(
+          chatId: 'chat-replay',
+          id: 'a-2',
+          content: 'final answer',
+        ),
+      );
+
+      check(replayed).isTrue();
+      final rows = await db.messagesDao.getForChat('chat-replay');
+      check(rows.singleWhere((m) => m.id == 'u-2').parentId).equals('prev-a');
+      final assistantRow = rows.singleWhere((m) => m.id == 'a-2');
+      check(assistantRow.parentId).equals('u-2');
+      check(assistantRow.content).equals('final answer');
+      check((await db.chatsDao.getChat('chat-replay'))!.currentMessageId)
+          .equals('a-2');
+    });
+
     test('payload round-trips verbatim through jsonEncode/jsonDecode',
         () async {
       await db.chatsDao.upsertEnvelopeStub(

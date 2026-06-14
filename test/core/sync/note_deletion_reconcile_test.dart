@@ -24,19 +24,17 @@ class _Clock implements SyncClock {
 }
 
 /// A client whose note session dies the instant the probe loop starts:
-/// enumeration succeeds, then the first probe injects a list failure so the
-/// liveness re-check throws.
+/// enumeration succeeds, then the first probe sees a terminal auth failure.
 class _NoteSessionDyingClient extends FakeSyncApiClient {
   _NoteSessionDyingClient(super.server);
   @override
   Future<Map<String, dynamic>?> getNoteRaw(String id) {
-    failNoteList = true;
-    return super.getNoteRaw(id);
+    throw const SyncTerminalException(statusCode: 401, message: 'expired');
   }
 }
 
-/// A client whose first gone-note probe is followed by a healthy liveness check,
-/// then whose session dies before the second gone-note purge.
+/// A client whose first gone-note probe succeeds, then whose session dies
+/// before the second gone-note probe.
 class _NoteSessionDiesAfterFirstPurgeClient extends FakeSyncApiClient {
   _NoteSessionDiesAfterFirstPurgeClient(super.server);
 
@@ -46,7 +44,7 @@ class _NoteSessionDiesAfterFirstPurgeClient extends FakeSyncApiClient {
   Future<Map<String, dynamic>?> getNoteRaw(String id) {
     rawFetches++;
     if (rawFetches > 1) {
-      failNoteList = true;
+      throw const SyncTerminalException(statusCode: 401, message: 'expired');
     }
     return super.getNoteRaw(id);
   }
@@ -144,6 +142,24 @@ void main() {
     check(await db.notesDao.getNote('ghost')).isNull();
     check(await db.notesDao.getNote('s1')).isNotNull();
   });
+
+  test(
+    'confirmed-gone candidates reuse the initial note list liveness check',
+    () async {
+      final client = FakeSyncApiClient(server);
+      await seedLocalOnly('ghost-1');
+      await seedLocalOnly('ghost-2');
+      await seedLocalOnly('ghost-3');
+      client.nullNoteIds.addAll(['ghost-1', 'ghost-2', 'ghost-3']);
+
+      final result = await reconcileWith(
+        client,
+      ).run(ReconcileReason.manualRefresh);
+
+      check(result.purged).equals(3);
+      check(client.noteListRequests).equals(1);
+    },
+  );
 
   test('a transient probe error SKIPS (does not purge)', () async {
     final client = FakeSyncApiClient(server);
