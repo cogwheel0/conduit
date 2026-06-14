@@ -4,6 +4,7 @@ import 'package:drift/drift.dart';
 
 import '../../utils/debug_logger.dart';
 import '../app_database.dart';
+import '../mappers/note_mapper.dart';
 import '../tables/outbox.dart';
 
 part 'outbox_dao.g.dart';
@@ -166,11 +167,20 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
     // new one (new keys win, with per-kind exceptions such as local folder
     // create). Done before the early return so a collapse still persists the
     // merged map.
-    if (decision.mergedPayload != null && decision.survivorSeq != null) {
+    if ((decision.mergedPayload != null ||
+            decision.mergedContentHash != null) &&
+        decision.survivorSeq != null) {
       await (update(
         outboxOps,
       )..where((t) => t.seq.equals(decision.survivorSeq!))).write(
-        OutboxOpsCompanion(payload: Value(jsonEncode(decision.mergedPayload))),
+        OutboxOpsCompanion(
+          payload: decision.mergedPayload == null
+              ? const Value.absent()
+              : Value(jsonEncode(decision.mergedPayload)),
+          contentHash: decision.mergedContentHash == null
+              ? const Value.absent()
+              : Value(decision.mergedContentHash),
+        ),
       );
     }
 
@@ -594,10 +604,21 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
       case OutboxKind.noteUpdate:
         // createChat-analog: a pending noteCreate reconstructs the live row at
         // push (note_mapper builds title+data from the row), so it already
-        // carries the latest title/data — collapse into it, no merge needed.
+        // carries the latest title/data. Refresh the surviving create's
+        // contentHash too; crash-heal matches the server-created note against
+        // the CURRENT row content that pushNoteCreate will POST.
         final create = newestOfKind(OutboxKind.noteCreate);
         if (create != null) {
-          return _CoalesceDecision(insert: false, survivorSeq: create.seq);
+          final note = chatId == null
+              ? null
+              : await attachedDatabase.notesDao.getNote(chatId);
+          return _CoalesceDecision(
+            insert: false,
+            survivorSeq: create.seq,
+            mergedContentHash: note == null
+                ? null
+                : noteCreateContentHashFromRow(note),
+          );
         }
         // Consecutive noteUpdate collapse to the newest, MERGING patch maps so
         // a data edit followed by a title-only edit keeps the data axis (the
@@ -759,6 +780,7 @@ class _CoalesceDecision {
     this.deletions = const [],
     this.survivorSeq,
     this.mergedPayload,
+    this.mergedContentHash,
   });
 
   final bool insert;
@@ -767,4 +789,7 @@ class _CoalesceDecision {
 
   /// When non-null, the surviving op's payload is rewritten to this merged map.
   final Map<String, dynamic>? mergedPayload;
+
+  /// When non-null, the surviving op's content hash is refreshed.
+  final String? mergedContentHash;
 }

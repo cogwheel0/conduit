@@ -8,6 +8,7 @@ import 'dart:convert';
 import 'package:checks/checks.dart';
 import 'package:conduit/core/database/app_database.dart';
 import 'package:conduit/core/database/daos/outbox_dao.dart';
+import 'package:conduit/core/database/mappers/note_mapper.dart';
 import 'package:conduit/core/sync/chat_locks.dart';
 import 'package:conduit/core/sync/id_remapper.dart';
 import 'package:conduit/core/sync/note_adapter.dart';
@@ -355,6 +356,54 @@ void main() {
       check(await db.outboxDao.pendingForChat(localId)).isEmpty();
       check(await db.outboxDao.pendingForChat(serverId)).isEmpty();
       check(client.createNoteCalls).equals(0);
+    },
+  );
+
+  test(
+    'noteUpdate coalesced into noteCreate refreshes the create hash',
+    () async {
+      const localId = 'local:n-hash';
+
+      await locks.runExclusive(localId, () async {
+        await db.notesDao.insertLocalNoteWithCreateOp(
+          note: NotesCompanion.insert(
+            id: localId,
+            title: 'Draft',
+            data: Value(
+              jsonEncode({
+                'content': {'md': 'before'},
+              }),
+            ),
+            createdAt: kT1,
+            updatedAt: kT1,
+          ),
+        );
+      });
+      final originalHash = (await db.outboxDao.pendingForChat(
+        localId,
+      )).single.contentHash;
+
+      await locks.runExclusive(localId, () async {
+        await db.notesDao.updateNoteWithOutbox(
+          localId,
+          title: const Value('Edited'),
+          data: Value(
+            jsonEncode({
+              'content': {'md': 'after'},
+            }),
+          ),
+          localUpdatedAtNs: kT1 + 1,
+          enqueue: true,
+        );
+      });
+
+      final pending = await db.outboxDao.pendingForChat(localId);
+      check(pending).length.equals(1);
+      check(pending.single.kind).equals(OutboxKind.noteCreate.name);
+      final row = await db.notesDao.getNote(localId);
+      final expected = noteCreateContentHashFromRow(row!);
+      check(pending.single.contentHash).equals(expected);
+      check(pending.single.contentHash == originalHash).isFalse();
     },
   );
 
