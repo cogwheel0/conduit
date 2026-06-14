@@ -16,7 +16,11 @@ part 'backoff.g.dart';
 /// window is `[0, base)`; the second retry passes `attempt = 1`, window
 /// `[0, 2*base)`; and so on until the window saturates at `cap`.
 class Backoff {
-  const Backoff({this.baseMs = 2000, this.capMs = 300000, required this.jitter});
+  const Backoff({
+    this.baseMs = 2000,
+    this.capMs = 300000,
+    required this.jitter,
+  });
 
   /// Base delay in milliseconds (the §7.2 floor of the schedule: 2s).
   final int baseMs;
@@ -34,7 +38,11 @@ class Backoff {
     final shift = attempt.clamp(0, 30);
     final exp = baseMs * (1 << shift);
     final window = exp.clamp(baseMs, capMs);
-    return (window * jitter()).floor();
+    final sample = jitter();
+    final boundedJitter = sample.isNaN
+        ? 0.0
+        : sample.clamp(0.0, 0.9999999999999999);
+    return (window * boundedJitter).floor();
   }
 }
 

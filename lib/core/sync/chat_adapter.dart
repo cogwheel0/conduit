@@ -69,11 +69,14 @@ class ChatAdapter implements SyncEntityAdapter {
     final kind = OutboxKind.fromName(op.kind);
     switch (kind) {
       case OutboxKind.createChat:
-        await _push.pushCreateChat(op.chatId!);
+        await _push.pushCreateChat(_requiredChatId(op, OutboxKind.createChat));
+        break;
       case OutboxKind.updateChat:
-        await _push.pushUpdateChat(op.chatId!);
+        await _push.pushUpdateChat(_requiredChatId(op, OutboxKind.updateChat));
+        break;
       case OutboxKind.deleteChat:
-        await _push.pushDeleteChat(op.chatId!);
+        await _push.pushDeleteChat(_requiredChatId(op, OutboxKind.deleteChat));
+        break;
       case OutboxKind.folderUpsert:
         final payload = decodeOutboxPayload(op.payload);
         final folderId = op.chatId;
@@ -81,6 +84,7 @@ class ChatAdapter implements SyncEntityAdapter {
           payload['folderId'] = folderId;
         }
         await _push.pushFolderUpsert(payload);
+        break;
       case OutboxKind.folderDelete:
         final payloadFolderId = decodeOutboxPayload(op.payload)['folderId'];
         final folderId = op.chatId != null && op.chatId!.isNotEmpty
@@ -93,6 +97,7 @@ class ChatAdapter implements SyncEntityAdapter {
           );
         }
         await _push.pushFolderDelete(folderId);
+        break;
       // requestCompletion is chat-only and IS in [ownsKind], but it has no push
       // handler here — the drainer dispatches it via its RequestCompletionRunner
       // seam BEFORE the adapter loop, so pushOp must never be reached for it.
@@ -112,5 +117,18 @@ class ChatAdapter implements SyncEntityAdapter {
       case null:
         return;
     }
+  }
+
+  String _requiredChatId(OutboxOp op, OutboxKind kind) {
+    final chatId = op.chatId;
+    if (chatId == null || chatId.isEmpty) {
+      throw SyncTerminalException(
+        statusCode: 400,
+        message:
+            'malformed ${kind.name} op: missing chatId '
+            '(seq=${op.seq}, payload=${op.payload})',
+      );
+    }
+    return chatId;
   }
 }

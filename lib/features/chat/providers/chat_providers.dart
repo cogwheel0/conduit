@@ -2215,10 +2215,15 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     String? parentId,
   }) {
     final timestamp = message.timestamp.millisecondsSinceEpoch ~/ 1000;
+    final resolvedParentId =
+        parentId ?? message_tree.chatMessageParentId(message);
+    final childrenIds = message_tree
+        .chatMessageChildrenIds(message)
+        .toList(growable: false);
     return MessageRowData(
       id: message.id,
       chatId: chatId,
-      parentId: parentId,
+      parentId: resolvedParentId,
       role: message.role,
       content: message.content,
       model: message.model,
@@ -2227,8 +2232,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       orderIndex: 0,
       payload: <String, dynamic>{
         'id': message.id,
-        'parentId': parentId,
-        'childrenIds': const <String>[],
+        'parentId': resolvedParentId,
+        'childrenIds': childrenIds,
         'role': message.role,
         'content': message.content,
         'timestamp': timestamp,
@@ -3893,8 +3898,39 @@ Future<void> runHeadlessCompletion(
   final socketSessionId =
       sessionIdOverride ?? await _ensureConnectedSocketSessionId(socketService);
 
+  final webSearchEnabled =
+      ref.read(webSearchEnabledProvider) &&
+      ref.read(webSearchAvailableProvider);
+  final imageGenerationEnabled =
+      ref.read(imageGenerationEnabledProvider) &&
+      ref.read(imageGenerationAvailableProvider);
+
+  List<Map<String, dynamic>>? toolServers;
+  try {
+    toolServers = await _resolveToolServersForRequest(
+      api: api,
+      userSettings: userSettingsData,
+      selectedToolIds: ref.read(selectedToolIdsProvider),
+    );
+  } catch (_) {}
+
+  final bgTasks = _buildOpenWebUiBackgroundTasks(
+    userSettings: userSettingsData,
+    shouldGenerateTitle: false,
+    webSearchEnabled: webSearchEnabled,
+    imageGenerationEnabled: imageGenerationEnabled,
+  );
+
   final lastUserMessageId = _lastUserMessageId(messages);
+  Map<String, dynamic>? promptVars;
   Map<String, dynamic>? parentMsgMap;
+  try {
+    promptVars = await _buildOpenWebUiPromptVariablesForRequest(
+      ref,
+      now: DateTime.now(),
+      userSettings: userSettingsData,
+    );
+  } catch (_) {}
   try {
     parentMsgMap = _buildOpenWebUiUserMessage(
       messages: messages,
@@ -3910,12 +3946,18 @@ Future<void> runHeadlessCompletion(
     conversationId: chatId,
     toolIds: toolIdsForApi.isNotEmpty ? toolIdsForApi : null,
     filterIds: filterIds.isNotEmpty ? filterIds : null,
+    enableWebSearch: webSearchEnabled,
+    enableImageGeneration: imageGenerationEnabled,
     modelItem: modelItem,
     sessionIdOverride: socketSessionId,
+    toolServers: toolServers,
+    backgroundTasks: bgTasks,
     responseMessageId: assistantMessageId,
     userSettings: userSettingsData,
     parentId: parentMsgMap?['parentId']?.toString(),
     userMessage: parentMsgMap,
+    variables: promptVars,
+    files: _extractTopLevelRequestFiles(parentMsgMap),
   );
 
   // Drain the HTTP byte stream to EOF (discarding chunks) so the server runs to

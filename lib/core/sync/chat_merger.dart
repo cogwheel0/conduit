@@ -204,8 +204,8 @@ ChatMergeResult _threeWay({
   // rebuilt tree stays fully connected. Done BEFORE deriving childrenIds so the
   // rewrite sees the corrected parents (§7.4; keeps treeIsConsistent).
   final originalParentOf = <String, String?>{
-    for (final m in server.messages) m.id: m.parentId,
     for (final m in local.messages) m.id: m.parentId,
+    for (final m in server.messages) m.id: m.parentId,
   };
   final survivorIds0 = {for (final m in survivors) m.id};
   final reattached = <MessageRowData>[

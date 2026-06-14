@@ -118,7 +118,11 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
       return;
     }
 
-    if (activeId == chatId) {
+    final liveMessages = _ref.read(chatMessagesProvider);
+    final liveHasPlaceholder = liveMessages.any(
+      (message) => message.id == assistantMessageId,
+    );
+    if (activeId == chatId && liveHasPlaceholder) {
       // Live drive — the placeholder is loaded + marked streaming inside
       // runQueuedCompletion; the stream final + D-07 echo land on the SAME
       // assistantMessageId row (R8 one-row-per-turn).

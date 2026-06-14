@@ -1,67 +1,13 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:checks/checks.dart';
 import 'package:collection/collection.dart';
 import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/chat_blob_fixtures.dart';
+
 const _deepEq = DeepCollectionEquality();
-
-/// A golden fixture file from test/fixtures/chat_blobs/.
-class _Fixture {
-  _Fixture({
-    required this.name,
-    required this.description,
-    required this.envelope,
-    required this.blob,
-  });
-
-  final String name;
-  final String description;
-  final Map<String, dynamic> envelope;
-  final Map<String, dynamic> blob;
-}
-
-Map<String, dynamic> _deepCopy(Map<String, dynamic> value) =>
-    jsonDecode(jsonEncode(value)) as Map<String, dynamic>;
-
-List<_Fixture> _loadFixtures() {
-  // flutter test runs with the package root as the working directory.
-  final dir = Directory('test/fixtures/chat_blobs');
-  final files = dir
-      .listSync()
-      .whereType<File>()
-      .where((f) => f.path.endsWith('.json'))
-      .sortedBy((f) => f.path);
-  if (files.isEmpty) {
-    throw StateError('No fixtures found in ${dir.absolute.path}');
-  }
-  return files.map((file) {
-    final raw = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
-    return _Fixture(
-      name: file.uri.pathSegments.last.replaceAll('.json', ''),
-      description: raw['description'] as String,
-      envelope: raw['envelope'] as Map<String, dynamic>,
-      blob: raw['chat'] as Map<String, dynamic>,
-    );
-  }).toList();
-}
-
-ChatRows _rowsFromFixture(_Fixture fixture) {
-  // Hand blobToRows a deep copy so accidental mutation of the input cannot
-  // make the round-trip comparison pass vacuously.
-  return ChatBlobMapper.blobToRows(
-    chatId: fixture.envelope['id'] as String,
-    blob: _deepCopy(fixture.blob),
-    title: fixture.envelope['title'] as String,
-    folderId: fixture.envelope['folder_id'] as String?,
-    pinned: (fixture.envelope['pinned'] as bool?) ?? false,
-    archived: (fixture.envelope['archived'] as bool?) ?? false,
-    createdAt: fixture.envelope['created_at'] as int,
-    updatedAt: fixture.envelope['updated_at'] as int,
-  );
-}
 
 /// Splits the original history.messages map into (mappable, unmappable)
 /// entries per the Phase 0 contract: a value becomes a message row only when
@@ -109,13 +55,13 @@ MessageRowData _row(
 }
 
 void main() {
-  final fixtures = _loadFixtures();
+  final fixtures = loadChatBlobFixtures();
 
   group('golden fixtures', () {
     for (final fixture in fixtures) {
       group(fixture.name, () {
         test('round-trips blobToRows -> rowsToBlob exactly', () {
-          final rows = _rowsFromFixture(fixture);
+          final rows = rowsFromFixture(fixture);
           final rebuilt = ChatBlobMapper.rowsToBlob(rows);
           check(
             because:
@@ -127,7 +73,7 @@ void main() {
         });
 
         test('envelope fields land on the chat row', () {
-          final rows = _rowsFromFixture(fixture);
+          final rows = rowsFromFixture(fixture);
           check(rows.chat.id).equals(fixture.envelope['id'] as String);
           check(rows.chat.title).equals(fixture.envelope['title'] as String);
           check(
@@ -159,7 +105,7 @@ void main() {
         });
 
         test('message payloads are the verbatim history entries', () {
-          final rows = _rowsFromFixture(fixture);
+          final rows = rowsFromFixture(fixture);
           final partition = _partitionHistoryMessages(fixture.blob);
 
           check(rows.messages.length).equals(partition.mappable.length);
@@ -183,7 +129,7 @@ void main() {
         });
 
         test('unmappable history entries are preserved verbatim', () {
-          final rows = _rowsFromFixture(fixture);
+          final rows = rowsFromFixture(fixture);
           final partition = _partitionHistoryMessages(fixture.blob);
           check(
             because:
@@ -194,7 +140,7 @@ void main() {
         });
 
         test('rawExtra holds every top-level key except history and title', () {
-          final rows = _rowsFromFixture(fixture);
+          final rows = rowsFromFixture(fixture);
           final expected = Map<String, dynamic>.from(fixture.blob)
             ..remove('history')
             ..remove('title');
@@ -263,7 +209,7 @@ void main() {
       };
       final rows = ChatBlobMapper.blobToRows(
         chatId: 'c-3',
-        blob: _deepCopy(blob),
+        blob: deepCopyJson(blob),
         title: 'Legacy',
         createdAt: 100,
         updatedAt: 200,
@@ -293,7 +239,7 @@ void main() {
       };
       final rows = ChatBlobMapper.blobToRows(
         chatId: 'c-4',
-        blob: _deepCopy(blob),
+        blob: deepCopyJson(blob),
         title: 'Empty',
         createdAt: 100,
         updatedAt: 200,
@@ -326,7 +272,7 @@ void main() {
       };
       final rows = ChatBlobMapper.blobToRows(
         chatId: 'c-5',
-        blob: _deepCopy(blob),
+        blob: deepCopyJson(blob),
         title: 'Extras',
         createdAt: 100,
         updatedAt: 200,
@@ -367,7 +313,7 @@ void main() {
           },
         },
       };
-      final rows = rowsFor(_deepCopy(blob));
+      final rows = rowsFor(deepCopyJson(blob));
       check(rows.historyHadCurrentId).isFalse();
       check(rows.historyHadMessages).isTrue();
       check(rows.chat.currentMessageId).isNull();
@@ -386,7 +332,7 @@ void main() {
         'title': 'No messages',
         'history': {'currentId': null},
       };
-      final rows = rowsFor(_deepCopy(blob));
+      final rows = rowsFor(deepCopyJson(blob));
       check(rows.historyHadMessages).isFalse();
       check(rows.historyHadCurrentId).isTrue();
       check(rows.messages).isEmpty();
@@ -402,7 +348,7 @@ void main() {
 
     test('an empty history map round-trips as exactly {}', () {
       final blob = {'title': 'Empty history', 'history': <String, dynamic>{}};
-      final rows = rowsFor(_deepCopy(blob));
+      final rows = rowsFor(deepCopyJson(blob));
       check(rows.blobHadHistory).isTrue();
       check(rows.historyHadMessages).isFalse();
       check(rows.historyHadCurrentId).isFalse();
@@ -416,7 +362,7 @@ void main() {
         'title': 'Bad currentId',
         'history': {'currentId': 42, 'messages': <String, dynamic>{}},
       };
-      final rows = rowsFor(_deepCopy(blob));
+      final rows = rowsFor(deepCopyJson(blob));
       check(rows.historyHadCurrentId).isTrue();
       check(rows.chat.currentMessageId).isNull();
       check(rows.historyExtra['currentId']).equals(42);
@@ -432,10 +378,10 @@ void main() {
         'history': {'messages': <String, dynamic>{}},
       };
       final rebuiltWithNull = ChatBlobMapper.rowsToBlob(
-        rowsFor(_deepCopy(withNull)),
+        rowsFor(deepCopyJson(withNull)),
       );
       final rebuiltWithout = ChatBlobMapper.rowsToBlob(
-        rowsFor(_deepCopy(without)),
+        rowsFor(deepCopyJson(without)),
       );
       check(
         (rebuiltWithNull['history'] as Map).containsKey('currentId'),
@@ -462,7 +408,7 @@ void main() {
         'title': null,
         'history': {'currentId': null, 'messages': <String, dynamic>{}},
       };
-      final rows = rowsFor(_deepCopy(blob));
+      final rows = rowsFor(deepCopyJson(blob));
       check(rows.blobHadTitle).isTrue();
       check(rows.blobTitleValue).isNull();
       // The envelope title still lands on the chat row.
@@ -478,7 +424,7 @@ void main() {
         'title': 42,
         'history': {'currentId': null, 'messages': <String, dynamic>{}},
       };
-      final rebuilt = ChatBlobMapper.rowsToBlob(rowsFor(_deepCopy(blob)));
+      final rebuilt = ChatBlobMapper.rowsToBlob(rowsFor(deepCopyJson(blob)));
       check(rebuilt['title']).equals(42);
       check(_deepEq.equals(rebuilt, blob)).isTrue();
     });
@@ -488,7 +434,7 @@ void main() {
         'title': 'Blob Title that diverged from the envelope',
         'history': {'currentId': null, 'messages': <String, dynamic>{}},
       };
-      final rows = rowsFor(_deepCopy(blob));
+      final rows = rowsFor(deepCopyJson(blob));
       check(rows.chat.title).equals('Envelope Title');
       final rebuilt = ChatBlobMapper.rowsToBlob(rows);
       check(
@@ -611,7 +557,7 @@ void main() {
         };
         final rows = ChatBlobMapper.blobToRows(
           chatId: 'c-6',
-          blob: _deepCopy(blob),
+          blob: deepCopyJson(blob),
           title: 'Damaged',
           createdAt: 100,
           updatedAt: 200,
@@ -665,7 +611,7 @@ void main() {
         };
         final rows = ChatBlobMapper.blobToRows(
           chatId: 'c-interleaved',
-          blob: _deepCopy(blob),
+          blob: deepCopyJson(blob),
           title: 'Interleaved damage',
           createdAt: 100,
           updatedAt: 200,
@@ -701,7 +647,7 @@ void main() {
 
     ChatRows rowsFor(Object? content) => ChatBlobMapper.blobToRows(
       chatId: 'c-7',
-      blob: _deepCopy(blobWithContent(content)),
+      blob: deepCopyJson(blobWithContent(content)),
       title: 'Projection',
       createdAt: 100,
       updatedAt: 200,
@@ -809,7 +755,7 @@ void main() {
       final fixture = fixtures.singleWhere(
         (f) => f.name == '10_timestamp_ties_and_unmappable',
       );
-      final rows = _rowsFromFixture(fixture);
+      final rows = rowsFromFixture(fixture);
       final derived = ChatBlobMapper.deriveChildrenIds(
         'u0000000-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
         rows.messages,

@@ -12,7 +12,9 @@ Map<String, dynamic> decodeOutboxPayload(String raw) {
   try {
     final decoded = jsonDecode(raw);
     if (decoded is Map<String, dynamic>) return decoded;
-    if (decoded is Map) return decoded.cast<String, dynamic>();
+    if (decoded is Map) {
+      return decoded.map((key, value) => MapEntry(key.toString(), value));
+    }
     return <String, dynamic>{};
   } on FormatException {
     return <String, dynamic>{};

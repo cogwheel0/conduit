@@ -50,11 +50,21 @@ void main() {
     });
 
     test('honors custom base and cap', () {
-      final backoff = Backoff(baseMs: 1000, capMs: 4000, jitter: () => 0.999999);
+      final backoff = Backoff(
+        baseMs: 1000,
+        capMs: 4000,
+        jitter: () => 0.999999,
+      );
       check(backoff.delayMsForAttempt(0)).equals(999); // window 1000
       check(backoff.delayMsForAttempt(1)).equals(1999); // window 2000
       check(backoff.delayMsForAttempt(2)).equals(3999); // window 4000
       check(backoff.delayMsForAttempt(3)).equals(3999); // window clamps to cap
+    });
+
+    test('clamps invalid jitter samples into the full-jitter window', () {
+      check(Backoff(jitter: () => -0.5).delayMsForAttempt(0)).equals(0);
+      check(Backoff(jitter: () => 1.0).delayMsForAttempt(0)).equals(1999);
+      check(Backoff(jitter: () => double.nan).delayMsForAttempt(0)).equals(0);
     });
   });
 }

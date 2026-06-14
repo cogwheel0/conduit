@@ -1324,7 +1324,7 @@ class ApiService {
   /// title, chat, updated_at, created_at, share_id, archived, pinned, meta,
   /// folder_id).
   ///
-  /// Returns null on 404; rethrows other errors. NOTE: the vendored route
+  /// Returns null on 404; malformed 2xx bodies throw. NOTE: the vendored route
   /// signals a missing/unowned chat with HTTP 401 (`ERROR_MESSAGES.NOT_FOUND`),
   /// which intentionally surfaces here as an error so an expired token can
   /// never read as a mass delete; Phase 3 deletion reconcile handles 404/401
@@ -1344,18 +1344,25 @@ class ApiService {
           : (data is List<int> ? Uint8List.fromList(data) : null);
       if (bytes == null) {
         // Defensive: some adapters may have decoded already.
-        if (data is Map<String, dynamic>) return data;
-        if (data is Map) return Map<String, dynamic>.from(data);
-        return null;
+        return _requireResponseMap(data, 'getChatRaw $id');
       }
       if (bytes.lengthInBytes >= _conversationWorkerByteThreshold) {
-        return _workerManager.schedule<Uint8List, Map<String, dynamic>?>(
-          decodeChatResponseEnvelopeWorker,
-          bytes,
-          debugLabel: 'decode_chat_raw',
-        );
+        final map = await _workerManager
+            .schedule<Uint8List, Map<String, dynamic>?>(
+              decodeChatResponseEnvelopeWorker,
+              bytes,
+              debugLabel: 'decode_chat_raw',
+            );
+        return map ??
+            (throw FormatException(
+              'getChatRaw $id: expected JSON object response',
+            ));
       }
-      return decodeChatResponseEnvelopeWorker(bytes);
+      final map = decodeChatResponseEnvelopeWorker(bytes);
+      return map ??
+          (throw FormatException(
+            'getChatRaw $id: expected JSON object response',
+          ));
     } on DioException catch (e) {
       if (e.response?.statusCode == 404) {
         return null;
@@ -1383,11 +1390,7 @@ class ApiService {
         '/api/v1/chats/new',
         data: {'chat': chatBlob, 'folder_id': ?folderId},
       );
-      final map = _coerceResponseMap(response.data);
-      if (map == null) {
-        throw StateError('createChatRaw: unexpected response shape');
-      }
-      return map;
+      return _requireResponseMap(response.data, 'createChatRaw');
     } on DioException catch (e) {
       final code = e.response?.statusCode;
       if (code == 401 || code == 403) {
@@ -1412,7 +1415,7 @@ class ApiService {
         '/api/v1/chats/$id',
         data: {'chat': chat},
       );
-      return _coerceResponseMap(response.data);
+      return _requireResponseMap(response.data, 'updateChatRaw $id');
     } on DioException catch (e) {
       final code = e.response?.statusCode;
       if (code == 404) return null;
@@ -1456,7 +1459,7 @@ class ApiService {
   Future<Map<String, dynamic>?> togglePinRaw(String id) async {
     try {
       final response = await _dio.post('/api/v1/chats/$id/pin');
-      return _coerceResponseMap(response.data);
+      return _requireResponseMap(response.data, 'togglePinRaw $id');
     } on DioException catch (e) {
       final code = e.response?.statusCode;
       if (code == 404) return null;
@@ -1475,7 +1478,7 @@ class ApiService {
   Future<Map<String, dynamic>?> toggleArchiveRaw(String id) async {
     try {
       final response = await _dio.post('/api/v1/chats/$id/archive');
-      return _coerceResponseMap(response.data);
+      return _requireResponseMap(response.data, 'toggleArchiveRaw $id');
     } on DioException catch (e) {
       final code = e.response?.statusCode;
       if (code == 404) return null;
@@ -1500,7 +1503,7 @@ class ApiService {
         '/api/v1/chats/$id/folder',
         data: {'folder_id': folderId},
       );
-      return _coerceResponseMap(response.data);
+      return _requireResponseMap(response.data, 'moveChatToFolderRaw $id');
     } on DioException catch (e) {
       final code = e.response?.statusCode;
       if (code == 404) return null;
@@ -1961,6 +1964,14 @@ class ApiService {
       }
     }
     return _coerceJsonMap(value);
+  }
+
+  Map<String, dynamic> _requireResponseMap(dynamic value, String context) {
+    final map = _coerceResponseMap(value);
+    if (map == null) {
+      throw FormatException('$context: expected JSON object response');
+    }
+    return map;
   }
 
   String? _normalizeNullableString(String? value) {
@@ -6043,14 +6054,11 @@ class ApiService {
   // timestamps in/out are server NANOSECONDS — copied verbatim (R-09).
 
   /// GET `/api/v1/notes/{id}` — the FULL (untruncated) note map; null on 404;
-  /// 401/403 -> [SyncTerminalException].
+  /// malformed 2xx bodies throw; 401/403 -> [SyncTerminalException].
   Future<Map<String, dynamic>?> getNoteRaw(String id) async {
     try {
       final response = await _dio.get('/api/v1/notes/$id');
-      final data = response.data;
-      if (data is Map<String, dynamic>) return data;
-      if (data is Map) return Map<String, dynamic>.from(data);
-      return null;
+      return _requireResponseMap(response.data, 'getNoteRaw $id');
     } on DioException catch (e) {
       final code = e.response?.statusCode;
       if (code == 404) return null;
@@ -6076,11 +6084,7 @@ class ApiService {
         '/api/v1/notes/create',
         data: {'title': title, 'data': data, 'meta': ?meta},
       );
-      final map = _coerceResponseMap(response.data);
-      if (map == null) {
-        throw StateError('createNoteRaw: unexpected response shape');
-      }
-      return map;
+      return _requireResponseMap(response.data, 'createNoteRaw');
     } on DioException catch (e) {
       final code = e.response?.statusCode;
       if (code == 401 || code == 403) {
@@ -6101,7 +6105,7 @@ class ApiService {
   ) async {
     try {
       final response = await _dio.post('/api/v1/notes/$id/update', data: patch);
-      return _coerceResponseMap(response.data);
+      return _requireResponseMap(response.data, 'updateNoteRaw $id');
     } on DioException catch (e) {
       final code = e.response?.statusCode;
       if (code == 404) return null;
@@ -6139,7 +6143,7 @@ class ApiService {
   Future<Map<String, dynamic>?> togglePinNoteRaw(String id) async {
     try {
       final response = await _dio.post('/api/v1/notes/$id/pin');
-      return _coerceResponseMap(response.data);
+      return _requireResponseMap(response.data, 'togglePinNoteRaw $id');
     } on DioException catch (e) {
       final code = e.response?.statusCode;
       if (code == 404) return null;
